@@ -24,14 +24,20 @@ describe("viewing repository files", () => {
     expect(resolveRepoPath("README.md", "docs/media/demo.gif")).toEqual({
       path: "docs/media/demo.gif",
     });
-    expect(resolveRepoPath("docs/guide/setup.md", "../media/a%20b.png")).toEqual({
+    expect(
+      resolveRepoPath("docs/guide/setup.md", "../media/a%20b.png"),
+    ).toEqual({
       path: "docs/media/a b.png",
     });
-    expect(resolveRepoPath("docs/guide/setup.md", "./next.md#install")).toEqual({
-      path: "docs/guide/next.md",
-      hash: "install",
-    });
-    expect(resolveRepoPath("docs/guide/setup.md", "/README.md?plain=1")).toEqual({
+    expect(resolveRepoPath("docs/guide/setup.md", "./next.md#install")).toEqual(
+      {
+        path: "docs/guide/next.md",
+        hash: "install",
+      },
+    );
+    expect(
+      resolveRepoPath("docs/guide/setup.md", "/README.md?plain=1"),
+    ).toEqual({
       path: "README.md",
     });
     expect(resolveRepoPath("docs/setup.md", "#usage")).toEqual({
@@ -53,7 +59,16 @@ describe("viewing repository files", () => {
 
   it("accepts only plain relative paths", () => {
     expect(isRepoPath("docs/media/demo.gif")).toBe(true);
-    for (const path of ["", "/abs", "a//b", "a/./b", "a/../b", "a\\b", "a\nb", "x".repeat(1001)])
+    for (const path of [
+      "",
+      "/abs",
+      "a//b",
+      "a/./b",
+      "a/../b",
+      "a\\b",
+      "a\nb",
+      "x".repeat(1001),
+    ])
       expect(isRepoPath(path)).toBe(false);
   });
 });

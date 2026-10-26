@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const read = (path: string) =>
+  readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const versions = JSON.parse(read("deployment/versions.json"));
 
 test("managed lockfile and container pins match the release manifest", () => {
@@ -19,5 +20,7 @@ test("managed lockfile and container pins match the release manifest", () => {
   }
   const runtime = read("Dockerfile.runtime");
   assert.ok(runtime.includes(`ARG CODEX_VERSION=${versions.codex}\n`));
-  assert.ok(runtime.includes(`ARG CLAUDE_CODE_VERSION=${versions.claudeCode}\n`));
+  assert.ok(
+    runtime.includes(`ARG CLAUDE_CODE_VERSION=${versions.claudeCode}\n`),
+  );
 });

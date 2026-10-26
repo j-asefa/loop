@@ -110,9 +110,7 @@ it("steers an active API response without creating a second run and keeps the se
       )
       .toMatchObject({ content: "I will investigate the shared table." });
     const trace = db
-      .prepare(
-        "SELECT id FROM messages WHERE run_id=? AND update_key='turn:0'",
-      )
+      .prepare("SELECT id FROM messages WHERE run_id=? AND update_key='turn:0'")
       .get(run.id) as { id: string };
     const body = {
       agentId: agent.id,
@@ -223,7 +221,9 @@ it("routes a composer follow-up to the active conversation and exposes native de
     run.conversation_id!,
   ).messages;
   expect(
-    JSON.parse(transcript.find((m) => m.content === "Another thought")!.metadata).delivery,
+    JSON.parse(
+      transcript.find((m) => m.content === "Another thought")!.metadata,
+    ).delivery,
   ).toBe("failed");
   expect(
     db.prepare("SELECT count(*) n FROM runs WHERE agent_id=?").get(agent.id),
@@ -584,58 +584,102 @@ it("keeps input the harness certainly didn't take pending, then reports it unsen
   });
 });
 
+it.each([true, false])(
+  "cancels managed provider IO through the production route (bus=%s)",
+  async (enabled) => {
+    const { run } = start();
+    const subscriptions = changes.subscriberCount;
+    const bus = enabled
+      ? undefined
+      : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
+    let signal: AbortSignal | undefined;
+    const restore = withTestAdapter("openai", {
+      async models() {
+        return [];
+      },
+      async *stream(_secret, input) {
+        signal = input.signal;
+        await new Promise<void>((resolve) => {
+          input.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
+        });
+        input.signal.throwIfAborted();
+      },
+    });
+    const work = executeAgent(run);
+    try {
+      await until(() => !!signal);
+      if (enabled) expect(changes.subscriberCount).toBe(subscriptions + 1);
+      const started = Date.now();
+      const response = await fetch(
+        `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
+        { method: "POST" },
+      );
+      expect(response.status).toBe(200);
+      expect(await executeWithDeadline(work)).toBe(false);
+      expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
+      expect(signal?.reason.message).toContain("cancelled");
+      expect(changes.subscriberCount).toBe(subscriptions);
+    } finally {
+      restore();
+      bus?.mockRestore();
+    }
+  },
+);
 
-it.each([true, false])("cancels managed provider IO through the production route (bus=%s)", async (enabled) => {
-  const { run } = start();
-  const subscriptions = changes.subscriberCount;
-  const bus = enabled ? undefined : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
-  let signal: AbortSignal | undefined;
-  const restore = withTestAdapter("openai", {
-    async models() { return []; },
-    async *stream(_secret, input) {
-      signal = input.signal;
-      await new Promise<void>((resolve) => {
-        input.signal.addEventListener("abort", () => resolve(), { once: true });
+it.each([true, false])(
+  "aborts managed IO with a readable connection cause (bus=%s)",
+  async (enabled) => {
+    const { run } = start();
+    const connection = run.payload.connectionId;
+    const bus = enabled
+      ? undefined
+      : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
+    let signal: AbortSignal | undefined;
+    const restore = withTestAdapter("openai", {
+      async models() {
+        return [];
+      },
+      async *stream(_secret, input) {
+        signal = input.signal;
+        await new Promise<void>((resolve) =>
+          input.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          }),
+        );
+        input.signal.throwIfAborted();
+      },
+    });
+    const work = executeAgent(run).catch((error: Error) => error);
+    try {
+      await until(() => !!signal);
+      const started = Date.now();
+      const response = await fetch(
+        `http://127.0.0.1:${(server.address() as any).port}/connections/${connection}`,
+        { method: "DELETE" },
+      );
+      expect(response.status).toBe(200);
+      expect(((await work) as Error).message).toContain(
+        "provider connection was disconnected",
+      );
+      expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
+      const event = db
+        .prepare(
+          "SELECT owner_id,run_id,subject_kind,subject_id,payload FROM events WHERE type='connection.status' AND subject_id=? ORDER BY id DESC LIMIT 1",
+        )
+        .get(connection);
+      expect(event).toEqual({
+        owner_id: "alice",
+        run_id: null,
+        subject_kind: "connection",
+        subject_id: connection,
+        payload: '{"status":"disconnected"}',
       });
-      input.signal.throwIfAborted();
-    },
-  });
-  const work = executeAgent(run);
-  try {
-    await until(() => !!signal);
-    if (enabled) expect(changes.subscriberCount).toBe(subscriptions + 1);
-    const started = Date.now();
-    const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`, { method: "POST" });
-    expect(response.status).toBe(200);
-    expect(await executeWithDeadline(work)).toBe(false);
-    expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
-    expect(signal?.reason.message).toContain("cancelled");
-    expect(changes.subscriberCount).toBe(subscriptions);
-  } finally { restore(); bus?.mockRestore(); }
-});
-
-it.each([true, false])("aborts managed IO with a readable connection cause (bus=%s)", async (enabled) => {
-  const { run } = start();
-  const connection = run.payload.connectionId;
-  const bus = enabled ? undefined : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
-  let signal: AbortSignal | undefined;
-  const restore = withTestAdapter("openai", {
-    async models() { return []; },
-    async *stream(_secret, input) {
-      signal = input.signal;
-      await new Promise<void>((resolve) => input.signal.addEventListener("abort", () => resolve(), { once: true }));
-      input.signal.throwIfAborted();
-    },
-  });
-  const work = executeAgent(run).catch((error: Error) => error);
-  try {
-    await until(() => !!signal);
-    const started = Date.now();
-    const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/connections/${connection}`, { method: "DELETE" });
-    expect(response.status).toBe(200);
-    expect((await work as Error).message).toContain("provider connection was disconnected");
-    expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
-    const event = db.prepare("SELECT owner_id,run_id,subject_kind,subject_id,payload FROM events WHERE type='connection.status' AND subject_id=? ORDER BY id DESC LIMIT 1").get(connection);
-    expect(event).toEqual({ owner_id: "alice", run_id: null, subject_kind: "connection", subject_id: connection, payload: '{"status":"disconnected"}' });
-  } finally { transition(run, "cancelled"); restore(); bus?.mockRestore(); }
-});
+    } finally {
+      transition(run, "cancelled");
+      restore();
+      bus?.mockRestore();
+    }
+  },
+);

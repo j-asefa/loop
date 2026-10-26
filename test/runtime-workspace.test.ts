@@ -12,9 +12,17 @@ process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { ownedConnection } = await import("../src/server/domain");
-function subscriptionConnection(provider: "codex" | "anthropic", metadata: object = {}) {
-  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('fixture','alice',?,'Fixture','','connected',?,?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider,metadata=excluded.metadata")
-    .run(provider, JSON.stringify({ authMode: "subscription", ...metadata }), now());
+function subscriptionConnection(
+  provider: "codex" | "anthropic",
+  metadata: object = {},
+) {
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('fixture','alice',?,'Fixture','','connected',?,?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider,metadata=excluded.metadata",
+  ).run(
+    provider,
+    JSON.stringify({ authMode: "subscription", ...metadata }),
+    now(),
+  );
   return ownedConnection("fixture", "alice");
 }
 const { runtimeGithubCredential } =
@@ -257,7 +265,10 @@ it("maintains owner-scoped managed storage without GitHub and only forwards allo
   };
   // One owner's damaged routing must not abort the maintenance batch for all
   // later owners. It remains stored, but no cleanup request may use it.
-  const damaged = addConnection("damaged", "codex", { authMode: "subscription", loopHarness: null });
+  const damaged = addConnection("damaged", "codex", {
+    authMode: "subscription",
+    loopHarness: null,
+  });
   addAgent("damaged", damaged);
   const alice = addConnection("alice", "codex", { authMode: "subscription" });
   const agent = addAgent("alice", alice);
@@ -267,7 +278,15 @@ it("maintains owner-scoped managed storage without GitHub and only forwards allo
     addConnection("bob", "anthropic", { authMode: "subscription" }),
   );
   addAgent("alice", addConnection("alice", "anthropic", {})); // API connection.
-  addAgent("alice", addConnection("alice", "codex", { authMode: "subscription" }, "disconnected"));
+  addAgent(
+    "alice",
+    addConnection(
+      "alice",
+      "codex",
+      { authMode: "subscription" },
+      "disconnected",
+    ),
+  );
   const retiredAgent = addAgent(
     "alice",
     addConnection(

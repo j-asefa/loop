@@ -53,12 +53,15 @@ it("starts concurrent database clients and applies each migration once", async (
             name: file.replace(/^\d+-|\.sql$/g, ""),
             prefix: Number(file.split("-")[0]),
           }))
-          .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+          .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
       );
       expect(
-        database.prepare("SELECT version FROM schema_version ORDER BY version").all(),
+        database
+          .prepare("SELECT version FROM schema_version ORDER BY version")
+          .all(),
       ).toEqual(
-        [...legacyMigrationNames.keys()].sort((a, b) => a - b)
+        [...legacyMigrationNames.keys()]
+          .sort((a, b) => a - b)
           .map((version) => ({ version })),
       );
       expect(database.pragma("integrity_check", { simple: true })).toBe("ok");

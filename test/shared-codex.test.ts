@@ -17,7 +17,11 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
-async function fixture({ managed = false, fastIdle = false, compiled = false } = {}) {
+async function fixture({
+  managed = false,
+  fastIdle = false,
+  compiled = false,
+} = {}) {
   const dir = mkdtempSync(join(tmpdir(), "loop-shared-codex-"));
   const bin = join(dir, "bin");
   mkdirSync(bin);
@@ -55,7 +59,11 @@ process.on('SIGTERM',()=>p.kill('SIGTERM'));p.on('exit',code=>process.exit(code|
   const token = "shared-codex-fixture-token-at-least-32-characters";
   const broker = spawn(
     process.execPath,
-    ["--import", join(dir, "clock.mjs"), join(dir, `runtime/broker.${extension}`)],
+    [
+      "--import",
+      join(dir, "clock.mjs"),
+      join(dir, `runtime/broker.${extension}`),
+    ],
     {
       env: {
         ...process.env,
@@ -133,98 +141,107 @@ process.on('SIGTERM',()=>p.kill('SIGTERM'));p.on('exit',code=>process.exit(code|
   return { dir, post, calls, run };
 }
 
-it.each([false, true])("runs three threads in one process, isolates events and approvals, and interrupts only the disconnected run (compiled: %s)", async (compiled) => {
-  const { post, calls, run } = await fixture({ compiled });
-  const a = await run("archer");
-  const b = await run("plum");
-  const c = await run("elder");
-  await expect
-    .poll(() =>
-      [a, b, c].every((s) => s.output.includes('"steeringReady":true')),
-    )
-    .toBe(true);
-  expect(calls().filter((c) => c.launch)).toHaveLength(1);
-  expect(calls().filter((c) => c.rpc?.method === "initialize")).toHaveLength(1);
-  const ids = calls()
-    .filter((c) => c.rpc?.method === "turn/start")
-    .map((c) => c.rpc.params.threadId);
-  expect(new Set(ids).size).toBe(3);
-  for (const [i, stream] of [a, b, c].entries()) {
-    // Readiness and output can arrive in separate HTTP stream chunks.
-    await expect.poll(() => stream.output).toContain("update for " + ids[i]);
-    for (const id of ids.filter((id) => id !== ids[i]))
-      expect(stream.output).not.toContain("update for " + id);
-    expect(stream.output).not.toContain("foreign output");
-    expect(stream.output).not.toContain("stale output");
-    await expect.poll(() => stream.output.includes('"activity":')).toBe(true);
-    const activities = stream.output
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line).chunk?.activity)
-      .filter(Boolean);
-    expect(activities).toHaveLength(1);
-    expect(activities[0].params.item.id).toBe("command-" + ids[i]);
-    expect(stream.output).not.toContain("foreign command");
-    expect(stream.output).not.toContain("stale command");
-  }
-  await expect
-    .poll(
-      () => calls().filter((c) => c.rpc?.id?.startsWith?.("approval-")).length,
-    )
-    .toBe(3);
-  expect(
-    calls()
-      .filter((c) => c.rpc?.id?.startsWith?.("approval-"))
-      .every((c) => c.rpc.result?.decision === "accept"),
-  ).toBe(true);
-  expect(
-    calls()
-      .filter((c) => c.rpc?.id?.startsWith?.("foreign-approval-"))
-      .every((c) => c.rpc.error?.code === -32602),
-  ).toBe(true);
-  const steer = {
-    action: "steer",
-    controlId: "plum",
-    id: "followup",
-    text: "Plum finished",
-  };
-  expect((await post({ ...steer, key: "b".repeat(64) })).status).toBe(409);
-  expect((await post({ ...steer, controlId: "unknown" })).status).toBe(409);
-  expect(await (await post(steer)).json()).toEqual({ accepted: true });
-  expect(await (await post(steer)).json()).toEqual({ accepted: true });
-  expect((await post({ ...steer, text: "conflicting retry" })).ok).toBe(false);
-  await b.done;
-  expect(b.output).toContain('"text":"Plum finished"');
-  expect(a.output).not.toContain('"done":true');
-  a.controller.abort();
-  await a.done;
-  await expect
-    .poll(() =>
+it.each([false, true])(
+  "runs three threads in one process, isolates events and approvals, and interrupts only the disconnected run (compiled: %s)",
+  async (compiled) => {
+    const { post, calls, run } = await fixture({ compiled });
+    const a = await run("archer");
+    const b = await run("plum");
+    const c = await run("elder");
+    await expect
+      .poll(() =>
+        [a, b, c].every((s) => s.output.includes('"steeringReady":true')),
+      )
+      .toBe(true);
+    expect(calls().filter((c) => c.launch)).toHaveLength(1);
+    expect(calls().filter((c) => c.rpc?.method === "initialize")).toHaveLength(
+      1,
+    );
+    const ids = calls()
+      .filter((c) => c.rpc?.method === "turn/start")
+      .map((c) => c.rpc.params.threadId);
+    expect(new Set(ids).size).toBe(3);
+    for (const [i, stream] of [a, b, c].entries()) {
+      // Readiness and output can arrive in separate HTTP stream chunks.
+      await expect.poll(() => stream.output).toContain("update for " + ids[i]);
+      for (const id of ids.filter((id) => id !== ids[i]))
+        expect(stream.output).not.toContain("update for " + id);
+      expect(stream.output).not.toContain("foreign output");
+      expect(stream.output).not.toContain("stale output");
+      await expect.poll(() => stream.output.includes('"activity":')).toBe(true);
+      const activities = stream.output
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line).chunk?.activity)
+        .filter(Boolean);
+      expect(activities).toHaveLength(1);
+      expect(activities[0].params.item.id).toBe("command-" + ids[i]);
+      expect(stream.output).not.toContain("foreign command");
+      expect(stream.output).not.toContain("stale command");
+    }
+    await expect
+      .poll(
+        () =>
+          calls().filter((c) => c.rpc?.id?.startsWith?.("approval-")).length,
+      )
+      .toBe(3);
+    expect(
       calls()
-        .filter((c) => c.rpc?.method === "turn/interrupt")
-        .map((c) => c.rpc.params.threadId),
-    )
-    .toEqual([ids[0]]);
-  const next = await run("next", "quick");
-  await next.done;
-  expect(next.output).toContain('"done":true');
-  expect(calls().filter((c) => c.launch)).toHaveLength(1);
-  expect(c.output).not.toContain('"error"');
-  expect(c.output).not.toContain('"done":true');
-  await post({ action: "cancel" }); // Sign-in cancellation does not stop work.
-  expect(
-    await (
-      await post({
-        action: "steer",
-        controlId: "elder",
-        id: "done",
-        text: "Elder finished",
-      })
-    ).json(),
-  ).toEqual({ accepted: true });
-  await c.done;
-  expect(c.output).toContain('"text":"Elder finished"');
-}, 15000);
+        .filter((c) => c.rpc?.id?.startsWith?.("approval-"))
+        .every((c) => c.rpc.result?.decision === "accept"),
+    ).toBe(true);
+    expect(
+      calls()
+        .filter((c) => c.rpc?.id?.startsWith?.("foreign-approval-"))
+        .every((c) => c.rpc.error?.code === -32602),
+    ).toBe(true);
+    const steer = {
+      action: "steer",
+      controlId: "plum",
+      id: "followup",
+      text: "Plum finished",
+    };
+    expect((await post({ ...steer, key: "b".repeat(64) })).status).toBe(409);
+    expect((await post({ ...steer, controlId: "unknown" })).status).toBe(409);
+    expect(await (await post(steer)).json()).toEqual({ accepted: true });
+    expect(await (await post(steer)).json()).toEqual({ accepted: true });
+    expect((await post({ ...steer, text: "conflicting retry" })).ok).toBe(
+      false,
+    );
+    await b.done;
+    expect(b.output).toContain('"text":"Plum finished"');
+    expect(a.output).not.toContain('"done":true');
+    a.controller.abort();
+    await a.done;
+    await expect
+      .poll(() =>
+        calls()
+          .filter((c) => c.rpc?.method === "turn/interrupt")
+          .map((c) => c.rpc.params.threadId),
+      )
+      .toEqual([ids[0]]);
+    const next = await run("next", "quick");
+    await next.done;
+    expect(next.output).toContain('"done":true');
+    expect(calls().filter((c) => c.launch)).toHaveLength(1);
+    expect(c.output).not.toContain('"error"');
+    expect(c.output).not.toContain('"done":true');
+    await post({ action: "cancel" }); // Sign-in cancellation does not stop work.
+    expect(
+      await (
+        await post({
+          action: "steer",
+          controlId: "elder",
+          id: "done",
+          text: "Elder finished",
+        })
+      ).json(),
+    ).toEqual({ accepted: true });
+    await c.done;
+    expect(c.output).toContain('"text":"Elder finished"');
+  },
+  15000,
+);
 
 it("isolates managed workspaces and per-thread credentials without putting them in the process environment or output", async () => {
   const { run, calls } = await fixture({ managed: true });
@@ -267,14 +284,19 @@ it("rejects API authentication, recovers after process death without replaying l
   const crash = await run("crash", "crash");
   await Promise.all([held.done, crash.done]);
   for (const stream of [held, crash]) {
-    const events = stream.output.trim().split("\n").map((line) => JSON.parse(line));
+    const events = stream.output
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
     // The child failure or the worker close can arrive first; both must report
     // a process failure instead of completing the interrupted turn.
-    expect(events).toContainEqual(expect.objectContaining({
-      code: "runtime_failure",
-      diagnostic: expect.objectContaining({ phase: "process" }),
-      error: expect.any(String),
-    }));
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        code: "runtime_failure",
+        diagnostic: expect.objectContaining({ phase: "process" }),
+        error: expect.any(String),
+      }),
+    );
     expect(events.some((event) => event.done)).toBe(false);
   }
   const recovered = await run("recovered", "quick");
@@ -295,7 +317,9 @@ it("admits 32 concurrent turns, releases capacity and reuses the process for sta
   const overflow = await run("overflow");
   expect(overflow.response.status).toBe(409);
   await overflow.done;
-  expect(calls().filter((c) => c.rpc?.method === "turn/start")).toHaveLength(32);
+  expect(calls().filter((c) => c.rpc?.method === "turn/start")).toHaveLength(
+    32,
+  );
   held[0].controller.abort();
   await expect
     .poll(
@@ -307,7 +331,9 @@ it("admits 32 concurrent turns, releases capacity and reuses the process for sta
   expect(replacement.response.status).toBe(200);
   await replacement.done;
   expect(replacement.output).toContain('"done":true');
-  expect(calls().filter((c) => c.rpc?.method === "turn/start")).toHaveLength(33);
+  expect(calls().filter((c) => c.rpc?.method === "turn/start")).toHaveLength(
+    33,
+  );
   expect(await (await post({ action: "status" })).json()).toMatchObject({
     authenticated: true,
     authMode: "subscription",

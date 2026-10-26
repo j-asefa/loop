@@ -9,8 +9,12 @@ it("clears legacy conversation hiding without guessing which Done card was dismi
   const dir = mkdtempSync(join(tmpdir(), "loop-done-card-migration-"));
   try {
     const db = new Database(join(dir, "loop.db"));
-    db.exec("CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)");
-    for (const file of readdirSync("migrations").filter((name) => name.endsWith(".sql")).sort()) {
+    db.exec(
+      "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
+    );
+    for (const file of readdirSync("migrations")
+      .filter((name) => name.endsWith(".sql"))
+      .sort()) {
       if (Number(file.split("-")[0]) >= 76) continue;
       db.exec(readFileSync(join("migrations", file), "utf8"));
     }
@@ -20,14 +24,21 @@ it("clears legacy conversation hiding without guessing which Done card was dismi
       INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('answer','owner','thread','assistant','Keep the result',2);
     `);
     db.close();
-    const result = execFileSync(process.execPath, [
-      "--import", "tsx", "--input-type=module", "-e",
-      `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({thread:db.prepare("SELECT title,feed_hidden FROM conversations WHERE id='thread'").get(),message:db.prepare("SELECT content FROM messages WHERE id='answer'").get(),dismissals:db.prepare('SELECT * FROM done_card_dismissals').all()}));db.close();`,
-    ], {
-      cwd: resolve("."),
-      env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
-      encoding: "utf8",
-    });
+    const result = execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `const {db}=await import('./src/server/db.ts'); console.log(JSON.stringify({thread:db.prepare("SELECT title,feed_hidden FROM conversations WHERE id='thread'").get(),message:db.prepare("SELECT content FROM messages WHERE id='answer'").get(),dismissals:db.prepare('SELECT * FROM done_card_dismissals').all()}));db.close();`,
+      ],
+      {
+        cwd: resolve("."),
+        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+        encoding: "utf8",
+      },
+    );
     expect(JSON.parse(result)).toEqual({
       thread: { title: "Keep the thread", feed_hidden: 0 },
       message: { content: "Keep the result" },
@@ -110,13 +121,25 @@ for (const [label, [trust, recovery], before] of [
       db.exec(
         "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
       );
-      for (const file of readdirSync("migrations").filter((name) => name.endsWith(".sql")).sort()) {
+      for (const file of readdirSync("migrations")
+        .filter((name) => name.endsWith(".sql"))
+        .sort()) {
         const version = Number(file.split("-")[0]);
         if (version > before) continue;
         db.exec(readFileSync(join("migrations", file), "utf8"));
       }
-      db.exec(readFileSync("migrations/043-pi-project-trust.sql", "utf8").replace("VALUES(43,", `VALUES(${trust},`));
-      db.exec(readFileSync("migrations/044-pi-package-recovery.sql", "utf8").replace("VALUES(44,", `VALUES(${recovery},`));
+      db.exec(
+        readFileSync("migrations/043-pi-project-trust.sql", "utf8").replace(
+          "VALUES(43,",
+          `VALUES(${trust},`,
+        ),
+      );
+      db.exec(
+        readFileSync("migrations/044-pi-package-recovery.sql", "utf8").replace(
+          "VALUES(44,",
+          `VALUES(${recovery},`,
+        ),
+      );
       db.close();
 
       const result = execFileSync(
@@ -157,12 +180,17 @@ it("upgrades databases that ran the trace-envelope cleanup as migration 45", () 
     db.exec(
       "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
     );
-    for (const file of readdirSync("migrations").filter((name) => name.endsWith(".sql")).sort()) {
+    for (const file of readdirSync("migrations")
+      .filter((name) => name.endsWith(".sql"))
+      .sort()) {
       if (Number(file.split("-")[0]) > 44) continue;
       db.exec(readFileSync(join("migrations", file), "utf8"));
     }
     db.exec(
-      readFileSync("migrations/046-unwrap-trace-envelopes.sql", "utf8").replace("VALUES(46,", "VALUES(45,"),
+      readFileSync("migrations/046-unwrap-trace-envelopes.sql", "utf8").replace(
+        "VALUES(46,",
+        "VALUES(45,",
+      ),
     );
     db.close();
 
@@ -183,7 +211,12 @@ it("upgrades databases that ran the trace-envelope cleanup as migration 45", () 
     );
     // PR watch history (45), trace cleanup (46), feed archiving (47), and agent mail (48) all run.
     expect(JSON.parse(result)).toEqual({
-      versions: [{ version: 45 }, { version: 46 }, { version: 47 }, { version: 48 }],
+      versions: [
+        { version: 45 },
+        { version: 46 },
+        { version: 47 },
+        { version: 48 },
+      ],
       seen: true,
     });
   } finally {
@@ -253,7 +286,9 @@ it("repairs workspaces that recorded migration 37 without its conversation posit
       "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
     );
     for (const file of readdirSync("migrations")
-      .filter((name) => name.endsWith(".sql") && Number(name.split("-")[0]) <= 48)
+      .filter(
+        (name) => name.endsWith(".sql") && Number(name.split("-")[0]) <= 48,
+      )
       .sort())
       db.exec(readFileSync(join("migrations", file), "utf8"));
     db.exec("DROP TABLE conversation_positions");
@@ -273,7 +308,11 @@ it("repairs workspaces that recorded migration 37 without its conversation posit
         encoding: "utf8",
       },
     );
-    const latest = Math.max(...readdirSync("migrations").filter(name => name.endsWith(".sql")).map(name => Number(name.split("-")[0])));
+    const latest = Math.max(
+      ...readdirSync("migrations")
+        .filter((name) => name.endsWith(".sql"))
+        .map((name) => Number(name.split("-")[0])),
+    );
     expect(JSON.parse(result)).toEqual({ table: true, version: latest });
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -288,7 +327,9 @@ it("preserves permission-branch databases that used feed migration number 51", (
       "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
     );
     for (const file of readdirSync("migrations")
-      .filter((name) => name.endsWith(".sql") && Number(name.split("-")[0]) <= 50)
+      .filter(
+        (name) => name.endsWith(".sql") && Number(name.split("-")[0]) <= 50,
+      )
       .sort())
       db.exec(readFileSync(join("migrations", file), "utf8"));
     db.exec(

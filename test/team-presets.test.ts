@@ -452,12 +452,22 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   // New default returns promptly and persists one recoverable request.
   const asyncRun = start(worktree);
   // Simulate an old pending call persisted before the wait option existed.
-  const legacyArgs = JSON.stringify({ teamId: team.id, scope: "branch", base: "main" });
-  expect(await invokeNative(asyncRun, binding(asyncRun), "async", request)).toEqual({ pending: "async" });
-  const legacyReview = db.prepare("SELECT c.id FROM code_reviews c JOIN delegations d ON d.child_run_id=c.run_id WHERE d.parent_run_id=?")
+  const legacyArgs = JSON.stringify({
+    teamId: team.id,
+    scope: "branch",
+    base: "main",
+  });
+  expect(
+    await invokeNative(asyncRun, binding(asyncRun), "async", request),
+  ).toEqual({ pending: "async" });
+  const legacyReview = db
+    .prepare(
+      "SELECT c.id FROM code_reviews c JOIN delegations d ON d.child_run_id=c.run_id WHERE d.parent_run_id=?",
+    )
     .get(asyncRun.id) as { id: string };
-  db.prepare("UPDATE native_calls SET arguments=? WHERE run_id=? AND call_id=?")
-    .run(legacyArgs, asyncRun.id, "async");
+  db.prepare(
+    "UPDATE native_calls SET arguments=? WHERE run_id=? AND call_id=?",
+  ).run(legacyArgs, asyncRun.id, "async");
   const accepted = (await invokeNative(asyncRun, binding(asyncRun), "async", {
     teamId: team.id,
     scope: "branch",
@@ -474,16 +484,27 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   expect(JSON.parse(replay.result.content[0].text).reviewId).toBe(
     receipt.reviewId,
   );
-  expect((db.prepare("SELECT background FROM delegations WHERE parent_run_id=?").get(asyncRun.id) as any).background).toBe(1);
+  expect(
+    (
+      db
+        .prepare("SELECT background FROM delegations WHERE parent_run_id=?")
+        .get(asyncRun.id) as any
+    ).background,
+  ).toBe(1);
   // Completing ordinary delegated work must resume the requester even while
   // the asynchronous review is still queued.
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
   const ordinary = start(worktree);
-  db.prepare("UPDATE runs SET state='completed',worker_id=NULL WHERE id=?").run(ordinary.id);
-  db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,'{}',0)")
-    .run(asyncRun.id, "ordinary", ordinary.id);
+  db.prepare("UPDATE runs SET state='completed',worker_id=NULL WHERE id=?").run(
+    ordinary.id,
+  );
+  db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,'{}',0)",
+  ).run(asyncRun.id, "ordinary", ordinary.id);
   db.prepare("UPDATE runs SET worker_id=NULL WHERE id=?").run(asyncRun.id);
-  expect(claim("resume-requester", candidate => candidate.id === asyncRun.id)?.id).toBe(asyncRun.id);
+  expect(
+    claim("resume-requester", (candidate) => candidate.id === asyncRun.id)?.id,
+  ).toBe(asyncRun.id);
   const later = start(worktree);
   const statusBinding = nativeBindings(later).find(
     (b) => b.tool === "loop_review_status",
@@ -540,7 +561,10 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   expect(refused.result.content[0].text).toMatch(/not part of this project/);
 
   const cancelled = start(worktree);
-  await invokeNative(cancelled, binding(cancelled), "ask", { ...request, wait: false });
+  await invokeNative(cancelled, binding(cancelled), "ask", {
+    ...request,
+    wait: false,
+  });
   const response = await fetch(`${url}/runs/${cancelled.id}/cancel`, {
     method: "POST",
     headers: { "x-owner": "alice", "content-type": "application/json" },

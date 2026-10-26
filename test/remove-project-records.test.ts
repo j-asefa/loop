@@ -80,8 +80,12 @@ it("upgrades populated records, preserves source work and restarts without retir
       db.prepare("SELECT content FROM artifacts WHERE id='result'").get(),
     ).toEqual({ content: "Original result" });
     expect(db.prepare("SELECT * FROM message_bookmarks").all()).toHaveLength(1);
-    expect(db.prepare("SELECT input FROM runs WHERE id='run'").get()).toEqual({ input: "Keep this run" });
-    expect(db.prepare("SELECT state FROM run_checkouts WHERE run_id='run'").get()).toEqual({ state: "captured" });
+    expect(db.prepare("SELECT input FROM runs WHERE id='run'").get()).toEqual({
+      input: "Keep this run",
+    });
+    expect(
+      db.prepare("SELECT state FROM run_checkouts WHERE run_id='run'").get(),
+    ).toEqual({ state: "captured" });
     // Moves, edits, saves and deletes still run their surviving production triggers.
     db.exec(`UPDATE conversations SET project_id='project' WHERE id='thread';
       UPDATE messages SET content='Edited words' WHERE id='message';

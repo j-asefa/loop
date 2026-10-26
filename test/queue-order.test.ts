@@ -67,7 +67,12 @@ function fixture(metadata: object = {}) {
 it("keeps enqueue order by default, including equal timestamps", () => {
   const f = fixture(),
     cid = f.conversation();
-  const runs = [f.make(cid, 10), f.make(cid, 10), f.make(cid, 5), f.make(cid, 20)];
+  const runs = [
+    f.make(cid, 10),
+    f.make(cid, 10),
+    f.make(cid, 5),
+    f.make(cid, 20),
+  ];
   const positions = Object.fromEntries(
     listRuns(f.owner).map((r: any) => [r.id, r.queue_position]),
   );

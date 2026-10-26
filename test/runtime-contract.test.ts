@@ -238,33 +238,63 @@ it.each(["codex", "claude"])(
     const output = join(root, `compiled-${provider}`);
     await compileRuntime(process.cwd(), output);
     const result = await invoke(
-      provider, "turn", "subscription", "steering", false,
-      "Wait for a follow-up", [],
-      { entry: join(output, "entry.mjs"), steering: "Use the compiled runtime" },
+      provider,
+      "turn",
+      "subscription",
+      "steering",
+      false,
+      "Wait for a follow-up",
+      [],
+      {
+        entry: join(output, "entry.mjs"),
+        steering: "Use the compiled runtime",
+      },
     );
     expect(result.code).toBe(0);
     expect(result.events).toContainEqual({
       steeringResult: { id: "followup-fixture", accepted: true },
     });
-    expect(result.events).toContainEqual({ chunk: { text: "Use the compiled runtime" } });
+    expect(result.events).toContainEqual({
+      chunk: { text: "Use the compiled runtime" },
+    });
     expect(result.events.filter((event) => event.done)).toHaveLength(1);
 
     // Exercise the typed helpers through the shipped entrypoint: preserve the
     // tool envelope and sanitized failure facts, not just successful answers.
     const tool = await invoke(
-      provider, "turn", "subscription", "tool", false, "Look it up", [],
+      provider,
+      "turn",
+      "subscription",
+      "tool",
+      false,
+      "Look it up",
+      [],
       { entry: join(output, "entry.mjs") },
     );
     expect(tool.code).toBe(0);
-    expect(tool.events).toContainEqual({ chunk: { toolCall: {
-      id: expect.any(String), name: "lookup", arguments: { query: "fixture" },
-    } } });
+    expect(tool.events).toContainEqual({
+      chunk: {
+        toolCall: {
+          id: expect.any(String),
+          name: "lookup",
+          arguments: { query: "fixture" },
+        },
+      },
+    });
     const secret = "compiled-failure-credential";
     const failed = await invoke(
-      provider, "turn", "subscription", "quota", false, "Inspect", [],
+      provider,
+      "turn",
+      "subscription",
+      "quota",
+      false,
+      "Inspect",
+      [],
       { entry: join(output, "entry.mjs"), githubToken: secret },
     );
-    const failure = failed.events.find((event) => event.code === "runtime_failure");
+    const failure = failed.events.find(
+      (event) => event.code === "runtime_failure",
+    );
     expect(failure.error).toContain("[redacted]");
     expect(failure.diagnostic).toMatchObject({ phase: "turn" });
     expect(JSON.stringify(failed.events)).not.toContain(secret);
@@ -769,7 +799,9 @@ it("discovers native commands without a model turn and dispatches Claude slash p
         ]),
       });
       // Preserve the complete production catalog, including Claude's models.
-      expect(workspaceApi.agentHarness.response.parse(catalog.events[0].result)).toEqual(catalog.events[0].result);
+      expect(
+        workspaceApi.agentHarness.response.parse(catalog.events[0].result),
+      ).toEqual(catalog.events[0].result);
       expect(
         catalog.calls.some((c) => c.rpc?.method === "turn/start" || c.prompt),
       ).toBe(false);
@@ -925,12 +957,28 @@ for (const provider of ["codex", "claude"])
     expect(JSON.stringify(failed.events)).not.toContain(secret);
   });
 
-
-it.each(["codex", "claude"])("%s rejects retired projection requests before launching a harness", async provider => {
-  for (const [action, workspace] of [["project-brief", {}], ["turn", { nativeTools: false }]] as const) {
-    const result = await invoke(provider, action, "subscription", "fixture", true, "Do not execute", [], workspace);
-    expect(result.code).not.toBe(0);
-    expect(JSON.stringify(result.events)).toContain("Background projections are no longer supported");
-    expect(result.calls).toEqual([]);
-  }
-});
+it.each(["codex", "claude"])(
+  "%s rejects retired projection requests before launching a harness",
+  async (provider) => {
+    for (const [action, workspace] of [
+      ["project-brief", {}],
+      ["turn", { nativeTools: false }],
+    ] as const) {
+      const result = await invoke(
+        provider,
+        action,
+        "subscription",
+        "fixture",
+        true,
+        "Do not execute",
+        [],
+        workspace,
+      );
+      expect(result.code).not.toBe(0);
+      expect(JSON.stringify(result.events)).toContain(
+        "Background projections are no longer supported",
+      );
+      expect(result.calls).toEqual([]);
+    }
+  },
+);

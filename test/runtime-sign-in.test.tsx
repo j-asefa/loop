@@ -2,7 +2,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
 import { RuntimeSignIn } from "../src/client/RuntimeSignIn";
 
-function render(name: string, label: string, enableAction: React.ReactNode = null) {
+function render(
+  name: string,
+  label: string,
+  enableAction: React.ReactNode = null,
+) {
   return renderToStaticMarkup(
     <RuntimeSignIn
       runtime="codex"
@@ -21,7 +25,10 @@ function render(name: string, label: string, enableAction: React.ReactNode = nul
 }
 
 it("asks Pi and OpenCode for a model provider rather than a harness account", () => {
-  for (const [name, label] of [["pi", "Pi"], ["opencode", "OpenCode"]]) {
+  for (const [name, label] of [
+    ["pi", "Pi"],
+    ["opencode", "OpenCode"],
+  ]) {
     const html = render(name, label);
     expect(html).toContain(`Connect a model provider for ${label}`);
     expect(html).toContain("API key");
@@ -38,7 +45,11 @@ it("keeps account sign-in copy for harnesses that own an account", () => {
 it("lets an account signed in outside Loop connect without a new sign-in", () => {
   // Gemini and CLI harnesses do not report sign-ins made before Loop's auth
   // manager saw them; enabling verifies the account itself.
-  const html = render("gemini", "Gemini CLI", <button>Enable Gemini CLI</button>);
+  const html = render(
+    "gemini",
+    "Gemini CLI",
+    <button>Enable Gemini CLI</button>,
+  );
   expect(html).toContain("Already signed in on loop-dev?");
   expect(html).toContain("Enable Gemini CLI");
 });

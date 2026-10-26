@@ -1,6 +1,13 @@
 import { afterAll, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -15,7 +22,15 @@ gitProject(project);
 const git = (cwd: string, ...args: string[]) =>
   execFileSync(
     "git",
-    ["-C", cwd, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", ...args],
+    [
+      "-C",
+      cwd,
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@example.com",
+      ...args,
+    ],
     { encoding: "utf8" },
   ).trim();
 
@@ -30,7 +45,8 @@ const {
   checkoutSummary,
   PATCH_LIMIT,
 } = await import("../src/server/run-checkouts");
-const { checkoutLine, unquoteGitPath, patchByFile } = await import("../src/shared/checkout");
+const { checkoutLine, unquoteGitPath, patchByFile } =
+  await import("../src/shared/checkout");
 const { transition } = await import("../src/server/queue");
 import type { Run } from "../src/server/queue";
 
@@ -88,13 +104,22 @@ it("records the worktree before and after a run, as Loop observed it", async () 
   expect(started.base_sha).toBe(git(project, "rev-parse", "HEAD"));
   expect(started.start_dirty).toBe(0);
   expect(started.generation).toBe("g1");
-  expect(checkoutSummary(owner, run.id)).toMatchObject({ state: "started", files: 0, ahead: null });
-  expect(checkoutLine(checkoutSummary(owner, run.id)!)).not.toContain("undefined");
+  expect(checkoutSummary(owner, run.id)).toMatchObject({
+    state: "started",
+    files: 0,
+    ahead: null,
+  });
+  expect(checkoutLine(checkoutSummary(owner, run.id)!)).not.toContain(
+    "undefined",
+  );
 
   // The agent commits one change, leaves another uncommitted, and adds a file.
   writeFileSync(join(checkout, "tracked.txt"), "committed\nby the agent\n");
   git(checkout, "commit", "-am", "agent change");
-  writeFileSync(join(checkout, "tracked.txt"), "committed\nby the agent\nand more\n");
+  writeFileSync(
+    join(checkout, "tracked.txt"),
+    "committed\nby the agent\nand more\n",
+  );
   writeFileSync(join(checkout, "new.txt"), "untracked");
 
   await completeCheckout(run.id);
@@ -143,30 +168,54 @@ it("counts each run's edits when separate agents start far ahead of the source c
   git(repo, "commit", "-m", "shared repository history");
   const newer = git(repo, "rev-parse", "HEAD");
   git(repo, "switch", initialBranch);
-  const first = join(dir, "stale-first"), second = join(dir, "stale-second");
+  const first = join(dir, "stale-first"),
+    second = join(dir, "stale-second");
   git(repo, "worktree", "add", "-b", "first", first, newer);
   git(repo, "worktree", "add", "-b", "second", second, newer);
-  const idle = runFixture("thread-stale-idle"), editing = runFixture("thread-stale-editing");
+  const idle = runFixture("thread-stale-idle"),
+    editing = runFixture("thread-stale-editing");
   await startCheckout(idle, first, repo, "g1");
   await startCheckout(editing, second, repo, "g1");
   await completeCheckout(idle.id);
-  expect(checkoutSummary(owner, idle.id)).toMatchObject({ scope: "run", files: 0, additions: 0, deletions: 0, ahead: 0 });
+  expect(checkoutSummary(owner, idle.id)).toMatchObject({
+    scope: "run",
+    files: 0,
+    additions: 0,
+    deletions: 0,
+    ahead: 0,
+  });
   writeFileSync(join(second, "tracked.txt"), "this run\n");
   git(second, "commit", "-am", "run edit");
-  writeFileSync(join(second, "tracked.txt"), "this run\nand an uncommitted line\n");
+  writeFileSync(
+    join(second, "tracked.txt"),
+    "this run\nand an uncommitted line\n",
+  );
   // Moving the shared source during the run cannot move its baseline.
   git(repo, "switch", "newer-main");
   await completeCheckout(editing.id);
   const detail = checkoutDetail(owner, editing.id)!;
-  expect(detail).toMatchObject({ state: "captured", base_ref: "run start", base_sha: newer, ahead: 1, behind: 0 });
-  expect(detail.files).toEqual([{ path: "tracked.txt", additions: 2, deletions: 1, binary: false }]);
+  expect(detail).toMatchObject({
+    state: "captured",
+    base_ref: "run start",
+    base_sha: newer,
+    ahead: 1,
+    behind: 0,
+  });
+  expect(detail.files).toEqual([
+    { path: "tracked.txt", additions: 2, deletions: 1, binary: false },
+  ]);
   expect(detail.patch).not.toContain("shared.txt");
   expect(checkoutSummary(owner, idle.id)!.files).toBe(0);
   // A later no-op turn on the editing agent does not repeat earlier edits.
   const followup = runFixture("thread-stale-followup");
   await startCheckout(followup, second, repo, "g2");
   await completeCheckout(followup.id);
-  expect(checkoutSummary(owner, followup.id)).toMatchObject({ files: 0, additions: 0, deletions: 0, ahead: 0 });
+  expect(checkoutSummary(owner, followup.id)).toMatchObject({
+    files: 0,
+    additions: 0,
+    deletions: 0,
+    ahead: 0,
+  });
 });
 
 it("subtracts pre-existing staged, unstaged and binary edits without modifying the checkout", async () => {
@@ -177,7 +226,10 @@ it("subtracts pre-existing staged, unstaged and binary edits without modifying t
   writeFileSync(join(repo, "staged.txt"), "existing new file\n");
   writeFileSync(join(repo, "binary.dat"), Buffer.from([0, 1, 2, 3]));
   git(repo, "add", ".");
-  writeFileSync(join(repo, "tracked.txt"), "existing staged\nexisting unstaged\n");
+  writeFileSync(
+    join(repo, "tracked.txt"),
+    "existing staged\nexisting unstaged\n",
+  );
   writeFileSync(join(repo, "old-untracked.txt"), "existing untracked\n");
   const before = git(repo, "status", "--porcelain");
   const index = git(repo, "diff", "--cached", "--binary");
@@ -185,15 +237,27 @@ it("subtracts pre-existing staged, unstaged and binary edits without modifying t
   const run = runFixture("thread-dirty-baseline");
   await startCheckout(run, repo, repo, "g1");
   await completeCheckout(run.id);
-  expect(checkoutSummary(owner, run.id)).toMatchObject({ scope: "run", files: 0, additions: 0, deletions: 0, untracked: 0 });
+  expect(checkoutSummary(owner, run.id)).toMatchObject({
+    scope: "run",
+    files: 0,
+    additions: 0,
+    deletions: 0,
+    untracked: 0,
+  });
   expect(git(repo, "status", "--porcelain")).toBe(before);
   expect(git(repo, "diff", "--cached", "--binary")).toBe(index);
   expect(git(repo, "rev-parse", "HEAD")).toBe(head);
   expect(checkoutDetail(owner, run.id)).not.toHaveProperty("start_patch");
-  writeFileSync(join(repo, "tracked.txt"), "existing staged\nexisting unstaged\nnew in run\n");
+  writeFileSync(
+    join(repo, "tracked.txt"),
+    "existing staged\nexisting unstaged\nnew in run\n",
+  );
   writeFileSync(join(repo, "binary.dat"), Buffer.from([0, 4, 5, 6]));
   git(repo, "commit", "-am", "commit both earlier work and new edits");
-  writeFileSync(join(repo, "staged.txt"), "existing new file\nnew uncommitted line\n");
+  writeFileSync(
+    join(repo, "staged.txt"),
+    "existing new file\nnew uncommitted line\n",
+  );
   writeFileSync(join(repo, "new-untracked.txt"), "new\n");
   await completeCheckout(run.id);
   const detail = checkoutDetail(owner, run.id)!;
@@ -212,8 +276,9 @@ it("preserves historical cumulative observations", async () => {
   const run = runFixture("thread-legacy-baseline");
   await startCheckout(run, checkout, project, "g1");
   // The shape left by migration 091: no run snapshot was recorded.
-  db.prepare("UPDATE run_checkouts SET start_patch=NULL,start_untracked_paths=NULL,base_ref='main',base_sha=? WHERE run_id=?")
-    .run(git(project, "rev-parse", "HEAD"), run.id);
+  db.prepare(
+    "UPDATE run_checkouts SET start_patch=NULL,start_untracked_paths=NULL,base_ref='main',base_sha=? WHERE run_id=?",
+  ).run(git(project, "rev-parse", "HEAD"), run.id);
   await completeCheckout(run.id);
   const first = checkoutDetail(owner, run.id)!;
   expect(first.summary!.scope).toBeUndefined();
@@ -234,7 +299,9 @@ it("counts restoring a file deleted before the run even when the final checkout 
   const detail = checkoutDetail(owner, run.id)!;
   expect(detail.error).toBeNull();
   expect(detail.working!.files).toEqual([]);
-  expect(detail.files).toEqual([{ path: "tracked.txt", additions: 1, deletions: 0, binary: false }]);
+  expect(detail.files).toEqual([
+    { path: "tracked.txt", additions: 1, deletions: 0, binary: false },
+  ]);
   expect(detail.patch).toContain("+committed");
 });
 
@@ -245,8 +312,13 @@ it("fails capture instead of using an incomplete starting snapshot", async () =>
   writeFileSync(join(repo, "tracked.txt"), "existing change\n".repeat(300000));
   const run = runFixture("thread-oversized-baseline");
   await startCheckout(run, repo, repo, "g1");
-  expect(checkoutDetail(owner, run.id)).toMatchObject({ state: "failed", start_head: "" });
-  expect(checkoutDetail(owner, run.id)!.error).toContain("complete run baseline");
+  expect(checkoutDetail(owner, run.id)).toMatchObject({
+    state: "failed",
+    start_head: "",
+  });
+  expect(checkoutDetail(owner, run.id)!.error).toContain(
+    "complete run baseline",
+  );
   await completeCheckout(run.id);
   expect(checkoutSummary(owner, run.id)!.state).toBe("failed");
 });
@@ -256,8 +328,15 @@ it("lets one capture at a time own a run, and reruns for a request that arrived 
   bind("thread-race", checkout);
   await startCheckout(run, checkout, project, "g1");
   const raw = () =>
-    db.prepare("SELECT state,capture_token,capture_pending,ended_at FROM run_checkouts WHERE run_id=?").get(run.id) as {
-      state: string; capture_token: string | null; capture_pending: number; ended_at: number | null;
+    db
+      .prepare(
+        "SELECT state,capture_token,capture_pending,ended_at FROM run_checkouts WHERE run_id=?",
+      )
+      .get(run.id) as {
+      state: string;
+      capture_token: string | null;
+      capture_pending: number;
+      ended_at: number | null;
     };
   const first = completeCheckout(run.id);
   // The second request finds the claim held and leaves a request behind.
@@ -266,14 +345,26 @@ it("lets one capture at a time own a run, and reruns for a request that arrived 
   expect(raw().capture_token).not.toBeNull();
   expect(raw().capture_pending).toBe(1);
   await first;
-  expect(raw()).toMatchObject({ state: "captured", capture_token: null, capture_pending: 0 });
+  expect(raw()).toMatchObject({
+    state: "captured",
+    capture_token: null,
+    capture_pending: 0,
+  });
   // Reconciliation never touches a run whose capture is in flight.
-  db.prepare("UPDATE run_checkouts SET state='started',capture_token='held',capture_started_at=? WHERE run_id=?").run(now(), run.id);
+  db.prepare(
+    "UPDATE run_checkouts SET state='started',capture_token='held',capture_started_at=? WHERE run_id=?",
+  ).run(now(), run.id);
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
   await completeCheckout(run.id, { ifIdle: true });
-  expect(raw()).toMatchObject({ state: "started", capture_token: "held", capture_pending: 0 });
+  expect(raw()).toMatchObject({
+    state: "started",
+    capture_token: "held",
+    capture_pending: 0,
+  });
   // An abandoned claim is taken over.
-  db.prepare("UPDATE run_checkouts SET capture_started_at=? WHERE run_id=?").run(now() - 600000, run.id);
+  db.prepare(
+    "UPDATE run_checkouts SET capture_started_at=? WHERE run_id=?",
+  ).run(now() - 600000, run.id);
   await completeCheckout(run.id, { ifIdle: true });
   expect(raw()).toMatchObject({ state: "captured", capture_token: null });
 });
@@ -351,14 +442,18 @@ it("stores a bounded patch and says when it was shortened", async () => {
   expect(checkoutDetail(owner, run.id)!.start_dirty).toBe(1);
   writeFileSync(
     join(checkout, "big.txt"),
-    Array.from({ length: 20000 }, (_, i) => `line ${i} ${"x".repeat(20)}`).join("\n"),
+    Array.from({ length: 20000 }, (_, i) => `line ${i} ${"x".repeat(20)}`).join(
+      "\n",
+    ),
   );
   git(checkout, "add", "big.txt");
   git(checkout, "commit", "-m", "big");
   await completeCheckout(run.id);
   const detail = checkoutDetail(owner, run.id)!;
   expect(detail.patch_truncated).toBe(true);
-  expect(Buffer.byteLength(detail.patch!, "utf8")).toBeLessThanOrEqual(PATCH_LIMIT);
+  expect(Buffer.byteLength(detail.patch!, "utf8")).toBeLessThanOrEqual(
+    PATCH_LIMIT,
+  );
   expect(detail.patch!.endsWith("\n")).toBe(true);
   expect(detail.patch_bytes).toBeGreaterThan(PATCH_LIMIT);
   expect(detail.files.map((f) => f.path)).toContain("big.txt");
@@ -371,7 +466,8 @@ it("captures at the terminal transition without blocking it", async () => {
   await startCheckout(run, checkout, project, "g1");
   expect(checkoutDetail(owner, run.id)!.ended_at).toBeNull();
   expect(transition(run, "completed")).toBe(true);
-  for (let i = 0; i < 100 && !checkoutDetail(owner, run.id)!.ended_at; i++) await wait(20);
+  for (let i = 0; i < 100 && !checkoutDetail(owner, run.id)!.ended_at; i++)
+    await wait(20);
   const detail = checkoutDetail(owner, run.id)!;
   expect(detail.state).toBe("captured");
   expect(detail.ended_at).not.toBeNull();
@@ -383,7 +479,10 @@ it("captures late, and says so, for runs that ended while the host was down", as
   bind("thread-late", checkout);
   await startCheckout(run, checkout, project, "g1");
   // Recovery marks runs interrupted directly, without a transition.
-  db.prepare("UPDATE runs SET state='interrupted',updated_at=? WHERE id=?").run(now() - 120000, run.id);
+  db.prepare("UPDATE runs SET state='interrupted',updated_at=? WHERE id=?").run(
+    now() - 120000,
+    run.id,
+  );
   expect(checkoutDetail(owner, run.id)!.state).toBe("started");
   await reconcileCheckouts();
   const detail = checkoutDetail(owner, run.id)!;
@@ -419,7 +518,10 @@ it("keeps the first start record when a run resumes", async () => {
   await startCheckout(run, checkout, project, "g1");
   const first = checkoutDetail(owner, run.id)!;
   await startCheckout(run, checkout, project, "g2");
-  expect(checkoutDetail(owner, run.id)).toMatchObject({ id: first.id, generation: "g1" });
+  expect(checkoutDetail(owner, run.id)).toMatchObject({
+    id: first.id,
+    generation: "g1",
+  });
 });
 
 it("clears an earlier observation when a recapture fails", async () => {
@@ -432,7 +534,10 @@ it("clears an earlier observation when a recapture fails", async () => {
   expect(captured.state).toBe("captured");
   expect(captured.files.length).toBeGreaterThan(0);
   // The worktree disappears before the run ends again.
-  db.prepare("UPDATE run_checkouts SET directory=? WHERE run_id=?").run(join(dir, "gone"), run.id);
+  db.prepare("UPDATE run_checkouts SET directory=? WHERE run_id=?").run(
+    join(dir, "gone"),
+    run.id,
+  );
   await completeCheckout(run.id);
   const failed = checkoutDetail(owner, run.id)!;
   expect(failed.state).toBe("failed");
@@ -449,14 +554,20 @@ it("never runs a filter a worktree's .gitattributes selects, whatever the user's
   bind("thread-attrs", checkout);
   const marker = join(dir, "filter-ran");
   const globalConfig = join(dir, "global.gitconfig");
-  writeFileSync(globalConfig, `[filter "evil"]\n\tclean = sh -c "touch ${marker}; cat"\n`);
+  writeFileSync(
+    globalConfig,
+    `[filter "evil"]\n\tclean = sh -c "touch ${marker}; cat"\n`,
+  );
   writeFileSync(join(checkout, ".gitattributes"), "* filter=evil\n");
   writeFileSync(join(checkout, "tracked.txt"), "touched again\n");
   const previous = process.env.GIT_CONFIG_GLOBAL;
   process.env.GIT_CONFIG_GLOBAL = globalConfig;
   try {
     await startCheckout(run, checkout, project, "g1");
-    writeFileSync(join(checkout, "tracked.txt"), "touched during capture test\n");
+    writeFileSync(
+      join(checkout, "tracked.txt"),
+      "touched during capture test\n",
+    );
     await completeCheckout(run.id);
     const detail = checkoutDetail(owner, run.id)!;
     expect(detail.state).toBe("captured");
@@ -477,11 +588,24 @@ it("keeps a recapture request durable when the process stops before claiming it"
   const first = checkoutDetail(owner, run.id)!;
   // The terminal transition records the request in the same transaction.
   expect(transition(run, "completed")).toBe(true);
-  const raw = () => db.prepare("SELECT capture_pending,capture_token FROM run_checkouts WHERE run_id=?").get(run.id) as any;
+  const raw = () =>
+    db
+      .prepare(
+        "SELECT capture_pending,capture_token FROM run_checkouts WHERE run_id=?",
+      )
+      .get(run.id) as any;
   // Simulate the process dying before the asynchronous capture claimed it.
-  for (let i = 0; i < 100 && raw().capture_token === null && raw().capture_pending === 1; i++) await new Promise((r) => setTimeout(r, 5));
-  for (let i = 0; i < 100 && raw().capture_token !== null; i++) await new Promise((r) => setTimeout(r, 20));
-  db.prepare("UPDATE run_checkouts SET capture_pending=1,capture_token=NULL WHERE run_id=?").run(run.id);
+  for (
+    let i = 0;
+    i < 100 && raw().capture_token === null && raw().capture_pending === 1;
+    i++
+  )
+    await new Promise((r) => setTimeout(r, 5));
+  for (let i = 0; i < 100 && raw().capture_token !== null; i++)
+    await new Promise((r) => setTimeout(r, 20));
+  db.prepare(
+    "UPDATE run_checkouts SET capture_pending=1,capture_token=NULL WHERE run_id=?",
+  ).run(run.id);
   await completeCheckout(run.id, { ifIdle: true });
   const recaptured = checkoutDetail(owner, run.id)!;
   expect(recaptured.id).not.toBe(first.id);
@@ -493,13 +617,27 @@ it("recovers an abandoned recapture of an already captured run", async () => {
   bind("thread-abandoned", checkout);
   await startCheckout(run, checkout, project, "g1");
   await completeCheckout(run.id);
-  db.prepare("UPDATE runs SET state='cancelled',updated_at=? WHERE id=?").run(now(), run.id);
-  db.prepare("UPDATE run_checkouts SET capture_token='crashed',capture_started_at=?,capture_pending=1 WHERE run_id=?").run(now() - 600000, run.id);
+  db.prepare("UPDATE runs SET state='cancelled',updated_at=? WHERE id=?").run(
+    now(),
+    run.id,
+  );
+  db.prepare(
+    "UPDATE run_checkouts SET capture_token='crashed',capture_started_at=?,capture_pending=1 WHERE run_id=?",
+  ).run(now() - 600000, run.id);
   // The throttle is per process; reach past it for this check.
   await new Promise((r) => setTimeout(r, 0));
-  const raw = () => db.prepare("SELECT capture_token,capture_pending,state FROM run_checkouts WHERE run_id=?").get(run.id) as any;
+  const raw = () =>
+    db
+      .prepare(
+        "SELECT capture_token,capture_pending,state FROM run_checkouts WHERE run_id=?",
+      )
+      .get(run.id) as any;
   await completeCheckout(run.id, { ifIdle: true });
-  expect(raw()).toMatchObject({ capture_token: null, capture_pending: 0, state: "captured" });
+  expect(raw()).toMatchObject({
+    capture_token: null,
+    capture_pending: 0,
+    state: "captured",
+  });
 });
 
 it("unquotes the paths Git quotes in diff headers", () => {
@@ -516,7 +654,10 @@ it("never runs filters or drivers the repository configures, selects or includes
   bind("thread-repo-drivers", checkout);
   const marker = join(dir, "repo-filter-ran");
   const included = join(dir, "included.gitconfig");
-  writeFileSync(included, `[filter "evil.driver"]\n\tclean = sh -c "touch ${marker}; cat"\n\tprocess = sh -c "touch ${marker}; cat"\n`);
+  writeFileSync(
+    included,
+    `[filter "evil.driver"]\n\tclean = sh -c "touch ${marker}; cat"\n\tprocess = sh -c "touch ${marker}; cat"\n`,
+  );
   git(project, "config", "include.path", included);
   git(project, "config", "filter.evil.clean", `sh -c "touch ${marker}; cat"`);
   git(project, "config", "diff.evil.textconv", `sh -c "touch ${marker}; cat"`);
@@ -535,9 +676,16 @@ it("never runs filters or drivers the repository configures, selects or includes
     expect(detail.working!.files.map((f) => f.path)).toContain("tracked.txt");
     expect(existsSync(marker)).toBe(false);
     // The repository itself was only read: its index and refs are untouched.
-    expect(git(checkout, "status", "--porcelain")).toMatch(/^ ?M tracked.txt$/m);
+    expect(git(checkout, "status", "--porcelain")).toMatch(
+      /^ ?M tracked.txt$/m,
+    );
   } finally {
-    for (const key of ["include.path", "filter.evil.clean", "diff.evil.textconv", "core.fsmonitor"])
+    for (const key of [
+      "include.path",
+      "filter.evil.clean",
+      "diff.evil.textconv",
+      "core.fsmonitor",
+    ])
       git(project, "config", "--unset", key);
     rmSync(join(info, "attributes"));
     rmSync(join(checkout, ".gitattributes"));
@@ -568,7 +716,12 @@ it("follows the branch's tracking configuration to its remote-tracking ref", asy
   const branch = git(checkout, "symbolic-ref", "--short", "HEAD");
   const base = git(project, "rev-parse", "HEAD");
   // A mixed-case remote name: Git keeps the case of subsection names.
-  git(project, "config", "remote.Company.fetch", "+refs/heads/*:refs/remotes/Company/*");
+  git(
+    project,
+    "config",
+    "remote.Company.fetch",
+    "+refs/heads/*:refs/remotes/Company/*",
+  );
   git(project, "config", `branch.${branch}.remote`, "Company");
   git(project, "config", `branch.${branch}.merge`, "refs/heads/release");
   git(project, "update-ref", "refs/remotes/Company/release", base);
@@ -577,7 +730,11 @@ it("follows the branch's tracking configuration to its remote-tracking ref", asy
     await completeCheckout(run.id);
     const detail = checkoutDetail(owner, run.id)!;
     expect(detail.error).toBeNull();
-    expect(detail.remote).toMatchObject({ ref: "refs/remotes/Company/release", sha: base, contains_head: false });
+    expect(detail.remote).toMatchObject({
+      ref: "refs/remotes/Company/release",
+      sha: base,
+      contains_head: false,
+    });
     expect(detail.summary!.remote).toBe("missing");
   } finally {
     git(project, "config", "--remove-section", `branch.${branch}`);
@@ -597,7 +754,10 @@ it("reports an unanswerable ancestry check as unknown, not as absent", async () 
     await startCheckout(run, checkout, project, "g1");
     await completeCheckout(run.id);
     const detail = checkoutDetail(owner, run.id)!;
-    expect(detail.remote).toMatchObject({ ref: `refs/remotes/origin/${branch}`, contains_head: null });
+    expect(detail.remote).toMatchObject({
+      ref: `refs/remotes/origin/${branch}`,
+      contains_head: null,
+    });
     expect(detail.summary!.remote).toBe("unknown");
     expect(checkoutLine(detail.summary!)).toContain("remote state unknown");
   } finally {
@@ -659,7 +819,15 @@ it("keys every chunk of a stored patch by the path numstat reports", () => {
     "",
   ].join("\n");
   const chunks = patchByFile(patch);
-  expect([...chunks.keys()]).toEqual(["src/a.ts", "new name.txt", "bin/run.sh", "gone.txt", "notes\tdraft.txt", "now\tthat.txt", "x\ty.sh"]);
+  expect([...chunks.keys()]).toEqual([
+    "src/a.ts",
+    "new name.txt",
+    "bin/run.sh",
+    "gone.txt",
+    "notes\tdraft.txt",
+    "now\tthat.txt",
+    "x\ty.sh",
+  ]);
   expect(chunks.get("src/a.ts")).toContain("+new");
   expect(chunks.get("new name.txt")).toContain("rename to new name.txt");
   expect(chunks.get("bin/run.sh")).toContain("new mode 100755");
@@ -679,7 +847,17 @@ it("compares the working tree the way the repository does, line endings included
   git(checkout, "checkout", "--", "crlf.txt");
   try {
     expect(git(checkout, "status", "--porcelain", "--", "crlf.txt")).toBe("");
-    expect(git(checkout, "-c", "core.autocrlf=false", "status", "--porcelain", "--", "crlf.txt")).toBe("M crlf.txt");
+    expect(
+      git(
+        checkout,
+        "-c",
+        "core.autocrlf=false",
+        "status",
+        "--porcelain",
+        "--",
+        "crlf.txt",
+      ),
+    ).toBe("M crlf.txt");
     await startCheckout(run, checkout, project, "g1");
     await completeCheckout(run.id);
     const detail = checkoutDetail(owner, run.id)!;
@@ -696,7 +874,10 @@ it("honours line-ending attributes, exclusions and worktree-scoped settings", as
   const run = runFixture("thread-attrs-excl");
   bind("thread-attrs-excl", checkout);
   // A CRLF file selected by a text attribute, checked out as CRLF.
-  writeFileSync(join(checkout, ".gitattributes"), "*.win text eol=crlf\n*.bin filter=lfs\n");
+  writeFileSync(
+    join(checkout, ".gitattributes"),
+    "*.win text eol=crlf\n*.bin filter=lfs\n",
+  );
   writeFileSync(join(checkout, "readme.win"), "one\ntwo\n");
   writeFileSync(join(checkout, "blob.bin"), "pointer\n");
   git(checkout, "add", ".gitattributes", "readme.win", "blob.bin");
@@ -714,15 +895,19 @@ it("honours line-ending attributes, exclusions and worktree-scoped settings", as
   writeFileSync(join(checkout, "blob.bin"), "expanded content\n");
   try {
     await startCheckout(run, checkout, project, "g1");
-    writeFileSync(join(checkout, "blob.bin"), "expanded content\nchanged during run\n");
+    writeFileSync(
+      join(checkout, "blob.bin"),
+      "expanded content\nchanged during run\n",
+    );
     await completeCheckout(run.id);
     const detail = checkoutDetail(owner, run.id)!;
     expect(detail.error).toBeNull();
-    expect(detail.working!.files.map((f) => f.path)).not.toContain("readme.win");
+    expect(detail.working!.files.map((f) => f.path)).not.toContain(
+      "readme.win",
+    );
     expect(detail.untracked).not.toContain("build/out.js");
     const blob = detail.working!.files.find((f) => f.path === "blob.bin");
     expect(blob?.filtered).toBe(true);
-
   } finally {
     git(checkout, "config", "--worktree", "--unset", "core.autocrlf");
     git(project, "config", "--unset", "extensions.worktreeConfig");
@@ -758,7 +943,9 @@ it("carries the user's own line-ending setting while hiding the rest of their co
     const detail = checkoutDetail(owner, run.id)!;
     expect(detail.error).toBeNull();
     // Compared with the user's autocrlf, so only the added line counts.
-    expect(detail.working!.files.find((f) => f.path === "global.txt")).toMatchObject({ additions: 1, deletions: 0, filtered: true });
+    expect(
+      detail.working!.files.find((f) => f.path === "global.txt"),
+    ).toMatchObject({ additions: 1, deletions: 0, filtered: true });
     expect(existsSync(marker)).toBe(false);
   } finally {
     if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
@@ -799,7 +986,10 @@ it("keeps a run baseline usable even when the source checkout disappears", async
   await completeCheckout(run.id);
   expect(checkoutDetail(owner, run.id)!.ahead).not.toBeNull();
   // The project checkout can no longer be read when the run ends again.
-  db.prepare("UPDATE run_checkouts SET source=? WHERE run_id=?").run(join(dir, "vanished"), run.id);
+  db.prepare("UPDATE run_checkouts SET source=? WHERE run_id=?").run(
+    join(dir, "vanished"),
+    run.id,
+  );
   await completeCheckout(run.id);
   const detail = checkoutDetail(owner, run.id)!;
   expect(detail.state).toBe("captured");
@@ -813,9 +1003,15 @@ it("drops the capture request of a run whose start was never captured", async ()
   const nowhere = join(dir, "not-a-repo-either");
   mkdirSync(nowhere);
   await startCheckout(run, nowhere, nowhere, null);
-  db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(run.id);
+  db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(
+    run.id,
+  );
   await completeCheckout(run.id, { ifIdle: true });
-  expect(db.prepare("SELECT capture_pending FROM run_checkouts WHERE run_id=?").get(run.id)).toEqual({ capture_pending: 0 });
+  expect(
+    db
+      .prepare("SELECT capture_pending FROM run_checkouts WHERE run_id=?")
+      .get(run.id),
+  ).toEqual({ capture_pending: 0 });
 });
 
 it("records a capture failure on the run instead of raising it", async () => {

@@ -61,7 +61,11 @@ function serveRuntime(chunks: object[]) {
   vi.stubGlobal("fetch", async (url: string) => {
     expect(url).toBe("http://runtime.fixture/runtime");
     const body =
-      [...chunks.map((chunk) => ({ chunk })), { chunk: { text: "Done." } }, { done: true }]
+      [
+        ...chunks.map((chunk) => ({ chunk })),
+        { chunk: { text: "Done." } },
+        { done: true },
+      ]
         .map((event) => JSON.stringify(event))
         .join("\n") + "\n";
     return new Response(body);
@@ -83,7 +87,9 @@ async function runTurn(agentId: string, conversationId?: string) {
 }
 
 const byKind = (conversation: string, kind: string) =>
-  listActivities("alice", conversation).items.filter((i: any) => i.kind === kind);
+  listActivities("alice", conversation).items.filter(
+    (i: any) => i.kind === kind,
+  );
 
 // Codex app-server notifications for one turn (shapes from codex app-server
 // v2 item/started, item/completed and turn/plan/updated).
@@ -105,7 +111,13 @@ const codexTurn = (turnId: string) => [
     params: {
       threadId: "t",
       turnId,
-      item: { id: "cmd-1", type: "commandExecution", command: "npm test", cwd: "/work", status: "inProgress" },
+      item: {
+        id: "cmd-1",
+        type: "commandExecution",
+        command: "npm test",
+        cwd: "/work",
+        status: "inProgress",
+      },
     },
   },
   {
@@ -134,9 +146,17 @@ const codexTurn = (turnId: string) => [
         type: "fileChange",
         status: "completed",
         changes: [
-          { path: "src/parser.ts", kind: { type: "update", move_path: null }, diff: "@@ -1 +1 @@\n-a\n+b\n" },
+          {
+            path: "src/parser.ts",
+            kind: { type: "update", move_path: null },
+            diff: "@@ -1 +1 @@\n-a\n+b\n",
+          },
           { path: "src/new.ts", kind: { type: "add" }, diff: "+export {};\n" },
-          { path: "src/old.ts", kind: { type: "update", move_path: "src/renamed.ts" }, diff: "" },
+          {
+            path: "src/old.ts",
+            kind: { type: "update", move_path: "src/renamed.ts" },
+            diff: "",
+          },
         ],
       },
     },
@@ -149,34 +169,103 @@ const codexChunks = (turnId: string) =>
     return [...(trace ? [{ trace }] : []), ...(activity ? [{ activity }] : [])];
   });
 
-it.each(["codex", "anthropic"] as const)("automatically registers PR creation from the %s subscription executor", async provider => {
-  const { withGithubFixture } = await import("../src/server/pr-watches");
-  db.prepare("INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,'alice','GitHub','https://api.githubcopilot.com/mcp/',?,'connected','{}',?)")
-    .run(id(), seal(JSON.stringify({ type: "bearer", token: "fixture" }), "alice"), now());
-  let release!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  const restore = withGithubFixture(async () => {
-    await gate;
-    return new Response(JSON.stringify({ state: "open", created_at: new Date(now()).toISOString(), head: { sha: "a".repeat(40) } }));
-  });
-  const agent = subscriptionAgent(provider);
-  const url = "https://github.com/acme/api/pull/42";
-  let chunks: object[];
-  if (provider === "codex") chunks = [{ activity: codexActivity({ method: "item/completed", params: {
-    threadId: "native", turnId: "turn", item: { id: "created", type: "commandExecution", command: "gh pr create --fill", aggregatedOutput: url, status: "completed", exitCode: 0 },
-  } }) }];
-  else chunks = [
-    { activity: { harness: "claude", block: { type: "tool_use", id: "created", name: "Bash", input: { command: "gh pr create --fill" } } } },
-    { activity: { harness: "claude", block: { type: "tool_result", tool_use_id: "created", content: url, is_error: false } } },
-  ];
-  try {
-    serveRuntime(chunks);
-    const run = await runTurn(agent.id);
-    release(); // A GitHub request still in flight did not prevent the turn finishing.
-    await expect.poll(() => db.prepare("SELECT conversation_id,agent_id,number,state FROM pr_watches WHERE conversation_id=?").get(run.conversation_id))
-      .toEqual({ conversation_id: run.conversation_id, agent_id: agent.id, number: 42, state: "watching" });
-  } finally { release(); restore(); }
-});
+it.each(["codex", "anthropic"] as const)(
+  "automatically registers PR creation from the %s subscription executor",
+  async (provider) => {
+    const { withGithubFixture } = await import("../src/server/pr-watches");
+    db.prepare(
+      "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,'alice','GitHub','https://api.githubcopilot.com/mcp/',?,'connected','{}',?)",
+    ).run(
+      id(),
+      seal(JSON.stringify({ type: "bearer", token: "fixture" }), "alice"),
+      now(),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const restore = withGithubFixture(async () => {
+      await gate;
+      return new Response(
+        JSON.stringify({
+          state: "open",
+          created_at: new Date(now()).toISOString(),
+          head: { sha: "a".repeat(40) },
+        }),
+      );
+    });
+    const agent = subscriptionAgent(provider);
+    const url = "https://github.com/acme/api/pull/42";
+    let chunks: object[];
+    if (provider === "codex")
+      chunks = [
+        {
+          activity: codexActivity({
+            method: "item/completed",
+            params: {
+              threadId: "native",
+              turnId: "turn",
+              item: {
+                id: "created",
+                type: "commandExecution",
+                command: "gh pr create --fill",
+                aggregatedOutput: url,
+                status: "completed",
+                exitCode: 0,
+              },
+            },
+          }),
+        },
+      ];
+    else
+      chunks = [
+        {
+          activity: {
+            harness: "claude",
+            block: {
+              type: "tool_use",
+              id: "created",
+              name: "Bash",
+              input: { command: "gh pr create --fill" },
+            },
+          },
+        },
+        {
+          activity: {
+            harness: "claude",
+            block: {
+              type: "tool_result",
+              tool_use_id: "created",
+              content: url,
+              is_error: false,
+            },
+          },
+        },
+      ];
+    try {
+      serveRuntime(chunks);
+      const run = await runTurn(agent.id);
+      release(); // A GitHub request still in flight did not prevent the turn finishing.
+      await expect
+        .poll(() =>
+          db
+            .prepare(
+              "SELECT conversation_id,agent_id,number,state FROM pr_watches WHERE conversation_id=?",
+            )
+            .get(run.conversation_id),
+        )
+        .toEqual({
+          conversation_id: run.conversation_id,
+          agent_id: agent.id,
+          number: 42,
+          state: "watching",
+        });
+    } finally {
+      release();
+      restore();
+    }
+  },
+);
 
 it("maps Codex runtime command, file and plan results into shared activities", async () => {
   const agent = subscriptionAgent("codex");
@@ -186,17 +275,27 @@ it("maps Codex runtime command, file and plan results into shared activities", a
 
   const [output] = byKind(conversation, "output");
   expect(output.run).toBe(run.id);
-  expect(output.record.source).toEqual({ transport: "api", harness: "codex", origin: "codex:runtime" });
+  expect(output.record.source).toEqual({
+    transport: "api",
+    harness: "codex",
+    origin: "codex:runtime",
+  });
   expect(output.record.data).toMatchObject({
     command: "npm test",
     cwd: "/work",
     status: "exited",
     exitCode: 1,
   });
-  expect(output.record.data.chunks.map((c: any) => c.text).join("")).toBe("FAIL parser.test.ts\n");
+  expect(output.record.data.chunks.map((c: any) => c.text).join("")).toBe(
+    "FAIL parser.test.ts\n",
+  );
 
-  const files = byKind(conversation, "file_change").map((i: any) => i.record.data);
-  expect(files.map((f: any) => [f.state, f.files[0].operation, f.files[0].path])).toEqual([
+  const files = byKind(conversation, "file_change").map(
+    (i: any) => i.record.data,
+  );
+  expect(
+    files.map((f: any) => [f.state, f.files[0].operation, f.files[0].path]),
+  ).toEqual([
     ["applied", "modify", "src/parser.ts"],
     ["applied", "create", "src/new.ts"],
     ["applied", "rename", "src/renamed.ts"],
@@ -206,8 +305,14 @@ it("maps Codex runtime command, file and plan results into shared activities", a
 
   const plans = byKind(conversation, "plan").map((i: any) => i.record);
   expect(plans).toHaveLength(1);
-  expect(plans[0].data).toMatchObject({ explanation: "Reproduce, then fix", revision: 1 });
-  expect(plans[0].data.steps.map((s: any) => s.status)).toEqual(["completed", "in_progress"]);
+  expect(plans[0].data).toMatchObject({
+    explanation: "Reproduce, then fix",
+    revision: 1,
+  });
+  expect(plans[0].data.steps.map((s: any) => s.status)).toEqual([
+    "completed",
+    "in_progress",
+  ]);
 
   // The runtime's text traces stay as tool cards; activities are additional
   // typed panels, not a second tool card for the same invocation.
@@ -224,10 +329,12 @@ it("maps Codex runtime command, file and plan results into shared activities", a
 
   // A later turn with an older runtime (text traces only) keeps what this
   // conversation's runtime already demonstrated instead of flapping.
-  serveRuntime(codexTurn("turn-2").flatMap((m) => {
-    const trace = codexTrace(m);
-    return trace ? [{ trace }] : [];
-  }));
+  serveRuntime(
+    codexTurn("turn-2").flatMap((m) => {
+      const trace = codexTrace(m);
+      return trace ? [{ trace }] : [];
+    }),
+  );
   const second = await runTurn(agent.id, conversation);
   expect(second.conversation_id).toBe(conversation);
   expect(byKind(conversation, "output")).toHaveLength(1);
@@ -237,7 +344,9 @@ it("maps Codex runtime command, file and plan results into shared activities", a
 
 it("reports structured features as undiscovered until the runtime sends them", async () => {
   const agent = subscriptionAgent("codex");
-  serveRuntime([{ trace: { id: "x", kind: "tool", title: "Run command", content: "ls" } }]);
+  serveRuntime([
+    { trace: { id: "x", kind: "tool", title: "Run command", content: "ls" } },
+  ]);
   const run = await runTurn(agent.id);
   const [caps] = byKind(run.conversation_id!, "capabilities");
   expect(caps.record.capabilities.output).toMatchObject({
@@ -258,10 +367,32 @@ it("maps correlated Claude Code Bash, Write and TodoWrite blocks only", async ()
       message: {
         id: "m1",
         content: [
-          { type: "tool_use", id: "todo-1", name: "TodoWrite", input: { todos: [{ content: "Write notes", status: "in_progress" }] } },
-          { type: "tool_use", id: "bash-1", name: "Bash", input: { command: "ls -la" } },
-          { type: "tool_use", id: "write-1", name: "Write", input: { file_path: "notes.md", content: "# Notes\n" } },
-          { type: "tool_use", id: "read-1", name: "Read", input: { file_path: "secret.txt" } },
+          {
+            type: "tool_use",
+            id: "todo-1",
+            name: "TodoWrite",
+            input: {
+              todos: [{ content: "Write notes", status: "in_progress" }],
+            },
+          },
+          {
+            type: "tool_use",
+            id: "bash-1",
+            name: "Bash",
+            input: { command: "ls -la" },
+          },
+          {
+            type: "tool_use",
+            id: "write-1",
+            name: "Write",
+            input: { file_path: "notes.md", content: "# Notes\n" },
+          },
+          {
+            type: "tool_use",
+            id: "read-1",
+            name: "Read",
+            input: { file_path: "secret.txt" },
+          },
         ],
       },
     },
@@ -269,9 +400,21 @@ it("maps correlated Claude Code Bash, Write and TodoWrite blocks only", async ()
       type: "user",
       message: {
         content: [
-          { type: "tool_result", tool_use_id: "bash-1", content: [{ type: "text", text: "total 0\n" }] },
-          { type: "tool_result", tool_use_id: "write-1", content: "File created" },
-          { type: "tool_result", tool_use_id: "read-1", content: "unrelated file body" },
+          {
+            type: "tool_result",
+            tool_use_id: "bash-1",
+            content: [{ type: "text", text: "total 0\n" }],
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "write-1",
+            content: "File created",
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "read-1",
+            content: "unrelated file body",
+          },
         ],
       },
     },
@@ -281,25 +424,43 @@ it("maps correlated Claude Code Bash, Write and TodoWrite blocks only", async ()
     ...claudeActivities(m, pending).map((activity) => ({ activity })),
   ]);
   // Read and its result never leave the runtime as structured data.
-  expect(JSON.stringify(chunks.filter((c: any) => c.activity))).not.toContain("unrelated file body");
+  expect(JSON.stringify(chunks.filter((c: any) => c.activity))).not.toContain(
+    "unrelated file body",
+  );
   serveRuntime(chunks);
   const run = await runTurn(agent.id);
   const conversation = run.conversation_id!;
   const [output] = byKind(conversation, "output");
-  expect(output.record.data).toMatchObject({ command: "ls -la", status: "exited" });
+  expect(output.record.data).toMatchObject({
+    command: "ls -la",
+    status: "exited",
+  });
   expect(output.record.data.chunks[0].text).toBe("total 0\n");
   const [file] = byKind(conversation, "file_change");
-  expect(file.record.data.files[0]).toMatchObject({ path: "notes.md", after: "# Notes\n" });
+  expect(file.record.data.files[0]).toMatchObject({
+    path: "notes.md",
+    after: "# Notes\n",
+  });
   expect(file.record.data.state).toBe("applied");
   const [plan] = byKind(conversation, "plan");
-  expect(plan.record.data.steps[0]).toMatchObject({ title: "Write notes", status: "in_progress" });
+  expect(plan.record.data.steps[0]).toMatchObject({
+    title: "Write notes",
+    status: "in_progress",
+  });
 });
 
 it("bounds runtime payloads before they cross the NDJSON transport", () => {
   const huge = "x".repeat(300_000);
   const command = codexActivity({
     method: "item/completed",
-    params: { item: { id: "c", type: "commandExecution", status: "completed", aggregatedOutput: "start" + huge } },
+    params: {
+      item: {
+        id: "c",
+        type: "commandExecution",
+        status: "completed",
+        aggregatedOutput: "start" + huge,
+      },
+    },
   })!;
   expect((command as any).params.item.aggregatedOutput).toHaveLength(48_001);
   const files = codexActivity({
@@ -309,14 +470,20 @@ it("bounds runtime payloads before they cross the NDJSON transport", () => {
         id: "f",
         type: "fileChange",
         status: "completed",
-        changes: Array.from({ length: 150 }, (_, i) => ({ path: `f${i}.ts`, kind: { type: "update" }, diff: huge })),
+        changes: Array.from({ length: 150 }, (_, i) => ({
+          path: `f${i}.ts`,
+          kind: { type: "update" },
+          diff: huge,
+        })),
       },
     },
   })!;
   const changes = (files as any).params.item.changes;
   expect(changes).toHaveLength(100);
   // Diffs past the per-event budget are omitted (shown as unavailable).
-  expect(changes.filter((c: any) => c.diff === undefined).length).toBeGreaterThan(0);
+  expect(
+    changes.filter((c: any) => c.diff === undefined).length,
+  ).toBeGreaterThan(0);
   expect(JSON.stringify(files).length).toBeLessThan(2_000_000);
 });
 
@@ -324,7 +491,12 @@ it("provider-key runs cannot inject structured results and report why", async ()
   const connection = id();
   db.prepare(
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Key',?,'connected',?,?)",
-  ).run(connection, seal("fixture", "alice"), JSON.stringify([{ id: "fixture" }]), now());
+  ).run(
+    connection,
+    seal("fixture", "alice"),
+    JSON.stringify([{ id: "fixture" }]),
+    now(),
+  );
   const agent = createAgent("alice", {
     name: "key-" + id().slice(0, 8),
     connectionId: connection,
@@ -346,9 +518,18 @@ it("provider-key runs cannot inject structured results and report why", async ()
     expect(byKind(conversation, "output")).toEqual([]);
     const [caps] = byKind(conversation, "capabilities");
     expect(caps.record.capabilities).toMatchObject({
-      diffs: { state: "unsupported", reason: expect.stringContaining("tool broker") },
-      output: { state: "unsupported", reason: expect.stringContaining("tool broker") },
-      commands: { state: "unsupported", reason: expect.stringContaining("provider API key") },
+      diffs: {
+        state: "unsupported",
+        reason: expect.stringContaining("tool broker"),
+      },
+      output: {
+        state: "unsupported",
+        reason: expect.stringContaining("tool broker"),
+      },
+      commands: {
+        state: "unsupported",
+        reason: expect.stringContaining("provider API key"),
+      },
     });
   } finally {
     restore();
