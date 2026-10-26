@@ -8,6 +8,15 @@ const card = (n: number) => ({
   content: `Result ${n}`,
 });
 type Item = ReturnType<typeof card>;
+it("retains distinct replies to the same question across a history refresh", async () => {
+  const items = Array.from({ length: 45 }, (_, index) => ({
+    conversation_id: "thread", reply_card_key: `reply:${45 - index}`, last_activity_at: 45 - index,
+  }));
+  const refreshed = await refreshDonePage(async before => ({
+    items: before ? items.slice(40) : items.slice(0, 40), next: before ? null : "older",
+  }), { items, next: null }, undefined, () => true);
+  expect(refreshed.page.items).toEqual(items);
+});
 const history = (count: number) => Array.from({ length: count }, (_, i) => card(count - i));
 function server(items: Item[]) {
   const calls: (string | undefined)[] = [];

@@ -249,7 +249,8 @@ it("includes a follow-up racing with completion in the same run and starts fresh
           steer: true,
         });
       } else {
-        expect(input.messages.at(-1)?.content).toBe("Also check tests");
+        expect(input.messages.at(-1)?.content).toContain("Also check tests");
+        expect(input.messages.at(-1)?.content).toContain("loop_reply");
         yield { text: "Tests checked" };
       }
     },

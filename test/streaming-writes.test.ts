@@ -65,7 +65,7 @@ const restore = withTestAdapter("openai", {
         statements: after - before,
         preview: String(artifact?.content ?? ""),
         artifact: stored.content,
-        projected: shadowFeed("alice", { filter: "working" }).items[0].live_preview,
+        projected: shadowFeed("alice", { filter: "working" }).items[0].live_preview ?? null,
       });
     }
   },

@@ -1,4 +1,5 @@
 import { FeedEntities } from "./feed-projection.js";
+import { ReplyContext, ReplyState } from "./steering-replies.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
@@ -79,8 +80,9 @@ export const Bootstrap = z.object({
 });
 export type Bootstrap = z.infer<typeof Bootstrap>;
 
-export const FEED_FILTERS = ["all", "done", "needs", "working", "queued", "later", "outcomes", "unfinished"] as const;
+export const FEED_FILTERS = ["all", "done", "replies", "needs", "working", "queued", "later", "outcomes", "unfinished"] as const;
 export const FeedItem = DoneDisplaySchema.extend({
+  reply_card_key: Text.optional(), reply: ReplyContext.optional(),
   // Missing means this source cannot report PR state; null means no watch.
   pull: DoneDisplaySchema.shape.pull.optional(),
   last_activity_at: Time,
@@ -94,7 +96,7 @@ export const FeedItem = DoneDisplaySchema.extend({
 });
 export const FeedPage = z.object({
   items: z.array(FeedItem), next: MaybeText,
-  summary: z.object({ needs: z.number(), working: z.number(), queued: z.number(), later_due: z.number(), social_unread: z.number().optional(), scheduled_failed: z.number().optional(), scheduled_pending: z.number().optional() }),
+  summary: z.object({ needs: z.number(), working: z.number(), queued: z.number(), later_due: z.number(), replies_unread: z.number().optional(), social_unread: z.number().optional(), scheduled_failed: z.number().optional(), scheduled_pending: z.number().optional() }),
   projection: WorkspaceClock.optional(),
   projectionRows: FeedEntities.optional(),
 });
@@ -186,6 +188,7 @@ export const workspaceApi = {
   personalPrompts: endpoint({ ...base, method: "GET", path: "/me/prompts", query: PersonalPromptsQuery, response: PersonalPromptsPage }),
   conversationPosition: endpoint({ ...base, method: "PUT", path: "/conversations/:id/position", params: Id, body: mobile.PositionInput, response: z.object({ position_message_id: MaybeText }) }),
   feedUpdate: endpoint({ ...base, method: "PATCH", path: "/feed/:id", params: Id, body: mobile.FeedUpdateInput, response: Ok }),
+  replyState: endpoint({ ...base, method: "PATCH", path: "/replies/:id", params: Id, body: ReplyState, response: Ok }),
   feedAway: endpoint({ ...base, method: "GET", path: "/feed/away", query: z.object({ since: NumberCursor.default(0) }), response: mobile.PublicAway }),
   messageSave: endpoint({ ...base, method: "POST", path: "/messages/:id/saved", params: Id, body: z.unknown(), response: Ok.extend({ saved: z.boolean() }) }),
   messageUnsave: endpoint({ ...base, method: "DELETE", path: "/messages/:id/saved", params: Id, body: z.unknown(), response: Ok.extend({ saved: z.boolean() }) }),

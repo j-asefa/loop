@@ -614,7 +614,8 @@
       "later_due": 1,
       "social_unread": 0,
       "scheduled_failed": 0,
-      "scheduled_pending": 0
+      "scheduled_pending": 0,
+      "replies_unread": 0
     }
   }
 }

@@ -4,6 +4,7 @@ import { workspaceApi } from "../shared/workspace-api.js";
 import { runResponse } from "./row-schemas.js";
 import { projectionSnapshot } from "./projection-snapshot.js";
 import { feedProjection } from "./feed-projection.js";
+import { setReplyState } from "./steering-replies.js";
 import type { z } from "zod";
 import { teamFilter } from "./teams.js";
 import {
@@ -52,6 +53,9 @@ routes.on(workspaceApi.feed, (req, res) => {
 }, { wrap: projectionSnapshot });
 routes.on(workspaceApi.feedUpdate, (req, res) =>
   res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),
+);
+routes.on(workspaceApi.replyState, (req, res) =>
+  res.json(setReplyState(res.locals.owner, req.params.id, req.body)),
 );
 routes.on(workspaceApi.feedAway, (req, res) =>
   res.json(

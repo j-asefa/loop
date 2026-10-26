@@ -588,7 +588,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       JSON.stringify(history),
       run.id,
     );
-  });
+  }, !snapshot.workflowRun && !snapshot.reviewId);
   const persist = db.transaction((partial: boolean) => {
     const metadata = JSON.stringify(MessageMetadata.parse({
       ...snapshot,

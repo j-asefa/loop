@@ -1,6 +1,7 @@
 export type DonePosition = {
   conversation_id: string;
   done_card_key?: string;
+  reply_card_key?: string;
   last_activity_at: number;
 };
 export type DoneRefresh = { before: string; after: DonePosition };
@@ -8,9 +9,9 @@ const descendingId = (a: string, b: string) => (a === b ? 0 : a < b ? 1 : -1);
 export const feedItemOrder = (a: DonePosition, b: DonePosition) =>
   b.last_activity_at - a.last_activity_at ||
   descendingId(a.conversation_id, b.conversation_id) ||
-  descendingId(a.done_card_key || "", b.done_card_key || "");
+  descendingId(a.reply_card_key || a.done_card_key || "", b.reply_card_key || b.done_card_key || "");
 const key = (item: DonePosition) =>
-  JSON.stringify([item.conversation_id, item.done_card_key ?? null]);
+  JSON.stringify([item.conversation_id, item.reply_card_key ?? item.done_card_key ?? null]);
 type Page<T> = { items: T[]; next: string | null };
 
 /** Refresh the newest page and one page of loaded history per source. Each

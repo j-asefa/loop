@@ -7,6 +7,7 @@ import type { Run } from "./queue.js";
 import type { ChatMessage } from "./providers.js";
 import { attachmentPrompt } from "./uploads.js";
 import { replyPrompt } from "../shared/replies.js";
+import { steeredReplyPrompt } from "../shared/steering-replies.js";
 import { RUN_LIVE_INPUT_SQL } from "./native-connections.js";
 import { NotDelivered } from "../adapters/types.js";
 
@@ -77,12 +78,13 @@ export function saveSteering(
   return { ...run, steeringId };
 }
 
-function message(input: Input): ChatMessage {
+function message(input: Input, replyToolAvailable: boolean): ChatMessage {
   const metadata = JSON.parse(input.metadata);
+  const content = replyPrompt(input.content, metadata.replyTo);
   return {
     role: "user",
     content: attachmentPrompt(
-      replyPrompt(input.content, metadata.replyTo),
+      !metadata.automation && replyToolAvailable ? steeredReplyPrompt(content, input.message_id) : content,
       metadata.attachments || [],
     ),
     attachments: metadata.attachments || [],
@@ -97,6 +99,7 @@ export class SteeringInbox {
   constructor(
     private run: Run,
     private delivered: (message: ChatMessage) => void = () => {},
+    private replyToolAvailable = false,
   ) {}
   private pending() {
     return db
@@ -131,7 +134,7 @@ export class SteeringInbox {
       let retryLater = false;
       this.busy = (async () => {
         try {
-          const value = message(input);
+          const value = message(input, this.replyToolAvailable);
           await deliver(value, input.id);
           db.transaction(() => {
             this.delivered(value);
@@ -175,7 +178,7 @@ export class SteeringInbox {
   appendPending(history: ChatMessage[]) {
     const pending = this.pending();
     for (const input of pending) {
-      history.push(message(input));
+      history.push(message(input, this.replyToolAvailable));
       this.receipt(input, "delivered");
     }
     return pending.length;

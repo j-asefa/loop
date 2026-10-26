@@ -157,7 +157,7 @@ export function savePosition(
 // ---------------------------------------------------------------------------
 // 2. Inbox
 export { FEED_FILTERS } from "../shared/workspace-api.js";
-import { FEED_FILTERS } from "../shared/workspace-api.js";
+import { FEED_FILTERS, type FeedPage } from "../shared/workspace-api.js";
 // One Feed card's state, read from the columns migration 078 keeps current on
 // each conversation, plus what the card shows, fetched for the page only.
 type FeedRow = {
@@ -333,7 +333,7 @@ function readFeed(
     before?: string;
   },
   shadow = false,
-) {
+): FeedPage {
   if (options.agent) ownedAgent(options.agent, owner);
   const filter = options.filter || "all";
   // Older open tabs key and paginate by conversation. Only clients that
@@ -371,8 +371,10 @@ function readFeed(
     after: cursor?.[1] ?? null,
     afterCard: cursor?.[2] ?? null,
   };
+  const replyPage = filter === "replies" ? readReplyFeed(params) : undefined;
   const sql = feedSql(!!teams, !!folders, !!options.agent);
   const where = {
+    replies: "0",
     all: "NOT snoozed",
     // Completed results remain until individually dismissed, including when
     // newer work finishes or the conversation is snoozed. Threads without a
@@ -439,8 +441,8 @@ page AS MATERIALIZED (
     .get(owner) as { failed: number; pending: number };
   const last = rows.at(-1);
   return {
-    items: projected ? projected.slice(0,40).map(item => item.display) : rows.map((row) => feedItem(owner, row, mode)),
-    next:
+    items: replyPage ? replyPage.items : projected ? projected.slice(0,40).map(item => item.display) : rows.map((row) => feedItem(owner, row, mode)),
+    next: replyPage ? replyPage.next :
       more && last
         ? encode(
             results
@@ -452,11 +454,73 @@ page AS MATERIALIZED (
       needs: summary.needs,
       working: summary.working,
       queued: summary.queued,
+      replies_unread: replyUnread(params),
       later_due: laterDue.n,
       social_unread: unreadCount(owner),
       scheduled_failed: scheduled.failed,
       scheduled_pending: scheduled.pending,
     },
+  };
+}
+
+type ReplyScope = {
+  owner: string; teams: string | null; folders: string | null; agent: string | null;
+};
+const replyFolder = "CASE WHEN json_type(r.payload,'$.folderId') IS NOT NULL THEN json_extract(r.payload,'$.folderId') ELSE c.project_id END";
+const replyScopeSql = `FROM steering_replies p
+  JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id
+  JOIN run_steering s ON s.id=p.steering_id AND s.owner_id=p.owner_id
+  JOIN messages q ON q.id=s.message_id AND q.owner_id=p.owner_id
+  JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=p.owner_id
+  JOIN runs r ON r.id=m.run_id AND r.owner_id=p.owner_id
+  WHERE p.owner_id=@owner AND p.archived_at IS NULL
+    AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
+    AND (@agent IS NULL OR r.agent_id=@agent)
+    AND (@folders IS NULL OR ${replyFolder} IN (SELECT value FROM json_each(@folders))
+      OR (${replyFolder} IS NULL AND EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS NULL)))`;
+
+function replyUnread(scope: ReplyScope) {
+  return (db.prepare(`SELECT count(*) n ${replyScopeSql} AND p.read_at IS NULL`).get(scope) as { n: number }).n;
+}
+
+function readReplyFeed(scope: ReplyScope & { at: number | null; after: string | null; afterCard: string | null }) {
+  const rows = db.prepare(`SELECT p.message_id,p.created_at,p.read_at,q.id question_id,substr(q.content,1,1000) question,
+    substr(m.content,1,1000) content,c.id conversation_id,c.title,c.origin,c.team_id,r.agent_id,
+    ${replyFolder} folder_id,r.id run_id,r.state,r.error,r.input,r.created_at run_created_at,r.updated_at,
+    json_extract(r.payload,'$.connectionId') connection_id,json_extract(r.payload,'$.model') model,
+    json_extract(r.payload,'$.resolvedModel') resolved_model,json_extract(r.payload,'$.provider') provider,
+    COALESCE(json_extract(r.payload,'$.name'),(SELECT name FROM agents WHERE id=r.agent_id AND owner_id=@owner)) agent_name,
+    EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id) saved
+    ${replyScopeSql}
+      AND (@at IS NULL OR (p.created_at,c.id,'reply:'||p.message_id)<(@at,@after,@afterCard))
+    ORDER BY p.created_at DESC,c.id DESC,p.message_id DESC LIMIT 41`).all(scope) as {
+      message_id: string; created_at: number; read_at: number | null; question_id: string; question: string; content: string;
+      conversation_id: string; title: string; origin: string; team_id: string | null; agent_id: string | null;
+      folder_id: string | null; run_id: string; state: string; error: string | null; input: string;
+      run_created_at: number; updated_at: number; connection_id: string | null; model: string | null;
+      resolved_model: string | null; provider: string | null; agent_name: string | null; saved: number;
+    }[];
+  const more = rows.length > 40;
+  if (more) rows.pop();
+  const last = rows.at(-1);
+  return {
+    items: rows.map(row => {
+      const project = projectFor(scope.owner, row.folder_id);
+      return {
+        conversation_id: row.conversation_id, reply_card_key: `reply:${row.message_id}`,
+        reply: { message_id: row.question_id, content: row.question, read_at: row.read_at },
+        title: collapse(row.question, 200) || row.title,
+        agent_id: row.agent_id, agent_name: row.agent_name, provider: row.provider,
+        connection_id: row.connection_id, project_id: project?.id ?? null, project_name: project?.name ?? null,
+        team_id: row.team_id, origin: row.origin, last_activity_at: row.created_at,
+        last_message: { id: row.message_id, role: "assistant", preview: row.content, created_at: row.created_at, saved: !!row.saved },
+        run: { id: row.run_id, state: row.state, error: row.error, input: row.input,
+          connection_id: row.connection_id, model: row.model, resolved_model: row.resolved_model,
+          created_at: row.run_created_at, updated_at: row.updated_at, queue_position: null },
+        pending_approvals: 0, position_message_id: null, later: null, next_action: null,
+      };
+    }),
+    next: more && last ? encode([last.created_at, last.conversation_id, `reply:${last.message_id}`]) : null,
   };
 }
 

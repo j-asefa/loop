@@ -598,7 +598,7 @@ export class NativeSessions {
           snapshot.maxSeconds * 1000,
         )
       : undefined;
-    const steering = new SteeringInbox(run);
+    const steering = new SteeringInbox(run, undefined, !!this.tools && !snapshot.reviewId);
     let stopSteering: (() => Promise<void>) | undefined;
     try {
       watched.signal.throwIfAborted();

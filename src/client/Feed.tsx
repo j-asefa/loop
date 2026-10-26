@@ -96,12 +96,14 @@ import { notify } from "./toast";
 import { feedItemOrder, refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
 import { FeedProjectionReader } from "./feed-projection";
 import { FeedReadRecovery } from "./feed-read-recovery";
+import { readReplyFeedPage } from "./feed-replies";
 import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges, workspaceChangeAffects, type WorkspaceChangeDetail } from "./workspace-changes";
 
 export type FeedFilter =
   | "all"
   | "done"
+  | "replies"
   | "threads"
   | "working"
   | "queued"
@@ -116,6 +118,8 @@ export type FeedItem = {
   executionEnvironment?: string;
   conversation_id: string;
   done_card_key?: string;
+  reply_card_key?: string;
+  reply?: { message_id: string; content: string; read_at: number | null };
   title: string;
   agent_id: string | null;
   connection_id: string | null;
@@ -193,6 +197,7 @@ type Summary = {
   scheduled_failed?: number;
   scheduled_pending?: number;
   social_unread?: number;
+  replies_unread?: number;
 };
 type AwayItem = RouteResponse<typeof workspaceApi.feedAway>["completed"][number] & { sourceId?: string };
 
@@ -200,6 +205,7 @@ export const feedFilters: { id: FeedFilter; label: string }[] = [
   // Done keeps each completed result; open work has its own chip.
   // What needs you has no chip: it stacks above the row (NeedsStack).
   { id: "done", label: "Done" },
+  { id: "replies", label: "Replies" },
   { id: "threads", label: "Threads" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
@@ -208,7 +214,7 @@ export const feedFilters: { id: FeedFilter; label: string }[] = [
 // A thread can have several Done cards; source and result identity must both
 // survive pagination, refreshes and React reconciliation.
 const feedItemKey = (item: FeedItem, source = item.sourceId || "") =>
-  JSON.stringify([source, item.conversation_id, item.done_card_key ?? null]);
+  JSON.stringify([source, item.conversation_id, item.reply_card_key ?? item.done_card_key ?? null]);
 
 const LAST_VISIT = "loop-last-visit";
 const AWAY_AFTER = 30 * 60_000;
@@ -226,6 +232,8 @@ function FeedCard({
   environment,
   onOpen,
   onReply,
+  onRead,
+  onQuestion,
   onNext,
   onAgent,
   onMenu,
@@ -243,6 +251,8 @@ function FeedCard({
   environment?: { kind: ExecutionLocation | null; label: string } | null;
   onOpen: () => void;
   onReply: () => void;
+  onRead?: () => void;
+  onQuestion?: () => void;
   /** Open exactly where the next action is. */
   onNext: (action: FeedNextAction) => void;
   onAgent?: () => void;
@@ -265,7 +275,8 @@ function FeedCard({
   const [readError, setReadError] = useState("");
   const swipe = useSwipe({ onLeft: onDismiss });
   const press = useLongPress(onMenu);
-  const status = runStatus(item.run?.state, item.pending_approvals);
+  const taskStatus = runStatus(item.run?.state, item.pending_approvals);
+  const status = item.reply ? { label: "Reply", tone: "done" } : taskStatus;
   const merged = (name: string) => (e: any) => {
     (swipe.handlers as any)[name]?.(e);
     (press as any)[name]?.(e);
@@ -275,7 +286,9 @@ function FeedCard({
   ).text;
   const next = feedNextAction(item.next_action, draft);
   const detail =
-    status.tone === "working" && item.run
+    item.reply && item.run
+      ? `Task: ${taskStatus.label}`
+      : status.tone === "working" && item.run
       ? runTiming(item.run)
       : status.tone === "queued" && item.run
         ? `${item.run.queue_position ? `#${item.run.queue_position} in queue · ` : ""}${runTiming(item.run)}`
@@ -327,7 +340,11 @@ function FeedCard({
       : message?.id === messageId
         ? (message?.content ?? "")
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
-  const openReading = () => (readAsCard ? setReading(true) : onOpen());
+  const openReading = () => {
+    onRead?.();
+    if (readAsCard) setReading(true);
+    else onOpen();
+  };
   const leaveReading = (action: () => void) => {
     setReading(false);
     action();
@@ -443,7 +460,9 @@ function FeedCard({
           }}
         >
           <span className="eyebrow inbox-eyebrow">
-            {status.label && status.tone !== "done" ? (
+            {item.reply ? (
+              <>Reply{item.reply.read_at === null && <Chip tone="working">Unread</Chip>}</>
+            ) : status.label && status.tone !== "done" ? (
               <Chip tone={status.tone}>{status.label}</Chip>
             ) : (
               "Thread"
@@ -500,7 +519,7 @@ function FeedCard({
           )}
           {!!(item.last_message || item.run) && (
             <button className="text-button preview-open" onClick={openReading}>
-              {readAsCard ? "Read update" : "Open thread"}{" "}
+              {readAsCard ? item.reply ? "Read reply" : "Read update" : "Open thread"}{" "}
               <ArrowUpRight size={14} />
             </button>
           )}
@@ -585,6 +604,16 @@ function FeedCard({
             >
               <div className="result-content">
                 <h3 className="result-title">{item.title}</h3>
+                {item.reply && (
+                  <div className="reply-question">
+                    <p className="field-hint">In reply to your message</p>
+                    <blockquote><RichText content={item.reply.content} /></blockquote>
+                    <button className="text-button" onClick={() => onQuestion && leaveReading(onQuestion)}>
+                      Open your message <ArrowUpRight size={14} />
+                    </button>
+                    {detail && <p className="field-hint">{detail}</p>}
+                  </div>
+                )}
                 {status.tone !== "done" && (
                   <p className="field-hint">
                     {status.label}
@@ -1062,21 +1091,22 @@ export function Feed({
 }) {
   const api = useSourceApi();
   const scopedSource = useSourceId();
-  // Both browsable histories retain loaded pages while new activity arrives.
-  const retainHistory = filter === "done" || filter === "threads";
+  // Browsable histories retain loaded pages while new activity arrives.
+  const retainHistory = ["done", "replies", "threads"].includes(filter);
   type Shown = {
     items: FeedItem[];
     next: string | null;
     summary: Summary;
     sourceSummaries?: Record<string, Summary>;
+    unsupportedReplySources?: string[];
   };
   const generation = viewGeneration();
   const readRecovery = useRef(new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>());
   const recoverSource = useRef<(source: string) => void>(() => {});
-  const readSnapshot = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>) => {
+  const readSnapshot = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>, purpose = "") => {
     const { known: _known, ...page } = query;
     const context = activeView.current;
-    return readRecovery.current.read(source, JSON.stringify(page),
+    return readRecovery.current.read(source, purpose + JSON.stringify(page),
       (signal, onRetry) => readRoute(workspaceApi.feed, { query }, source, signal, onRetry),
       () => {
         if (generation === viewGeneration() && context === activeView.current)
@@ -1145,6 +1175,7 @@ export function Feed({
   const loading = loadedKey !== shownKey() && !shown;
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [unsupportedReplySources, setUnsupportedReplySources] = useState(shown?.unsupportedReplySources || []);
   const [menu, setMenu] = useState<FeedItem | null>(null);
   const [later, setLater] = useState<FeedItem | null>(null);
   const [checkout, setCheckout] = useState<{
@@ -1315,6 +1346,20 @@ export function Feed({
         source: string,
         before?: string,
       ) => {
+        if (filter === "replies") {
+          const readSource = read;
+          read = async cursor => {
+            const { page, supported } = await readReplyFeedPage(readSource,
+              () => readSnapshot(source, query(undefined, "needs"), "reply-support:"), cursor);
+            return supported ? page : {
+              ...page,
+              // Keep already-loaded replies if a source loses support.
+              items: cached?.items.filter(item => (item.sourceId ?? scopedSource) === source) ?? [],
+              next: null,
+              unsupportedReplySources: [source],
+            };
+          };
+        }
         const cardKey = "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
         let priorItems = cached?.items.filter(item => (item.sourceId ?? scopedSource) === source) ?? [];
         const order = (item: FeedItem): [number, string] => item.cardOrder ?? [item.last_activity_at, item.conversation_id + "\u001f" + (item.done_card_key ?? "")];
@@ -1437,6 +1482,7 @@ export function Feed({
             items: cached.items.filter((item) => (item.sourceId ?? scopedSource) === source.id),
             next: JSON.parse(cached.next || "{}")[source.id] ?? null,
             summary,
+            unsupportedReplySources: cached.unsupportedReplySources?.includes(source.id) ? [source.id] : [],
           });
         }
         const activeIds = new Set(activeSources.map(source => source.id));
@@ -1546,11 +1592,13 @@ export function Feed({
           sourceSummaries: Object.fromEntries(
             activePages.map(([id, page]) => [id, page.summary]),
           ),
+          unsupportedReplySources: activePages.flatMap(([, page]) => page.unsupportedReplySources ?? []),
           summary: activePages.reduce(
             (sum, [, page]) => ({
               needs: sum.needs + page.summary.needs,
               working: sum.working + page.summary.working,
               queued: sum.queued + page.summary.queued,
+              replies_unread: (sum.replies_unread || 0) + (page.summary.replies_unread || 0),
               later_due: sum.later_due + page.summary.later_due,
               scheduled_failed:
                 (sum.scheduled_failed || 0) +
@@ -1603,12 +1651,14 @@ export function Feed({
             next: result.next,
             summary: result.summary,
             sourceSummaries: result.sourceSummaries,
+            unsupportedReplySources: result.unsupportedReplySources,
           },
           owner,
         );
         return merged;
       });
       setNext(result.next);
+      setUnsupportedReplySources(result.unsupportedReplySources ?? []);
       if (!append) setSummary(result.summary);
       setError(partialError);
     } catch (e) {
@@ -1641,6 +1691,7 @@ export function Feed({
       setItems(cached?.items || retained);
       setNext(cached?.next || null);
       setSummary(cached?.summary || null);
+      setUnsupportedReplySources(cached?.unsupportedReplySources || []);
       setNeeds(cachedView<FeedItem[]>(needsKey()) || []);
     }
     firstLoad.current = false;
@@ -1731,13 +1782,16 @@ export function Feed({
       setError((e as Error).message);
     }
   }
-  async function dismissDoneCard(item: FeedItem) {
-    if (filter !== "done" || !item.done_card_key) return;
-    const cardKey = item.done_card_key;
+  async function dismissFeedCard(item: FeedItem) {
+    const cardKey = item.reply_card_key ?? item.done_card_key;
+    if (!cardKey || !["done", "replies"].includes(filter)) return;
     const owner = viewOwner(), key = shownKey();
     const source = item.sourceId ?? scopedSource;
     const current = () => owner === viewOwner() &&
       doneRefresh.current.key === JSON.stringify([owner, key]);
+    const setHidden = (hidden: boolean) => item.reply
+      ? callRoute(workspaceApi.replyState, { params: { id: item.last_message!.id }, body: { archived: hidden } }, source)
+      : callRoute(workspaceApi.feedUpdate, { params: { id: item.conversation_id }, body: { hidden, cardKey } }, source);
     const updateCard = (hidden: boolean) => {
       if (!item.card) return;
       const cardKey = "feed-cards:" + JSON.stringify([owner, key, source]);
@@ -1767,26 +1821,20 @@ export function Feed({
       }
     };
     try {
-      await callRoute(workspaceApi.feedUpdate, {
-        params: { id: item.conversation_id }, body: { hidden: true, cardKey },
-      }, source);
+      await setHidden(true);
       if (owner !== viewOwner()) return;
       updateCard(true);
       update((old) =>
         old.filter(
           (row) =>
-            row.conversation_id !== item.conversation_id ||
-            (row.sourceId || "") !== (item.sourceId || "") ||
-            row.done_card_key !== item.done_card_key,
+            feedItemKey(row, row.sourceId ?? scopedSource) !== feedItemKey(item, source),
         ),
       );
       notify({
-        text: "Removed from Done.",
+        text: item.reply ? "Reply archived." : "Removed from Done.",
         undo: async () => {
           if (owner !== viewOwner()) return;
-          await callRoute(workspaceApi.feedUpdate, {
-            params: { id: item.conversation_id }, body: { hidden: false, cardKey },
-          }, source);
+          await setHidden(false);
           updateCard(false);
           update((old) => [...old.filter((row) => feedItemKey(row) !== feedItemKey(item)), item].sort(feedItemOrder));
           if (current()) await load();
@@ -1795,6 +1843,16 @@ export function Feed({
       if (current()) void load();
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+  async function markReplyRead(item: FeedItem) {
+    if (!item.reply || item.reply.read_at !== null || !item.last_message) return;
+    const owner = viewOwner(), source = item.sourceId ?? scopedSource;
+    try {
+      await callRoute(workspaceApi.replyState, { params: { id: item.last_message.id }, body: { read: true } }, source);
+      if (owner === viewOwner()) await load();
+    } catch (error) {
+      if (owner === viewOwner()) setError((error as Error).message);
     }
   }
   function markSaved(item: FeedItem, saved: boolean, active = true) {
@@ -1916,6 +1974,10 @@ export function Feed({
     const source = item.sourceId ?? scopedSource;
     const state = item.run?.state || "";
     const actions: Action[] = [
+      ...(item.reply ? [{
+        id: "archive-reply", label: "Archive reply", icon: <Archive size={20} />,
+        onSelect: () => void dismissFeedCard(item),
+      }] : []),
       // Nothing written yet is nothing to keep.
       ...(item.last_message
         ? [
@@ -2092,7 +2154,7 @@ export function Feed({
         key={feedItemKey(item, source)}
         item={item}
         readAsCard={!inNeeds && (
-          ["done", "working", "queued"].includes(filter) ||
+          ["done", "replies", "working", "queued"].includes(filter) ||
           (filter === "threads" && threadOutput)
         )}
         agent={agent}
@@ -2104,7 +2166,9 @@ export function Feed({
             (source && activeSources.find(item => item.id === source)?.name) ||
             item.executionEnvironment,
         )}
-        onOpen={() => onOpen(item.conversation_id, undefined, source)}
+        onRead={item.reply ? () => void markReplyRead(item) : undefined}
+        onQuestion={item.reply ? () => onOpen(item.conversation_id, item.reply!.message_id, source) : undefined}
+        onOpen={() => onOpen(item.conversation_id, item.reply ? item.last_message?.id : undefined, source)}
         onReply={() =>
           onReply
             ? onReply(
@@ -2130,11 +2194,11 @@ export function Feed({
         onDismiss={
           dismissFailure
             ? () => void runAction(item.run!.id, "dismiss", source)
-            : filter === "done" && item.done_card_key
-              ? () => void dismissDoneCard(item)
+            : (filter === "done" && item.done_card_key) || (filter === "replies" && item.reply_card_key)
+              ? () => void dismissFeedCard(item)
               : undefined
         }
-        dismissLabel={dismissFailure ? "Dismiss from Needs you" : undefined}
+        dismissLabel={dismissFailure ? "Dismiss from Needs you" : item.reply ? "Archive reply" : undefined}
         onLater={() => setLater(item)}
         onCheckout={
           item.run?.checkout
@@ -2176,6 +2240,7 @@ export function Feed({
     ? {
         working: summary.working,
         queued: summary.queued,
+        replies: summary.replies_unread,
       }
     : {};
   function selectFilter(nextFilter: FeedFilter) {
@@ -2262,6 +2327,13 @@ export function Feed({
           {notice}
         </p>
       )}
+      {filter === "replies" && unsupportedReplySources.length > 0 && (
+        <p role="status" className="field-hint">
+          Update Loop in {unsupportedReplySources.map(id =>
+            activeSources.find(source => source.id === id)?.name || (id ? "the selected environment" : "this workspace")
+          ).join(", ")} to show replies from there.
+        </p>
+      )}
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
       <div className="inbox-results" hidden={needsOpen}>
         <>
@@ -2290,13 +2362,15 @@ export function Feed({
                         ? "No threads yet."
                         : filter === "done"
                           ? "Nothing finished yet."
-                          : filter === "working"
-                            ? "No agents are working right now."
-                            : filter === "outcomes"
-                              ? "No finished work here yet."
-                              : filter === "unfinished"
-                                ? "Nothing unfinished here."
-                                : "Nothing is queued."}
+                          : filter === "replies"
+                            ? "Replies to messages you send during a task will appear here."
+                            : filter === "working"
+                              ? "No agents are working right now."
+                              : filter === "outcomes"
+                                ? "No finished work here yet."
+                                : filter === "unfinished"
+                                  ? "Nothing unfinished here."
+                                  : "Nothing is queued."}
                   </strong>
                 </p>
                 {["all", "done", "threads"].includes(filter) && emptyAction}

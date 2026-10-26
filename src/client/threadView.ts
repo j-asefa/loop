@@ -271,12 +271,13 @@ export type FeedReplyQuote = {
  */
 export function feedReplyQuote(item: {
   done_card_key?: string;
+  reply_card_key?: string;
   agent_id: string | null;
   origin: string;
   last_message: { id: string; role: string; content?: string; preview: string } | null;
 }): FeedReplyQuote | null {
   const message = item.last_message;
-  if (!item.done_card_key || !item.agent_id || item.origin.endsWith("-import") || !message)
+  if ((!item.done_card_key && !item.reply_card_key) || !item.agent_id || item.origin.endsWith("-import") || !message)
     return null;
   if (!["assistant", "user"].includes(message.role)) return null;
   const content = message.content ?? message.preview;

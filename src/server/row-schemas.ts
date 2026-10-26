@@ -41,6 +41,7 @@ export const MessageMetadata = RunPayload.extend({
   progress: z.boolean().optional(), final: z.boolean().optional(), native: z.union([z.boolean(), z.record(z.string(), z.json())]).optional(),
   finalNativeItemId: Id.optional(), itemId: Id.optional(), phase: z.string().optional(), round: z.number().optional(),
   replyTo: Reply.optional(), attachments: z.array(UploadedFile).optional(), source: Source.optional(),
+  reply: z.strictObject({ to: Id, published: z.literal(true) }).optional(),
   automation: z.record(z.string(), z.json()).optional(), steeringId: Id.optional(),
   callId: Id.optional(), toolCalls: z.array(z.json()).optional(), name: z.string().optional(),
   agentMail: z.record(z.string(), z.json()).optional(), imported: z.boolean().optional(),

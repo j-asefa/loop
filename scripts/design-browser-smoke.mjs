@@ -41,6 +41,7 @@ const names = [
   "models",
   "swipe",
   "done-card-dismissal",
+  "steering-replies",
   "messages",
   "files",
   "profile-work",

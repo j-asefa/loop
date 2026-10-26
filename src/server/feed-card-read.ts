@@ -7,6 +7,7 @@ import type { StoredCard } from "./feed-projector.js";
 export type FeedFilter =
   | "all"
   | "done"
+  | "replies"
   | "needs"
   | "working"
   | "queued"
@@ -129,6 +130,7 @@ export function projectionPage(
   const sort = filter === "done" && !results ? "p.legacy_sort_at" : "p.sort_at";
   const hidden = results ? "p.hidden" : "p.legacy_hidden";
   const where = {
+    replies: "0", // Explicit replies use their own immutable publication rows.
     all: "t.snoozed=0",
     done: results
       ? `(p.kind='result' OR (${idle})) AND NOT ${hidden}`

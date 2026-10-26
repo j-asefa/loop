@@ -174,6 +174,11 @@ describe("feed reply quotes", () => {
       feedReplyQuote({ ...done, last_message: { ...done.last_message, role: "user" } }),
     ).toMatchObject({ messageId: "m1", mine: true });
   });
+  it("quotes an independently published reply when continuing its conversation", () => {
+    expect(feedReplyQuote({ ...done, done_card_key: undefined, reply_card_key: "reply:m1" })).toEqual({
+      agentId: "a1", messageId: "m1", content: "The **result**",
+    });
+  });
   it("replies to the thread unquoted when there is nothing to quote", () => {
     expect(feedReplyQuote({ ...done, done_card_key: undefined })).toBeNull();
     expect(feedReplyQuote({ ...done, agent_id: null })).toBeNull();
