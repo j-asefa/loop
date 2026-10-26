@@ -1281,9 +1281,11 @@ label.catalog-search {
   .inbox-filters {
     margin-inline: -16px;
     padding-inline: 4px;
+    gap: 4px;
   }
   .inbox-filters .chip {
     font-size: 13px;
+    padding-inline: 6px;
   }
   .workspace-content .feed-card {
     padding-block: 18px 10px;

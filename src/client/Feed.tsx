@@ -102,6 +102,7 @@ import { listenWorkspaceChanges, workspaceChangeAffects, type WorkspaceChangeDet
 export type FeedFilter =
   | "all"
   | "done"
+  | "threads"
   | "working"
   | "queued"
   // Project history views (no chip of their own).
@@ -199,6 +200,7 @@ export const feedFilters: { id: FeedFilter; label: string }[] = [
   // Done keeps each completed result; open work has its own chip.
   // What needs you has no chip: it stacks above the row (NeedsStack).
   { id: "done", label: "Done" },
+  { id: "threads", label: "Threads" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
 ];
@@ -1060,6 +1062,8 @@ export function Feed({
 }) {
   const api = useSourceApi();
   const scopedSource = useSourceId();
+  // Both browsable histories retain loaded pages while new activity arrives.
+  const retainHistory = filter === "done" || filter === "threads";
   type Shown = {
     items: FeedItem[];
     next: string | null;
@@ -1165,7 +1169,8 @@ export function Feed({
   const needsSourceRequests = useRef(new Map<string, number>());
   const request = useRef(0);
   const query = (before?: string, which: FeedFilter | "needs" = filter): NonNullable<RouteInput<typeof workspaceApi.feed>["query"]> => ({
-    filter: which,
+    // The existing thread query also works with older connected workspaces.
+    filter: which === "threads" ? "all" : which,
     ...(which === "done" ? { expand: "results" } : {}),
     ...(project ? { folder: project } : {}),
     ...(agent ? { agent } : {}),
@@ -1299,7 +1304,7 @@ export function Feed({
       let partialError = "";
       let cached = cachedView<Shown>(shownKey());
       let previous =
-        !append && filter === "done"
+        !append && retainHistory
           ? cached
           : undefined;
       const refreshKey = JSON.stringify([owner, shownKey()]);
@@ -1386,7 +1391,7 @@ export function Feed({
         if (!previous) {
           const page = await read(fallbackTransition ? undefined : before);
           if (fallbackTransition && ticket === request.current) cacheView(cardKey, undefined, owner);
-          if (append && filter === "done" && cached) {
+          if (append && retainHistory && cached) {
             const earlier = cached.items.filter(item => (item.sourceId ?? scopedSource) === source);
             const incoming = new Set(page.items.map(item => feedItemKey(item, source)));
             return {...page, items: [...earlier.filter(item => !incoming.has(feedItemKey(item, source))), ...page.items].sort(feedItemOrder)};
@@ -1488,7 +1493,7 @@ export function Feed({
         }
         for (const { source, page } of loaded) {
           // The outage fallback must include pages appended by Load more.
-          const earlier = append && filter !== "done" ? sourcePages.current.pages.get(source.id)?.items : undefined;
+          const earlier = append && !retainHistory ? sourcePages.current.pages.get(source.id)?.items : undefined;
           const known = new Set(earlier?.map((item) => feedItemKey(item, source.id)));
           sourcePages.current.pages.set(source.id, {
             ...page,
@@ -1504,7 +1509,7 @@ export function Feed({
         partialError = sourcePages.current.failures.size
           ? "Some environments could not refresh. Showing their last loaded threads."
           : "";
-        if (!append || filter === "done") {
+        if (!append || retainHistory) {
           settled.forEach((entry, index) => {
             const source = pending[index];
             if (entry.status !== "rejected") return;
@@ -1512,7 +1517,7 @@ export function Feed({
             if (page) loaded.push({ source, page });
           });
         }
-        if (append && filter === "done") {
+        if (append && retainHistory) {
           for (const source of activeSources) {
             if (loaded.some(item => item.source.id === source.id)) continue;
             const page = sourcePages.current.pages.get(source.id);
@@ -1573,7 +1578,7 @@ export function Feed({
       if (!isCurrent()) return;
       const key = shownKey();
       setItems((old) => {
-        const merged = pendingUnsaves(append && filter !== "done"
+        const merged = pendingUnsaves(append && !retainHistory
           ? [
               ...old,
               ...result.items.filter(
@@ -2046,6 +2051,9 @@ export function Feed({
   }
   function card(item: FeedItem, inNeeds = false) {
     const source = item.sourceId ?? scopedSource;
+    // The reading sheet identifies agent output. A thread whose latest
+    // content is a prompt opens the conversation with its original author.
+    const threadOutput = !!item.live_preview || item.last_message?.role === "assistant";
     const dismissFailure =
       inNeeds && item.run && ["failed", "interrupted"].includes(item.run.state);
     const agent = agents.find(
@@ -2083,7 +2091,10 @@ export function Feed({
       <FeedCard
         key={feedItemKey(item, source)}
         item={item}
-        readAsCard={!inNeeds && ["done", "working", "queued"].includes(filter)}
+        readAsCard={!inNeeds && (
+          ["done", "working", "queued"].includes(filter) ||
+          (filter === "threads" && threadOutput)
+        )}
         agent={agent}
         model={model}
         environment={cardEnvironment(
@@ -2275,18 +2286,20 @@ export function Feed({
                   <strong>
                     {filter === "all"
                       ? "Nothing here yet."
-                      : filter === "done"
-                        ? "Nothing finished yet."
-                        : filter === "working"
-                          ? "No agents are working right now."
-                          : filter === "outcomes"
-                            ? "No finished work here yet."
-                            : filter === "unfinished"
-                              ? "Nothing unfinished here."
-                              : "Nothing is queued."}
+                      : filter === "threads"
+                        ? "No threads yet."
+                        : filter === "done"
+                          ? "Nothing finished yet."
+                          : filter === "working"
+                            ? "No agents are working right now."
+                            : filter === "outcomes"
+                              ? "No finished work here yet."
+                              : filter === "unfinished"
+                                ? "Nothing unfinished here."
+                                : "Nothing is queued."}
                   </strong>
                 </p>
-                {(filter === "all" || filter === "done") && emptyAction}
+                {["all", "done", "threads"].includes(filter) && emptyAction}
               </div>
             )
           )}

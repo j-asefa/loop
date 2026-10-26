@@ -33,6 +33,7 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   const filters = page.getByRole("tablist", { name: "Show", exact: true });
   await expect(filters.getByRole("tab")).toHaveText([
     "Done",
+    "Threads",
     "Working",
     "Queued",
   ]);
