@@ -1,6 +1,6 @@
 import { settleStoredSend } from "../src/client/sendIntent";
 import { expect, it } from "vitest";
-import { planSend, settleFailure } from "../src/client/sendIntent";
+import { omitsReplyTarget, planSend, settleFailure } from "../src/client/sendIntent";
 
 const keys = () => {
   let n = 0;
@@ -97,4 +97,23 @@ it("does not let a late response erase or replace a newer pending send", () => {
   // A failed concurrent retry cannot resurrect an already acknowledged send.
   settleStoredSend(storage, "thread", "new-key", newer);
   expect(storage.getItem("thread")).toBeNull();
+});
+
+it("leaves out a reply target as the composer showed, and repeats that on retry", () => {
+  const newKey = keys();
+  const empty = { signature: "", key: "" };
+  const now = { mode: "send" as const, sendAt: null };
+  const first = planSend(empty, "reply", now, newKey);
+  expect(omitsReplyTarget(empty, first, true)).toBe(true);
+  expect(omitsReplyTarget(empty, first, false)).toBe(false);
+  // The decision does not depend on the send option: the composer showed it.
+  expect(omitsReplyTarget(empty, planSend(empty, "reply", { mode: "schedule", sendAt: 5 }, newKey), true)).toBe(true);
+  // An uncertain send is repeated as first sent, whatever is latest now.
+  const sent = settleFailure({ ...first.receipt, unquoted: true }, undefined);
+  expect(omitsReplyTarget(sent, planSend(sent, "reply", now, newKey), false)).toBe(true);
+  const quoted = settleFailure({ ...first.receipt, unquoted: false }, undefined);
+  expect(omitsReplyTarget(quoted, planSend(quoted, "reply", now, newKey), true)).toBe(false);
+  // A receipt from before this decision existed always sent its target.
+  const legacy = settleFailure(first.receipt, undefined);
+  expect(omitsReplyTarget(legacy, planSend(legacy, "reply", now, newKey), true)).toBe(false);
 });

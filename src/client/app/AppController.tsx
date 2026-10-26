@@ -20,7 +20,11 @@ import { setViewOwner } from "../viewCache";
 import type { SendReceipt } from "../sendIntent";
 import { useSwipeBack } from "../useSwipeBack";
 import { usePullToRefresh } from "../usePullToRefresh";
-import type { ComposerContext } from "../composerContext";
+import {
+  quotesReply,
+  type ComposerContext,
+  type LatestAgentMessage,
+} from "../composerContext";
 import { ResultsPager } from "../results";
 import { initialShare, type SharedDraft } from "../Sharing";
 import { OPEN_PULL } from "../PullRequests";
@@ -176,6 +180,8 @@ export function useAppController() {
   );
   const [conversationTarget, setConversationTarget] =
     useState<ComposerContext | null>(null);
+  const [latestAgentMessage, setLatestAgentMessage] =
+    useState<LatestAgentMessage | null>(null);
   useEffect(() => {
     if (replyContext)
       sessionStorage.setItem(
@@ -321,6 +327,7 @@ export function useAppController() {
       setThreadNotice("");
       setThreadWork(null);
       setConversationTarget(null);
+      setLatestAgentMessage(null);
     }
     setConversationSource(source);
     setMessageId(message || null);
@@ -1124,7 +1131,11 @@ export function useAppController() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, [theme]);
+  const replyQuoted = replyContext
+    ? quotesReply(replyContext, conversation, latestAgentMessage)
+    : false;
   const send = useComposerSend({
+    replyQuoted,
     busy,
     uploading,
     draft,
@@ -1271,6 +1282,7 @@ export function useAppController() {
   return {
     bootstrapOwner, setBootstrapOwner, composerOptions, setComposerOptions,
     composerFocusRequest, startChat,
+    replyQuoted, setLatestAgentMessage,
     tab, lastNavTap, setFeedFilter, setFeedHomeKey, setTab,
     setProfile, setView, displayName, runningAgentCount, session,
     error, check, conversation, data, projectFilter,

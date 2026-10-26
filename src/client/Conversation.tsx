@@ -21,7 +21,11 @@ import {
 import { AgentModelSettings } from "./AgentModelSettings";
 import { agentModelName } from "./modelChoices";
 import { AttachmentList } from "./Attachments";
-import type { ComposerContext } from "./composerContext";
+import {
+  latestAgentMessageId,
+  type ComposerContext,
+  type LatestAgentMessage,
+} from "./composerContext";
 import type { UploadedFile } from "../shared/uploads";
 import { NativeDecisions } from "./NativeControls";
 import { Approvals } from "./Approvals";
@@ -90,6 +94,14 @@ import {
   timeLabel,
 } from "./threadView";
 
+const activeWork = [
+  "queued",
+  "running",
+  "pausing",
+  "paused",
+  "awaiting_approval",
+  "waiting_children",
+];
 export type ThreadWork = {
   state: string;
   /** A reply now is delivered to the running task (steering). */
@@ -159,6 +171,7 @@ function ConversationView({
   composer,
   onReady,
   readyKey,
+  onLatestAgentMessage,
   onReply,
   onUsePrompt,
   onRestoreDraft,
@@ -184,6 +197,8 @@ function ConversationView({
   composer: ReactNode;
   onReady: (context: ComposerContext) => void;
   readyKey?: string;
+  /** So a reply to the agent's latest message goes unquoted. */
+  onLatestAgentMessage?: (latest: LatestAgentMessage) => void;
   onReply: (context: ComposerContext) => void;
   onUsePrompt: (text: string) => void;
   /** Put a message back into the composer with its files (nothing is sent). */
@@ -623,6 +638,9 @@ function ConversationView({
               entry.id >= (missingMessages.current.get(event.payload.messageId) ?? Infinity))
             missingMessages.current.delete(event.payload.messageId);
           refresh ||= outcome === "gap";
+          // The reported latest agent message is gone: ask which is latest now.
+          refresh ||= event.type === "message.remove" && outcome === "applied" &&
+            event.payload.messageId === dataRef.current?.latest_agent_message?.id;
           if (outcome === "gap") markMissing(event.type === "message.upsert" ? event.payload.message.id : event.payload.messageId, entry.id);
         } else if (event.type === "invalidate" || event.type === "tombstone") {
           // A full replacement may exceed the socket budget. Its bounded
@@ -890,17 +908,34 @@ function ConversationView({
   const workRef = useRef(onWork);
   workRef.current = onWork;
   useEffect(() => {
-    const active = [
-      "queued",
-      "running",
-      "pausing",
-      "paused",
-      "awaiting_approval",
-      "waiting_children",
-    ].includes(workState);
+    const active = activeWork.includes(workState);
     workRef.current?.(active ? { state: workState, steerable } : null);
   }, [workState, steerable]);
   useEffect(() => () => workRef.current?.(null), []);
+  // Only a fresh snapshot says which message is latest; a cached transcript
+  // shown while it loads may end before newer messages.
+  const loadedFor =
+    hydrated.current && data?.conversation.id === id ? id : null;
+  const latestAgent = loadedFor
+    ? latestAgentMessageId(data!.latest_agent_message, data!.messages)
+    : undefined;
+  const latestRef = useRef(onLatestAgentMessage);
+  latestRef.current = onLatestAgentMessage;
+  // The page may be anchored before the current work; the conversation's own
+  // run state covers it.
+  const working =
+    activeWork.includes(workState) ||
+    activeWork.includes(data?.conversation.feed_run_state || "") ||
+    (data?.conversation.feed_queued ?? 0) > 0;
+  useEffect(() => {
+    if (loadedFor)
+      latestRef.current?.({
+        conversationId: loadedFor,
+        id: latestAgent ?? null,
+        known: latestAgent !== undefined,
+        working,
+      });
+  }, [loadedFor, latestAgent, working, readyKey]);
   const latestCheckout = [...(data?.messages || [])]
     .reverse()
     .find((message) => message.run_id && message.run_checkout);

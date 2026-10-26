@@ -106,6 +106,8 @@ export const ConversationPage = z.object({
   conversation: PublicConversation, messages: z.array(PublicMessage.extend({ cursor: ProjectedMessage.shape.cursor })),
   next: MaybeText, range: z.object({ from: ProjectedMessage.shape.cursor, before: ProjectedMessage.shape.cursor }).optional(),
   position_message_id: MaybeText, saved: z.array(Text), steerable_run_id: MaybeText.optional(), resumed: z.boolean().optional(), projection: WorkspaceClock.optional(),
+  // The agent's latest visible message, beyond this page if need be.
+  latest_agent_message: z.object({ id: Text, cursor: ProjectedMessage.shape.cursor }).nullable().optional(),
 });
 export type ConversationPage = z.infer<typeof ConversationPage>;
 const ResultFields = { cursor: z.number(), agent_id: MaybeText, team_id: MaybeText, name: MaybeText, provider: Provider.nullable(), folder_id: MaybeText.optional() };

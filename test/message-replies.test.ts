@@ -415,3 +415,30 @@ it("opens and replies to progress from an imported run without a user prompt", a
   });
   transition(accepted.data, "cancelled");
 });
+
+it("reports the agent's latest message wherever the transcript page is anchored", async () => {
+  const { agent, run, message, later } = source();
+  const latest = await request(`/conversations/${run.conversation_id}`);
+  expect(latest.data.latest_agent_message).toMatchObject({ id: later });
+  expect(latest.data.latest_agent_message.cursor).toEqual(
+    latest.data.messages.find((m: any) => m.id === later).cursor,
+  );
+  // Opened at an earlier answer, the page ends there but still names the latest.
+  const anchored = await request(`/conversations/${run.conversation_id}?message=${message}`);
+  expect(anchored.data.messages.at(-1).id).toBe(message);
+  expect(anchored.data.latest_agent_message.id).toBe(later);
+  // Your own follow-up does not change which message the agent sent last.
+  const followup = await request("/runs", {
+    agentId: agent.id,
+    conversationId: run.conversation_id,
+    input: "Keep going",
+    idempotencyKey: id(),
+  });
+  expect(
+    (await request(`/conversations/${run.conversation_id}`)).data.latest_agent_message.id,
+  ).toBe(later);
+  transition(followup.data, "cancelled");
+  expect(
+    (await request(`/conversations/${run.conversation_id}`, undefined, "bob")).status,
+  ).toBe(404);
+});

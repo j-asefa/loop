@@ -88,3 +88,21 @@ export function conversationMessages(
       })),
   };
 }
+
+/** The agent's latest message in the visible transcript, wherever the page
+ * is anchored, so a reply to it can go unquoted. */
+export function latestAgentMessage(owner: string, conversation: string) {
+  const entry = db
+    .prepare(
+      `SELECT t.message_id id,t.position,t.phase,t.ordinal FROM conversation_transcript t
+      JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
+      WHERE t.owner_id=? AND t.conversation_id=? AND t.position IS NOT NULL AND m.role='assistant'
+      ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT 1`,
+    )
+    .get(owner, conversation) as
+    | { id: string; position: number; phase: number; ordinal: number }
+    | undefined;
+  return entry
+    ? { id: entry.id, cursor: [entry.position, entry.phase, entry.ordinal] as Position }
+    : null;
+}

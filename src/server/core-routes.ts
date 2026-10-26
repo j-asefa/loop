@@ -29,7 +29,7 @@ import { personalFiles } from "./personal-files.js";
 import { personalDecisions } from "./personal-decisions.js";
 import { readProfile, saveProfile } from "./user-profile.js";
 import { agentMessages } from "./agent-messages.js";
-import { conversationMessages } from "./conversation-messages.js";
+import { conversationMessages, latestAgentMessage } from "./conversation-messages.js";
 import { cancelRun, dismissRun } from "./run-attention.js";
 import { conversationReturnState } from "./mobile-return.js";
 import {
@@ -627,6 +627,7 @@ routes.on(workspaceApi.conversation, (req, res) => {
     ...page,
     ...returned,
     resumed,
+    latest_agent_message: latestAgentMessage(res.locals.owner, req.params.id),
   });
 }, { wrap: projectionSnapshot });
 routes.on(workspaceApi.messageDetail, (req, res) =>

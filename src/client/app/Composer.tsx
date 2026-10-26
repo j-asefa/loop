@@ -27,7 +27,8 @@ import {
   threadDraft as readThreadDraft,
 } from "../drafts";
 import {
-  planSend, settleFailure, settleStoredSend, type SendReceipt,
+  omitsReplyTarget, planSend, settleFailure, settleStoredSend,
+  type SendReceipt,
 } from "../sendIntent";
 import {
   dayLabel, laterChoices, localInputValue, preview, timeLabel,
@@ -46,6 +47,9 @@ type ComposerProps = {
   conversation: string | null;
   conversationTarget: ComposerContext | null;
   replyContext: ComposerContext | null;
+  /** False when the reply answers the agent's latest message; undefined
+   * until its thread's fresh snapshot says, which keeps the quote. */
+  replyQuoted: boolean | undefined;
   contextArtifact: Artifact | null;
   draft: string;
   attachments: UploadedFile[];
@@ -245,6 +249,7 @@ export function useComposerDraft({
 }
 
 export function useComposerSend({
+  replyQuoted,
   busy,
   uploading,
   draft,
@@ -308,7 +313,7 @@ export function useComposerSend({
   | "threadIdentityRef" | "threadIdentity" | "composerIdentityRef"
   | "draftRef" | "attachmentsRef" | "attachments"
   | "setNewAgentPrompt" | "setFolder" | "projectFilter"
-  | "project" | "setSheet" | "replyContext"
+  | "project" | "setSheet" | "replyContext" | "replyQuoted"
   | "contextArtifact" | "setError" | "threadApi"
   | "setFilingResult" | "setFiling" | "setDraft"
   | "changed" | "selected" | "routePreview"
@@ -466,8 +471,9 @@ export function useComposerSend({
       };
       // The send's mode and exact time travel with its key: a retry after a
       // lost response repeats the same request rather than a changed one.
+      const previous = request.current;
       const plan = planSend(
-        request.current,
+        previous,
         signature,
         {
           mode: options.sendAt ? "schedule" : options.queue ? "queue" : "send",
@@ -475,8 +481,16 @@ export function useComposerSend({
         },
         carriedKey,
       );
-      request.current = plan.receipt;
-      sentReceipt = plan.receipt;
+      // An undecided reply keeps its target.
+      const unquoted = omitsReplyTarget(
+        previous,
+        plan,
+        !!reply?.messageId && !reply.excerpt && replyQuoted === false,
+      );
+      const quotedId = unquoted ? undefined : reply?.messageId;
+      request.current =
+        plan.receipt === previous ? previous : { ...plan.receipt, unquoted };
+      sentReceipt = request.current;
       sessionStorage.setItem(
         receiptStorageKey,
         JSON.stringify(request.current),
@@ -495,9 +509,8 @@ export function useComposerSend({
       const body = {
         agentId: recipient.id,
         conversationId,
-        replyToMessageId: reply?.messageId,
-        replyExcerpt:
-          reply?.messageId && reply.excerpt ? reply.content : undefined,
+        replyToMessageId: quotedId,
+        replyExcerpt: quotedId && reply?.excerpt ? reply.content : undefined,
         input: draft,
         idempotencyKey: request.current.key,
         attachmentIds: attachments.map((file) => file.id),
@@ -676,6 +689,7 @@ export function useComposerSend({
 // Keep the JSX in App's render tree; this pure builder adds no component boundary.
 export function renderComposer({
   replyContext,
+  replyQuoted,
   contextArtifact,
   conversation,
   threadMode,
@@ -731,7 +745,7 @@ export function renderComposer({
   setThreadNotice,
 }: Pick<
   ComposerProps,
-  | "replyContext" | "contextArtifact" | "conversation"
+  | "replyContext" | "replyQuoted" | "contextArtifact" | "conversation"
   | "threadMode" | "selected" | "routePreview"
   | "busy" | "uploading" | "draft"
   | "activeAgent" | "conversationTarget" | "send"
@@ -751,7 +765,10 @@ export function renderComposer({
   | "setModelAgent" | "setSendMenu" | "threadWork"
   | "threadNotice" | "setThreadNotice"
 >) {
+  // Undecided shows the quote: a send before the thread's fresh snapshot
+  // keeps the reference, so the composer shows what will be sent.
   const quoted =
+    replyQuoted !== false &&
     replyContext?.content &&
     (replyContext.messageId || replyContext.artifactId || !conversation)
       ? replyContext

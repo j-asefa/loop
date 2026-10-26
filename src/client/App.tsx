@@ -91,6 +91,7 @@ export default function App() {
   const {
     bootstrapOwner, setBootstrapOwner, composerOptions, setComposerOptions,
     composerFocusRequest, startChat,
+    replyQuoted, setLatestAgentMessage,
     tab, lastNavTap, setFeedFilter, setFeedHomeKey, setTab,
     setProfile, setView, displayName, runningAgentCount, session,
     error, check, conversation, data, projectFilter,
@@ -242,6 +243,7 @@ export default function App() {
         : "New thread",
   };
   const messageComposer = renderComposer({
+    replyQuoted,
     replyContext,
     contextArtifact,
     conversation,
@@ -1904,6 +1906,10 @@ export default function App() {
             }}
             composer={messageComposer}
             readyKey={viewIdentity}
+            onLatestAgentMessage={(latest) => {
+              if (viewIdentity === threadIdentityRef.current)
+                setLatestAgentMessage(latest);
+            }}
             onReady={(context) => {
               if (viewIdentity !== threadIdentityRef.current) return;
               setConversationTarget(context);
