@@ -1,3 +1,4 @@
+import { matchingAgents } from "./agentSearch";
 import { SearchExcerpt } from "./SearchExcerpt";
 import { capabilities } from "./capabilities";
 import { executionSourceId } from "./sourceRouting";
@@ -644,6 +645,9 @@ export function SearchWorkspace({
       setError((e as Error).message);
     }
   }
+  const agentMatches = scope === "all"
+    ? matchingAgents(agents, query, { agent, folder })
+    : [];
   const active = [!!agent, !!folder, !!from, !!to].filter(Boolean).length;
   return (
     <>
@@ -664,7 +668,7 @@ export function SearchWorkspace({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={
-            scope === "mine" ? "Search your prompts…" : "Search threads, results and files…"
+            scope === "mine" ? "Search your prompts…" : "Search agents, threads, results and files…"
           }
         />
         {query.length > 0 && (
@@ -775,6 +779,23 @@ export function SearchWorkspace({
           )}
         </div>
       )}
+      {agentMatches.length > 0 && (
+        <section className="settings-navigation" aria-label="Matching agents">
+          <h3>Agents</h3>
+          <div className="project-agents settings-list">
+            {agentMatches.map(a => (
+              <button className="project-agent" key={a.id} onClick={() => onProfile(a)}>
+                <span>
+                  <strong>@{a.name}</strong>
+                  <Badge provider={a.provider} />
+                  <small>{a.model}</small>
+                </span>
+                <ArrowUpRight size={18} />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       {error && <p className="error">{error}</p>}
       {scope === "mine" ? (
         <PersonalProfile
@@ -843,11 +864,11 @@ export function SearchWorkspace({
                 </article>
               );
             })
-          ) : (
+          ) : !agentMatches.length ? (
             <Empty title="Nothing found yet.">
               Try a shorter phrase or another scope.
             </Empty>
-          )}
+          ) : null}
           {result.next && (
             <button className="secondary" onClick={() => run(true)}>
               More results
