@@ -18,6 +18,8 @@ Follow this for every PR in the bundle. It encodes how this repository's review 
 
 ## Verify
 
+When preparing to open a new PR, fetch `origin/main` and rebase onto it if needed, then run the required checks and record that base. Do not rebase or restart checks merely because `main` advances during implementation, verification or review. After opening, rebase only once the review gate passes and merge conflicts prevent merging, as described under Merge. A conflict-free PR needs no final rebase. Each new PR starts from fresh `origin/main` again.
+
 Run the checks the verification guide lists for the PR's category. Record each command, the date, and the outcome in the PR body. A failure you cannot fix is a block, recorded in the ledger; it is never described as passing.
 
 ## Open the pull request
@@ -42,7 +44,7 @@ The review team is the Loop "Review code changes" team, id `75e334bb-e16b-4d61-b
 
 1. The latest pass reports no unresolved P0, P1 or security finding.
 2. Every reviewer completed; the lead's own completion does not prove this. A failed, cancelled or interrupted reviewer is missing coverage, and the pass does not count.
-3. The reviewed head is the branch head, except for commits that touch only `prompts/reactive-rearchitecture/STATUS.md`. Any other commit after the reviewed head, including any rebase onto a new base, requires checks and a fresh review: dependencies can change behaviour even when the patch did not. Record the reviewed base and fingerprint alongside the head.
+3. The reviewed head is the branch head, except for commits that touch only `prompts/reactive-rearchitecture/STATUS.md`. Any other change to the branch after the reviewed head, including an actual rebase or merge-conflict resolution, requires checks and a fresh review. Advances of `main` alone do not invalidate the branch's checks or review. Record the reviewed base and fingerprint alongside the head.
 4. Remaining P2 findings are fixed, in which case rule 3 applies, or documented in the PR body with the reason they are acceptable.
 
 A disputed P1 or security finding is resolved with code evidence in the PR body. If the next pass repeats it, it stays blocking; never downgrade it to P2 by repetition.
@@ -53,13 +55,20 @@ After each pass, append one line to the ledger's review history and one entry to
 
 ## Merge
 
-When the gate holds:
+Once the gate holds for the final head, merge without another rebase if the PR has no merge conflicts:
+
+```sh
+gh pr merge <number> --squash --delete-branch --match-head-commit <reviewed-or-ledger-only-head>
+```
+
+Only if the gate has passed and merge conflicts prevent the merge, fetch and rebase onto current `origin/main`:
 
 ```sh
 git fetch origin main
-git rebase origin/main          # if main moved, the new head needs checks and a fresh review even if your patch is unchanged
-gh pr merge <number> --squash --delete-branch --match-head-commit <reviewed-or-ledger-only-head>
+git rebase origin/main
 ```
+
+Resolve the conflicts, rerun the required checks and obtain a fresh review under gate rule 3, recording the new head, base and fingerprint. Do not rebase again merely because `main` advances during those checks or reviews. Another rebase is required only if the gate passes again and merge conflicts still prevent merging.
 
 Squash merges are this repository's convention. `--match-head-commit` pins the merge to the head you reviewed, so a push in between cannot merge unreviewed code. After merging, `git fetch origin main`, set the ledger row to `merged` with the date and merge commit, and start the next PR from fresh `origin/main`.
 

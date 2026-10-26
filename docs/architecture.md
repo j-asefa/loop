@@ -23,6 +23,7 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 | Your profile, sent prompts and decision history | [user-profile.ts](../src/server/user-profile.ts), [personal-history.ts](../src/server/personal-history.ts), [personal-decisions.ts](../src/server/personal-decisions.ts) |
 | UI and shared contracts                                   | [client](../src/client), [shared](../src/shared), [workspace HTTP contracts](../src/shared/workspace-api.ts)                 |
 | Client state, navigation and session lifecycle | [app/AppController.tsx](../src/client/app/AppController.tsx), [app/Session.tsx](../src/client/app/Session.tsx) |
+| Client shell and page composition | [App.tsx](../src/client/App.tsx), [app/AppView.tsx](../src/client/app/AppView.tsx), [app/AppPages.tsx](../src/client/app/AppPages.tsx), [explicit view props](../src/client/app/AppViewProps.ts) |
 | Client workspace loading and result paging | [app/WorkspaceData.ts](../src/client/app/WorkspaceData.ts), [app/Results.tsx](../src/client/app/Results.tsx) |
 | Composer UI, draft lifecycle and sends | [app/Composer.tsx](../src/client/app/Composer.tsx) |
 

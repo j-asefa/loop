@@ -103,6 +103,7 @@ for (const engine of selectedEngines()) {
                 path: "old-review.ts",
                 operation: "modify",
                 patch: "@@ -1 +1 @@\n-old\n+new\n",
+                content: "available",
               },
             ],
           }),
@@ -122,6 +123,7 @@ for (const engine of selectedEngines()) {
               title: `History tool ${i}`,
               status: "completed",
               content: [],
+              links: {},
             }),
           ),
           i,
@@ -473,7 +475,7 @@ for (const engine of selectedEngines()) {
       if (upstream.pathname === `/api/reviews/conversation/${conversation.id}`) {
         await route.fulfill({ json: {
           id: "review-fixture", conversationId: conversation.id, scope: "branch", state: "completed",
-          fingerprint: "fixture-review", changed: [], omitted: [], current: null, freshnessError: null,
+          fingerprint: "fixture-review", createdAt: Date.now(), changed: [], omitted: [], current: null, freshnessError: null,
           reviewers: ["correctness", "regressions", "security"].map(agent_id => ({ agent_id, state: "completed", error: null })),
         } });
         return;

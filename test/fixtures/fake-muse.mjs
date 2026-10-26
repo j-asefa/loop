@@ -275,6 +275,8 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
           questions: [],
         },
       });
+      // Complete only when Loop declines this request with userInput/cancel.
+      continue;
     }
     if (text.includes("foreign request"))
       send({

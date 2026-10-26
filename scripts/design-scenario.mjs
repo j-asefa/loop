@@ -25,6 +25,7 @@ import {
   reportSmokePressure,
 } from "./helpers/smoke-diagnostics.mjs";
 import { runReceipt } from "./helpers/run-receipt.mjs";
+import { seedNewerReplyMessage } from "./helpers/quoted-reply-fixture.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 import { workspaceControlsSmoke } from "./helpers/workspace-controls-smoke.mjs";
@@ -246,6 +247,7 @@ for (const engine of selectedEngines()) {
         await expect(thread().locator(".message").first()).toBeVisible();
       };
       if (scenario === "core") {
+        await seedNewerReplyMessage(fixture);
         await page.goto(fixture.base);
         const inbox = page.getByRole("region", { name: "Feed", exact: true });
         // The filtered list, not the Needs you stack above the filters.
@@ -369,8 +371,8 @@ for (const engine of selectedEngines()) {
         };
         await openResults();
         await capture("agent-results");
-        // Replying to a result opens its thread at that message, with the
-        // result quoted in the thread composer.
+        // Replying to an older result opens its thread at that message, with
+        // the result quoted in the thread composer.
         const resultCard = results.first();
         const replyToResult = async () => {
           await resultCard

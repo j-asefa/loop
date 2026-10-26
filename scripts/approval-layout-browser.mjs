@@ -138,6 +138,9 @@ for (const engine of selectedEngines()) {
         await page.goto(fixture.base);
         await page.locator(".composer-launch").click();
         const composer = page.locator(".composer-dock:not(.thread-mode)");
+        await composer
+          .getByRole("button", { name: "Chat options", exact: true })
+          .click();
         await expect(
           composer.getByRole("button", { name: "Active in this chat" }),
         ).toBeVisible();

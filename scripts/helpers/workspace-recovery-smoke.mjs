@@ -2,9 +2,12 @@ import { expect } from "@playwright/test";
 import { openAgentProfile } from "./browser-ui.mjs";
 
 export async function workspaceRecoverySmoke(page, fixture) {
-  let bootstrapAttempts = 0;
+  // Keep the outage observable until the assertion: a concurrent background
+  // refresh can otherwise recover from a single aborted request before polling
+  // sees the warning.
+  let failBootstrap = true;
   const bootstrap = (route) =>
-    ++bootstrapAttempts === 1 ? route.abort("failed") : route.continue();
+    failBootstrap ? route.abort("failed") : route.continue();
   const runsPattern = /\/api\/runs\?active=1(?:&|$)/;
   let failRuns = true;
   const runs = (route) => (failRuns ? route.abort("failed") : route.continue());
@@ -16,6 +19,7 @@ export async function workspaceRecoverySmoke(page, fixture) {
     );
     await expect(page.locator(".toast.error")).toHaveCount(0);
     // No manual reload: retry the failed opening read and clear only its notice.
+    failBootstrap = false;
     await expect(page.locator(".your-agents")).toBeVisible({ timeout: 12000 });
     await expect(page.locator(".workspace-load-status")).toHaveCount(0);
     await page.unroute("**/api/bootstrap", bootstrap);

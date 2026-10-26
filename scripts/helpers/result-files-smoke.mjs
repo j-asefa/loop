@@ -4,8 +4,10 @@ import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect } from "@playwright/test";
 import { openAgentProfile } from "./browser-ui.mjs";
+import { seedNewerReplyMessage } from "./quoted-reply-fixture.mjs";
 
 export async function resultFilesSmoke(page, fixture, capture) {
+  const newer = await seedNewerReplyMessage(fixture);
   const original = fixture.db
     .prepare("SELECT * FROM artifacts WHERE id=?")
     .get(fixture.artifacts[0]);
@@ -429,7 +431,9 @@ export async function resultFilesSmoke(page, fixture, capture) {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await page.getByRole("tab", { name: "Messages", exact: true }).click();
     await page
-      .locator(".agent-message-actions")
+      .getByRole("region", { name: "Agent messages", exact: true })
+      .locator(".feed-card")
+      .filter({ hasNotText: newer.content })
       .first()
       .getByRole("button", { name: "Reply", exact: true })
       .click();

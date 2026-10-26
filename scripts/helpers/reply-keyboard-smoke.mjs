@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { mockViewportCoordinates } from "./mock-viewport.mjs";
 import { expect } from "@playwright/test";
 import { openAgentProfile, openSettings } from "./browser-ui.mjs";
+import { seedNewerReplyMessage } from "./quoted-reply-fixture.mjs";
 
 export async function replyKeyboardSmoke(page, fixture, capture) {
+  const newer = await seedNewerReplyMessage(fixture);
   await mockViewportCoordinates(page);
   await page.clock.install();
   const sheet = () => page.locator("dialog[open]").last();
@@ -40,7 +42,9 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
           .click();
         await page.getByRole("tab", { name: "Messages", exact: true }).click();
         await page
-          .locator(".agent-message-actions")
+          .getByRole("region", { name: "Agent messages", exact: true })
+          .locator(".feed-card")
+          .filter({ hasNotText: newer.content })
           .first()
           .getByRole("button", { name: "Reply", exact: true })
           .click();

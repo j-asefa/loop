@@ -25,6 +25,11 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
   await page.route("**/api/workspace", (route) =>
     route.fulfill({
       json: {
+        harnesses: [],
+        nativeProcesses: 0,
+        concurrency: 1,
+        hostLifetime: "foreground",
+        tunnelOrigin: "",
         projectPaths: [
           { folder_id: "first", path: "/projects/first" },
           { folder_id: "second", path: "/projects/second" },
@@ -41,6 +46,7 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
         runtimes: [
           {
             name: "gemini",
+            backend: "direct",
             installed: true,
             available: true,
             enabled,
@@ -61,7 +67,11 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
   );
   await page.route("**/api/workspace/runtimes/gemini/upgrade", (route) =>
     route.fulfill({
-      json: { canUpgrade: false, upgradeHelp: "Fixture installation" },
+      json: {
+        upgrade: null,
+        canUpgrade: false,
+        upgradeHelp: "Fixture installation",
+      },
     }),
   );
   // Gemini signs in through the same native sign-in routes as other harnesses.
@@ -74,7 +84,7 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
   await page.route("**/api/workspace/runtimes/gemini/auth/start", (route) => {
     startRequest = route.request().postDataJSON();
     attempt = {
-      id: "fixture-attempt",
+      id: "11111111-1111-4111-8111-111111111111",
       commandId: startRequest.commandId,
       provider: "google",
       method: "oauth",
@@ -82,7 +92,7 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
       expiresAt: Date.now() + 600000,
       url: "https://accounts.google.com/o/oauth2/v2/auth?state=fixture",
       prompt: {
-        id: "fixture-prompt",
+        id: "22222222-2222-4222-8222-222222222222",
         type: "manual_code",
         message: "Paste the authorization code from Google",
       },
@@ -99,7 +109,17 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
   await page.route("**/api/workspace/runtimes/gemini/enable", (route) => {
     enableRequest = route.request().postDataJSON();
     enabled = true;
-    return route.fulfill({ json: { name: "gemini" } });
+    return route.fulfill({
+      json: {
+        name: "gemini",
+        billing: {
+          mode: "existing",
+          description: "Existing Gemini CLI sign-in",
+        },
+        models: [],
+        capabilities: {},
+      },
+    });
   });
   await page.goto(fixture.base);
   await openSettings(page);
