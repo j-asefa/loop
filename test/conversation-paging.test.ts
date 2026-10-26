@@ -76,13 +76,19 @@ function all(conversation: string) {
 it("range-reads only a transcript page without scanning source history, before or after ANALYZE", () => {
   const conversation = thread();
   const other = thread();
+  // This case measures reads of populated history. Reuse its fixture writes:
+  // preparing thousands of trigger-heavy statements retains gigabytes of
+  // native SQLite allocations before JavaScript's GC notices any pressure.
+  const insertRun = db.prepare("INSERT INTO runs(id,owner_id,conversation_id,kind,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,'agent','prompt','completed',?,1,1)");
+  const insertMessage = db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,?,?,?,10)");
   db.transaction(() => {
     for (const c of [conversation, other])
       for (let i = 0; i < 1000; i++) {
-        const r = run(c);
-        message(c, r);
-        trace(r);
-        message(c, r, "assistant");
+        const r = id();
+        insertRun.run(r, c, r);
+        insertMessage.run(id(), c, r, "user", "prompt", "{}");
+        insertMessage.run(id(), c, r, "assistant", "progress", '{"progress":true}');
+        insertMessage.run(id(), c, r, "assistant", "answer", "{}");
       }
   })();
   for (const analyze of [false, true]) {

@@ -56,6 +56,48 @@ LOOP_BEHIND_PROXY=1
 
 Point the hostname at the host, then run `docker compose --profile https up --build -d`. Caddy exposes 80/443; keep Loop's direct port private. `LOOP_BEHIND_PROXY` assumes a trusted proxy replaces client-IP headers; it does not authenticate visitors. Compose's loopback-proxy allowance must remain paired with local-only publication for single-user access.
 
+## Keep agent workloads from exhausting the server
+
+On a Linux host with systemd and cgroup v2, set `LOOP_NATIVE_LAUNCHER` to the
+absolute path of [agent-scope.py](../deployment/agent-scope.py). Native Codex,
+Claude, Pi, OpenCode and ACP-family harnesses enter a separate resource group
+before execution. Their test workers, builds and other child processes inherit
+the group, while the Loop API and execution coordinator stay outside it. The
+launcher preserves protocol pipes (including metadata on descriptor 3), process
+identity, working directory and native credentials. Placement failure refuses
+the launch instead of running it without limits.
+
+For an 8 GiB, four-CPU host using the user service `loop.service`:
+
+```sh
+bash deployment/install-agent-resources.sh loop.service
+# After active runs finish:
+systemctl --user restart loop.service
+```
+
+The installer copies the launcher and installs
+[loop-agents.slice](../deployment/loop-agents.slice): all native agent processes
+together have a 4 GiB memory pressure threshold, a 5 GiB hard memory ceiling,
+at most 1 GiB of swap and three CPUs. This leaves capacity for Loop and the OS;
+it is an aggregate limit, not a fresh allowance for each agent. A workload that
+exhausts the ceiling can have its processes killed by the kernel; Loop must
+report that failure and never automatically replay an uncertain action.
+
+Adjust `~/.config/systemd/user/loop-agents.slice` for the host's capacity. Run the
+installer after upgrades to refresh the helper; it preserves an existing slice
+configuration and never restarts the service. Inspect `systemctl --user show
+loop-agents.slice -p MemoryCurrent -p MemoryPeak -p MemoryMax` and the scope's
+`memory.events` to diagnose pressure or a resource kill. This is resource
+isolation, not a security boundary for an OS user with authority to change its
+own units. Docker containers and external execution services need their own
+resource limits because their processes are created by another service.
+
+Database liveness heartbeats use a nonblocking write. If another process owns
+SQLite's write lock, the timestamp remains unchanged and the next timer tries
+again; stale observations still expire. Contention cannot terminate the server
+through those timer callbacks. Ordinary writes retain their normal timeout and
+error behavior.
+
 ## Archive deployment backups
 
 Deployments that keep a full `workspace-backup` in each

@@ -1,4 +1,5 @@
-import { afterAll, expect, it } from "vitest";
+import { afterAll, expect, it, vi } from "vitest";
+import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,40 @@ const { observeProcess, currentBuilds } = await import("../src/server/deployment
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
+});
+
+it("skips a locked heartbeat without blocking or crashing, expires it, and resumes next tick", () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const contender = new Database(join(dir, "loop.db"));
+  const stop = observeProcess("api", runningBuild);
+  const before = currentBuilds()[0].observedAt;
+  const timeout = db.pragma("busy_timeout", { simple: true });
+  try {
+    contender.exec("BEGIN IMMEDIATE");
+    const start = performance.now();
+    expect(() => vi.advanceTimersByTime(25_000)).not.toThrow();
+    expect(performance.now() - start).toBeLessThan(500);
+    expect(currentBuilds()).toEqual([]);
+    expect(warning).toHaveBeenCalledOnce();
+    expect(db.pragma("busy_timeout", { simple: true })).toBe(timeout);
+    expect((db.prepare("SELECT seen_at FROM deployment_instances WHERE stopped_at IS NULL").get() as any).seen_at).toBe(before);
+    contender.exec("ROLLBACK");
+    vi.advanceTimersByTime(5000);
+    expect(currentBuilds()).toHaveLength(1);
+    expect(currentBuilds()[0].observedAt).toBeGreaterThan(before);
+    contender.exec("BEGIN IMMEDIATE");
+    expect(stop).not.toThrow();
+    contender.exec("ROLLBACK");
+    vi.advanceTimersByTime(25_000);
+    expect(currentBuilds()).toEqual([]);
+  } finally {
+    if (contender.inTransaction) contender.exec("ROLLBACK");
+    stop();
+    contender.close();
+    warning.mockRestore();
+    vi.useRealTimers();
+  }
 });
 
 it("omits expired and stopped processes from reads without reconciliation", () => {

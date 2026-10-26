@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawnNative } from "../native-spawn.js";
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { commandInput } from "../../native/command-results.js";
@@ -131,7 +132,7 @@ export class Acp implements Adapter {
   ) {}
 
   async start(): Promise<Billing> {
-    const child = spawn(this.options.executable, this.options.args || [], {
+    const child = spawnNative(this.options.executable, this.options.args || [], {
       cwd: this.options.project,
       shell: false,
       detached: true,

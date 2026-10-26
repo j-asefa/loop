@@ -2,6 +2,7 @@ import { db, id, now } from "./db.js";
 import { BuildStamp, publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
 import { observeApiEventLoop } from "./event-loop-health.js";
+import { heartbeatWrite } from "./heartbeat-write.js";
 
 const FRESH_MS = 20_000;
 type Instance = {
@@ -33,20 +34,19 @@ export function observeProcess(role: Instance["role"], build?: BuildStamp) {
     started,
     started,
   );
-  const pulse = () => {
+  const pulse = () => heartbeatWrite(`deployment-${role}`, () => {
     db.prepare(
       "UPDATE deployment_instances SET seen_at=?,build=? WHERE id=? AND stopped_at IS NULL",
     ).run(now(), JSON.stringify(build ?? observedBuild()), instance);
-  };
+  });
   pulse();
   const timer = setInterval(pulse, 5000);
   timer.unref();
   return () => {
     stopEventLoop?.();
     clearInterval(timer);
-    db.prepare("UPDATE deployment_instances SET stopped_at=? WHERE id=?").run(
-      now(),
-      instance,
+    heartbeatWrite(`deployment-${role}`, () =>
+      db.prepare("UPDATE deployment_instances SET stopped_at=? WHERE id=?").run(now(), instance),
     );
   };
 }

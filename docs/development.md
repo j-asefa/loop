@@ -72,6 +72,14 @@ The workspace-event socket suite compiles the current server into an isolated te
 
 Vitest runs files in parallel workers; Node-runner tests run one file at a time. Tests that exercise stop escalation shorten its waits with `LOOP_TEST_STOP_WAIT_MS` and `LOOP_TEST_STOP_GRACE_MS` instead of sleeping through production timeouts.
 
+Reuse prepared statements when generating large SQLite fixtures. Repeatedly
+compiling trigger-heavy writes can retain substantial native memory before
+JavaScript garbage collection runs; `--max-old-space-size` does not cap those
+allocations. Keep bulk read-test setup separate from small tests of producer
+behavior. On a shared production host, also use the
+[agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-server):
+worker counts and JavaScript heap limits are not whole-process memory limits.
+
 Connection-service tests (`test/connection.node.test.ts`, `test/cli-connection.node.test.ts`) run the real service, relay, sockets and CLI with [a fixture cloudflared](../test/fixtures/fake-cloudflared.mjs) selected by `LOOP_TEST_CLOUDFLARED`, which is ignored when `NODE_ENV=production`. `smoke:reconnect` adds a local TLS edge so a paired Chromium or WebKit page crosses `loop restart`. None of these reach Cloudflare: real Quick Tunnel behavior is covered by the Docker companion smoke (`scripts/compose-companion-smoke.mjs`), the service lifecycle smoke (`scripts/service-lifecycle-smoke.mjs`, real user systemd units; it installs units in the current user's systemd, so run it only on a disposable machine) and by live acceptance recorded in the PR.
 
 Native async tests use bounded waits from `test/helpers.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.

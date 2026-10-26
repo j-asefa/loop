@@ -2,7 +2,8 @@ import { directActivityEmitter } from "./direct-activities.js";
 import { DirectControls } from "./direct-controls.js";
 import type { Setting, SettingValue } from "../agent-activities.js";
 import { openCodeActivities, directUpdates } from "./direct-activities.js";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawnNative } from "../native-spawn.js";
 import { secret } from "../state.js";
 import { killOwned, own } from "../processes.js";
 import {
@@ -139,7 +140,7 @@ export class OpenCode implements Adapter {
     const environmentConfig = this.options.workspaceTools
       ? JSON.parse(process.env.OPENCODE_CONFIG_CONTENT || "{}")
       : undefined;
-    this.child = spawn(
+    this.child = spawnNative(
       this.options.executable,
       ["serve", "--hostname", "127.0.0.1", "--port", "0"],
       {

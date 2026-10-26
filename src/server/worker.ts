@@ -35,6 +35,7 @@ import { matchWatches } from "./feed-watches.js";
 import { sweepAgentMail } from "./agent-mail.js";
 import { reconcileCheckouts } from "./run-checkouts.js";
 import { observeProcess } from "./deployments.js";
+import { heartbeatWrite } from "./heartbeat-write.js";
 import { assertExecutionGeneration, executionGeneration } from "./execution-ownership.js";
 const workerId = executionGeneration() ?? id();
 export async function tick(
@@ -67,10 +68,10 @@ export async function tick(
   });
   if (!run) return false;
   const heartbeat = setInterval(
-    () =>
+    () => heartbeatWrite("run", () =>
       db
         .prepare("UPDATE runs SET heartbeat=? WHERE id=? AND worker_id=?")
-        .run(now(), run.id, workerId),
+        .run(now(), run.id, workerId)),
     10000,
   );
   try {
@@ -151,10 +152,10 @@ export function startWorker() {
   let active = 0;
   let stopping = false;
   const inflight = new Set<Promise<unknown>>();
-  const heartbeat = () =>
+  const heartbeat = () => heartbeatWrite("worker", () =>
     db
       .prepare("INSERT OR REPLACE INTO worker_health VALUES(?,?)")
-      .run(workerId, now());
+      .run(workerId, now()));
   heartbeat();
   const maintenanceTimers: ReturnType<typeof setInterval>[] = [];
   let cleaning = false;

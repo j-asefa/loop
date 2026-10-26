@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawnNative } from "./native-spawn.js";
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import { killOwned, own } from "./processes.js";
@@ -37,14 +38,9 @@ export class Native extends EventEmitter {
     maxFrameBytes = 8 * 1024 * 1024,
   ) {
     super();
-    // Supervision belongs to the Loop application, not its harnesses or the
-    // commands they launch. Inheriting it can make a test workspace claim the
-    // live application's service manager.
-    const childEnv = { ...env };
-    delete childEnv.LOOP_SERVICE;
-    this.child = spawn(executable, args, {
+    this.child = spawnNative(executable, args, {
       cwd,
-      env: childEnv,
+      env,
       stdio: ["pipe", "pipe", "pipe", "pipe"],
       shell: false,
       detached: true,

@@ -1,0 +1,14 @@
+[Unit]
+Description=Aggregate resource budget for Loop native agents and their commands
+
+[Slice]
+# Example for an 8 GiB, four CPU host. Leave capacity for Loop and the OS.
+MemoryAccounting=yes
+MemoryHigh=4G
+MemoryMax=5G
+MemorySwapMax=1G
+CPUAccounting=yes
+CPUQuota=300%
+CPUWeight=50
+IOAccounting=yes
+IOWeight=50
