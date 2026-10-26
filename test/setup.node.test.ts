@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import {
   copyFileSync,
   existsSync,
@@ -15,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const setupSource = new URL("../scripts/setup.mjs", import.meta.url);
+const exec = promisify(execFile);
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
 function installSetup(root: string) {
@@ -28,7 +30,7 @@ function runSetup(root: string) {
   });
 }
 
-test("setup preserves existing environment and configures blame for older linked worktrees", () => {
+test("setup preserves the environment and shared revision history across linked worktrees", async () => {
   const root = mkdtempSync(join(tmpdir(), "loop-setup-git-"));
   const repository = join(root, "repository");
   const oldWorktree = join(root, "old");
@@ -44,7 +46,10 @@ test("setup preserves existing environment and configures blame for older linked
     writeFileSync(join(repository, "example.ts"), "const value = 1;\n");
     git(repository, "commit", "-qam", "Format source");
     const formatting = git(repository, "rev-parse", "HEAD");
-    const revisions = `# Formatting only\n${formatting}\n`;
+    writeFileSync(join(repository, "example.ts"), "const value =\n  1;\n");
+    git(repository, "commit", "-qam", "Reformat source");
+    const newerFormatting = git(repository, "rev-parse", "HEAD");
+    const revisions = `# Formatting only\n${formatting}\n${newerFormatting}\n`;
     writeFileSync(join(repository, ".git-blame-ignore-revs"), revisions);
     git(repository, "worktree", "add", "--detach", oldWorktree, initial);
     installSetup(repository);
@@ -64,7 +69,9 @@ test("setup preserves existing environment and configures blame for older linked
       configured,
       join(repository, ".git", "loop-blame-ignore-revs"),
     );
-    assert.equal(readFileSync(configured, "utf8"), revisions);
+    const sharedRevisions = () =>
+      new Set(readFileSync(configured, "utf8").trim().split(/\s+/));
+    assert.deepEqual(sharedRevisions(), new Set([formatting, newerFormatting]));
     assert.equal(
       git(oldWorktree, "config", "--local", "blame.ignoreRevsFile"),
       configured,
@@ -82,6 +89,33 @@ test("setup preserves existing environment and configures blame for older linked
       new RegExp(initial),
     );
     assert.match(runSetup(repository), /\.env already exists; preserved/);
+    assert.equal(readFileSync(join(repository, ".env"), "utf8"), environment);
+
+    // Setup from a stale worktree must not erase the newer formatting commit.
+    installSetup(oldWorktree);
+    writeFileSync(
+      join(oldWorktree, ".git-blame-ignore-revs"),
+      `${formatting}\n`,
+    );
+    runSetup(oldWorktree);
+    assert.deepEqual(sharedRevisions(), new Set([formatting, newerFormatting]));
+
+    // Two setups that read the same empty shared list must preserve both writes.
+    writeFileSync(configured, "");
+    writeFileSync(
+      join(repository, ".git-blame-ignore-revs"),
+      `${formatting}\n`,
+    );
+    writeFileSync(
+      join(oldWorktree, ".git-blame-ignore-revs"),
+      `${newerFormatting}\n`,
+    );
+    await Promise.all(
+      [repository, oldWorktree].map((cwd) =>
+        exec(process.execPath, ["scripts/setup.mjs"], { cwd }),
+      ),
+    );
+    assert.deepEqual(sharedRevisions(), new Set([formatting, newerFormatting]));
     assert.equal(readFileSync(join(repository, ".env"), "utf8"), environment);
   } finally {
     rmSync(root, { recursive: true, force: true });

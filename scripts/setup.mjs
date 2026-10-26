@@ -30,10 +30,28 @@ if (
       "loop-blame-ignore-revs",
     );
     try {
-      writeFileSync(
-        ignoreFile,
-        readFileSync(new URL("../.git-blame-ignore-revs", import.meta.url)),
+      const revisions = (content) =>
+        content
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line && !line.startsWith("#"));
+      const existing = new Set(
+        existsSync(ignoreFile)
+          ? revisions(readFileSync(ignoreFile, "utf8"))
+          : [],
       );
+      const additions = revisions(
+        readFileSync(
+          new URL("../.git-blame-ignore-revs", import.meta.url),
+          "utf8",
+        ),
+      ).filter((revision) => !existing.has(revision));
+      // Append in one write: stale worktrees cannot remove newer revisions,
+      // and concurrent setups may only duplicate entries (which Git accepts).
+      // A leading newline also handles a preexisting file without a final one.
+      appendFileSync(ignoreFile, `\n${additions.join("\n")}\n`, {
+        mode: 0o600,
+      });
       configured =
         spawnSync(
           "git",
