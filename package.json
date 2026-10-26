@@ -11,6 +11,7 @@
     "build": "node scripts/build.mjs",
     "build:image": "node scripts/build-image.mjs",
     "typecheck": "node scripts/typecheck.mjs",
+    "check": "node scripts/check.mjs",
     "test": "node scripts/test-runner.mjs vitest",
     "start": "node --import tsx src/server/serve.ts",
     "serve": "node scripts/serve.mjs",

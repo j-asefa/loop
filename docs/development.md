@@ -55,6 +55,7 @@ The final runtime images do not need a TypeScript loader or build dependencies.
 | Check                      | Purpose                                                                                                         |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `npm run typecheck`        | Root TypeScript                                                                                                 |
+| `npm run check`            | Convention gate before every PR: typecheck, `openapi:check`, source boundaries and route contracts              |
 | `npm test`                 | Vitest server/domain and shared client production logic in `test/`                                              |
 | `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing                                   |
 | `npm run test:all`         | Both root suites                                                                                                |
@@ -132,7 +133,7 @@ Omitting scenario names runs all scenarios; unknown names fail. Each scenario re
 
 The native contract checks exercise direct adapter framing, paired sign-in, native session recovery, live steering and team messaging across harnesses. They use subprocess fixtures and do not verify real provider OAuth or inference.
 
-Before a PR, run checks relevant to the change and report exact failures or unavailable dependencies. Documentation-only changes need valid relative links/anchors, real package commands and consistency with current CLI/configuration. Keep dated results in the PR. Real account inference, permission round trips, tunnel behavior and physical-phone installation remain separate live checks requiring the corresponding environment.
+Before a PR, run `npm run check` on the commit you are submitting and paste its `check:` lines into the PR; the review team reads a snapshot and does not run it. It runs [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the legacy route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. On 2026-10-26 it took about 30 seconds: 7 s typecheck under the shared slot, under 1 s OpenAPI and 22 s of contract tests with two Vitest workers; the legacy route inventory starts the server twice, once per profile. It refuses to start without `node_modules` from `npm ci`, and exits 75 like `typecheck` when the typecheck slot stays busy. It is not the full suite. Also run checks relevant to the change and report exact failures or unavailable dependencies. Documentation-only changes need valid relative links/anchors, real package commands and consistency with current CLI/configuration. Keep dated results in the PR. Real account inference, permission round trips, tunnel behavior and physical-phone installation remain separate live checks requiring the corresponding environment.
 
 `npm run openapi:check` checks the generated OpenAPI document against the unified workspace and Cards contracts.
 `npm run cards:example` runs the source-bound full-collection sync example; see [Cards API](cards-api.md#typed-readers-and-the-example) for its environment.
