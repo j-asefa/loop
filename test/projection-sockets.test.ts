@@ -12,7 +12,7 @@ let fixture: Awaited<ReturnType<typeof cardsFixture>>;
 const sockets: WebSocket[] = [];
 beforeAll(async () => {
   compiled = await compiledServerFixture();
-  fixture = await cardsFixture("server", compiled.source);
+  fixture = await cardsFixture("server", compiled.source, { projectedWrites: true });
 }, 30000);
 afterAll(async () => {
   sockets.forEach((s) => s.terminate());
@@ -165,17 +165,42 @@ it("serves atomic per-page Feed deltas with upserts, removals, filter changes an
       }),
     );
   f.db.prepare("UPDATE runs SET input='Edited' WHERE id='feed-a'").run();
+  const inline = f.db.prepare("SELECT payload FROM events WHERE owner_id=? AND type='feed.card' AND json_extract(payload,'$.conversationId')='feed-a' ORDER BY id DESC LIMIT 1")
+    .get(f.owner) as { payload: string };
+  expect(JSON.parse(inline.payload).card).toMatchObject({ title: "Edited" });
   const delta = await read("/api/feed?filter=working&known=" + token(first));
   expect(delta.projectionRows.delta).toBe(true);
   expect(delta.items.map((i: any) => i.conversation_id)).toEqual(["feed-a"]);
   let shown = reduceFeedPage(first, delta);
   expect(shown.items).toEqual((await read("/api/feed?filter=working")).items);
+  f.db.transaction(() => {
+    f.db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES('feed-long-answer',?,'feed-b','feed-b','assistant',?,2)")
+      .run(f.owner, "Large streamed answer ".repeat(2000));
+    f.db.prepare("UPDATE runs SET updated_at=updated_at+1 WHERE id='feed-b'").run();
+  }).immediate();
+  const largeSignals = f.db.prepare("SELECT payload FROM events WHERE owner_id=? AND id>? AND type='feed.card' AND json_extract(payload,'$.conversationId')='feed-b' ORDER BY id")
+    .all(f.owner, shown.projection.cursor) as { payload: string }[];
+  expect(largeSignals.map(event => JSON.parse(event.payload))).toEqual([
+    { conversationId: "feed-b", cardKey: "run:feed-b", kind: "thread", removed: true, card: null },
+    { conversationId: "feed-b", cardKey: "message:feed-long-answer", kind: "thread", removed: false, card: null },
+  ]);
+  for (const event of largeSignals) expect(Buffer.byteLength(event.payload)).toBeLessThan(4096);
+  const largeDelta = await read("/api/feed?filter=working&known=" + token(shown));
+  expect(largeDelta.items.map((item: any) => item.conversation_id)).toEqual(["feed-b"]);
+  shown = reduceFeedPage(shown, largeDelta);
+  expect(reduceFeedPage(shown, largeDelta).items).toEqual(shown.items);
+  expect(shown.items).toEqual((await read("/api/feed?filter=working")).items);
   f.db.prepare("UPDATE runs SET state='completed' WHERE id='feed-a'").run();
+  const emitted = f.db.prepare("SELECT id,payload FROM events WHERE owner_id=? AND id>? AND type='feed.card' AND json_extract(payload,'$.conversationId')='feed-a'")
+    .all(f.owner, shown.projection.cursor) as {id:number;payload:string}[];
+  expect(emitted.some(event => JSON.parse(event.payload).kind === "thread")).toBe(true);
   const removed = await read("/api/feed?filter=working&known=" + token(shown));
   expect(removed.projectionRows.removed).toContain(
     JSON.stringify(["feed-a", null]),
   );
+  expect(removed.projection.cursor).toBeGreaterThanOrEqual(Math.max(...emitted.map(event => event.id)));
   shown = reduceFeedPage(shown, removed);
+  expect(reduceFeedPage(shown, removed).items).toEqual(shown.items);
   expect(shown.items).toEqual((await read("/api/feed?filter=working")).items);
   const changedFilter = await read(
     "/api/feed?filter=done&known=" + token(shown),
@@ -185,6 +210,7 @@ it("serves atomic per-page Feed deltas with upserts, removals, filter changes an
   expect(() =>
     f.db
       .transaction(() => {
+        f.db.prepare("DELETE FROM messages WHERE run_id='feed-b'").run();
         f.db.prepare("DELETE FROM runs WHERE id='feed-b'").run();
         throw Error("rollback");
       })

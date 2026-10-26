@@ -251,6 +251,7 @@ for (const engine of selectedEngines()) {
         const inboxFilters = inbox.getByRole("tablist", { name: "Show" });
         await expect(inboxFilters.getByRole("tab")).toHaveText([
           "Done",
+          "Replies",
           "Threads",
           /^Working/,
           /^Queued/,

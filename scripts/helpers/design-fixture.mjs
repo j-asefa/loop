@@ -6,6 +6,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCipheriv, randomUUID, randomBytes } from "node:crypto";
 import { createServer } from "node:net";
+import { tsImport } from "tsx/esm/api";
+
+const { installFixtureProjection } = await tsImport(
+  "../../test/helpers/projected-writer.ts", import.meta.url,
+);
 
 // No .env file, real accounts, provider calls, worker execution, or persisted browser auth.
 // `githubApi` points server-side GitHub reads at a fake; by default they fail fast.
@@ -90,6 +95,7 @@ export async function designFixture({ githubApi } = {}) {
     };
     const owner = (await api("/auth/get-session")).user.id;
     db = new Database(dir + "/loop.db");
+    installFixtureProjection(db);
     heartbeat = setInterval(
       () =>
         db

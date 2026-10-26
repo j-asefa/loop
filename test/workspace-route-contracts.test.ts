@@ -223,23 +223,29 @@ it("excludes empty team conversations and keeps visible Feed keys and activity t
   const manager = fixture(), worker = fixture();
   const team = createTeam(owner, { name: "Empty team", managerId: manager.agent.id, members: [worker.agent.id] });
   const conversation = team.conversation_id!;
-  expect(db.prepare("SELECT feed_visible FROM conversations WHERE id=?").get(conversation)).toEqual({ feed_visible: 0 });
+  expect(db.prepare("SELECT 1 FROM feed_cards WHERE owner_id=? AND conversation_id=?").get(owner, conversation)).toBeUndefined();
   for (const filter of ["all", "done"]) {
     const result = await request("/feed?filter=" + filter);
     expect(result.status).toBe(200);
     expect(result.data.items.some((item: { conversation_id: string }) => item.conversation_id === conversation)).toBe(false);
   }
-  const message = id();
-  db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Only a message',?)").run(message, owner, conversation, now());
-  expect(db.prepare("SELECT feed_visible,feed_last_activity_at FROM conversations WHERE id=?").get(conversation)).toEqual({ feed_visible: 1, feed_last_activity_at: expect.any(Number) });
+  const message = id(), createdAt = now();
+  db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Only a message',?)").run(message, owner, conversation, createdAt);
+  expect(db.prepare("SELECT card_key,sort_at FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='thread'").get(owner, conversation))
+    .toEqual({card_key:"message:"+message,sort_at:createdAt});
   const visible = await request("/feed?filter=all");
   expect(visible.status).toBe(200);
-  expect(visible.data.items.some((item: { conversation_id: string }) => item.conversation_id === conversation)).toBe(true);
+  expect(visible.data.items.find((item: { conversation_id: string }) => item.conversation_id === conversation))
+    .toMatchObject({conversation_id:conversation,last_activity_at:createdAt,last_message:{id:message}});
   expect((await request("/feed?filter=done")).status).toBe(200);
-  expect(db.prepare("SELECT count(*) n FROM conversations WHERE owner_id=? AND feed_visible=1 AND (feed_last_activity_at IS NULL OR COALESCE(feed_done_run_id,feed_last_message_id,feed_run_id) IS NULL)").get(owner)).toEqual({ n: 0 });
+  expect(db.prepare("SELECT count(*) n FROM feed_cards WHERE owner_id=? AND kind='thread' AND (sort_at IS NULL OR card_key='')").get(owner)).toEqual({ n: 0 });
   db.prepare("DELETE FROM messages WHERE id=?").run(message);
-  expect(db.prepare("SELECT feed_visible FROM conversations WHERE id=?").get(conversation)).toEqual({ feed_visible: 0 });
-  expect((await request("/feed?filter=done")).status).toBe(200);
+  expect(db.prepare("SELECT 1 FROM feed_cards WHERE owner_id=? AND conversation_id=?").get(owner, conversation)).toBeUndefined();
+  for (const filter of ["all", "done"]) {
+    const result = await request("/feed?filter=" + filter);
+    expect(result.status).toBe(200);
+    expect(result.data.items.some((item: { conversation_id: string }) => item.conversation_id === conversation)).toBe(false);
+  }
 });
 
 it("validates approvals before a decision and preserves owner checks", async () => {

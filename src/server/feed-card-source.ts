@@ -3,8 +3,8 @@ import { nonemptyAnswer } from "./feed-answers.js";
 import type { FeedRow } from "./feed-card-display.js";
 
 // These are write-side source reads, always limited to a single affected
-// conversation. The shadow oracle continues to use the trigger-maintained
-// conversation cache, so it can detect omissions in this independent state.
+// conversation. The permanent test oracle derives state from raw history
+// independently of these source reads and never consults feed_cards.
 const stateSql = `state_base AS MATERIALIZED (
  SELECT c.id,c.owner_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,c.project_id,
   COALESCE((SELECT r.id FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id

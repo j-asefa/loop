@@ -56,6 +56,9 @@ function seed({ db, owner }, label, history = 55, activeHistory = 45) {
     );
     for (let n = 0; n < 1000; n++) event.run(owner, now - 1000 + n);
   }).immediate();
+  assert.equal(db.prepare("SELECT count(*) n FROM feed_card_dirty WHERE owner_id=?").get(owner).n, 0,
+    "fixture source writes must finish their projection before any HTTP read");
+  assert.equal(db.prepare("SELECT count(*) n FROM feed_cards WHERE owner_id=? AND kind='result'").get(owner).n, history);
 }
 function complete({ db, owner }, label) {
   const now = Date.now();
@@ -87,7 +90,7 @@ for (const engine of engines) {
       const priorPath = process.env.PATH;
       try {
         if (mode === "companion") {
-          remote = await cardsFixture("server", true);
+          remote = await cardsFixture("server", true, { projectedWrites: true });
           seed(remote, "Remote", 2, 0);
           // Fixture discovery, real source servers and real gateway forwarding.
           dockerDir = mkdtempSync(join(tmpdir(), "loop-events-docker-"));
@@ -124,7 +127,7 @@ for (const engine of engines) {
           );
           process.env.PATH = dockerDir + ":" + priorPath;
         }
-        fixture = await cardsFixture(mode, true);
+        fixture = await cardsFixture(mode, true, { projectedWrites: true });
         process.env.PATH = priorPath;
         seed(fixture, "Local");
         context = await browser.newContext({
@@ -660,9 +663,8 @@ for (const engine of engines) {
             await expect(answer).toContainText(text.trim());
           }
           await thread.waitForTimeout(2500);
-          // This fixture writes through a separate raw SQLite connection. Its
-          // final Feed projection can emit a second coalesced notification.
-          // Establish that delivery and finish its reads before measuring quiet.
+          // The separate writer commits source events and Feed cards together.
+          // Finish coalesced delivery and its reads before measuring quiet.
           await expect.poll(() => fixture.db.prepare("SELECT count(*) n FROM feed_card_dirty WHERE owner_id=?").get(fixture.owner).n,
             { timeout: revisionTimeout }).toBe(0);
           const projectedCursor = fixture.db.prepare("SELECT COALESCE(max(id),0) cursor FROM events WHERE owner_id=? AND type='feed.card'").get(fixture.owner).cursor;
@@ -801,7 +803,7 @@ for (const engine of engines) {
         await fixture.close();
         fixture = undefined;
         if (dockerDir) process.env.PATH = dockerDir + ":" + priorPath;
-        fixture = await cardsFixture(mode, true);
+        fixture = await cardsFixture(mode, true, { projectedWrites: true });
         process.env.PATH = priorPath;
         seed(fixture, "Local", 2, 0);
         complete(fixture, "Local");

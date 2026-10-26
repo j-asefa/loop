@@ -232,10 +232,12 @@ test(
           "fixture startup refuses before any task prompt",
         );
         try {
-          assert.equal(
-            (await request("/workspace/runtimes/claude/enable", input)).status,
-            422,
-          );
+          const failed = await request("/workspace/runtimes/claude/enable", input);
+          assert.equal(failed.status, 503);
+          const refusal = await failed.json();
+          assert.equal(refusal.executionOutcome, "refused");
+          assert.match(refusal.error, /No prompt was sent/);
+          assert.match(refusal.error, /Provider connections/);
         } finally {
           unlinkSync(process.env.LOOP_TEST_PROBE_FAIL_FILE!);
         }

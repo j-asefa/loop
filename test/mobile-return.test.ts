@@ -653,16 +653,18 @@ it.each(["prompt", "commentary", "whitespace", "empty"])("keeps an idle %s-only 
   expect(await page()).toEqual(items);
 });
 
-it("reads historical answer eligibility through the partial index in the production Done query", async () => {
+it("reads the production Done page and summary in one indexed projection query", async () => {
   const w = workspaceFor(), a = w.agent();
   const cid = conversation(w.owner, a.id);
   message(w.owner, cid, "assistant", "Run answer", run(w.owner, a.id, cid));
   message(w.owner, cid, "assistant", "Imported answer");
   const prepare = db.prepare.bind(db);
   let plan: { detail: string }[] = [];
+  let selections = 0;
   const spy = vi.spyOn(db, "prepare").mockImplementation((sql) => {
     const statement = prepare(sql);
-    if (sql.includes("completed_results AS")) {
+    if (sql.includes("FROM feed_cards p")) {
+      selections++;
       const all = statement.all.bind(statement);
       statement.all = (...args: unknown[]) => {
         plan = prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as { detail: string }[];
@@ -678,9 +680,10 @@ it("reads historical answer eligibility through the partial index in the product
   } finally {
     spy.mockRestore();
   }
-  // Page-level answer lookups may choose this index too; require both
-  // historical paths without forbidding additional indexed lookups.
-  expect(plan.filter((row) => /USING (?:COVERING )?INDEX messages_feed_answers/.test(row.detail)).length).toBeGreaterThanOrEqual(2);
+  expect(selections).toBe(1);
+  expect(plan.some(row => /SEARCH p USING INDEX feed_cards_results/.test(row.detail))).toBe(true);
+  expect(plan.some(row => /SEARCH t USING COVERING INDEX feed_cards_summary/.test(row.detail))).toBe(true);
+  expect(plan.some(row => /(?:runs|messages)/.test(row.detail))).toBe(false);
 });
 
 it.each(["run", "imported"])("updates indexed %s answer eligibility when message content or progress changes", async (kind) => {

@@ -5,6 +5,7 @@ import type { PullState } from "../shared/pull-state.js";
 export type FeedRow = {
   conversation_id: string;
   title: string;
+  card_title?: string;
   agent_id: string | null;
   execution_connection_id: string | null;
   team_id: string | null;
@@ -73,6 +74,19 @@ export type FeedCardDetail = {
 };
 const collapse = (text: string | null | undefined, max: number) =>
   (text || "").replace(/\s+/g, " ").trim().slice(0, max);
+export function feedCardTitle(row: FeedRow) {
+  return row.card_title ??
+    ((row.card_run_state && collapse(row.card_run_input, 200)) || row.title);
+}
+export function feedMessagePrefix(text: string) {
+  // Match SQLite substr: its limit counts Unicode code points, not UTF-16.
+  let value = "", count = 0;
+  for (const point of text) {
+    if (count++ === 1000) break;
+    value += point;
+  }
+  return value;
+}
 export function displayFeedCard(
   detail: FeedCardDetail,
   row: FeedRow,
@@ -117,7 +131,7 @@ export function displayFeedCard(
     // by the prompt of the run it shows: a Done card by the prompt its answer
     // replies to, a Working card by the task in progress. Imported history
     // has no runs and keeps the thread title.
-    title: (run && collapse(run.input, 200)) || row.title,
+    title: feedCardTitle(row),
     agent_id: row.agent_id,
     connection_id: row.execution_connection_id,
     agent_name: row.agent_name ?? null,

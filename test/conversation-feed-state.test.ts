@@ -1,6 +1,6 @@
-// The Feed reads each conversation's state from columns that triggers keep
-// current (migrations 081 and 084). These tests compare those columns, after every
-// kind of write, with the state the Feed used to derive on each request.
+// Historical migration contract through 122: migrations 081/084 maintained
+// conversation cache columns. PR 9b retires them in 123; feed-projection.test.ts
+// compares the current production reader with the permanent raw-history oracle.
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -10,7 +10,7 @@ import { join } from "node:path";
 const dirs: string[] = [];
 afterAll(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
-function database(through = Infinity) {
+function database(through = 122) {
   const dir = mkdtempSync(join(tmpdir(), "loop-feed-state-"));
   dirs.push(dir);
   const db = new Database(join(dir, "loop.db"));

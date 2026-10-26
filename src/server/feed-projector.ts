@@ -10,12 +10,12 @@ import {
   threadDetails,
   type ThreadDetails,
 } from "./feed-card-details.js";
-import { displayFeedCard, type FeedCardDetail } from "./feed-card-display.js";
+import { displayFeedCard, feedCardTitle, feedMessagePrefix, type FeedCardDetail } from "./feed-card-display.js";
 
 export type StoredCard = {
   row: SourceRow;
   detail: FeedCardDetail;
-  legacy?: { row: SourceRow; detail: FeedCardDetail };
+  legacy?: { row: Partial<SourceRow>; detail: FeedCardDetail };
   thread?: ThreadDetails;
 };
 export type CardKind = "thread" | "result" | "idle";
@@ -25,6 +25,20 @@ type Emit = (
   ...event: WorkspaceEmission
 ) => unknown;
 type Dirty = { owner_id: string; conversation_id: string; card_key: string };
+
+function threadDisplayRow(row: SourceRow): SourceRow {
+  // Feed exposes bounded text. Do not rewrite full streamed answers, prompts
+  // or unused message metadata in the thread row on every chunk. Derive the
+  // title before truncating input: leading whitespace can hide it past 1000.
+  // Result and idle rows retain complete content for the Cards detail reader.
+  return {
+    ...row,
+    card_title: (row.card_run_input?.length ?? 0) > 1000 ? feedCardTitle(row) : undefined,
+    card_run_input: row.card_run_input?.slice(0, 1000) ?? null,
+    message_content: row.message_content === null ? null : feedMessagePrefix(row.message_content),
+    message_metadata: null,
+  };
+}
 
 /** Called inside the producer's outer transaction, including migration backfill.
  * A thread update does not visit its historical result rows. Result identities
@@ -58,14 +72,11 @@ export function projectFeed(db: Database.Database, emit: Emit) {
       );
     group.keys.add(row.card_key);
   }
-  const upsert =
+  const insert =
     db.prepare(`INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
     needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,payload,legacy_sort_at,legacy_hidden)
-    VALUES(@owner,@conversation,@kind,@key,@folder,@agent,@team,@sort,@needs,@until,@working,@queued,@snoozed,@completed,@hidden,@hide,@payload,@legacySort,@legacyHidden)
-    ON CONFLICT(owner_id,conversation_id,kind,card_key) DO UPDATE SET folder_id=excluded.folder_id,agent_id=excluded.agent_id,team_id=excluded.team_id,
-    sort_at=excluded.sort_at,needs_run=excluded.needs_run,approval_until=excluded.approval_until,working=excluded.working,queued=excluded.queued,
-    snoozed=excluded.snoozed,completed=excluded.completed,hidden=excluded.hidden,hide_results=excluded.hide_results,payload=excluded.payload,
-    legacy_sort_at=excluded.legacy_sort_at,legacy_hidden=excluded.legacy_hidden WHERE feed_cards.payload IS NOT excluded.payload`);
+    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@payload,@legacy_sort_at,@legacy_hidden)
+`);
   for (const { owner, conversation, keys } of groups.values()) {
     const subject = { kind: "collection" as const, id: "feed" };
     const remove = (kind: CardKind, key: string) => {
@@ -107,27 +118,37 @@ export function projectFeed(db: Database.Database, emit: Emit) {
           .all(owner, conversation, kind, key) as { card_key: string }[])
           remove(kind, old.card_key);
       }
-      const changed = upsert.run({
-        owner,
-        conversation,
-        kind,
-        key,
-        folder: r.folder_id,
-        agent: r.agent_id,
-        team: r.team_id,
-        sort: r.sort_at,
-        needs: r.needs_run,
-        until: r.approval_until,
+      const values = {
+        folder_id: r.folder_id,
+        agent_id: r.agent_id,
+        team_id: r.team_id,
+        sort_at: r.sort_at,
+        needs_run: r.needs_run,
+        approval_until: r.approval_until,
         working: r.is_working,
         queued: r.has_queued,
         snoozed: r.snoozed,
         completed: r.is_done,
         hidden: r.hidden,
-        hide: r.hide_results,
+        hide_results: r.hide_results,
         payload: JSON.stringify(stored),
-        legacySort: stored.legacy?.row.sort_at ?? r.sort_at,
-        legacyHidden: stored.legacy?.row.hidden ?? r.hidden,
-      }).changes;
+        legacy_sort_at: stored.legacy?.row.sort_at ?? r.sort_at,
+        legacy_hidden: stored.legacy?.row.hidden ?? r.hidden,
+      };
+      // Only these compile-time column names enter SQL. Updating unchanged
+      // indexed columns would still rewrite their B-tree pages in SQLite.
+      const columns = Object.keys(values) as (keyof typeof values)[];
+      const identity = { owner, conversation, kind, key };
+      const previous = db.prepare(`SELECT ${columns.join(",")} FROM feed_cards
+        WHERE owner_id=@owner AND conversation_id=@conversation AND kind=@kind AND card_key=@key`)
+        .get(identity) as typeof values | undefined;
+      const changedColumns = previous ? columns.filter(column => previous[column] !== values[column]) : columns;
+      if (!changedColumns.length) return;
+      const changed = previous
+        ? db.prepare(`UPDATE feed_cards SET ${changedColumns.map(column => `${column}=@${column}`).join(",")}
+          WHERE owner_id=@owner AND conversation_id=@conversation AND kind=@kind AND card_key=@key`)
+          .run({ ...identity, ...values }).changes
+        : insert.run({ ...identity, ...values }).changes;
       if (changed) {
         // Snapshot clients invalidate the collection; the bounded card also
         // supplies the event's display without shipping full stored answers.
@@ -155,46 +176,72 @@ export function projectFeed(db: Database.Database, emit: Emit) {
           cardKey: key,
           kind,
           removed: false,
-          // Oversized cards retain the scoped reconciliation signal without
-          // letting an auxiliary projection event reject a valid source write.
+          // Keep streamed thread events small enough for a typical SQLite
+          // page. Larger displays retain the scoped reconciliation signal;
+          // the HTTP page delta supplies the complete current display.
           card:
-            Buffer.byteLength(JSON.stringify(display)) <= 60_000
+            Buffer.byteLength(JSON.stringify(display)) <= (kind === "thread" ? 3_000 : 60_000)
               ? display
               : null,
         });
       }
     }
     const legacy = sourceCards(db, owner, conversation, "legacy")[0];
+    const threadRow = threadDisplayRow(row);
+    const legacyRow = threadDisplayRow(legacy);
+    // Both presentations share most context. Store only the legacy differences
+    // so every streamed chunk does not rewrite another copy of that context.
+    const legacyChanges: Partial<SourceRow> = {};
+    for (const key of Object.keys(legacyRow) as (keyof SourceRow)[])
+      if (legacyRow[key] !== threadRow[key])
+        Object.assign(legacyChanges, { [key]: legacyRow[key] });
+    // The read predicate needs this identity directly. Titles are optional and
+    // must not inherit the current prompt's derived title when legacy has none.
+    legacyChanges.done_run_id = legacyRow.done_run_id;
+    legacyChanges.card_title = legacyRow.card_title;
     save("thread", {
-      row,
+      row: threadRow,
       detail: detail(row.card_run),
-      legacy: { row: legacy, detail: detail(legacy.card_run) },
+      legacy: { row: legacyChanges, detail: detail(legacy.card_run) },
       thread,
     });
-    const idle = sourceCards(db, owner, conversation, "idle")[0];
-    save("idle", { row: idle, detail: detail(null) });
     const selected = keys.has("*")
       ? null
       : [...keys].filter(
           (key) => key.startsWith("run:") || key.startsWith("message:"),
         );
-    if (selected && !selected.length) continue;
-    const results = sourceCards(db, owner, conversation, "result", selected);
-    const present = new Set(results.map((r) => r.done_card_key));
-    const old = db
-      .prepare(
-        `SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result'
-      AND (? IS NULL OR card_key IN (SELECT value FROM json_each(?)))`,
-      )
-      .all(
-        owner,
-        conversation,
-        selected && JSON.stringify(selected),
-        selected && JSON.stringify(selected),
-      ) as { card_key: string }[];
-    for (const r of old)
-      if (!present.has(r.card_key)) remove("result", r.card_key);
-    for (const r of results)
-      save("result", { row: r, detail: detail(r.card_run) });
+    if (!selected || selected.length) {
+      const results = sourceCards(db, owner, conversation, "result", selected);
+      const present = new Set(results.map((r) => r.done_card_key));
+      const old = db
+        .prepare(
+          `SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result'
+        AND (? IS NULL OR card_key IN (SELECT value FROM json_each(?)))`,
+        )
+        .all(
+          owner,
+          conversation,
+          selected && JSON.stringify(selected),
+          selected && JSON.stringify(selected),
+        ) as { card_key: string }[];
+      for (const r of old)
+        if (!present.has(r.card_key)) remove("result", r.card_key);
+      for (const r of results)
+        save("result", { row: r, detail: detail(r.card_run) });
+    }
+    // Active/queued/snoozed/needs-run membership can change only on a write;
+    // those threads have no observable idle fallback. Approval timestamps are
+    // deliberately excluded: their expiry must reveal an idle without a write.
+    // The same applies while historical results replace the idle fallback.
+    if (row.needs_run || row.is_working || row.has_queued || row.snoozed ||
+      db.prepare("SELECT 1 FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' LIMIT 1")
+        .get(owner, conversation)) {
+      for (const old of db.prepare("SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='idle'")
+        .all(owner, conversation) as { card_key: string }[])
+        remove("idle", old.card_key);
+    } else {
+      const idle = sourceCards(db, owner, conversation, "idle")[0];
+      save("idle", { row: idle, detail: detail(null) });
+    }
   }
 }

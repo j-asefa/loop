@@ -22,6 +22,7 @@ const { SteeringInbox, saveSteering } = await import("../src/server/steering");
 const { invokeNative, nativeBindings } = await import("../src/server/native-tools");
 const { withTestAdapter } = await import("../src/server/providers");
 const { mobile } = await import("../src/server/mobile-routes");
+const { feed: legacyFeed } = await import("./helpers/legacy-feed");
 const { core } = await import("../src/server/core-routes");
 const { recordConversationUpdate } = await import("../src/server/conversation-updates");
 const app = express();
@@ -42,7 +43,17 @@ async function request(owner: string, path: string, body?: unknown) {
 async function replies(owner: string, query = "") {
   const response = await request(owner, "/feed?filter=replies" + query);
   expect(response.status).toBe(200);
-  return FeedPage.parse(response.body);
+  const page = FeedPage.parse(response.body);
+  const params = new URLSearchParams(query);
+  if (!params.has("known")) {
+    const { projection, projectionRows, ...selection } = page;
+    expect(selection).toEqual(legacyFeed(owner, {
+      filter: "replies", folder: params.get("folder") ?? undefined,
+      agent: params.get("agent") ?? undefined, teams: params.get("teams")?.split(","),
+      before: params.get("before") ?? undefined,
+    }));
+  }
+  return page;
 }
 function fixture(owner = id()) {
   const connection = id();

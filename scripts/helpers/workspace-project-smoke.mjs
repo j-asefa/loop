@@ -29,13 +29,15 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
     )
       removedReads.push(request.url());
   });
+  const { summary } = await api("/feed?filter=done&expand=results");
   await page.goto(fixture.base + "/?filter=status");
   const filters = page.getByRole("tablist", { name: "Show", exact: true });
   await expect(filters.getByRole("tab")).toHaveText([
     "Done",
+    `Replies${summary.replies_unread || ""}`,
     "Threads",
-    "Working",
-    "Queued",
+    `Working${summary.working || ""}`,
+    `Queued${summary.queued || ""}`,
   ]);
   await expect(
     filters.getByRole("tab", { name: "Done", exact: true }),

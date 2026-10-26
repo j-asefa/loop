@@ -1,12 +1,13 @@
 import { expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
+import { applyMigrations } from "../src/server/migrations";
 
-it.each([false, true])(
+it.each([null, 118, 123])(
   "backfills before startup returns with concurrent database users (upgrade=%s)",
   async (upgrade) => {
     const dir = mkdtempSync(join(tmpdir(), "loop-feed-migration-"));
@@ -14,17 +15,17 @@ it.each([false, true])(
     const source = pathToFileURL(resolve("src/server/db.ts")).href;
     const children: ReturnType<typeof spawn>[] = [];
     try {
-      if (upgrade) {
+      if (upgrade !== null) {
         const old = new Database(join(dir, "loop.db"));
         old.pragma("foreign_keys=ON");
         old
           .transaction(() => {
-            for (const file of readdirSync("migrations")
-              .filter(
-                (f) => f.endsWith(".sql") && Number(f.split("-")[0]) < 119,
-              )
-              .sort())
-              old.exec(readFileSync(join("migrations", file), "utf8"));
+            const migrationDir = join(dir, "migrations");
+            mkdirSync(migrationDir);
+            for (const file of readdirSync("migrations").filter(
+              f => f.endsWith(".sql") && Number(f.split("-")[0]) <= upgrade,
+            )) copyFileSync(join("migrations", file), join(migrationDir, file));
+            applyMigrations(old, migrationDir);
             old
               .prepare("INSERT INTO deployment_profile VALUES(1,'server')")
               .run();
@@ -43,8 +44,8 @@ it.each([false, true])(
         old.close();
       }
       const scripts = [
-        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT prefix AS version FROM schema_migrations ORDER BY prefix').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
-        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT prefix AS version FROM schema_migrations ORDER BY prefix').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
+        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT name,prefix AS version FROM schema_migrations ORDER BY prefix,name').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
+        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT name,prefix AS version FROM schema_migrations ORDER BY prefix,name').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
       ];
       const results = await Promise.all(
         scripts.map(
@@ -71,17 +72,12 @@ it.each([false, true])(
         second = JSON.parse(results[1]);
       expect(first).toEqual(second);
       expect(first.dirty).toEqual({ n: 0 });
+      expect(first.versions.filter((v: {name:string}) => v.name === "feed-card-read-switch")).toHaveLength(1);
       expect(
         first.versions.filter((v: { version: number }) => v.version === 119),
       ).toHaveLength(1);
-      if (upgrade)
+      if (upgrade !== null)
         expect(first.cards).toEqual([
-          {
-            owner_id: "owner",
-            conversation_id: "c",
-            kind: "idle",
-            card_key: "message:m",
-          },
           {
             owner_id: "owner",
             conversation_id: "c",
@@ -99,7 +95,7 @@ it.each([false, true])(
       const db = new Database(join(dir, "loop.db"));
       try {
         expect(db.pragma("foreign_key_check")).toEqual([]);
-        if (upgrade)
+        if (upgrade !== null)
           expect(
             db.prepare("SELECT content FROM messages WHERE id='m'").get(),
           ).toEqual({ content: "Kept answer" });

@@ -1435,7 +1435,10 @@ it("Done reconciles tied approval expiries in bounded batches without database w
         const id = "expiry-"+i;
         db.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,?,1)").run(id,owner,id);
         db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Prompt',1)").run(id,owner,id);
-        db.prepare("UPDATE conversations SET feed_approval_until=200 WHERE id=?").run(id);
+        // Historical pending approvals can outlive their stopped run. Derive
+        // attention from source rows, never write a retired Feed cache column.
+        db.prepare("INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,'Prompt','cancelled',?,1,1)").run(id,owner,id,id);
+        db.prepare("INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES(?,?,?,?,'{}','pending',1,200)").run(id,owner,id,id);
       }
     })();
     const cache=all(owner,{view:"done"});

@@ -104,10 +104,12 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
           body: JSON.stringify({ projectId, billing: "subscription" }),
         },
       );
-      assert.equal(failure.status, 422);
-      const message = await failure.text();
-      assert.match(message, /CLI sign-in/);
-      assert.doesNotMatch(message, /fixture-private-value/);
+      assert.equal(failure.status, 503);
+      const refusal = await failure.json();
+      assert.equal(refusal.executionOutcome, "refused");
+      assert.match(refusal.error, /No prompt was sent/);
+      assert.match(refusal.error, /Provider connections/);
+      assert.doesNotMatch(JSON.stringify(refusal), /fixture-private-value/);
       assert.equal((await api("/workspace")).harnesses.length, names.length);
     } finally {
       if (previousKey === undefined) delete process.env.OPENAI_API_KEY;

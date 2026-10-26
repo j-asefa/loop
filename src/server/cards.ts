@@ -492,9 +492,9 @@ export function cardChanges(owner: string, input: unknown) {
       WHERE owner_id=@owner AND state='stopped' AND updated_at+604800000>=@afterAt
         AND updated_at+604800000<=@now
     ), expiries AS (
-      SELECT feed_approval_until at,
-        'd:'||COALESCE('run:'||feed_done_run_id,'message:'||feed_last_message_id,'run:'||feed_run_id,'idle:'||id) key
-      FROM conversations WHERE owner_id=@owner AND feed_approval_until>=@afterAt AND feed_approval_until<=@now
+      SELECT approval_until at,
+        'd:'||COALESCE(NULLIF(card_key,''),'idle:'||conversation_id) key
+      FROM feed_cards WHERE owner_id=@owner AND kind='thread' AND approval_until>=@afterAt AND approval_until<=@now
       UNION SELECT w.at,'d:run:'||r.id FROM expired_watches w JOIN runs r
         ON r.conversation_id=w.conversation_id AND r.owner_id=@owner
       UNION SELECT w.at,'d:message:'||m.id FROM expired_watches w JOIN messages m

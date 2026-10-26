@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { displayFeedCard } from "./feed-card-display.js";
+import { displayFeedCard, feedMessagePrefix } from "./feed-card-display.js";
 import { currentPull } from "./feed-card-details.js";
 import type { SourceRow } from "./feed-card-source.js";
 import type { StoredCard } from "./feed-projector.js";
@@ -30,19 +30,20 @@ type RecordRow = {
 };
 const needs = "(t.needs_run OR COALESCE(t.approval_until,0)>@now)";
 const idle = `NOT (${needs} OR t.working OR t.queued) AND NOT t.snoozed`;
-const scope = (alias: string, params: Scope) =>
-  [
+const scope = (alias: string, params: Scope) => {
+  // Parameters come from the validated route's resolved folder selection.
+  const folders = params.folders ? JSON.parse(params.folders) as (string | null)[] : null;
+  const folderPredicates = folders && [
+    ...(folders.some(folder => folder !== null) ? [`${alias}.folder_id IN (SELECT value FROM json_each(@folders))`] : []),
+    ...(folders.includes(null) ? [`${alias}.folder_id IS NULL`] : []),
+  ];
+  return [
     `${alias}.owner_id=@owner`,
-    ...(params.teams
-      ? [`${alias}.team_id IN (SELECT value FROM json_each(@teams))`]
-      : []),
+    ...(params.teams ? [`${alias}.team_id IN (SELECT value FROM json_each(@teams))`] : []),
     ...(params.agent ? [`${alias}.agent_id=@agent`] : []),
-    ...(params.folders
-      ? [
-          `EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS ${alias}.folder_id)`,
-        ]
-      : []),
+    ...(folderPredicates ? [`(${folderPredicates.join(" OR ") || "0"})`] : []),
   ].join(" AND ");
+};
 
 // Independent SQL writers are not allowed to expose a stale projection at the
 // source event watermark. Production imports db.ts in both processes; an
@@ -54,16 +55,6 @@ export function assertFeedApplied(db: Database.Database) {
     );
 }
 
-function prefix(text: string, limit: number) {
-  // SQLite substr counts Unicode code points, while JS slice counts UTF-16.
-  let value = "",
-    count = 0;
-  for (const point of text) {
-    if (count++ === limit) break;
-    value += point;
-  }
-  return value;
-}
 function display(
   record: RecordRow,
   mode: "thread" | "working" | "done",
@@ -74,7 +65,11 @@ function display(
   const stored = JSON.parse(record.payload) as StoredCard;
   const thread = JSON.parse(record.thread_payload) as StoredCard;
   const card = legacy ? stored.legacy! : stored;
-  const row: SourceRow = { ...card.row };
+  const row: SourceRow = {
+    ...stored.row,
+    ...card.row,
+    card_title: card.row.card_title,
+  };
   const common = thread.row;
   // Result rows retain their historical folder/run/answer. Current context is
   // joined from the one thread row, so stream chunks never rewrite history.
@@ -103,7 +98,7 @@ function display(
   row.approval_message_id =
     mode === "done" ? null : (approvals[0]?.message_id ?? null);
   if (!full && row.message_content !== null)
-    row.message_content = prefix(row.message_content, 1000);
+    row.message_content = feedMessagePrefix(row.message_content);
   const detail = {
     ...card.detail,
     pull: currentPull(thread.thread!.watches, Date.now()),
@@ -115,7 +110,7 @@ function display(
   return { row, display: item };
 }
 
-export function projectionPage(
+export function projectionFeed(
   db: Database.Database,
   params: Scope & {
     at: number | null;
@@ -135,7 +130,7 @@ export function projectionPage(
     done: results
       ? `(p.kind='result' OR (${idle})) AND NOT ${hidden}`
       : `(json_extract(p.payload,'$.legacy.row.done_run_id') IS NOT NULL OR NOT (${needs} OR t.working OR t.queued)) AND NOT t.snoozed AND NOT ${hidden}`,
-    needs,
+    needs: `(t.needs_run=1 OR t.approval_until IS NOT NULL) AND ${needs}`,
     working: "t.working=1",
     queued: "t.queued=1",
     later: "t.snoozed=1",
@@ -150,21 +145,23 @@ export function projectionPage(
       AND (@at IS NULL OR ${sort}<@at OR (${sort}=@at AND (p.conversation_id<@after OR
         (p.conversation_id=@after AND ${results ? "(@afterCard IS NULL OR p.card_key<@afterCard)" : "p.card_key<@afterCard"}))))
     ORDER BY ${sort} DESC,p.conversation_id DESC,p.card_key DESC LIMIT 41`;
-  const rows = db
-    .prepare(results ? sql : sql.replace(/\bt\./g, "p."))
-    .all(params) as RecordRow[];
-  return rows.map((row) =>
-    display(row, mode, params.now, filter === "done" && !results, false),
-  );
-}
-
-export function projectionSummary(db: Database.Database, params: Scope) {
-  return db
-    .prepare(
-      `SELECT COALESCE(sum(${needs}),0) needs,COALESCE(sum(t.working),0) working,COALESCE(sum(t.queued),0) queued
-    FROM feed_cards t WHERE t.kind='thread' AND ${scope("t", params)}`,
-    )
-    .get(params) as Record<string, number>;
+  // One indexed page selection and covering-index aggregate in one statement.
+  // LEFT JOIN preserves summary counts even when this continuation has no rows.
+  const summarySql = `SELECT COALESCE(sum(${needs}),0) needs,
+    COALESCE(sum(t.working),0) working,COALESCE(sum(t.queued),0) queued
+    FROM feed_cards t WHERE t.kind='thread' AND ${scope("t", params)}`;
+  type Summary = { needs: number; working: number; queued: number };
+  const rows = db.prepare(`WITH summary AS (${summarySql})
+    SELECT page.*,summary.needs,summary.working,summary.queued FROM summary
+    LEFT JOIN (${results ? sql : sql.replace(/\bt\./g, "p.")}) page ON 1
+    ORDER BY page.sort_at DESC,page.conversation_id DESC,page.card_key DESC`)
+    .all(params) as ((RecordRow | { payload: null }) & Summary)[];
+  const { needs: needsCount, working, queued } = rows[0];
+  return {
+    page: rows.flatMap(row => row.payload === null ? [] :
+      [display(row, mode, params.now, filter === "done" && !results, false)]),
+    summary: { needs: needsCount, working, queued },
+  };
 }
 
 export function projectionDoneRows(

@@ -8,10 +8,12 @@ import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
+import { installFixtureProjection } from "./projected-writer.js";
 
 export async function cardsFixture(
   mode: "server" | "companion" | "multi-user",
   compiled: boolean | string = false,
+  options: { projectedWrites?: boolean } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "loop-card-access-"));
   let port = 0;
@@ -73,6 +75,10 @@ export async function cardsFixture(
   }
   const database = new Database(join(dir, "loop.db"));
   database.pragma("foreign_keys = ON");
+  // Opt in when exercising Feed: this independent connection must commit its
+  // projection with its source writes, exactly like the production worker.
+  if (options.projectedWrites)
+    installFixtureProjection(database);
   const { origin } = ready;
   let owner = ready.owner;
   const request = (

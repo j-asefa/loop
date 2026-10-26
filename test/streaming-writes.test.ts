@@ -15,7 +15,7 @@ const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { runPreview } = await import("../src/server/run-attention");
-const { shadowFeed } = await import("../src/server/mobile-return");
+const { feed } = await import("../src/server/mobile-return");
 
 let executed = 0;
 const prepare = db.prepare.bind(db);
@@ -65,7 +65,7 @@ const restore = withTestAdapter("openai", {
         statements: after - before,
         preview: String(artifact?.content ?? ""),
         artifact: stored.content,
-        projected: shadowFeed("alice", { filter: "working" }).items[0].live_preview ?? null,
+        projected: feed("alice", { filter: "working" }).items[0].live_preview ?? null,
       });
     }
   },
