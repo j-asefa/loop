@@ -28,7 +28,7 @@ const { app } = await import("../src/server/index");
 const { withTestAdapter } = await import("../src/server/providers");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { closeExecution } = await import("../src/server/execution-client");
-const { submit } = await import("../src/server/agent-runtime");
+const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { ownedArtifact } = await import("../src/server/domain");
 const { artifactResponse } = await import("../src/server/row-schemas");
@@ -532,12 +532,19 @@ it("importCancel cancels only the owned job and its queued run", async () => {
   ).toEqual({ status: "cancelled" });
 });
 it("conversationContinue copies selected production messages and returns the new identity", async () => {
+  const target = (
+    await request("/agents", {
+      name: "copy-only-target",
+      connectionId: connection.id,
+      model: "fixture",
+    })
+  ).data;
   const path = `/conversations/${run.conversation_id}/continue`;
   expect(
     await request(path, { agentId: agent.id, messageIds: [] }),
   ).toMatchObject(bad);
   const result = await request(path, {
-    agentId: agent.id,
+    agentId: target.id,
     messageIds: [message.id],
   });
   valid(workspaceApi.conversationContinue, result);
@@ -549,6 +556,118 @@ it("conversationContinue copies selected production messages and returns the new
       .prepare("SELECT content FROM messages WHERE conversation_id=?")
       .get(result.data.id),
   ).toEqual(original);
+  expect(
+    db
+      .prepare("SELECT id FROM runs WHERE conversation_id=?")
+      .all(result.data.id),
+  ).toEqual([]);
+  expect(
+    db
+      .prepare("SELECT execution_connection_id FROM conversations WHERE id=?")
+      .get(result.data.id),
+  ).toEqual({ execution_connection_id: null });
+  const nextConnection = (
+    await request("/connections", {
+      provider: "openai",
+      label: "Later connection",
+      secret: "fixture-only",
+    })
+  ).data;
+  db.prepare("UPDATE agents SET connection_id=? WHERE id=?").run(
+    nextConnection.id,
+    target.id,
+  );
+  const first = submit(owner, {
+    agentId: target.id,
+    conversationId: result.data.id,
+    input: "First prompt after switching connection",
+    idempotencyKey: id(),
+  });
+  expect(
+    db
+      .prepare(
+        "SELECT json_extract(payload,'$.connectionId') connection_id FROM runs WHERE id=?",
+      )
+      .get(first.id),
+  ).toEqual({ connection_id: nextConnection.id });
+  expect(
+    db
+      .prepare("SELECT execution_connection_id FROM conversations WHERE id=?")
+      .get(result.data.id),
+  ).toEqual({ execution_connection_id: nextConnection.id });
+});
+it("conversationContinueStart dispatches the first prompt with selected context and returns a reply", async () => {
+  const target = (
+    await request("/agents", {
+      name: "continuation-target",
+      connectionId: connection.id,
+      model: "fixture",
+    })
+  ).data;
+  const input = "What can we do about the browser smoke?";
+  const path = `/conversations/${run.conversation_id}/continue/start`;
+  const body = {
+    agentId: target.id,
+    messageIds: [message.id],
+    start: { input, idempotencyKey: id() },
+  };
+  expect(
+    await request(path, { agentId: target.id, messageIds: [message.id] }),
+  ).toMatchObject(bad);
+  expect(
+    await request(path, { ...body, start: { ...body.start, input: " " } }),
+  ).toMatchObject(bad);
+  expect(await request(path, { ...body, start: { input } })).toMatchObject(bad);
+  const result = await request(path, body);
+  valid(workspaceApi.conversationContinueStart, result);
+  expect(result.data.runId).toEqual(expect.any(String));
+  const dispatched = claim(
+    "continuation-fixture",
+    (candidate) => candidate.id === result.data.runId,
+  )!;
+  expect(dispatched).toMatchObject({
+    conversation_id: result.data.id,
+    agent_id: target.id,
+    input,
+  });
+  let history: unknown;
+  const restoreStream = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, request) {
+      history = request.messages;
+      yield { text: "Run the browser smoke once the current check finishes." };
+    },
+  });
+  try {
+    expect(await executeAgent(dispatched)).toBe(true);
+  } finally {
+    restoreStream();
+  }
+  expect(history).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: "Library prompt" }),
+      expect.objectContaining({ role: "user", content: input }),
+    ]),
+  );
+  expect(
+    db
+      .prepare(
+        "SELECT content FROM messages WHERE run_id=? AND role='assistant'",
+      )
+      .get(dispatched.id),
+  ).toEqual({
+    content: "Run the browser smoke once the current check finishes.",
+  });
+  transition(dispatched, "completed");
+  // A lost acknowledgement, even after completion, returns the same work.
+  expect(await request(path, body)).toEqual(result);
+  expect(
+    db
+      .prepare("SELECT id FROM runs WHERE conversation_id=?")
+      .all(result.data.id),
+  ).toEqual([{ id: dispatched.id }]);
 });
 it("typed multipart and binary clients preserve bytes, repeated queries, response validation and cancellation", async () => {
   const realFetch = globalThis.fetch;

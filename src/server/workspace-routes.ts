@@ -1,10 +1,6 @@
 import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
-import {
-  MessageMetadata,
-  artifactResponse,
-  runResponse,
-} from "./row-schemas.js";
+import { artifactResponse, runResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 
 import { companionMode } from "./profile.js";
@@ -20,8 +16,6 @@ import {
   ownedArtifact,
   ownedConnection,
   ownedImport,
-  ownedConversation,
-  ownedMessage,
   Problem,
 } from "./domain.js";
 import { projectFolders } from "./results.js";
@@ -40,6 +34,7 @@ import { stageImport } from "./imports.js";
 import { enqueue, RunIdentity, transition } from "./queue.js";
 import { checkoutDetail } from "./run-checkouts.js";
 import { runVerifications } from "./run-verifications.js";
+import { continueConversation } from "./conversation-continuations.js";
 
 const routes = registrar("workspace");
 export const workspace = routes.mount;
@@ -423,51 +418,9 @@ routes.on(workspaceApi.importCancel, (req, res) => {
   res.json({ ok: true });
 });
 routes.on(workspaceApi.conversationContinue, (req, res) => {
-  const c = ownedConversation(req.params.id, res.locals.owner);
-  const d = req.body;
-  const a = ownedAgent(d.agentId, res.locals.owner);
-  if (!a.connection_id)
-    throw new Problem(409, "Choose an agent with a connected model");
-  const messages = d.messageIds.map((mid) =>
-    ownedMessage(mid, res.locals.owner),
-  );
-  if (messages.some((m) => m.conversation_id !== c.id))
-    throw new Problem(400, "Choose messages from this conversation only");
-  messages.sort((a, b) => a.created_at - b.created_at);
-  const newId = id();
-  db.transaction(() => {
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
-    ).run(
-      newId,
-      res.locals.owner,
-      a.id,
-      "Continuation: " + c.title,
-      "loop-continuation",
-      null,
-      now(),
-    );
-    for (const m of messages)
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-      ).run(
-        id(),
-        res.locals.owner,
-        newId,
-        null,
-        m.role,
-        m.content,
-        JSON.stringify(
-          MessageMetadata.parse({
-            sourceConversation: c.id,
-            sourceMessage: m.id,
-            selectedByUser: true,
-            attachments: m.metadata.attachments || [],
-            original: m.metadata,
-          }),
-        ),
-        m.created_at,
-      );
-  }).immediate();
-  res.json({ id: newId, agentId: a.id });
+  res.json(continueConversation(res.locals.owner, req.params.id, req.body));
+});
+// A distinct path cannot fall back to an older server's non-idempotent copy.
+routes.on(workspaceApi.conversationContinueStart, (req, res) => {
+  res.json(continueConversation(res.locals.owner, req.params.id, req.body));
 });

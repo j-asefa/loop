@@ -52,6 +52,7 @@ import { messageNavigationSmoke } from "./helpers/message-navigation-smoke.mjs";
 import { inboxFlowsSmoke } from "./helpers/inbox-flows-smoke.mjs";
 import { needsStackSmoke } from "./helpers/needs-stack-smoke.mjs";
 import { continuitySmoke } from "./helpers/continuity-smoke.mjs";
+import { continuationSmoke, continuationTabsSmoke, continuationLegacySmoke, continuationRecoverySmoke } from "./helpers/continuation-smoke.mjs";
 import { threadLayoutSmoke } from "./helpers/thread-layout-smoke.mjs";
 import { visualLayoutSmoke } from "./helpers/visual-layout-smoke.mjs";
 
@@ -129,6 +130,10 @@ const scenarios = {
     await p.setViewportSize({ width: 390, height: 844 });
     await continuitySmoke(p, f, c);
   },
+  continuation: continuationSmoke,
+  "continuation-tabs": continuationTabsSmoke,
+  "continuation-legacy": continuationLegacySmoke,
+  "continuation-recovery": continuationRecoverySmoke,
   "reply-keyboard": (p, f, e, c) => replyKeyboardSmoke(p, f, c),
   "dialog-keyboard": (p, f, e, c) => dialogKeyboardSmoke(p, f, c),
   settings: (p, f, e, c) => settingsReliabilityBrowser(p, f.base, c),

@@ -9,6 +9,8 @@ export interface Capabilities {
   cardTokens?: boolean;
   /** Absent on sources that predate personal decision history. */
   personalDecisions?: boolean;
+  /** Absent on sources without the idempotent continuation-start endpoint. */
+  continuationStart?: boolean;
 }
 export function profileCapabilities(profile: DeploymentProfile): Capabilities {
   const companion = profile === "companion";
@@ -20,5 +22,6 @@ export function profileCapabilities(profile: DeploymentProfile): Capabilities {
     localProjects: companion,
     cardTokens: true,
     personalDecisions: true,
+    continuationStart: true,
   };
 }

@@ -62,6 +62,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         localProjects: true,
         cardTokens: true,
         personalDecisions: true,
+        continuationStart: true,
       },
     );
     assert.equal((await fetch(host.origin + "/api/bootstrap")).status, 401);

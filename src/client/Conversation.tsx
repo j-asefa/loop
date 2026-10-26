@@ -2,7 +2,7 @@ import { workspaceApi, type ConversationPage, type RouteInput, type RouteRespons
 import { readRoute, UnavailableResponse } from "./workspace-api";
 import { listenWorkspaceChanges, broadWorkspaceChange } from "./workspace-changes";
 import { CodeReviewStatus } from "./CodeReview";
-import { useSourceId, useSourceRoute, useProjectionRoute } from "./SourceContext";
+import { useSourceId, useSourceRoute, useProjectionRoute, useSourceCapabilities } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
 import { automationLabel } from "../shared/agent-mail";
 import {
@@ -145,6 +145,44 @@ function MessageShell({
 }
 
 type Transcript = ConversationPage;
+type ContinuationInput = RouteInput<typeof workspaceApi.conversationContinueStart>["body"];
+function storedContinuationAt(key: string): ContinuationInput | null {
+  try {
+    const parsed = workspaceApi.conversationContinueStart.body.safeParse(JSON.parse(localStorage.getItem(key) || "null"));
+    return parsed.success && parsed.data.start ? parsed.data : null;
+  } catch { return null; }
+}
+function storedContinuations(key: string): ContinuationInput[] {
+  try {
+    const requests = new Map<string, ContinuationInput>();
+    for (const slot of [key, ...Object.keys(localStorage).filter(k => k.startsWith(key + ":")).sort()]) {
+      const request = storedContinuationAt(slot);
+      if (request) requests.set(request.start.idempotencyKey, request);
+    }
+    return [...requests.values()];
+  } catch { return []; }
+}
+function storedContinuation(key: string): ContinuationInput | null {
+  // Keep each tab's choice, while allowing a new tab to recover saved requests.
+  let preferred: string | null = null;
+  try { preferred = sessionStorage.getItem(key); } catch {}
+  if (preferred === "new") return null;
+  const requests = storedContinuations(key);
+  return requests.find(request => request.start.idempotencyKey === preferred) || requests[0] || null;
+}
+function clearStoredContinuation(key: string, request: ContinuationInput) {
+  // An accepted response must still open its conversation if device storage
+  // refuses cleanup. Any retained request can safely recover that same receipt.
+  try {
+    localStorage.removeItem(key + ":" + request.start.idempotencyKey);
+    if (storedContinuationAt(key)?.start.idempotencyKey === request.start.idempotencyKey)
+      localStorage.removeItem(key);
+  } catch {}
+  try {
+    if (sessionStorage.getItem(key) === request.start?.idempotencyKey)
+      sessionStorage.removeItem(key);
+  } catch {}
+}
 
 export function Conversation(props: Parameters<typeof ConversationView>[0]) {
   const source = useSourceId();
@@ -214,11 +252,21 @@ function ConversationView({
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
   const call = useSourceRoute();
+  const continuationSupported = useSourceCapabilities().continuationStart === true;
   const readUsage = useProjectionRoute();
   const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
   const owner = viewOwner();
   const cacheKey = "thread:" + JSON.stringify([sourceId, id]);
+  const continuationKey = "loop-continuation:" + JSON.stringify([owner, sourceId, id]);
+  const [pendingContinuation, setPendingContinuation] = useState(() => storedContinuation(continuationKey));
+  const [continuationUnavailable, setContinuationUnavailable] = useState(false);
+  const [savedContinuations, setSavedContinuations] = useState(() => storedContinuations(continuationKey));
+  useEffect(() => {
+    const refresh = () => setSavedContinuations(storedContinuations(continuationKey));
+    window.addEventListener("storage", refresh);
+    return () => window.removeEventListener("storage", refresh);
+  }, [continuationKey]);
   const [data, setData] = useState<Transcript | null>(() => cachedView<Transcript>(cacheKey) ?? null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -227,8 +275,9 @@ function ConversationView({
     [notice, setNotice] = useState(""),
     [loading, setLoading] = useState(true),
     [transfer, setTransfer] = useState(false),
-    [destination, setDestination] = useState(""),
-    [included, setIncluded] = useState<string[]>([]),
+    [destination, setDestination] = useState(pendingContinuation?.agentId || ""),
+    [included, setIncluded] = useState<string[]>(pendingContinuation?.messageIds || []),
+    [continuationPrompt, setContinuationPrompt] = useState(pendingContinuation?.start?.input || "Continue from the selected messages and answer the latest user message."),
     [editingModel, setEditingModel] = useState(false),
     [showToolActivity, setShowToolActivity] = useState(false),
     [options, setOptions] = useState(false),
@@ -259,6 +308,7 @@ function ConversationView({
     [origin, setOrigin] = useState<{ messageId: string | null } | null>(null),
     [resumed, setResumed] = useState(false),
     [editQueued, setEditQueued] = useState<QueuedMessage | null>(null);
+  const continuationSelection = pendingContinuation?.messageIds ?? included;
   useEffect(() => {
     const url = new URL(location.href);
     if (url.searchParams.get("conversation") !== id) return;
@@ -512,7 +562,9 @@ function ConversationView({
             }
           : fresh,
       );
-      if (initial)
+      // Initial transcript loads (including jumps and reloads) must not replace
+      // an uncertain send's frozen selection, even if its rows are now hidden.
+      if (initial && !storedContinuation(continuationKey))
         setIncluded(
           fresh.messages
             .filter(
@@ -1714,15 +1766,49 @@ function ConversationView({
           }}
         >
           <div className="transfer-panel">
+            {savedContinuations.length > 0 && (
+              <label>
+                Saved continuation requests
+                <select
+                  disabled={busy}
+                  value={pendingContinuation?.start.idempotencyKey || ""}
+                  onChange={e => {
+                    const request = savedContinuations.find(r => r.start.idempotencyKey === e.target.value);
+                    if (!request) return;
+                    try { sessionStorage.setItem(continuationKey, request.start.idempotencyKey); } catch {}
+                    setPendingContinuation(request);
+                    setContinuationUnavailable(false);
+                    setDestination(request.agentId);
+                    setContinuationPrompt(request.start.input);
+                    setIncluded(request.messageIds);
+                    setError("");
+                  }}
+                >
+                  <option value="" disabled>Choose a saved request</option>
+                  {savedContinuations.map(request => (
+                    <option key={request.start.idempotencyKey} value={request.start.idempotencyKey}>
+                      @{agents.find(a => a.id === request.agentId)?.name || request.agentId}: {request.start.input.slice(0, 100)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {!continuationSupported && (
+              <p className="note">Update this workspace to start continuations safely. Your saved requests remain available after updating.</p>
+            )}
             <label>
               Continue with
               <select
                 value={destination}
+                disabled={busy || !!pendingContinuation}
                 onChange={(e) => setDestination(e.target.value)}
               >
                 <option value="">Choose a connected agent</option>
+                {pendingContinuation && !agents.some(a => a.id === pendingContinuation.agentId) && (
+                  <option value={pendingContinuation.agentId}>Previously selected agent</option>
+                )}
                 {agents
-                  .filter((a) => a.connection_id)
+                  .filter((a) => a.id === pendingContinuation?.agentId || (a.connection_id && !a.retired_at))
                   .map((a) => (
                     <option key={a.id} value={a.id}>
                       @{a.name} · {a.provider} · {a.model}
@@ -1730,11 +1816,21 @@ function ConversationView({
                   ))}
               </select>
             </label>
+            <label>
+              Message to new agent
+              <textarea
+                value={continuationPrompt}
+                onChange={(e) => setContinuationPrompt(e.target.value)}
+                disabled={busy || !!pendingContinuation}
+                rows={3}
+                maxLength={30000}
+              />
+            </label>
             <p className="field-hint">
               Tip: “Fork from here” in any message’s menu copies everything up
               to that point.
             </p>
-            <fieldset className="transfer-messages">
+            <fieldset className="transfer-messages" disabled={busy || !!pendingContinuation}>
               <legend>Messages to include</legend>
               {data?.messages
                 .filter(
@@ -1744,7 +1840,7 @@ function ConversationView({
                   <label className="checkbox-row" key={m.id}>
                     <input
                       type="checkbox"
-                      checked={included.includes(m.id)}
+                      checked={continuationSelection.includes(m.id)}
                       onChange={(e) =>
                         setIncluded((old) =>
                           e.target.checked
@@ -1761,10 +1857,16 @@ function ConversationView({
                 ))}
             </fieldset>
             <p className="note">
-              Only the {included.length} selected messages will be copied. They
-              will be sent to the selected provider when you send your next
-              prompt. Other archive conversations stay private.
+              The new agent will receive your message and the {continuationSelection.length}{" "}
+              selected messages in a new conversation, and start replying.
             </p>
+            {pendingContinuation && !busy && (
+              <p role="status" className="note">
+                {continuationUnavailable
+                  ? "This continuation was already started, but its conversation or run is no longer available. It will not be started again."
+                  : "The previous request has not been confirmed. Retry to check it without starting the work twice. New continuation prepares separate work; the previous request may still run and stays saved."}
+              </p>
+            )}
             {error && (
               <p role="alert" className="error">
                 {error}
@@ -1772,28 +1874,69 @@ function ConversationView({
             )}
             <button
               className="primary"
-              disabled={busy || !destination || !included.length}
+              disabled={busy || !continuationSupported || continuationUnavailable || (!pendingContinuation && (!destination || !included.length || !continuationPrompt.trim()))}
               onClick={async () => {
-                if (busy) return;
+                if (busy || !continuationSupported) return;
                 setBusy(true);
                 setError("");
+                const request = pendingContinuation || {
+                  agentId: destination,
+                  messageIds: included,
+                  start: { input: continuationPrompt.trim(), idempotencyKey: crypto.randomUUID() },
+                };
+                const requestKey = continuationKey + ":" + request.start!.idempotencyKey;
+                const clearPending = () => {
+                  clearStoredContinuation(continuationKey, request);
+                  setSavedContinuations(storedContinuations(continuationKey));
+                  setPendingContinuation(null);
+                };
                 try {
-                  const r = await call(workspaceApi.conversationContinue, { params: { id }, body: {
-                    agentId: destination,
-                    messageIds: included,
-                  } });
+                  // Keep the exact owner/source/thread-bound request across a
+                  // lost response, closing the sheet and reloading the app.
+                  localStorage.setItem(requestKey, JSON.stringify(request));
+                  try { sessionStorage.setItem(continuationKey, request.start!.idempotencyKey); } catch {}
+                  setPendingContinuation(request);
+                  setSavedContinuations(storedContinuations(continuationKey));
+                  const r = await call(workspaceApi.conversationContinueStart, { params: { id }, body: request });
+                  if (r.unavailable) {
+                    setContinuationUnavailable(true);
+                    return;
+                  }
+                  clearPending();
                   setTransfer(false);
                   onContinue(r.id);
                   onSubmitted();
                 } catch (e) {
+                  const status = (e as { status?: number }).status;
+                  // A refused retry says nothing about an earlier send whose
+                  // response was lost. Keep its identity until reconciled.
+                  if (!pendingContinuation && status !== undefined && status < 500) clearPending();
                   setError((e as Error).message);
                 } finally {
                   setBusy(false);
                 }
               }}
             >
-              Create continuation
+              {busy ? "Starting…" : continuationUnavailable ? "Continuation unavailable" : pendingContinuation ? "Retry continuation" : "Start continuation"}
             </button>
+            {pendingContinuation && (
+              <button disabled={busy} onClick={() => {
+                try {
+                  // An uncertain request stays recoverable from the selector.
+                  // Only an explicitly resolved, unavailable outcome is removed.
+                  if (continuationUnavailable) clearStoredContinuation(continuationKey, pendingContinuation);
+                  try { sessionStorage.setItem(continuationKey, "new"); } catch {}
+                  setSavedContinuations(storedContinuations(continuationKey));
+                  setPendingContinuation(null);
+                  setContinuationUnavailable(false);
+                  setDestination("");
+                  setIncluded((data?.messages || [])
+                    .filter(m => m.content && parse<any>(m.metadata, {}).activeBranch !== false && !parse<any>(m.metadata, {}).progress)
+                    .map(m => m.id));
+                  setError("");
+                } catch (e) { setError((e as Error).message); }
+              }}>New continuation</button>
+            )}
           </div>
         </Sheet>
       )}

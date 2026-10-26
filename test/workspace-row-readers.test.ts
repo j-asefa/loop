@@ -381,6 +381,177 @@ it("validates continuation messages before creating a conversation and preserves
   );
 });
 
+it("starts a continuation atomically, checks ownership and reconciles its original selection", async () => {
+  const f = fixture(),
+    source = id(),
+    first = id(),
+    last = id();
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Original',?)",
+  ).run(source, f.owner, f.manager.id, now());
+  const insert = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?,?)",
+  );
+  const time = now() - 100;
+  insert.run(
+    first,
+    f.owner,
+    source,
+    "assistant",
+    "The smoke is waiting.",
+    time,
+  );
+  insert.run(last, f.owner, source, "user", "What can we do about it?", time);
+  const path = `/conversations/${source}/continue`;
+  const body = {
+    agentId: f.member.id,
+    messageIds: [last, first, last],
+    start: { input: "Please pick this up.", idempotencyKey: id() },
+  };
+  const before = () =>
+    db
+      .prepare(
+        "SELECT (SELECT count(*) FROM conversations) conversations,(SELECT count(*) FROM runs) runs,(SELECT count(*) FROM messages) messages,(SELECT count(*) FROM continuation_requests) requests",
+      )
+      .get();
+  const counts = before();
+  expect((await request("foreign", path, body)).status).toBe(404);
+  expect(
+    (await request(f.owner, path, { ...body, agentId: fixture().member.id }))
+      .status,
+  ).toBe(404);
+  const unrelated = id();
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Other',?)",
+  ).run(unrelated, f.owner, f.manager.id, now());
+  expect(
+    (await request(f.owner, `/conversations/${unrelated}/continue`, body))
+      .status,
+  ).toBe(400);
+  const withUnrelated = before();
+  db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
+    f.connection,
+  );
+  expect((await request(f.owner, path, body)).status).toBe(409);
+  expect(before()).toEqual(withUnrelated); // No empty continuation on send failure.
+  db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
+    f.connection,
+  );
+  const result = await request(f.owner, path, body);
+  expect(result.status).toBe(200);
+  expect(
+    db
+      .prepare("SELECT agent_id,state,input FROM runs WHERE id=?")
+      .get(result.data.runId),
+  ).toEqual({
+    agent_id: f.member.id,
+    state: "queued",
+    input: body.start.input,
+  });
+  expect(
+    db
+      .prepare(
+        "SELECT content FROM messages WHERE conversation_id=? ORDER BY created_at,rowid",
+      )
+      .all(result.data.id),
+  ).toEqual([
+    { content: "The smoke is waiting." },
+    { content: "What can we do about it?" },
+    { content: body.start.input },
+  ]);
+  const accepted = before();
+  expect(
+    await request(f.owner, path, { ...body, messageIds: [first, last] }),
+  ).toEqual(result);
+  for (const changed of [
+    { ...body, messageIds: [last] },
+    { ...body, agentId: f.manager.id },
+    { ...body, start: { ...body.start, input: "Different work" } },
+  ])
+    expect((await request(f.owner, path, changed)).status).toBe(409);
+  expect(
+    (await request(f.owner, `/conversations/${unrelated}/continue`, body))
+      .status,
+  ).toBe(409);
+  // Receipt reads remain available when the target later disconnects/retires.
+  db.prepare("UPDATE runs SET input='Edited from the queue' WHERE id=?").run(
+    result.data.runId,
+  );
+  db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
+    f.connection,
+  );
+  db.prepare("UPDATE agents SET retired_at=? WHERE id=?").run(
+    now(),
+    f.member.id,
+  );
+  expect(await request(f.owner, path, body)).toEqual(result);
+  expect(before()).toEqual(accepted);
+  expect((accepted as { runs: number }).runs).toBe(
+    (counts as { runs: number }).runs + 1,
+  );
+});
+
+it.each(["source", "destination", "run"])(
+  "reconciles an accepted continuation after its %s is removed",
+  async (removed) => {
+    const f = fixture(),
+      source = id(),
+      message = id();
+    db.prepare(
+      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Original',?)",
+    ).run(source, f.owner, f.manager.id, now());
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Pick this up',?)",
+    ).run(message, f.owner, source, now());
+    const path = `/conversations/${source}/continue`;
+    const body = {
+      agentId: f.member.id,
+      messageIds: [message],
+      start: { input: "Please continue.", idempotencyKey: id() },
+    };
+    const accepted = await request(f.owner, path, body);
+    expect(accepted.status).toBe(200);
+    if (removed === "source")
+      db.prepare("DELETE FROM conversations WHERE id=?").run(source);
+    else {
+      db.prepare("UPDATE messages SET run_id=NULL WHERE run_id=?").run(
+        accepted.data.runId,
+      );
+      db.prepare("DELETE FROM runs WHERE id=?").run(accepted.data.runId);
+      if (removed === "destination")
+        db.prepare("DELETE FROM conversations WHERE id=?").run(
+          accepted.data.id,
+        );
+    }
+    const counts = () =>
+      db
+        .prepare(
+          "SELECT (SELECT count(*) FROM conversations) conversations,(SELECT count(*) FROM runs) runs,(SELECT count(*) FROM continuation_requests) requests",
+        )
+        .get();
+    const before = counts();
+    const expected = {
+      status: 200,
+      data: {
+        ...accepted.data,
+        ...(removed !== "source" ? { unavailable: true } : {}),
+      },
+    };
+    expect(await request(f.owner, path, body)).toEqual(expected);
+    expect(await request(f.owner, path, body)).toEqual(expected);
+    expect((await request("foreign", path, body)).status).toBe(404);
+    expect(
+      (
+        await request(f.owner, path, {
+          ...body,
+          start: { ...body.start, input: "Changed work" },
+        })
+      ).status,
+    ).toBe(409);
+    expect(counts()).toEqual(before);
+  },
+);
+
 it("cancels import rows with damaged display and execution fields without enabling a restart", async () => {
   const owner = id(),
     job = id();

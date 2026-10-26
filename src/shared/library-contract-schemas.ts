@@ -54,6 +54,13 @@ export const PreferencesInput = z.object({
 export const ContinueInput = z.object({
   agentId: Text,
   messageIds: z.array(Text).min(1).max(200),
+  // Older clients create a conversation for a later prompt.
+  start: z
+    .object({
+      input: Text.trim().min(1).max(30000),
+      idempotencyKey: Text.min(8).max(150),
+    })
+    .optional(),
 });
 // The handler ignores non-string filters and retains its Number(value) coercion
 // for numeric filters, including repeated query values.
