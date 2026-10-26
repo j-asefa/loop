@@ -242,7 +242,7 @@ export default function App() {
         ? replyContext.title || "Its thread"
         : "New thread",
   };
-  const messageComposer = renderComposer({
+  const { messageComposer, launchComposer } = renderComposer({
     replyQuoted,
     replyContext,
     contextArtifact,
@@ -792,6 +792,8 @@ export default function App() {
               accountName={accountName}
               profile={myProfile}
               onSaved={setMyProfile}
+              onCompose={launchComposer}
+              hasDraft={!!draft.trim() || !!attachments.length}
               decisions={(kind) => (
                 <PersonalDecisions
                   key={kind}

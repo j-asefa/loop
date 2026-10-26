@@ -874,7 +874,42 @@ a:focus-visible {
 .my-profile-top {
   position: relative;
   align-items: flex-end;
+  gap: 12px;
   margin-bottom: 14px;
+}
+.my-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.my-profile-compose.primary {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+.my-profile-compose.has-draft::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--orange);
+}
+/* Profile actions live with the identity, leaving its reading area clear. */
+[data-page="profile"]
+  > .main-column
+  > .composer-dock.collapsed
+  > .composer-launch {
+  display: none;
 }
 .my-profile-avatar {
   width: 100px;
@@ -887,7 +922,7 @@ a:focus-visible {
 .my-profile-edit.secondary,
 [data-theme="dark"] .my-profile-edit.secondary {
   min-height: 44px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
   background: var(--surface);
   border-color: var(--line);
 }
@@ -1068,6 +1103,22 @@ a:focus-visible {
   margin: 0 -32px 0;
   padding-inline: 20px;
   gap: 6px;
+}
+.my-profile-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.my-profile-tabs .chip-count {
+  flex-shrink: 0;
+}
+.my-profile > [role="tabpanel"] {
+  padding-top: 16px;
+}
+.my-profile .later-page > .section-hint {
+  margin-top: 0;
+  line-height: 1.5;
 }
 .personal-you {
   background: var(--soft);

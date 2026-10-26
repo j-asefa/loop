@@ -2,6 +2,7 @@ import { readInWorkspace } from "./api";
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Plus } from "lucide-react";
 import { callRoute } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
@@ -40,6 +41,8 @@ export function MyProfile({
   accountName,
   profile,
   onSaved,
+  onCompose,
+  hasDraft,
   messages,
   decisions,
   files,
@@ -53,6 +56,8 @@ export function MyProfile({
   accountName: string;
   profile: MyProfileData | null;
   onSaved: (profile: MyProfileData) => void;
+  onCompose: () => void;
+  hasDraft: boolean;
   messages: ReactNode;
   decisions: (kind: "approval" | "answer") => ReactNode;
   files: ReactNode;
@@ -135,13 +140,26 @@ export function MyProfile({
         <ProfileCover name={name} />
         <div className="my-profile-top">
           <Avatar name={name} className="my-profile-avatar" expandable />
-          <button
-            type="button"
-            className="secondary my-profile-edit"
-            onClick={() => setEditing(true)}
-          >
-            Edit profile
-          </button>
+          <div className="my-profile-actions">
+            <button
+              type="button"
+              className="secondary my-profile-edit"
+              onClick={() => setEditing(true)}
+            >
+              Edit profile
+            </button>
+            <button
+              type="button"
+              className={
+                "primary my-profile-compose" + (hasDraft ? " has-draft" : "")
+              }
+              aria-label="Compose a message"
+              title={hasDraft ? "Continue draft" : "Compose a message"}
+              onClick={onCompose}
+            >
+              <Plus size={20} aria-hidden="true" />
+            </button>
+          </div>
         </div>
         <div className="my-profile-name">
           <h1>{name}</h1>
@@ -178,7 +196,7 @@ export function MyProfile({
             aria-selected={tab === id}
             onClick={() => setTab(id)}
           >
-            {label}
+            <span>{label}</span>
             {id === "social" && !!socialUnread && (
               <span className="chip-count">{socialUnread}</span>
             )}

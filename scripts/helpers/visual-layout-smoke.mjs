@@ -55,6 +55,15 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   });
   const accountName = await personal.locator("h1").textContent();
   const accountArtwork = await personalArtwork();
+  await fixture.api("/later", {
+    kind: "artifact",
+    targetId: fixture.artifacts[0],
+    condition: "time",
+    dueAt: Date.now() + 24 * 3600000,
+  });
+  await page.route("**/api/social/unread", (route) =>
+    route.fulfill({ json: { unread: 99 } }),
+  );
   // An already-open pre-upgrade tab must receive the new robot at its old URL.
   assert(accountArtwork.avatar.startsWith("/avatars/robots/"));
   const legacyAvatar = accountArtwork.avatar.replace(
@@ -274,10 +283,77 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
         edit.x >= personalAvatar.x + personalAvatar.width && edit.height >= 44,
         "Edit profile stays clear of your avatar and keeps a touch-sized target",
       );
+      const compose = await personal
+        .getByRole("button", { name: "Compose a message", exact: true })
+        .boundingBox();
+      assert(
+        compose.x >= edit.x + edit.width + 8 &&
+          compose.width >= 44 &&
+          compose.height >= 44,
+        "Compose stays beside Edit profile with a separate touch-sized target",
+      );
+      await expect(
+        page.locator(".main-column > .composer-dock .composer-launch"),
+      ).toBeHidden();
+      const tabs = personal.getByRole("tablist", { name: "Show" });
+      const social = tabs.getByRole("tab", { name: /^Social/ });
+      await expect(social.locator(".chip-count")).toHaveText("99");
+      await social.scrollIntoViewIfNeeded();
+      const label = await social.locator("span").first().boundingBox();
+      const badge = await social.locator(".chip-count").boundingBox();
+      assert(
+        badge.x >= label.x + label.width + 6,
+        "The Social count must have space after its label",
+      );
+      for (const name of ["Scheduled", "Reminders"]) {
+        await tabs.getByRole("tab", { name, exact: true }).click();
+        const hint = personal.locator(".later-page > .section-hint");
+        await expect(hint).toBeVisible();
+        const tabBar = await tabs.boundingBox();
+        const description = await hint.boundingBox();
+        assert(
+          description.y >= tabBar.y + tabBar.height + 16,
+          `${name} description stays below the tab divider with room to read`,
+        );
+      }
+      await expect(personal.locator(".later-card")).toBeVisible();
       await fits();
-      await capture(`personal-profile-${theme}-${width}`);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await capture(`personal-reminders-${theme}-${width}`);
     }
   }
+  // Moving the entrypoint must retain the same unsent composer draft.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const compose = personal.getByRole("button", {
+    name: "Compose a message",
+    exact: true,
+  });
+  await page.evaluate(
+    ({ owner, agentId }) =>
+      localStorage.setItem(
+        `loop-last-recipient:${JSON.stringify([owner, "laptop"])}`,
+        agentId,
+      ),
+    { owner: fixture.owner, agentId: fixture.agents[0].id },
+  );
+  await compose.click();
+  const draft = page.locator(".main-column #composer");
+  await expect(draft).toBeFocused();
+  await expect(page.getByLabel("Agent recipient", { exact: true })).toHaveValue(
+    fixture.agents[0].id,
+  );
+  await draft.fill("Keep this draft while I read reminders.");
+  await page
+    .getByRole("button", { name: "Collapse composer", exact: true })
+    .click();
+  await expect(compose).toHaveClass(/has-draft/);
+  await compose.click();
+  await expect(draft).toHaveValue("Keep this draft while I read reminders.");
+  await draft.fill("");
+  await page
+    .getByRole("button", { name: "Collapse composer", exact: true })
+    .click();
+  await expect(compose).not.toHaveClass(/has-draft/);
   // Saving a display name updates all personal artwork; clearing it restores
   // the account identity, including after a reload.
   const editName = async (name) => {

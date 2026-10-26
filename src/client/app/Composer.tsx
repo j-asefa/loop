@@ -924,6 +924,29 @@ export function renderComposer({
       <ArrowUp size={19} />
     </button>
   );
+  const launchComposer = () => {
+    if (!(conversation ? composerData.agents : availableAgents).length) {
+      startChat();
+      return;
+    }
+    if (!draft.trim() && !attachments.length && !replyContext) {
+      try {
+        const last = localStorage.getItem(
+          `loop-last-recipient:${JSON.stringify([session?.user?.id, executionSourceId() || "laptop"])}`,
+        );
+        const agent = availableAgents.find((agent) => agent.id === last);
+        if (agent) {
+          setSelected(agent.id);
+          setContextArtifact(null);
+          setFolderChoice(undefined);
+          setFolder(agent.folder_id || "");
+        }
+      } catch {
+        // Keep the current recipient when browser storage is unavailable.
+      }
+    }
+    focusComposer();
+  };
   const messageComposer =
     (conversation ? composerData.agents : availableAgents).length > 0 ? (
       <section
@@ -972,27 +995,7 @@ export function renderComposer({
         {!composerExpanded && !threadMode && (
           <button
             className={"composer-launch" + (draft ? " has-draft" : "")}
-            onClick={() => {
-              if (!draft.trim() && !attachments.length && !replyContext) {
-                try {
-                  const last = localStorage.getItem(
-                    `loop-last-recipient:${JSON.stringify([session?.user?.id, executionSourceId() || "laptop"])}`,
-                  );
-                  const agent = availableAgents.find(
-                    (agent) => agent.id === last,
-                  );
-                  if (agent) {
-                    setSelected(agent.id);
-                    setContextArtifact(null);
-                    setFolderChoice(undefined);
-                    setFolder(agent.folder_id || "");
-                  }
-                } catch {
-                  // Keep the current recipient when browser storage is unavailable.
-                }
-              }
-              focusComposer();
-            }}
+            onClick={launchComposer}
             aria-label="Compose a message"
             aria-expanded={false}
             title={
@@ -1331,7 +1334,7 @@ export function renderComposer({
         </button>
       </section>
     ) : null;
-  return messageComposer;
+  return { messageComposer, launchComposer };
 }
 
 export function renderComposerSendSheets({
