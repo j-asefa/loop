@@ -384,76 +384,91 @@ it("preserves the failed tool, transport code and redacted cause without replayi
   }
 });
 
-it.each([true, false])("cancels in-flight MCP IO through the route without replay (bus=%s)", async (enabled) => {
-  const { core } = await import("../src/server/core-routes");
-  const app = express();
-  app.use(express.json(), (_req, res, next) => { res.locals.owner = "alice"; next(); });
-  app.use(core);
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve) => server.once("listening", resolve));
-  const bus = enabled ? undefined : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
-  setMcpApprovalMode("alice", "allow");
-  let started!: () => void;
-  const waiting = new Promise<void>((resolve) => {
-    started = resolve;
-  });
-  let cancelled = false;
-  const restore = withTestMcp(
-    async () =>
-      ({
-        callTool(_input: unknown, _schema: unknown, options: any) {
-          return new Promise((_resolve, reject) => {
-            options.signal.addEventListener(
-              "abort",
-              () => {
-                cancelled = true;
-                reject(new Error("Cancelled by user"));
-              },
-              { once: true },
-            );
-            started();
-          });
-        },
-        async close() {},
-      }) as unknown as Client,
-  );
-  const run = queueTool("alice", {
-    agentId: agent.id,
-    connectionId: connection,
-    tool: "pull_request_review_write",
-    arguments: { method: "create" },
-    idempotencyKey: id(),
-  });
-  try {
-    const work = tick(execute);
-    await waiting;
-    const at = Date.now();
-    const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`, { method: "POST" });
-    expect(response.status).toBe(200);
-    await work;
-    expect(cancelled).toBe(true);
-    expect(Date.now() - at).toBeLessThan(enabled ? 700 : 2300);
-    const failure = db.prepare("SELECT result FROM tool_invocations WHERE run_id=?").get(run.id) as { result: string };
-    expect(JSON.parse(failure.result)).toMatchObject({ failure: { phase: "calling", outcome: "unknown" } });
-    expect(failure.result).toContain("cancelled");
-    expect(
-      db.prepare("SELECT state,error FROM runs WHERE id=?").get(run.id),
-    ).toEqual({ state: "cancelled", error: null });
-    expect(
-      db
-        .prepare("SELECT state FROM tool_invocations WHERE run_id=?")
-        .get(run.id),
-    ).toEqual({ state: "unknown" });
-    expect(
-      db
-        .prepare(
-          "SELECT id FROM run_traces WHERE run_id=? AND trace_key='run:failure'",
-        )
-        .get(run.id),
-    ).toBeUndefined();
-  } finally {
-    bus?.mockRestore();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    restore();
-  }
-});
+it.each([true, false])(
+  "cancels in-flight MCP IO through the route without replay (bus=%s)",
+  async (enabled) => {
+    const { core } = await import("../src/server/core-routes");
+    const app = express();
+    app.use(express.json(), (_req, res, next) => {
+      res.locals.owner = "alice";
+      next();
+    });
+    app.use(core);
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const bus = enabled
+      ? undefined
+      : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
+    setMcpApprovalMode("alice", "allow");
+    let started!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let cancelled = false;
+    const restore = withTestMcp(
+      async () =>
+        ({
+          callTool(_input: unknown, _schema: unknown, options: any) {
+            return new Promise((_resolve, reject) => {
+              options.signal.addEventListener(
+                "abort",
+                () => {
+                  cancelled = true;
+                  reject(new Error("Cancelled by user"));
+                },
+                { once: true },
+              );
+              started();
+            });
+          },
+          async close() {},
+        }) as unknown as Client,
+    );
+    const run = queueTool("alice", {
+      agentId: agent.id,
+      connectionId: connection,
+      tool: "pull_request_review_write",
+      arguments: { method: "create" },
+      idempotencyKey: id(),
+    });
+    try {
+      const work = tick(execute);
+      await waiting;
+      const at = Date.now();
+      const response = await fetch(
+        `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
+        { method: "POST" },
+      );
+      expect(response.status).toBe(200);
+      await work;
+      expect(cancelled).toBe(true);
+      expect(Date.now() - at).toBeLessThan(enabled ? 700 : 2300);
+      const failure = db
+        .prepare("SELECT result FROM tool_invocations WHERE run_id=?")
+        .get(run.id) as { result: string };
+      expect(JSON.parse(failure.result)).toMatchObject({
+        failure: { phase: "calling", outcome: "unknown" },
+      });
+      expect(failure.result).toContain("cancelled");
+      expect(
+        db.prepare("SELECT state,error FROM runs WHERE id=?").get(run.id),
+      ).toEqual({ state: "cancelled", error: null });
+      expect(
+        db
+          .prepare("SELECT state FROM tool_invocations WHERE run_id=?")
+          .get(run.id),
+      ).toEqual({ state: "unknown" });
+      expect(
+        db
+          .prepare(
+            "SELECT id FROM run_traces WHERE run_id=? AND trace_key='run:failure'",
+          )
+          .get(run.id),
+      ).toBeUndefined();
+    } finally {
+      bus?.mockRestore();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      restore();
+    }
+  },
+);

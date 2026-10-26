@@ -8,7 +8,10 @@ import { join } from "node:path";
 import { callRoute, fetchStream } from "../src/client/workspace-api.js";
 import { workspaceApi } from "../src/shared/workspace-api.js";
 import { Host } from "../src/host.js";
-import { composeSourceId, linkedDockerWorkspaces } from "../src/linked-docker.js";
+import {
+  composeSourceId,
+  linkedDockerWorkspaces,
+} from "../src/linked-docker.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { until } from "./helpers.js";
 
@@ -50,7 +53,10 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       return;
     }
     if (req.url === "/api/conversations/limited?resume=1") {
-      res.writeHead(429, { "content-type": "application/json", "retry-after": "12" });
+      res.writeHead(429, {
+        "content-type": "application/json",
+        "retry-after": "12",
+      });
       res.end(JSON.stringify({ error: "Too many requests" }));
       return;
     }
@@ -60,14 +66,18 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       return;
     }
     if (req.url === "/api/artifacts/a1/file") {
-      res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": "attachment; filename=fixture.bin" });
+      res.writeHead(200, {
+        "content-type": "application/octet-stream",
+        "content-disposition": "attachment; filename=fixture.bin",
+      });
       res.end(Buffer.from([0, 255, 13, 10]));
       return;
     }
     if (req.url === "/api/artifacts/a1/app") {
       res.writeHead(200, {
         "content-type": "text/html",
-        "content-security-policy": "sandbox allow-scripts; frame-ancestors 'self'",
+        "content-security-policy":
+          "sandbox allow-scripts; frame-ancestors 'self'",
       });
       res.end("<p>app</p>");
       return;
@@ -90,23 +100,39 @@ test("paired gateway distinguishes Docker services and preserves their routing a
   const secondId = "b".repeat(64);
   const second = createServer((req, res) => {
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify(req.url === "/api/capabilities"
-      ? { profile: "server" }
-      : req.url === "/api/auth-options"
-        ? { mode: "single-user" }
-        : { owner: "second-docker", conversations: ["second-thread"] }));
+    res.end(
+      JSON.stringify(
+        req.url === "/api/capabilities"
+          ? { profile: "server" }
+          : req.url === "/api/auth-options"
+            ? { mode: "single-user" }
+            : { owner: "second-docker", conversations: ["second-thread"] },
+      ),
+    );
   });
   let host: Host | undefined;
   const live = new WebSocketServer({ server: old });
-  const eventRequests: { url?: string; headers: import("node:http").IncomingHttpHeaders }[] = [];
+  const eventRequests: {
+    url?: string;
+    headers: import("node:http").IncomingHttpHeaders;
+  }[] = [];
   const clients: WebSocket[] = [];
   live.on("connection", (socket, req) => {
     eventRequests.push({ url: req.url, headers: req.headers });
-    socket.send(JSON.stringify({ v: 2, type: "reset", epoch: "docker-source", cursor: 7 }));
+    socket.send(
+      JSON.stringify({
+        v: 2,
+        type: "reset",
+        epoch: "docker-source",
+        cursor: 7,
+      }),
+    );
   });
   try {
     await new Promise<void>((resolve) => old.listen(0, "127.0.0.1", resolve));
-    await new Promise<void>((resolve) => second.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) =>
+      second.listen(0, "127.0.0.1", resolve),
+    );
     const port = (old.address() as { port: number }).port;
     const secondPort = (second.address() as { port: number }).port;
     const inspect = [
@@ -129,9 +155,13 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     const secondInspect = JSON.parse(JSON.stringify(inspect));
     secondInspect[0].Id = secondId;
     secondInspect[0].Config.Labels["com.docker.compose.service"] = "loop";
-    secondInspect[0].NetworkSettings.Ports["3000/tcp"][0].HostPort = String(secondPort);
+    secondInspect[0].NetworkSettings.Ports["3000/tcp"][0].HostPort =
+      String(secondPort);
     await writeFile(join(dir, containerId + ".json"), JSON.stringify(inspect));
-    await writeFile(join(dir, secondId + ".json"), JSON.stringify(secondInspect));
+    await writeFile(
+      join(dir, secondId + ".json"),
+      JSON.stringify(secondInspect),
+    );
     await writeFile(join(dir, "ids"), `${containerId}\n${secondId}\n`);
     const docker = join(dir, "docker");
     await writeFile(
@@ -195,9 +225,16 @@ test("paired gateway distinguishes Docker services and preserves their routing a
         kind: "docker",
       },
     ]);
-    assert.deepEqual(await fetch(host.origin + `/api/agent-sources/docker%3A${secondSourceId}/conversations`, {
-      headers: { cookie },
-    }).then((r) => r.json()), { owner: "second-docker", conversations: ["second-thread"] });
+    assert.deepEqual(
+      await fetch(
+        host.origin +
+          `/api/agent-sources/docker%3A${secondSourceId}/conversations`,
+        {
+          headers: { cookie },
+        },
+      ).then((r) => r.json()),
+      { owner: "second-docker", conversations: ["second-thread"] },
+    );
     const unknown = await fetch(
       host.origin + "/api/agent-sources/cloud%3Aunregistered/runs",
       {
@@ -216,20 +253,27 @@ test("paired gateway distinguishes Docker services and preserves their routing a
         "mcp%2Ffederation%2Fenroll",
         "mcp/reverse",
       ]) {
-        const blocked: Response = await fetch(host.origin + prefix + privatePath, {
-          headers: { cookie },
-        });
+        const blocked: Response = await fetch(
+          host.origin + prefix + privatePath,
+          {
+            headers: { cookie },
+          },
+        );
         assert.equal(blocked.status, 404);
         assert.equal(received.length, 0);
       }
     }
     const base = host.origin + `/api/agent-sources/docker%3A${sourceId}/`;
-    const ws = new WebSocket(base.replace("http:", "ws:") + "events/ws?epoch=old&cursor=3&owner=untrusted", {
-      headers: { cookie, origin: host.origin, "x-loop-csrf": csrf },
-    });
+    const ws = new WebSocket(
+      base.replace("http:", "ws:") +
+        "events/ws?epoch=old&cursor=3&owner=untrusted",
+      {
+        headers: { cookie, origin: host.origin, "x-loop-csrf": csrf },
+      },
+    );
     clients.push(ws);
     const frames: any[] = [];
-    ws.on("message", data => frames.push(JSON.parse(data.toString())));
+    ws.on("message", (data) => frames.push(JSON.parse(data.toString())));
     await until(() => frames.length === 1);
     assert.equal(frames[0].epoch, "docker-source");
     assert.equal(eventRequests[0].url, "/api/events/ws?epoch=old&cursor=3");
@@ -237,19 +281,34 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     assert.equal(eventRequests[0].headers.cookie, undefined);
     assert.equal(eventRequests[0].headers.authorization, undefined);
     assert.equal(eventRequests[0].headers["x-loop-csrf"], undefined);
-    for (const headers of [{ origin: host.origin }, { cookie, origin: "https://elsewhere.example" }, { cookie, origin: host.origin, authorization: "Bearer scoped-card" }]) {
-      const rejected = new WebSocket(base.replace("http:", "ws:") + "events/ws", { headers });
+    for (const headers of [
+      { origin: host.origin },
+      { cookie, origin: "https://elsewhere.example" },
+      { cookie, origin: host.origin, authorization: "Bearer scoped-card" },
+    ]) {
+      const rejected = new WebSocket(
+        base.replace("http:", "ws:") + "events/ws",
+        { headers },
+      );
       clients.push(rejected);
       rejected.on("error", () => {});
-      await new Promise<void>(resolve => rejected.on("unexpected-response", (_req, res) => {
-        assert.equal(res.statusCode, 403);
-        res.resume();
-        rejected.terminate();
-        resolve();
-      }));
+      await new Promise<void>((resolve) =>
+        rejected.on("unexpected-response", (_req, res) => {
+          assert.equal(res.statusCode, 403);
+          res.resume();
+          rejected.terminate();
+          resolve();
+        }),
+      );
     }
-    assert.equal(eventRequests.length, 1, "rejected clients never reach the source");
-    ws.send(JSON.stringify({ type: "prompt", text: "not a command transport" }));
+    assert.equal(
+      eventRequests.length,
+      1,
+      "rejected clients never reach the source",
+    );
+    ws.send(
+      JSON.stringify({ type: "prompt", text: "not a command transport" }),
+    );
     await until(() => ws.readyState === WebSocket.CLOSED);
     // Root-relative redirects stay on this source, not the paired laptop.
     const redirect = await fetch(base + "artifacts/a1/download", {
@@ -266,21 +325,49 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     const oldLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
     const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
     const hostOrigin = host.origin;
-    Object.defineProperty(globalThis, "location", { configurable: true, value: { href: hostOrigin + "/", search: "" } });
-    Object.defineProperty(globalThis, "window", { configurable: true, value: new EventTarget() });
-    globalThis.fetch = (input, init) => originalFetch(new URL(String(input), hostOrigin), {
-      ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), cookie },
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: { href: hostOrigin + "/", search: "" },
     });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: new EventTarget(),
+    });
+    globalThis.fetch = (input, init) =>
+      originalFetch(new URL(String(input), hostOrigin), {
+        ...init,
+        headers: { ...Object.fromEntries(new Headers(init?.headers)), cookie },
+      });
     try {
-      const blob = await callRoute(workspaceApi.artifactDownload, { params: { id: "a1" } }, `docker:${sourceId}`);
-      assert.deepEqual(Buffer.from(await blob.arrayBuffer()), Buffer.from([0, 255, 13, 10]));
-      const file = await fetchStream(workspaceApi.artifactFile, { params: { id: "a1" } }, `docker:${sourceId}`);
-      assert.equal(file.headers.get("content-disposition"), "attachment; filename=fixture.bin");
-      assert.deepEqual(Buffer.from(await file.arrayBuffer()), Buffer.from([0, 255, 13, 10]));
+      const blob = await callRoute(
+        workspaceApi.artifactDownload,
+        { params: { id: "a1" } },
+        `docker:${sourceId}`,
+      );
+      assert.deepEqual(
+        Buffer.from(await blob.arrayBuffer()),
+        Buffer.from([0, 255, 13, 10]),
+      );
+      const file = await fetchStream(
+        workspaceApi.artifactFile,
+        { params: { id: "a1" } },
+        `docker:${sourceId}`,
+      );
+      assert.equal(
+        file.headers.get("content-disposition"),
+        "attachment; filename=fixture.bin",
+      );
+      assert.deepEqual(
+        Buffer.from(await file.arrayBuffer()),
+        Buffer.from([0, 255, 13, 10]),
+      );
     } finally {
       globalThis.fetch = originalFetch;
-      if (oldLocation) Object.defineProperty(globalThis, "location", oldLocation); else Reflect.deleteProperty(globalThis, "location");
-      if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow); else Reflect.deleteProperty(globalThis, "window");
+      if (oldLocation)
+        Object.defineProperty(globalThis, "location", oldLocation);
+      else Reflect.deleteProperty(globalThis, "location");
+      if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow);
+      else Reflect.deleteProperty(globalThis, "window");
     }
     // The Docker server's own policy replaces the Host page policy.
     const app = await fetch(base + "artifacts/a1/app", { headers: { cookie } });
@@ -289,7 +376,9 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       "sandbox allow-scripts; frame-ancestors 'self'",
     );
     for (const prefix of [base, host.origin + `/api/linked/${sourceId}/`]) {
-      const limited = await fetch(prefix + "conversations/limited?resume=1", { headers: { cookie } });
+      const limited = await fetch(prefix + "conversations/limited?resume=1", {
+        headers: { cookie },
+      });
       assert.equal(limited.status, 429);
       assert.equal(limited.headers.get("retry-after"), "12");
       assert.deepEqual(await limited.json(), { error: "Too many requests" });
@@ -298,7 +387,8 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     assert.equal(
       (
         await fetch(
-          host.origin + `/api/agent-sources/docker%3A${containerId}/artifacts/a1/app`,
+          host.origin +
+            `/api/agent-sources/docker%3A${containerId}/artifacts/a1/app`,
           { headers: { cookie } },
         )
       ).status,
@@ -348,18 +438,30 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     ]);
     const replacementId = "c".repeat(64);
     inspect[0].Id = replacementId;
-    await writeFile(join(dir, replacementId + ".json"), JSON.stringify(inspect));
+    await writeFile(
+      join(dir, replacementId + ".json"),
+      JSON.stringify(inspect),
+    );
     await writeFile(join(dir, "ids"), `${replacementId}\n${secondId}\n`);
     const refreshed = await linkedDockerWorkspaces(true);
-    assert.deepEqual(refreshed.map(({ id, name }) => ({ id, name })), found);
+    assert.deepEqual(
+      refreshed.map(({ id, name }) => ({ id, name })),
+      found,
+    );
     assert.equal(refreshed[0].containerId, replacementId);
-    assert.deepEqual(await fetch(base + "conversations", { headers: { cookie } }).then((r) => r.json()), {
-      owner: "old-docker", conversations: ["old-thread"],
-    });
+    assert.deepEqual(
+      await fetch(base + "conversations", { headers: { cookie } }).then((r) =>
+        r.json(),
+      ),
+      {
+        owner: "old-docker",
+        conversations: ["old-thread"],
+      },
+    );
   } finally {
     process.env.PATH = priorPath;
-    clients.forEach(socket => socket.terminate());
-    live.clients.forEach(socket => socket.terminate());
+    clients.forEach((socket) => socket.terminate());
+    live.clients.forEach((socket) => socket.terminate());
     live.close();
     if (host) await host.close();
     await new Promise<void>((resolve) => old.close(() => resolve()));

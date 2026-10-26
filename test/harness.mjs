@@ -40,8 +40,13 @@ if (process.argv.includes("auth")) {
   process.exit();
 }
 if (kind === "claude" && process.argv.includes("--print")) {
-  if (process.env.LOOP_TEST_PROBE_AUDIT) appendFileSync(process.env.LOOP_TEST_PROBE_AUDIT, "launch\n");
-  if (process.env.LOOP_TEST_PROBE_FAIL_FILE && existsSync(process.env.LOOP_TEST_PROBE_FAIL_FILE)) process.exit(1);
+  if (process.env.LOOP_TEST_PROBE_AUDIT)
+    appendFileSync(process.env.LOOP_TEST_PROBE_AUDIT, "launch\n");
+  if (
+    process.env.LOOP_TEST_PROBE_FAIL_FILE &&
+    existsSync(process.env.LOOP_TEST_PROBE_FAIL_FILE)
+  )
+    process.exit(1);
   if (process.env.LOOP_TEST_ARGV)
     appendFileSync(
       process.env.LOOP_TEST_ARGV,
@@ -81,10 +86,13 @@ function finish(status = "completed") {
     note("item/completed", {
       item: { id: active, type: "agentMessage", text: "Fixture done" },
     });
-    note("thread/tokenUsage/updated", { turnId: active, tokenUsage: {
-      total: { inputTokens: count * 120, outputTokens: count * 30 },
-      last: { inputTokens: 120, outputTokens: 30 },
-    } });
+    note("thread/tokenUsage/updated", {
+      turnId: active,
+      tokenUsage: {
+        total: { inputTokens: count * 120, outputTokens: count * 30 },
+        last: { inputTokens: 120, outputTokens: 30 },
+      },
+    });
     note("turn/completed", { turn: { id: active, status } });
   }
   if (kind === "claude") {
@@ -112,7 +120,12 @@ function finish(status = "completed") {
       type: "result",
       subtype: "success",
       is_error: false,
-      usage: { input_tokens: 80, cache_read_input_tokens: 30, cache_creation_input_tokens: 10, output_tokens: 30 },
+      usage: {
+        input_tokens: 80,
+        cache_read_input_tokens: 30,
+        cache_creation_input_tokens: 10,
+        output_tokens: 30,
+      },
       ...(process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS
         ? { origin: { kind: "human" } }
         : {}),
@@ -188,7 +201,29 @@ if (kind !== "opencode") {
     if (type === "account/read")
       return result({ account: { type: "chatgpt", planType: "plus" } });
     if (type === "skills/list") return result({ data: [] });
-    if (type === "get_commands") return result({ commands: process.env.LOOP_TEST_PI_LARGE_CATALOG ? Array.from({ length: 120 }, (_, i) => ({ name: `large-${i}`, source: "extension", description: "x".repeat(30_000) })) : process.env.LOOP_TEST_PI_COMMAND_METADATA ? [{ name: "fixture-command", source: "extension", description: "Fixture command", sourceInfo: { source: "fixture", scope: "user", packageId: "fixture-package" } }] : [] });
+    if (type === "get_commands")
+      return result({
+        commands: process.env.LOOP_TEST_PI_LARGE_CATALOG
+          ? Array.from({ length: 120 }, (_, i) => ({
+              name: `large-${i}`,
+              source: "extension",
+              description: "x".repeat(30_000),
+            }))
+          : process.env.LOOP_TEST_PI_COMMAND_METADATA
+            ? [
+                {
+                  name: "fixture-command",
+                  source: "extension",
+                  description: "Fixture command",
+                  sourceInfo: {
+                    source: "fixture",
+                    scope: "user",
+                    packageId: "fixture-package",
+                  },
+                },
+              ]
+            : [],
+      });
     if (type === "model/list") return result({ data: [] });
     if (type === "get_available_thinking_levels")
       return result({ levels: ["off", "low", "medium", "high"] });
@@ -197,7 +232,17 @@ if (kind !== "opencode") {
         models: [
           { provider: "openai-codex", id: "fixture", name: "Fixture" },
           { provider: "openai-codex", id: "plain", name: "Plain" },
-          ...Array.from({ length: Number(process.env.LOOP_TEST_PI_MODEL_COUNT || 0) }, (_, i) => ({ provider: "openai-codex", id: i === 0 && process.env.LOOP_TEST_PI_LONG_MODEL_ID ? "custom-" + "x".repeat(250) : `model-${i}`, name: i === 0 ? "Long model name ".repeat(60) : `Model ${i}` })),
+          ...Array.from(
+            { length: Number(process.env.LOOP_TEST_PI_MODEL_COUNT || 0) },
+            (_, i) => ({
+              provider: "openai-codex",
+              id:
+                i === 0 && process.env.LOOP_TEST_PI_LONG_MODEL_ID
+                  ? "custom-" + "x".repeat(250)
+                  : `model-${i}`,
+              name: i === 0 ? "Long model name ".repeat(60) : `Model ${i}`,
+            }),
+          ),
           ...(process.env.LOOP_TEST_PI_API_MODEL
             ? [{ provider: "openai", id: "fixture", name: "Fixture" }]
             : []),
@@ -205,7 +250,8 @@ if (kind !== "opencode") {
       });
     if (type === "set_model") {
       piModel = { provider: m.provider, id: m.modelId };
-      if (process.env.LOOP_TEST_PI_MODEL_AUDIT) appendFileSync(process.env.LOOP_TEST_PI_MODEL_AUDIT, piModel.id + "\n");
+      if (process.env.LOOP_TEST_PI_MODEL_AUDIT)
+        appendFileSync(process.env.LOOP_TEST_PI_MODEL_AUDIT, piModel.id + "\n");
       return result({});
     }
     if (type === "set_thinking_level") {
@@ -213,11 +259,26 @@ if (kind !== "opencode") {
       return result({});
     }
     if (type === "config/read")
-      return result({ config: { model_provider: "openai", ...(process.env.LOOP_TEST_CODEX_NULL_MODEL ? { model: null } : {}) } });
+      return result({
+        config: {
+          model_provider: "openai",
+          ...(process.env.LOOP_TEST_CODEX_NULL_MODEL ? { model: null } : {}),
+        },
+      });
     if (type === "thread/start" || type === "thread/resume") {
       mailBridge = m.params?.config?.["mcp_servers.loop_workspace"];
-      if (type === "thread/resume" && process.env.LOOP_TEST_REQUIRE_RESUME_CWD && m.params.cwd !== process.cwd())
-        return out({ id: m.id, error: { code: -32602, message: "Resume must select the bound workspace directory" } });
+      if (
+        type === "thread/resume" &&
+        process.env.LOOP_TEST_REQUIRE_RESUME_CWD &&
+        m.params.cwd !== process.cwd()
+      )
+        return out({
+          id: m.id,
+          error: {
+            code: -32602,
+            message: "Resume must select the bound workspace directory",
+          },
+        });
       if (type === "thread/resume" && process.env.LOOP_TEST_CODEX_WRITER_BUSY)
         return out({
           id: m.id,
@@ -234,15 +295,46 @@ if (kind !== "opencode") {
       if (m.params?.threadId) threadId = m.params.threadId;
       if (type === "thread/resume" && process.env.LOOP_TEST_LARGE_CODEX_HISTORY)
         return result({
-          thread: { id: threadId, turns: m.params.excludeTurns ? [] : [{ items: [{
-            id: "large-history", type: "agentMessage", text: "x".repeat(9 * 1024 * 1024),
-          }] }] }, modelProvider: "openai", model: "fixture",
+          thread: {
+            id: threadId,
+            turns: m.params.excludeTurns
+              ? []
+              : [
+                  {
+                    items: [
+                      {
+                        id: "large-history",
+                        type: "agentMessage",
+                        text: "x".repeat(9 * 1024 * 1024),
+                      },
+                    ],
+                  },
+                ],
+          },
+          modelProvider: "openai",
+          model: "fixture",
         });
       return result({
-        thread: { id: threadId, turns: process.env.LOOP_TEST_ASYNC_HISTORY ? [{ items: [{
-          id: "old-question", type: "agentMessage", text: "Old question",
-          delivery: "async", questions: [{ title: "Old question", options: ["Yes", "No"] }],
-        }] }] : [] },
+        thread: {
+          id: threadId,
+          turns: process.env.LOOP_TEST_ASYNC_HISTORY
+            ? [
+                {
+                  items: [
+                    {
+                      id: "old-question",
+                      type: "agentMessage",
+                      text: "Old question",
+                      delivery: "async",
+                      questions: [
+                        { title: "Old question", options: ["Yes", "No"] },
+                      ],
+                    },
+                  ],
+                },
+              ]
+            : [],
+        },
         modelProvider: "openai",
         model: "fixture",
       });
@@ -297,9 +389,16 @@ if (kind !== "opencode") {
     }
     if (type === "get_messages") return result({ messages: [] });
     if (type === "control_request") {
-      if (m.request.subtype === "set_permission_mode" && process.env.LOOP_TEST_SETTING_AUDIT) {
-        appendFileSync(process.env.LOOP_TEST_SETTING_AUDIT, m.request.mode + "\n");
-        if (m.request.mode === "plan" && process.env.LOOP_TEST_SETTING_DROP) process.exit(0);
+      if (
+        m.request.subtype === "set_permission_mode" &&
+        process.env.LOOP_TEST_SETTING_AUDIT
+      ) {
+        appendFileSync(
+          process.env.LOOP_TEST_SETTING_AUDIT,
+          m.request.mode + "\n",
+        );
+        if (m.request.mode === "plan" && process.env.LOOP_TEST_SETTING_DROP)
+          process.exit(0);
       }
       out({
         type: "control_response",
@@ -358,8 +457,10 @@ if (kind !== "opencode") {
     if (type === "turn/steer") {
       if (m.params.expectedTurnId !== active)
         throw new Error("Wrong turn was steered");
-      if (process.env.LOOP_TEST_ASYNC_ANSWER &&
-          !m.params.input[0].text.includes('"Wait for active agents"'))
+      if (
+        process.env.LOOP_TEST_ASYNC_ANSWER &&
+        !m.params.input[0].text.includes('"Wait for active agents"')
+      )
         throw new Error("Missing async question answer");
       result({ turnId: active });
       setTimeout(() => finish(), 30);
@@ -498,38 +599,88 @@ if (kind !== "opencode") {
           },
         });
       }
-      if (process.env.LOOP_TEST_AGENT_MAIL && text.includes("To reply, call loop_message")) {
+      if (
+        process.env.LOOP_TEST_AGENT_MAIL &&
+        text.includes("To reply, call loop_message")
+      ) {
         // Exercise the production authenticated native bridge from a real
         // subprocess, without a provider/model request.
         void (async () => {
           const call = async (body) => {
             const r = await fetch(mailBridge.url + "/pi", {
-              method: "POST", headers: { ...mailBridge.http_headers, "content-type": "application/json" }, body: JSON.stringify(body),
+              method: "POST",
+              headers: {
+                ...mailBridge.http_headers,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(body),
             });
             if (!r.ok) throw new Error("Bridge refused fixture");
             return r.json();
           };
           const catalog = await call({ method: "tools/list" });
-          if (!["loop_agents", "loop_message", "loop_message_status", "loop_handoff"].every(name => catalog.tools.some(t => t.name === name))) throw new Error("Missing mail catalog");
-          const directory = await call({ method: "tools/call", id: "discover", name: "loop_agents", arguments: {} });
+          if (
+            ![
+              "loop_agents",
+              "loop_message",
+              "loop_message_status",
+              "loop_handoff",
+            ].every((name) => catalog.tools.some((t) => t.name === name))
+          )
+            throw new Error("Missing mail catalog");
+          const directory = await call({
+            method: "tools/call",
+            id: "discover",
+            name: "loop_agents",
+            arguments: {},
+          });
           if (directory.isError) throw new Error("Discovery failed");
-          const reply = /To reply, call loop_message with to "([^"]+)" and threadId "([^"]+)"/.exec(text);
-          const request = { method: "tools/call", id: "native-reply", name: "loop_message", arguments: { to: reply[1], threadId: reply[2], body: "Native reply: target v2." } };
+          const reply =
+            /To reply, call loop_message with to "([^"]+)" and threadId "([^"]+)"/.exec(
+              text,
+            );
+          const request = {
+            method: "tools/call",
+            id: "native-reply",
+            name: "loop_message",
+            arguments: {
+              to: reply[1],
+              threadId: reply[2],
+              body: "Native reply: target v2.",
+            },
+          };
           const receipt = await call(request);
-          if (receipt.isError || JSON.stringify(await call(request)) !== JSON.stringify(receipt)) throw new Error("Native mail receipt failed");
+          if (
+            receipt.isError ||
+            JSON.stringify(await call(request)) !== JSON.stringify(receipt)
+          )
+            throw new Error("Native mail receipt failed");
           finish();
-        })().catch(error => { process.stderr.write(error.message); finish("failed"); });
+        })().catch((error) => {
+          process.stderr.write(error.message);
+          finish("failed");
+        });
         return;
       }
       if (text === "wait") return;
       if (kind === "codex" && text === "latency-stream") {
         let index = 0;
         const timer = setInterval(() => {
-          const item = { id: "latency-" + index, type: "agentMessage", text: ("Streaming fixture " + index + " ").repeat(400) };
+          const item = {
+            id: "latency-" + index,
+            type: "agentMessage",
+            text: ("Streaming fixture " + index + " ").repeat(400),
+          };
           note("item/started", { item: { ...item, text: "" } });
-          note("item/agentMessage/delta", { itemId: item.id, delta: item.text });
+          note("item/agentMessage/delta", {
+            itemId: item.id,
+            delta: item.text,
+          });
           note("item/completed", { item });
-          if (++index === 80) { clearInterval(timer); finish(); }
+          if (++index === 80) {
+            clearInterval(timer);
+            finish();
+          }
         }, 100);
         return;
       }
@@ -556,7 +707,12 @@ if (kind !== "opencode") {
           text: "Restart now or wait?",
           phase: "final_answer",
           delivery: "async",
-          questions: [{ title: "Restart now or wait?", options: ["Wait for active agents", "Restart now"] }],
+          questions: [
+            {
+              title: "Restart now or wait?",
+              options: ["Wait for active agents", "Restart now"],
+            },
+          ],
         };
         note("item/started", { item });
         note("item/completed", { item });
@@ -564,8 +720,11 @@ if (kind !== "opencode") {
         if (text === "async-question-finish") finish();
         return;
       }
-      if (kind === "codex" && process.env.LOOP_TEST_ASYNC_ANSWER &&
-          !text.includes('"Wait for active agents"'))
+      if (
+        kind === "codex" &&
+        process.env.LOOP_TEST_ASYNC_ANSWER &&
+        !text.includes('"Wait for active agents"')
+      )
         throw new Error("Missing async question answer");
       if (text === "approve") {
         held = true;

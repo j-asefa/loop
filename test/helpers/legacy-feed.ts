@@ -119,7 +119,12 @@ type FeedRow = {
 };
 
 // The state each filter reads, for every visible conversation in scope.
-function feedSql(teams: boolean, folders: boolean, agent = false, results = false) {
+function feedSql(
+  teams: boolean,
+  folders: boolean,
+  agent = false,
+  results = false,
+) {
   // Done expands a thread into final answers and imported answers. A native
   // run can finish with only commentary; that is not a completed result.
   // Threads without results retain their idle fallback. Other views and counts
@@ -132,7 +137,9 @@ function feedSql(teams: boolean, folders: boolean, agent = false, results = fals
     ? "CASE WHEN completed.card_key IS NOT NULL THEN CASE WHEN completed.has_folder THEN completed.folder_id ELSE c.project_id END ELSE c.feed_folder_id END"
     : "c.feed_folder_id";
   return `WITH RECURSIVE ${FOLDER_PROJECT},${oracleConversations},
-${results ? `completed_results AS (
+${
+  results
+    ? `completed_results AS (
   SELECT r.conversation_id,r.id run_id,NULL message_id,r.updated_at done_at,'run:'||r.id card_key,
     json_extract(r.payload,'$.folderId') folder_id,json_type(r.payload,'$.folderId') IS NOT NULL has_folder
   FROM runs r WHERE r.owner_id=@owner AND r.state='completed'
@@ -142,7 +149,9 @@ ${results ? `completed_results AS (
   SELECT conversation_id,NULL,id,created_at,'message:'||id,NULL,0
   FROM messages INDEXED BY messages_feed_answers WHERE owner_id=@owner AND run_id IS NULL AND role='assistant'
     AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND ${nonemptyAnswer("content")}
-),` : ""}
+),`
+    : ""
+}
 flagged AS (
   SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
     ${folder} folder_id,c.feed_run_id run_id,c.feed_run_state run_state,${doneRun} done_run_id,${doneAt} done_at,
@@ -204,10 +213,14 @@ chosen AS MATERIALIZED (
       WHEN k.card_run IS NOT NULL AND (@mode='working' OR (@mode='thread' AND k.card_run_state IN ('running','pausing','waiting_children'))) THEN k.card_answer_id
       ELSE k.thread_latest_id
     END message_id,
-    ${doneOnly ? "NULL" : `COALESCE(
+    ${
+      doneOnly
+        ? "NULL"
+        : `COALESCE(
       (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=ap.run_id AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
       (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=ap.run_id AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at,m.rowid LIMIT 1)
-    )`} approval_message_id
+    )`
+    } approval_message_id
   FROM picked k LEFT JOIN approvals ap ON ap.id=k.approval_id AND ap.owner_id=@owner
 )
 SELECT k.*,g.name agent_name,g.provider,pf.id project_id,pf.name project_name,
@@ -284,9 +297,11 @@ function readFeed(
     // Completed results remain until individually dismissed, including when
     // newer work finishes or the conversation is snoozed. Threads without a
     // result keep their existing idle/snoozed behavior.
-    done: `${results
-      ? "(done_run_id IS NOT NULL OR done_message_id IS NOT NULL OR (NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued) AND NOT snoozed))"
-      : "(done_run_id IS NOT NULL OR NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued)) AND NOT snoozed"}
+    done: `${
+      results
+        ? "(done_run_id IS NOT NULL OR done_message_id IS NOT NULL OR (NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued) AND NOT snoozed))"
+        : "(done_run_id IS NOT NULL OR NOT (COALESCE(is_needs,0) OR COALESCE(is_working,0) OR has_queued)) AND NOT snoozed"
+    }
       AND NOT EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key)`,
     needs: "is_needs",
     working: "is_working",
@@ -345,9 +360,12 @@ page AS MATERIALIZED (
     .get(owner) as { failed: number; pending: number };
   const last = rows.at(-1);
   return {
-    items: replyPage ? replyPage.items : rows.map((row) => feedItem(owner, row, mode)),
-    next: replyPage ? replyPage.next :
-      more && last
+    items: replyPage
+      ? replyPage.items
+      : rows.map((row) => feedItem(owner, row, mode)),
+    next: replyPage
+      ? replyPage.next
+      : more && last
         ? encode(
             results
               ? [last.sort_at, last.conversation_id, last.done_card_key]
@@ -373,15 +391,19 @@ function projectFor(owner: string, folder: string | null | undefined) {
       .prepare(
         `WITH RECURSIVE ${FOLDER_PROJECT} SELECT p.id,p.name FROM folder_project fp JOIN folders p ON p.id=fp.project_id AND p.owner_id=@owner WHERE fp.id IS @folder`,
       )
-      .get({ owner, folder: folder ?? null }) as { id: string; name: string } | undefined) ||
-    null
+      .get({ owner, folder: folder ?? null }) as
+      { id: string; name: string } | undefined) || null
   );
 }
 
 type ReplyScope = {
-  owner: string; teams: string | null; folders: string | null; agent: string | null;
+  owner: string;
+  teams: string | null;
+  folders: string | null;
+  agent: string | null;
 };
-const replyFolder = "CASE WHEN json_type(r.payload,'$.folderId') IS NOT NULL THEN json_extract(r.payload,'$.folderId') ELSE c.project_id END";
+const replyFolder =
+  "CASE WHEN json_type(r.payload,'$.folderId') IS NOT NULL THEN json_extract(r.payload,'$.folderId') ELSE c.project_id END";
 const replyScopeSql = `FROM steering_replies p
   JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id
   JOIN run_steering s ON s.id=p.steering_id AND s.owner_id=p.owner_id
@@ -395,11 +417,23 @@ const replyScopeSql = `FROM steering_replies p
       OR (${replyFolder} IS NULL AND EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS NULL)))`;
 
 function replyUnread(scope: ReplyScope) {
-  return (db.prepare(`SELECT count(*) n ${replyScopeSql} AND p.read_at IS NULL`).get(scope) as { n: number }).n;
+  return (
+    db
+      .prepare(`SELECT count(*) n ${replyScopeSql} AND p.read_at IS NULL`)
+      .get(scope) as { n: number }
+  ).n;
 }
 
-function readReplyFeed(scope: ReplyScope & { at: number | null; after: string | null; afterCard: string | null }) {
-  const rows = db.prepare(`SELECT p.message_id,p.created_at,p.read_at,q.id question_id,substr(q.content,1,1000) question,
+function readReplyFeed(
+  scope: ReplyScope & {
+    at: number | null;
+    after: string | null;
+    afterCard: string | null;
+  },
+) {
+  const rows = db
+    .prepare(
+      `SELECT p.message_id,p.created_at,p.read_at,q.id question_id,substr(q.content,1,1000) question,
     substr(m.content,1,1000) content,c.id conversation_id,c.title,c.origin,c.team_id,r.agent_id,
     ${replyFolder} folder_id,r.id run_id,r.state,r.error,r.input,r.created_at run_created_at,r.updated_at,
     json_extract(r.payload,'$.connectionId') connection_id,json_extract(r.payload,'$.model') model,
@@ -408,34 +442,91 @@ function readReplyFeed(scope: ReplyScope & { at: number | null; after: string | 
     EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id) saved
     ${replyScopeSql}
       AND (@at IS NULL OR (p.created_at,c.id,'reply:'||p.message_id)<(@at,@after,@afterCard))
-    ORDER BY p.created_at DESC,c.id DESC,p.message_id DESC LIMIT 41`).all(scope) as {
-      message_id: string; created_at: number; read_at: number | null; question_id: string; question: string; content: string;
-      conversation_id: string; title: string; origin: string; team_id: string | null; agent_id: string | null;
-      folder_id: string | null; run_id: string; state: string; error: string | null; input: string;
-      run_created_at: number; updated_at: number; connection_id: string | null; model: string | null;
-      resolved_model: string | null; provider: string | null; agent_name: string | null; saved: number;
-    }[];
+    ORDER BY p.created_at DESC,c.id DESC,p.message_id DESC LIMIT 41`,
+    )
+    .all(scope) as {
+    message_id: string;
+    created_at: number;
+    read_at: number | null;
+    question_id: string;
+    question: string;
+    content: string;
+    conversation_id: string;
+    title: string;
+    origin: string;
+    team_id: string | null;
+    agent_id: string | null;
+    folder_id: string | null;
+    run_id: string;
+    state: string;
+    error: string | null;
+    input: string;
+    run_created_at: number;
+    updated_at: number;
+    connection_id: string | null;
+    model: string | null;
+    resolved_model: string | null;
+    provider: string | null;
+    agent_name: string | null;
+    saved: number;
+  }[];
   const more = rows.length > 40;
   if (more) rows.pop();
   const last = rows.at(-1);
   return {
-    items: rows.map(row => {
+    items: rows.map((row) => {
       const project = projectFor(scope.owner, row.folder_id);
       return {
-        conversation_id: row.conversation_id, reply_card_key: `reply:${row.message_id}`,
-        reply: { message_id: row.question_id, content: row.question, read_at: row.read_at },
+        conversation_id: row.conversation_id,
+        reply_card_key: `reply:${row.message_id}`,
+        reply: {
+          message_id: row.question_id,
+          content: row.question,
+          read_at: row.read_at,
+        },
         title: collapse(row.question, 200) || row.title,
-        agent_id: row.agent_id, agent_name: row.agent_name, provider: row.provider,
-        connection_id: row.connection_id, project_id: project?.id ?? null, project_name: project?.name ?? null,
-        team_id: row.team_id, origin: row.origin, last_activity_at: row.created_at,
-        last_message: { id: row.message_id, role: "assistant", preview: row.content, created_at: row.created_at, saved: !!row.saved },
-        run: { id: row.run_id, state: row.state, error: row.error, input: row.input,
-          connection_id: row.connection_id, model: row.model, resolved_model: row.resolved_model,
-          created_at: row.run_created_at, updated_at: row.updated_at, queue_position: null },
-        pending_approvals: 0, position_message_id: null, later: null, next_action: null,
+        agent_id: row.agent_id,
+        agent_name: row.agent_name,
+        provider: row.provider,
+        connection_id: row.connection_id,
+        project_id: project?.id ?? null,
+        project_name: project?.name ?? null,
+        team_id: row.team_id,
+        origin: row.origin,
+        last_activity_at: row.created_at,
+        last_message: {
+          id: row.message_id,
+          role: "assistant",
+          preview: row.content,
+          created_at: row.created_at,
+          saved: !!row.saved,
+        },
+        run: {
+          id: row.run_id,
+          state: row.state,
+          error: row.error,
+          input: row.input,
+          connection_id: row.connection_id,
+          model: row.model,
+          resolved_model: row.resolved_model,
+          created_at: row.run_created_at,
+          updated_at: row.updated_at,
+          queue_position: null,
+        },
+        pending_approvals: 0,
+        position_message_id: null,
+        later: null,
+        next_action: null,
       };
     }),
-    next: more && last ? encode([last.created_at, last.conversation_id, `reply:${last.message_id}`]) : null,
+    next:
+      more && last
+        ? encode([
+            last.created_at,
+            last.conversation_id,
+            `reply:${last.message_id}`,
+          ])
+        : null,
   };
 }
 
@@ -444,14 +535,25 @@ export function feed(owner: string, options: Parameters<typeof readFeed>[1]) {
 }
 
 /** Shared Done projection: keeps the legacy feed's exact membership and identity. */
-export function doneCardRows(owner: string, options: {
-  folders: (string | null)[] | null; teamIds: string[]; agent?: string;
-  before?: [number, string] | null; ids?: string[]; limit: number; detail?: boolean; atTime?: number;
-}) {
+export function doneCardRows(
+  owner: string,
+  options: {
+    folders: (string | null)[] | null;
+    teamIds: string[];
+    agent?: string;
+    before?: [number, string] | null;
+    ids?: string[];
+    limit: number;
+    detail?: boolean;
+    atTime?: number;
+  },
+) {
   if (options.ids && !options.ids.length) return [];
   const identity = "'d:'||COALESCE(done_card_key,'idle:'||conversation_id)";
   const order = "conversation_id||char(31)||COALESCE(done_card_key,'')";
-  const rows = db.prepare(`${feedSql(!!options.teamIds.length, !!options.folders, !!options.agent, true)},
+  const rows = db
+    .prepare(
+      `${feedSql(!!options.teamIds.length, !!options.folders, !!options.agent, true)},
     page AS MATERIALIZED (
       SELECT *,COALESCE(done_at,last_activity_at) sort_at FROM flagged
       WHERE (done_run_id IS NOT NULL OR done_message_id IS NOT NULL OR
@@ -462,14 +564,24 @@ export function doneCardRows(owner: string, options: {
         AND (@ids IS NULL OR ${identity} IN (SELECT value FROM json_each(@ids)))
         AND (@at IS NULL OR (COALESCE(done_at,last_activity_at),${order})<(@at,@key))
       ORDER BY sort_at DESC,conversation_id DESC,done_card_key DESC LIMIT @limit
-    ),${cardSql(true)}`)
-    .all({owner, now: options.atTime ?? now(), mode: "done", teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
-      folders: options.folders ? JSON.stringify(options.folders) : null, agent: options.agent ?? null,
-      ids: options.ids ? JSON.stringify(options.ids) : null, at: options.before?.[0] ?? null,
-      key: options.before?.[1] ?? null, limit: options.limit}) as FeedRow[];
-  return rows.map(row => {
+    ),${cardSql(true)}`,
+    )
+    .all({
+      owner,
+      now: options.atTime ?? now(),
+      mode: "done",
+      teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
+      folders: options.folders ? JSON.stringify(options.folders) : null,
+      agent: options.agent ?? null,
+      ids: options.ids ? JSON.stringify(options.ids) : null,
+      at: options.before?.[0] ?? null,
+      key: options.before?.[1] ?? null,
+      limit: options.limit,
+    }) as FeedRow[];
+  return rows.map((row) => {
     const display = feedItem(owner, row, "done");
-    if (display.last_message) display.last_message.content = row.message_content!;
+    if (display.last_message)
+      display.last_message.content = row.message_content!;
     return { row, display };
   });
 }
@@ -624,7 +736,10 @@ function feedItem(
           ...(() => {
             const checkout = checkoutSummary(owner, run.id);
             const verification = verificationSummary(owner, run.id);
-            return { ...(checkout ? { checkout } : {}), ...(verification ? { verification } : {}) };
+            return {
+              ...(checkout ? { checkout } : {}),
+              ...(verification ? { verification } : {}),
+            };
           })(),
           ...(trigger?.automation
             ? {
@@ -737,11 +852,16 @@ function livePreview(owner: string, runId: string) {
   return text ? text.slice(0, 4000) : null;
 }
 
-type QueuedRun = Pick<QueryRow<"runs">, "id" | "input" | "created_at" | "state" | "worker_id" | "active_since">;
+type QueuedRun = Pick<
+  QueryRow<"runs">,
+  "id" | "input" | "created_at" | "state" | "worker_id" | "active_since"
+>;
 const perConversation = (r: string) =>
   `EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${NATIVE_CONNECTION_SQL})`;
 const RANK_STEP = 1 / 1024;
-function editable(run: Pick<Run, "id" | "worker_id" | "active_since"> & { state: string }) {
+function editable(
+  run: Pick<Run, "id" | "worker_id" | "active_since"> & { state: string },
+) {
   return (
     run.state === "queued" &&
     run.worker_id === null &&
@@ -750,4 +870,3 @@ function editable(run: Pick<Run, "id" | "worker_id" | "active_since"> & { state:
     !db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id)
   );
 }
-

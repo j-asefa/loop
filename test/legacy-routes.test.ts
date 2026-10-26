@@ -10,24 +10,41 @@ import { workspaceApi } from "../src/shared/workspace-api";
 it("accounts for every production API registration and every named exception across both profiles", () => {
   const declared = new Set([
     ...Object.keys(LEGACY_ROUTES),
-    ...Object.values(workspaceApi).map(route => `${route.method} ${route.path}`),
+    ...Object.values(workspaceApi).map(
+      (route) => `${route.method} ${route.path}`,
+    ),
   ]);
   const seen = new Set<string>();
   for (const profile of ["server", "companion"]) {
     const directory = mkdtempSync(join(tmpdir(), "loop-route-inventory-"));
     try {
-      const output = execFileSync(process.execPath, ["--import", "tsx", "test/fixtures/legacy-route-inventory.ts"], {
-        encoding: "utf8", timeout: 30_000,
-        env: {
-          ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_"))),
-          NODE_ENV: "test", LOOP_PROFILE: profile, LOOP_DATA_DIR: directory,
-          LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
-          BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", "test/fixtures/legacy-route-inventory.ts"],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          env: {
+            ...Object.fromEntries(
+              Object.entries(process.env).filter(
+                ([key]) => !key.startsWith("LOOP_"),
+              ),
+            ),
+            NODE_ENV: "test",
+            LOOP_PROFILE: profile,
+            LOOP_DATA_DIR: directory,
+            LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+            BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+          },
         },
-      });
-      const marker = output.split("\n").find(line => line.startsWith("ROUTE_INVENTORY="));
+      );
+      const marker = output
+        .split("\n")
+        .find((line) => line.startsWith("ROUTE_INVENTORY="));
       expect(marker, output).toBeDefined();
-      const keys: string[] = JSON.parse(marker!.slice("ROUTE_INVENTORY=".length));
+      const keys: string[] = JSON.parse(
+        marker!.slice("ROUTE_INVENTORY=".length),
+      );
       const registered = new Set<string>();
       for (const key of keys) {
         expect(declared.has(key), `${profile}: undeclared ${key}`).toBe(true);

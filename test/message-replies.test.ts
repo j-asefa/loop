@@ -19,7 +19,8 @@ const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { recordTrace } = await import("../src/server/traces");
-const { recordConversationUpdate } = await import("../src/server/conversation-updates");
+const { recordConversationUpdate } =
+  await import("../src/server/conversation-updates");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { core } = await import("../src/server/core-routes");
 const app = express();
@@ -82,7 +83,8 @@ function trace(
   content: string,
   kind: "message" | "tool" = "message",
 ) {
-  if (kind === "message") return recordConversationUpdate(run, key, { content })!.id;
+  if (kind === "message")
+    return recordConversationUpdate(run, key, { content })!.id;
   recordTrace(run, key, { kind, title: "Agent update", content });
   return (
     "trace:" +
@@ -380,7 +382,9 @@ it("bounds a long whole-message quote to its start and end", () => {
 
 it("opens and replies to progress from an imported run without a user prompt", async () => {
   const { agent, run, message } = source();
-  db.prepare("DELETE FROM messages WHERE run_id=? AND update_key IS NULL").run(run.id);
+  db.prepare("DELETE FROM messages WHERE run_id=? AND update_key IS NULL").run(
+    run.id,
+  );
   // Public updates can exist without an imported prompt or final answer.
   const path = `/conversations/${run.conversation_id}?message=${message}`;
   expect((await request(path)).status).toBe(200);
@@ -424,7 +428,9 @@ it("reports the agent's latest message wherever the transcript page is anchored"
     latest.data.messages.find((m: any) => m.id === later).cursor,
   );
   // Opened at an earlier answer, the page ends there but still names the latest.
-  const anchored = await request(`/conversations/${run.conversation_id}?message=${message}`);
+  const anchored = await request(
+    `/conversations/${run.conversation_id}?message=${message}`,
+  );
   expect(anchored.data.messages.at(-1).id).toBe(message);
   expect(anchored.data.latest_agent_message.id).toBe(later);
   // Your own follow-up does not change which message the agent sent last.
@@ -435,10 +441,12 @@ it("reports the agent's latest message wherever the transcript page is anchored"
     idempotencyKey: id(),
   });
   expect(
-    (await request(`/conversations/${run.conversation_id}`)).data.latest_agent_message.id,
+    (await request(`/conversations/${run.conversation_id}`)).data
+      .latest_agent_message.id,
   ).toBe(later);
   transition(followup.data, "cancelled");
   expect(
-    (await request(`/conversations/${run.conversation_id}`, undefined, "bob")).status,
+    (await request(`/conversations/${run.conversation_id}`, undefined, "bob"))
+      .status,
   ).toBe(404);
 });

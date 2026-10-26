@@ -74,13 +74,31 @@ it("resolves the model using the agent's own connection", () => {
 
 it("labels only connections with a recorded local location", () => {
   const connections = [
-    { id: "laptop", metadata: JSON.stringify({ environmentName: "This laptop", location: "laptop" }) },
-    { id: "docker", metadata: JSON.stringify({ environmentName: "Docker", location: "docker" }) },
-    { id: "container", metadata: JSON.stringify({ loopHarness: "codex", location: "docker" }) },
+    {
+      id: "laptop",
+      metadata: JSON.stringify({
+        environmentName: "This laptop",
+        location: "laptop",
+      }),
+    },
+    {
+      id: "docker",
+      metadata: JSON.stringify({
+        environmentName: "Docker",
+        location: "docker",
+      }),
+    },
+    {
+      id: "container",
+      metadata: JSON.stringify({ loopHarness: "codex", location: "docker" }),
+    },
     // Display names alone never decide the badge.
     { id: "named", metadata: JSON.stringify({ environmentName: "Docker" }) },
     { id: "legacy-direct", metadata: JSON.stringify({ loopHarness: "codex" }) },
-    { id: "remote", metadata: JSON.stringify({ environmentName: "Remote runner" }) },
+    {
+      id: "remote",
+      metadata: JSON.stringify({ environmentName: "Remote runner" }),
+    },
   ] as Connection[];
   const kinds = connectionEnvironments(connections);
   expect(kinds.get("laptop")).toBe("laptop");
@@ -97,29 +115,67 @@ it("labels only connections with a recorded local location", () => {
 });
 
 it("uses recorded computer names and resolves legacy laptop labels from their source", () => {
-  const connection = (metadata: object) => ({ metadata: JSON.stringify(metadata) }) as Connection;
-  expect(connectionLocation(connection({ location: "laptop", environmentName: "Alex’s MacBook Pro" })))
-    .toEqual({ kind: "laptop", label: "Alex’s MacBook Pro" });
-  expect(connectionLocation(connection({ location: "laptop", environmentName: "This laptop" }), "Workstation"))
-    .toEqual({ kind: "laptop", label: "Workstation" });
-  expect(connectionLocation(connection({ location: "docker", environmentName: "container-id" }), "Workstation"))
-    .toEqual({ kind: "docker", label: "Docker · container-id" });
-  expect(connectionLocation(connection({ location: "laptop" })))
-    .toEqual({ kind: "laptop", label: "This computer" });
+  const connection = (metadata: object) =>
+    ({ metadata: JSON.stringify(metadata) }) as Connection;
+  expect(
+    connectionLocation(
+      connection({ location: "laptop", environmentName: "Alex’s MacBook Pro" }),
+    ),
+  ).toEqual({ kind: "laptop", label: "Alex’s MacBook Pro" });
+  expect(
+    connectionLocation(
+      connection({ location: "laptop", environmentName: "This laptop" }),
+      "Workstation",
+    ),
+  ).toEqual({ kind: "laptop", label: "Workstation" });
+  expect(
+    connectionLocation(
+      connection({ location: "docker", environmentName: "container-id" }),
+      "Workstation",
+    ),
+  ).toEqual({ kind: "docker", label: "Docker · container-id" });
+  expect(connectionLocation(connection({ location: "laptop" }))).toEqual({
+    kind: "laptop",
+    label: "This computer",
+  });
 });
 
 it("keeps distinct Docker names while preserving the recorded location", () => {
-  const connection = (metadata: object) => ({ metadata: JSON.stringify(metadata) }) as Connection;
-  expect(connectionLocation(connection({ location: "docker", environmentName: "Docker · research/loop" })))
-    .toEqual({ kind: "docker", label: "Docker · research/loop" });
-  expect(connectionLocation(connection({ location: "docker", environmentName: "Docker · research/app" })))
-    .toEqual({ kind: "docker", label: "Docker · research/app" });
-  expect(connectionLocation(connection({ location: "docker", environmentName: "Docker" }), "Docker · research/loop"))
-    .toEqual({ kind: "docker", label: "Docker · research/loop" });
-  expect(connectionLocation(connection({ location: "docker", environmentName: "Docker" }), "Office Mac"))
-    .toEqual({ kind: "docker", label: "Docker" });
-  expect(connectionLocation(connection({ location: "laptop", environmentName: "Docker" })))
-    .toEqual({ kind: "laptop", label: "Docker" });
+  const connection = (metadata: object) =>
+    ({ metadata: JSON.stringify(metadata) }) as Connection;
+  expect(
+    connectionLocation(
+      connection({
+        location: "docker",
+        environmentName: "Docker · research/loop",
+      }),
+    ),
+  ).toEqual({ kind: "docker", label: "Docker · research/loop" });
+  expect(
+    connectionLocation(
+      connection({
+        location: "docker",
+        environmentName: "Docker · research/app",
+      }),
+    ),
+  ).toEqual({ kind: "docker", label: "Docker · research/app" });
+  expect(
+    connectionLocation(
+      connection({ location: "docker", environmentName: "Docker" }),
+      "Docker · research/loop",
+    ),
+  ).toEqual({ kind: "docker", label: "Docker · research/loop" });
+  expect(
+    connectionLocation(
+      connection({ location: "docker", environmentName: "Docker" }),
+      "Office Mac",
+    ),
+  ).toEqual({ kind: "docker", label: "Docker" });
+  expect(
+    connectionLocation(
+      connection({ location: "laptop", environmentName: "Docker" }),
+    ),
+  ).toEqual({ kind: "laptop", label: "Docker" });
 });
 
 const runConnections = [

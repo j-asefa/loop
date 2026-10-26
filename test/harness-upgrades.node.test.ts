@@ -583,7 +583,10 @@ test("Loop's shipped codex pin replaces an older helper manifest", (t) => {
 
 test("self-updating harnesses keep their own update command in Settings", (t) => {
   const dir = fixture(t);
-  const manager = new HarnessUpgrades(join(dir, "upgrades.json"), async () => "");
+  const manager = new HarnessUpgrades(
+    join(dir, "upgrades.json"),
+    async () => "",
+  );
   for (const [name, command] of [
     ["grok", "grok update"],
     ["muse", "muse"],
@@ -592,6 +595,9 @@ test("self-updating harnesses keep their own update command in Settings", (t) =>
     script(executable, "");
     const availability = manager.availability(name, executable);
     assert.equal(availability.canUpgrade, false);
-    assert.match(availability.upgradeHelp, new RegExp(`Run ${command} on the computer`));
+    assert.match(
+      availability.upgradeHelp,
+      new RegExp(`Run ${command} on the computer`),
+    );
   }
 });

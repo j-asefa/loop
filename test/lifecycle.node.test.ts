@@ -44,7 +44,12 @@ for (const legacy of [false, true]) {
   test(`compiled macOS workspace lock preserves a live ${legacy ? "legacy" : "normalized"} owner across a timezone change`, () => {
     const dir = mkdtempSync(join(tmpdir(), "loop-lock-mac-timezone-"));
     try {
-      execFileSync(process.execPath, ["--input-type=module", "-e", `
+      execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `
         import assert from "node:assert/strict";
         import { readFileSync, writeFileSync } from "node:fs";
         import { join } from "node:path";
@@ -62,10 +67,19 @@ for (const legacy of [false, true]) {
           assert.throws(() => workspaceLock(dir), /starting or running/);
           assert.equal(readFileSync(path, "utf8"), retained);
         } finally { release(); }
-      `], {
-        env: { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(resolve("test/fixtures/execution-macos-hooks.mjs")).href}` },
-        timeout: 10_000, stdio: ["ignore", "pipe", "pipe"],
-      });
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+      `,
+        ],
+        {
+          env: {
+            ...process.env,
+            NODE_OPTIONS: `--import=${pathToFileURL(resolve("test/fixtures/execution-macos-hooks.mjs")).href}`,
+          },
+          timeout: 10_000,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 }
