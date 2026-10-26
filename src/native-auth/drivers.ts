@@ -50,13 +50,13 @@ function cliDriver(options: AuthOptions): AuthDriver {
             : grok
               ? [{ id: "oauth", type: "oauth", label: "Sign in with Grok" }]
               : [
-                { id: "oauth", type: "oauth", label: "Sign in with Claude" },
-                {
-                  id: "console",
-                  type: "oauth",
-                  label: "Anthropic Console (API billing)",
-                },
-              ],
+                  { id: "oauth", type: "oauth", label: "Sign in with Claude" },
+                  {
+                    id: "console",
+                    type: "oauth",
+                    label: "Anthropic Console (API billing)",
+                  },
+                ],
         },
       ];
     },
@@ -209,7 +209,8 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
         resolve(message.providers);
       }
       if (message.type === "logout_complete") logout?.resolve();
-      if (message.type === "logout_failed") logout?.reject(new Error("Pi sign-out failed"));
+      if (message.type === "logout_failed")
+        logout?.reject(new Error("Pi sign-out failed"));
       const login = current;
       if (!login || login.io.signal.aborted) return;
       if (message.type === "link")
@@ -275,12 +276,16 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
       return result.models;
     },
     async logout(provider) {
-      if (dead || current || logout) throw new Error("Pi account process unavailable");
+      if (dead || current || logout)
+        throw new Error("Pi account process unavailable");
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await new Promise<void>((resolve, reject) => {
           logout = { resolve, reject };
-          timer = setTimeout(() => reject(new Error("Pi sign-out timed out")), 20000);
+          timer = setTimeout(
+            () => reject(new Error("Pi sign-out timed out")),
+            20000,
+          );
           channel.write(JSON.stringify({ type: "logout", provider }) + "\n");
         });
       } finally {
@@ -482,7 +487,9 @@ function geminiDriver(options: AuthOptions): AuthDriver {
         {
           id: "google",
           name: "Google",
-          methods: [{ id: "oauth", type: "oauth", label: "Sign in with Google" }],
+          methods: [
+            { id: "oauth", type: "oauth", label: "Sign in with Google" },
+          ],
         },
       ];
     },
@@ -492,7 +499,9 @@ function geminiDriver(options: AuthOptions): AuthDriver {
       await mkdir(join(workspace, ".gemini"));
       await writeFile(
         join(workspace, ".gemini", "settings.json"),
-        JSON.stringify({ security: { auth: { selectedType: "oauth-personal" } } }),
+        JSON.stringify({
+          security: { auth: { selectedType: "oauth-personal" } },
+        }),
       );
       const process = (child = spawn(options.executable, ["--acp"], {
         cwd: workspace,
@@ -572,20 +581,20 @@ function geminiDriver(options: AuthOptions): AuthDriver {
               return fail("Unsupported sign-in response");
             }
             void io
-                .prompt({
-                  type: "manual_code",
-                  message: "Paste the authorization code from Google",
-                })
-                .then(
-                  (value) => {
-                    if (io.signal.aborted) return;
-                    phase = "exchange";
-                    output = "";
-                    // One line only: later stdin lines are ACP frames.
-                    process.stdin!.write(value.replace(/\s+/g, "") + "\n");
-                  },
-                  () => {},
-                );
+              .prompt({
+                type: "manual_code",
+                message: "Paste the authorization code from Google",
+              })
+              .then(
+                (value) => {
+                  if (io.signal.aborted) return;
+                  phase = "exchange";
+                  output = "";
+                  // One line only: later stdin lines are ACP frames.
+                  process.stdin!.write(value.replace(/\s+/g, "") + "\n");
+                },
+                () => {},
+              );
           };
           process.stdout!.on("data", (chunk: Buffer) => {
             if (io.signal.aborted) return;
@@ -665,7 +674,11 @@ function geminiDriver(options: AuthOptions): AuthDriver {
 // Muse Code's MSP host owns sign-in: a device-code flow for a Meta account or
 // a stored API key. Credentials stay in Muse's own store.
 async function museDriver(options: AuthOptions): Promise<AuthDriver> {
-  const { native } = await museHost(options.executable, options.project, options.env);
+  const { native } = await museHost(
+    options.executable,
+    options.project,
+    options.env,
+  );
   let dead = false;
   let current: ((outcome: string) => void) | undefined;
   native.on("failure", () => {

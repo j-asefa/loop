@@ -21,7 +21,8 @@ const {
   resultNotification,
 } = await import("../src/server/notifications");
 const { saveArtifact } = await import("../src/server/artifacts");
-const { resultsRevision, resultsUpdates } = await import("../src/server/results");
+const { resultsRevision, resultsUpdates } =
+  await import("../src/server/results");
 const { submit } = await import("../src/server/agent-runtime");
 const { routeHandle } = await import("../src/server/sharing");
 const app = express();
@@ -114,9 +115,9 @@ it("Saved is only bookmarked full cards, including feed-archived cards, filtered
     pinned: 1,
     team_id: team.id,
   });
-  expect((await api("/results")).data.items.map((item: any) => item.id)).toContain(
-    unsaved,
-  );
+  expect(
+    (await api("/results")).data.items.map((item: any) => item.id),
+  ).toContain(unsaved);
   expect(
     (await api("/results?saved=1", undefined, undefined, "someone-else")).data
       .items,
@@ -124,7 +125,8 @@ it("Saved is only bookmarked full cards, including feed-archived cards, filtered
   const revision = resultsRevision("owner");
   pin(a, false);
   expect(
-    resultsUpdates("owner", { after: revision, through: 0, saved: true }).removed,
+    resultsUpdates("owner", { after: revision, through: 0, saved: true })
+      .removed,
   ).toContain(a);
   expect((await api("/results?saved=1")).data.items).toEqual([]);
 });
@@ -153,8 +155,11 @@ it("new bookmarks on old results arrive above loaded pages and unsaving removes 
   const revision = updates.revision;
   pin(old, false);
   expect(
-    resultsUpdates("owner", { after: revision, through: first.next, saved: true })
-      .removed,
+    resultsUpdates("owner", {
+      after: revision,
+      through: first.next,
+      saved: true,
+    }).removed,
   ).toContain(old);
 });
 
@@ -420,7 +425,9 @@ it("a background push displays a notification and opens its link on the same ori
   const click = async (url = "/?artifact=one") => {
     handlers.notificationclick({
       notification: { close() {}, data: { url } },
-      waitUntil: (promise: Promise<void>) => { pending = promise; },
+      waitUntil: (promise: Promise<void>) => {
+        pending = promise;
+      },
     });
     await pending;
   };
@@ -434,7 +441,9 @@ it("a background push displays a notification and opens its link on the same ori
   // Uncontrolled, closed and unsupported windows must not swallow the click.
   for (const navigate of [
     undefined,
-    async () => { throw new Error("uncontrolled"); },
+    async () => {
+      throw new Error("uncontrolled");
+    },
     async () => null,
   ]) {
     windows = [{ url: "https://loop.example/", navigate }];
@@ -446,9 +455,16 @@ it("a background push displays a notification and opens its link on the same ori
   expect(openWindow).toHaveBeenCalledTimes(4);
 
   // Focus failure does not undo successful navigation or open duplicates.
-  windows = [{ url: "https://loop.example/", navigate: async () => ({
-    focus: async () => { throw new Error("cannot focus"); },
-  }) }];
+  windows = [
+    {
+      url: "https://loop.example/",
+      navigate: async () => ({
+        focus: async () => {
+          throw new Error("cannot focus");
+        },
+      }),
+    },
+  ];
   await click("/?conversation=c1&message=m1");
   expect(openWindow).toHaveBeenCalledTimes(4);
 });
@@ -457,30 +473,59 @@ it("result notifications name the thread and lead with the answer as plain text"
   expect(
     resultNotification({
       name: "swift",
-      thread: "Is there a way to surface subscription usage for codex & Claude code into Loop?",
+      thread:
+        "Is there a way to surface subscription usage for codex & Claude code into Loop?",
       title: "Is there a way to surface subscription usage",
       kind: "markdown",
       content:
         "## Yes\n\nA **button** is feasible: read [the usage API](https://example.com) and show it in `Settings`.\n\n- Codex reports tokens\n- Claude reports limits",
     }),
   ).toEqual({
-    title: "@swift · Is there a way to surface subscription usage for codex & Cl…",
+    title:
+      "@swift · Is there a way to surface subscription usage for codex & Cl…",
     body: "Yes A button is feasible: read the usage API and show it in Settings. Codex reports tokens Claude reports limits",
   });
   // A long answer is cut to a lock-screen length.
-  const long = resultNotification({ name: "orbit", thread: "Render", title: "Render", kind: "markdown", content: "word ".repeat(100) });
+  const long = resultNotification({
+    name: "orbit",
+    thread: "Render",
+    title: "Render",
+    kind: "markdown",
+    content: "word ".repeat(100),
+  });
   expect(long.body.length).toBeLessThanOrEqual(180);
   expect(long.body.endsWith("…")).toBe(true);
   // Non-text results say what they are.
   expect(
-    resultNotification({ name: "dahlia", thread: "Review PR 58", title: "j-asefa/loop #58", kind: "github_pr", content: "{}" }),
-  ).toEqual({ title: "@dahlia · Review PR 58", body: "Read a pull request: j-asefa/loop #58" });
+    resultNotification({
+      name: "dahlia",
+      thread: "Review PR 58",
+      title: "j-asefa/loop #58",
+      kind: "github_pr",
+      content: "{}",
+    }),
+  ).toEqual({
+    title: "@dahlia · Review PR 58",
+    body: "Read a pull request: j-asefa/loop #58",
+  });
   expect(
-    resultNotification({ name: null, thread: null, title: "Chart of usage", kind: "chart", content: "{}" }),
+    resultNotification({
+      name: null,
+      thread: null,
+      title: "Chart of usage",
+      kind: "chart",
+      content: "{}",
+    }),
   ).toEqual({ title: "Chart of usage", body: "Made a chart: Chart of usage" });
   // An empty answer falls back to the result's title.
   expect(
-    resultNotification({ name: "forest", thread: null, title: "Summary", kind: "markdown", content: "   " }),
+    resultNotification({
+      name: "forest",
+      thread: null,
+      title: "Summary",
+      kind: "markdown",
+      content: "   ",
+    }),
   ).toEqual({ title: "@forest · Summary", body: "Summary" });
 });
 
@@ -647,28 +692,61 @@ it("Needs you alerts cover paused/interrupted work and failed scheduled messages
   const sub = makeSubscription();
   await api("/notifications/subscriptions", {
     ...sub,
-    preferences: { needsYou: true, completed: false, reminders: false, social: false },
+    preferences: {
+      needsYou: true,
+      completed: false,
+      reminders: false,
+      social: false,
+    },
   });
   const a = agent();
-  const run = submit("owner", { agentId: a.id, input: "Pause", idempotencyKey: id() });
+  const run = submit("owner", {
+    agentId: a.id,
+    input: "Pause",
+    idempotencyKey: id(),
+  });
   db.prepare("UPDATE runs SET state='paused' WHERE id=?").run(run.id);
   db.prepare("UPDATE runs SET state='interrupted' WHERE id=?").run(run.id);
   const scheduled = createScheduledSend("owner", {
-    agentId: a.id, input: "Scheduled", sendAt: now() + 60000, idempotencyKey: id(),
+    agentId: a.id,
+    input: "Scheduled",
+    sendAt: now() + 60000,
+    idempotencyKey: id(),
   });
-  db.prepare("UPDATE scheduled_sends SET state='failed',error='private failure' WHERE id=?").run(scheduled.row.id);
-  const alerts = db.prepare(`SELECT m.* FROM push_messages m JOIN push_subscriptions s ON s.id=m.subscription_id WHERE s.endpoint=? ORDER BY m.message_key`).all(sub.endpoint) as any[];
+  db.prepare(
+    "UPDATE scheduled_sends SET state='failed',error='private failure' WHERE id=?",
+  ).run(scheduled.row.id);
+  const alerts = db
+    .prepare(
+      `SELECT m.* FROM push_messages m JOIN push_subscriptions s ON s.id=m.subscription_id WHERE s.endpoint=? ORDER BY m.message_key`,
+    )
+    .all(sub.endpoint) as any[];
   expect(alerts).toHaveLength(3);
   expect(alerts.every((alert) => alert.category === "needsYou")).toBe(true);
-  expect(alerts.find((alert) => alert.message_key === "scheduled-" + scheduled.row.id)).toMatchObject({
+  expect(
+    alerts.find(
+      (alert) => alert.message_key === "scheduled-" + scheduled.row.id,
+    ),
+  ).toMatchObject({
     url: "/?page=profile&later=scheduled&laterItem=" + scheduled.row.id,
     title: "Needs you",
   });
   expect(JSON.stringify(alerts)).not.toContain("private failure");
   await api("/notifications/subscriptions", {
     ...sub,
-    preferences: { needsYou: false, completed: false, reminders: false, social: false },
+    preferences: {
+      needsYou: false,
+      completed: false,
+      reminders: false,
+      social: false,
+    },
   });
   db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(run.id);
-  expect(db.prepare(`SELECT count(*) n FROM push_messages m JOIN push_subscriptions s ON s.id=m.subscription_id WHERE s.endpoint=?`).get(sub.endpoint)).toEqual({ n: 0 });
+  expect(
+    db
+      .prepare(
+        `SELECT count(*) n FROM push_messages m JOIN push_subscriptions s ON s.id=m.subscription_id WHERE s.endpoint=?`,
+      )
+      .get(sub.endpoint),
+  ).toEqual({ n: 0 });
 });

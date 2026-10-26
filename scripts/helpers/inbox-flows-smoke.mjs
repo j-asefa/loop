@@ -142,7 +142,9 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     const accept = async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       requests.push(route.request().postDataJSON());
-      await route.fulfill({ json: runReceipt(route.request(), "inbox-flow-reply") });
+      await route.fulfill({
+        json: runReceipt(route.request(), "inbox-flow-reply"),
+      });
     };
     await page.route("**/api/runs", accept);
     try {
@@ -191,13 +193,13 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await nav("Your profile").click();
     await laterTab("Saved").click();
     await expect(laterTab("Saved")).toHaveAttribute("aria-selected", "true");
-    const kept = later
-      .locator(".feed-card")
-      .filter({ hasText: target.title });
+    const kept = later.locator(".feed-card").filter({ hasText: target.title });
     await expect(kept).toHaveCount(1);
     await expect(kept).toContainText("Finding 1");
     await capture("later-saved");
-    await kept.getByRole("link", { name: "Open conversation", exact: true }).click();
+    await kept
+      .getByRole("link", { name: "Open conversation", exact: true })
+      .click();
     await expect(thread()).toHaveAttribute("aria-label", target.title);
     await expect
       .poll(() => new URL(page.url()).searchParams.get("message"))

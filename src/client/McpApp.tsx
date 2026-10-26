@@ -55,8 +55,14 @@ export function McpApp({
       setStatus("App connected. Requests still require your approval.");
       // Interactive app payload stays on its signed-in, source-bound route.
       // The public content contract carries only the capability flag.
-      void (metadata ? Promise.resolve(metadata) : call(workspaceApi.artifactDetail, { params: { id: artifactId } }).then(item => JSON.parse(item.metadata)))
-        .then(async payload => {
+      void (
+        metadata
+          ? Promise.resolve(metadata)
+          : call(workspaceApi.artifactDetail, {
+              params: { id: artifactId },
+            }).then((item) => JSON.parse(item.metadata))
+      )
+        .then(async (payload) => {
           await bridge.sendToolInput({ arguments: payload.arguments || {} });
           await bridge.sendToolResult(payload.toolResult);
         })

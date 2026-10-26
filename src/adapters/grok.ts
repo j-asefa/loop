@@ -13,11 +13,14 @@ export class Grok extends Acp {
   ) {
     // --no-leader keeps each session in a process Loop owns, even when the
     // user's configuration routes agents through a shared leader.
-    super({ ...grokOptions, args: ["agent", "--no-leader", "stdio"] }, (event) => {
-      if (event.type === "status" && event.status === "completed")
-        this.instructed = true;
-      emit(event);
-    });
+    super(
+      { ...grokOptions, args: ["agent", "--no-leader", "stdio"] },
+      (event) => {
+        if (event.type === "status" && event.status === "completed")
+          this.instructed = true;
+        emit(event);
+      },
+    );
   }
   protected override environment(): NodeJS.ProcessEnv {
     // Probes and turns must not replace the binary under a running session.

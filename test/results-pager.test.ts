@@ -1,5 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { ResultsPager, type ResultsPage, type ResultsUpdates } from "../src/client/results";
+import {
+  ResultsPager,
+  type ResultsPage,
+  type ResultsUpdates,
+} from "../src/client/results";
 type Card = { id: string; cursor: number; content: string };
 const cards = (count: number): Card[] =>
   Array.from({ length: count }, (_, i) => ({
@@ -116,7 +120,9 @@ it.each([1000, 2400])(
 it("discards both active and queued work after an owner/filter change", async () => {
   const feed = new ResultsPager<Card>();
   let finish!: (page: ResultsPage<Card>) => void;
-  const pending = vi.fn(() => new Promise<ResultsPage<Card>>((r) => (finish = r)));
+  const pending = vi.fn(
+    () => new Promise<ResultsPage<Card>>((r) => (finish = r)),
+  );
   const old = feed.load("alice:all", false, pending, noChanges);
   const queued = feed.load("alice:all", false, pending, noChanges);
   const current = await feed.load(
@@ -193,16 +199,32 @@ it("advances an unchanged feed watermark without publishing a new snapshot", asy
 });
 
 it("drains all pages from one notification and applies removals without a catch-up timer", async () => {
- const pager=new ResultsPager<Card>(), page=pageFrom(cards(100));
- await pager.load("owner:source",false,page,noChanges);
- let calls=0;
- const updates=vi.fn(async (after:number):Promise<ResultsUpdates<Card>>=>{
-  calls++;
-  return {items:[{id:String(100-calls),cursor:100-calls,content:"changed "+calls}],removed:calls===3?["100"]:[],revision:after+1,more:calls<4};
- });
- const result=await pager.load("owner:source",false,page,updates);
- expect(updates).toHaveBeenCalledTimes(4);
- expect(result!.items.some(item=>item.id==="100")).toBe(false);
- expect(result!.items.filter(item=>item.content.startsWith("changed"))).toHaveLength(4);
- expect(result!.revision).toBe(5);
+  const pager = new ResultsPager<Card>(),
+    page = pageFrom(cards(100));
+  await pager.load("owner:source", false, page, noChanges);
+  let calls = 0;
+  const updates = vi.fn(
+    async (after: number): Promise<ResultsUpdates<Card>> => {
+      calls++;
+      return {
+        items: [
+          {
+            id: String(100 - calls),
+            cursor: 100 - calls,
+            content: "changed " + calls,
+          },
+        ],
+        removed: calls === 3 ? ["100"] : [],
+        revision: after + 1,
+        more: calls < 4,
+      };
+    },
+  );
+  const result = await pager.load("owner:source", false, page, updates);
+  expect(updates).toHaveBeenCalledTimes(4);
+  expect(result!.items.some((item) => item.id === "100")).toBe(false);
+  expect(
+    result!.items.filter((item) => item.content.startsWith("changed")),
+  ).toHaveLength(4);
+  expect(result!.revision).toBe(5);
 });

@@ -44,11 +44,25 @@ if (process.env.LOOP_PROFILE === "companion") {
   };
 }
 // This fixed mock credential exists only in the isolated fixture database.
-process.send?.({ origin, owner, pair, fixtureSecret: owner ? seal("fixture-api-key", owner) : undefined });
+process.send?.({
+  origin,
+  owner,
+  pair,
+  fixtureSecret: owner ? seal("fixture-api-key", owner) : undefined,
+});
 // IPC-only fixture observation; no production route or browser-visible state.
 process.on("message", (message) => {
-  if (message && typeof message === "object" && "type" in message && message.type === "busy-timeout" &&
-    "ms" in message && typeof message.ms === "number" && Number.isInteger(message.ms) && message.ms >= 0 && message.ms <= 5000) {
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
+    message.type === "busy-timeout" &&
+    "ms" in message &&
+    typeof message.ms === "number" &&
+    Number.isInteger(message.ms) &&
+    message.ms >= 0 &&
+    message.ms <= 5000
+  ) {
     db.pragma(`busy_timeout = ${message.ms}`);
     process.send?.({ type: "busy-timeout", ms: message.ms });
   }

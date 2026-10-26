@@ -301,23 +301,50 @@ it("refuses a discovery redirect that points inside this network", async () => {
   expect(new Set(asked)).toEqual(new Set(["https://jvns.ca/"]));
 });
 
-
 it("re-adds an existing source idempotently even at the subscription limit", async () => {
   const { addSource } = await import("../src/server/feed-sources");
   const { db } = await import("../src/server/db");
   let downloads = 0;
-  restore = withNewsFixture(async () => { downloads++; return new Response(blogAtom); });
-  const entry = await addSource("full-owner", { url: "https://jvns.ca/atom.xml", title: "Original" });
-  const row = db.prepare("SELECT * FROM feed_sources WHERE owner_id='full-owner'").get() as any;
-  for (let i = 0; i < 199; i++) db.prepare("INSERT INTO feed_sources(id,owner_id,url,title,home,category,kind,color,created_at) VALUES(?,?,?,?,?,?,?,?,?)")
-    .run("extra-" + i, row.owner_id, "https://example.com/" + i, row.title, row.home, row.category, row.kind, row.color, row.created_at);
-  expect(await addSource("full-owner", { url: entry.url, title: "Different" })).toEqual(entry);
+  restore = withNewsFixture(async () => {
+    downloads++;
+    return new Response(blogAtom);
+  });
+  const entry = await addSource("full-owner", {
+    url: "https://jvns.ca/atom.xml",
+    title: "Original",
+  });
+  const row = db
+    .prepare("SELECT * FROM feed_sources WHERE owner_id='full-owner'")
+    .get() as any;
+  for (let i = 0; i < 199; i++)
+    db.prepare(
+      "INSERT INTO feed_sources(id,owner_id,url,title,home,category,kind,color,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+    ).run(
+      "extra-" + i,
+      row.owner_id,
+      "https://example.com/" + i,
+      row.title,
+      row.home,
+      row.category,
+      row.kind,
+      row.color,
+      row.created_at,
+    );
+  expect(
+    await addSource("full-owner", { url: entry.url, title: "Different" }),
+  ).toEqual(entry);
   expect(downloads).toBe(1);
 });
 
 it("imports every nested outline with explicit closing tags", async () => {
-  const opml = '<opml><body><outline text="Tech"><outline text="A" xmlUrl="https://a.example/feed"></outline><outline text="Nested"><outline text="B" xmlUrl="https://b.example/feed"/></outline><outline text="C > D" xmlUrl="https://c.example/feed"></outline></outline></body></opml>';
-  const result = await call("/social/opml", "POST", { opml }, "explicit-outlines");
+  const opml =
+    '<opml><body><outline text="Tech"><outline text="A" xmlUrl="https://a.example/feed"></outline><outline text="Nested"><outline text="B" xmlUrl="https://b.example/feed"/></outline><outline text="C > D" xmlUrl="https://c.example/feed"></outline></outline></body></opml>';
+  const result = await call(
+    "/social/opml",
+    "POST",
+    { opml },
+    "explicit-outlines",
+  );
   expect(result.status).toBe(200);
   expect(result.data.added).toBe(3);
   expect(result.data.skipped).toEqual([]);
@@ -325,28 +352,57 @@ it("imports every nested outline with explicit closing tags", async () => {
 
 it("bounds malformed OPML comment scanning at the HTTP boundary", async () => {
   const start = performance.now();
-  const result = await call("/social/opml", "POST", { opml: "<!--".repeat(250000) }, "comment-scan");
+  const result = await call(
+    "/social/opml",
+    "POST",
+    { opml: "<!--".repeat(250000) },
+    "comment-scan",
+  );
   expect(result.status).toBe(200);
   expect(result.data.added).toBe(0);
   expect(performance.now() - start).toBeLessThan(2000);
 });
 
 it("discovers feeds in the head of a large declared page", async () => {
-  const html = '<html><head><link rel="alternate" type="application/rss+xml" href="/feed"></head>' + "x".repeat(700000);
-  restore = withNewsFixture(async () => new Response(html, { headers: { "content-length": String(html.length) } }));
-  const result = await call("/social/sources/discover", "POST", {url:"https://large.example/"});
+  const html =
+    '<html><head><link rel="alternate" type="application/rss+xml" href="/feed"></head>' +
+    "x".repeat(700000);
+  restore = withNewsFixture(
+    async () =>
+      new Response(html, {
+        headers: { "content-length": String(html.length) },
+      }),
+  );
+  const result = await call("/social/sources/discover", "POST", {
+    url: "https://large.example/",
+  });
   expect(result.status).toBe(200);
-  expect(result.data.candidates).toContainEqual({url:"https://large.example/feed",title:"large.example"});
+  expect(result.data.candidates).toContainEqual({
+    url: "https://large.example/feed",
+    title: "large.example",
+  });
 });
 
 it("exposes useful feed refusal reasons through the production error handler", async () => {
-  restore = withNewsFixture(async () => new Response("<html>Not a feed</html>"));
-  const result = await call("/social/sources", "PUT", {url:"https://bad.example/feed"});
+  restore = withNewsFixture(
+    async () => new Response("<html>Not a feed</html>"),
+  );
+  const result = await call("/social/sources", "PUT", {
+    url: "https://bad.example/feed",
+  });
   expect(result.status).toBe(400);
   expect(result.data.error).toMatch(/isn’t an RSS/);
   restore();
-  restore = withNewsFixture(async () => new Response(null, {status:302,headers:{location:"https://bad.example/login"}}));
-  const login = await call("/social/sources", "PUT", {url:"https://bad.example/feed"});
+  restore = withNewsFixture(
+    async () =>
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://bad.example/login" },
+      }),
+  );
+  const login = await call("/social/sources", "PUT", {
+    url: "https://bad.example/feed",
+  });
   expect(login.status).toBe(400);
   expect(login.data.error).toMatch(/needs an account/);
 });

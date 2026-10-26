@@ -9,7 +9,11 @@ import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { linkedDockerWorkspaces, proxyLinkedDocker } from "./linked-docker.js";
-import { agentSources, proxyAgentSource, connectAgentSourceEvents } from "./agent-sources.js";
+import {
+  agentSources,
+  proxyAgentSource,
+  connectAgentSourceEvents,
+} from "./agent-sources.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import {
@@ -21,7 +25,11 @@ import {
 } from "./protocol.js";
 import type { Adapter } from "./adapters/types.js";
 import { State, secret, hash, atomic } from "./state.js";
-import { cardAuthorization, cardReadRoute, type CardAuthorization } from "./shared/card-access.js";
+import {
+  cardAuthorization,
+  cardReadRoute,
+  type CardAuthorization,
+} from "./shared/card-access.js";
 import { Problem } from "./shared/problem.js";
 
 type Device = {
@@ -139,7 +147,11 @@ export class Host {
     // the workspace (GET /conversations/:id/activities); the legacy snapshot
     // has no activity projection, so forwarding them could not be replayed
     // consistently either.
-    if (event.type === "activity" || event.type === "activity_capabilities" || event.type === "usage")
+    if (
+      event.type === "activity" ||
+      event.type === "activity_capabilities" ||
+      event.type === "usage"
+    )
       return;
     let frame;
     try {
@@ -188,7 +200,7 @@ export class Host {
         req.headers.authorization !== undefined ||
         req.headers["sec-fetch-site"] === "cross-site" ||
         this.clients.size >= 256 ||
-        [...this.clients.values()].filter(id => id === device.id).length >= 32
+        [...this.clients.values()].filter((id) => id === device.id).length >= 32
       ) {
         socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         return;
@@ -200,8 +212,11 @@ export class Host {
         socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
         return;
       }
-      const source = /^\/api\/agent-sources\/([^/]+)\/events\/ws$/.exec(url.pathname);
-      const local = url.pathname === "/ws" ||
+      const source = /^\/api\/agent-sources\/([^/]+)\/events\/ws$/.exec(
+        url.pathname,
+      );
+      const local =
+        url.pathname === "/ws" ||
         (!!this.workspace && url.pathname === "/api/events/ws");
       if (!local && !(source && this.workspace && !this.workspace.isolated)) {
         socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
@@ -212,9 +227,16 @@ export class Host {
         const cleanup = local ? this.workspace?.connect(ws, url) : undefined;
         if (source) {
           try {
-            void connectAgentSourceEvents(ws, decodeURIComponent(source[1]), url.searchParams)
-              .catch(() => ws.close(1013, "Execution source updates unavailable"));
-          } catch { ws.close(1008, "Invalid execution source"); }
+            void connectAgentSourceEvents(
+              ws,
+              decodeURIComponent(source[1]),
+              url.searchParams,
+            ).catch(() =>
+              ws.close(1013, "Execution source updates unavailable"),
+            );
+          } catch {
+            ws.close(1008, "Invalid execution source");
+          }
         }
         const cursor = Number(url.searchParams.get("cursor"));
         const events = Number.isSafeInteger(cursor)
@@ -354,7 +376,9 @@ export class Host {
     return this.validHost(req) && req.headers.origin === this.origin;
   }
   private get cookieName() {
-    const name = this.origin.startsWith("https:") ? "__Host-loop" : "loop_local";
+    const name = this.origin.startsWith("https:")
+      ? "__Host-loop"
+      : "loop_local";
     // Cookies ignore ports. Preview identities stay distinct across local hosts and rebuilds.
     return this.workspace?.isolated
       ? `${name}_${hash(resolve(this.dir)).slice(0, 24)}`
@@ -412,17 +436,33 @@ export class Host {
       // Select bearer authentication before cookies or URL normalization. This
       // exception can only forward the three implemented card read routes.
       if (this.workspace && req.headers.authorization !== undefined) {
-        if (!cardReadRoute(req.method, req.url) || !this.workspace.authorizeCards ||
-            req.headers["x-http-method-override"] !== undefined || req.headers["x-method-override"] !== undefined)
-          return this.json(res, 403, { error: "Card credentials permit card reads only." });
-        if ((req.headers.origin && !this.validOrigin(req)) || req.headers["sec-fetch-site"] === "cross-site")
+        if (
+          !cardReadRoute(req.method, req.url) ||
+          !this.workspace.authorizeCards ||
+          req.headers["x-http-method-override"] !== undefined ||
+          req.headers["x-method-override"] !== undefined
+        )
+          return this.json(res, 403, {
+            error: "Card credentials permit card reads only.",
+          });
+        if (
+          (req.headers.origin && !this.validOrigin(req)) ||
+          req.headers["sec-fetch-site"] === "cross-site"
+        )
           return this.json(res, 403, { error: "Origin rejected." });
         try {
-          (req as IncomingMessage & { [cardAuthorization]?: CardAuthorization })[cardAuthorization] = this.workspace.authorizeCards(req);
+          (
+            req as IncomingMessage & { [cardAuthorization]?: CardAuthorization }
+          )[cardAuthorization] = this.workspace.authorizeCards(req);
         } catch (error) {
           const status = error instanceof Problem ? error.status : 500;
           if (status === 429) res.setHeader("Retry-After", "60");
-          return this.json(res, status, { error: error instanceof Problem ? error.message : "Card authorization unavailable." });
+          return this.json(res, status, {
+            error:
+              error instanceof Problem
+                ? error.message
+                : "Card authorization unavailable.",
+          });
         }
         this.workspace.http(req, res);
         return;
@@ -507,7 +547,11 @@ export class Host {
         }
         if (this.workspace.isolated) {
           if (
-            ["/api/linked-workspaces", "/api/agent-sources", "/api/mcp-sharing"].includes(path) &&
+            [
+              "/api/linked-workspaces",
+              "/api/agent-sources",
+              "/api/mcp-sharing",
+            ].includes(path) &&
             req.method === "GET"
           )
             return this.json(res, 200, []);
@@ -522,7 +566,11 @@ export class Host {
         }
         if (path === "/api/linked-workspaces" && req.method === "GET") {
           const workspaces = await linkedDockerWorkspaces();
-          return this.json(res, 200, workspaces.map(({ id, name }) => ({ id, name })));
+          return this.json(
+            res,
+            200,
+            workspaces.map(({ id, name }) => ({ id, name })),
+          );
         }
         if (path === "/api/agent-sources" && req.method === "GET")
           return this.json(res, 200, await agentSources());
@@ -550,7 +598,12 @@ export class Host {
           const match = /^\/api\/agent-sources\/([^/]+)\/(.+)$/.exec(path);
           if (!match) return this.json(res, 404, { error: "Not found" });
           const query = new URL(req.url!, this.origin).search;
-          await proxyAgentSource(req, res, decodeURIComponent(match[1]), match[2] + query);
+          await proxyAgentSource(
+            req,
+            res,
+            decodeURIComponent(match[1]),
+            match[2] + query,
+          );
           return;
         }
         if (path.startsWith("/api/linked/")) {

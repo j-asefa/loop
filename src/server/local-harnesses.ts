@@ -54,27 +54,37 @@ export async function prepareLocalHarnesses(
         if (connection) throw new Error("Saved harness unavailable");
         continue;
       }
-      await executionRequest("runtime.register", { options:
-        saved
+      await executionRequest("runtime.register", {
+        options: saved
           ? { ...saved, executable: probe.executable, version: probe.version }
           : {
               harness: name,
               executable: probe.executable,
               version: probe.version,
               project,
-              billing:
-                ["opencode", "pi", "gemini", "muse", "grok", "acp"].includes(name)
-                  ? "existing"
-                  : "subscription",
+              billing: [
+                "opencode",
+                "pi",
+                "gemini",
+                "muse",
+                "grok",
+                "acp",
+              ].includes(name)
+                ? "existing"
+                : "subscription",
             },
       });
       enabled++;
     } catch {
       // Never print provider configuration, credentials or raw auth subprocess output.
       // Verification failure must not leave a stale account available for dispatch.
-      writeConnectionStatus("native-" + name, () => db.prepare(
-        "UPDATE connections SET status='needs_sign_in' WHERE id=? AND owner_id=? AND status<>'disconnected'",
-      ).run("native-" + name, OWNER));
+      writeConnectionStatus("native-" + name, () =>
+        db
+          .prepare(
+            "UPDATE connections SET status='needs_sign_in' WHERE id=? AND owner_id=? AND status<>'disconnected'",
+          )
+          .run("native-" + name, OWNER),
+      );
       console.log(
         `${name}: check installation and sign-in in Provider connections.`,
       );

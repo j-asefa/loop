@@ -124,23 +124,32 @@ try {
   await imported.getByRole("button", { name: "Save", exact: true }).click();
   // Saved results and messages share the Saved tab on your profile.
   await openTab(page, "Your profile");
-  await page.getByRole("region", { name: "Your profile", exact: true }).waitFor();
+  await page
+    .getByRole("region", { name: "Your profile", exact: true })
+    .waitFor();
   await page.getByRole("tab", { name: "Saved", exact: true }).click();
   await expect(imported).toBeVisible();
   await expect(
     imported.getByRole("button", { name: "Remove from Saved", exact: true }),
   ).toBeVisible();
   // The profile's counts go to what they count.
-  const yourProfile = page.getByRole("region", { name: "Your profile", exact: true });
+  const yourProfile = page.getByRole("region", {
+    name: "Your profile",
+    exact: true,
+  });
   await yourProfile.getByRole("button", { name: /Agents$/ }).click();
   const directory = page.getByRole("dialog", { name: "Your agents" });
   await expect(directory).toBeVisible();
   await closeSheets(page);
   await expect(yourProfile).toBeVisible();
   await yourProfile.getByRole("button", { name: /Messages$/ }).click();
-  await expect(page.getByRole("tab", { name: "Messages", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByRole("tab", { name: "Messages", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
   await yourProfile.getByRole("button", { name: /Projects$/ }).click();
-  await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Projects", exact: true }),
+  ).toBeVisible();
   await openTab(page, "Search");
   // The submit button is gone; Enter submits the search field.
   const searchField = page.getByRole("searchbox", {

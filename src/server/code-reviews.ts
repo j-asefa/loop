@@ -5,13 +5,16 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { db, id, now } from "./db.js";
-import { ownedFolder, ownedTeam, ownedAgent, ownedRun, Problem } from "./domain.js";
+import {
+  ownedFolder,
+  ownedTeam,
+  ownedAgent,
+  ownedRun,
+  Problem,
+} from "./domain.js";
 import { companionMode } from "./profile.js";
 import { submit } from "./agent-runtime.js";
-import {
-  captureSnapshot,
-  snapshotFingerprint,
-} from "./review-snapshot.js";
+import { captureSnapshot, snapshotFingerprint } from "./review-snapshot.js";
 import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
 
 import type { Run } from "./queue.js";
@@ -102,12 +105,17 @@ function ensureCodeReview(
   const team = ownedTeam(teamId, owner);
   if (team.deleted_at || team.preset_id !== "code-review")
     throw new Problem(409, "Choose a code review team");
-  const config = z.object({ assignments: z.array(z.object({ role: z.string(), agentId: z.string().min(1) })) }).parse(JSON.parse(team.preset_config || "null"));
+  const config = z
+    .object({
+      assignments: z.array(
+        z.object({ role: z.string(), agentId: z.string().min(1) }),
+      ),
+    })
+    .parse(JSON.parse(team.preset_config || "null"));
   const assignments = config.assignments;
   if (assignments.length !== 4 || assignments[0].agentId !== team.manager_id)
     throw new Problem(409, "Review team configuration is incomplete");
-  const requesterAgent =
-    requester && ownedRun(requester.runId, owner).agent_id;
+  const requesterAgent = requester && ownedRun(requester.runId, owner).agent_id;
   for (const a of assignments) {
     if (a.agentId === requesterAgent)
       throw new Problem(409, "A reviewer cannot request its own team's review");
@@ -280,8 +288,9 @@ export function requestReview(
   // Async reviews preserve cancellation/provenance without blocking ordinary
   // delegation resumption or live steering. Also upgrades old pending receipts.
   if (!args.wait)
-    db.prepare("UPDATE delegations SET background=1 WHERE parent_run_id=? AND call_id=?")
-      .run(run.id, callId + ":review");
+    db.prepare(
+      "UPDATE delegations SET background=1 WHERE parent_run_id=? AND call_id=?",
+    ).run(run.id, callId + ":review");
   // Waiting calls poll frequently. Keep captured repository contents out of
   // this path: snapshots can be many megabytes and never change while waiting.
   const progress = db

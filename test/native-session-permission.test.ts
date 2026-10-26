@@ -16,7 +16,9 @@ gitProject(dir);
 process.env.LOOP_TEST_HARNESS = "claude";
 process.env.LOOP_TEST_ARGV = join(dir, "argv.jsonl");
 const { db } = await import("../src/server/db");
-db.prepare("INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)").run();
+db.prepare(
+  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)",
+).run();
 const { enqueue } = await import("../src/server/queue");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
 const executable = resolve("test/harness.mjs");
@@ -44,9 +46,13 @@ function run(name: string, permissionMode = "default") {
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Test',0)",
   ).run(name, OWNER);
   return enqueue(OWNER, "Fixture only", name, {
-    conversation: name, agent: "worktree-fixture",
+    conversation: name,
+    agent: "worktree-fixture",
     payload: {
-      agentId: "worktree-fixture", name: "Fixture", provider: "anthropic", folderId: null,
+      agentId: "worktree-fixture",
+      name: "Fixture",
+      provider: "anthropic",
+      folderId: null,
       connectionId: "native-claude",
       model: "native-default",
       instructions: "",
@@ -207,9 +213,13 @@ it("drops a session-chosen mode once the workspace level changes", async () => {
   // Same workspace level: the session's own choice still wins on resume.
   const kept = await sessions.session(
     enqueue(OWNER, "Fixture only", "superseded-same", {
-      conversation: "superseded", agent: "worktree-fixture",
+      conversation: "superseded",
+      agent: "worktree-fixture",
       payload: {
-        agentId: "worktree-fixture", name: "Fixture", provider: "anthropic", folderId: null,
+        agentId: "worktree-fixture",
+        name: "Fixture",
+        provider: "anthropic",
+        folderId: null,
         connectionId: "native-claude",
         model: "native-default",
         instructions: "",
@@ -222,9 +232,13 @@ it("drops a session-chosen mode once the workspace level changes", async () => {
   // The workspace level was tightened later: that newer decision wins.
   const next = await sessions.session(
     enqueue(OWNER, "Fixture only", "superseded-next", {
-      conversation: "superseded", agent: "worktree-fixture",
+      conversation: "superseded",
+      agent: "worktree-fixture",
       payload: {
-        agentId: "worktree-fixture", name: "Fixture", provider: "anthropic", folderId: null,
+        agentId: "worktree-fixture",
+        name: "Fixture",
+        provider: "anthropic",
+        folderId: null,
         connectionId: "native-claude",
         model: "native-default",
         instructions: "",
@@ -298,9 +312,13 @@ it("isolates agents while reusing their dirty worktrees across conversations and
   const checkout = first.binding.project;
   try {
     expect(checkout).not.toBe(dir);
-    expect(readFileSync(join(checkout, "tracked.txt"), "utf8")).toBe("committed");
+    expect(readFileSync(join(checkout, "tracked.txt"), "utf8")).toBe(
+      "committed",
+    );
     writeFileSync(join(checkout, "tracked.txt"), "agent edit");
-  } finally { await sessions.dispose(first); }
+  } finally {
+    await sessions.dispose(first);
+  }
   const restarted = new NativeSessions();
   const resumed = await restarted.session(task);
   expect(resumed.binding.project).toBe(checkout);
@@ -308,29 +326,54 @@ it("isolates agents while reusing their dirty worktrees across conversations and
   const next = await sessions.session(run("worktree-next"));
   try {
     expect(next.binding.project).toBe(checkout);
-    expect(readFileSync(join(checkout, "tracked.txt"), "utf8")).toBe("agent edit");
-  } finally { await sessions.dispose(next); }
-  db.prepare("INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('other-agent',?,'Other','other','codex','fixture',0)").run(OWNER);
+    expect(readFileSync(join(checkout, "tracked.txt"), "utf8")).toBe(
+      "agent edit",
+    );
+  } finally {
+    await sessions.dispose(next);
+  }
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('other-agent',?,'Other','other','codex','fixture',0)",
+  ).run(OWNER);
   const otherTask = run("worktree-other");
   otherTask.agent_id = "other-agent";
-  db.prepare("UPDATE runs SET agent_id=? WHERE id=?").run(otherTask.agent_id, otherTask.id);
+  db.prepare("UPDATE runs SET agent_id=? WHERE id=?").run(
+    otherTask.agent_id,
+    otherTask.id,
+  );
   const other = await sessions.session(otherTask);
   try {
     expect(other.binding.project).not.toBe(checkout);
-    expect(readFileSync(join(other.binding.project, "tracked.txt"), "utf8")).toBe("committed");
+    expect(
+      readFileSync(join(other.binding.project, "tracked.txt"), "utf8"),
+    ).toBe("committed");
     expect(readFileSync(join(dir, "tracked.txt"), "utf8")).toBe("shared edit");
-  } finally { await sessions.dispose(other); }
+  } finally {
+    await sessions.dispose(other);
+  }
   renameSync(checkout, checkout + "-saved");
   try {
     await expect(sessions.session(task)).rejects.toThrow(/worktree is missing/);
-    await expect(sessions.session(run("worktree-missing"))).rejects.toThrow(/worktree is missing/);
-  } finally { renameSync(checkout + "-saved", checkout); }
+    await expect(sessions.session(run("worktree-missing"))).rejects.toThrow(
+      /worktree is missing/,
+    );
+  } finally {
+    renameSync(checkout + "-saved", checkout);
+  }
 });
 
 it("preserves old native sessions instead of resuming them in a different checkout", async () => {
   const sessions = new NativeSessions();
   const task = run("worktree-legacy");
-  db.prepare("INSERT INTO companion_sessions(conversation_id,harness,project,native_id,instructions,updated_at) VALUES(?,'claude',?,'old-native-session','',0)").run(task.conversation_id, dir);
+  db.prepare(
+    "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,instructions,updated_at) VALUES(?,'claude',?,'old-native-session','',0)",
+  ).run(task.conversation_id, dir);
   await expect(sessions.session(task)).rejects.toThrow(/new conversation/);
-  expect(db.prepare("SELECT project,native_id FROM companion_sessions WHERE conversation_id=?").get(task.conversation_id)).toEqual({project:dir,native_id:'old-native-session'});
+  expect(
+    db
+      .prepare(
+        "SELECT project,native_id FROM companion_sessions WHERE conversation_id=?",
+      )
+      .get(task.conversation_id),
+  ).toEqual({ project: dir, native_id: "old-native-session" });
 });

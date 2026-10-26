@@ -1,4 +1,8 @@
-export type ResultsPage<T> = { items: T[]; next: number | null; revision: number };
+export type ResultsPage<T> = {
+  items: T[];
+  next: number | null;
+  revision: number;
+};
 export type ResultsUpdates<T> = {
   items: T[];
   removed: string[];
@@ -36,7 +40,10 @@ export class ResultsPager<T extends Card> {
     key: string,
     append: boolean,
     fetchPage: (before: number | null) => Promise<ResultsPage<T>>,
-    fetchUpdates: (after: number, through: number) => Promise<ResultsUpdates<T>>,
+    fetchUpdates: (
+      after: number,
+      through: number,
+    ) => Promise<ResultsUpdates<T>>,
     recovery = false,
   ): Promise<ResultsPage<T> | null> {
     if (this.key !== key) {
@@ -81,15 +88,21 @@ export class ResultsPager<T extends Card> {
         for (let page = 0; ; page++) {
           const changes = await fetchUpdates(revision, window.through);
           if (this.window !== window) return null;
-          changed ||= changes.items.length > 0 || changes.removed.some((id) => items.has(id));
+          changed ||=
+            changes.items.length > 0 ||
+            changes.removed.some((id) => items.has(id));
           for (const id of changes.removed) items.delete(id);
           for (const item of changes.items) items.set(item.id, item);
-          if (changes.more && changes.revision <= revision) throw new Error("Results updates did not advance");
+          if (changes.more && changes.revision <= revision)
+            throw new Error("Results updates did not advance");
           revision = changes.revision;
           if (!changes.more) break;
           if (page >= 99) {
             this.window = empty<T>();
-            if (recovery) throw new Error("Results changed too quickly. Refresh to load the latest view.");
+            if (recovery)
+              throw new Error(
+                "Results changed too quickly. Refresh to load the latest view.",
+              );
             return this.load(key, false, fetchPage, fetchUpdates, true);
           }
         }

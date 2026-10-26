@@ -55,7 +55,11 @@ export function AgentMessages({
     const cancel = () => request.abort();
     // Stop reads before WebKit tears down a document during navigation.
     window.addEventListener("pagehide", cancel);
-    void route(workspaceApi.agentMessages, { params: { id: agentId } }, request.signal)
+    void route(
+      workspaceApi.agentMessages,
+      { params: { id: agentId } },
+      request.signal,
+    )
       .then((page) => {
         if (active) {
           merge(page, true);
@@ -78,7 +82,10 @@ export function AgentMessages({
     if (!next || moreBusy) return;
     setMoreBusy(true);
     try {
-      const page = await route(workspaceApi.agentMessages, { params: { id: agentId }, query: { before: next } });
+      const page = await route(workspaceApi.agentMessages, {
+        params: { id: agentId },
+        query: { before: next },
+      });
       merge(page);
       setError("");
     } catch (e) {

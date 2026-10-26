@@ -439,7 +439,7 @@ function catalogFeed(id: string) {
 // One row per feed an owner follows, of either kind: from the catalog, or
 // added by address.
 const FOLLOWED = `SELECT owner_id,feed_id,read_through_at FROM feed_subscriptions
- WHERE feed_id IN (${[...feedById.keys()].map(id => "'" + id.replaceAll("'", "''") + "'").join(",")})
+ WHERE feed_id IN (${[...feedById.keys()].map((id) => "'" + id.replaceAll("'", "''") + "'").join(",")})
  UNION ALL SELECT owner_id,id,read_through_at FROM feed_sources`;
 
 /** Which of a feed's stories this owner has read, for the list it is building. */
@@ -481,11 +481,14 @@ function dismissals(owner: string) {
   const gone = new Set(
     (
       db
-        .prepare("SELECT feed_id,story_id FROM feed_dismissals WHERE owner_id=?")
+        .prepare(
+          "SELECT feed_id,story_id FROM feed_dismissals WHERE owner_id=?",
+        )
         .all(owner) as { feed_id: string; story_id: string }[]
     ).map((row) => `${row.feed_id}:${row.story_id}`),
   );
-  return (feed: string, story: { id: string }) => gone.has(`${feed}:${story.id}`);
+  return (feed: string, story: { id: string }) =>
+    gone.has(`${feed}:${story.id}`);
 }
 
 /** Unread stories across the feeds you added, as the Social chip's count. */
@@ -501,7 +504,11 @@ export function unreadCount(owner: string, cap = 99) {
         dismissed.add(sameStoryUrl(story.url));
         continue;
       }
-      if (wasRead(feed.id, story) || hiding.some(terms => matchesWatch(terms, story))) continue;
+      if (
+        wasRead(feed.id, story) ||
+        hiding.some((terms) => matchesWatch(terms, story))
+      )
+        continue;
       unread.add(sameStoryUrl(story.url));
     }
   }

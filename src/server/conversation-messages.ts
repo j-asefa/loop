@@ -103,6 +103,9 @@ export function latestAgentMessage(owner: string, conversation: string) {
     | { id: string; position: number; phase: number; ordinal: number }
     | undefined;
   return entry
-    ? { id: entry.id, cursor: [entry.position, entry.phase, entry.ordinal] as Position }
+    ? {
+        id: entry.id,
+        cursor: [entry.position, entry.phase, entry.ordinal] as Position,
+      }
     : null;
 }

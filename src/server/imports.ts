@@ -57,7 +57,11 @@ function textParts(content: any): string {
 export function parseConversations(
   input: unknown,
 ): Omit<ParsedImport, "attachments"> {
-  const list = Array.isArray(input) ? input : (input && typeof input === "object" && "conversations" in input ? input.conversations : undefined);
+  const list = Array.isArray(input)
+    ? input
+    : input && typeof input === "object" && "conversations" in input
+      ? input.conversations
+      : undefined;
   if (!Array.isArray(list) || !list.length)
     throw new Problem(
       422,
@@ -394,22 +398,26 @@ export async function executeImport(run: Run) {
         )
           continue;
         const messageId = id();
-        db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)").run(
+        db.prepare(
+          "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        ).run(
           messageId,
           run.owner_id,
           conversation.id,
           null,
           m.role,
           m.content,
-          JSON.stringify(MessageMetadata.parse({
-            origin: "import",
-            provider: parsed.provider,
-            externalId: m.externalId,
-            parent: m.parent,
-            activeBranch: m.active,
-            importId,
-            raw: m.raw,
-          })),
+          JSON.stringify(
+            MessageMetadata.parse({
+              origin: "import",
+              provider: parsed.provider,
+              externalId: m.externalId,
+              parent: m.parent,
+              activeBranch: m.active,
+              importId,
+              raw: m.raw,
+            }),
+          ),
           m.timestamp || c.timestamp || now(),
         );
         db.prepare("INSERT INTO import_messages VALUES(?,?,?,?)").run(

@@ -10,13 +10,14 @@ import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 // reduced every record, so the client only replaces items by key: a full load
 // is the snapshot and `?after=<cursor>` returns records changed since then.
 // Refresh, reconnect and completed history therefore render the same records.
-export type ActivityPage = RouteResponse<typeof workspaceApi.conversationActivities>;
+export type ActivityPage = RouteResponse<
+  typeof workspaceApi.conversationActivities
+>;
 export type ActivityItem = ActivityPage["items"][number];
 
-export function mergeActivities<T extends Pick<ActivityItem, "key" | "sequence" | "legacy">>(
-  current: T[],
-  page: { items: T[] },
-) {
+export function mergeActivities<
+  T extends Pick<ActivityItem, "key" | "sequence" | "legacy">,
+>(current: T[], page: { items: T[] }) {
   const byKey = new Map(current.map((item) => [item.key, item]));
   for (const item of page.items) {
     const old = byKey.get(item.key);
@@ -32,9 +33,11 @@ export function mergeActivities<T extends Pick<ActivityItem, "key" | "sequence" 
 /** Suppress legacy traces once their durable broker record arrives, including across pages. */
 export function visibleActivities(items: ActivityItem[]) {
   const traces = new Set(
-    items
-      .flatMap((i) => !i.legacy && i.record.kind === "tool" && i.record.data.links?.trace
-        ? [`${i.run}\0${i.record.data.links.trace}`] : []),
+    items.flatMap((i) =>
+      !i.legacy && i.record.kind === "tool" && i.record.data.links?.trace
+        ? [`${i.run}\0${i.record.data.links.trace}`]
+        : [],
+    ),
   );
   return items.filter(
     (i): i is ActivityItem & { record: ActivityRecord } =>
@@ -46,9 +49,13 @@ export function visibleActivities(items: ActivityItem[]) {
 
 // Pair durable controls only with capabilities from the same producer generation.
 export function recordedSessionControls(items: ActivityItem[]) {
-  const settings = items.map(i => i.record).filter(record => record.kind === "settings").at(-1);
-  const capability = items.map(i => i.record)
-    .filter(record => record.kind === "capabilities")
+  const settings = items
+    .map((i) => i.record)
+    .filter((record) => record.kind === "settings")
+    .at(-1);
+  const capability = items
+    .map((i) => i.record)
+    .filter((record) => record.kind === "capabilities")
     .filter(
       (i) =>
         i.generation === settings?.generation &&
@@ -90,7 +97,11 @@ export function useConversationActivities(
     });
     if (!conversation) return;
     const current = new ActivityHistory(
-      (query) => read(workspaceApi.conversationActivities, { params: { id: conversation }, query }),
+      (query) =>
+        read(workspaceApi.conversationActivities, {
+          params: { id: conversation },
+          query,
+        }),
       (page) => setItems((old) => mergeActivities(old, page)),
       setHistory,
       tools,
@@ -99,7 +110,12 @@ export function useConversationActivities(
     const update = () => {
       void current.refresh();
     };
-    const stopChanges = listenWorkspaceChanges("activities", update, sourceId, conversation);
+    const stopChanges = listenWorkspaceChanges(
+      "activities",
+      update,
+      sourceId,
+      conversation,
+    );
     const stopFallback = surfaceFallback([sourceId], "workspace", 5000, update);
     update();
     return () => {

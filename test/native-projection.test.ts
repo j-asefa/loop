@@ -23,8 +23,13 @@ it("flushes dirty native items and completes after exceeding the display window"
   const queued = enqueue("owner", "test", "projection-test", {
     conversation: "conversation",
     payload: {
-      agentId: "agent", name: "Fixture", provider: "codex", connectionId: "connection",
-      model: "fixture", instructions: "", folderId: null,
+      agentId: "agent",
+      name: "Fixture",
+      provider: "codex",
+      connectionId: "connection",
+      model: "fixture",
+      instructions: "",
+      folderId: null,
     },
   });
   const run = claim("worker")!;
@@ -103,11 +108,23 @@ it("flushes dirty native items and completes after exceeding the display window"
     vi.useRealTimers();
     event({ id: "reclassified", kind: "assistant", text: "Interim display" });
     sessions.projectOutput(live, true);
-    const reclassified = db.prepare("SELECT id FROM messages WHERE update_key='native-message:reclassified'").get() as { id: string };
+    const reclassified = db
+      .prepare(
+        "SELECT id FROM messages WHERE update_key='native-message:reclassified'",
+      )
+      .get() as { id: string };
     event({ id: "reclassified", kind: "tool", text: "Actually tool output" });
     sessions.projectOutput(live, true);
-    expect(db.prepare("SELECT id FROM messages WHERE id=?").get(reclassified.id)).toBeUndefined();
-    expect(db.prepare("SELECT payload FROM events WHERE type='message.remove' AND json_extract(payload,'$.messageId')=?").get(reclassified.id)).toBeDefined();
+    expect(
+      db.prepare("SELECT id FROM messages WHERE id=?").get(reclassified.id),
+    ).toBeUndefined();
+    expect(
+      db
+        .prepare(
+          "SELECT payload FROM events WHERE type='message.remove' AND json_extract(payload,'$.messageId')=?",
+        )
+        .get(reclassified.id),
+    ).toBeDefined();
     event({ id: "one", kind: "assistant", text: "first" });
     sessions.projectOutput(live, false);
     expect(db.prepare("SELECT * FROM item_writes").all()).toEqual([
@@ -297,8 +314,13 @@ it("drops item events from a superseded session generation", () => {
   const queued = enqueue("owner", "test", "superseded-test", {
     conversation: "superseded",
     payload: {
-      agentId: "agent", name: "Fixture", provider: "codex", connectionId: "connection",
-      model: "fixture", instructions: "", folderId: null,
+      agentId: "agent",
+      name: "Fixture",
+      provider: "codex",
+      connectionId: "connection",
+      model: "fixture",
+      instructions: "",
+      folderId: null,
     },
   });
   const run = claim("worker")!;

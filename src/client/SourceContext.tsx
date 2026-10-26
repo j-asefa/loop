@@ -1,5 +1,11 @@
 import type { LegacyClientPath } from "./legacy-paths";
-import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { apiInWorkspace, readInWorkspace, type api } from "./api";
 import { capabilities as shellCapabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
@@ -49,46 +55,91 @@ export function useSourceApi() {
 export function useSourcePath() {
   const source = useSourceId();
   return useMemo(
-    () => <const P extends string,>(path: P) => sourceApiPathAt(path, source),
+    () =>
+      <const P extends string>(path: P) =>
+        sourceApiPathAt(path, source),
     [source],
   );
 }
 
 export function useSourceRead() {
   const source = useSourceId();
-  return useMemo(() => <T = any,>(path: LegacyClientPath, signal: AbortSignal, onRetry?: (error: unknown) => void) =>
-    readInWorkspace<T>(path, source, signal, onRetry), [source]);
+  return useMemo(
+    () =>
+      <T = any,>(
+        path: LegacyClientPath,
+        signal: AbortSignal,
+        onRetry?: (error: unknown) => void,
+      ) =>
+        readInWorkspace<T>(path, source, signal, onRetry),
+    [source],
+  );
 }
 
 export function useSourceRoute() {
   const source = useSourceId();
-  return useMemo(() => <C extends RouteContract,>(contract: C, input: RouteInput<C>, signal?: AbortSignal) =>
-    callRoute(contract, input, source, signal), [source]);
+  return useMemo(
+    () =>
+      <C extends RouteContract>(
+        contract: C,
+        input: RouteInput<C>,
+        signal?: AbortSignal,
+      ) =>
+        callRoute(contract, input, source, signal),
+    [source],
+  );
 }
 export function useSourceRouteRead() {
   const source = useSourceId();
-  return useMemo(() => <C extends RouteContract & { method: "GET" },>(contract: C, input: RouteInput<C>, signal: AbortSignal, onRetry?: (error: unknown) => void) =>
-    readRoute(contract, input, source, signal, onRetry), [source]);
+  return useMemo(
+    () =>
+      <C extends RouteContract & { method: "GET" }>(
+        contract: C,
+        input: RouteInput<C>,
+        signal: AbortSignal,
+        onRetry?: (error: unknown) => void,
+      ) =>
+        readRoute(contract, input, source, signal, onRetry),
+    [source],
+  );
 }
 
 /** Signal-driven snapshots must recover from Retry-After even if no later
  * change arrives. Cancellation belongs to this owner/source view lifetime. */
 function useProjectionScope(sourceId?: string) {
-  const contextSource = useSourceId(), source = sourceId ?? contextSource;
+  const contextSource = useSourceId(),
+    source = sourceId ?? contextSource;
   const generation = viewGeneration();
-  const handle = useMemo(() => ({ controller: new AbortController(), source }), [source, generation]);
+  const handle = useMemo(
+    () => ({ controller: new AbortController(), source }),
+    [source, generation],
+  );
   useEffect(() => {
-    if (handle.controller.signal.aborted) handle.controller = new AbortController();
+    if (handle.controller.signal.aborted)
+      handle.controller = new AbortController();
     return () => handle.controller.abort();
   }, [handle]);
   return handle;
 }
 export function useProjectionRead(sourceId?: string) {
   const handle = useProjectionScope(sourceId);
-  return useMemo(() => <T = any,>(path: LegacyClientPath, source = handle.source) => readInWorkspace<T>(path, source, handle.controller.signal), [handle]);
+  return useMemo(
+    () =>
+      <T = any,>(path: LegacyClientPath, source = handle.source) =>
+        readInWorkspace<T>(path, source, handle.controller.signal),
+    [handle],
+  );
 }
 export function useProjectionRoute(sourceId?: string) {
   const handle = useProjectionScope(sourceId);
-  return useMemo(() => <C extends RouteContract & { method: "GET" },>(contract: C, input: RouteInput<C>, source = handle.source) =>
-    readRoute(contract, input, source, handle.controller.signal), [handle]);
+  return useMemo(
+    () =>
+      <C extends RouteContract & { method: "GET" }>(
+        contract: C,
+        input: RouteInput<C>,
+        source = handle.source,
+      ) =>
+        readRoute(contract, input, source, handle.controller.signal),
+    [handle],
+  );
 }

@@ -1,5 +1,9 @@
 import Database from "better-sqlite3";
-import { closeSheets, openSettings, openChatOptions } from "./helpers/browser-ui.mjs";
+import {
+  closeSheets,
+  openSettings,
+  openChatOptions,
+} from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { mockViewportCoordinates } from "./helpers/mock-viewport.mjs";
 import { expect } from "@playwright/test";

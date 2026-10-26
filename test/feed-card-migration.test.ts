@@ -1,6 +1,12 @@
 import { expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { mkdtempSync, mkdirSync, copyFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  copyFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -23,8 +29,9 @@ it.each([null, 118, 123])(
             const migrationDir = join(dir, "migrations");
             mkdirSync(migrationDir);
             for (const file of readdirSync("migrations").filter(
-              f => f.endsWith(".sql") && Number(f.split("-")[0]) <= upgrade,
-            )) copyFileSync(join("migrations", file), join(migrationDir, file));
+              (f) => f.endsWith(".sql") && Number(f.split("-")[0]) <= upgrade,
+            ))
+              copyFileSync(join("migrations", file), join(migrationDir, file));
             applyMigrations(old, migrationDir);
             old
               .prepare("INSERT INTO deployment_profile VALUES(1,'server')")
@@ -72,7 +79,11 @@ it.each([null, 118, 123])(
         second = JSON.parse(results[1]);
       expect(first).toEqual(second);
       expect(first.dirty).toEqual({ n: 0 });
-      expect(first.versions.filter((v: {name:string}) => v.name === "feed-card-read-switch")).toHaveLength(1);
+      expect(
+        first.versions.filter(
+          (v: { name: string }) => v.name === "feed-card-read-switch",
+        ),
+      ).toHaveLength(1);
       expect(
         first.versions.filter((v: { version: number }) => v.version === 119),
       ).toHaveLength(1);

@@ -75,9 +75,7 @@ export async function feedbackJourney(page, api, base, dir) {
       .getByRole("button", { name: new RegExp(`^@${name} ·`) });
   const openProfile = async (name) => {
     await strip(name).click();
-    await page
-      .getByRole("heading", { name, exact: true })
-      .waitFor();
+    await page.getByRole("heading", { name, exact: true }).waitFor();
     await expect(page.locator(".profile-handle")).toHaveText("@" + name);
     await page.getByRole("tab", { name: "Results", exact: true }).click();
   };
@@ -216,7 +214,9 @@ export async function feedbackJourney(page, api, base, dir) {
             ? "Anchor marker\n\n```mermaid\nflowchart TD\nA[Plan] --> B[Build]\n```"
             : "Long conversation message " + i;
         fixture
-          .prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)")
+          .prepare(
+            "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
+          )
           .run(
             id,
             owner,

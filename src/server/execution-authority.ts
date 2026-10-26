@@ -1,5 +1,8 @@
 import { ExecutionRefused } from "./execution-refusal.js";
-import { assertExecutionGeneration, executionGeneration } from "./execution-ownership.js";
+import {
+  assertExecutionGeneration,
+  executionGeneration,
+} from "./execution-ownership.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { NativeToolBridge } from "./native-tool-bridge.js";
@@ -7,7 +10,13 @@ import { nativeSessions, OWNER } from "./native-sessions.js";
 import { nativeSignIns } from "./native-auth.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { db } from "./db.js";
-import { ownedConversation, ownedFolder, ownedAgent, ownedConnection, Problem } from "./domain.js";
+import {
+  ownedConversation,
+  ownedFolder,
+  ownedAgent,
+  ownedConnection,
+  Problem,
+} from "./domain.js";
 import { ExecutionProblem } from "../shared/problem.js";
 import { startWorker } from "./worker.js";
 import { nextTurnConnection, nextTurnFolder } from "./agent-runtime.js";
@@ -234,8 +243,7 @@ export class ExecutionAuthority {
       if ("agentId" in input) ownedAgent(input.agentId, OWNER);
       if ("conversationId" in input && input.conversationId)
         ownedConversation(input.conversationId, OWNER);
-      if ("connectionId" in input)
-        ownedConnection(input.connectionId, OWNER);
+      if ("connectionId" in input) ownedConnection(input.connectionId, OWNER);
       const run = async () => {
         entered = true;
         // The mapped handlers are checked against their individual inputs;

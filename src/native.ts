@@ -19,9 +19,19 @@ export class NativeRpcError extends Error {
 /** Facts created by Loop's transport, never a provider's raw error message. */
 export class NativeTransportError extends Error {
   constructor(
-    public code: "native_request_timeout" | "native_process_exit" | "native_spawn_failed" | "native_connection_closed",
+    public code:
+      | "native_request_timeout"
+      | "native_process_exit"
+      | "native_spawn_failed"
+      | "native_connection_closed",
     message: string,
-    public details: { method?: string; timeoutMs?: number; exitCode?: number | null; signal?: NodeJS.Signals | null; systemCode?: string } = {},
+    public details: {
+      method?: string;
+      timeoutMs?: number;
+      exitCode?: number | null;
+      signal?: NodeJS.Signals | null;
+      systemCode?: string;
+    } = {},
   ) {
     super(message);
     this.name = "NativeTransportError";
@@ -91,7 +101,11 @@ export class Native extends EventEmitter {
           frameBytes += Buffer.byteLength(segment);
         }
         if (frameBytes > maxFrameBytes) {
-          this.fail(new Error(`Native frame exceeds ${maxFrameBytes / 1024 / 1024} MiB.`));
+          this.fail(
+            new Error(
+              `Native frame exceeds ${maxFrameBytes / 1024 / 1024} MiB.`,
+            ),
+          );
           return;
         }
         if (index === segments.length - 1) break;
@@ -123,11 +137,15 @@ export class Native extends EventEmitter {
                 ? new NativeRpcError(
                     m.error.message || "Native command failed",
                     typeof m.error.code === "number" ? m.error.code : undefined,
-                    typeof m.error.data?.kind === "string" ? m.error.data.kind : undefined,
+                    typeof m.error.data?.kind === "string"
+                      ? m.error.data.kind
+                      : undefined,
                     p.method,
                   )
                 : new Error(
-                    typeof m.error === "string" ? m.error : "Native command failed",
+                    typeof m.error === "string"
+                      ? m.error
+                      : "Native command failed",
                   ),
             );
           else p.resolve(m.type === "response" ? m.data : m.result);
@@ -145,13 +163,31 @@ export class Native extends EventEmitter {
     });
     // Native stderr may contain credentials/transcripts: drain without persisting or forwarding.
     this.child.stderr.resume();
-    this.child.stdin.on("error", () => this.fail(new NativeTransportError("native_connection_closed", "Native connection closed before the request was confirmed.")));
-    this.child.on("error", (e: NodeJS.ErrnoException) => this.fail(new NativeTransportError(
-      "native_spawn_failed", "Native process could not start.",
-      { systemCode: e.code },
-    )));
+    this.child.stdin.on("error", () =>
+      this.fail(
+        new NativeTransportError(
+          "native_connection_closed",
+          "Native connection closed before the request was confirmed.",
+        ),
+      ),
+    );
+    this.child.on("error", (e: NodeJS.ErrnoException) =>
+      this.fail(
+        new NativeTransportError(
+          "native_spawn_failed",
+          "Native process could not start.",
+          { systemCode: e.code },
+        ),
+      ),
+    );
     this.child.on("exit", (code, signal) =>
-      this.fail(new NativeTransportError("native_process_exit", `Native process exited (${signal ?? code}).`, { exitCode: code, signal })),
+      this.fail(
+        new NativeTransportError(
+          "native_process_exit",
+          `Native process exited (${signal ?? code}).`,
+          { exitCode: code, signal },
+        ),
+      ),
     );
   }
   private fail(error: Error) {
@@ -167,13 +203,27 @@ export class Native extends EventEmitter {
   }
   write(message: unknown): Promise<void> {
     if (this.closed)
-      return Promise.reject(new NativeTransportError("native_connection_closed", "Native connection closed before the request was confirmed."));
+      return Promise.reject(
+        new NativeTransportError(
+          "native_connection_closed",
+          "Native connection closed before the request was confirmed.",
+        ),
+      );
     const line =
       JSON.stringify(
         this.jsonrpc ? { jsonrpc: "2.0", ...(message as object) } : message,
       ) + "\n";
     return new Promise((resolve, reject) =>
-      this.child.stdin.write(line, (e) => (e ? reject(new NativeTransportError("native_connection_closed", "Native connection closed before the request was confirmed.")) : resolve())),
+      this.child.stdin.write(line, (e) =>
+        e
+          ? reject(
+              new NativeTransportError(
+                "native_connection_closed",
+                "Native connection closed before the request was confirmed.",
+              ),
+            )
+          : resolve(),
+      ),
     );
   }
   request(method: string, params: unknown = {}, rpc = true): Promise<any> {
@@ -181,7 +231,13 @@ export class Native extends EventEmitter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new NativeTransportError("native_request_timeout", `Native ${method} timed out; outcome unknown.`, { method, timeoutMs: 30000 }));
+        reject(
+          new NativeTransportError(
+            "native_request_timeout",
+            `Native ${method} timed out; outcome unknown.`,
+            { method, timeoutMs: 30000 },
+          ),
+        );
       }, 30000);
       this.pending.set(id, { resolve, reject, timer, method });
       this.write(

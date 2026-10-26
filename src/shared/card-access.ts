@@ -1,6 +1,12 @@
 import { workspaceApi } from "./workspace-api.js";
 import type { CardGrant } from "./card-token-schemas.js";
-export { CardGrantSchema, CardTokenSchema, CreateCardTokenSchema, type CardGrant, type CardToken } from "./card-token-schemas.js";
+export {
+  CardGrantSchema,
+  CardTokenSchema,
+  CreateCardTokenSchema,
+  type CardGrant,
+  type CardToken,
+} from "./card-token-schemas.js";
 
 export type CardAuthorization = {
   owner: string;
@@ -15,10 +21,20 @@ const readContracts = [
   ["detail", workspaceApi.cardDetail],
 ] as const;
 const readPaths = readContracts.map(([kind, contract]) => ({
-  kind, contract,
-  pattern: new RegExp("^" + ("/api" + contract.path).split("/").map(segment =>
-    segment === ":id" ? "([^/]+)" : segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-  ).join("/") + "$"),
+  kind,
+  contract,
+  pattern: new RegExp(
+    "^" +
+      ("/api" + contract.path)
+        .split("/")
+        .map((segment) =>
+          segment === ":id"
+            ? "([^/]+)"
+            : segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        )
+        .join("/") +
+      "$",
+  ),
 }));
 
 /** Inspect the raw request target once. Never admit a normalized path while
@@ -29,13 +45,19 @@ export function cardReadRoute(
 ): { kind: "list" | "changes" } | { kind: "detail"; id: string } | null {
   const path = (target || "").split("?", 1)[0];
   for (const { kind, contract, pattern } of readPaths) {
-    if (method !== contract.method && !(method === "HEAD" && contract.method === "GET")) continue;
+    if (
+      method !== contract.method &&
+      !(method === "HEAD" && contract.method === "GET")
+    )
+      continue;
     const match = pattern.exec(path);
     if (!match) continue;
     if (kind !== "detail") return { kind };
     try {
       // Decode exactly once. The contract rejects encoded prefixes and separators.
-      const params = workspaceApi.cardDetail.params.safeParse({ id: decodeURIComponent(match[1]) });
+      const params = workspaceApi.cardDetail.params.safeParse({
+        id: decodeURIComponent(match[1]),
+      });
       return params.success ? { kind, id: params.data.id } : null;
     } catch {
       return null;

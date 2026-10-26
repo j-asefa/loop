@@ -1,6 +1,12 @@
 import { companionMode } from "./server/profile.js";
-import { executionClient, executionRequest } from "./server/execution-client.js";
-import { ExecutionProcess, type ExecutionLifecycle } from "./server/execution-process.js";
+import {
+  executionClient,
+  executionRequest,
+} from "./server/execution-client.js";
+import {
+  ExecutionProcess,
+  type ExecutionLifecycle,
+} from "./server/execution-process.js";
 import { Host } from "./host.js";
 import type { Options } from "./adapters/types.js";
 import { app } from "./server/index.js";
@@ -41,7 +47,11 @@ export class WorkspaceHost {
   listenOptions?: Parameters<Host["listen"]>[0];
   /** Launch facts owned by the CLI (connection, supervisor), merged into status. */
   statusExtras: () => object = () => ({});
-  constructor(dir: string, options: Options, private execution: ExecutionLifecycle = new ExecutionProcess()) {
+  constructor(
+    dir: string,
+    options: Options,
+    private execution: ExecutionLifecycle = new ExecutionProcess(),
+  ) {
     if (!companionMode)
       throw new Error(
         "WorkspaceHost requires LOOP_PROFILE=companion before loading the application",
@@ -68,11 +78,13 @@ export class WorkspaceHost {
         state: "ready",
         project: options.project,
         serverReady: true,
-        executionReady: executionClient.connected && !!db
-          .prepare(
-            "SELECT 1 FROM connections WHERE owner_id=? AND status='connected' AND json_extract(metadata,'$.loopHarness') IS NOT NULL",
-          )
-          .get(OWNER),
+        executionReady:
+          executionClient.connected &&
+          !!db
+            .prepare(
+              "SELECT 1 FROM connections WHERE owner_id=? AND status='connected' AND json_extract(metadata,'$.loopHarness') IS NOT NULL",
+            )
+            .get(OWNER),
         harnesses: nativeSessions.registrations(),
         activeRuns: designPreview
           ? { n: 0 }
@@ -90,7 +102,9 @@ export class WorkspaceHost {
         if (designPreview)
           throw new Error("Design previews do not enable native harnesses.");
         if (action === "/enable")
-          return executionRequest("runtime.register", { options: RegistrationOptions.parse(input) });
+          return executionRequest("runtime.register", {
+            options: RegistrationOptions.parse(input),
+          });
         throw new Error("Unknown workspace control command");
       },
       shareTools: (sourceId, action) =>
@@ -128,9 +142,8 @@ export class WorkspaceHost {
   ) {
     if (this.closing) throw new Error("Workspace is stopping");
     if (designPreview) {
-      const { seedDesignPreview, startDesignSimulation } = await import(
-        "./server/design-preview.js"
-      );
+      const { seedDesignPreview, startDesignSimulation } =
+        await import("./server/design-preview.js");
       seedDesignPreview();
       this.stopWorker = startDesignSimulation();
       await this.gateway.listen(this.listenOptions);
@@ -175,10 +188,16 @@ export class WorkspaceHost {
                 "Execution host ready. Choose and enable an installed runtime in the app; authentication is checked when enabling.",
             },
           })
-        : await executionRequest("runtime.register", { options: {
-            harness: options.harness, executable: options.executable, project: options.project,
-            version: options.version, billing: options.billing, args: options.args,
-          } }));
+        : await executionRequest("runtime.register", {
+            options: {
+              harness: options.harness,
+              executable: options.executable,
+              project: options.project,
+              version: options.version,
+              billing: options.billing,
+              args: options.args,
+            },
+          }));
     await beforeWorker?.();
     if (this.closing) throw new Error("Workspace is stopping");
     await this.execution.schedule();

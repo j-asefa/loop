@@ -26,16 +26,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it.each(["approval", "answer"] as const)("explains unavailable %s history on an older connected source", kind => {
-  const html = renderToStaticMarkup(
-    <SourceProvider sourceId="docker:older" capabilities={{ ...server, personalDecisions: undefined }}>
-      <PersonalDecisions kind={kind} onConversation={() => {}} />
-    </SourceProvider>,
-  );
-  expect(html).toContain("Decision history unavailable");
-  expect(html).toContain("Update Loop on that workspace");
-  expect(html).not.toContain("Loading history");
-});
+it.each(["approval", "answer"] as const)(
+  "explains unavailable %s history on an older connected source",
+  (kind) => {
+    const html = renderToStaticMarkup(
+      <SourceProvider
+        sourceId="docker:older"
+        capabilities={{ ...server, personalDecisions: undefined }}
+      >
+        <PersonalDecisions kind={kind} onConversation={() => {}} />
+      </SourceProvider>,
+    );
+    expect(html).toContain("Decision history unavailable");
+    expect(html).toContain("Update Loop on that workspace");
+    expect(html).not.toContain("Loading history");
+  },
+);
 
 it("binds conversation actions and file URLs to their source across later navigation", async () => {
   vi.stubGlobal("location", {
@@ -47,7 +53,12 @@ it("binds conversation actions and file URLs to their source across later naviga
   const fetch = vi.fn(async (_path: string, _init?: RequestInit) => ({
     ok: true,
     redirected: false,
-    json: async () => _path.includes("/native/decisions/") ? { state: "resolved" } : _path.includes("/connections/") ? { models: [] } : { ok: true },
+    json: async () =>
+      _path.includes("/native/decisions/")
+        ? { state: "resolved" }
+        : _path.includes("/connections/")
+          ? { models: [] }
+          : { ok: true },
   }));
   vi.stubGlobal("fetch", fetch);
   let typed!: ReturnType<typeof useSourceRoute>;
@@ -79,20 +90,30 @@ it("binds conversation actions and file URLs to their source across later naviga
     search: "?source=docker:beta",
     href: "https://loop.test/?source=docker:beta",
   });
-  await remoteTypedAction(workspaceApi.runAction, { params: { id: "same", action: "cancel" }, body: {} });
+  await remoteTypedAction(workspaceApi.runAction, {
+    params: { id: "same", action: "cancel" },
+    body: {},
+  });
   expect(fetch.mock.calls[0][0]).toBe(
     "/api/agent-sources/docker%3Aalpha/runs/same/cancel",
   );
-  await typed(workspaceApi.connectionRefresh, { params: { id: "same" }, body: { generation: 4, decision: "approve" } });
+  await typed(workspaceApi.connectionRefresh, {
+    params: { id: "same" },
+    body: { generation: 4, decision: "approve" },
+  });
   expect(fetch.mock.calls[1][0]).toBe(
     "/api/agent-sources/docker%3Abeta/connections/same/refresh",
   );
-  const input = { params: { id: "same" }, body: {
-    commandId: "f7719a2b-dea1-4c80-8c5f-de7c503cab12", answer: { choice: "allow" },
-  } };
+  const input = {
+    params: { id: "same" },
+    body: {
+      commandId: "f7719a2b-dea1-4c80-8c5f-de7c503cab12",
+      answer: { choice: "allow" },
+    },
+  };
   await remoteTypedAction(workspaceApi.nativeAnswer, input);
   await typed(workspaceApi.nativeAnswer, input);
-  expect(fetch.mock.calls.slice(2).map(call => call[0])).toEqual([
+  expect(fetch.mock.calls.slice(2).map((call) => call[0])).toEqual([
     "/api/agent-sources/docker%3Aalpha/native/decisions/same",
     "/api/agent-sources/docker%3Abeta/native/decisions/same",
   ]);
@@ -121,19 +142,30 @@ it("keeps thread file summaries download-free while retaining source-scoped prev
   const item = {
     id: "image-file",
     title: "Design",
-    metadata: JSON.stringify({ name: "design.png", mime: "image/png", size: 5_000_000 }),
+    metadata: JSON.stringify({
+      name: "design.png",
+      mime: "image/png",
+      size: 5_000_000,
+    }),
   };
-  const render = (previewImages?: boolean) => renderToStaticMarkup(
-    <SourceProvider sourceId="docker:alpha" capabilities={server}>
-      <PublishedFile item={item} preview={false} previewImages={previewImages} />
-    </SourceProvider>,
-  );
+  const render = (previewImages?: boolean) =>
+    renderToStaticMarkup(
+      <SourceProvider sourceId="docker:alpha" capabilities={server}>
+        <PublishedFile
+          item={item}
+          preview={false}
+          previewImages={previewImages}
+        />
+      </SourceProvider>,
+    );
   const summary = render(false);
   expect(summary).toContain('aria-label="Preview design.png"');
   expect(summary).toContain("4.8 MB");
   expect(summary).not.toContain("<img");
-  expect(summary).not.toContain('src=');
-  expect(render()).toContain('src="/api/agent-sources/docker%3Aalpha/artifacts/image-file/file?preview=1"');
+  expect(summary).not.toContain("src=");
+  expect(render()).toContain(
+    'src="/api/agent-sources/docker%3Aalpha/artifacts/image-file/file?preview=1"',
+  );
 });
 
 it("recognizes source-qualified files for sandboxed HTML previews", () => {
@@ -151,25 +183,41 @@ it("recognizes source-qualified files for sandboxed HTML previews", () => {
   ).toBeUndefined();
 });
 
-
-it.each(["", "docker:alpha"])("rebases a source-qualified Markdown file into its thread source %s", source => {
-  vi.stubGlobal("location", { href: "https://loop.test/", origin: "https://loop.test" });
-  const html = renderToStaticMarkup(
-    <SourceProvider sourceId={source} capabilities={server}>
-      <RichText content="[File](/api/agent-sources/docker%3Aother/objects/same)" />
-    </SourceProvider>,
-  );
-  expect(html).not.toContain("docker%3Aother");
-  expect(html).toContain(source ? '/api/agent-sources/docker%3Aalpha/objects/same' : 'href="/api/objects/same"');
-});
+it.each(["", "docker:alpha"])(
+  "rebases a source-qualified Markdown file into its thread source %s",
+  (source) => {
+    vi.stubGlobal("location", {
+      href: "https://loop.test/",
+      origin: "https://loop.test",
+    });
+    const html = renderToStaticMarkup(
+      <SourceProvider sourceId={source} capabilities={server}>
+        <RichText content="[File](/api/agent-sources/docker%3Aother/objects/same)" />
+      </SourceProvider>,
+    );
+    expect(html).not.toContain("docker%3Aother");
+    expect(html).toContain(
+      source
+        ? "/api/agent-sources/docker%3Aalpha/objects/same"
+        : 'href="/api/objects/same"',
+    );
+  },
+);
 
 it("restores the shell source on reload while keeping fresh thread links local", () => {
   vi.stubGlobal("location", { search: "?source=docker:alpha" });
-  const history = { state: null as any, replaceState(state: any) { this.state = state; } };
+  const history = {
+    state: null as any,
+    replaceState(state: any) {
+      this.state = state;
+    },
+  };
   vi.stubGlobal("history", history);
   initializeShellSource();
   expect(executionSourceId()).toBe("docker:alpha");
-  vi.stubGlobal("location", { search: "?source=docker:beta&conversation=thread" });
+  vi.stubGlobal("location", {
+    search: "?source=docker:beta&conversation=thread",
+  });
   initializeShellSource();
   expect(executionSourceId()).toBe("docker:alpha");
   history.state = null;

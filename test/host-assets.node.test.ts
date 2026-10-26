@@ -69,7 +69,8 @@ test("companion host serves replacement robots at current and legacy avatar URLs
       }
     }
     assert.equal(
-      (await fetch(host.origin + "/avatars/%2e%2e%2f%2e%2e%2fprivate.webp")).status,
+      (await fetch(host.origin + "/avatars/%2e%2e%2f%2e%2e%2fprivate.webp"))
+        .status,
       404,
       "The compatibility mapping must preserve the public-root boundary",
     );

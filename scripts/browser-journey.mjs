@@ -257,7 +257,10 @@ try {
   await page.addInitScript(() => {
     if (sessionStorage.getItem("loop-test-away-on-reload") === "1") {
       sessionStorage.removeItem("loop-test-away-on-reload");
-      localStorage.setItem("loop-last-visit", String(Date.now() - 2 * 3600_000));
+      localStorage.setItem(
+        "loop-last-visit",
+        String(Date.now() - 2 * 3600_000),
+      );
     }
   });
   await page.reload();

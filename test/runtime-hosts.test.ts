@@ -223,8 +223,16 @@ it("tests a remote machine, encrypts its token and keeps its provider login scop
   );
   expect(login.data.login.url).toContain("claude.ai");
   expect(requests.at(-1).provider).toBe("claude");
-  const savedMetadata = { ...ownedConnection(connection.data.id, "alice").metadata, historicalDisplayLabel: "Workstation", plan: "Old plan", limits: { old: true } };
-  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(JSON.stringify(savedMetadata), connection.data.id);
+  const savedMetadata = {
+    ...ownedConnection(connection.data.id, "alice").metadata,
+    historicalDisplayLabel: "Workstation",
+    plan: "Old plan",
+    limits: { old: true },
+  };
+  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
+    JSON.stringify(savedMetadata),
+    connection.data.id,
+  );
   const status = await api(
     "/subscriptions/" + connection.data.id + "/status",
     {},
@@ -232,17 +240,32 @@ it("tests a remote machine, encrypts its token and keeps its provider login scop
   expect(status.status).toBe(200);
   expect(status.data.authenticated).toBe(true);
   expect(ownedConnection(connection.data.id, "alice").metadata).toMatchObject({
-    historicalDisplayLabel: "Workstation", runtimeHostId: host.data.id, checkedAt: expect.any(Number),
+    historicalDisplayLabel: "Workstation",
+    runtimeHostId: host.data.id,
+    checkedAt: expect.any(Number),
   });
-  expect(ownedConnection(connection.data.id, "alice").metadata).not.toHaveProperty("plan");
-  expect(ownedConnection(connection.data.id, "alice").metadata).not.toHaveProperty("limits");
+  expect(
+    ownedConnection(connection.data.id, "alice").metadata,
+  ).not.toHaveProperty("plan");
+  expect(
+    ownedConnection(connection.data.id, "alice").metadata,
+  ).not.toHaveProperty("limits");
   const beforeInvalid = requests.length;
-  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(JSON.stringify({ ...savedMetadata, loopHarness: false }), connection.data.id);
-  const refused = await api("/subscriptions/" + connection.data.id + "/status", {});
+  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
+    JSON.stringify({ ...savedMetadata, loopHarness: false }),
+    connection.data.id,
+  );
+  const refused = await api(
+    "/subscriptions/" + connection.data.id + "/status",
+    {},
+  );
   expect(refused.status).toBe(409);
   expect(refused.data.error).toContain(connection.data.id);
   expect(requests).toHaveLength(beforeInvalid);
-  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(JSON.stringify(savedMetadata), connection.data.id);
+  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
+    JSON.stringify(savedMetadata),
+    connection.data.id,
+  );
   expect(
     (
       await api(
@@ -257,24 +280,63 @@ it("tests a remote machine, encrypts its token and keeps its provider login scop
     (await api("/runtime-hosts/" + host.data.id, {}, "DELETE")).status,
   ).toBe(409);
 });
-it.each(["models", "timestamp", "secret", "display", "routing"])("disconnects a connection with damaged %s using only validated logout routing", async damage => {
-  const owner = id();
-  const host = await api("/runtime-hosts", { name: "Logout fixture", url: brokerUrl, token }, "POST", owner);
-  const connection = await api("/subscriptions", { provider: "claude", label: "Logout fixture", runtimeHostId: host.data.id }, "POST", owner);
-  expect(connection.status).toBe(201);
-  const key = connection.data.id;
-  const before = requests.length;
-  if (damage === "models") db.prepare("UPDATE connections SET models='[{\"id\":\"fixture\",\"name\":42}]' WHERE id=?").run(key);
-  if (damage === "timestamp") db.prepare("UPDATE connections SET created_at='invalid-time' WHERE id=?").run(key);
-  if (damage === "secret") db.prepare("UPDATE connections SET secret='invalid-envelope' WHERE id=?").run(key);
-  if (damage === "display" || damage === "routing") db.prepare("UPDATE connections SET metadata=json_set(metadata,?,json('false')) WHERE id=?").run(damage === "display" ? "$.checkedAt" : "$.runtimeHostId", key);
-  expect((await api(`/connections/${key}`, {}, "DELETE", "bob")).status).toBe(404);
-  expect(requests).toHaveLength(before);
-  expect((await api(`/connections/${key}`, {}, "DELETE", owner)).status).toBe(200);
-  expect(db.prepare("SELECT secret,status FROM connections WHERE id=?").get(key)).toEqual({ secret: "", status: "disconnected" });
-  expect(requests).toHaveLength(before + Number(damage !== "routing"));
-  if (damage !== "routing") expect(requests.at(-1)).toMatchObject({ action: "logout", provider: "claude" });
-});
+it.each(["models", "timestamp", "secret", "display", "routing"])(
+  "disconnects a connection with damaged %s using only validated logout routing",
+  async (damage) => {
+    const owner = id();
+    const host = await api(
+      "/runtime-hosts",
+      { name: "Logout fixture", url: brokerUrl, token },
+      "POST",
+      owner,
+    );
+    const connection = await api(
+      "/subscriptions",
+      {
+        provider: "claude",
+        label: "Logout fixture",
+        runtimeHostId: host.data.id,
+      },
+      "POST",
+      owner,
+    );
+    expect(connection.status).toBe(201);
+    const key = connection.data.id;
+    const before = requests.length;
+    if (damage === "models")
+      db.prepare(
+        'UPDATE connections SET models=\'[{"id":"fixture","name":42}]\' WHERE id=?',
+      ).run(key);
+    if (damage === "timestamp")
+      db.prepare(
+        "UPDATE connections SET created_at='invalid-time' WHERE id=?",
+      ).run(key);
+    if (damage === "secret")
+      db.prepare(
+        "UPDATE connections SET secret='invalid-envelope' WHERE id=?",
+      ).run(key);
+    if (damage === "display" || damage === "routing")
+      db.prepare(
+        "UPDATE connections SET metadata=json_set(metadata,?,json('false')) WHERE id=?",
+      ).run(damage === "display" ? "$.checkedAt" : "$.runtimeHostId", key);
+    expect((await api(`/connections/${key}`, {}, "DELETE", "bob")).status).toBe(
+      404,
+    );
+    expect(requests).toHaveLength(before);
+    expect((await api(`/connections/${key}`, {}, "DELETE", owner)).status).toBe(
+      200,
+    );
+    expect(
+      db.prepare("SELECT secret,status FROM connections WHERE id=?").get(key),
+    ).toEqual({ secret: "", status: "disconnected" });
+    expect(requests).toHaveLength(before + Number(damage !== "routing"));
+    if (damage !== "routing")
+      expect(requests.at(-1)).toMatchObject({
+        action: "logout",
+        provider: "claude",
+      });
+  },
+);
 it("rejects private runtime addresses without explicit administrator configuration", async () => {
   const result = await api("/runtime-hosts", {
     name: "Private",
@@ -334,10 +396,18 @@ it("pairs native hosts separately from isolated brokers and keeps their tools ou
     ).runtimeKind,
   ).toBe("native-host");
   await api(`/connections/${connection.data.id}`, {}, "DELETE");
-  db.prepare("UPDATE runtime_hosts SET secret='invalid-envelope' WHERE id=?").run(host!.data.id);
-  expect(() => runtimeEndpoint("alice", host!.data.id, "claude")).toThrow(host!.data.id);
-  expect((await api(`/runtime-hosts/${host!.data.id}`, {}, "DELETE", "bob")).status).toBe(404);
-  expect((await api(`/runtime-hosts/${host!.data.id}`, {}, "DELETE")).status).toBe(200);
+  db.prepare(
+    "UPDATE runtime_hosts SET secret='invalid-envelope' WHERE id=?",
+  ).run(host!.data.id);
+  expect(() => runtimeEndpoint("alice", host!.data.id, "claude")).toThrow(
+    host!.data.id,
+  );
+  expect(
+    (await api(`/runtime-hosts/${host!.data.id}`, {}, "DELETE", "bob")).status,
+  ).toBe(404);
+  expect(
+    (await api(`/runtime-hosts/${host!.data.id}`, {}, "DELETE")).status,
+  ).toBe(200);
 });
 it("clears signing_in after a failed login so retry starts a new flow", async () => {
   const host = id(),

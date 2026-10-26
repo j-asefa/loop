@@ -6,10 +6,22 @@ import { ownedConnection, Problem } from "../domain.js";
 
 import { type NativeCommand } from "../../adapters/types.js";
 import type { Snapshot } from "../agent-runtime.js";
-import { piInstructionSources, piPackageEntries, piProjectResources, piSettingsPath, piSavedTrust, settingsHash, updatePiPackageFilters, type PiPackageEntry } from "../pi-customization-files.js";
+import {
+  piInstructionSources,
+  piPackageEntries,
+  piProjectResources,
+  piSettingsPath,
+  piSavedTrust,
+  settingsHash,
+  updatePiPackageFilters,
+  type PiPackageEntry,
+} from "../pi-customization-files.js";
 import { expandPiPrompt, piPromptBody } from "../pi-prompt-preview.js";
 import { runPi } from "../pi-run.js";
-import { inspectPiPackage, previousPiPackageSource } from "../pi-package-inspect.js";
+import {
+  inspectPiPackage,
+  previousPiPackageSource,
+} from "../pi-package-inspect.js";
 import type { NativeProjects } from "./projects.js";
 import type { Live } from "./state.js";
 import { OWNER } from "./state.js";
@@ -22,8 +34,6 @@ type Context = {
   registration: NativeProjects["registration"];
   project: NativeProjects["project"];
 };
-
-
 
 export class PiCustomization {
   constructor(private readonly context: Context) {}
@@ -310,7 +320,10 @@ export class PiCustomization {
     const options = this.context.registration("pi");
     return {
       options,
-      project: this.context.project({ folderId: agent.folder_id } as Snapshot, options),
+      project: this.context.project(
+        { folderId: agent.folder_id } as Snapshot,
+        options,
+      ),
     };
   }
   piPackages(agent: any) {

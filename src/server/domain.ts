@@ -1,4 +1,7 @@
-import { AgentHandle as handle, AgentInput as agentInput } from "../shared/agent-contract-schemas.js";
+import {
+  AgentHandle as handle,
+  AgentInput as agentInput,
+} from "../shared/agent-contract-schemas.js";
 import { type Connection } from "./row-schemas.js";
 import * as rows from "./row-schemas.js";
 import { z } from "zod";
@@ -32,7 +35,10 @@ export function owned(table: string, recordId: string, owner: string): unknown {
   if (!record) throw new Problem(404, "Item not found");
   return record;
 }
-export { AgentHandle as handle, AgentInput as agentInput } from "../shared/agent-contract-schemas.js";
+export {
+  AgentHandle as handle,
+  AgentInput as agentInput,
+} from "../shared/agent-contract-schemas.js";
 export function createAgent(owner: string, value: unknown) {
   const data = agentInput.parse(value);
   if (data.folderId) owned("folders", data.folderId, owner);
@@ -116,17 +122,28 @@ export function ownedRun(recordId: string, owner: string) {
   return rows.parseRun(owned("runs", recordId, owner));
 }
 export function ownedRunNotice(recordId: string, owner: string) {
-  return rows.parseRecord(rows.RunNotice, owned("runs", recordId, owner), "runs");
+  return rows.parseRecord(
+    rows.RunNotice,
+    owned("runs", recordId, owner),
+    "runs",
+  );
 }
 export function ownedRunControl(recordId: string, owner: string) {
-  const record = db.prepare("SELECT id,owner_id,state,worker_id,attention_dismissed_at FROM runs WHERE id=? AND owner_id=?")
+  const record = db
+    .prepare(
+      "SELECT id,owner_id,state,worker_id,attention_dismissed_at FROM runs WHERE id=? AND owner_id=?",
+    )
     .get(recordId, owner);
   if (!record) throw new Problem(404, "Item not found");
   return rows.parseRecord(rows.RunControl, record, "runs");
 }
 
 export function ownedAgent(recordId: string, owner: string) {
-  return rows.parseRecord(rows.AgentRecord, owned("agents", recordId, owner), "agents");
+  return rows.parseRecord(
+    rows.AgentRecord,
+    owned("agents", recordId, owner),
+    "agents",
+  );
 }
 
 export function ownedConnection(recordId: string, owner: string) {
@@ -134,7 +151,11 @@ export function ownedConnection(recordId: string, owner: string) {
 }
 
 export function ownedConversation(recordId: string, owner: string) {
-  return rows.parseRecord(rows.ConversationRecord, owned("conversations", recordId, owner), "conversations");
+  return rows.parseRecord(
+    rows.ConversationRecord,
+    owned("conversations", recordId, owner),
+    "conversations",
+  );
 }
 
 export function ownedMessage(recordId: string, owner: string) {
@@ -146,19 +167,35 @@ export function ownedArtifact(recordId: string, owner: string) {
 }
 
 export function ownedObject(recordId: string, owner: string) {
-  return rows.parseRecord(rows.ObjectRecord, owned("objects", recordId, owner), "objects");
+  return rows.parseRecord(
+    rows.ObjectRecord,
+    owned("objects", recordId, owner),
+    "objects",
+  );
 }
 
 export function ownedFolder(recordId: string, owner: string) {
-  return rows.parseRecord(rows.FolderRecord, owned("folders", recordId, owner), "folders");
+  return rows.parseRecord(
+    rows.FolderRecord,
+    owned("folders", recordId, owner),
+    "folders",
+  );
 }
 
 export function ownedImport(recordId: string, owner: string) {
-  return rows.parseRecord(rows.ImportRecord, owned("imports", recordId, owner), "imports");
+  return rows.parseRecord(
+    rows.ImportRecord,
+    owned("imports", recordId, owner),
+    "imports",
+  );
 }
 
 export function ownedWorkflow(recordId: string, owner: string) {
-  return rows.parseRecord(rows.WorkflowRecord, owned("workflows", recordId, owner), "workflows");
+  return rows.parseRecord(
+    rows.WorkflowRecord,
+    owned("workflows", recordId, owner),
+    "workflows",
+  );
 }
 
 export function ownedMcpConnection(recordId: string, owner: string) {
@@ -166,15 +203,27 @@ export function ownedMcpConnection(recordId: string, owner: string) {
 }
 
 export function ownedApproval(recordId: string, owner: string) {
-  return rows.parseRecord(rows.ApprovalRecord, owned("approvals", recordId, owner), "approvals");
+  return rows.parseRecord(
+    rows.ApprovalRecord,
+    owned("approvals", recordId, owner),
+    "approvals",
+  );
 }
 
 export function ownedOperation(recordId: string, owner: string) {
-  return rows.parseRecord(rows.OperationRecord, owned("operations", recordId, owner), "operations");
+  return rows.parseRecord(
+    rows.OperationRecord,
+    owned("operations", recordId, owner),
+    "operations",
+  );
 }
 
 export function ownedTeam(recordId: string, owner: string) {
-  return rows.parseRecord(rows.TeamRecord, owned("teams", recordId, owner), "teams");
+  return rows.parseRecord(
+    rows.TeamRecord,
+    owned("teams", recordId, owner),
+    "teams",
+  );
 }
 
 export function ownedRuntimeHost(recordId: string, owner: string) {
@@ -182,5 +231,9 @@ export function ownedRuntimeHost(recordId: string, owner: string) {
 }
 
 export function ownedMemorySource(recordId: string, owner: string) {
-  return rows.parseRecord(rows.MemorySourceRecord, owned("memory_sources", recordId, owner), "memory_sources");
+  return rows.parseRecord(
+    rows.MemorySourceRecord,
+    owned("memory_sources", recordId, owner),
+    "memory_sources",
+  );
 }

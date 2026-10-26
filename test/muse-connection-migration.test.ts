@@ -53,7 +53,11 @@ it.each([false, true])(
       // The rebuild drops the table's triggers; the migration restores them.
       expect(triggers(db)).toEqual(beforeTriggers);
       const events = () =>
-        (db.prepare("SELECT count(*) n FROM events WHERE subject_id='muse'").get() as { n: number }).n;
+        (
+          db
+            .prepare("SELECT count(*) n FROM events WHERE subject_id='muse'")
+            .get() as { n: number }
+        ).n;
       db.exec(
         "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES('muse','owner','muse','Muse Code','','connected',1)",
       );

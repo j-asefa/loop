@@ -98,27 +98,40 @@ export function runtimeEndpoint(
     dispatcher: privateOrigin ? undefined : publicNetworkDispatcher,
   };
 }
-const routes = registrar("runtimeHosts", { middleware: [["/runtime-hosts", (req, res, next) => {
-  if (!companionMode) return next();
-  if (req.method === "GET" && req.path === "/") return next();
-  if (req.method === "GET")
-    return res.json(projectResponse(workspaceApi.runtimeHostList, [
-      { id: "local", name: "This computer", kind: "local", url: "" },
-    ]));
-  throw new Problem(
-    409,
-    "Remote runtime management requires the server profile.",
-  );
-}]] });
+const routes = registrar("runtimeHosts", {
+  middleware: [
+    [
+      "/runtime-hosts",
+      (req, res, next) => {
+        if (!companionMode) return next();
+        if (req.method === "GET" && req.path === "/") return next();
+        if (req.method === "GET")
+          return res.json(
+            projectResponse(workspaceApi.runtimeHostList, [
+              { id: "local", name: "This computer", kind: "local", url: "" },
+            ]),
+          );
+        throw new Problem(
+          409,
+          "Remote runtime management requires the server profile.",
+        );
+      },
+    ],
+  ],
+});
 export const runtimeHosts = routes.mount;
 
 routes.on(workspaceApi.runtimeHostList, (_req, res) =>
   res.json(
-    companionMode ? [{ id: "local", name: "This computer", kind: "local", url: "" }] : db
-      .prepare(
-        "SELECT id,name,url,kind FROM runtime_hosts WHERE owner_id=? ORDER BY created_at",
-      )
-      .all(res.locals.owner) as z.input<typeof workspaceApi.runtimeHostList.response>,
+    companionMode
+      ? [{ id: "local", name: "This computer", kind: "local", url: "" }]
+      : (db
+          .prepare(
+            "SELECT id,name,url,kind FROM runtime_hosts WHERE owner_id=? ORDER BY created_at",
+          )
+          .all(res.locals.owner) as z.input<
+          typeof workspaceApi.runtimeHostList.response
+        >),
   ),
 );
 routes.on(workspaceApi.runtimeHostCreate, async (req, res) => {

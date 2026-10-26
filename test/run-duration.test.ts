@@ -63,7 +63,10 @@ async function start(maxSeconds?: number, failure?: object) {
   expect(run.id).toBe(submitted.id);
   if (maxSeconds !== undefined) {
     run.payload = { ...run.payload, maxSeconds };
-    db.prepare("UPDATE runs SET payload=? WHERE id=?").run(JSON.stringify(run.payload), run.id);
+    db.prepare("UPDATE runs SET payload=? WHERE id=?").run(
+      JSON.stringify(run.payload),
+      run.id,
+    );
   }
   let finish!: () => void;
   let signal!: AbortSignal;
@@ -156,7 +159,9 @@ it("honors an explicit workflow time limit and reports the actual reason", async
 
 it("rejects a saved zero execution budget before contacting the broker", async () => {
   const running = await start(0);
-  expect(await running.result).toMatchObject({ error: { status: 409, message: expect.stringContaining(running.run.id) } });
+  expect(await running.result).toMatchObject({
+    error: { status: 409, message: expect.stringContaining(running.run.id) },
+  });
   expect(running.request).not.toHaveBeenCalled();
 });
 

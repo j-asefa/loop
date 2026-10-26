@@ -70,7 +70,10 @@ export function NativeConnections({
                     setBusy(true);
                     setError("");
                     try {
-                      await route(workspaceApi.connectionRefresh, { params: { id: c.id }, body: {} });
+                      await route(workspaceApi.connectionRefresh, {
+                        params: { id: c.id },
+                        body: {},
+                      });
                       await onChange();
                     } catch (e) {
                       setError((e as Error).message);
@@ -96,10 +99,15 @@ export function NativeConnections({
                 setError("");
                 try {
                   const provider = data.get("provider");
-                  if (provider !== "openai" && provider !== "anthropic") throw new Error("Select an API provider");
-                  await route(workspaceApi.connectionCreate, { body: {
-                    provider, label: String(data.get("label") || ""), secret: String(data.get("secret") || ""),
-                  } });
+                  if (provider !== "openai" && provider !== "anthropic")
+                    throw new Error("Select an API provider");
+                  await route(workspaceApi.connectionCreate, {
+                    body: {
+                      provider,
+                      label: String(data.get("label") || ""),
+                      secret: String(data.get("secret") || ""),
+                    },
+                  });
                   form.reset();
                   setApiForm(false);
                   await onChange();

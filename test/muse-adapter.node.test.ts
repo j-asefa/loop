@@ -37,14 +37,22 @@ function fixture(t: { after(fn: () => void): void }, state?: string) {
 
 test("uuidv7 produces version 7 ids that MSP accepts", () => {
   const id = uuidv7();
-  assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-  assert(Math.abs(parseInt(id.replace(/-/g, "").slice(0, 12), 16) - Date.now()) < 5000);
+  assert.match(
+    id,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  assert(
+    Math.abs(parseInt(id.replace(/-/g, "").slice(0, 12), 16) - Date.now()) <
+      5000,
+  );
 });
 
 test("Muse checks its account and models without a session or prompt", async (t) => {
   const requests = fixture(t, "accountLogin");
   const events: AdapterEvent[] = [];
-  const adapter = new Muse({ ...options, probeOnly: true }, (e) => events.push(e));
+  const adapter = new Muse({ ...options, probeOnly: true }, (e) =>
+    events.push(e),
+  );
   try {
     const billing = await adapter.start();
     assert.equal(billing.mode, "existing");
@@ -75,8 +83,14 @@ test("Muse refuses a signed-out account and subscription billing before any sess
   } finally {
     await signedOut.dispose();
   }
-  const subscription = new Muse({ ...options, billing: "subscription" }, () => {});
-  await assert.rejects(subscription.start(), /cannot verify subscription billing/);
+  const subscription = new Muse(
+    { ...options, billing: "subscription" },
+    () => {},
+  );
+  await assert.rejects(
+    subscription.start(),
+    /cannot verify subscription billing/,
+  );
   assert(!requests().some((r) => r.method === "session/start"));
 });
 
@@ -88,7 +102,10 @@ test("Muse streams a turn with instructions, workspace tools, model change and u
       ...options,
       model: "muse-spark-fixture",
       instructions: "Project instructions",
-      workspaceTools: { url: "http://127.0.0.1:1234/mcp", token: "private-fixture" },
+      workspaceTools: {
+        url: "http://127.0.0.1:1234/mcp",
+        token: "private-fixture",
+      },
     },
     (e) => events.push(e),
   );
@@ -98,12 +115,38 @@ test("Muse streams a turn with instructions, workspace tools, model change and u
     const meta = events.find((e) => e.type === "metadata");
     assert(meta?.type === "metadata");
     await adapter.prompt("hello");
-    await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
-    assert(events.some((e) => e.type === "delta" && e.text === "muse-spark-fixture: Project instructions\n\nhello"));
-    assert(events.some((e) => e.type === "item" && e.item.kind === "assistant" && e.item.phase === "final_answer"));
-    assert(events.some((e) => e.type === "usage" && e.usage.input_tokens === 7 && e.usage.output_tokens === 3));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "completed"),
+    );
+    assert(
+      events.some(
+        (e) =>
+          e.type === "delta" &&
+          e.text === "muse-spark-fixture: Project instructions\n\nhello",
+      ),
+    );
+    assert(
+      events.some(
+        (e) =>
+          e.type === "item" &&
+          e.item.kind === "assistant" &&
+          e.item.phase === "final_answer",
+      ),
+    );
+    assert(
+      events.some(
+        (e) =>
+          e.type === "usage" &&
+          e.usage.input_tokens === 7 &&
+          e.usage.output_tokens === 3,
+      ),
+    );
     // Reasoning deltas are not reply text.
-    assert(!events.some((e) => e.type === "delta" && e.text.includes("private reasoning")));
+    assert(
+      !events.some(
+        (e) => e.type === "delta" && e.text.includes("private reasoning"),
+      ),
+    );
     // Tool activity is only native traces, so structured features are not claimed.
     for (const feature of ["tools", "output", "diffs", "plans"] as const)
       assert.equal(adapter.activityCapabilities[feature].state, "unsupported");
@@ -119,17 +162,30 @@ test("Muse streams a turn with instructions, workspace tools, model change and u
     const revision = adapter.settings.revision;
     await adapter.setSetting("model", "muse-other-fixture", revision);
     await adapter.prompt("again");
-    await until(() => events.filter((e) => e.type === "status" && e.status === "completed").length === 2);
+    await until(
+      () =>
+        events.filter((e) => e.type === "status" && e.status === "completed")
+          .length === 2,
+    );
     // The session already holds the instructions; later prompts omit them.
-    assert(events.some((e) => e.type === "delta" && e.text === "muse-other-fixture: again"));
+    assert(
+      events.some(
+        (e) => e.type === "delta" && e.text === "muse-other-fixture: again",
+      ),
+    );
     assert.equal(
-      requests().filter((r) => r.method === "session/setModel")[0].params.model.modelId,
+      requests().filter((r) => r.method === "session/setModel")[0].params.model
+        .modelId,
       "muse-other-fixture",
     );
     await adapter.dispose();
     const resumedEvents: AdapterEvent[] = [];
     const resumed = new Muse(
-      { ...options, resume: meta.nativeSession, instructions: "Project instructions" },
+      {
+        ...options,
+        resume: meta.nativeSession,
+        instructions: "Project instructions",
+      },
       (e) => resumedEvents.push(e),
     );
     try {
@@ -139,8 +195,17 @@ test("Muse streams a turn with instructions, workspace tools, model change and u
       assert.equal(resume.params.excludeItems, true);
       // A resumed session with turns is not sent the instructions again.
       await resumed.prompt("after resume");
-      await until(() => resumedEvents.some((e) => e.type === "status" && e.status === "completed"));
-      assert(resumedEvents.some((e) => e.type === "delta" && e.text === "muse-spark-fixture: after resume"));
+      await until(() =>
+        resumedEvents.some(
+          (e) => e.type === "status" && e.status === "completed",
+        ),
+      );
+      assert(
+        resumedEvents.some(
+          (e) =>
+            e.type === "delta" && e.text === "muse-spark-fixture: after resume",
+        ),
+      );
     } finally {
       await resumed.dispose();
     }
@@ -162,15 +227,29 @@ test("Muse offers only this-call approval choices and decides the current requir
     assert.deepEqual(request.request.choices, ["allow", "deny"]);
     assert.equal(request.request.allow, "allow");
     assert.match(request.request.title, /shell command/);
-    await assert.rejects(adapter.answer(request.request.id, { choice: "c-session" }), /Unsupported/);
+    await assert.rejects(
+      adapter.answer(request.request.id, { choice: "c-session" }),
+      /Unsupported/,
+    );
     await adapter.answer(request.request.id, { choice: "allow" });
-    await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "completed"),
+    );
     const decide = requests().find((r) => r.method === "approval/decide");
     assert.equal(decide.params.choiceId, "c-once");
-    assert.deepEqual(decide.params.requirementId, { approvalId: "approval-1", sourceIndex: 0 });
+    assert.deepEqual(decide.params.requirementId, {
+      approvalId: "approval-1",
+      sourceIndex: 0,
+    });
     // The presentation request is answered with an empty receipt.
-    assert(requests().some((r) => r.id === "server-1" && JSON.stringify(r.result) === "{}"));
-    assert(events.some((e) => e.type === "resolved" && e.id === request.request.id));
+    assert(
+      requests().some(
+        (r) => r.id === "server-1" && JSON.stringify(r.result) === "{}",
+      ),
+    );
+    assert(
+      events.some((e) => e.type === "resolved" && e.id === request.request.id),
+    );
   } finally {
     await adapter.dispose();
   }
@@ -189,24 +268,50 @@ test("Muse relays structured questions, steers and cancels a running turn", asyn
     assert.equal(request.request.kind, "question");
     assert.deepEqual(request.request.questions?.[0].options, ["Red", "Blue"]);
     await adapter.answer(request.request.id, { color: ["Blue"] });
-    await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "completed"),
+    );
     assert.deepEqual(
       requests().find((r) => r.method === "userInput/answer").params.answers,
       [{ questionId: "color", selectedLabel: "Blue" }],
     );
     await adapter.prompt("this stays running");
-    await until(() => events.filter((e) => e.type === "status" && e.status === "running").length === 2);
+    await until(
+      () =>
+        events.filter((e) => e.type === "status" && e.status === "running")
+          .length === 2,
+    );
     // A follow-up during the turn steers it, naming the turn it expects.
     await adapter.steer!("also check tests");
-    await until(() => events.some((e) => e.type === "delta" && e.text === "steered: also check tests"));
+    await until(() =>
+      events.some(
+        (e) => e.type === "delta" && e.text === "steered: also check tests",
+      ),
+    );
     const steer = requests().find((r) => r.method === "turn/steer");
-    assert.equal(steer.params.expectedTurnId, requests().filter((r) => r.method === "turn/start")[1].params.commandId);
-    await until(() => events.filter((e) => e.type === "status" && e.status === "completed").length === 2);
-    await assert.rejects(adapter.steer!("too late"), /No active Muse Code turn/);
+    assert.equal(
+      steer.params.expectedTurnId,
+      requests().filter((r) => r.method === "turn/start")[1].params.commandId,
+    );
+    await until(
+      () =>
+        events.filter((e) => e.type === "status" && e.status === "completed")
+          .length === 2,
+    );
+    await assert.rejects(
+      adapter.steer!("too late"),
+      /No active Muse Code turn/,
+    );
     await adapter.prompt("this stays running");
-    await until(() => events.filter((e) => e.type === "status" && e.status === "running").length === 3);
+    await until(
+      () =>
+        events.filter((e) => e.type === "status" && e.status === "running")
+          .length === 3,
+    );
     await adapter.cancel();
-    await until(() => events.some((e) => e.type === "status" && e.status === "interrupted"));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "interrupted"),
+    );
   } finally {
     await adapter.dispose();
   }
@@ -234,9 +339,15 @@ test("Muse stops a turn whose approval offers no this-call choice", async (t) =>
   try {
     await adapter.start();
     await adapter.prompt("this needs approval, session-only");
-    await until(() => events.some((e) => e.type === "status" && e.status === "interrupted"));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "interrupted"),
+    );
     assert(!events.some((e) => e.type === "request"));
-    assert(events.some((e) => e.type === "error" && /grant in Muse itself/.test(e.message)));
+    assert(
+      events.some(
+        (e) => e.type === "error" && /grant in Muse itself/.test(e.message),
+      ),
+    );
     assert(requests().some((r) => r.method === "turn/interrupt"));
   } finally {
     await adapter.dispose();
@@ -259,11 +370,18 @@ test("Muse presents each stage of a multi-stage approval as its own decision", a
     assert(second.type === "request");
     assert.notEqual(second.request.id, first.request.id);
     assert.match(second.request.detail, /ls \| wc -l/);
-    await assert.rejects(adapter.answer(first.request.id, { choice: "allow" }), /Unsupported|expired/);
+    await assert.rejects(
+      adapter.answer(first.request.id, { choice: "allow" }),
+      /Unsupported|expired/,
+    );
     await adapter.answer(second.request.id, { choice: "allow" });
-    await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "completed"),
+    );
     assert.deepEqual(
-      requests().filter((r) => r.method === "approval/decide").map((r) => r.params.requirementId.sourceIndex),
+      requests()
+        .filter((r) => r.method === "approval/decide")
+        .map((r) => r.params.requirementId.sourceIndex),
       [0, 1],
     );
   } finally {
@@ -293,7 +411,9 @@ test("Muse reports a refused steer as undelivered and maps missing sessions to s
   try {
     await adapter.start();
     await adapter.prompt("this stays running");
-    await until(() => events.some((e) => e.type === "status" && e.status === "running"));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "running"),
+    );
     await assert.rejects(adapter.steer!("this is refused"), NotDelivered);
   } finally {
     await adapter.dispose();
@@ -302,7 +422,9 @@ test("Muse reports a refused steer as undelivered and maps missing sessions to s
   try {
     await assert.rejects(
       resumed.start(),
-      (error) => error instanceof NativeSetupError && error.code === "native_session_missing",
+      (error) =>
+        error instanceof NativeSetupError &&
+        error.code === "native_session_missing",
     );
   } finally {
     await resumed.dispose();
@@ -315,16 +437,31 @@ test("Muse runs without workspace tools when the host withholds session MCP", as
   t.after(() => delete process.env.LOOP_TEST_MUSE_NO_MCP);
   const events: AdapterEvent[] = [];
   const adapter = new Muse(
-    { ...options, workspaceTools: { url: "http://127.0.0.1:1234/mcp", token: "private-fixture" } },
+    {
+      ...options,
+      workspaceTools: {
+        url: "http://127.0.0.1:1234/mcp",
+        token: "private-fixture",
+      },
+    },
     (e) => events.push(e),
   );
   try {
     await adapter.start();
-    assert.equal(requests().find((r) => r.method === "session/start").params.config, undefined);
+    assert.equal(
+      requests().find((r) => r.method === "session/start").params.config,
+      undefined,
+    );
     // Held until a prompt, when the run that shows it is attached.
     assert(!events.some((e) => e.type === "error"));
     await adapter.prompt("hello");
-    assert(events.some((e) => e.type === "error" && /workspace tools are unavailable/.test(e.message)));
+    assert(
+      events.some(
+        (e) =>
+          e.type === "error" &&
+          /workspace tools are unavailable/.test(e.message),
+      ),
+    );
   } finally {
     await adapter.dispose();
   }
@@ -340,10 +477,15 @@ test("Muse keeps a refused decision answerable", async (t) => {
     await until(() => events.some((e) => e.type === "request"));
     const request = events.find((e) => e.type === "request");
     assert(request?.type === "request");
-    await assert.rejects(adapter.answer(request.request.id, { choice: "allow" }), NotDelivered);
+    await assert.rejects(
+      adapter.answer(request.request.id, { choice: "allow" }),
+      NotDelivered,
+    );
     assert(!events.some((e) => e.type === "resolved"));
     await adapter.answer(request.request.id, { choice: "allow" });
-    await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "completed"),
+    );
   } finally {
     await adapter.dispose();
   }
@@ -356,8 +498,14 @@ test("Muse declines a question prompt with no questions", async (t) => {
   try {
     await adapter.start();
     await adapter.prompt("empty input arrives");
-    await until(() => events.some((e) => e.type === "status" && e.status === "completed"));
-    assert.equal(requests().find((r) => r.method === "userInput/cancel").params.userInputId, "empty-1");
+    await until(() =>
+      events.some((e) => e.type === "status" && e.status === "completed"),
+    );
+    assert.equal(
+      requests().find((r) => r.method === "userInput/cancel").params
+        .userInputId,
+      "empty-1",
+    );
     assert(!events.some((e) => e.type === "request"));
   } finally {
     await adapter.dispose();
@@ -374,9 +522,15 @@ test("Muse keeps a native resolution when a racing decision is refused", async (
     await until(() => events.some((e) => e.type === "request"));
     const request = events.find((e) => e.type === "request");
     assert(request?.type === "request");
-    const refused = await adapter.answer(request.request.id, { choice: "allow" }).catch((e) => e);
+    const refused = await adapter
+      .answer(request.request.id, { choice: "allow" })
+      .catch((e) => e);
     assert(refused instanceof Error && !(refused instanceof NotDelivered));
-    assert.equal(events.filter((e) => e.type === "resolved" && e.id === request.request.id).length, 1);
+    assert.equal(
+      events.filter((e) => e.type === "resolved" && e.id === request.request.id)
+        .length,
+      1,
+    );
   } finally {
     await adapter.dispose();
   }
@@ -393,9 +547,14 @@ test("Muse retires a shown approval when its command changes", async (t) => {
     const [first, second] = events.filter((e) => e.type === "request");
     assert(first.type === "request" && second.type === "request");
     assert.notEqual(first.request.id, second.request.id);
-    assert(events.some((e) => e.type === "resolved" && e.id === first.request.id));
+    assert(
+      events.some((e) => e.type === "resolved" && e.id === first.request.id),
+    );
     assert.match(second.request.detail, /rm -rf build/);
-    await assert.rejects(adapter.answer(first.request.id, { choice: "allow" }), /expired/);
+    await assert.rejects(
+      adapter.answer(first.request.id, { choice: "allow" }),
+      /expired/,
+    );
   } finally {
     await adapter.dispose();
   }

@@ -49,10 +49,18 @@ export function saveThreadDraft(
   } catch {}
 }
 
-
 /** Settle the originating composer's draft, even after its view has changed. */
-export function clearAcceptedDraft(id: string, text: string, files: { id: string }[], owner?: string) {
+export function clearAcceptedDraft(
+  id: string,
+  text: string,
+  files: { id: string }[],
+  owner?: string,
+) {
   const saved = threadDraft(id, owner);
-  if (saved.text === text && JSON.stringify(saved.files.map(file => file.id)) === JSON.stringify(files.map(file => file.id)))
+  if (
+    saved.text === text &&
+    JSON.stringify(saved.files.map((file) => file.id)) ===
+      JSON.stringify(files.map((file) => file.id))
+  )
     saveThreadDraft(id, "", [], owner);
 }

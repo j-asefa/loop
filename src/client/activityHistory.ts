@@ -1,6 +1,8 @@
 import type { ActivityPage } from "./activityView";
 import type { RouteInput, workspaceApi } from "../shared/workspace-api";
-export type ActivityHistoryQuery = RouteInput<typeof workspaceApi.conversationActivities>["query"];
+export type ActivityHistoryQuery = RouteInput<
+  typeof workspaceApi.conversationActivities
+>["query"];
 
 export type ActivityHistoryState = {
   loading: boolean;
@@ -86,9 +88,10 @@ export class ActivityHistory {
     }
     this.refreshing = this.enqueue(async () => {
       if (!this.initialized) {
-        const page = await this.page(
-          { view: "recent", ...(this.tools ? {} : { tools: "0" }) },
-        );
+        const page = await this.page({
+          view: "recent",
+          ...(this.tools ? {} : { tools: "0" }),
+        });
         if (!page) return;
         this.supportsPaging = "earlier" in page;
         this.cursor = page.cursor;
@@ -100,9 +103,11 @@ export class ActivityHistory {
         // that contract until the server also supports recent snapshots.
         let current = page;
         while (current.more && !this.stopped) {
-          const next = await this.page(
-            { view: "updates", ...(this.tools ? {} : { tools: "0" }), after: String(this.cursor) },
-          );
+          const next = await this.page({
+            view: "updates",
+            ...(this.tools ? {} : { tools: "0" }),
+            after: String(this.cursor),
+          });
           if (!next) return;
           this.cursor = next.cursor;
           current = next;
@@ -111,9 +116,11 @@ export class ActivityHistory {
       } else {
         let page: ActivityPage | null;
         do {
-          page = await this.page(
-            { view: "updates", ...(this.tools ? {} : { tools: "0" }), after: String(this.cursor) },
-          );
+          page = await this.page({
+            view: "updates",
+            ...(this.tools ? {} : { tools: "0" }),
+            after: String(this.cursor),
+          });
           if (!page) return;
           this.cursor = page.cursor;
         } while (page.more && !this.stopped);
@@ -143,9 +150,11 @@ export class ActivityHistory {
       let after = 0;
       let page: ActivityPage | null;
       do {
-        page = await this.page(
-          { view: "files", runs: batch.join(","), after: String(after) },
-        );
+        page = await this.page({
+          view: "files",
+          runs: batch.join(","),
+          after: String(after),
+        });
         if (!page) return;
         after = page.cursor;
       } while (page.more && !this.stopped);
@@ -158,10 +167,16 @@ export class ActivityHistory {
     this.publish({ loadingEarlier: true });
     return this.enqueue(async () => {
       if (this.before !== null) {
-        const page = await this.page({ view: "recent", before: String(this.before) });
+        const page = await this.page({
+          view: "recent",
+          before: String(this.before),
+        });
         if (page) this.before = page.earlier ?? null;
       } else if (this.legacyBefore !== null) {
-        const page = await this.page({ view: "legacy", before: String(this.legacyBefore) });
+        const page = await this.page({
+          view: "legacy",
+          before: String(this.legacyBefore),
+        });
         if (page) this.legacyBefore = page.earlier ?? null;
       }
     }).finally(() => this.publish({ loadingEarlier: false }));

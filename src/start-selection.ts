@@ -12,7 +12,16 @@ export function selectedHarnesses(value = "installed"): Harness[] {
   if (
     !names.length ||
     names.some(
-      (n) => !["codex", "claude", "pi", "opencode", "gemini", "muse", "grok"].includes(n),
+      (n) =>
+        ![
+          "codex",
+          "claude",
+          "pi",
+          "opencode",
+          "gemini",
+          "muse",
+          "grok",
+        ].includes(n),
     )
   )
     throw new Error(

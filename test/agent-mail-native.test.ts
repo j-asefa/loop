@@ -234,7 +234,9 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
     expect(
       agentMessages(owner, api.id).threads[0].messages.map((m) => m.status),
     ).toEqual(["handled", "handled"]);
-    expect(db.prepare("SELECT count(*) n FROM teams WHERE owner_id=?").get(owner)).toEqual({ n: 0 });
+    expect(
+      db.prepare("SELECT count(*) n FROM teams WHERE owner_id=?").get(owner),
+    ).toEqual({ n: 0 });
     // The private bridge refuses a missing credential and cannot revive a finished run.
     const request = {
       method: "tools/call",
@@ -259,7 +261,11 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
         })
       ).status,
     ).toBe(409);
-    expect(db.prepare("SELECT count(*) n FROM agent_mail WHERE owner_id=?").get(owner)).toEqual({
+    expect(
+      db
+        .prepare("SELECT count(*) n FROM agent_mail WHERE owner_id=?")
+        .get(owner),
+    ).toEqual({
       n: 2,
     });
     const source = submit(owner, {
@@ -311,80 +317,208 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
   }
 }, 20000);
 
-
-it.each(["approval", "approval-fallback", "child", "child-fallback", "cancel", "cancel-fallback", "expiry", "concurrent-expiry"])(
-  "wakes a native bridge call on %s without replay", async (cause) => {
-    const owner = "local-workspace", connection = id();
-    db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Signal native','','connected',?,?,0)")
-      .run(connection, owner, JSON.stringify([{ id: "fixture" }]), JSON.stringify({ loopHarness: "codex" }));
-    const manager = createAgent(owner, { name: "signal-" + id().slice(0, 8), model: "fixture", connectionId: connection });
-    const childAgent = createAgent(owner, { name: "child-" + id().slice(0, 8), model: "fixture", connectionId: connection });
-    const team = createTeam(owner, { name: "Signal", managerId: manager.id, members: [childAgent.id] });
-    const submitted = submit(owner, { agentId: manager.id, teamId: team.id, conversationId: team.conversation_id!, input: "wait", idempotencyKey: id() });
-    const run = claim("bridge-signal", (candidate) => candidate.id === submitted.id)!;
-    const bus = cause.endsWith("fallback") ? vi.spyOn(changes, "subscribe").mockImplementation(() => () => {}) : undefined;
+it.each([
+  "approval",
+  "approval-fallback",
+  "child",
+  "child-fallback",
+  "cancel",
+  "cancel-fallback",
+  "expiry",
+  "concurrent-expiry",
+])(
+  "wakes a native bridge call on %s without replay",
+  async (cause) => {
+    const owner = "local-workspace",
+      connection = id();
+    db.prepare(
+      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Signal native','','connected',?,?,0)",
+    ).run(
+      connection,
+      owner,
+      JSON.stringify([{ id: "fixture" }]),
+      JSON.stringify({ loopHarness: "codex" }),
+    );
+    const manager = createAgent(owner, {
+      name: "signal-" + id().slice(0, 8),
+      model: "fixture",
+      connectionId: connection,
+    });
+    const childAgent = createAgent(owner, {
+      name: "child-" + id().slice(0, 8),
+      model: "fixture",
+      connectionId: connection,
+    });
+    const team = createTeam(owner, {
+      name: "Signal",
+      managerId: manager.id,
+      members: [childAgent.id],
+    });
+    const submitted = submit(owner, {
+      agentId: manager.id,
+      teamId: team.id,
+      conversationId: team.conversation_id!,
+      input: "wait",
+      idempotencyKey: id(),
+    });
+    const run = claim(
+      "bridge-signal",
+      (candidate) => candidate.id === submitted.id,
+    )!;
+    const bus = cause.endsWith("fallback")
+      ? vi.spyOn(changes, "subscribe").mockImplementation(() => () => {})
+      : undefined;
     const { core } = await import("../src/server/core-routes");
     const app = express();
-    app.use(express.json(), (_req, res, next) => { res.locals.owner = owner; next(); });
+    app.use(express.json(), (_req, res, next) => {
+      res.locals.owner = owner;
+      next();
+    });
     app.use(core);
     const server = app.listen(0, "127.0.0.1");
     await new Promise<void>((resolve) => server.once("listening", resolve));
     const { withTestMcp } = await import("../src/server/mcp/client");
-    const { setMcpApprovalMode } = await import("../src/server/mcp/approval-policy");
+    const { setMcpApprovalMode } =
+      await import("../src/server/mcp/approval-policy");
     const { decide } = await import("../src/server/approvals");
     setMcpApprovalMode(owner, "ask");
     const mcpId = id();
-    db.prepare("INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,tools,metadata,created_at) VALUES(?,?,'Signal MCP','https://fixture.example/mcp',?,'connected',?,'{}',0)")
-      .run(mcpId, owner, seal('{"type":"none"}', owner), JSON.stringify([{ name: "lookup", description: "Signal fixture", inputSchema: { type: "object" } }]));
+    db.prepare(
+      "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,tools,metadata,created_at) VALUES(?,?,'Signal MCP','https://fixture.example/mcp',?,'connected',?,'{}',0)",
+    ).run(
+      mcpId,
+      owner,
+      seal('{"type":"none"}', owner),
+      JSON.stringify([
+        {
+          name: "lookup",
+          description: "Signal fixture",
+          inputSchema: { type: "object" },
+        },
+      ]),
+    );
     let calls = 0;
-    const restore = withTestMcp(async () => ({
-      async callTool() { calls++; return { content: [{ type: "text", text: "approved result" }] }; },
-      async close() {},
-    }) as any);
+    const restore = withTestMcp(
+      async () =>
+        ({
+          async callTool() {
+            calls++;
+            return { content: [{ type: "text", text: "approved result" }] };
+          },
+          async close() {},
+        }) as any,
+    );
     const work = executeAgent(run);
     try {
-      await until(() => (db.prepare("SELECT state FROM native_dispatch WHERE run_id=?").get(run.id) as any)?.state === "accepted");
+      await until(
+        () =>
+          (
+            db
+              .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+              .get(run.id) as any
+          )?.state === "accepted",
+      );
       const endpoint = { ...ticket };
-      const call = async (body: object) => (await fetch(endpoint.url + "/pi", { method: "POST", headers: { authorization: "Bearer " + endpoint.token }, body: JSON.stringify(body) })).json();
+      const call = async (body: object) =>
+        (
+          await fetch(endpoint.url + "/pi", {
+            method: "POST",
+            headers: { authorization: "Bearer " + endpoint.token },
+            body: JSON.stringify(body),
+          })
+        ).json();
       await call({ method: "tools/list" });
       const concurrentExpiry = cause === "concurrent-expiry";
-      if (cause === "expiry" || concurrentExpiry) db.exec(`CREATE TEMP TRIGGER short_bridge_approval AFTER INSERT ON approvals WHEN NEW.run_id='${run.id}' BEGIN UPDATE approvals SET expires_at=NEW.created_at+200 WHERE id=NEW.id; END`);
+      if (cause === "expiry" || concurrentExpiry)
+        db.exec(
+          `CREATE TEMP TRIGGER short_bridge_approval AFTER INSERT ON approvals WHEN NEW.run_id='${run.id}' BEGIN UPDATE approvals SET expires_at=NEW.created_at+200 WHERE id=NEW.id; END`,
+        );
       const child = cause.startsWith("child") || concurrentExpiry;
-      const mcpName = "loop_mcp_" + createHash("sha256").update(mcpId + ":lookup").digest("hex").slice(0, 20);
-      const request = { method: "tools/call", id: "signal-call", name: child ? "loop_delegate" : mcpName, arguments: child ? { tasks: [{ agentId: childAgent.id, input: "Check" }] } : {} };
+      const mcpName =
+        "loop_mcp_" +
+        createHash("sha256")
+          .update(mcpId + ":lookup")
+          .digest("hex")
+          .slice(0, 20);
+      const request = {
+        method: "tools/call",
+        id: "signal-call",
+        name: child ? "loop_delegate" : mcpName,
+        arguments: child
+          ? { tasks: [{ agentId: childAgent.id, input: "Check" }] }
+          : {},
+      };
       const answer = call(request);
       let approval: { id: string } | undefined;
-      await until(() => child
-        ? !!db.prepare("SELECT 1 FROM delegations WHERE parent_run_id=?").get(run.id)
-        : !!(approval = db.prepare("SELECT id FROM approvals WHERE run_id=?").get(run.id) as { id: string } | undefined));
+      await until(() =>
+        child
+          ? !!db
+              .prepare("SELECT 1 FROM delegations WHERE parent_run_id=?")
+              .get(run.id)
+          : !!(approval = db
+              .prepare("SELECT id FROM approvals WHERE run_id=?")
+              .get(run.id) as { id: string } | undefined),
+      );
       const at = Date.now();
       if (concurrentExpiry) {
         // Another request's approval must not permanently cache an expiry error
         // for the delegation that was already waiting on its child.
-        const expired = await call({ method: "tools/call", id: "expiring-call", name: mcpName, arguments: {} });
+        const expired = await call({
+          method: "tools/call",
+          id: "expiring-call",
+          name: mcpName,
+          arguments: {},
+        });
         expect(expired.isError).toBe(true);
         expect(JSON.stringify(expired)).toContain("expired");
-        const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`, { method: "POST" });
+        const response = await fetch(
+          `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
+          { method: "POST" },
+        );
         expect(response.status).toBe(200);
       } else if (child) {
-        const childId = (db.prepare("SELECT child_run_id FROM delegations WHERE parent_run_id=?").get(run.id) as { child_run_id: string }).child_run_id;
-        const childRun = claim("bridge-child", (candidate) => candidate.id === childId)!;
+        const childId = (
+          db
+            .prepare(
+              "SELECT child_run_id FROM delegations WHERE parent_run_id=?",
+            )
+            .get(run.id) as { child_run_id: string }
+        ).child_run_id;
+        const childRun = claim(
+          "bridge-child",
+          (candidate) => candidate.id === childId,
+        )!;
         expect(childRun).toBeDefined();
-        db.prepare("UPDATE runs SET result='child result' WHERE id=?").run(childId);
+        db.prepare("UPDATE runs SET result='child result' WHERE id=?").run(
+          childId,
+        );
         transition(childRun, "completed");
       } else if (cause.startsWith("cancel")) {
-        const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`, { method: "POST" });
+        const response = await fetch(
+          `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
+          { method: "POST" },
+        );
         expect(response.status).toBe(200);
       } else if (cause !== "expiry") decide(owner, approval!.id, "approve");
       const result = await answer;
-      expect(Date.now() - at).toBeLessThan(cause.endsWith("fallback") ? 2300 : 700);
-      if (cause === "expiry" || cause.startsWith("cancel") || concurrentExpiry) {
+      expect(Date.now() - at).toBeLessThan(
+        cause.endsWith("fallback") ? 2300 : 700,
+      );
+      if (
+        cause === "expiry" ||
+        cause.startsWith("cancel") ||
+        concurrentExpiry
+      ) {
         expect(result.isError).toBe(true);
-        expect(JSON.stringify(result)).toContain(cause === "expiry" ? "expired" : "cancelled");
+        expect(JSON.stringify(result)).toContain(
+          cause === "expiry" ? "expired" : "cancelled",
+        );
         expect(calls).toBe(0);
       } else {
         expect(result.isError).not.toBe(true);
-        expect(JSON.stringify(result)).toContain(child ? "child result" : "approved result");
+        expect(JSON.stringify(result)).toContain(
+          child ? "child result" : "approved result",
+        );
         expect(await call(request)).toEqual(result);
         expect(calls).toBe(child ? 0 : 1);
       }
@@ -397,5 +531,6 @@ it.each(["approval", "approval-fallback", "child", "child-fallback", "cancel", "
       restore();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-  }, 10000,
+  },
+  10000,
 );

@@ -116,5 +116,5 @@ export const LEGACY_ROUTES = {
   "POST /mcp/federation/claim/:id": "app",
   "POST /mcp/federation/complete/:id": "app",
   "POST /diagnostic": "app",
-  "GET /events": "app"
+  "GET /events": "app",
 } as const;

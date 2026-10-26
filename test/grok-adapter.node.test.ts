@@ -81,7 +81,8 @@ test("Grok carries the selected model, private tool bridge and instructions once
     );
     assert(
       events.some(
-        (event) => event.type === "delta" && event.text === "Grok fixture answer",
+        (event) =>
+          event.type === "delta" && event.text === "Grok fixture answer",
       ),
     );
     const sent = requests();
@@ -117,7 +118,11 @@ test("Grok carries the selected model, private tool bridge and instructions once
   }
   const replay: AdapterEvent[] = [];
   const resumed = new Grok(
-    { ...options, resume: "grok-session", instructions: "Project instructions" },
+    {
+      ...options,
+      resume: "grok-session",
+      instructions: "Project instructions",
+    },
     (event) => replay.push(event),
   );
   try {
@@ -145,7 +150,11 @@ test("Grok carries the selected model, private tool bridge and instructions once
   // A load that replays nothing proves no earlier prompt reached the session.
   process.env.LOOP_TEST_GROK_EMPTY_LOAD = "1";
   const empty = new Grok(
-    { ...options, resume: "grok-session", instructions: "Project instructions" },
+    {
+      ...options,
+      resume: "grok-session",
+      instructions: "Project instructions",
+    },
     () => {},
   );
   try {
@@ -159,8 +168,9 @@ test("Grok carries the selected model, private tool bridge and instructions once
       ),
     );
     assert.equal(
-      requests().filter((req) => req.method === "session/prompt").at(-1).params
-        .prompt[0].text,
+      requests()
+        .filter((req) => req.method === "session/prompt")
+        .at(-1).params.prompt[0].text,
       "Project instructions\n\nfresh",
     );
   } finally {
@@ -181,7 +191,9 @@ test("Grok resends instructions after a first turn that did not complete", async
     await adapter.start();
     await adapter.prompt("first");
     await until(() =>
-      events.some((event) => event.type === "status" && event.status === "failed"),
+      events.some(
+        (event) => event.type === "status" && event.status === "failed",
+      ),
     );
     await adapter.prompt("retry");
     await until(() => events.some((event) => event.type === "request"));
@@ -208,7 +220,10 @@ test("Grok rejects unverifiable subscription policy and redacts a signed-out acc
   const adapter = new Grok({ ...options, probeOnly: true }, () => {});
   try {
     await assert.rejects(adapter.start(), (error: Error) => {
-      assert.match(error.message, /Sign in to Grok Build in Provider connections/);
+      assert.match(
+        error.message,
+        /Sign in to Grok Build in Provider connections/,
+      );
       assert.doesNotMatch(error.message, /private-credential/);
       return true;
     });

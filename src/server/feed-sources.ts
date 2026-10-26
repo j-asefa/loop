@@ -264,19 +264,24 @@ function outlines(markup: string): string[] {
   while (at < markup.length && found.length < MAX_OUTLINES) {
     const start = markup.indexOf("<", at);
     if (start < 0) break;
-    const terminator = markup.startsWith("<!--", start) ? "-->"
-      : markup.startsWith("<![CDATA[", start) ? "]]>" : null;
+    const terminator = markup.startsWith("<!--", start)
+      ? "-->"
+      : markup.startsWith("<![CDATA[", start)
+        ? "]]>"
+        : null;
     if (terminator) {
       const end = markup.indexOf(terminator, start + 4);
       if (end < 0) break;
       at = end + terminator.length;
       continue;
     }
-    let quote = "", end = start + 1;
+    let quote = "",
+      end = start + 1;
     for (; end < markup.length; end++) {
       const c = markup[end];
-      if (quote) { if (c === quote) quote = ""; }
-      else if (c === '"' || c === "'") quote = c;
+      if (quote) {
+        if (c === quote) quote = "";
+      } else if (c === '"' || c === "'") quote = c;
       else if (c === ">") break;
     }
     if (end === markup.length) break;

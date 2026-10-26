@@ -80,9 +80,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     send({
       id: req.id,
       result: {
-        ...(req.method === "session/new"
-          ? { sessionId }
-          : {}),
+        ...(req.method === "session/new" ? { sessionId } : {}),
         models,
       },
     });

@@ -1,20 +1,37 @@
-import { workspaceApi, type Bootstrap as BootstrapResponse } from "../../shared/workspace-api";
+import {
+  workspaceApi,
+  type Bootstrap as BootstrapResponse,
+} from "../../shared/workspace-api";
 import { surfaceFallback } from "../workspace-projections";
 import { workspaceChangeAffects } from "../workspace-changes";
-import { WORKSPACE_COLLECTIONS, type WorkspaceCollection } from "../../shared/workspace-events";
+import {
+  WORKSPACE_COLLECTIONS,
+  type WorkspaceCollection,
+} from "../../shared/workspace-events";
 import { capabilities } from "../capabilities";
 import { useProjectionRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
 
 import { useEffect, useRef } from "react";
-import type { Agent, Connection, RunView as Run, Team } from "../../shared/types";
+import type {
+  Agent,
+  Connection,
+  RunView as Run,
+  Team,
+} from "../../shared/types";
 
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { AppModel } from "./AppController";
 
-export type Bootstrap = Pick<BootstrapResponse, "agents" | "connections" | "folders"> & Partial<Omit<BootstrapResponse, "agents" | "connections" | "folders">>;
+export type Bootstrap = Pick<
+  BootstrapResponse,
+  "agents" | "connections" | "folders"
+> &
+  Partial<Omit<BootstrapResponse, "agents" | "connections" | "folders">>;
 type WorkspaceProps = {
-  setWorkspaceLoadErrors: Dispatch<SetStateAction<Partial<Record<"bootstrap" | "runs", string>>>>;
+  setWorkspaceLoadErrors: Dispatch<
+    SetStateAction<Partial<Record<"bootstrap" | "runs", string>>>
+  >;
   ownerRef: RefObject<string | undefined>;
   readContract: ReturnType<typeof useProjectionRoute>;
   setData: Dispatch<SetStateAction<Bootstrap>>;
@@ -29,25 +46,43 @@ type WorkspaceProps = {
 
 export function useWorkspaceData(props: WorkspaceProps) {
   const {
-    setWorkspaceLoadErrors, ownerRef, readContract, setData, initialAgentId,
-    setProfile, setTeamSelection, setRuns, loadResults,
-    setBootstrapOwner, openAgentChat,
+    setWorkspaceLoadErrors,
+    ownerRef,
+    readContract,
+    setData,
+    initialAgentId,
+    setProfile,
+    setTeamSelection,
+    setRuns,
+    loadResults,
+    setBootstrapOwner,
+    openAgentChat,
   } = props;
   function workspaceReadError(kind: "bootstrap" | "runs", error?: unknown) {
-    const message = !error ? "" : (error as {reconnecting?: boolean}).reconnecting
-      ? "Loop is reconnecting…" : kind === "bootstrap"
-        ? "Couldn’t refresh your agents and projects." : "Couldn’t refresh task status.";
-    setWorkspaceLoadErrors(old => ({...old, [kind]: message}));
+    const message = !error
+      ? ""
+      : (error as { reconnecting?: boolean }).reconnecting
+        ? "Loop is reconnecting…"
+        : kind === "bootstrap"
+          ? "Couldn’t refresh your agents and projects."
+          : "Couldn’t refresh task status.";
+    setWorkspaceLoadErrors((old) => ({ ...old, [kind]: message }));
   }
   const bootstrapGeneration = useRef(0);
   async function bootstrap() {
     const generation = ++bootstrapGeneration.current;
     const owner = ownerRef.current;
-    const result = await readContract(workspaceApi.bootstrap, {}).catch(error => {
-      if (owner && owner === ownerRef.current && generation === bootstrapGeneration.current)
-        workspaceReadError("bootstrap", error);
-      throw error;
-    });
+    const result = await readContract(workspaceApi.bootstrap, {}).catch(
+      (error) => {
+        if (
+          owner &&
+          owner === ownerRef.current &&
+          generation === bootstrapGeneration.current
+        )
+          workspaceReadError("bootstrap", error);
+        throw error;
+      },
+    );
     if (
       owner &&
       owner === ownerRef.current &&
@@ -84,7 +119,9 @@ export function useWorkspaceData(props: WorkspaceProps) {
     const generation = ++runsGeneration.current;
     // Profiles show all of an agent's work. Feed and Running apply their
     // team/project filters locally without changing the profile's data.
-    const result = await readContract(workspaceApi.runs, { query: { active: "1" } }).catch(error => {
+    const result = await readContract(workspaceApi.runs, {
+      query: { active: "1" },
+    }).catch((error) => {
       if (owner === ownerRef.current && generation === runsGeneration.current)
         workspaceReadError("runs", error);
       throw error;
@@ -101,15 +138,40 @@ export function useWorkspaceData(props: WorkspaceProps) {
   return { bootstrap, loadRuns, runsGeneration, refresh };
 }
 
-export function useWorkspaceEvents(props: Pick<AppModel,
-  "session" | "refresh" | "setError" | "profile" | "view" |
-  "teamKey" | "projectFilter" | "workspaceLoadError" | "setRevision" | "setCollectionRevisions" |
-  "bootstrap" | "loadRuns" | "resultsVisible" | "loadResults"
->) {
+export function useWorkspaceEvents(
+  props: Pick<
+    AppModel,
+    | "session"
+    | "refresh"
+    | "setError"
+    | "profile"
+    | "view"
+    | "teamKey"
+    | "projectFilter"
+    | "workspaceLoadError"
+    | "setRevision"
+    | "setCollectionRevisions"
+    | "bootstrap"
+    | "loadRuns"
+    | "resultsVisible"
+    | "loadResults"
+  >,
+) {
   const {
-    session, refresh, setError, profile, view,
-    teamKey, projectFilter, workspaceLoadError, setRevision, setCollectionRevisions,
-    bootstrap, loadRuns, resultsVisible, loadResults,
+    session,
+    refresh,
+    setError,
+    profile,
+    view,
+    teamKey,
+    projectFilter,
+    workspaceLoadError,
+    setRevision,
+    setCollectionRevisions,
+    bootstrap,
+    loadRuns,
+    resultsVisible,
+    loadResults,
   } = props;
   useEffect(() => {
     if (session?.user) void refresh().catch((e) => setError(e.message));
@@ -145,17 +207,29 @@ export function useWorkspaceEvents(props: Pick<AppModel,
     let timer: ReturnType<typeof setTimeout> | undefined;
     let refreshCurrent = false;
     let fullRefresh = false;
-    let broad = false, refreshRuns = false, refreshResults = false;
+    let broad = false,
+      refreshRuns = false,
+      refreshResults = false;
     const collections = new Set<WorkspaceCollection>();
     const update = (event: Event) => {
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail?.sources;
+      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
+        ?.sources;
       refreshCurrent ||= !sources || sources.includes(executionSourceId());
       fullRefresh ||= !sources;
       broad ||= workspaceChangeAffects(event, "metadata");
-      refreshRuns ||= workspaceChangeAffects(event, "runs", executionSourceId());
-      refreshResults ||= workspaceChangeAffects(event, "results", executionSourceId());
+      refreshRuns ||= workspaceChangeAffects(
+        event,
+        "runs",
+        executionSourceId(),
+      );
+      refreshResults ||= workspaceChangeAffects(
+        event,
+        "results",
+        executionSourceId(),
+      );
       for (const collection of WORKSPACE_COLLECTIONS)
-        if (workspaceChangeAffects(event, collection)) collections.add(collection);
+        if (workspaceChangeAffects(event, collection))
+          collections.add(collection);
       if (!broad && !collections.size) return;
       if (timer) return;
       timer = setTimeout(() => {
@@ -165,7 +239,8 @@ export function useWorkspaceEvents(props: Pick<AppModel,
           const changed = [...collections];
           setCollectionRevisions((old) => {
             const next = { ...old };
-            for (const collection of changed) next[collection] = (next[collection] || 0) + 1;
+            for (const collection of changed)
+              next[collection] = (next[collection] || 0) + 1;
             return next;
           });
         }
@@ -177,7 +252,9 @@ export function useWorkspaceEvents(props: Pick<AppModel,
             void Promise.allSettled([
               ...(broad ? [bootstrap()] : []),
               ...(refreshRuns ? [loadRuns()] : []),
-              ...(refreshResults && resultsVisible.current ? [loadResults(false, false)] : []),
+              ...(refreshResults && resultsVisible.current
+                ? [loadResults(false, false)]
+                : []),
             ]);
           }
         }
@@ -188,13 +265,23 @@ export function useWorkspaceEvents(props: Pick<AppModel,
       }, 250);
     };
     window.addEventListener("loop-workspace-change", update);
-    const stopFallback = surfaceFallback([executionSourceId()], "workspace", 15000, () => update(new Event("refresh")));
+    const stopFallback = surfaceFallback(
+      [executionSourceId()],
+      "workspace",
+      15000,
+      () => update(new Event("refresh")),
+    );
     // Preserve the existing bounded catch-up cadence for visible result
     // collections; a single notification can represent more than one page.
-    const stopResultsFallback = surfaceFallback([executionSourceId()], "results", 1800, () => {
-      if (!capabilities.pairedDevices && resultsVisible.current)
-        void loadResults(false, true);
-    });
+    const stopResultsFallback = surfaceFallback(
+      [executionSourceId()],
+      "results",
+      1800,
+      () => {
+        if (!capabilities.pairedDevices && resultsVisible.current)
+          void loadResults(false, true);
+      },
+    );
     return () => {
       clearTimeout(timer);
       stopFallback();

@@ -35,7 +35,17 @@ try {
   await exec("git", ["init", project]);
   writeFileSync(join(project, "tracked.txt"), "Package fixture\n");
   await exec("git", ["-C", project, "add", "tracked.txt"]);
-  await exec("git", ["-C", project, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-m", "initial"]);
+  await exec("git", [
+    "-C",
+    project,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.com",
+    "commit",
+    "-m",
+    "initial",
+  ]);
   await exec(
     "npm",
     [
@@ -51,13 +61,32 @@ try {
   );
   // Exercise the installed JavaScript module graph without tsx: source-level
   // adapter fixtures cannot detect missing compiled runtime dependencies.
-  await exec(process.execPath, ["--input-type=module", "-e",
-    'const { Acp } = await import("loop/dist/adapters/acp.js"); if (typeof Acp !== "function") throw new Error("Missing packaged ACP adapter");',
-  ], { cwd: target, timeout: 10000 });
-  const identity = JSON.parse((await exec(process.execPath, ["--input-type=module", "-e",
-    'const { runningBuild, publicBuild } = await import("loop/dist/shared/build.js"); console.log(JSON.stringify(publicBuild(runningBuild)));',
-  ], { cwd: target, timeout: 10000 })).stdout);
-  assert.equal(identity.id, JSON.parse(await readFile("dist/build-id.json", "utf8")).id);
+  await exec(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      'const { Acp } = await import("loop/dist/adapters/acp.js"); if (typeof Acp !== "function") throw new Error("Missing packaged ACP adapter");',
+    ],
+    { cwd: target, timeout: 10000 },
+  );
+  const identity = JSON.parse(
+    (
+      await exec(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          'const { runningBuild, publicBuild } = await import("loop/dist/shared/build.js"); console.log(JSON.stringify(publicBuild(runningBuild)));',
+        ],
+        { cwd: target, timeout: 10000 },
+      )
+    ).stdout,
+  );
+  assert.equal(
+    identity.id,
+    JSON.parse(await readFile("dist/build-id.json", "utf8")).id,
+  );
   assert.notEqual(identity.id, "development");
   bin = join(target, "node_modules", ".bin", "loop");
   env = {
@@ -89,14 +118,21 @@ try {
       ],
       { env, timeout: 30000 },
     );
-    const match = stdout.match(/http:\/\/127\.0\.0\.1:\d+\/#pair=[A-Za-z0-9_-]+/);
+    const match = stdout.match(
+      /http:\/\/127\.0\.0\.1:\d+\/#pair=[A-Za-z0-9_-]+/,
+    );
     if (!match) throw new Error("Packed CLI did not show pairing: " + stdout);
     return new URL(match[0]);
   };
   let url = await launch();
-  const html = await fetch(url.origin).then(r => r.text());
-  const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"\s]+)"/g)].map(m => m[1]);
-  assert(assets.some(p => p.endsWith(".js")) && assets.some(p => p.endsWith(".css")));
+  const html = await fetch(url.origin).then((r) => r.text());
+  const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"\s]+)"/g)].map(
+    (m) => m[1],
+  );
+  assert(
+    assets.some((p) => p.endsWith(".js")) &&
+      assets.some((p) => p.endsWith(".css")),
+  );
   for (const path of [
     "/",
     ...assets,
@@ -143,8 +179,12 @@ try {
   let { cookie, api } = await pair();
   const companionBuild = await api("/build");
   assert.deepEqual(companionBuild.serving, identity);
-  assert.deepEqual(companionBuild.processes.map(p => p.role).sort(), ["api", "worker"]);
-  for (const process of companionBuild.processes) assert.deepEqual(process.build, identity);
+  assert.deepEqual(companionBuild.processes.map((p) => p.role).sort(), [
+    "api",
+    "worker",
+  ]);
+  for (const process of companionBuild.processes)
+    assert.deepEqual(process.build, identity);
   const agent = await api("/agents", {
     name: "packed-agent",
     connectionId: "native-codex",
@@ -212,36 +252,60 @@ try {
   await stop();
   // The very same installed distribution runs the full server with `loop server`.
   const reservation = createServer();
-  await new Promise(resolve => reservation.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
   const port = reservation.address().port;
-  await new Promise(resolve => reservation.close(resolve));
+  await new Promise((resolve) => reservation.close(resolve));
   const serverOrigin = "http://127.0.0.1:" + port;
   child = spawn(bin, ["server"], {
     cwd: target,
-    env: { ...env, PORT: String(port), LOOP_URL: serverOrigin, LOOP_DATA_DIR: join(base, "server-state"),
-      LOOP_AUTH_MODE: "single-user", BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-      LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex") },
+    env: {
+      ...env,
+      PORT: String(port),
+      LOOP_URL: serverOrigin,
+      LOOP_DATA_DIR: join(base, "server-state"),
+      LOOP_AUTH_MODE: "single-user",
+      BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+      LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let serverErrors = "";
   child.stdout.resume();
-  child.stderr.on("data", b => serverErrors += b);
+  child.stderr.on("data", (b) => (serverErrors += b));
   const deadline = Date.now() + 20000;
-  while (!(await fetch(serverOrigin + "/api/health").then(r => r.ok).catch(() => false))) {
-    if (Date.now() > deadline || child.exitCode !== null) throw new Error("Packed server did not start: " + serverErrors);
-    await new Promise(resolve => setTimeout(resolve, 50));
+  while (
+    !(await fetch(serverOrigin + "/api/health")
+      .then((r) => r.ok)
+      .catch(() => false))
+  ) {
+    if (Date.now() > deadline || child.exitCode !== null)
+      throw new Error("Packed server did not start: " + serverErrors);
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  assert.equal((await fetch(serverOrigin + "/api/capabilities").then(r => r.json())).profile, "server");
+  assert.equal(
+    (await fetch(serverOrigin + "/api/capabilities").then((r) => r.json()))
+      .profile,
+    "server",
+  );
   assert.equal((await fetch(serverOrigin + "/api/bootstrap")).status, 200);
-  const serverBuild = await fetch(serverOrigin + "/api/build").then(r => r.json());
+  const serverBuild = await fetch(serverOrigin + "/api/build").then((r) =>
+    r.json(),
+  );
   assert.deepEqual(serverBuild.serving, identity);
-  assert.deepEqual(serverBuild.processes.map(p => p.role).sort(), ["api", "worker"]);
-  for (const process of serverBuild.processes) assert.deepEqual(process.build, identity);
-  const serverHtml = await fetch(serverOrigin).then(r => r.text());
+  assert.deepEqual(serverBuild.processes.map((p) => p.role).sort(), [
+    "api",
+    "worker",
+  ]);
+  for (const process of serverBuild.processes)
+    assert.deepEqual(process.build, identity);
+  const serverHtml = await fetch(serverOrigin).then((r) => r.text());
   assert.match(serverHtml, /<div id="root">/);
-  for (const asset of assets) assert.equal((await fetch(serverOrigin + asset)).status, 200);
+  for (const asset of assets)
+    assert.equal((await fetch(serverOrigin + asset)).status, 200);
   child.kill("SIGTERM");
-  await new Promise(resolve => child.exitCode !== null ? resolve() : child.once("exit", resolve));
+  await new Promise((resolve) =>
+    child.exitCode !== null ? resolve() : child.once("exit", resolve),
+  );
   await exec(bin, ["uninstall"], { env });
   assert(
     (await readFile(join(env.LOOP_HOME, "workspace", "loop.db"))).length > 0,
@@ -290,41 +354,92 @@ async function upgradeBehindConnection() {
   const nextVersion = manifest.version + "-upgrade.1";
   manifest.version = nextVersion;
   writeFileSync(join(pkg, "package.json"), JSON.stringify(manifest, null, 2));
-  writeFileSync(join(pkg, "dist", "support", "package.json"), JSON.stringify(manifest, null, 2));
+  writeFileSync(
+    join(pkg, "dist", "support", "package.json"),
+    JSON.stringify(manifest, null, 2),
+  );
   const index = join(pkg, "dist", "web", "index.html");
-  writeFileSync(index, readFileSync(index, "utf8").replace("</head>", "<!-- loop-build-b --></head>"));
+  writeFileSync(
+    index,
+    readFileSync(index, "utf8").replace(
+      "</head>",
+      "<!-- loop-build-b --></head>",
+    ),
+  );
   const packed = JSON.parse(
-    (await exec("npm", ["pack", pkg, "--ignore-scripts", "--json", "--pack-destination", base], { maxBuffer: 1000000 })).stdout,
+    (
+      await exec(
+        "npm",
+        ["pack", pkg, "--ignore-scripts", "--json", "--pack-destination", base],
+        { maxBuffer: 1000000 },
+      )
+    ).stdout,
   );
   const tarballB = join(base, packed[0].filename);
-  await exec("npm", ["install", "-g", "--omit=optional", "--no-audit", "--no-fund", tarball], {
-    env: upgradeEnv, maxBuffer: 1000000, timeout: 240000,
-  });
-  const loop = (...args) => exec(join(prefix, "bin", "loop"), args, { env: upgradeEnv, timeout: 300000, maxBuffer: 4000000 });
+  await exec(
+    "npm",
+    ["install", "-g", "--omit=optional", "--no-audit", "--no-fund", tarball],
+    {
+      env: upgradeEnv,
+      maxBuffer: 1000000,
+      timeout: 240000,
+    },
+  );
+  const loop = (...args) =>
+    exec(join(prefix, "bin", "loop"), args, {
+      env: upgradeEnv,
+      timeout: 300000,
+      maxBuffer: 4000000,
+    });
   const fixture = join(base, "fixture-harness");
-  const started = await loop("codex", "--executable", fixture, "--project", work, "--billing", "existing");
+  const started = await loop(
+    "codex",
+    "--executable",
+    fixture,
+    "--project",
+    work,
+    "--billing",
+    "existing",
+  );
   const code = started.stdout.match(/#pair=([\w-]+)/)[1];
-  const status = async () => JSON.parse((await loop("status", "--json")).stdout);
+  const status = async () =>
+    JSON.parse((await loop("status", "--json")).stdout);
   const before = await status();
   const relay = new URL(before.connection.service.relay);
   let cookie = "";
   const send = (method, path, body) =>
     new Promise((resolve, reject) => {
-      const req = request({ host: relay.hostname, port: Number(relay.port), method, path, headers: {
-        host: new URL(before.url).host, origin: before.url,
-        ...(cookie ? { cookie } : {}), ...(body ? { "content-type": "application/json" } : {}),
-      } }, (res) => {
-        let out = "";
-        res.on("data", (b) => (out += b));
-        res.on("end", () => {
-          if (res.headers["set-cookie"]) cookie = res.headers["set-cookie"][0].split(";")[0];
-          resolve({ status: res.statusCode, body: out });
-        });
-      });
+      const req = request(
+        {
+          host: relay.hostname,
+          port: Number(relay.port),
+          method,
+          path,
+          headers: {
+            host: new URL(before.url).host,
+            origin: before.url,
+            ...(cookie ? { cookie } : {}),
+            ...(body ? { "content-type": "application/json" } : {}),
+          },
+        },
+        (res) => {
+          let out = "";
+          res.on("data", (b) => (out += b));
+          res.on("end", () => {
+            if (res.headers["set-cookie"])
+              cookie = res.headers["set-cookie"][0].split(";")[0];
+            resolve({ status: res.statusCode, body: out });
+          });
+        },
+      );
       req.on("error", reject);
       req.end(body ? JSON.stringify(body) : undefined);
     });
-  assert.equal((await send("POST", "/pair", { secret: code, name: "Upgrade fixture" })).status, 200);
+  assert.equal(
+    (await send("POST", "/pair", { secret: code, name: "Upgrade fixture" }))
+      .status,
+    200,
+  );
   assert.equal((await send("GET", "/api/bootstrap")).status, 200);
   const devices = (await send("GET", "/api/workspace/devices")).body;
   assert.doesNotMatch((await send("GET", "/")).body, /loop-build-b/);
@@ -337,21 +452,45 @@ async function upgradeBehindConnection() {
   assert.equal((await status()).pid, before.pid);
 
   const upgraded = await loop("upgrade", "--from", tarballB);
-  assert.match(upgraded.stdout, new RegExp(`Upgraded from Loop ${manifest.version.replace("-upgrade.1", "")} to ${nextVersion.replace(/\./g, "\\.")}`));
+  assert.match(
+    upgraded.stdout,
+    new RegExp(
+      `Upgraded from Loop ${manifest.version.replace("-upgrade.1", "")} to ${nextVersion.replace(/\./g, "\\.")}`,
+    ),
+  );
   assert.match(upgraded.stdout, /Same address/);
   const after = await status();
   assert.notEqual(after.pid, before.pid);
   assert.equal(after.release, nextVersion, "the new build is serving");
   assert.equal(after.url, before.url);
   assert.equal(after.connection.service.pid, before.connection.service.pid);
-  assert.equal(after.connection.service.tunnel.pid, before.connection.service.tunnel.pid);
-  assert.equal(after.harnesses[0].name, "codex", "the saved runtime was restored, not Pi");
+  assert.equal(
+    after.connection.service.tunnel.pid,
+    before.connection.service.tunnel.pid,
+  );
+  assert.equal(
+    after.harnesses[0].name,
+    "codex",
+    "the saved runtime was restored, not Pi",
+  );
   assert.equal(after.harnesses[0].billing.mode, "existing");
   assert.equal(after.project, before.project);
-  assert.equal((await send("GET", "/api/bootstrap")).status, 200, "the same cookie still works");
+  assert.equal(
+    (await send("GET", "/api/bootstrap")).status,
+    200,
+    "the same cookie still works",
+  );
   assert.equal((await send("GET", "/api/workspace/devices")).body, devices);
-  assert.match((await send("GET", "/")).body, /loop-build-b/, "new assets at the old address");
-  assert.deepEqual(readdirSync(service), artifacts, "the running service's file was untouched");
+  assert.match(
+    (await send("GET", "/")).body,
+    /loop-build-b/,
+    "new assets at the old address",
+  );
+  assert.deepEqual(
+    readdirSync(service),
+    artifacts,
+    "the running service's file was untouched",
+  );
   assert(existsSync(join(service, artifacts[0])));
   await loop("stop");
   assert.equal((await status()).state, "stopped");

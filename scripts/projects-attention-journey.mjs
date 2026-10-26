@@ -293,22 +293,14 @@ export async function projectsAttentionJourney(page, api, base, dir) {
         }),
       { times: 1 },
     );
-    await inboxRowAction(
-      page,
-      "Dismissible failure",
-      "Dismiss from Needs you",
-    );
+    await inboxRowAction(page, "Dismissible failure", "Dismiss from Needs you");
     await expect(
       page
         .getByRole("alert")
         .filter({ hasText: "Fixture dismissal unavailable" }),
     ).toBeVisible();
     await expect(needsRow("Dismissible failure")).toBeVisible();
-    await inboxRowAction(
-      page,
-      "Dismissible failure",
-      "Dismiss from Needs you",
-    );
+    await inboxRowAction(page, "Dismissible failure", "Dismiss from Needs you");
     await expect(needsRow("Dismissible failure")).toBeHidden();
     await page
       .getByRole("button", {

@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer, request } from "node:http";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+} from "node:fs/promises";
 import { existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -39,20 +47,47 @@ async function workspace(extraEnv: Record<string, string> = {}) {
     ...extraEnv,
   };
   const loop = (args: string[], timeout = 60000) =>
-    exec(process.execPath, ["--import", "tsx", "src/cli.ts", ...args], { env, timeout });
-  const harness = ["codex", "--executable", fixture, "--project", project, "--billing", "existing"];
-  const status = async () => JSON.parse((await loop(["status", "--json"])).stdout);
+    exec(process.execPath, ["--import", "tsx", "src/cli.ts", ...args], {
+      env,
+      timeout,
+    });
+  const harness = [
+    "codex",
+    "--executable",
+    fixture,
+    "--project",
+    project,
+    "--billing",
+    "existing",
+  ];
+  const status = async () =>
+    JSON.parse((await loop(["status", "--json"])).stdout);
   const tunnelPids = () =>
     existsSync(tunnels)
-      ? readFileSync(tunnels, "utf8").trim().split("\n").map((l) => Number(l.split(" ")[0]))
+      ? readFileSync(tunnels, "utf8")
+          .trim()
+          .split("\n")
+          .map((l) => Number(l.split(" ")[0]))
       : [];
   const pids = new Set<number>();
   const cleanup = async () => {
     await loop(["stop"]).catch(() => {});
-    for (const pid of [...pids, ...tunnelPids()]) if (alive(pid)) process.kill(pid, "SIGKILL");
+    for (const pid of [...pids, ...tunnelPids()])
+      if (alive(pid)) process.kill(pid, "SIGKILL");
     await rm(base, { recursive: true, force: true });
   };
-  return { base, env, loop, harness, status, tunnelPids, pids, cleanup, audit, connection: join(env.LOOP_HOME, "connection") };
+  return {
+    base,
+    env,
+    loop,
+    harness,
+    status,
+    tunnelPids,
+    pids,
+    cleanup,
+    audit,
+    connection: join(env.LOOP_HOME, "connection"),
+  };
 }
 
 /** A browser as cloudflared delivers it: public Host, cookie and Origin to the relay. */
@@ -60,45 +95,50 @@ function browser(relay: string, origin: string) {
   let cookie = "";
   let csrf = "";
   const send = (method: string, path: string, body?: unknown) =>
-    new Promise<{ status: number; headers: any; json: any }>((resolve, reject) => {
-      const url = new URL(relay);
-      const req = request(
-        {
-          host: url.hostname,
-          port: Number(url.port),
-          method,
-          path,
-          headers: {
-            host: new URL(origin).host,
-            origin,
-            ...(cookie ? { cookie } : {}),
-            ...(csrf ? { "x-loop-csrf": csrf } : {}),
-            ...(body ? { "content-type": "application/json" } : {}),
+    new Promise<{ status: number; headers: any; json: any }>(
+      (resolve, reject) => {
+        const url = new URL(relay);
+        const req = request(
+          {
+            host: url.hostname,
+            port: Number(url.port),
+            method,
+            path,
+            headers: {
+              host: new URL(origin).host,
+              origin,
+              ...(cookie ? { cookie } : {}),
+              ...(csrf ? { "x-loop-csrf": csrf } : {}),
+              ...(body ? { "content-type": "application/json" } : {}),
+            },
           },
-        },
-        (res) => {
-          let out = "";
-          res.on("data", (b) => (out += b));
-          res.on("end", () => {
-            const set = res.headers["set-cookie"]?.[0];
-            if (set) cookie = set.split(";")[0];
-            let json: any;
-            try {
-              json = JSON.parse(out);
-            } catch {
-              json = out;
-            }
-            resolve({ status: res.statusCode!, headers: res.headers, json });
-          });
-        },
-      );
-      req.on("error", reject);
-      req.end(body ? JSON.stringify(body) : undefined);
-    });
+          (res) => {
+            let out = "";
+            res.on("data", (b) => (out += b));
+            res.on("end", () => {
+              const set = res.headers["set-cookie"]?.[0];
+              if (set) cookie = set.split(";")[0];
+              let json: any;
+              try {
+                json = JSON.parse(out);
+              } catch {
+                json = out;
+              }
+              resolve({ status: res.statusCode!, headers: res.headers, json });
+            });
+          },
+        );
+        req.on("error", reject);
+        req.end(body ? JSON.stringify(body) : undefined);
+      },
+    );
   return {
     send,
     async pair(code: string) {
-      const paired = await send("POST", "/pair", { secret: code, name: "Fixture phone" });
+      const paired = await send("POST", "/pair", {
+        secret: code,
+        name: "Fixture phone",
+      });
       assert.equal(paired.status, 200);
       csrf = (await send("GET", "/session")).json.csrf;
     },
@@ -122,7 +162,10 @@ test("restart replaces only the application: same service, cloudflared, address,
     assert.equal(service.state, "running");
     assert.equal(service.tunnel.state, "ready");
     assert.equal(service.url, before.url);
-    assert.match(before.url, /^https:\/\/loop-fixture-\d+\.trycloudflare\.com$/);
+    assert.match(
+      before.url,
+      /^https:\/\/loop-fixture-\d+\.trycloudflare\.com$/,
+    );
     assert.equal(w.tunnelPids().length, 1);
     assert.equal(service.tunnel.pid, w.tunnelPids()[0]);
     assert.doesNotMatch(JSON.stringify(before), /token|control\.sock/);
@@ -135,7 +178,11 @@ test("restart replaces only the application: same service, cloudflared, address,
 
     const restarted = await w.loop(["restart"]);
     assert.match(restarted.stdout, /Same address: https:\/\/loop-fixture-/);
-    assert.doesNotMatch(restarted.stdout, /#pair=/, "no new pairing after an application restart");
+    assert.doesNotMatch(
+      restarted.stdout,
+      /#pair=/,
+      "no new pairing after an application restart",
+    );
     const after = await w.status();
     w.pids.add(after.pid);
     assert.notEqual(after.pid, before.pid);
@@ -149,16 +196,28 @@ test("restart replaces only the application: same service, cloudflared, address,
     assert.equal(after.harnesses[0].name, "codex");
     assert.equal(after.harnesses[0].billing.mode, "existing");
     assert.equal(after.project, before.project);
-    const launch = JSON.parse(readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"));
+    const launch = JSON.parse(
+      readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
+    );
     assert.deepEqual(launch.args.slice(0, 1), ["codex"]);
 
     // The same browser credential works; nothing re-paired.
     assert.equal((await phone.send("GET", "/api/bootstrap")).status, 200);
-    assert.deepEqual((await phone.send("GET", "/api/workspace/devices")).json, devices);
+    assert.deepEqual(
+      (await phone.send("GET", "/api/workspace/devices")).json,
+      devices,
+    );
     // Unpaired and revoked devices stay denied behind the relay.
     const stranger = browser(service.relay, before.url);
     assert.equal((await stranger.send("GET", "/api/bootstrap")).status, 401);
-    assert.equal((await stranger.send("POST", "/pair", { secret: pairCode(started.stdout) })).status, 403);
+    assert.equal(
+      (
+        await stranger.send("POST", "/pair", {
+          secret: pairCode(started.stdout),
+        })
+      ).status,
+      403,
+    );
 
     // While the application is down, the address stays and answers 503.
     process.kill(after.pid, "SIGKILL");
@@ -198,16 +257,35 @@ test("restart refuses active runs, and a forced restart never resends interrupte
     w.pids.add(before.pid);
     const phone = browser(before.connection.service.relay, before.url);
     await phone.pair(pairCode(started.stdout));
-    const agent = (await phone.send("POST", "/api/agents", { name: "held", connectionId: "native-codex", model: "native-default" })).json;
-    const run = (await phone.send("POST", "/api/runs", { agentId: agent.id, input: "approve", idempotencyKey: randomUUID() })).json;
-    await until(() => existsSync(w.audit) && readFileSync(w.audit, "utf8").includes("prompt"), 20000);
+    const agent = (
+      await phone.send("POST", "/api/agents", {
+        name: "held",
+        connectionId: "native-codex",
+        model: "native-default",
+      })
+    ).json;
+    const run = (
+      await phone.send("POST", "/api/runs", {
+        agentId: agent.id,
+        input: "approve",
+        idempotencyKey: randomUUID(),
+      })
+    ).json;
+    await until(
+      () =>
+        existsSync(w.audit) && readFileSync(w.audit, "utf8").includes("prompt"),
+      20000,
+    );
     let active = 0;
     for (let i = 0; i < 100 && !active; i++) {
       active = Number((await w.status()).activeRuns?.n ?? 0);
       if (!active) await new Promise((r) => setTimeout(r, 100));
     }
     assert.equal(active, 1);
-    await assert.rejects(w.loop(["restart"]), /1 run\(s\) are active.*--force/s);
+    await assert.rejects(
+      w.loop(["restart"]),
+      /1 run\(s\) are active.*--force/s,
+    );
     assert.equal((await w.status()).pid, before.pid, "nothing was stopped");
     await w.loop(["restart", "--force"]);
     const after = await w.status();
@@ -216,8 +294,15 @@ test("restart refuses active runs, and a forced restart never resends interrupte
     assert.equal(after.url, before.url);
     // Give a replay every chance to happen, then prove it didn't.
     await new Promise((r) => setTimeout(r, 1500));
-    assert.equal(readFileSync(w.audit, "utf8").split("\n").filter((l) => l === "prompt").length, 1);
-    const state = (await phone.send("GET", "/api/runs")).json.find((item: any) => item.id === run.id);
+    assert.equal(
+      readFileSync(w.audit, "utf8")
+        .split("\n")
+        .filter((l) => l === "prompt").length,
+      1,
+    );
+    const state = (await phone.send("GET", "/api/runs")).json.find(
+      (item: any) => item.id === run.id,
+    );
     assert(state, "the interrupted run remains recorded");
     assert.notEqual(state.state, "running");
   } finally {
@@ -228,7 +313,11 @@ test("restart refuses active runs, and a forced restart never resends interrupte
 test("concurrent starts converge on one service and one cloudflared; a hung application is force-restarted alone", async () => {
   const w = await workspace();
   try {
-    const results = await Promise.allSettled([w.loop(w.harness), w.loop(w.harness), w.loop(w.harness)]);
+    const results = await Promise.allSettled([
+      w.loop(w.harness),
+      w.loop(w.harness),
+      w.loop(w.harness),
+    ]);
     assert(results.some((r) => r.status === "fulfilled"));
     const status = await w.status();
     w.pids.add(status.pid);
@@ -247,7 +336,10 @@ test("concurrent starts converge on one service and one cloudflared; a hung appl
     w.pids.add(after.pid);
     assert.notEqual(after.pid, status.pid);
     assert(!alive(status.pid));
-    assert(alive(service.pid), "the connection service survived the forced stop");
+    assert(
+      alive(service.pid),
+      "the connection service survived the forced stop",
+    );
     assert.equal(after.connection.service.tunnel.pid, service.tunnel.pid);
     assert.equal(after.url, status.url);
   } finally {
@@ -266,7 +358,8 @@ test("a stalled application is withdrawn, then returns by itself without re-pair
     // Frozen: requests already sent wait for it, but the service withdraws it.
     process.kill(status.pid, "SIGSTOP");
     try {
-      const { connectionControl, readConnectionRecord } = await import("../src/connection.js");
+      const { connectionControl, readConnectionRecord } =
+        await import("../src/connection.js");
       const record = readConnectionRecord(w.connection)!;
       let state = "ready";
       for (let i = 0; i < 50 && state === "ready"; i++) {
@@ -274,7 +367,11 @@ test("a stalled application is withdrawn, then returns by itself without re-pair
         if (state === "ready") await new Promise((r) => setTimeout(r, 200));
       }
       assert.equal(state, "none");
-      assert.equal((await phone.send("GET", "/api/bootstrap")).status, 503, "a silent launch stops receiving traffic");
+      assert.equal(
+        (await phone.send("GET", "/api/bootstrap")).status,
+        503,
+        "a silent launch stops receiving traffic",
+      );
     } finally {
       process.kill(status.pid, "SIGCONT");
     }
@@ -283,10 +380,17 @@ test("a stalled application is withdrawn, then returns by itself without re-pair
       code = (await phone.send("GET", "/api/bootstrap")).status;
       if (code !== 200) await new Promise((r) => setTimeout(r, 200));
     }
-    assert.equal(code, 200, "it proved its socket again and serves the same cookie");
+    assert.equal(
+      code,
+      200,
+      "it proved its socket again and serves the same cookie",
+    );
     const after = await w.status();
     assert.equal(after.pid, status.pid);
-    assert.equal(after.connection.service.backend.generation, status.connection.generation);
+    assert.equal(
+      after.connection.service.backend.generation,
+      status.connection.generation,
+    );
   } finally {
     await w.cleanup();
   }
@@ -328,7 +432,12 @@ test("loop start restores a crashed connection service behind the running applic
     }
 
     const project = w.harness[w.harness.indexOf("--project") + 1];
-    const { stdout } = await w.loop(["start", "--direct", "--project", project]);
+    const { stdout } = await w.loop([
+      "start",
+      "--direct",
+      "--project",
+      project,
+    ]);
     const after = await w.status();
     assert.equal(after.pid, before.pid, "the application kept running");
     const service = after.connection.service;
@@ -336,10 +445,17 @@ test("loop start restores a crashed connection service behind the running applic
     assert.notEqual(service.pid, pid);
     assert.equal(service.tunnel.state, "ready");
     assert.equal(after.connection.registered, true);
-    assert.notEqual(after.url, before.url, "a new Quick Tunnel has a new address");
+    assert.notEqual(
+      after.url,
+      before.url,
+      "a new Quick Tunnel has a new address",
+    );
     assert.equal(after.url, service.url, "the application adopted it");
     assert.match(stdout, /public address changed/);
-    assert(stdout.includes(after.url + "/#pair="), "the code is for the new address");
+    assert(
+      stdout.includes(after.url + "/#pair="),
+      "the code is for the new address",
+    );
     await until(() => !alive(tunnel.pid));
     assert.equal(w.tunnelPids().length, 2);
 
@@ -369,12 +485,23 @@ test("loop pair refuses a code once the connection service is gone", async () =>
     }
     const attempt = await w.loop(["pair"]).then(
       (done) => ({ failed: false, ...done }),
-      (error: any) => ({ failed: true, stdout: String(error.stdout ?? ""), stderr: String(error.stderr ?? "") }),
+      (error: any) => ({
+        failed: true,
+        stdout: String(error.stdout ?? ""),
+        stderr: String(error.stderr ?? ""),
+      }),
     );
-    assert.equal(attempt.failed, true, "loop pair reported success: " + attempt.stdout);
+    assert.equal(
+      attempt.failed,
+      true,
+      "loop pair reported success: " + attempt.stdout,
+    );
     assert.match(attempt.stderr, /connection service is not running/);
     assert.match(attempt.stderr, /loop start/, "the error says how to recover");
-    assert(!/#pair=/.test(attempt.stdout + attempt.stderr), "no code was issued");
+    assert(
+      !/#pair=/.test(attempt.stdout + attempt.stderr),
+      "no code was issued",
+    );
     const after = await w.status();
     assert.equal(after.pid, before.pid, "the application was left alone");
     assert.equal(after.connection.service.state, "exited");
@@ -385,7 +512,10 @@ test("loop pair refuses a code once the connection service is gone", async () =>
     const paired = await w.loop(["pair"]);
     const serving = await w.status();
     assert.equal(serving.connection.registered, true);
-    assert(paired.stdout.includes(serving.url + "/#pair="), "the code is for the live address");
+    assert(
+      paired.stdout.includes(serving.url + "/#pair="),
+      "the code is for the live address",
+    );
   } finally {
     await w.cleanup();
   }
@@ -394,26 +524,52 @@ test("loop pair refuses a code once the connection service is gone", async () =>
 test("restart from another directory repeats a foreground launch's project and paths", async () => {
   const w = await workspace();
   try {
-    const project = await realpath(w.harness[w.harness.indexOf("--project") + 1]);
+    const project = await realpath(
+      w.harness[w.harness.indexOf("--project") + 1],
+    );
     const log = join(w.base, "foreground.log");
     // Implicit project and a relative executable, from the project directory.
     const app = spawn(
       process.execPath,
-      ["--import", import.meta.resolve("tsx"), resolve("src/cli.ts"), "codex", "--executable", "../codex", "--billing", "existing", "--local-only", "--foreground"],
-      { cwd: project, detached: true, stdio: ["ignore", openSync(log, "a"), openSync(log, "a")], env: w.env },
+      [
+        "--import",
+        import.meta.resolve("tsx"),
+        resolve("src/cli.ts"),
+        "codex",
+        "--executable",
+        "../codex",
+        "--billing",
+        "existing",
+        "--local-only",
+        "--foreground",
+      ],
+      {
+        cwd: project,
+        detached: true,
+        stdio: ["ignore", openSync(log, "a"), openSync(log, "a")],
+        env: w.env,
+      },
     );
     app.unref();
     let before: any;
     const end = Date.now() + 60000;
     while (!(before = await w.status().catch(() => undefined))?.pid) {
-      assert(Date.now() < end, "the foreground launch never started: " + readFileSync(log, "utf8"));
+      assert(
+        Date.now() < end,
+        "the foreground launch never started: " + readFileSync(log, "utf8"),
+      );
       await new Promise((r) => setTimeout(r, 250));
     }
     w.pids.add(before.pid);
     assert.equal(before.project, project);
-    const launch = JSON.parse(readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8")).args;
+    const launch = JSON.parse(
+      readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
+    ).args;
     assert.equal(launch[launch.indexOf("--project") + 1], project);
-    assert.equal(launch[launch.indexOf("--executable") + 1], join(w.base, "codex"));
+    assert.equal(
+      launch[launch.indexOf("--executable") + 1],
+      join(w.base, "codex"),
+    );
     assert(!launch.includes("--foreground"));
 
     // This test runs from the repository, not the project directory.
@@ -440,14 +596,34 @@ test("an incompatible connection service is reported, never silently replaced", 
   const token = "t".repeat(43);
   const server = createServer((req, res) => {
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ protocol: 99, instance, version: "9.9.9", tunnel: { state: "ready" }, origin: "https://future-loop.trycloudflare.com" }));
+    res.end(
+      JSON.stringify({
+        protocol: 99,
+        instance,
+        version: "9.9.9",
+        tunnel: { state: "ready" },
+        origin: "https://future-loop.trycloudflare.com",
+      }),
+    );
   });
   const instance = randomUUID();
   await new Promise<void>((r) => server.listen(control, r));
   try {
     writeFileSync(
       join(w.connection, "connection.json"),
-      JSON.stringify({ schema: 1, protocol: 99, version: "9.9.9", instance, pid: process.pid, identity: identity(process.pid), pidNamespace: pidNamespace(), control, token, mode: { kind: "quick" }, startedAt: Date.now() }),
+      JSON.stringify({
+        schema: 1,
+        protocol: 99,
+        version: "9.9.9",
+        instance,
+        pid: process.pid,
+        identity: identity(process.pid),
+        pidNamespace: pidNamespace(),
+        control,
+        token,
+        mode: { kind: "quick" },
+        startedAt: Date.now(),
+      }),
       { mode: 0o600 },
     );
     await assert.rejects(w.loop(w.harness), /protocol 99.*loop stop/s);
@@ -470,7 +646,9 @@ test("local-only mode never starts the connection service or cloudflared", async
     assert.equal(status.connection.mode, "local");
     assert.equal(w.tunnelPids().length, 0);
     assert(!existsSync(join(w.connection, "connection.json")));
-    const launch = JSON.parse(await readFile(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"));
+    const launch = JSON.parse(
+      await readFile(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
+    );
     assert(launch.args.includes("--local-only"));
     await w.loop(["restart"]);
     const after = await w.status();
@@ -478,7 +656,10 @@ test("local-only mode never starts the connection service or cloudflared", async
     assert.equal(after.connection.mode, "local");
     assert.equal(w.tunnelPids().length, 0);
     // There is no connection service to require: pairing stays available.
-    assert.match((await w.loop(["pair"])).stdout, /http:\/\/127\.0\.0\.1:\d+\/#pair=/);
+    assert.match(
+      (await w.loop(["pair"])).stdout,
+      /http:\/\/127\.0\.0\.1:\d+\/#pair=/,
+    );
   } finally {
     await w.cleanup();
   }
@@ -556,7 +737,10 @@ test("a stopped or hung application under an installed service restarts inside i
   try {
     const bin = join(w.base, "bin");
     const home = join(w.base, "home");
-    const units = join(home, mac ? "Library/LaunchAgents" : ".config/systemd/user");
+    const units = join(
+      home,
+      mac ? "Library/LaunchAgents" : ".config/systemd/user",
+    );
     await mkdir(bin, { recursive: true });
     await mkdir(units, { recursive: true });
     for (const name of ["launchctl", "systemctl"])
@@ -574,11 +758,26 @@ test("a stopped or hung application under an installed service restarts inside i
     const launch = [...w.harness, "--local-only"];
     writeFileSync(
       join(units, mac ? `${names.app}.plist` : names.app),
-      serviceDefinitions(process.platform, process.execPath, resolve("src/cli.ts"), w.env.LOOP_HOME, project, `${bin}:${process.env.PATH}`, null, launch).app.contents,
+      serviceDefinitions(
+        process.platform,
+        process.execPath,
+        resolve("src/cli.ts"),
+        w.env.LOOP_HOME,
+        project,
+        `${bin}:${process.env.PATH}`,
+        null,
+        launch,
+      ).app.contents,
       { mode: 0o600 },
     );
     const log = join(w.base, "service.log");
-    const args = ["--import", "tsx", resolve("src/cli.ts"), ...launch, "--foreground"];
+    const args = [
+      "--import",
+      "tsx",
+      resolve("src/cli.ts"),
+      ...launch,
+      "--foreground",
+    ];
     const start = () => {
       const app = spawn(process.execPath, args, {
         detached: true,
@@ -641,7 +840,10 @@ test("an upgrade points a checkout-installed service at the newly installed buil
   try {
     const bin = join(w.base, "bin");
     const home = join(w.base, "home");
-    const units = join(home, mac ? "Library/LaunchAgents" : ".config/systemd/user");
+    const units = join(
+      home,
+      mac ? "Library/LaunchAgents" : ".config/systemd/user",
+    );
     await mkdir(bin, { recursive: true });
     await mkdir(units, { recursive: true });
     for (const name of ["launchctl", "systemctl"])
@@ -659,7 +861,11 @@ test("an upgrade points a checkout-installed service at the newly installed buil
     const checkout = join(w.base, "checkout", "dist", "cli.js");
     const installed = resolve("src/cli.ts");
     await mkdir(dirname(checkout), { recursive: true });
-    writeFileSync(checkout, CHECKOUT_CLI.replace("__CLI__", JSON.stringify(installed)), { mode: 0o755 });
+    writeFileSync(
+      checkout,
+      CHECKOUT_CLI.replace("__CLI__", JSON.stringify(installed)),
+      { mode: 0o755 },
+    );
 
     const project = w.harness[w.harness.indexOf("--project") + 1];
     const { serviceDefinitions, SERVICES } = await import("../src/service.js");
@@ -668,7 +874,16 @@ test("an upgrade points a checkout-installed service at the newly installed buil
     const unit = join(units, mac ? `${names.app}.plist` : names.app);
     writeFileSync(
       unit,
-      serviceDefinitions(process.platform, process.execPath, checkout, w.env.LOOP_HOME, project, `${bin}:${process.env.PATH}`, null, launch).app.contents,
+      serviceDefinitions(
+        process.platform,
+        process.execPath,
+        checkout,
+        w.env.LOOP_HOME,
+        project,
+        `${bin}:${process.env.PATH}`,
+        null,
+        launch,
+      ).app.contents,
       { mode: 0o600 },
     );
     const log = join(w.base, "service.log");
@@ -683,7 +898,11 @@ test("an upgrade points a checkout-installed service at the newly installed buil
     let before: any;
     const end = Date.now() + 60000;
     while (!(before = await w.status().catch(() => undefined))?.pid) {
-      assert(Date.now() < end, "the checkout-installed service never started: " + readFileSync(log, "utf8"));
+      assert(
+        Date.now() < end,
+        "the checkout-installed service never started: " +
+          readFileSync(log, "utf8"),
+      );
       await new Promise((r) => setTimeout(r, 250));
     }
     w.pids.add(before.pid);
@@ -702,29 +921,47 @@ test("an upgrade points a checkout-installed service at the newly installed buil
     before = restarted;
 
     // The handoff loop upgrade performs once the new build is installed.
-    const { stdout } = await w.loop(["restart", "--upgraded-from", "0.0.0-previous"], 120000);
+    const { stdout } = await w.loop(
+      ["restart", "--upgraded-from", "0.0.0-previous"],
+      120000,
+    );
     const after = await w.status();
     w.pids.add(after.pid);
     assert.notEqual(after.pid, before.pid);
     // The unit launches the installed build, with the rest of its launch kept.
     const rewritten = readFileSync(unit, "utf8");
     assert(rewritten.includes(installed), "the unit names the installed build");
-    assert(!rewritten.includes(checkout), "the unit no longer names the checkout");
-    assert(rewritten.includes(project), "the saved launch survived the rewrite");
+    assert(
+      !rewritten.includes(checkout),
+      "the unit no longer names the checkout",
+    );
+    assert(
+      rewritten.includes(project),
+      "the saved launch survived the rewrite",
+    );
     // ...and the manager relaunched that build, not the one it had loaded.
     const loaded = JSON.parse(readFileSync(job, "utf8"));
     assert.equal(loaded.pid, after.pid, "the manager owns the new application");
     assert.equal(loaded.args[0], installed, "it launched the installed build");
-    assert.equal(after.release, JSON.parse(readFileSync("package.json", "utf8")).version);
+    assert.equal(
+      after.release,
+      JSON.parse(readFileSync("package.json", "utf8")).version,
+    );
     assert.equal(after.supervisor, supervisor);
     assert.equal(after.project, before.project);
     assert.equal(after.connection.mode, "local");
     assert(!alive(before.pid));
-    assert.match(stdout, /Pointed the Loop service at the newly installed build/);
+    assert.match(
+      stdout,
+      /Pointed the Loop service at the newly installed build/,
+    );
     assert.match(stdout, /Loop restarted under its service/);
 
     // Already the installed build: the next restart is an ordinary one.
-    const again = await w.loop(["restart", "--upgraded-from", "0.0.0-previous"], 120000);
+    const again = await w.loop(
+      ["restart", "--upgraded-from", "0.0.0-previous"],
+      120000,
+    );
     assert.doesNotMatch(again.stdout, /Pointed the Loop service/);
     const last = await w.status();
     w.pids.add(last.pid);
@@ -734,7 +971,10 @@ test("an upgrade points a checkout-installed service at the newly installed buil
   }
 });
 
-for (const mode of [["--local-only"], ["--public-url", "https://loop-proxy.example.test"]])
+for (const mode of [
+  ["--local-only"],
+  ["--public-url", "https://loop-proxy.example.test"],
+])
   test(`a service-managed ${mode[0]} launch restarts without a connection lease`, async () => {
     const w = await workspace();
     const bin = join(w.base, "bin");
@@ -743,17 +983,41 @@ for (const mode of [["--local-only"], ["--public-url", "https://loop-proxy.examp
       writeFileSync(join(bin, name), LAUNCHCTL, { mode: 0o755 });
     const home = join(w.base, "home");
     const mac = process.platform === "darwin";
-    const units = join(home, mac ? "Library/LaunchAgents" : ".config/systemd/user");
+    const units = join(
+      home,
+      mac ? "Library/LaunchAgents" : ".config/systemd/user",
+    );
     await mkdir(units, { recursive: true });
     const { serviceDefinitions } = await import("../src/service.js");
     const supervisor = mac ? "launchd" : "systemd";
-    const installed = serviceDefinitions(process.platform, process.execPath, resolve("src/cli.ts"), w.env.LOOP_HOME, w.base, process.env.PATH!, null, [...w.harness, ...mode]).app;
+    const installed = serviceDefinitions(
+      process.platform,
+      process.execPath,
+      resolve("src/cli.ts"),
+      w.env.LOOP_HOME,
+      w.base,
+      process.env.PATH!,
+      null,
+      [...w.harness, ...mode],
+    ).app;
     const unit = join(units, mac ? `${installed.name}.plist` : installed.name);
     writeFileSync(unit, installed.contents);
     const job = join(w.base, "launchd-job.json");
-    Object.assign(w.env, { PATH: `${bin}:${process.env.PATH}`, LOOP_TEST_LAUNCHD_JOB: job, LOOP_TEST_SUPERVISOR: supervisor, HOME: home });
+    Object.assign(w.env, {
+      PATH: `${bin}:${process.env.PATH}`,
+      LOOP_TEST_LAUNCHD_JOB: job,
+      LOOP_TEST_SUPERVISOR: supervisor,
+      HOME: home,
+    });
     try {
-      const args = ["--import", "tsx", resolve("src/cli.ts"), ...w.harness, ...mode, "--foreground"];
+      const args = [
+        "--import",
+        "tsx",
+        resolve("src/cli.ts"),
+        ...w.harness,
+        ...mode,
+        "--foreground",
+      ];
       const log = join(w.base, "service.log");
       const app = spawn(process.execPath, args, {
         detached: true,
@@ -765,28 +1029,46 @@ for (const mode of [["--local-only"], ["--public-url", "https://loop-proxy.examp
       let before: any;
       const end = Date.now() + 60000;
       while (!(before = await w.status().catch(() => undefined))?.pid) {
-        assert(Date.now() < end, "the service-managed launch never started: " + readFileSync(log, "utf8"));
+        assert(
+          Date.now() < end,
+          "the service-managed launch never started: " +
+            readFileSync(log, "utf8"),
+        );
         await new Promise((r) => setTimeout(r, 250));
       }
       w.pids.add(before.pid);
       assert.equal(before.supervisor, supervisor);
-      assert.equal(before.connection.mode, mode[0] === "--local-only" ? "local" : "external-proxy");
+      assert.equal(
+        before.connection.mode,
+        mode[0] === "--local-only" ? "local" : "external-proxy",
+      );
 
       const { stdout } = await w.loop(["restart"], 60000);
       assert.match(stdout, /Loop restarted under its service/);
       const after = await w.status();
       w.pids.add(after.pid);
       assert.notEqual(after.pid, before.pid);
-      assert.equal(after.pid, JSON.parse(readFileSync(job, "utf8")).pid, "the manager ran the new application");
+      assert.equal(
+        after.pid,
+        JSON.parse(readFileSync(job, "utf8")).pid,
+        "the manager ran the new application",
+      );
       assert.equal(after.supervisor, supervisor);
       assert(!alive(before.pid));
-      assert.equal(w.tunnelPids().length, 0, "no cloudflared without a managed tunnel");
-      assert.equal(readFileSync(unit, "utf8"), installed.contents, "ordinary restart retained the installed entrypoint");
+      assert.equal(
+        w.tunnelPids().length,
+        0,
+        "no cloudflared without a managed tunnel",
+      );
+      assert.equal(
+        readFileSync(unit, "utf8"),
+        installed.contents,
+        "ordinary restart retained the installed entrypoint",
+      );
     } finally {
       await w.cleanup();
     }
   });
-
 
 for (const installation of ["absent", "another workspace"])
   test(`an inherited supervisor cannot restart a service for ${installation}`, async () => {
@@ -802,11 +1084,15 @@ for (const installation of ["absent", "another workspace"])
       // A broken ownership check fails against a fixture manager. It can
       // never invoke the host's real service manager, even when run in Loop.
       for (const name of ["launchctl", "systemctl"])
-        writeFileSync(join(bin, name), `#!/usr/bin/env node
+        writeFileSync(
+          join(bin, name),
+          `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 appendFileSync(process.env.LOOP_TEST_MANAGER_LOG, process.argv.join(" ") + "\\n");
 process.exit(91);
-`, { mode: 0o755 });
+`,
+          { mode: 0o755 },
+        );
       Object.assign(w.env, {
         HOME: home,
         PATH: `${bin}:${process.env.PATH}`,
@@ -814,13 +1100,26 @@ process.exit(91);
       });
       if (installation === "another workspace") {
         const mac = process.platform === "darwin";
-        const units = join(home, mac ? "Library/LaunchAgents" : ".config/systemd/user");
+        const units = join(
+          home,
+          mac ? "Library/LaunchAgents" : ".config/systemd/user",
+        );
         await mkdir(units, { recursive: true });
         const { serviceDefinitions } = await import("../src/service.js");
-        const other = serviceDefinitions(process.platform, process.execPath, "/other/dist/cli.js", join(w.base, "other-state"), w.base, process.env.PATH!);
+        const other = serviceDefinitions(
+          process.platform,
+          process.execPath,
+          "/other/dist/cli.js",
+          join(w.base, "other-state"),
+          w.base,
+          process.env.PATH!,
+        );
         for (const definition of [other.app, other.connection]) {
           if (!definition) continue;
-          const path = join(units, mac ? `${definition.name}.plist` : definition.name);
+          const path = join(
+            units,
+            mac ? `${definition.name}.plist` : definition.name,
+          );
           writeFileSync(path, definition.contents);
           saved.push({ path, contents: definition.contents });
         }
@@ -828,8 +1127,15 @@ process.exit(91);
       await w.loop([...w.harness, "--local-only"]);
       let before = await w.status();
       w.pids.add(before.pid);
-      assert.equal(before.supervisor, supervisor, "the child inherited its parent's supervisor claim");
-      for (const args of [["restart"], ["restart", "--upgraded-from", "0.0.0-previous"]]) {
+      assert.equal(
+        before.supervisor,
+        supervisor,
+        "the child inherited its parent's supervisor claim",
+      );
+      for (const args of [
+        ["restart"],
+        ["restart", "--upgraded-from", "0.0.0-previous"],
+      ]) {
         await w.loop(args);
         const after = await w.status();
         w.pids.add(after.pid);

@@ -21,7 +21,8 @@ export function AgentDirectory({
   const [query, setQuery] = useState("");
   const [all, setAll] = useState(false);
   const [retired, setRetired] = useState(false);
-  const key = (agent: EnvironmentAgent) => `${agent.sourceId || "laptop"}:${agent.id}`;
+  const key = (agent: EnvironmentAgent) =>
+    `${agent.sourceId || "laptop"}:${agent.id}`;
   const filtered = agents.filter(
     (a) =>
       !!a.retired_at === retired &&

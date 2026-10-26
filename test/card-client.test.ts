@@ -447,7 +447,14 @@ it("generates a schema with resolvable references and the runtime read/managemen
     if (!value || typeof value !== "object") return;
     if (value.$ref) {
       expect(value.$ref.startsWith("#/components/schemas/")).toBe(true);
-      const target = value.$ref.slice(2).split("/").reduce((node: any, key: string) => node?.[key.replaceAll("~1", "/").replaceAll("~0", "~")], spec);
+      const target = value.$ref
+        .slice(2)
+        .split("/")
+        .reduce(
+          (node: any, key: string) =>
+            node?.[key.replaceAll("~1", "/").replaceAll("~0", "~")],
+          spec,
+        );
       expect(target, value.$ref).toBeDefined();
     }
     for (const child of Object.values(value)) walk(child);
@@ -455,18 +462,33 @@ it("generates a schema with resolvable references and the runtime read/managemen
   walk(spec);
   for (const [key, contract] of Object.entries(workspaceApi)) {
     const path = "/api" + contract.path.replace(/:([^/]+)/g, "{$1}");
-    expect(spec.paths[path][contract.method.toLowerCase()].operationId).toBe(key);
+    expect(spec.paths[path][contract.method.toLowerCase()].operationId).toBe(
+      key,
+    );
   }
-  expect(spec.paths["/api/bootstrap"].get.security).toEqual([{ OwnerSession: [] }, { PairedDevice: [] }]);
+  expect(spec.paths["/api/bootstrap"].get.security).toEqual([
+    { OwnerSession: [] },
+    { PairedDevice: [] },
+  ]);
   expect(spec.paths["/api/bootstrap"].get.requestBody).toBeUndefined();
   expect(spec.paths["/api/runs"].post.responses["202"]).toBeDefined();
   expect(spec.paths["/api/runs"].post.responses["200"]).toBeUndefined();
-  expect(spec.paths["/api/runs/{id}/{action}"].post.requestBody.required).toBe(false);
-  expect(spec.paths["/api/runs/{id}/{action}"].post.parameters.filter((p: any) => p.in === "path").map((p: any) => p.name)).toEqual(["id", "action"]);
+  expect(spec.paths["/api/runs/{id}/{action}"].post.requestBody.required).toBe(
+    false,
+  );
+  expect(
+    spec.paths["/api/runs/{id}/{action}"].post.parameters
+      .filter((p: any) => p.in === "path")
+      .map((p: any) => p.name),
+  ).toEqual(["id", "action"]);
   // Attachment IDs are deduplicated by an input transform. The document must
   // still describe the accepted array, without requiring the defaulted field.
-  expect(spec.components.schemas.submitBody.properties.attachmentIds).toMatchObject({ type: "array", maxItems: 8, default: [] });
-  expect(spec.components.schemas.submitBody.required).not.toContain("attachmentIds");
+  expect(
+    spec.components.schemas.submitBody.properties.attachmentIds,
+  ).toMatchObject({ type: "array", maxItems: 8, default: [] });
+  expect(spec.components.schemas.submitBody.required).not.toContain(
+    "attachmentIds",
+  );
   for (const path of Object.values(spec.paths) as any[])
     for (const operation of Object.values(path) as any[])
       expect(

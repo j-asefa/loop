@@ -14,12 +14,10 @@ const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { recordTrace } = await import("../src/server/traces");
-const { nativeBindings, invokeNative, runtimeInstructions, PLAN_GUIDANCE } = await import(
-  "../src/server/native-tools"
-);
-const { applyActivity, listActivities, activityRoutes } = await import(
-  "../src/server/activities"
-);
+const { nativeBindings, invokeNative, runtimeInstructions, PLAN_GUIDANCE } =
+  await import("../src/server/native-tools");
+const { applyActivity, listActivities, activityRoutes } =
+  await import("../src/server/activities");
 const app = express();
 app.use(express.json(), (req, res, next) => {
   res.locals.owner = req.get("x-owner") || "alice";
@@ -45,7 +43,13 @@ function agent(owner = "alice") {
   const connection = id();
   db.prepare(
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(connection, owner, seal("fixture", owner), JSON.stringify([{ id: "fixture" }]), now());
+  ).run(
+    connection,
+    owner,
+    seal("fixture", owner),
+    JSON.stringify([{ id: "fixture" }]),
+    now(),
+  );
   return createAgent(owner, {
     name: "activity-" + id().slice(0, 8),
     connectionId: connection,
@@ -57,7 +61,11 @@ const steps = (statuses: string[]) =>
 
 it("API-provider runs publish structured plans, tool lifecycle and confirmed settings", async () => {
   const a = agent();
-  submit("alice", { agentId: a.id, input: "Plan then act", idempotencyKey: id() });
+  submit("alice", {
+    agentId: a.id,
+    input: "Plan then act",
+    idempotencyKey: id(),
+  });
   const run = claim("activity-worker")!;
   let advertised: string[] = [];
   let planDescription = "";
@@ -70,7 +78,8 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
       advertised = (input.tools || []).map((t: any) => t.name);
       instructions.push(input.instructions);
       planDescription =
-        input.tools?.find((t: any) => t.name === "loop_plan")?.description || "";
+        input.tools?.find((t: any) => t.name === "loop_plan")?.description ||
+        "";
       const round = input.messages.filter((m) => m.role === "tool").length;
       if (round === 0)
         yield {
@@ -93,7 +102,10 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
           toolCall: {
             id: "plan-2",
             name: "loop_plan",
-            arguments: { steps: steps(["completed", "completed"]), explanation: "Done" },
+            arguments: {
+              steps: steps(["completed", "completed"]),
+              explanation: "Done",
+            },
           },
         };
       else if (round === 3)
@@ -102,7 +114,10 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
           toolCall: {
             id: "plan-3",
             name: "loop_plan",
-            arguments: { steps: steps(["completed", "completed"]), explanation: "Done" },
+            arguments: {
+              steps: steps(["completed", "completed"]),
+              explanation: "Done",
+            },
           },
         };
       else yield { text: "All done." };
@@ -122,14 +137,20 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
   expect(instructions).toHaveLength(5);
   expect(new Set(instructions)).toEqual(new Set([PLAN_GUIDANCE]));
   expect(PLAN_GUIDANCE).toMatch(/loop_plan/);
-  const { status, body } = await get(`/conversations/${run.conversation_id}/activities`);
+  const { status, body } = await get(
+    `/conversations/${run.conversation_id}/activities`,
+  );
   expect(status).toBe(200);
   expect(body.version).toBe(1);
-  const byKind = (kind: string) => body.items.filter((i: any) => i.kind === kind);
+  const byKind = (kind: string) =>
+    body.items.filter((i: any) => i.kind === kind);
   const [plan] = byKind("plan");
   expect(plan.run).toBe(run.id);
   expect(plan.record.data).toMatchObject({ revision: 2, explanation: "Done" });
-  expect(plan.record.data.steps.map((s: any) => s.status)).toEqual(["completed", "completed"]);
+  expect(plan.record.data.steps.map((s: any) => s.status)).toEqual([
+    "completed",
+    "completed",
+  ]);
   // The plan tool is shown as a plan, not also as a tool card.
   const tools = byKind("tool");
   expect(tools).toHaveLength(1);
@@ -156,10 +177,15 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
     commands: { state: "unsupported" },
   });
   // Incremental sync returns only newer changes.
-  const after = await get(`/conversations/${run.conversation_id}/activities?after=${body.cursor}`);
+  const after = await get(
+    `/conversations/${run.conversation_id}/activities?after=${body.cursor}`,
+  );
   expect(after.body.items).toEqual([]);
   // Another owner cannot read the conversation's activities.
-  expect((await get(`/conversations/${run.conversation_id}/activities`, "bob")).status).toBe(404);
+  expect(
+    (await get(`/conversations/${run.conversation_id}/activities`, "bob"))
+      .status,
+  ).toBe(404);
 });
 
 it("adds plan guidance only when loop_plan is advertised", () => {
@@ -172,7 +198,9 @@ it("adds plan guidance only when loop_plan is advertised", () => {
   // not Loop's plan tool.
   expect(runtimeInstructions("Cite sources.", [])).toBe("Cite sources.");
   expect(
-    runtimeInstructions("Cite sources.", [{ tool: "loop_plan", connectionId: "mcp-1" }]),
+    runtimeInstructions("Cite sources.", [
+      { tool: "loop_plan", connectionId: "mcp-1" },
+    ]),
   ).toBe("Cite sources.");
 });
 
@@ -181,18 +209,31 @@ it("does not offer or accept the plan tool on the native bridge path", async () 
   submit("alice", { agentId: a.id, input: "x", idempotencyKey: id() });
   const run = claim("bridge-worker")!;
   expect(nativeBindings(run).map((b) => b.tool)).not.toContain("loop_plan");
-  const binding = nativeBindings(run, { plans: true }).find((b) => b.tool === "loop_plan")!;
+  const binding = nativeBindings(run, { plans: true }).find(
+    (b) => b.tool === "loop_plan",
+  )!;
   // Bridge and HAPI callers do not pass { plans: true }, so a direct call is refused.
   await expect(
-    invokeNative(run, binding, "p", { steps: [{ title: "x", status: "pending" }] }),
+    invokeNative(run, binding, "p", {
+      steps: [{ title: "x", status: "pending" }],
+    }),
   ).rejects.toMatchObject({ status: 403 });
   transition(run, "completed");
 });
 
 it("rejects stale generations and invalid updates and ignores duplicates", () => {
   const a = agent();
-  const run = submit("alice", { agentId: a.id, input: "x", idempotencyKey: id() });
-  const scope = { owner: "alice", conversation: run.conversation_id, run: run.id, generation: "g2" };
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "x",
+    idempotencyKey: id(),
+  });
+  const scope = {
+    owner: "alice",
+    conversation: run.conversation_id,
+    run: run.id,
+    generation: "g2",
+  };
   const update = {
     v: 1 as const,
     kind: "tool" as const,
@@ -206,33 +247,58 @@ it("rejects stale generations and invalid updates and ignores duplicates", () =>
     applied: false,
     reason: "stale generation",
   });
-  expect(applyActivity(scope, { ...update, patch: { status: "exploded" } })).toMatchObject({
+  expect(
+    applyActivity(scope, { ...update, patch: { status: "exploded" } }),
+  ).toMatchObject({
     applied: false,
     reason: "invalid activity update",
   });
   const first = applyActivity(scope, update);
   expect(first.applied).toBe(true);
-  expect(applyActivity(scope, update)).toMatchObject({ applied: false, reason: "no change" });
+  expect(applyActivity(scope, update)).toMatchObject({
+    applied: false,
+    reason: "no change",
+  });
   // Replayed history from an earlier generation may fill gaps but not execute.
-  applyActivity(scope, { ...update, generation: "g1", replay: true, patch: { status: "completed", input: "a.ts" } });
-  const [item] = listActivities("alice", run.conversation_id!).items.filter((i: any) => i.kind === "tool");
+  applyActivity(scope, {
+    ...update,
+    generation: "g1",
+    replay: true,
+    patch: { status: "completed", input: "a.ts" },
+  });
+  const [item] = listActivities("alice", run.conversation_id!).items.filter(
+    (i: any) => i.kind === "tool",
+  );
   expect(item.record.data).toMatchObject({ status: "running", input: "a.ts" });
   // Turn activities need trusted run scope.
-  expect(applyActivity({ owner: "alice", conversation: run.conversation_id }, update)).toMatchObject({
+  expect(
+    applyActivity(
+      { owner: "alice", conversation: run.conversation_id },
+      update,
+    ),
+  ).toMatchObject({
     applied: false,
   });
 });
 
 it("projects legacy tool traces once and prefers activity records", () => {
   const a = agent();
-  const run = submit("alice", { agentId: a.id, input: "old", idempotencyKey: id() });
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "old",
+    idempotencyKey: id(),
+  });
   recordTrace(run as any, "tool:old-call", {
     kind: "tool",
     title: "legacy_tool",
     content: "legacy output",
     metadata: { state: "completed" },
   });
-  recordTrace(run as any, "tool:new-call", { kind: "tool", title: "new_tool", metadata: { state: "running" } });
+  recordTrace(run as any, "tool:new-call", {
+    kind: "tool",
+    title: "new_tool",
+    metadata: { state: "running" },
+  });
   applyActivity(
     { owner: "alice", conversation: run.conversation_id, run: run.id },
     {
@@ -240,10 +306,16 @@ it("projects legacy tool traces once and prefers activity records", () => {
       kind: "tool",
       id: "new-call",
       source: { transport: "api", origin: "broker" },
-      patch: { title: "new_tool", status: "running", links: { trace: "tool:new-call" } },
+      patch: {
+        title: "new_tool",
+        status: "running",
+        links: { trace: "tool:new-call" },
+      },
     },
   );
-  const items = listActivities("alice", run.conversation_id!).items.filter((i: any) => i.kind === "tool");
+  const items = listActivities("alice", run.conversation_id!).items.filter(
+    (i: any) => i.kind === "tool",
+  );
   expect(items.map((i: any) => [i.record.data.title, !!i.legacy])).toEqual([
     ["legacy_tool", true],
     ["new_tool", false],
@@ -256,20 +328,51 @@ it("projects legacy tool traces once and prefers activity records", () => {
 
 it("keeps internal native envelopes and receipts out of legacy activities", async () => {
   const a = agent();
-  const run = submit("alice", { agentId: a.id, input: "old native", idempotencyKey: id() });
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "old native",
+    idempotencyKey: id(),
+  });
   for (const [key, title, content, metadata] of [
-    ["native:envelope", "StructuredOutput", "INTERNAL_ENVELOPE_SENTINEL", { native: true }],
-    ["native:envelope:result", "Tool result", "INTERNAL_RECEIPT_SENTINEL", { native: true }],
+    [
+      "native:envelope",
+      "StructuredOutput",
+      "INTERNAL_ENVELOPE_SENTINEL",
+      { native: true },
+    ],
+    [
+      "native:envelope:result",
+      "Tool result",
+      "INTERNAL_RECEIPT_SENTINEL",
+      { native: true },
+    ],
     // A public tool with the same name is not the native envelope.
-    ["tool:public", "StructuredOutput", "Public tool result", { state: "completed" }],
-    ["tool:review", "pull_request_review_write", "Public review failure", { state: "failed" }],
+    [
+      "tool:public",
+      "StructuredOutput",
+      "Public tool result",
+      { state: "completed" },
+    ],
+    [
+      "tool:review",
+      "pull_request_review_write",
+      "Public review failure",
+      { state: "failed" },
+    ],
   ] as const)
     recordTrace(run as any, key, { kind: "tool", title, content, metadata });
-  const response = await get(`/conversations/${run.conversation_id}/activities`);
+  const response = await get(
+    `/conversations/${run.conversation_id}/activities`,
+  );
   expect(response.status).toBe(200);
   expect(response.body.items.map((i: any) => i.record.id)).toEqual([
-    "tool:public", "tool:review",
+    "tool:public",
+    "tool:review",
   ]);
-  expect(JSON.stringify(response.body)).not.toMatch(/INTERNAL_(ENVELOPE|RECEIPT)_SENTINEL/);
-  expect(db.prepare("SELECT count(*) n FROM run_traces WHERE run_id=?").get(run.id)).toEqual({ n: 4 });
+  expect(JSON.stringify(response.body)).not.toMatch(
+    /INTERNAL_(ENVELOPE|RECEIPT)_SENTINEL/,
+  );
+  expect(
+    db.prepare("SELECT count(*) n FROM run_traces WHERE run_id=?").get(run.id),
+  ).toEqual({ n: 4 });
 });

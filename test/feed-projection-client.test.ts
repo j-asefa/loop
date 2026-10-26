@@ -33,19 +33,13 @@ it("keeps per-source/per-page cursors and rejects late snapshots, owner changes 
   );
   const rejected = expect(late).rejects.toThrow("Obsolete");
   await reader.read("one", "/feed", async (known) => {
-    expect(
-      JSON.parse(known!)
-        .selection,
-    ).toBe("newest");
+    expect(JSON.parse(known!).selection).toBe("newest");
     return page("newest", "epoch", 2);
   });
   resolve(page("stale"));
   await rejected;
   await reader.read("one", "/feed?before=older", async (known) => {
-    expect(
-      JSON.parse(known!)
-        .selection,
-    ).toBe("older");
+    expect(JSON.parse(known!).selection).toBe("older");
     return page("older");
   });
   const replacement = reader.read(

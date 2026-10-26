@@ -3,7 +3,17 @@ import { z } from "zod";
 // Scalar SQLite storage shapes. JSON columns remain serialized at this boundary.
 export const RowId = z.string().min(1);
 const Id = RowId;
-export const Provider = z.enum(["openai", "anthropic", "codex", "pi", "opencode", "gemini", "muse", "grok", "acp"]);
+export const Provider = z.enum([
+  "openai",
+  "anthropic",
+  "codex",
+  "pi",
+  "opencode",
+  "gemini",
+  "muse",
+  "grok",
+  "acp",
+]);
 
 export const AgentRecord = z.object({
   id: Id,
@@ -198,4 +208,3 @@ export const MemorySourceRecord = z.object({
   updated_at: z.number(),
   indexed_revision: z.number().nullable(),
 });
-

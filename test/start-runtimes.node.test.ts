@@ -29,7 +29,11 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
   };
   for (const name of names) {
     if (name === "gemini") {
-      await writeFile(join(bin, name), `#!/bin/sh\nexport LOOP_TEST_GEMINI_AUTO=1\nexec '${process.execPath}' '${resolve("test/fixtures/fake-gemini.mjs")}' "$@"\n`, { mode: 0o755 });
+      await writeFile(
+        join(bin, name),
+        `#!/bin/sh\nexport LOOP_TEST_GEMINI_AUTO=1\nexec '${process.execPath}' '${resolve("test/fixtures/fake-gemini.mjs")}' "$@"\n`,
+        { mode: 0o755 },
+      );
       continue;
     }
     await writeFile(
@@ -48,8 +52,14 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
   };
   let host = new WorkspaceHost(dir, options);
   try {
-    const { prepareLocalHarnesses } = await import("../src/server/local-harnesses.js");
-    await host.start(options, undefined, () => prepareLocalHarnesses(dir, [...names]), true);
+    const { prepareLocalHarnesses } =
+      await import("../src/server/local-harnesses.js");
+    await host.start(
+      options,
+      undefined,
+      () => prepareLocalHarnesses(dir, [...names]),
+      true,
+    );
     const secret = new URL(host.pair().url).hash.slice(6);
     const redemption = await fetch(host.origin + "/pair", {
       method: "POST",
@@ -121,7 +131,8 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
     for (const name of names) {
       await api(`/workspace/runtimes/${name}/enable`, {
         projectId,
-        billing: name === "codex" || name === "claude" ? "subscription" : "existing",
+        billing:
+          name === "codex" || name === "claude" ? "subscription" : "existing",
       });
       const input = {
         name: "app-" + name,

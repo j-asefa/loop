@@ -7,15 +7,24 @@ import type { RunEventPayload } from "../shared/workspace-events.js";
 
 // Call inside the root's transaction. A damaged child payload cannot prevent
 // healthy siblings from stopping, and a foreign link never grants authority.
-function cancelChildren(owner: string, root: string, reason: RunEventPayload = {}) {
-  const pending = [root], visited = new Set<string>();
+function cancelChildren(
+  owner: string,
+  root: string,
+  reason: RunEventPayload = {},
+) {
+  const pending = [root],
+    visited = new Set<string>();
   while (pending.length) {
     const parent = pending.pop()!;
     if (visited.has(parent)) continue;
     visited.add(parent);
-    db.prepare("UPDATE approvals SET state='rejected' WHERE owner_id=? AND run_id=? AND state='pending'")
-      .run(owner, parent);
-    const children = z.array(RunIdentity).parse(db.prepare(`
+    db.prepare(
+      "UPDATE approvals SET state='rejected' WHERE owner_id=? AND run_id=? AND state='pending'",
+    ).run(owner, parent);
+    const children = z.array(RunIdentity).parse(
+      db
+        .prepare(
+          `
       SELECT r.id,r.owner_id FROM runs r WHERE r.owner_id=? AND r.id IN (
         SELECT child_run_id FROM delegations WHERE parent_run_id=?
         UNION SELECT child_run_id FROM workflow_steps WHERE run_id=? AND child_run_id IS NOT NULL
@@ -23,7 +32,10 @@ function cancelChildren(owner: string, root: string, reason: RunEventPayload = {
           ON m.sender_run_id=d.child_run_id AND m.kind='result' AND m.owner_id=?
           JOIN runs result ON result.id=m.run_id AND result.owner_id=m.owner_id
           WHERE d.parent_run_id=? AND d.background=1 AND result.state='queued'
-      )`).all(owner, parent, parent, owner, parent));
+      )`,
+        )
+        .all(owner, parent, parent, owner, parent),
+    );
     for (const child of children) {
       transition(child, "cancelled", reason);
       pending.push(child.id);
@@ -32,13 +44,18 @@ function cancelChildren(owner: string, root: string, reason: RunEventPayload = {
 }
 
 export function cancelRun(owner: string, runId: string) {
-  return db.transaction(() => {
-    const run = ownedRunControl(runId, owner);
-    if (!transition(run, "cancelled"))
-      throw new Problem(409, "That action is not available in the current state");
-    cancelChildren(owner, run.id);
-    return { ok: true };
-  }).immediate();
+  return db
+    .transaction(() => {
+      const run = ownedRunControl(runId, owner);
+      if (!transition(run, "cancelled"))
+        throw new Problem(
+          409,
+          "That action is not available in the current state",
+        );
+      cancelChildren(owner, run.id);
+      return { ok: true };
+    })
+    .immediate();
 }
 
 export function dismissRun(owner: string, runId: string) {

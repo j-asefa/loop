@@ -134,8 +134,12 @@ it("keeps upload names within file system limits", () => {
   expect(safeUploadName("")).toBe("file");
   const root = join(dir, "names");
   const bytes = randomBytes(10);
-  expect(() => send(root, bytes, { name: long })).toThrow("Invalid upload chunk");
-  expect(readFileSync(send(root, bytes, { name: short }).path).equals(bytes)).toBe(true);
+  expect(() => send(root, bytes, { name: long })).toThrow(
+    "Invalid upload chunk",
+  );
+  expect(
+    readFileSync(send(root, bytes, { name: short }).path).equals(bytes),
+  ).toBe(true);
 });
 
 it("refuses a symlinked upload folder and sweeps abandoned partial files", () => {
@@ -156,7 +160,10 @@ it("refuses a symlinked upload folder and sweeps abandoned partial files", () =>
   const old = new Date(Date.now() - 60 * 60_000);
   utimesSync(stale, old, old);
   send(root, randomBytes(10), { fileId: other, name: "x.bin" });
-  expect(readdirSync(folder).sort()).toEqual([".bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.part", "x.bin"]);
+  expect(readdirSync(folder).sort()).toEqual([
+    ".bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.part",
+    "x.bin",
+  ]);
 });
 
 const workspace = join(dir, "runtime-workspace");
@@ -238,7 +245,13 @@ it("copies the current turn's uploads into the runtime workspace before the turn
   expect(new Set(uploads.map((r) => r.workspaceKey))).toEqual(
     new Set(["b".repeat(64)]),
   );
-  const path = join(realpathSync(workspace), ".loop", "uploads", image.id, "IMG_8960.png");
+  const path = join(
+    realpathSync(workspace),
+    ".loop",
+    "uploads",
+    image.id,
+    "IMG_8960.png",
+  );
   expect(readFileSync(path).equals(bytes)).toBe(true);
   expect(content).toContain("Use native file tools to inspect them");
   expect(content).toContain(JSON.stringify(path));
@@ -256,7 +269,9 @@ it("copies the current turn's uploads into the runtime workspace before the turn
   requests.length = 0;
   expect(await turn(c, [image])).toContain(JSON.stringify(path));
   expect(
-    requests.filter((r) => r.action === "write-upload").map((r) => r.check ? "check" : r.offset),
+    requests
+      .filter((r) => r.action === "write-upload")
+      .map((r) => (r.check ? "check" : r.offset)),
   ).toEqual(["check", 0, UPLOAD_CHUNK_BYTES]);
   expect(readFileSync(path).equals(bytes)).toBe(true);
   // A different connection re-checks the workspace but sends only one chunk.

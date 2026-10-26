@@ -14,7 +14,13 @@ const item = (key: string, sequence: number): ActivityItem => ({
   sequence,
   kind: "tool",
   run: "run",
-  record: reduceActivity(undefined, { v: 1, kind: "tool", id: key, source: { transport: "api", origin: "test" }, patch: { title: key } }).record!,
+  record: reduceActivity(undefined, {
+    v: 1,
+    kind: "tool",
+    id: key,
+    source: { transport: "api", origin: "test" },
+    patch: { title: key },
+  }).record!,
 });
 const page = (
   cursor: number,
@@ -41,7 +47,10 @@ it("loads one recent page on open and keeps historical and live cursors independ
   let state: any;
   const loader = new ActivityHistory(
     async (query) => {
-      const url = routePath(workspaceApi.conversationActivities, { params: { id: "thread" }, query });
+      const url = routePath(workspaceApi.conversationActivities, {
+        params: { id: "thread" },
+        query,
+      });
       requests.push(url);
       return pages.shift()!;
     },
@@ -86,7 +95,10 @@ it("fetches file history only for displayed runs and does not advance the live c
   ];
   const loader = new ActivityHistory(
     async (query) => {
-      const url = routePath(workspaceApi.conversationActivities, { params: { id: "thread" }, query });
+      const url = routePath(workspaceApi.conversationActivities, {
+        params: { id: "thread" },
+        query,
+      });
       requests.push(url);
       return pages.shift()!;
     },
@@ -146,7 +158,10 @@ it("retries a failed older-page read with the same cursor", async () => {
   let state: any;
   const loader = new ActivityHistory(
     async (query) => {
-      const url = routePath(workspaceApi.conversationActivities, { params: { id: "thread" }, query });
+      const url = routePath(workspaceApi.conversationActivities, {
+        params: { id: "thread" },
+        query,
+      });
       requests.push(url);
       if (url.includes("before=") && fail) {
         fail = false;
@@ -179,7 +194,10 @@ it("preserves snapshot paging with older desktops without refetching it for ever
   const pages = [page(500, [], { more: true }), page(750)];
   const loader = new ActivityHistory(
     async (query) => {
-      const url = routePath(workspaceApi.conversationActivities, { params: { id: "old" }, query });
+      const url = routePath(workspaceApi.conversationActivities, {
+        params: { id: "old" },
+        query,
+      });
       requests.push(url);
       return pages.shift()!;
     },
@@ -188,7 +206,10 @@ it("preserves snapshot paging with older desktops without refetching it for ever
   );
   await loader.refresh();
   await loader.setRuns(["r1", "r2"]);
-  expect(requests).toEqual(["/conversations/old/activities?view=recent", "/conversations/old/activities?view=updates&after=500"]);
+  expect(requests).toEqual([
+    "/conversations/old/activities?view=recent",
+    "/conversations/old/activities?view=updates&after=500",
+  ]);
 });
 
 it("follows a change signalled during a read with one more read", async () => {
@@ -196,7 +217,10 @@ it("follows a change signalled during a read with one more read", async () => {
   let release!: (page: ActivityPage) => void;
   const loader = new ActivityHistory(
     (query) => {
-      const url = routePath(workspaceApi.conversationActivities, { params: { id: "thread" }, query });
+      const url = routePath(workspaceApi.conversationActivities, {
+        params: { id: "thread" },
+        query,
+      });
       requests.push(url);
       return requests.length === 1
         ? new Promise<ActivityPage>((resolve) => {
@@ -224,7 +248,10 @@ it("loads conversation controls and displayed files without requesting tool or l
   const requests: string[] = [];
   const loader = new ActivityHistory(
     async (query) => {
-      const url = routePath(workspaceApi.conversationActivities, { params: { id: "thread" }, query });
+      const url = routePath(workspaceApi.conversationActivities, {
+        params: { id: "thread" },
+        query,
+      });
       requests.push(url);
       return page(200, [], { earlier: null });
     },

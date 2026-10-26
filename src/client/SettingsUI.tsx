@@ -1,5 +1,11 @@
 import { useId, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronRight, Copy, type LucideIcon } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  type LucideIcon,
+} from "lucide-react";
 
 /**
  * Shared settings presentation. Every settings page uses these so state reads
@@ -42,7 +48,11 @@ export function SettingsList({
   label?: string;
 }) {
   return (
-    <div className="settings-list" role={label ? "group" : undefined} aria-label={label}>
+    <div
+      className="settings-list"
+      role={label ? "group" : undefined}
+      aria-label={label}
+    >
       {children}
     </div>
   );
@@ -214,7 +224,9 @@ export function SettingsCommand({
               setError("");
               setTimeout(() => setCopied(false), 2000);
             } catch {
-              setError("Could not copy. Select the command above to copy it manually.");
+              setError(
+                "Could not copy. Select the command above to copy it manually.",
+              );
             }
           }}
         >
@@ -336,7 +348,8 @@ export function SettingsProgress({
   running?: boolean;
   label: string;
 }) {
-  const percent = total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
+  const percent =
+    total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
   return (
     <div
       className={"settings-progress" + (running ? " running" : "")}

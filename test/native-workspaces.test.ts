@@ -104,7 +104,9 @@ function submit(
     conversation,
     agent,
     payload: {
-      agentId: agent, name: agent, provider: harness,
+      agentId: agent,
+      name: agent,
+      provider: harness,
       connectionId: `native-${harness}`,
       folderId: folder.id,
       model: "native-default",
@@ -175,15 +177,33 @@ it("completes chat in an ordinary folder, resumes after restart and sends a foll
 
 it("completes native output for a legacy payload without copying unknown fields", async () => {
   const task = submit(chat, "legacy-payload");
-  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(JSON.stringify({ ...task.payload, historicalLabel: "Old label" }), task.id);
+  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(
+    JSON.stringify({ ...task.payload, historicalLabel: "Old label" }),
+    task.id,
+  );
   process.env.LOOP_TEST_GEMINI_SESSION_ID = "workspace-legacy-payload";
   expect(await tick(execute)).toBe(true);
   await completeCheckout(task.id);
-  expect(result(task)).toMatchObject({ state: "completed", result: "Fixture done", error: null });
-  expect(db.prepare("SELECT json_extract(payload,'$.historicalLabel') label FROM runs WHERE id=?").get(task.id)).toEqual({ label: "Old label" });
-  const outputs = db.prepare("SELECT metadata FROM messages WHERE run_id=? AND role='assistant' UNION ALL SELECT metadata FROM artifacts WHERE run_id=?").all(task.id, task.id) as { metadata: string }[];
+  expect(result(task)).toMatchObject({
+    state: "completed",
+    result: "Fixture done",
+    error: null,
+  });
+  expect(
+    db
+      .prepare(
+        "SELECT json_extract(payload,'$.historicalLabel') label FROM runs WHERE id=?",
+      )
+      .get(task.id),
+  ).toEqual({ label: "Old label" });
+  const outputs = db
+    .prepare(
+      "SELECT metadata FROM messages WHERE run_id=? AND role='assistant' UNION ALL SELECT metadata FROM artifacts WHERE run_id=?",
+    )
+    .all(task.id, task.id) as { metadata: string }[];
   expect(outputs.length).toBeGreaterThan(0);
-  for (const output of outputs) expect(JSON.parse(output.metadata)).not.toHaveProperty("historicalLabel");
+  for (const output of outputs)
+    expect(JSON.parse(output.metadata)).not.toHaveProperty("historicalLabel");
 });
 
 it("keeps the selected ordinary folder when switching harnesses", async () => {
@@ -208,37 +228,85 @@ it("keeps the selected ordinary folder when switching harnesses", async () => {
 
 it("binds a fresh ordinary-folder import for catalogs, native resume and harness switching", async () => {
   const kind = "plain";
-  const { importSession, prepareImportSession, resumeFromDesktop } = await import("../src/server/migration.js");
+  const { importSession, prepareImportSession, resumeFromDesktop } =
+    await import("../src/server/migration.js");
   const project = directory("import-" + kind);
   const nativeId = "imported-" + kind;
   const options = { ...nativeSessions.registration("gemini"), project };
-  const prepared = await prepareImportSession(options, "desktop", JSON.stringify([options.harness, nativeId, project]), nativeId);
-  const conversation = db.transaction(() => importSession(options, nativeId, [
-    { id: "import-history-" + kind, kind: "assistant", text: "Retain imported context" },
-  ], "Imported fixture", prepared)).immediate();
-  expect(importSession(options, nativeId, [], "Repeated import")).toBe(conversation);
-  const agent = db.prepare("SELECT a.* FROM agents a JOIN conversations c ON c.agent_id=a.id WHERE c.id=?").get(conversation) as any;
+  const prepared = await prepareImportSession(
+    options,
+    "desktop",
+    JSON.stringify([options.harness, nativeId, project]),
+    nativeId,
+  );
+  const conversation = db
+    .transaction(() =>
+      importSession(
+        options,
+        nativeId,
+        [
+          {
+            id: "import-history-" + kind,
+            kind: "assistant",
+            text: "Retain imported context",
+          },
+        ],
+        "Imported fixture",
+        prepared,
+      ),
+    )
+    .immediate();
+  expect(importSession(options, nativeId, [], "Repeated import")).toBe(
+    conversation,
+  );
+  const agent = db
+    .prepare(
+      "SELECT a.* FROM agents a JOIN conversations c ON c.agent_id=a.id WHERE c.id=?",
+    )
+    .get(conversation) as any;
   const saved = binding(conversation);
   expect(saved.worktree_agent_id).toBe(agent.id);
   expect(saved.worktree_source).toBeNull();
   expect(saved.project).toBe(project);
-  expect((await nativeSessions.catalog(agent, conversation)).available).toBe(true);
-  const resumed = await run(project, "import-resume-" + kind, { conversation, agent: agent.id });
+  expect((await nativeSessions.catalog(agent, conversation)).available).toBe(
+    true,
+  );
+  const resumed = await run(project, "import-resume-" + kind, {
+    conversation,
+    agent: agent.id,
+  });
   expect(result(resumed).state).toBe("completed");
-  expect(requests().findLast((request) => request.method === "session/load").params)
-    .toMatchObject({ sessionId: nativeId, cwd: saved.project });
+  expect(
+    requests().findLast((request) => request.method === "session/load").params,
+  ).toMatchObject({ sessionId: nativeId, cwd: saved.project });
   expect(binding(conversation).native_id).toBe(nativeId);
-  const switched = await run(project, "import-switch-" + kind, { conversation, agent: agent.id, harness: "acp" });
+  const switched = await run(project, "import-switch-" + kind, {
+    conversation,
+    agent: agent.id,
+    harness: "acp",
+  });
   expect(result(switched).state).toBe("completed");
-  expect(binding(conversation)).toMatchObject({ harness: "acp", project: saved.project, worktree_agent_id: agent.id });
-  expect(binding(conversation).instructions).toContain("Retain imported context");
-  const checkout = db.prepare("SELECT * FROM run_checkouts WHERE run_id=?").get(switched.id) as any;
+  expect(binding(conversation)).toMatchObject({
+    harness: "acp",
+    project: saved.project,
+    worktree_agent_id: agent.id,
+  });
+  expect(binding(conversation).instructions).toContain(
+    "Retain imported context",
+  );
+  const checkout = db
+    .prepare("SELECT * FROM run_checkouts WHERE run_id=?")
+    .get(switched.id) as any;
   expect(checkout).toBeUndefined();
   const switchedBinding = binding(conversation);
   const repeated = await resumeFromDesktop(options, nativeId);
   expect(repeated).not.toBe(conversation);
   expect(binding(repeated).worktree_agent_id).not.toBe(agent.id);
-  expect(binding(repeated)).toMatchObject({ harness: "gemini", native_id: nativeId, project });
+  expect(binding(repeated)).toMatchObject({
+    harness: "gemini",
+    native_id: nativeId,
+    project,
+  });
   expect(binding(conversation)).toEqual(switchedBinding);
   expect(await resumeFromDesktop(options, nativeId)).toBe(repeated);
   const handoff = await resumeFromDesktop(options, "handoff-" + kind);
@@ -251,126 +319,293 @@ it("preserves directory-scoped native history instead of relocating it to a Git 
   const { resumeFromDesktop } = await import("../src/server/migration.js");
   const project = directory("directory-scoped-handoff");
   gitProject(project);
-  for (const harness of ["gemini", "claude", "pi", "opencode", "acp"] as const) {
-    await expect(resumeFromDesktop({ ...nativeSessions.registration("gemini"), harness, project }, "scoped-" + harness))
-      .rejects.toThrow(/native context into a new Git worktree is not supported/);
-    expect(db.prepare("SELECT 1 FROM companion_sessions WHERE native_id=?").get("scoped-" + harness)).toBeUndefined();
+  for (const harness of [
+    "gemini",
+    "claude",
+    "pi",
+    "opencode",
+    "acp",
+  ] as const) {
+    await expect(
+      resumeFromDesktop(
+        { ...nativeSessions.registration("gemini"), harness, project },
+        "scoped-" + harness,
+      ),
+    ).rejects.toThrow(
+      /native context into a new Git worktree is not supported/,
+    );
+    expect(
+      db
+        .prepare("SELECT 1 FROM companion_sessions WHERE native_id=?")
+        .get("scoped-" + harness),
+    ).toBeUndefined();
   }
   expect(existsSync(join(project, ".git", "loop-agent-worktrees"))).toBe(false);
 });
 
-it.each(["concurrent", "failed-insert"])("reuses a durable workspace for %s desktop handoffs", async (mode) => {
-  const { resumeFromDesktop, prepareImportSession } = await import("../src/server/migration.js");
-  const project = directory("durable-handoff-" + mode);
-  gitProject(project);
-  const nativeId = "durable-handoff-" + mode;
-  const options = { ...nativeSessions.registration("gemini"), harness: "codex" as const, project };
-  const importKey = JSON.stringify(["codex", nativeId, project]);
-  if (mode === "failed-insert") {
-    db.exec("CREATE TRIGGER fail_handoff BEFORE INSERT ON companion_sessions BEGIN SELECT RAISE(ABORT, 'fixture import failure'); END");
-    try {
-      await expect(resumeFromDesktop(options, nativeId)).rejects.toThrow("fixture import failure");
-      const saved = db.prepare("SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?").get(OWNER, importKey) as any;
-      expect(saved.agent_id).toBeTruthy();
-      expect(existsSync(JSON.parse(saved.workspace).directory)).toBe(true);
-      expect(db.prepare("SELECT 1 FROM companion_sessions WHERE native_id=?").get(nativeId)).toBeUndefined();
-    } finally {
-      db.exec("DROP TRIGGER fail_handoff");
+it.each(["concurrent", "failed-insert"])(
+  "reuses a durable workspace for %s desktop handoffs",
+  async (mode) => {
+    const { resumeFromDesktop, prepareImportSession } =
+      await import("../src/server/migration.js");
+    const project = directory("durable-handoff-" + mode);
+    gitProject(project);
+    const nativeId = "durable-handoff-" + mode;
+    const options = {
+      ...nativeSessions.registration("gemini"),
+      harness: "codex" as const,
+      project,
+    };
+    const importKey = JSON.stringify(["codex", nativeId, project]);
+    if (mode === "failed-insert") {
+      db.exec(
+        "CREATE TRIGGER fail_handoff BEFORE INSERT ON companion_sessions BEGIN SELECT RAISE(ABORT, 'fixture import failure'); END",
+      );
+      try {
+        await expect(resumeFromDesktop(options, nativeId)).rejects.toThrow(
+          "fixture import failure",
+        );
+        const saved = db
+          .prepare(
+            "SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?",
+          )
+          .get(OWNER, importKey) as any;
+        expect(saved.agent_id).toBeTruthy();
+        expect(existsSync(JSON.parse(saved.workspace).directory)).toBe(true);
+        expect(
+          db
+            .prepare("SELECT 1 FROM companion_sessions WHERE native_id=?")
+            .get(nativeId),
+        ).toBeUndefined();
+      } finally {
+        db.exec("DROP TRIGGER fail_handoff");
+      }
     }
-  }
-  const conversations = await Promise.all([resumeFromDesktop(options, nativeId), resumeFromDesktop(options, nativeId)]);
-  expect(conversations[0]).toBe(conversations[1]);
-  const saved = db.prepare("SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?").get(OWNER, importKey) as any;
-  expect(binding(conversations[0])).toMatchObject({ worktree_agent_id: saved.agent_id, project: JSON.parse(saved.workspace).directory });
-  await expect(resumeFromDesktop({ ...options, project: JSON.parse(saved.workspace).directory }, nativeId)).resolves.toBe(conversations[0]);
-  expect(readdirSync(join(project, ".git", "loop-agent-worktrees"))).toHaveLength(1);
-  await expect(prepareImportSession({ ...options, project: chat }, "desktop", importKey, nativeId)).rejects.toThrow(/different harness or directory/);
-});
+    const conversations = await Promise.all([
+      resumeFromDesktop(options, nativeId),
+      resumeFromDesktop(options, nativeId),
+    ]);
+    expect(conversations[0]).toBe(conversations[1]);
+    const saved = db
+      .prepare(
+        "SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?",
+      )
+      .get(OWNER, importKey) as any;
+    expect(binding(conversations[0])).toMatchObject({
+      worktree_agent_id: saved.agent_id,
+      project: JSON.parse(saved.workspace).directory,
+    });
+    await expect(
+      resumeFromDesktop(
+        { ...options, project: JSON.parse(saved.workspace).directory },
+        nativeId,
+      ),
+    ).resolves.toBe(conversations[0]);
+    expect(
+      readdirSync(join(project, ".git", "loop-agent-worktrees")),
+    ).toHaveLength(1);
+    await expect(
+      prepareImportSession(
+        { ...options, project: chat },
+        "desktop",
+        importKey,
+        nativeId,
+      ),
+    ).rejects.toThrow(/different harness or directory/);
+  },
+);
 
-it.each(["plain", "git"])("rejects concurrent handoffs of one native session to different %s destinations", async (kind) => {
-  const { resumeFromDesktop } = await import("../src/server/migration.js");
-  const projects = [directory("conflicting-handoff-a-" + kind), directory("conflicting-handoff-b-" + kind)];
-  if (kind === "git") for (const project of projects) gitProject(project);
-  const nativeId = "conflicting-handoff-" + kind;
-  const options = { ...nativeSessions.registration("gemini"), harness: "codex" as const };
-  const outcomes = await Promise.allSettled(projects.map(project => resumeFromDesktop({ ...options, project }, nativeId)));
-  expect(outcomes.filter(outcome => outcome.status === "fulfilled")).toHaveLength(1);
-  expect(outcomes.filter(outcome => outcome.status === "rejected")).toHaveLength(1);
-  const winner = outcomes.findIndex(outcome => outcome.status === "fulfilled"), loser = 1 - winner;
-  const conversation = (outcomes[winner] as PromiseFulfilledResult<string>).value;
-  expect((outcomes[loser] as PromiseRejectedResult).reason.message).toContain("different workspace");
-  const saved = binding(conversation);
-  expect(saved.worktree_source ?? saved.project).toBe(projects[winner]);
-  await expect(resumeFromDesktop({ ...options, project: projects[winner] }, nativeId)).resolves.toBe(conversation);
-  await expect(resumeFromDesktop({ ...options, project: projects[loser] }, nativeId)).rejects.toThrow(/different directory/);
-  const preparations = db.prepare("SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND source=?").all(OWNER, nativeId) as any[];
-  expect(preparations).toHaveLength(2);
-  const retained = preparations.find(preparation => preparation.project === projects[loser]);
-  expect(retained.imported_at).toBeNull();
-  expect(existsSync(JSON.parse(retained.workspace).directory)).toBe(true);
-  expect(binding(conversation)).toEqual(saved);
-});
+it.each(["plain", "git"])(
+  "rejects concurrent handoffs of one native session to different %s destinations",
+  async (kind) => {
+    const { resumeFromDesktop } = await import("../src/server/migration.js");
+    const projects = [
+      directory("conflicting-handoff-a-" + kind),
+      directory("conflicting-handoff-b-" + kind),
+    ];
+    if (kind === "git") for (const project of projects) gitProject(project);
+    const nativeId = "conflicting-handoff-" + kind;
+    const options = {
+      ...nativeSessions.registration("gemini"),
+      harness: "codex" as const,
+    };
+    const outcomes = await Promise.allSettled(
+      projects.map((project) =>
+        resumeFromDesktop({ ...options, project }, nativeId),
+      ),
+    );
+    expect(
+      outcomes.filter((outcome) => outcome.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      outcomes.filter((outcome) => outcome.status === "rejected"),
+    ).toHaveLength(1);
+    const winner = outcomes.findIndex(
+        (outcome) => outcome.status === "fulfilled",
+      ),
+      loser = 1 - winner;
+    const conversation = (outcomes[winner] as PromiseFulfilledResult<string>)
+      .value;
+    expect((outcomes[loser] as PromiseRejectedResult).reason.message).toContain(
+      "different workspace",
+    );
+    const saved = binding(conversation);
+    expect(saved.worktree_source ?? saved.project).toBe(projects[winner]);
+    await expect(
+      resumeFromDesktop({ ...options, project: projects[winner] }, nativeId),
+    ).resolves.toBe(conversation);
+    await expect(
+      resumeFromDesktop({ ...options, project: projects[loser] }, nativeId),
+    ).rejects.toThrow(/different directory/);
+    const preparations = db
+      .prepare(
+        "SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND source=?",
+      )
+      .all(OWNER, nativeId) as any[];
+    expect(preparations).toHaveLength(2);
+    const retained = preparations.find(
+      (preparation) => preparation.project === projects[loser],
+    );
+    expect(retained.imported_at).toBeNull();
+    expect(existsSync(JSON.parse(retained.workspace).directory)).toBe(true);
+    expect(binding(conversation)).toEqual(saved);
+  },
+);
 
-it.each(["plain", "git"])("keeps a saved %s import binding when the project's Git state changes before retry", async (kind) => {
-  const { resumeFromDesktop } = await import("../src/server/migration.js");
-  const project = directory("retry-binding-" + kind);
-  if (kind === "git") gitProject(project);
-  const nativeId = "retry-binding-" + kind;
-  const options = { ...nativeSessions.registration("gemini"), harness: "codex" as const, project };
-  const importKey = JSON.stringify(["codex", nativeId, project]);
-  db.exec("CREATE TRIGGER fail_retry_import BEFORE INSERT ON companion_sessions BEGIN SELECT RAISE(ABORT, 'fixture import failure'); END");
-  try {
-    await expect(resumeFromDesktop(options, nativeId)).rejects.toThrow("fixture import failure");
-  } finally {
-    db.exec("DROP TRIGGER fail_retry_import");
-  }
-  const before = db.prepare("SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?").get(OWNER, importKey);
-  const movedGit = join(root, "moved-import-git");
-  if (kind === "git") renameSync(join(project, ".git"), movedGit);
-  else gitProject(project);
-  try {
-    await expect(resumeFromDesktop(options, nativeId)).rejects.toThrow(kind === "git" ? /worktree could not be verified/ : /Start a new conversation/);
-    expect(db.prepare("SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?").get(OWNER, importKey)).toEqual(before);
-    expect(db.prepare("SELECT 1 FROM companion_sessions WHERE native_id=?").get(nativeId)).toBeUndefined();
-  } finally {
-    if (kind === "git") renameSync(movedGit, join(project, ".git"));
-  }
-});
+it.each(["plain", "git"])(
+  "keeps a saved %s import binding when the project's Git state changes before retry",
+  async (kind) => {
+    const { resumeFromDesktop } = await import("../src/server/migration.js");
+    const project = directory("retry-binding-" + kind);
+    if (kind === "git") gitProject(project);
+    const nativeId = "retry-binding-" + kind;
+    const options = {
+      ...nativeSessions.registration("gemini"),
+      harness: "codex" as const,
+      project,
+    };
+    const importKey = JSON.stringify(["codex", nativeId, project]);
+    db.exec(
+      "CREATE TRIGGER fail_retry_import BEFORE INSERT ON companion_sessions BEGIN SELECT RAISE(ABORT, 'fixture import failure'); END",
+    );
+    try {
+      await expect(resumeFromDesktop(options, nativeId)).rejects.toThrow(
+        "fixture import failure",
+      );
+    } finally {
+      db.exec("DROP TRIGGER fail_retry_import");
+    }
+    const before = db
+      .prepare(
+        "SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?",
+      )
+      .get(OWNER, importKey);
+    const movedGit = join(root, "moved-import-git");
+    if (kind === "git") renameSync(join(project, ".git"), movedGit);
+    else gitProject(project);
+    try {
+      await expect(resumeFromDesktop(options, nativeId)).rejects.toThrow(
+        kind === "git"
+          ? /worktree could not be verified/
+          : /Start a new conversation/,
+      );
+      expect(
+        db
+          .prepare(
+            "SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?",
+          )
+          .get(OWNER, importKey),
+      ).toEqual(before);
+      expect(
+        db
+          .prepare("SELECT 1 FROM companion_sessions WHERE native_id=?")
+          .get(nativeId),
+      ).toBeUndefined();
+    } finally {
+      if (kind === "git") renameSync(movedGit, join(project, ".git"));
+    }
+  },
+);
 
 it("allows a new explicit handoff destination after preparation fails while retaining the first record", async () => {
   const { resumeFromDesktop } = await import("../src/server/migration.js");
-  const firstProject = directory("failed-handoff-destination"), secondProject = directory("new-handoff-destination");
+  const firstProject = directory("failed-handoff-destination"),
+    secondProject = directory("new-handoff-destination");
   gitProject(firstProject);
-  execFileSync("git", ["-C", firstProject, "remote", "add", "origin", join(root, "missing-import-remote")]);
-  const options = { ...nativeSessions.registration("gemini"), harness: "codex" as const, project: firstProject };
+  execFileSync("git", [
+    "-C",
+    firstProject,
+    "remote",
+    "add",
+    "origin",
+    join(root, "missing-import-remote"),
+  ]);
+  const options = {
+    ...nativeSessions.registration("gemini"),
+    harness: "codex" as const,
+    project: firstProject,
+  };
   const nativeId = "changed-handoff-destination";
-  await expect(resumeFromDesktop(options, nativeId)).rejects.toThrow(/Could not fetch latest main/);
-  const first = db.prepare("SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?")
+  await expect(resumeFromDesktop(options, nativeId)).rejects.toThrow(
+    /Could not fetch latest main/,
+  );
+  const first = db
+    .prepare(
+      "SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?",
+    )
     .get(OWNER, JSON.stringify(["codex", nativeId, firstProject])) as any;
   expect(first.workspace).toBeNull();
-  const conversation = await resumeFromDesktop({ ...options, project: secondProject }, nativeId);
+  const conversation = await resumeFromDesktop(
+    { ...options, project: secondProject },
+    nativeId,
+  );
   expect(binding(conversation).project).toBe(secondProject);
-  expect(db.prepare("SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?")
-    .get(OWNER, JSON.stringify(["codex", nativeId, firstProject]))).toEqual(first);
+  expect(
+    db
+      .prepare(
+        "SELECT * FROM native_import_workspaces WHERE owner_id=? AND kind='desktop' AND import_key=?",
+      )
+      .get(OWNER, JSON.stringify(["codex", nativeId, firstProject])),
+  ).toEqual(first);
   expect(binding(conversation).worktree_agent_id).not.toBe(first.agent_id);
 });
 
-it.each(["symlink", "lexical", "missing"])("reopens legacy history with a %s project path without changing its binding", async (mode) => {
-  const { importSession, resumeFromDesktop } = await import("../src/server/migration.js");
-  const project = directory("legacy-open-" + mode);
-  const alias = join(root, "legacy-alias-" + mode);
-  if (mode === "symlink") symlinkSync(project, alias);
-  const source = mode === "symlink" ? alias : mode === "lexical" ? project + "/../legacy-open-" + mode : project;
-  const options = { ...nativeSessions.registration("gemini"), project: source };
-  const nativeId = "legacy-open-" + mode;
-  const conversation = db.transaction(() => importSession(options, nativeId, [], "Legacy history")).immediate();
-  const saved = binding(conversation);
-  expect(saved.worktree_agent_id).toBeNull();
-  if (mode === "missing") renameSync(project, project + "-moved");
-  await expect(resumeFromDesktop(options, nativeId)).resolves.toBe(conversation);
-  expect(binding(conversation)).toEqual(saved);
-  expect(db.prepare("SELECT 1 FROM native_import_workspaces WHERE source=?").get(nativeId)).toBeUndefined();
-});
+it.each(["symlink", "lexical", "missing"])(
+  "reopens legacy history with a %s project path without changing its binding",
+  async (mode) => {
+    const { importSession, resumeFromDesktop } =
+      await import("../src/server/migration.js");
+    const project = directory("legacy-open-" + mode);
+    const alias = join(root, "legacy-alias-" + mode);
+    if (mode === "symlink") symlinkSync(project, alias);
+    const source =
+      mode === "symlink"
+        ? alias
+        : mode === "lexical"
+          ? project + "/../legacy-open-" + mode
+          : project;
+    const options = {
+      ...nativeSessions.registration("gemini"),
+      project: source,
+    };
+    const nativeId = "legacy-open-" + mode;
+    const conversation = db
+      .transaction(() => importSession(options, nativeId, [], "Legacy history"))
+      .immediate();
+    const saved = binding(conversation);
+    expect(saved.worktree_agent_id).toBeNull();
+    if (mode === "missing") renameSync(project, project + "-moved");
+    await expect(resumeFromDesktop(options, nativeId)).resolves.toBe(
+      conversation,
+    );
+    expect(binding(conversation)).toEqual(saved);
+    expect(
+      db
+        .prepare("SELECT 1 FROM native_import_workspaces WHERE source=?")
+        .get(nativeId),
+    ).toBeUndefined();
+  },
+);
 
 it("preserves legacy ordinary-folder sessions when resuming or switching harnesses", async () => {
   const project = directory("legacy-plain");
@@ -403,10 +638,12 @@ it("preserves the native binding if the workspace changes during a harness switc
   const saved = binding("switch-changing-workspace");
   const live = await nativeSessions.session(first);
   const dispose = live.adapter.dispose.bind(live.adapter);
-  const closing = vi.spyOn(live.adapter, "dispose").mockImplementation(async () => {
-    await dispose();
-    gitProject(project);
-  });
+  const closing = vi
+    .spyOn(live.adapter, "dispose")
+    .mockImplementation(async () => {
+      await dispose();
+      gitProject(project);
+    });
   try {
     const task = await run(project, "switch-workspace-changed", {
       conversation: "switch-changing-workspace",
@@ -434,13 +671,17 @@ it("switches harnesses after a cancelled startup publishes its native session id
   const { Gemini } = await import("../src/adapters/gemini.js");
   const original = Gemini.prototype.start;
   let release!: () => void;
-  const ready = new Promise<void>((resolve) => { release = resolve; });
-  let starting = false;
-  const delayed = vi.spyOn(Gemini.prototype, "start").mockImplementation(async function (this: InstanceType<typeof Gemini>) {
-    starting = true;
-    await ready;
-    return original.call(this);
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
   });
+  let starting = false;
+  const delayed = vi
+    .spyOn(Gemini.prototype, "start")
+    .mockImplementation(async function (this: InstanceType<typeof Gemini>) {
+      starting = true;
+      await ready;
+      return original.call(this);
+    });
   const key = "cancelled-startup-switch";
   const project = directory(key);
   const first = submit(project, key);
@@ -489,14 +730,19 @@ it.each(["insert", "generation"])(
     const saved = binding(key);
     const live = await nativeSessions.session(first);
     const dispose = live.adapter.dispose.bind(live.adapter);
-    const closing = vi.spyOn(live.adapter, "dispose").mockImplementation(async () => {
-      await dispose();
-      if (kind === "generation")
-        db.prepare("UPDATE companion_sessions SET generation=?,native_id=? WHERE conversation_id=?")
-          .run("new-generation", "new-native-session", key);
-    });
+    const closing = vi
+      .spyOn(live.adapter, "dispose")
+      .mockImplementation(async () => {
+        await dispose();
+        if (kind === "generation")
+          db.prepare(
+            "UPDATE companion_sessions SET generation=?,native_id=? WHERE conversation_id=?",
+          ).run("new-generation", "new-native-session", key);
+      });
     if (kind === "insert")
-      db.exec("CREATE TEMP TRIGGER fail_binding_insert BEFORE INSERT ON companion_sessions WHEN NEW.harness='acp' BEGIN SELECT RAISE(ABORT, 'fixture insert failure'); END");
+      db.exec(
+        "CREATE TEMP TRIGGER fail_binding_insert BEFORE INSERT ON companion_sessions WHEN NEW.harness='acp' BEGIN SELECT RAISE(ABORT, 'fixture insert failure'); END",
+      );
     try {
       const task = await run(project, key + "-switch", {
         conversation: key,
@@ -507,7 +753,8 @@ it.each(["insert", "generation"])(
       expect(binding(key)).toMatchObject({
         harness: saved.harness,
         project: saved.project,
-        native_id: kind === "generation" ? "new-native-session" : saved.native_id,
+        native_id:
+          kind === "generation" ? "new-native-session" : saved.native_id,
         generation: kind === "generation" ? "new-generation" : saved.generation,
       });
       expect(

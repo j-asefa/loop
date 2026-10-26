@@ -147,7 +147,11 @@ export function CreateAgent({
     if (!nativeConnection) return;
     let current = true;
     setCatalog({ connectionId: nativeConnection, source });
-    void callRoute(workspaceApi.connectionModels, { params: { id: nativeConnection } }, source).then(
+    void callRoute(
+      workspaceApi.connectionModels,
+      { params: { id: nativeConnection } },
+      source,
+    ).then(
       ({ models }) => {
         if (current)
           setCatalog({ connectionId: nativeConnection, source, models });
@@ -237,7 +241,11 @@ export function CreateAgent({
     setBusy(true);
     setError("");
     try {
-      const a = await callRoute(workspaceApi.agentCreate, { body: { ...data, idempotencyKey: request.current.key } }, source);
+      const a = await callRoute(
+        workspaceApi.agentCreate,
+        { body: { ...data, idempotencyKey: request.current.key } },
+        source,
+      );
       await onCreated(a, data.folderId || "", source);
     } catch (e) {
       setError((e as Error).message);

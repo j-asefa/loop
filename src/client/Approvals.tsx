@@ -1,5 +1,9 @@
 import { workspaceApi, type Approval } from "../shared/workspace-api";
-import { useSourceId, useSourceRoute, useSourceRouteRead } from "./SourceContext";
+import {
+  useSourceId,
+  useSourceRoute,
+  useSourceRouteRead,
+} from "./SourceContext";
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
@@ -101,7 +105,8 @@ export function Approvals({
   runId?: string;
   runIds?: string[];
 }) {
-  const call = useSourceRoute(), readContract = useSourceRouteRead();
+  const call = useSourceRoute(),
+    readContract = useSourceRouteRead();
   const sourceId = useSourceId();
   const [items, setItems] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<Approval | null>(null);
@@ -118,10 +123,15 @@ export function Approvals({
   const [poll, setPoll] = useState(0);
   const scope = runIds?.join(",");
   useEffect(() => {
-    const update = () => setPoll(value => value + 1);
+    const update = () => setPoll((value) => value + 1);
     const stopChanges = listenWorkspaceChanges("approvals", update, sourceId);
-    const stopFallback = runId ? surfaceFallback([sourceId], "workspace", 5000, update) : () => {};
-    return () => { stopChanges(); stopFallback(); };
+    const stopFallback = runId
+      ? surfaceFallback([sourceId], "workspace", 5000, update)
+      : () => {};
+    return () => {
+      stopChanges();
+      stopFallback();
+    };
   }, [runId, sourceId]);
   useEffect(() => {
     setSelected(null);
@@ -133,9 +143,17 @@ export function Approvals({
   useEffect(() => {
     let current = true;
     const controller = new AbortController();
-    void readContract(workspaceApi.approvals, { query: { teams } }, controller.signal, (error) => {
-      if (current) { setRateLimited(isRateLimited(error)); setReadError(isRateLimited(error) ? "" : (error as Error).message); }
-    })
+    void readContract(
+      workspaceApi.approvals,
+      { query: { teams } },
+      controller.signal,
+      (error) => {
+        if (current) {
+          setRateLimited(isRateLimited(error));
+          setReadError(isRateLimited(error) ? "" : (error as Error).message);
+        }
+      },
+    )
       .then((fresh) => {
         if (current) {
           setReadError("");
@@ -187,10 +205,13 @@ export function Approvals({
     setBusy(decision);
     setError("");
     try {
-      await call(workspaceApi.approval, { params: { id: target.id }, body: {
-        decision,
-        ...(detail.request.deliveryUnknown ? { confirmUnknown: true } : {}),
-      } });
+      await call(workspaceApi.approval, {
+        params: { id: target.id },
+        body: {
+          decision,
+          ...(detail.request.deliveryUnknown ? { confirmUnknown: true } : {}),
+        },
+      });
       decided.current.add(target.id);
       setItems((old) => old.filter((item) => item.id !== target.id));
       setSelected(null);
@@ -225,7 +246,10 @@ export function Approvals({
             >
               <span className="approval-symbol">
                 {item.name ? (
-                  <Avatar name={item.name} provider={item.provider ?? undefined} />
+                  <Avatar
+                    name={item.name}
+                    provider={item.provider ?? undefined}
+                  />
                 ) : (
                   <ShieldCheck size={23} />
                 )}
@@ -294,7 +318,10 @@ export function Approvals({
                 setDismissing(item.id);
                 setError("");
                 try {
-                  await call(workspaceApi.runAction, { params: { id: item.run_id, action: "dismiss" }, body: {} });
+                  await call(workspaceApi.runAction, {
+                    params: { id: item.run_id, action: "dismiss" },
+                    body: {},
+                  });
                   decided.current.add(item.id);
                   setItems((old) => old.filter((a) => a.id !== item.id));
                   setNotice(
@@ -325,7 +352,11 @@ export function Approvals({
           Approval updates are paused briefly. Retrying automatically…
         </p>
       )}
-      {readError && <p className="error" role="alert">{readError}</p>}
+      {readError && (
+        <p className="error" role="alert">
+          {readError}
+        </p>
+      )}
       {error && !selected && (
         <p className="error" role="alert">
           {error}

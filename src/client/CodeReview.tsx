@@ -179,7 +179,10 @@ export function CodeReviewStatus({
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
-    read<Status | null>(`/reviews/conversation/${conversationId}`, controller.signal)
+    read<Status | null>(
+      `/reviews/conversation/${conversationId}`,
+      controller.signal,
+    )
       .then((r) => {
         if (active)
           setReview((previous) =>

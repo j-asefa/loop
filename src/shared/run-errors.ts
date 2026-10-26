@@ -3,7 +3,10 @@ export const UNKNOWN_RUN_FAILURE =
 
 /** Older workers discarded the cause but promised details that did not exist. */
 export function runErrorText(error?: string | null) {
-  return error && /^The run stopped during .+ \(Error\)\. Open failure details to inspect the saved progress\.$/.test(error)
+  return error &&
+    /^The run stopped during .+ \(Error\)\. Open failure details to inspect the saved progress\.$/.test(
+      error,
+    )
     ? UNKNOWN_RUN_FAILURE
     : error;
 }

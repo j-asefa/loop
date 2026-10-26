@@ -16,9 +16,12 @@ const routes = registrar("companion", { middleware: [[nativeHistory]] });
 export const companion = routes.mount;
 routes.on(workspaceApi.runtimeAuthProviders, async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json(await executionRequest("auth.catalog", {
-    name: req.params.name, projectId: req.query.projectId,
-  }));
+  res.json(
+    await executionRequest("auth.catalog", {
+      name: req.params.name,
+      projectId: req.query.projectId,
+    }),
+  );
 });
 routes.on(workspaceApi.runtimeAuthStatus, async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
@@ -27,24 +30,48 @@ routes.on(workspaceApi.runtimeAuthStatus, async (req, res) => {
 routes.on(workspaceApi.runtimeAuthStart, async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const { commandId, ...input } = req.body;
-  res.json(await executionRequest("auth.start", { ...input, name: req.params.name }, { commandId }));
+  res.json(
+    await executionRequest(
+      "auth.start",
+      { ...input, name: req.params.name },
+      { commandId },
+    ),
+  );
 });
 routes.on(workspaceApi.runtimeAuthInput, async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json(await executionRequest("auth.input", { ...req.body, name: req.params.name }));
+  res.json(
+    await executionRequest("auth.input", {
+      ...req.body,
+      name: req.params.name,
+    }),
+  );
 });
 routes.on(workspaceApi.runtimeAuthCancel, async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json(await executionRequest("auth.cancel", { ...req.body, name: req.params.name }));
+  res.json(
+    await executionRequest("auth.cancel", {
+      ...req.body,
+      name: req.params.name,
+    }),
+  );
 });
-routes.on(workspaceApi.workspace, async (_req, res) => res.json({
-  harnesses: nativeSessions.registrations(),
-  ...await executionRequest("runtime.status", {}),
-  concurrency: MAX_CONCURRENT_RUNS, hostLifetime: "foreground", tunnelOrigin: config.url,
-  projectPaths: db.prepare("SELECT * FROM project_paths").all() as z.input<typeof workspaceApi.workspace.response>["projectPaths"],
-}));
+routes.on(workspaceApi.workspace, async (_req, res) =>
+  res.json({
+    harnesses: nativeSessions.registrations(),
+    ...(await executionRequest("runtime.status", {})),
+    concurrency: MAX_CONCURRENT_RUNS,
+    hostLifetime: "foreground",
+    tunnelOrigin: config.url,
+    projectPaths: db.prepare("SELECT * FROM project_paths").all() as z.input<
+      typeof workspaceApi.workspace.response
+    >["projectPaths"],
+  }),
+);
 routes.on(workspaceApi.runtimeList, async (req, res) => {
-  const runtimes = await executionRequest("runtime.list", { fresh: req.query.fresh === "1" });
+  const runtimes = await executionRequest("runtime.list", {
+    fresh: req.query.fresh === "1",
+  });
   res.json({ ...runtimes, setup: runtimeSetupState() });
 });
 routes.on(workspaceApi.runtimeUpgrade, async (req, res) => {
@@ -53,26 +80,58 @@ routes.on(workspaceApi.runtimeUpgrade, async (req, res) => {
 });
 routes.on(workspaceApi.runtimeUpgradeStart, async (req, res) => {
   const { commandId } = req.body;
-  res.json(await executionRequest("upgrade.start", { name: req.params.name }, { commandId }));
+  res.json(
+    await executionRequest(
+      "upgrade.start",
+      { name: req.params.name },
+      { commandId },
+    ),
+  );
 });
 routes.on(workspaceApi.runtimeUpgradeDismiss, async (req, res) => {
-  res.json(await executionRequest("upgrade.dismiss", { name: req.params.name }));
+  res.json(
+    await executionRequest("upgrade.dismiss", { name: req.params.name }),
+  );
 });
 routes.on(workspaceApi.runtimeUpgradeRecover, async (req, res) => {
   const { commandId, confirmedStopped } = req.body;
-  res.json(await executionRequest("upgrade.recover", { name: req.params.name, confirmedStopped }, { commandId }));
+  res.json(
+    await executionRequest(
+      "upgrade.recover",
+      { name: req.params.name, confirmedStopped },
+      { commandId },
+    ),
+  );
 });
 routes.on(workspaceApi.runtimeEnable, async (req, res) => {
   const { commandId, ...input } = req.body;
-  res.json(await executionRequest("runtime.enable", { ...input, name: req.params.name }, { commandId }));
+  res.json(
+    await executionRequest(
+      "runtime.enable",
+      { ...input, name: req.params.name },
+      { commandId },
+    ),
+  );
 });
 routes.on(workspaceApi.workspaceProjectCreate, (req, res) => {
   const d = req.body;
-  res.status(201).json(nativeSessions.addProject(d.path, d.name) as z.input<typeof workspaceApi.workspaceProjectCreate.response>);
+  res
+    .status(201)
+    .json(
+      nativeSessions.addProject(d.path, d.name) as z.input<
+        typeof workspaceApi.workspaceProjectCreate.response
+      >,
+    );
 });
 routes.on(workspaceApi.workspaceProjectUpdate, (req, res) => {
   ownedFolder(String(req.params.id), OWNER);
-  if (db.prepare("SELECT 1 FROM workspace_projects WHERE owner_id=? AND project_id=?").get(OWNER, req.params.id))
+  if (
+    db
+      .prepare(
+        "SELECT 1 FROM workspace_projects WHERE owner_id=? AND project_id=?",
+      )
+      .get(OWNER, req.params.id)
+  )
     throw new Problem(400, "Choose a named project for a local directory.");
   const { path } = req.body;
   const real = nativeSessions.directory(path);
@@ -102,29 +161,44 @@ routes.on(workspaceApi.nativeDecisions, (req, res) => {
       .prepare(
         "SELECT d.*,a.name,a.provider,r.input FROM native_decisions d JOIN runs r ON r.id=d.run_id LEFT JOIN agents a ON a.id=r.agent_id WHERE d.state IN ('pending','deciding','unknown') AND r.owner_id=? AND (? IS NULL OR d.conversation_id=?) ORDER BY d.created_at",
       )
-      .all(OWNER, conversation || null, conversation || null) as z.input<typeof workspaceApi.nativeDecisions.response>,
+      .all(OWNER, conversation || null, conversation || null) as z.input<
+      typeof workspaceApi.nativeDecisions.response
+    >,
   );
 });
 routes.on(workspaceApi.nativeAnswer, async (req, res) => {
   const d = req.body;
   res.json(
-    await executionRequest("native.answer", { decisionId: String(req.params.id), answer: d.answer }, { commandId: d.commandId }),
+    await executionRequest(
+      "native.answer",
+      { decisionId: String(req.params.id), answer: d.answer },
+      { commandId: d.commandId },
+    ),
   );
 });
 routes.on(workspaceApi.session, async (req, res) => {
   const conversation = req.params.id;
   ownedConversation(conversation, OWNER);
-  res.json(await executionRequest("native.controls", { conversationId: conversation }));
+  res.json(
+    await executionRequest("native.controls", { conversationId: conversation }),
+  );
 });
 routes.on(workspaceApi.setting, async (req, res) => {
   const conversation = req.params.id;
   ownedConversation(conversation, OWNER);
   const body = req.body;
   res.json(
-    await executionRequest("native.setting", {
-      conversationId: conversation, setting: String(req.params.setting), value: body.value,
-      revision: body.revision, generation: body.generation,
-    }, { commandId: body.commandId }),
+    await executionRequest(
+      "native.setting",
+      {
+        conversationId: conversation,
+        setting: String(req.params.setting),
+        value: body.value,
+        revision: body.revision,
+        generation: body.generation,
+      },
+      { commandId: body.commandId },
+    ),
   );
 });
 routes.on(workspaceApi.conversationNative, (req, res) => {
@@ -133,7 +207,9 @@ routes.on(workspaceApi.conversationNative, (req, res) => {
     .prepare(
       "SELECT harness,project,model,state,updated_at FROM companion_sessions WHERE conversation_id=?",
     )
-    .get(req.params.id) as z.input<typeof workspaceApi.conversationNative.response>["binding"];
+    .get(req.params.id) as z.input<
+    typeof workspaceApi.conversationNative.response
+  >["binding"];
   const items = db
     .prepare(
       "SELECT item FROM native_items WHERE conversation_id=? ORDER BY updated_at,native_id LIMIT 500",
@@ -141,7 +217,11 @@ routes.on(workspaceApi.conversationNative, (req, res) => {
     .all(req.params.id) as { item: string }[];
   res.json({
     binding,
-    memoryIncluded: memoryEnabled(OWNER, "conversation:" + req.params.id, false),
+    memoryIncluded: memoryEnabled(
+      OWNER,
+      "conversation:" + req.params.id,
+      false,
+    ),
     items: items.map((x) => JSON.parse(x.item)),
     projection: true,
     note: "Native history remains authoritative. This is Loop's recorded display projection.",

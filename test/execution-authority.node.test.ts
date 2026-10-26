@@ -43,13 +43,17 @@ test(
     const project = join(directory, "project");
     mkdirSync(project);
     gitProject(project);
-    const host = new WorkspaceHost(directory, {
-      harness: "claude",
-      executable: resolve("test/harness.mjs"),
-      project,
-      version: "fixture",
-      billing: "existing",
-    }, inProcessExecution);
+    const host = new WorkspaceHost(
+      directory,
+      {
+        harness: "claude",
+        executable: resolve("test/harness.mjs"),
+        project,
+        version: "fixture",
+        billing: "existing",
+      },
+      inProcessExecution,
+    );
     t.after(async () => {
       await host.close();
       db.close();
@@ -155,41 +159,67 @@ test(
         normal();
       },
     );
-    await t.test("concurrent retries share an uncertain execution outcome", async () => {
-      const { nativeSessions } = await import("../src/server/native-sessions.js");
-      const enable = nativeSessions.enable;
-      let entered = false, calls = 0, release!: () => void;
-      const held = new Promise<void>(resolve => { release = resolve; });
-      const before = countProbes();
-      nativeSessions.enable = async function (options) {
-        await enable.call(this, options);
-        entered = true;
-        await held;
-        throw new Error("fixture confirmation lost after native verification");
-      };
-      setExecutionTransport({
-        status: () => executionAuthority.status(),
-        send(message) { calls++; return executionAuthority.request(message); },
-      });
-      const input = { projectId, billing: "existing", commandId: randomUUID() };
-      try {
-        const first = request("/workspace/runtimes/claude/enable", input);
-        await until(() => entered);
-        const duplicate = request("/workspace/runtimes/claude/enable", input);
-        await until(() => calls === 2);
-        release();
-        for (const response of await Promise.all([first, duplicate])) {
-          assert.equal(response.status, 422);
-          assert.equal((await response.json()).executionOutcome, "unknown");
+    await t.test(
+      "concurrent retries share an uncertain execution outcome",
+      async () => {
+        const { nativeSessions } =
+          await import("../src/server/native-sessions.js");
+        const enable = nativeSessions.enable;
+        let entered = false,
+          calls = 0,
+          release!: () => void;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const before = countProbes();
+        nativeSessions.enable = async function (options) {
+          await enable.call(this, options);
+          entered = true;
+          await held;
+          throw new Error(
+            "fixture confirmation lost after native verification",
+          );
+        };
+        setExecutionTransport({
+          status: () => executionAuthority.status(),
+          send(message) {
+            calls++;
+            return executionAuthority.request(message);
+          },
+        });
+        const input = {
+          projectId,
+          billing: "existing",
+          commandId: randomUUID(),
+        };
+        try {
+          const first = request("/workspace/runtimes/claude/enable", input);
+          await until(() => entered);
+          const duplicate = request("/workspace/runtimes/claude/enable", input);
+          await until(() => calls === 2);
+          release();
+          for (const response of await Promise.all([first, duplicate])) {
+            assert.equal(response.status, 422);
+            assert.equal((await response.json()).executionOutcome, "unknown");
+          }
+          assert.equal(countProbes(), before + 1);
+          assert.equal(
+            (
+              db
+                .prepare(
+                  "SELECT state FROM execution_commands WHERE command_id=?",
+                )
+                .get(input.commandId) as any
+            ).state,
+            "unknown",
+          );
+        } finally {
+          release();
+          nativeSessions.enable = enable;
+          normal();
         }
-        assert.equal(countProbes(), before + 1);
-        assert.equal((db.prepare("SELECT state FROM execution_commands WHERE command_id=?").get(input.commandId) as any).state, "unknown");
-      } finally {
-        release();
-        nativeSessions.enable = enable;
-        normal();
-      }
-    });
+      },
+    );
     await t.test(
       "a pre-execution upgrade refusal leaves the enablement command retryable",
       async () => {
@@ -232,7 +262,10 @@ test(
           "fixture startup refuses before any task prompt",
         );
         try {
-          const failed = await request("/workspace/runtimes/claude/enable", input);
+          const failed = await request(
+            "/workspace/runtimes/claude/enable",
+            input,
+          );
           assert.equal(failed.status, 503);
           const refusal = await failed.json();
           assert.equal(refusal.executionOutcome, "refused");
@@ -298,9 +331,11 @@ test(
             (await api("/connections/native-claude/refresh", {})).name,
             "claude",
           );
-          const connection = parseConnection(db
-            .prepare("SELECT * FROM connections WHERE id='native-claude'")
-            .get());
+          const connection = parseConnection(
+            db
+              .prepare("SELECT * FROM connections WHERE id='native-claude'")
+              .get(),
+          );
           assert.equal(
             (await runtimeAction(connection, "status")).name,
             "claude",

@@ -435,7 +435,8 @@ function attachment(item: any, kind: RegExp, base: string) {
     const type = typeof found?.mime_type === "string" ? found.mime_type : "";
     if (!kind.test(type)) continue;
     const url = type.toLowerCase().startsWith("image/")
-      ? picture(found?.url, base) : webUrl(found?.url, base);
+      ? picture(found?.url, base)
+      : webUrl(found?.url, base);
     if (url) {
       if (type.startsWith("image/")) return { url, type, seconds: null };
       return {

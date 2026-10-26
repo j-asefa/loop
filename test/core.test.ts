@@ -8,7 +8,7 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal, unseal } = await import("../src/server/secrets");
-const { ownedAgent,  createAgent, renameAgent, owned } =
+const { ownedAgent, createAgent, renameAgent, owned } =
   await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
@@ -122,7 +122,9 @@ describe("durable agent contract", () => {
     ).toEqual({ n: 2 });
     expect(
       db
-        .prepare("SELECT count(*) n FROM messages WHERE conversation_id=? AND update_key IS NULL")
+        .prepare(
+          "SELECT count(*) n FROM messages WHERE conversation_id=? AND update_key IS NULL",
+        )
         .get(first.conversation_id),
     ).toEqual({ n: 4 });
   });

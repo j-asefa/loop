@@ -8,7 +8,9 @@ import { saveArtifact } from "../artifacts.js";
 import { requestApproval } from "../approvals.js";
 import { compile, bind, interpolate } from "./compiler.js";
 
-type WorkflowPayload = import("zod").infer<typeof import("../row-schemas.js").WorkflowPayload>;
+type WorkflowPayload = import("zod").infer<
+  typeof import("../row-schemas.js").WorkflowPayload
+>;
 export function startWorkflow(
   owner: string,
   workflowId: string,
@@ -39,9 +41,11 @@ export function startWorkflow(
       throw new Problem(422, `Input ${name} is too large`);
     resolved[name] = value;
   }
-  const prior = maybeRun(db
-    .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
-    .get(owner, key));
+  const prior = maybeRun(
+    db
+      .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
+      .get(owner, key),
+  );
   if (prior) {
     const p = prior.payload;
     if (
@@ -108,7 +112,11 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
       db.prepare(
         "INSERT INTO workflow_steps(run_id,step_id,position,state) VALUES(?,?,?,'pending')",
       ).run(run.id, step.id, position);
-      checkpoint = QueryRecords.workflow_steps.parse(db.prepare("SELECT * FROM workflow_steps WHERE run_id=? AND step_id=?").get(run.id, step.id));
+      checkpoint = QueryRecords.workflow_steps.parse(
+        db
+          .prepare("SELECT * FROM workflow_steps WHERE run_id=? AND step_id=?")
+          .get(run.id, step.id),
+      );
     }
     if (step.type === "agent") {
       if (checkpoint.child_run_id) {

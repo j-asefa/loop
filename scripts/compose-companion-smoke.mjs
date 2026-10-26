@@ -6,8 +6,14 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 const project = `loop-companion-smoke-${randomUUID().slice(0, 8)}`;
 const prebuilt = process.argv.includes("--prebuilt");
-const args = ["compose", "-p", project, "-f", resolve("compose.companion.yaml"),
-  ...(prebuilt ? ["-f", resolve("scripts/ci/companion-images.yaml")] : [])];
+const args = [
+  "compose",
+  "-p",
+  project,
+  "-f",
+  resolve("compose.companion.yaml"),
+  ...(prebuilt ? ["-f", resolve("scripts/ci/companion-images.yaml")] : []),
+];
 function compose(extra, input, timeout = 60_000) {
   try {
     return execFileSync("docker", [...args, ...extra], {
@@ -18,7 +24,9 @@ function compose(extra, input, timeout = 60_000) {
     }).toString();
   } catch {
     // Captured output can contain device credentials. Do not forward it.
-    throw new Error(`Companion smoke command failed: ${extra.slice(0, 3).join(" ")}`);
+    throw new Error(
+      `Companion smoke command failed: ${extra.slice(0, 3).join(" ")}`,
+    );
   }
 }
 const container = (service) => compose(["ps", "-q", service]).trim();
@@ -70,7 +78,14 @@ const identity = () =>
 try {
   compose(["config", "--quiet"]);
   compose(
-    ["up", prebuilt ? "--no-build" : "--build", "-d", "--wait", "--wait-timeout", "240"],
+    [
+      "up",
+      prebuilt ? "--no-build" : "--build",
+      "-d",
+      "--wait",
+      "--wait-timeout",
+      "240",
+    ],
     undefined,
     1_500_000,
   );
@@ -126,7 +141,16 @@ try {
   `);
   // Replace only the application container, as an app-only update does.
   compose(
-    ["up", "-d", "--no-deps", "--force-recreate", "--wait", "--wait-timeout", "240", "loop-companion"],
+    [
+      "up",
+      "-d",
+      "--no-deps",
+      "--force-recreate",
+      "--wait",
+      "--wait-timeout",
+      "240",
+      "loop-companion",
+    ],
     undefined,
     300_000,
   );
@@ -134,12 +158,18 @@ try {
   if (container("loop-companion") === app)
     throw new Error("The application container was not replaced");
   if (container("loop-connection") !== connection)
-    throw new Error("Replacing the application recreated the connection container");
+    throw new Error(
+      "Replacing the application recreated the connection container",
+    );
   for (const key of ["origin", "instance", "pid", "tunnel"])
     if (after[key] !== before[key])
-      throw new Error(`Connection ${key} changed across application replacement`);
+      throw new Error(
+        `Connection ${key} changed across application replacement`,
+      );
   if (!(after.generation > before.generation) || after.backend !== "ready")
-    throw new Error("The replacement application did not register a new generation");
+    throw new Error(
+      "The replacement application did not register a new generation",
+    );
   inConnection(`
     import assert from "node:assert/strict";
     import { readFile } from "node:fs/promises";
@@ -161,7 +191,19 @@ try {
     assert.equal(down.headers["x-loop-unavailable"], "restarting");
     assert.doesNotMatch(down.body, /data|loop-connection|workspace/);
   `);
-  compose(["up", "-d", "--no-deps", "--wait", "--wait-timeout", "240", "loop-companion"], undefined, 300_000);
+  compose(
+    [
+      "up",
+      "-d",
+      "--no-deps",
+      "--wait",
+      "--wait-timeout",
+      "240",
+      "loop-companion",
+    ],
+    undefined,
+    300_000,
+  );
   // Revocation persists across an application restart; the connection stays.
   compose(
     ["exec", "-T", "loop-companion", "node", "--input-type=module"],
@@ -172,7 +214,19 @@ try {
     `,
   );
   compose(["restart", "--timeout", "40", "loop-companion"], undefined, 90_000);
-  compose(["up", "-d", "--no-deps", "--wait", "--wait-timeout", "240", "loop-companion"], undefined, 300_000);
+  compose(
+    [
+      "up",
+      "-d",
+      "--no-deps",
+      "--wait",
+      "--wait-timeout",
+      "240",
+      "loop-companion",
+    ],
+    undefined,
+    300_000,
+  );
   inConnection(`
     import assert from "node:assert/strict";
     import { readFile, unlink } from "node:fs/promises";

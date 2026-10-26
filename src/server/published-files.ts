@@ -29,9 +29,13 @@ export const publishFileSchema = z
   .object({
     path: z.string().min(1).max(4096).optional(),
     title: z.string().trim().min(1).max(180),
-    content: z.string().max(32000).describe(
-      "Inline text or base64, at most 32,000 characters. For larger files, copy the file into the workspace and provide path instead.",
-    ).optional(),
+    content: z
+      .string()
+      .max(32000)
+      .describe(
+        "Inline text or base64, at most 32,000 characters. For larger files, copy the file into the workspace and provide path instead.",
+      )
+      .optional(),
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
   })
   .refine(

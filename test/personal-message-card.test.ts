@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { opensConversationFromCard } from "../src/client/PersonalProfile";
 
 const control = { tag: "button" };
-const card = { contains: (node: unknown) => node === control } as unknown as Element;
+const card = {
+  contains: (node: unknown) => node === control,
+} as unknown as Element;
 const target = (closest: unknown) =>
   ({ closest: () => closest }) as unknown as EventTarget;
 

@@ -120,9 +120,19 @@ function counts() {
 
 it("upgrades an existing workspace without skipping definitions or memory capture", async () => {
   expect(
-    db.prepare("SELECT version FROM schema_version WHERE version IN (119,120) ORDER BY version").all(),
+    db
+      .prepare(
+        "SELECT version FROM schema_version WHERE version IN (119,120) ORDER BY version",
+      )
+      .all(),
   ).toEqual([{ version: 119 }, { version: 120 }]);
-  expect(db.prepare("SELECT name FROM sqlite_master WHERE name='memory_sources_capture'").get()).toBeTruthy();
+  expect(
+    db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE name='memory_sources_capture'",
+      )
+      .get(),
+  ).toBeTruthy();
   expect((await request("/agent-definitions")).status).toBe(200);
 });
 
@@ -395,9 +405,12 @@ it("reports a missing or unavailable model before validating effort", async () =
   const saved = await save("---\nname: missing-model\n---\nReview carefully.");
   const before = counts();
   for (const model of [undefined, "unavailable"]) {
-    const result = await request(`/agent-definitions/${saved.id}/create`, creation({
-      selection: { connectionId: c, model, effort: "high" },
-    }));
+    const result = await request(
+      `/agent-definitions/${saved.id}/create`,
+      creation({
+        selection: { connectionId: c, model, effort: "high" },
+      }),
+    );
     expect(result.status).toBe(400);
     expect(result.data.error).toContain("Choose an available model");
     expect(counts()).toEqual(before);
@@ -407,7 +420,8 @@ it("reports a missing or unavailable model before validating effort", async () =
 it("requires reported effort for agent and team definitions, with atomic correction to the default", async () => {
   const connectionId = connection();
   db.prepare("UPDATE connections SET models=? WHERE id=?").run(
-    JSON.stringify([{ id: "fixture" }]), connectionId,
+    JSON.stringify([{ id: "fixture" }]),
+    connectionId,
   );
   const agent = await save(
     "---\nname: effort-not-reported\neffort: high\n---\nReview carefully.",
@@ -427,14 +441,18 @@ it("requires reported effort for agent and team definitions, with atomic correct
     });
     const rejected = await request(path, input);
     expect(rejected.status).toBe(400);
-    expect(rejected.data.error).toContain("effort level reported by this model");
+    expect(rejected.data.error).toContain(
+      "effort level reported by this model",
+    );
     expect(counts()).toEqual(before);
     const corrected = await request(path, {
       ...input,
       roles: { [role]: { effort: null } },
     });
     expect(corrected.status).toBe(201);
-    expect(db.prepare("SELECT effort FROM agents WHERE name=?").get(role)).toEqual({ effort: null });
+    expect(
+      db.prepare("SELECT effort FROM agents WHERE name=?").get(role),
+    ).toEqual({ effort: null });
   }
 });
 

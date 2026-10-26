@@ -351,18 +351,34 @@ it("publishes native decision states by server identity and signals cross-device
 it("keeps oversized decision events bounded and scoped without truncating the request", () => {
   const run = seed("large-decision");
   const request = JSON.stringify({ prompt: "x".repeat(70 * 1024) });
-  db.prepare("INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES('large-decision',?,?,'generation','adapter-request',?,1)")
-    .run(run.id, run.id, request);
-  db.prepare("UPDATE native_decisions SET state='resolved' WHERE id='large-decision'").run();
-  expect((db.prepare("SELECT request FROM native_decisions WHERE id='large-decision'").get() as {request:string}).request).toBe(request);
+  db.prepare(
+    "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES('large-decision',?,?,'generation','adapter-request',?,1)",
+  ).run(run.id, run.id, request);
+  db.prepare(
+    "UPDATE native_decisions SET state='resolved' WHERE id='large-decision'",
+  ).run();
+  expect(
+    (
+      db
+        .prepare(
+          "SELECT request FROM native_decisions WHERE id='large-decision'",
+        )
+        .get() as { request: string }
+    ).request,
+  ).toBe(request);
   db.prepare("DELETE FROM native_decisions WHERE id='large-decision'").run();
-  const rows = db.prepare("SELECT * FROM events WHERE subject_kind='decision' AND subject_id='large-decision' ORDER BY id").all() as {run_id:null;type:string;payload:string}[];
+  const rows = db
+    .prepare(
+      "SELECT * FROM events WHERE subject_kind='decision' AND subject_id='large-decision' ORDER BY id",
+    )
+    .all() as { run_id: null; type: string; payload: string }[];
   expect(rows).toHaveLength(5); // Three lifecycle rows plus two existing invalidations.
   for (const row of rows) {
     expect(Buffer.byteLength(row.payload)).toBeLessThan(60 * 1024);
     expect(historicalEvent(row)).toMatchObject({
-      type: "invalidate", scope: {kind:"collection",id:"decisions"},
-      subject: {kind:"decision",id:"large-decision"},
+      type: "invalidate",
+      scope: { kind: "collection", id: "decisions" },
+      subject: { kind: "decision", id: "large-decision" },
     });
   }
 });
@@ -445,69 +461,156 @@ it("reuses an initial snapshot only when it covers the first socket reset, in ei
 
 it("keeps unloaded run upserts outside the visible transcript until their page is requested", async () => {
   const run = seed("outside-window");
-  const insert = db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'owner',?,?,'assistant',?,?)");
-  for (let i = 0; i < 120; i++) insert.run(`outside-${i}`, run.id, run.id, `Row ${i}`, i + 1);
+  const insert = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'owner',?,?,'assistant',?,?)",
+  );
+  for (let i = 0; i < 120; i++)
+    insert.run(`outside-${i}`, run.id, run.id, `Row ${i}`, i + 1);
   const { workspaceClock } = await import("../src/server/db");
   const page = conversationMessages("owner", run.id);
   const clock = workspaceClock("owner");
   const projection = new TranscriptProjection();
-  projection.install(page.messages as ProjectedMessage[], clock.cursor, page.range);
+  projection.install(
+    page.messages as ProjectedMessage[],
+    clock.cursor,
+    page.range,
+  );
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
-  for (const event of events(run.id).filter(event => event.id > clock.cursor))
+  for (const event of events(run.id).filter((event) => event.id > clock.cursor))
     projection.apply(event.id, event.event);
-  expect(projection.rows().map(row => row.id)).toEqual(page.messages.map(row => row.id));
-  expect(projection.rows().every(row => row.run_state === "completed")).toBe(true);
+  expect(projection.rows().map((row) => row.id)).toEqual(
+    page.messages.map((row) => row.id),
+  );
+  expect(projection.rows().every((row) => row.run_state === "completed")).toBe(
+    true,
+  );
   expect(projection.needsLatest()).toBe(false);
-  const recovered = conversationMessages("owner", run.id, undefined, "outside-0");
-  projection.install(recovered.messages as ProjectedMessage[], workspaceClock("owner").cursor, recovered.range, false);
-  expect(projection.rows().map(row => row.id)).toEqual(page.messages.map(row => row.id));
+  const recovered = conversationMessages(
+    "owner",
+    run.id,
+    undefined,
+    "outside-0",
+  );
+  projection.install(
+    recovered.messages as ProjectedMessage[],
+    workspaceClock("owner").cursor,
+    recovered.range,
+    false,
+  );
+  expect(projection.rows().map((row) => row.id)).toEqual(
+    page.messages.map((row) => row.id),
+  );
   const older = conversationMessages("owner", run.id, page.next!);
-  projection.install(older.messages as ProjectedMessage[], workspaceClock("owner").cursor, older.range);
-  expect(projection.rows().map(row => row.id)).toEqual([...older.messages, ...page.messages].map(row => row.id));
+  projection.install(
+    older.messages as ProjectedMessage[],
+    workspaceClock("owner").cursor,
+    older.range,
+  );
+  expect(projection.rows().map((row) => row.id)).toEqual(
+    [...older.messages, ...page.messages].map((row) => row.id),
+  );
 });
 
 it("discovers a live tail after an anchored snapshot without exposing unloaded older history", async () => {
   const run = seed("anchored-tail");
-  const insert = db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'owner',?,?,'assistant',?,?)");
-  for (let i = 0; i < 120; i++) insert.run(`anchor-${i}`, run.id, run.id, `Row ${i}`, i + 1);
-  const {workspaceClock} = await import("../src/server/db");
+  const insert = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'owner',?,?,'assistant',?,?)",
+  );
+  for (let i = 0; i < 120; i++)
+    insert.run(`anchor-${i}`, run.id, run.id, `Row ${i}`, i + 1);
+  const { workspaceClock } = await import("../src/server/db");
   const page = conversationMessages("owner", run.id, undefined, "anchor-20");
-  const clock = workspaceClock("owner"), projection = new TranscriptProjection();
-  projection.install(page.messages as ProjectedMessage[], clock.cursor, page.range);
+  const clock = workspaceClock("owner"),
+    projection = new TranscriptProjection();
+  projection.install(
+    page.messages as ProjectedMessage[],
+    clock.cursor,
+    page.range,
+  );
   expect(projection.needsLatest()).toBe(false);
-  insert.run("anchor-new",run.id,run.id,"New live answer",200);
-  for (const event of events(run.id).filter(event => event.id > clock.cursor)) projection.apply(event.id,event.event);
+  insert.run("anchor-new", run.id, run.id, "New live answer", 200);
+  for (const event of events(run.id).filter((event) => event.id > clock.cursor))
+    projection.apply(event.id, event.event);
   expect(projection.needsLatest()).toBe(true);
-  const latest = conversationMessages("owner",run.id);
-  projection.install(latest.messages as ProjectedMessage[],workspaceClock("owner").cursor,latest.range);
+  const latest = conversationMessages("owner", run.id);
+  projection.install(
+    latest.messages as ProjectedMessage[],
+    workspaceClock("owner").cursor,
+    latest.range,
+  );
   expect(projection.needsLatest()).toBe(false);
   expect(projection.rows().at(-1)?.content).toBe("New live answer");
-  expect(projection.rows().map(row => row.id)).toEqual([...page.messages,...latest.messages].map(row => row.id));
+  expect(projection.rows().map((row) => row.id)).toEqual(
+    [...page.messages, ...latest.messages].map((row) => row.id),
+  );
 });
 
 it("installs an anchored page while an unloaded newer message streams during its snapshot", async () => {
-  const {TranscriptHandoff} = await import("../src/shared/transcript-projection");
-  const {workspaceClock} = await import("../src/server/db");
+  const { TranscriptHandoff } =
+    await import("../src/shared/transcript-projection");
+  const { workspaceClock } = await import("../src/server/db");
   const run = seed("anchored-inflight");
-  const insert = db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'owner',?,?,'assistant',?,?)");
-  for(let i=0;i<120;i++) insert.run(`inflight-${i}`,run.id,run.id,`Row ${i}`,i+1);
-  const handoff = new TranscriptHandoff(), ticket = handoff.begin();
-  const page = conversationMessages("owner",run.id,undefined,"inflight-20"), clock = workspaceClock("owner");
-  db.prepare("UPDATE messages SET content=content||' streaming' WHERE id='inflight-119'").run();
-  const changes = events(run.id).filter(event => event.id>clock.cursor);
-  expect(changes.map(change => handoff.receive(change.id,change.event))).toContain("gap");
-  expect(handoff.install(ticket,clock,page.messages as ProjectedMessage[],page.range)).toBe(true);
+  const insert = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'owner',?,?,'assistant',?,?)",
+  );
+  for (let i = 0; i < 120; i++)
+    insert.run(`inflight-${i}`, run.id, run.id, `Row ${i}`, i + 1);
+  const handoff = new TranscriptHandoff(),
+    ticket = handoff.begin();
+  const page = conversationMessages("owner", run.id, undefined, "inflight-20"),
+    clock = workspaceClock("owner");
+  db.prepare(
+    "UPDATE messages SET content=content||' streaming' WHERE id='inflight-119'",
+  ).run();
+  const changes = events(run.id).filter((event) => event.id > clock.cursor);
+  expect(
+    changes.map((change) => handoff.receive(change.id, change.event)),
+  ).toContain("gap");
+  expect(
+    handoff.install(
+      ticket,
+      clock,
+      page.messages as ProjectedMessage[],
+      page.range,
+    ),
+  ).toBe(true);
   expect(handoff.ready).toBe(true);
   expect(handoff.projection.rows()).toEqual(page.messages);
-  const recovered = conversationMessages("owner",run.id,undefined,"inflight-119");
-  expect(handoff.install(handoff.begin(),workspaceClock("owner"),recovered.messages as ProjectedMessage[],recovered.range,false)).toBe(true);
+  const recovered = conversationMessages(
+    "owner",
+    run.id,
+    undefined,
+    "inflight-119",
+  );
+  expect(
+    handoff.install(
+      handoff.begin(),
+      workspaceClock("owner"),
+      recovered.messages as ProjectedMessage[],
+      recovered.range,
+      false,
+    ),
+  ).toBe(true);
   expect(handoff.projection.rows()).toEqual(page.messages);
   expect(handoff.projection.needsLatest()).toBe(true);
   // A missed chunk belonging to the fetched page still rejects its install.
-  const latest = conversationMessages("owner",run.id), latestClock = workspaceClock("owner"), latestTicket = handoff.begin();
-  db.prepare("UPDATE messages SET content=content||' missed' WHERE id='inflight-119'").run();
-  db.prepare("UPDATE messages SET content=content||' later' WHERE id='inflight-119'").run();
+  const latest = conversationMessages("owner", run.id),
+    latestClock = workspaceClock("owner"),
+    latestTicket = handoff.begin();
+  db.prepare(
+    "UPDATE messages SET content=content||' missed' WHERE id='inflight-119'",
+  ).run();
+  db.prepare(
+    "UPDATE messages SET content=content||' later' WHERE id='inflight-119'",
+  ).run();
   const last = events(run.id).at(-1)!;
-  expect(handoff.receive(last.id,last.event)).toBe("gap");
-  expect(handoff.install(latestTicket,latestClock,latest.messages as ProjectedMessage[],latest.range)).toBe(false);
+  expect(handoff.receive(last.id, last.event)).toBe("gap");
+  expect(
+    handoff.install(
+      latestTicket,
+      latestClock,
+      latest.messages as ProjectedMessage[],
+      latest.range,
+    ),
+  ).toBe(false);
 });

@@ -75,7 +75,14 @@ export async function continuitySmoke(page, fixture, capture) {
   const long = randomUUID();
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,?,?,?)",
-  ).run(long, owner, agent.id, "Mobile continuity review", project.id, now - 90 * 60000);
+  ).run(
+    long,
+    owner,
+    agent.id,
+    "Mobile continuity review",
+    project.id,
+    now - 90 * 60000,
+  );
   const longIds = [];
   for (let i = 0; i < 40; i++) {
     const mid = randomUUID();
@@ -136,7 +143,13 @@ export async function continuitySmoke(page, fixture, capture) {
     changeAnswer = randomUUID();
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
-  ).run(changeConversation, owner, agent.id, "Tidy the settings page", now - 5000);
+  ).run(
+    changeConversation,
+    owner,
+    agent.id,
+    "Tidy the settings page",
+    now - 5000,
+  );
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
   ).run(
@@ -177,31 +190,59 @@ export async function continuitySmoke(page, fixture, capture) {
   const laterRun = randomUUID();
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-  ).run(laterRun, owner, agent.id, changeConversation, "Now the header", "completed", laterRun,
-    JSON.stringify({ agentId: agent.id, folderId: agent.folder_id }), now - 3500, now - 3400);
+  ).run(
+    laterRun,
+    owner,
+    agent.id,
+    changeConversation,
+    "Now the header",
+    "completed",
+    laterRun,
+    JSON.stringify({ agentId: agent.id, folderId: agent.folder_id }),
+    now - 3500,
+    now - 3400,
+  );
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user','Now the header','{}',?)",
   ).run(randomUUID(), owner, changeConversation, laterRun, now - 3500);
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','Updated the header.',?,?)",
-  ).run(randomUUID(), owner, changeConversation, laterRun,
-    JSON.stringify({ activities: [fileRecord("e1", "src/header.tsx", "+h", "applied")] }), now - 3400);
+  ).run(
+    randomUUID(),
+    owner,
+    changeConversation,
+    laterRun,
+    JSON.stringify({
+      activities: [fileRecord("e1", "src/header.tsx", "+h", "applied")],
+    }),
+    now - 3400,
+  );
 
   // Git includes a shell-written file and the net result of repeated edits.
   // These totals intentionally disagree with the tool records above.
   seedCheckout(db, changeRun, {
     files: [
-      { path: "src/settings.tsx", additions: 1, deletions: 1, binary: false, filtered: true },
+      {
+        path: "src/settings.tsx",
+        additions: 1,
+        deletions: 1,
+        binary: false,
+        filtered: true,
+      },
       { path: "src/shell-only.ts", additions: 3, deletions: 0, binary: false },
     ],
-    patch: "diff --git a/src/settings.tsx b/src/settings.tsx\n--- a/src/settings.tsx\n+++ b/src/settings.tsx\n@@ -1 +1 @@\n-old\n+net result\n"
-      + "diff --git a/src/shell-only.ts b/src/shell-only.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/shell-only.ts\n@@ -0,0 +1,3 @@\n+shell one\n+shell two\n+shell three\n",
+    patch:
+      "diff --git a/src/settings.tsx b/src/settings.tsx\n--- a/src/settings.tsx\n+++ b/src/settings.tsx\n@@ -1 +1 @@\n-old\n+net result\n" +
+      "diff --git a/src/shell-only.ts b/src/shell-only.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/shell-only.ts\n@@ -0,0 +1,3 @@\n+shell one\n+shell two\n+shell three\n",
   });
   seedCheckout(db, laterRun, { files: [] });
 
   // A thread of its own with a running task (earlier smokes change the
   // fixture's shared threads).
-  const working = { id: randomUUID(), title: "Audit the mobile layout " + randomUUID().slice(0, 4) };
+  const working = {
+    id: randomUUID(),
+    title: "Audit the mobile layout " + randomUUID().slice(0, 4),
+  };
   const workingRun = randomUUID();
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
@@ -215,7 +256,11 @@ export async function continuitySmoke(page, fixture, capture) {
     working.id,
     working.title,
     workingRun,
-    JSON.stringify({ agentId: agent.id, connectionId: agent.connection_id, folderId: agent.folder_id }),
+    JSON.stringify({
+      agentId: agent.id,
+      connectionId: agent.connection_id,
+      folderId: agent.folder_id,
+    }),
     now + 99999999,
     now - 3000,
     now - 3000,
@@ -240,10 +285,17 @@ export async function continuitySmoke(page, fixture, capture) {
       )
       .get(done.run).id;
     await expect(
-      card(done.title).getByRole("button", { name: "Review result", exact: true }),
+      card(done.title).getByRole("button", {
+        name: "Review result",
+        exact: true,
+      }),
     ).toBeVisible();
-    const approve = page.getByRole("region", { name: "Needs you", exact: true })
-      .getByRole("button", { name: "Review approval: Write a pull request review", exact: true });
+    const approve = page
+      .getByRole("region", { name: "Needs you", exact: true })
+      .getByRole("button", {
+        name: "Review approval: Write a pull request review",
+        exact: true,
+      });
     // Pending requests have a direct approval card, not a duplicate thread card.
     await expect(card(asking.title)).toHaveCount(0);
     await capture("continuity-feed-actions");
@@ -251,12 +303,16 @@ export async function continuitySmoke(page, fixture, capture) {
       .getByRole("button", { name: "Review result", exact: true })
       .click();
     await expect(page.locator("dialog.feed-reading-sheet[open]")).toBeVisible();
-    await page.locator("dialog.feed-reading-sheet[open]")
-      .getByRole("button", { name: "Reply", exact: true }).click();
+    await page
+      .locator("dialog.feed-reading-sheet[open]")
+      .getByRole("button", { name: "Reply", exact: true })
+      .click();
     await expect(thread()).toHaveAttribute("aria-label", done.title);
     await closeThread();
     // Explicit message links still anchor the conversation at the result.
-    await page.goto(`${fixture.base}/?conversation=${done.id}&message=${doneAnswer}`);
+    await page.goto(
+      `${fixture.base}/?conversation=${done.id}&message=${doneAnswer}`,
+    );
     await expect
       .poll(() => new URL(page.url()).searchParams.get("message"))
       .toBe(doneAnswer);
@@ -270,8 +326,10 @@ export async function continuitySmoke(page, fixture, capture) {
     const feedTab = (name) =>
       page.getByRole("tab", { name: new RegExp("^" + name) });
     const showNeeds = () =>
-      page.getByRole("region", { name: "Needs you", exact: true })
-        .getByRole("button", { name: "Show all", exact: true }).click();
+      page
+        .getByRole("region", { name: "Needs you", exact: true })
+        .getByRole("button", { name: "Show all", exact: true })
+        .click();
     await showNeeds();
     await expect(approve).toBeVisible();
     await capture("continuity-feed-needs-you");
@@ -282,7 +340,9 @@ export async function continuitySmoke(page, fixture, capture) {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await settled();
     // The same pending request remains available in its original thread.
-    await page.goto(`${fixture.base}/?conversation=${asking.id}`, { waitUntil: "networkidle" });
+    await page.goto(`${fixture.base}/?conversation=${asking.id}`, {
+      waitUntil: "networkidle",
+    });
     await expect(thread()).toHaveAttribute("aria-label", asking.title);
     await expect(
       thread().locator(".approval-card, .approval").first(),
@@ -294,7 +354,10 @@ export async function continuitySmoke(page, fixture, capture) {
     // An unsent draft (per signed-in owner) becomes Continue draft.
     await page.evaluate(
       ({ owner, id }) =>
-        localStorage.setItem(`loop-draft-text:${owner}:${id}`, "Half-written follow-up"),
+        localStorage.setItem(
+          `loop-draft-text:${owner}:${id}`,
+          "Half-written follow-up",
+        ),
       { owner, id: done.id },
     );
     await settled();
@@ -303,7 +366,9 @@ export async function continuitySmoke(page, fixture, capture) {
       .getByRole("button", { name: "Continue draft", exact: true })
       .click();
     await expect(thread()).toHaveAttribute("aria-label", done.title);
-    await expect(page.locator("#composer")).toHaveValue("Half-written follow-up");
+    await expect(page.locator("#composer")).toHaveValue(
+      "Half-written follow-up",
+    );
     await page.locator("#composer").fill("");
     await closeThread();
 
@@ -316,10 +381,14 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.goto(`${fixture.base}/?conversation=${long}`, {
       waitUntil: "networkidle",
     });
-    await expect(thread().getByText("Resumed where you left off")).toBeVisible();
+    await expect(
+      thread().getByText("Resumed where you left off"),
+    ).toBeVisible();
     await expect(messageIn(longIds[10])).toBeInViewport();
     await capture("continuity-resumed");
-    await thread().getByRole("button", { name: "Jump to…", exact: true }).click();
+    await thread()
+      .getByRole("button", { name: "Jump to…", exact: true })
+      .click();
     await dialog().getByLabel("Search this thread").fill(tag);
     await expect(dialog().locator(".outline-status")).toHaveText(
       new RegExp(`1 match for “${tag}”`),
@@ -335,7 +404,11 @@ export async function continuitySmoke(page, fixture, capture) {
           "SELECT position_message_id FROM conversation_positions WHERE owner_id=? AND conversation_id=?",
         )
         .get(owner, long).position_message_id;
-    assert.equal(position(), longIds[10], "A jump replaced the reading position");
+    assert.equal(
+      position(),
+      longIds[10],
+      "A jump replaced the reading position",
+    );
     await thread()
       .getByRole("button", { name: "Jump to latest messages" })
       .click();
@@ -352,9 +425,13 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(composer.getByLabel("Agent recipient")).toBeVisible();
     await page.locator("#composer").fill("Send the weekly summary");
     await openChatOptions(page);
-    await composer.getByRole("button", { name: "Send later", exact: true }).click();
+    await composer
+      .getByRole("button", { name: "Send later", exact: true })
+      .click();
     await expect(dialog()).toHaveAttribute("aria-label", "Send options");
-    await expect(dialog().locator(".send-destination")).toContainText("New thread");
+    await expect(dialog().locator(".send-destination")).toContainText(
+      "New thread",
+    );
     await dialog()
       .getByRole("menuitem", { name: /^Send later at a time/ })
       .click();
@@ -365,10 +442,15 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(dialog()).toContainText("This is not a reminder");
     await dialog().getByRole("button", { name: "Tomorrow morning" }).click();
     await capture("continuity-send-later");
-    await dialog().getByRole("button", { name: /^Schedule for tomorrow/ }).click();
+    await dialog()
+      .getByRole("button", { name: /^Schedule for tomorrow/ })
+      .click();
     await expect(toast).toContainText("Scheduled for @");
     await toast.getByRole("button", { name: "View", exact: true }).click();
-    await expect(laterTab("Scheduled")).toHaveAttribute("aria-selected", "true");
+    await expect(laterTab("Scheduled")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     const scheduled = later.locator(".scheduled-message").filter({
       has: page.getByText("Send the weekly summary", { exact: true }),
     });
@@ -396,7 +478,9 @@ export async function continuitySmoke(page, fixture, capture) {
     } finally {
       await page.unroute(excerptPattern, withoutExcerpt);
     }
-    await scheduled.getByRole("button", { name: "Edit scheduled message" }).click();
+    await scheduled
+      .getByRole("button", { name: "Edit scheduled message" })
+      .click();
     await dialog().getByLabel("Message").fill("Send the weekly summary, short");
     await dialog().getByRole("button", { name: "Save", exact: true }).click();
     await expect(scheduled).toHaveCount(0);
@@ -404,14 +488,24 @@ export async function continuitySmoke(page, fixture, capture) {
       .locator(".scheduled-message")
       .filter({ hasText: "Send the weekly summary, short" });
     await expect(edited).toHaveCount(1);
-    await edited.getByRole("button", { name: "Cancel scheduled message" }).click();
+    await edited
+      .getByRole("button", { name: "Cancel scheduled message" })
+      .click();
     await expect(edited).toHaveCount(0);
 
     // A message refused when due stays in Needs you and Scheduled with its
     // text and reason, and can be copied back to a draft.
     const legacyUpload = new FormData();
-    legacyUpload.append("file", new Blob(["Release notes"], { type: "text/plain" }), "notes.txt");
-    const uploaded = await fetch(fixture.base + "/api/uploads", { method: "POST", headers: { origin: fixture.base }, body: legacyUpload });
+    legacyUpload.append(
+      "file",
+      new Blob(["Release notes"], { type: "text/plain" }),
+      "notes.txt",
+    );
+    const uploaded = await fetch(fixture.base + "/api/uploads", {
+      method: "POST",
+      headers: { origin: fixture.base },
+      body: legacyUpload,
+    });
     assert(uploaded.ok);
     const legacyAttachment = await uploaded.json();
     const failing = await fixture.api("/scheduled-sends", {
@@ -436,7 +530,9 @@ export async function continuitySmoke(page, fixture, capture) {
       const data = await response.json();
       for (const item of data.items) {
         if (item.id === failing.id) {
-          assert(item.attachments.some(file => file.id === legacyAttachment.id));
+          assert(
+            item.attachments.some((file) => file.id === legacyAttachment.id),
+          );
           omittedScheduledFiles = true;
         }
         delete item.attachments;
@@ -458,13 +554,18 @@ export async function continuitySmoke(page, fixture, capture) {
       .locator(".scheduled-summary")
       .getByRole("button", { name: "Open Scheduled" })
       .click();
-    await expect(laterTab("Scheduled")).toHaveAttribute("aria-selected", "true");
+    await expect(laterTab("Scheduled")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     const failedRow = later
       .locator(".scheduled-message.not-sent")
       .filter({ hasText: "Post the release notes" });
     await expect.poll(() => omittedScheduledFiles).toBe(true);
     await failedRow.getByRole("button", { name: "Copy to a draft" }).click();
-    await expect(page.locator("#composer")).toHaveValue("Post the release notes");
+    await expect(page.locator("#composer")).toHaveValue(
+      "Post the release notes",
+    );
     await page.unroute(scheduledPattern, olderScheduled);
     await page.locator("#composer").fill("");
     await page.getByRole("button", { name: "Collapse composer" }).click();
@@ -480,9 +581,12 @@ export async function continuitySmoke(page, fixture, capture) {
     requestWindow();
     // 4. Reminders: create from a message, see why it is back, Done, and
     // Snooze again; both survive a reload.
-    await page.goto(`${fixture.base}/?conversation=${long}&message=${longIds[30]}`, {
-      waitUntil: "networkidle",
-    });
+    await page.goto(
+      `${fixture.base}/?conversation=${long}&message=${longIds[30]}`,
+      {
+        waitUntil: "networkidle",
+      },
+    );
     await messageIn(longIds[30])
       .getByRole("button", { name: "Message actions", exact: true })
       .click();
@@ -491,7 +595,9 @@ export async function continuitySmoke(page, fixture, capture) {
       .getByRole("button", { name: "Remind me", exact: true })
       .click();
     await expect(dialog()).toContainText("Nothing is sent to an agent.");
-    await dialog().getByRole("button", { name: /^In an hour/ }).click();
+    await dialog()
+      .getByRole("button", { name: /^In an hour/ })
+      .click();
     await expect(toast).toContainText("Reminder set: in an hour.");
     await dismissToast();
     await closeThread();
@@ -513,22 +619,30 @@ export async function continuitySmoke(page, fixture, capture) {
     const threadReminder = later
       .locator(".later-card.due")
       .filter({ hasText: done.title });
-    await expect(messageReminder.locator(".eyebrow")).toContainText(/Due today at/);
+    await expect(messageReminder.locator(".eyebrow")).toContainText(
+      /Due today at/,
+    );
     await capture("continuity-reminders");
     await messageReminder.getByRole("button", { name: /^Done with/ }).click();
     await expect(messageReminder).toHaveCount(0);
     await dismissToast();
     await threadReminder.getByRole("button", { name: /^Snooze again/ }).click();
     await expect(dialog()).toHaveAttribute("aria-label", "Snooze again");
-    await dialog().getByRole("button", { name: /^Tomorrow morning/ }).click();
+    await dialog()
+      .getByRole("button", { name: /^Tomorrow morning/ })
+      .click();
     await dismissToast();
     await settled();
     await page.reload({ waitUntil: "networkidle" });
     await laterTab("Reminders").click();
     await expect(
-      later.locator(".later-card.due").filter({ hasText: "Mobile continuity review" }),
+      later
+        .locator(".later-card.due")
+        .filter({ hasText: "Mobile continuity review" }),
     ).toHaveCount(0);
-    const snoozed = later.locator(".later-card").filter({ hasText: done.title });
+    const snoozed = later
+      .locator(".later-card")
+      .filter({ hasText: done.title });
     await expect(snoozed).not.toHaveClass(/due/);
     await expect(snoozed.locator(".eyebrow")).toContainText("snoozed 1×");
     await expect(snoozed.locator(".subline")).toContainText("Tomorrow at");
@@ -536,9 +650,12 @@ export async function continuitySmoke(page, fixture, capture) {
     requestWindow();
     // 5. Saved: a label to recognise a decision, search by it, open and
     // come back to the same search. Cards keep their size.
-    await page.goto(`${fixture.base}/?conversation=${long}&message=${longIds[30]}`, {
-      waitUntil: "networkidle",
-    });
+    await page.goto(
+      `${fixture.base}/?conversation=${long}&message=${longIds[30]}`,
+      {
+        waitUntil: "networkidle",
+      },
+    );
     await messageIn(longIds[30])
       .getByRole("button", { name: "Message actions", exact: true })
       .click();
@@ -558,25 +675,38 @@ export async function continuitySmoke(page, fixture, capture) {
     await savedItem.getByRole("button", { name: "Add a label" }).click();
     await dialog().getByLabel("Label").fill("Chosen approach");
     await dialog().getByRole("button", { name: "Save label" }).click();
-    await expect(savedItem.locator(".saved-label")).toHaveText("Chosen approach");
+    await expect(savedItem.locator(".saved-label")).toHaveText(
+      "Chosen approach",
+    );
     const after = await savedCard.boundingBox();
     assert.equal(after.width, before.width, "A label changed the card width");
-    assert.equal(after.height, before.height, "A label changed the card height");
-    const feedCardWidth = (await page.locator(".feed-card").first().boundingBox())
-      .width;
+    assert.equal(
+      after.height,
+      before.height,
+      "A label changed the card height",
+    );
+    const feedCardWidth = (
+      await page.locator(".feed-card").first().boundingBox()
+    ).width;
     assert.equal(after.width, feedCardWidth, "Saved cards are not full size");
     await later.getByLabel("Search Saved").fill("chosen");
     await expect(later.locator(".saved-item")).toHaveCount(1);
     await capture("continuity-saved-search");
-    await savedCard.getByRole("link", { name: "Open conversation", exact: true }).click();
+    await savedCard
+      .getByRole("link", { name: "Open conversation", exact: true })
+      .click();
     await expect(messageIn(longIds[30])).toBeInViewport();
     await closeThread();
     await expect(later.getByLabel("Search Saved")).toHaveValue("chosen");
     await expect(later.locator(".saved-item")).toHaveCount(1);
     // Unsave, then leave the app: leaving commits the unsave, so Undo is
     // withdrawn rather than offered without reversing it.
-    await savedCard.getByRole("button", { name: "Remove from Saved", exact: true }).click();
-    await expect(toast.getByRole("button", { name: "Undo", exact: true })).toBeVisible();
+    await savedCard
+      .getByRole("button", { name: "Remove from Saved", exact: true })
+      .click();
+    await expect(
+      toast.getByRole("button", { name: "Undo", exact: true }),
+    ).toBeVisible();
     const setVisibility = (state) =>
       page.evaluate((value) => {
         Object.defineProperty(document, "visibilityState", {
@@ -587,10 +717,14 @@ export async function continuitySmoke(page, fixture, capture) {
       }, state);
     await setVisibility("hidden");
     await setVisibility("visible");
-    await expect(toast.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+    await expect(
+      toast.getByRole("button", { name: "Undo", exact: true }),
+    ).toHaveCount(0);
     await expect
       .poll(async () =>
-        (await fixture.api("/saved")).items.some((item) => item.key === "m:" + longIds[30]),
+        (await fixture.api("/saved")).items.some(
+          (item) => item.key === "m:" + longIds[30],
+        ),
       )
       .toBe(false);
     await dismissToast();
@@ -605,9 +739,12 @@ export async function continuitySmoke(page, fixture, capture) {
     const searchWithoutLaterFields = async (route) => {
       const response = await route.fetch();
       const data = await response.json();
-      assert.ok(data.semantic, "The current production search includes indexing status");
+      assert.ok(
+        data.semantic,
+        "The current production search includes indexing status",
+      );
       assert.ok(data.items.length);
-      assert.ok(data.items.every(item => "message_id" in item));
+      assert.ok(data.items.every((item) => "message_id" in item));
       delete data.semantic;
       for (const item of data.items) delete item.message_id;
       historicalSearch = true;
@@ -615,14 +752,23 @@ export async function continuitySmoke(page, fixture, capture) {
     };
     await page.route("**/api/search?**", searchWithoutLaterFields);
     await nav("Projects").click();
-    const allProjects = page.getByRole("button", { name: "All projects", exact: true });
+    const allProjects = page.getByRole("button", {
+      name: "All projects",
+      exact: true,
+    });
     if (await allProjects.isVisible()) await allProjects.click();
-    await page.locator(".project-tile").filter({ hasText: project.name }).click();
+    await page
+      .locator(".project-tile")
+      .filter({ hasText: project.name })
+      .click();
     await page.getByLabel(`Search ${project.name}`).fill(tag);
     await page.getByLabel(`Search ${project.name}`).press("Enter");
     const projectHit = page.locator(".project-search-results .search-result");
     await expect(projectHit).toHaveCount(1);
-    assert.ok(historicalSearch, "Search renders the production response without older-source optional fields");
+    assert.ok(
+      historicalSearch,
+      "Search renders the production response without older-source optional fields",
+    );
     await page.unroute("**/api/search?**", searchWithoutLaterFields);
     await capture("continuity-project-search");
     await projectHit.locator(".search-hit").first().click();
@@ -645,7 +791,11 @@ export async function continuitySmoke(page, fixture, capture) {
     // 7. Steer, queue or send later in a working thread; a queued message
     // can be read, explained and moved back to a draft with its files.
     const form = new FormData();
-    form.set("file", new Blob(["Layout notes"], { type: "text/plain" }), "layout-context.txt");
+    form.set(
+      "file",
+      new Blob(["Layout notes"], { type: "text/plain" }),
+      "layout-context.txt",
+    );
     const upload = await fetch(fixture.base + "/api/uploads", {
       method: "POST",
       headers: { origin: fixture.base },
@@ -657,71 +807,81 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.goto(fixture.base, { waitUntil: "networkidle" });
     await page.evaluate(
       ({ owner, id, file }) =>
-        localStorage.setItem(`loop-draft-files:${owner}:${id}`, JSON.stringify([file])),
+        localStorage.setItem(
+          `loop-draft-files:${owner}:${id}`,
+          JSON.stringify([file]),
+        ),
       { owner, id: working.id, file: attached },
     );
     await page.goto(`${fixture.base}/?conversation=${working.id}`, {
       waitUntil: "networkidle",
     });
-    const composerFiles = page.locator(".conversation-composer .attachment-list");
+    const composerFiles = page.locator(
+      ".conversation-composer .attachment-list",
+    );
     await expect(composerFiles).toContainText("layout-context.txt");
     // Hold the draft debounce until the accepted send clears storage. Releasing
     // it in the next microtask models an overdue save before React's passive
     // cleanup, without depending on browser or host speed.
-    await page.evaluate(({ owner, id }) => {
-      const originalSetTimeout = window.setTimeout;
-      const originalClearTimeout = window.clearTimeout;
-      const later = originalSetTimeout.bind(window);
-      const cancel = originalClearTimeout.bind(window);
-      const remove = Storage.prototype.removeItem;
-      const held = new Map();
-      const fileKey = `loop-draft-files:${owner}:${id}`;
-      let armed = true;
-      let captured = 0;
-      let released = false;
-      window.setTimeout = (callback, delay, ...args) => {
-        if (!armed || delay !== 400 || typeof callback !== "function")
-          return later(callback, delay, ...args);
-        const timer = later(() => {}, 60000);
-        held.set(timer, () => callback(...args));
-        captured++;
-        return timer;
-      };
-      window.clearTimeout = (timer) => {
-        held.delete(timer);
-        cancel(timer);
-      };
-      Storage.prototype.removeItem = function (key) {
-        remove.call(this, key);
-        if (this === localStorage && key === fileKey && armed) {
-          armed = false;
-          queueMicrotask(() => {
-            released = true;
+    await page.evaluate(
+      ({ owner, id }) => {
+        const originalSetTimeout = window.setTimeout;
+        const originalClearTimeout = window.clearTimeout;
+        const later = originalSetTimeout.bind(window);
+        const cancel = originalClearTimeout.bind(window);
+        const remove = Storage.prototype.removeItem;
+        const held = new Map();
+        const fileKey = `loop-draft-files:${owner}:${id}`;
+        let armed = true;
+        let captured = 0;
+        let released = false;
+        window.setTimeout = (callback, delay, ...args) => {
+          if (!armed || delay !== 400 || typeof callback !== "function")
+            return later(callback, delay, ...args);
+          const timer = later(() => {}, 60000);
+          held.set(timer, () => callback(...args));
+          captured++;
+          return timer;
+        };
+        window.clearTimeout = (timer) => {
+          held.delete(timer);
+          cancel(timer);
+        };
+        Storage.prototype.removeItem = function (key) {
+          remove.call(this, key);
+          if (this === localStorage && key === fileKey && armed) {
+            armed = false;
+            queueMicrotask(() => {
+              released = true;
+              for (const [timer, callback] of held) {
+                held.delete(timer);
+                cancel(timer);
+                callback();
+              }
+            });
+          }
+        };
+        window.__draftSaveRace = {
+          captured: () => captured,
+          released: () => released,
+          restore: () => {
+            window.setTimeout = originalSetTimeout;
+            window.clearTimeout = originalClearTimeout;
+            Storage.prototype.removeItem = remove;
             for (const [timer, callback] of held) {
-              held.delete(timer);
               cancel(timer);
               callback();
             }
-          });
-        }
-      };
-      window.__draftSaveRace = {
-        captured: () => captured,
-        released: () => released,
-        restore: () => {
-          window.setTimeout = originalSetTimeout;
-          window.clearTimeout = originalClearTimeout;
-          Storage.prototype.removeItem = remove;
-          for (const [timer, callback] of held) {
-            cancel(timer);
-            callback();
-          }
-          held.clear();
-        },
-      };
-    }, { owner, id: working.id });
+            held.clear();
+          },
+        };
+      },
+      { owner, id: working.id },
+    );
     await page.locator("#composer").fill("Also check the mobile layout");
-    await expect.poll(() => page.evaluate(() => window.__draftSaveRace.captured())).toBeGreaterThan(0);
+    await expect
+      .poll(() => page.evaluate(() => window.__draftSaveRace.captured()))
+      .toBeGreaterThan(0);
     await expect(page.locator(".composer-intent")).toContainText(
       "Send steers @",
     );
@@ -737,20 +897,33 @@ export async function continuitySmoke(page, fixture, capture) {
       /^Queue after this task/,
       /^Send later at a time/,
     ]);
-    await expect(options.locator(".send-destination")).toContainText(working.title);
+    await expect(options.locator(".send-destination")).toContainText(
+      working.title,
+    );
     await capture("continuity-send-options");
-    await options.getByRole("menuitem", { name: /^Queue after this task/ }).click();
+    await options
+      .getByRole("menuitem", { name: /^Queue after this task/ })
+      .click();
     await expect(toast).toContainText("Queued after the current task.");
     await dismissToast();
     const queued = thread().locator(".queued-controls");
     await expect(queued).toContainText("stays held");
-    await expect.poll(() => page.evaluate(() => window.__draftSaveRace.released())).toBe(true);
+    await expect
+      .poll(() => page.evaluate(() => window.__draftSaveRace.released()))
+      .toBe(true);
     await expect(composerFiles).toHaveCount(0);
     await expect(page.locator("#composer")).toHaveValue("");
-    await expect.poll(() => page.evaluate(({ owner, id }) => ({
-      text: localStorage.getItem(`loop-draft-text:${owner}:${id}`),
-      files: localStorage.getItem(`loop-draft-files:${owner}:${id}`),
-    }), { owner, id: working.id })).toEqual({ text: null, files: null });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          ({ owner, id }) => ({
+            text: localStorage.getItem(`loop-draft-text:${owner}:${id}`),
+            files: localStorage.getItem(`loop-draft-files:${owner}:${id}`),
+          }),
+          { owner, id: working.id },
+        ),
+      )
+      .toEqual({ text: null, files: null });
     await page.evaluate(() => window.__draftSaveRace.restore());
     await page.reload({ waitUntil: "networkidle" });
     await expect(queued).toContainText("stays held");
@@ -767,7 +940,9 @@ export async function continuitySmoke(page, fixture, capture) {
     const capture200 = async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       resent.push(route.request().postDataJSON());
-      await route.fulfill({ json: runReceipt(route.request(), "continuity-resend") });
+      await route.fulfill({
+        json: runReceipt(route.request(), "continuity-resend"),
+      });
     };
     await page.route("**/api/runs", capture200);
     try {
@@ -789,7 +964,9 @@ export async function continuitySmoke(page, fixture, capture) {
       .locator(".conversation-composer")
       .getByRole("button", { name: "Send later", exact: true })
       .click();
-    await options.getByRole("menuitem", { name: /^Queue after this task/ }).click();
+    await options
+      .getByRole("menuitem", { name: /^Queue after this task/ })
+      .click();
     await expect(toast).toContainText("Queued after the current task.");
     await expect(page.locator("#composer")).toHaveValue("");
     await toast.getByRole("button", { name: "Undo", exact: true }).click();
@@ -806,9 +983,13 @@ export async function continuitySmoke(page, fixture, capture) {
       const data = await response.json();
       if (data.run_id === changeRun) {
         assert.equal(data.summary.scope, "run");
-        assert.ok(data.files.some(file => file.filtered));
+        assert.ok(data.files.some((file) => file.filtered));
         delete data.summary.scope;
-        for (const files of [data.files, data.committed?.files, data.working?.files])
+        for (const files of [
+          data.files,
+          data.committed?.files,
+          data.working?.files,
+        ])
           for (const file of files || []) delete file.filtered;
         historicalCheckout = true;
       }
@@ -818,29 +999,59 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.goto(`${fixture.base}/?conversation=${changeConversation}`, {
       waitUntil: "networkidle",
     });
-    await expect(thread().locator(".checkout-chip, .verification-chip")).toHaveCount(0);
-    await expect(thread().locator(".changes-chip:not(.checkout-chip):not(.verification-chip):not(.pull-state-chip)")).toHaveCount(0);
-    await thread().getByRole("button", { name: "Conversation options", exact: true }).click();
-    await dialog().getByRole("menuitem", { name: /^Review changes/ }).click();
+    await expect(
+      thread().locator(".checkout-chip, .verification-chip"),
+    ).toHaveCount(0);
+    await expect(
+      thread().locator(
+        ".changes-chip:not(.checkout-chip):not(.verification-chip):not(.pull-state-chip)",
+      ),
+    ).toHaveCount(0);
+    await thread()
+      .getByRole("button", { name: "Conversation options", exact: true })
+      .click();
+    await dialog()
+      .getByRole("menuitem", { name: /^Review changes/ })
+      .click();
     await expect(dialog()).toHaveAttribute("aria-label", "Checkout");
-    await expect(dialog().locator(".changes-total")).toContainText("no changes");
+    await expect(dialog().locator(".changes-total")).toContainText(
+      "no changes",
+    );
     await expect(dialog().locator(".pull-file")).toHaveCount(0);
-    await expect(dialog().getByRole("button", { name: "Ask to commit" })).toHaveCount(0);
+    await expect(
+      dialog().getByRole("button", { name: "Ask to commit" }),
+    ).toHaveCount(0);
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
-    const openHistoricalCheckout = () => page.goto(`${fixture.base}/?conversation=${changeConversation}&checkout=${changeRun}`, { waitUntil: "networkidle" });
+    const openHistoricalCheckout = () =>
+      page.goto(
+        `${fixture.base}/?conversation=${changeConversation}&checkout=${changeRun}`,
+        { waitUntil: "networkidle" },
+      );
     await openHistoricalCheckout();
     await expect(dialog()).toHaveAttribute("aria-label", "Checkout");
-    await expect(dialog().locator(".changes-total")).toContainText("2 files +4 −1");
-    await expect(dialog().locator(".pull-file-path")).toHaveText(["src/settings.tsx", "src/shell-only.ts"]);
+    await expect(dialog().locator(".changes-total")).toContainText(
+      "2 files +4 −1",
+    );
+    await expect(dialog().locator(".pull-file-path")).toHaveText([
+      "src/settings.tsx",
+      "src/shell-only.ts",
+    ]);
     await expect(dialog()).toContainText("net result");
     await expect(dialog()).toContainText("shell three");
-    await expect(dialog()).toContainText("Historical comparison against the source checkout");
+    await expect(dialog()).toContainText(
+      "Historical comparison against the source checkout",
+    );
     await expect(dialog()).not.toContainText("filtered content, compared raw");
-    assert.ok(historicalCheckout, "Checkout renders the production response without older-source optional fields");
+    assert.ok(
+      historicalCheckout,
+      "Checkout renders the production response without older-source optional fields",
+    );
     await page.unroute("**/api/runs/*/checkout", checkoutWithoutLaterFields);
     await expect(dialog()).not.toContainText("theme.css");
     await capture("continuity-change-review");
-    await expect(dialog().getByRole("button", { name: "Ask to commit" })).toHaveCount(0);
+    await expect(
+      dialog().getByRole("button", { name: "Ask to commit" }),
+    ).toHaveCount(0);
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await openHistoricalCheckout();
     await expect(dialog()).toContainText("Changes during this run");
@@ -849,11 +1060,19 @@ export async function continuitySmoke(page, fixture, capture) {
     assert.match(prompt, /saved Git snapshot/);
     assert.match(prompt, /src\/settings\.tsx/);
     assert.match(prompt, /src\/shell-only\.ts/);
-    assert.doesNotMatch(prompt, /theme\.css/, "A failed tool edit was offered to commit");
+    assert.doesNotMatch(
+      prompt,
+      /theme\.css/,
+      "A failed tool edit was offered to commit",
+    );
     await page.locator("#composer").fill("");
     // Raw tool history remains accessible, without supplying diff totals.
-    await thread().getByRole("button", { name: "Conversation options", exact: true }).click();
-    await dialog().getByRole("menuitem", { name: "Tool activity", exact: true }).click();
+    await thread()
+      .getByRole("button", { name: "Conversation options", exact: true })
+      .click();
+    await dialog()
+      .getByRole("menuitem", { name: "Tool activity", exact: true })
+      .click();
     await expect(dialog()).toContainText("src/settings.tsx");
     await expect(dialog()).toContainText("src/theme.css");
     await expect(dialog()).toContainText("src/header.tsx");
@@ -863,9 +1082,12 @@ export async function continuitySmoke(page, fixture, capture) {
     requestWindow();
     // 9. Keyboard: the message menu, More and focus return work without a
     // pointer.
-    await page.goto(`${fixture.base}/?conversation=${long}&message=${longIds[30]}`, {
-      waitUntil: "networkidle",
-    });
+    await page.goto(
+      `${fixture.base}/?conversation=${long}&message=${longIds[30]}`,
+      {
+        waitUntil: "networkidle",
+      },
+    );
     const menuButton = messageIn(longIds[30]).getByRole("button", {
       name: "Message actions",
       exact: true,
@@ -882,11 +1104,15 @@ export async function continuitySmoke(page, fixture, capture) {
     await closeThread();
   } finally {
     fixture.db.prepare("DELETE FROM request_limits").run();
-    db.prepare("UPDATE runs SET state='cancelled',worker_id=NULL WHERE id=?").run(workingRun);
+    db.prepare(
+      "UPDATE runs SET state='cancelled',worker_id=NULL WHERE id=?",
+    ).run(workingRun);
     db.prepare("DELETE FROM later_items WHERE owner_id=?").run(owner);
     db.prepare("DELETE FROM scheduled_sends WHERE owner_id=?").run(owner);
     db.prepare("DELETE FROM saved_labels WHERE owner_id=?").run(owner);
-    db.prepare("DELETE FROM message_bookmarks WHERE owner_id=? AND message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(owner, long);
+    db.prepare(
+      "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id IN (SELECT id FROM messages WHERE conversation_id=?)",
+    ).run(owner, long);
     await page.evaluate(() => localStorage.clear()).catch(() => {});
   }
 }

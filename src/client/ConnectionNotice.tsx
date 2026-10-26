@@ -6,7 +6,9 @@ type Connection = { reconnecting: boolean; updated: boolean };
 let state: Connection = { reconnecting: false, updated: false };
 const listeners = new Set<() => void>();
 export function setConnection(next: Partial<Connection>) {
-  if (Object.entries(next).every(([k, v]) => state[k as keyof Connection] === v))
+  if (
+    Object.entries(next).every(([k, v]) => state[k as keyof Connection] === v)
+  )
     return;
   state = { ...state, ...next };
   for (const listener of listeners) listener();
@@ -18,7 +20,10 @@ const subscribe = (listener: () => void) => {
 
 /** Loop restarting or updated: shown on the page and inside open sheets. */
 export function ConnectionNotice() {
-  const { reconnecting, updated } = useSyncExternalStore(subscribe, () => state);
+  const { reconnecting, updated } = useSyncExternalStore(
+    subscribe,
+    () => state,
+  );
   if (!reconnecting && !updated) return null;
   return (
     <p className="connection-notice" role="status">

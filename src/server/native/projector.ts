@@ -9,10 +9,20 @@ import { recordTrace } from "../traces.js";
 import { transition } from "../queue.js";
 
 import { type AdapterEvent, type Item } from "../../protocol.js";
-import { MAX_NATIVE_REQUEST_BYTES, MAX_NATIVE_EVENT_BYTES } from "../../shared/workspace-events.js";
-import { ingestNativeActivity, ingestNativeCapabilities } from "../activities.js";
+import {
+  MAX_NATIVE_REQUEST_BYTES,
+  MAX_NATIVE_EVENT_BYTES,
+} from "../../shared/workspace-events.js";
+import {
+  ingestNativeActivity,
+  ingestNativeCapabilities,
+} from "../activities.js";
 import { type Live } from "./state.js";
-import { finishDecisions, requestApproval, type NativeDecisions } from "./decisions.js";
+import {
+  finishDecisions,
+  requestApproval,
+  type NativeDecisions,
+} from "./decisions.js";
 
 type Context = {
   live: ReadonlyMap<string, Live>;
@@ -49,15 +59,23 @@ export class NativeProjector {
     if (input.type === "usage") {
       const run = live.run;
       const current = db
-        .prepare("SELECT generation FROM companion_sessions WHERE conversation_id=?")
-        .get(live.binding.conversation_id) as { generation: string } | undefined;
+        .prepare(
+          "SELECT generation FROM companion_sessions WHERE conversation_id=?",
+        )
+        .get(live.binding.conversation_id) as
+        { generation: string } | undefined;
       const usage = input.usage;
       if (
-        !run || run.conversation_id !== live.binding.conversation_id ||
-        current?.generation !== live.generation || !usage ||
-        !Number.isSafeInteger(usage.input_tokens) || usage.input_tokens < 0 ||
-        !Number.isSafeInteger(usage.output_tokens) || usage.output_tokens < 0
-      ) return;
+        !run ||
+        run.conversation_id !== live.binding.conversation_id ||
+        current?.generation !== live.generation ||
+        !usage ||
+        !Number.isSafeInteger(usage.input_tokens) ||
+        usage.input_tokens < 0 ||
+        !Number.isSafeInteger(usage.output_tokens) ||
+        usage.output_tokens < 0
+      )
+        return;
       // Cumulative for this Loop turn, separate from API message receipts.
       // Never persist arbitrary adapter fields in the public event stream.
       emit(run.owner_id, run.id, "native.usage", {
@@ -81,8 +99,12 @@ export class NativeProjector {
     // A session's own mode takes precedence over the workspace setting.
     const allow = requestApproval(live, input);
     const event = structuredClone(input);
-    if (event.type === "request" && allow &&
-        Buffer.byteLength(JSON.stringify(event.request)) > MAX_NATIVE_REQUEST_BYTES) {
+    if (
+      event.type === "request" &&
+      allow &&
+      Buffer.byteLength(JSON.stringify(event.request)) >
+        MAX_NATIVE_REQUEST_BYTES
+    ) {
       const detail = event.request.detail;
       const digest = createHash("sha256").update(detail).digest("hex");
       event.request.detail = [
@@ -194,8 +216,11 @@ export class NativeProjector {
     }
     if (event.type === "resolved") {
       live.requests.delete(event.id);
-      finishDecisions("resolved", "conversation_id=? AND generation=? AND native_id=? AND state IN ('pending','deciding')",
-        [live.binding.conversation_id, live.generation, event.id]);
+      finishDecisions(
+        "resolved",
+        "conversation_id=? AND generation=? AND native_id=? AND state IN ('pending','deciding')",
+        [live.binding.conversation_id, live.generation, event.id],
+      );
       if (!live.requests.size) {
         live.waiting = false;
         transition(run, "running");
@@ -286,24 +311,43 @@ export class NativeProjector {
     // those frames are discarded rather than assigned to the bootstrap run or
     // presented as new work. Stored projections remain authoritative.
     if (!live.run && kind !== "settings" && kind !== "commands") return;
-    const applied = ingestNativeActivity(live, { ...update, generation: live.generation });
-    if (applied.applied && applied.record.kind === "output" && live.run &&
-        !(update as { replay?: boolean }).replay && !applied.record.replayed) {
+    const applied = ingestNativeActivity(live, {
+      ...update,
+      generation: live.generation,
+    });
+    if (
+      applied.applied &&
+      applied.record.kind === "output" &&
+      live.run &&
+      !(update as { replay?: boolean }).replay &&
+      !applied.record.replayed
+    ) {
       const run = live.run;
       const data = applied.record.data;
       const generation = live.generation;
       const stillCurrent = () => {
-        const current = db.prepare("SELECT generation FROM companion_sessions WHERE conversation_id=?")
+        const current = db
+          .prepare(
+            "SELECT generation FROM companion_sessions WHERE conversation_id=?",
+          )
           .get(run.conversation_id) as { generation: string } | undefined;
         return current?.generation === generation;
       };
       void import("../pr-watches.js")
-        .then(({ watchCompletedOutput }) => watchCompletedOutput(run, data, stillCurrent))
+        .then(({ watchCompletedOutput }) =>
+          watchCompletedOutput(run, data, stillCurrent),
+        )
         .catch(() => {});
       // A test, type-check or lint the agent ran is recorded with the exit
       // Loop saw, whatever that exit was, right behind the activity commit.
       try {
-        observeCompletedOutput(run, data, stillCurrent, generation, applied.record.id);
+        observeCompletedOutput(
+          run,
+          data,
+          stillCurrent,
+          generation,
+          applied.record.id,
+        );
       } catch {}
     }
   }
@@ -343,7 +387,9 @@ export class NativeProjector {
            AND json_extract(item,'$.phase') IS NOT 'commentary'
            ORDER BY rowid DESC`,
         )
-        .iterate(live.binding.conversation_id, run.id) as Iterable<{ item: string }>;
+        .iterate(live.binding.conversation_id, run.id) as Iterable<{
+        item: string;
+      }>;
       for (const row of stored) {
         const item = JSON.parse(row.item) as Item;
         // A pending in-memory replacement may have cleared this saved reply
@@ -357,13 +403,15 @@ export class NativeProjector {
     // Progress remains durable in Messages/Traces. Publish only the last reply
     // after the harness confirms that the turn completed successfully.
     const output = finalItem?.text || "";
-    const metadata = JSON.stringify(MessageMetadata.parse({
-      ...agentPayload(run),
-      partial,
-      native: true,
-      messageId: checkpoint.message_id,
-      finalNativeItemId: finalItem?.id,
-    }));
+    const metadata = JSON.stringify(
+      MessageMetadata.parse({
+        ...agentPayload(run),
+        partial,
+        native: true,
+        messageId: checkpoint.message_id,
+        finalNativeItemId: finalItem?.id,
+      }),
+    );
     db.transaction(() => {
       if (
         output !== checkpoint.output ||
@@ -400,16 +448,27 @@ export class NativeProjector {
         if (item.kind === "assistant")
           recordConversationUpdate(run, `native-message:${item.id}`, {
             content: item.text,
-            metadata: { native: true, itemId: item.id, phase: item.phase, final: false },
+            metadata: {
+              native: true,
+              itemId: item.id,
+              phase: item.phase,
+              final: false,
+            },
           });
         else
-          db.prepare("DELETE FROM messages WHERE owner_id=? AND run_id=? AND update_key=?")
-            .run(run.owner_id, run.id, `native-message:${item.id}`);
+          db.prepare(
+            "DELETE FROM messages WHERE owner_id=? AND run_id=? AND update_key=?",
+          ).run(run.owner_id, run.id, `native-message:${item.id}`);
       }
       if (finalItem)
         recordConversationUpdate(run, `native-message:${finalItem.id}`, {
           content: finalItem.text,
-          metadata: { native: true, itemId: finalItem.id, phase: finalItem.phase, final: true },
+          metadata: {
+            native: true,
+            itemId: finalItem.id,
+            phase: finalItem.phase,
+            final: true,
+          },
         });
       // Message projection triggers publish item and aggregate identities,
       // revisions and bounded append chunks in this same transaction.

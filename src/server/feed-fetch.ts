@@ -124,7 +124,10 @@ export function redirectTarget(
     (next.protocol === "https:" ||
       (next.protocol === "http:" && origin.protocol === "http:"));
   if (!sameSite)
-    throw new Problem(400, `${feed.name} redirected away from ${origin.hostname}`);
+    throw new Problem(
+      400,
+      `${feed.name} redirected away from ${origin.hostname}`,
+    );
   // Reddit answers its feeds with a redirect to /login?dest=<the feed>. That
   // is the same site, so the hop is allowed and the sign-in page then fails to
   // parse; say what is actually wrong instead.
@@ -155,7 +158,10 @@ async function readCapped(
   const wanted = limits.items ?? MAX_ITEMS;
   const ceiling = limits.bytes ?? MAX_BYTES;
   const tooLarge = () => new Problem(400, `${name} is too large`);
-  if (!limits.bytes && Number(response.headers.get("content-length")) > ceiling) {
+  if (
+    !limits.bytes &&
+    Number(response.headers.get("content-length")) > ceiling
+  ) {
     response.body?.cancel().catch(() => {});
     throw tooLarge();
   }
@@ -179,7 +185,12 @@ async function readCapped(
       // A page is read for its head, so what is past the ceiling is simply
       // not read; a feed that long is refused, as it was before.
       if (limits.bytes) {
-        chunks.push(decoder.decode(value.subarray(0, Math.max(0, ceiling - (size - value.byteLength))), { stream: true }));
+        chunks.push(
+          decoder.decode(
+            value.subarray(0, Math.max(0, ceiling - (size - value.byteLength))),
+            { stream: true },
+          ),
+        );
         break;
       }
       throw tooLarge();

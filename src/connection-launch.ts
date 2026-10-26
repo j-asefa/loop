@@ -40,7 +40,10 @@ async function serviceEntry(dir: string) {
   );
   if (extname(here) === ".js" && existsSync(bundle)) {
     const bytes = readFileSync(bundle);
-    const digest = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+    const digest = createHash("sha256")
+      .update(bytes)
+      .digest("hex")
+      .slice(0, 16);
     const bin = join(dir, "bin");
     privateDir(bin);
     const target = join(bin, `connection-${digest}.mjs`);
@@ -55,7 +58,9 @@ async function serviceEntry(dir: string) {
   return {
     args: [
       ...process.execArgv,
-      fileURLToPath(new URL("./connection-daemon" + extname(here), import.meta.url)),
+      fileURLToPath(
+        new URL("./connection-daemon" + extname(here), import.meta.url),
+      ),
     ],
   };
 }
@@ -108,15 +113,19 @@ async function spawnConnection(
   }
   try {
     return await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        // Its shutdown stops the cloudflared it started; nothing is left behind.
-        child.kill("SIGTERM");
-        reject(new Error("The tunnel did not start in time. See " + log));
-      }, testWait("LOOP_TEST_CONNECTION_START_MS", 120000));
+      const timer = setTimeout(
+        () => {
+          // Its shutdown stops the cloudflared it started; nothing is left behind.
+          child.kill("SIGTERM");
+          reject(new Error("The tunnel did not start in time. See " + log));
+        },
+        testWait("LOOP_TEST_CONNECTION_START_MS", 120000),
+      );
       child.once("message", (m: any) => {
         clearTimeout(timer);
         if (m?.ready) resolve(m.origin);
-        else reject(new Error(m?.error || "Connection service failed to start."));
+        else
+          reject(new Error(m?.error || "Connection service failed to start."));
       });
       child.once("error", (e) => {
         clearTimeout(timer);
@@ -189,7 +198,9 @@ export async function ensureConnection(options: {
       );
     else if (external) reason = "Waiting for the connection service…";
     else if (created)
-      throw new Error("The connection service exited after starting. See loop logs.");
+      throw new Error(
+        "The connection service exited after starting. See loop logs.",
+      );
     else {
       if (found.state === "exited") await clearStaleConnection(dir);
       try {
@@ -252,7 +263,9 @@ export async function stopConnection(
     );
   if (found.state === "running") {
     await connectionControl(found.record, "shutdown").catch(() => {});
-    if (await exited(found.record.pid, testWait("LOOP_TEST_STOP_WAIT_MS", 15000))) {
+    if (
+      await exited(found.record.pid, testWait("LOOP_TEST_STOP_WAIT_MS", 15000))
+    ) {
       await clearStaleConnection(dir);
       return true;
     }

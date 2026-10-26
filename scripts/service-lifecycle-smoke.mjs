@@ -21,41 +21,86 @@ await mkdir(project);
 const fixture = join(base, "codex");
 await copyFile("test/harness.mjs", fixture);
 await chmod(fixture, 0o755);
-const env = { ...process.env, npm_config_prefix: prefix, LOOP_HOME: join(base, "state") };
+const env = {
+  ...process.env,
+  npm_config_prefix: prefix,
+  LOOP_HOME: join(base, "state"),
+};
 delete env.LOOP_TEST_CLOUDFLARED;
 const units = join(homedir(), ".config/systemd/user");
 const systemctl = (...args) => exec("systemctl", ["--user", ...args], { env });
 const mainPid = async (unit) =>
-  Number((await systemctl("show", "-p", "MainPID", "--value", unit)).stdout.trim());
+  Number(
+    (await systemctl("show", "-p", "MainPID", "--value", unit)).stdout.trim(),
+  );
 const active = async (unit) =>
   (await systemctl("is-active", unit).catch((e) => e)).stdout.trim();
 const cgroup = (pid) => readFileSync(`/proc/${pid}/cgroup`, "utf8");
 const alive = (pid) => existsSync(`/proc/${pid}`);
 let loop;
 try {
-  const { stdout } = await exec("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", base], { maxBuffer: 1e6 });
-  await exec("npm", ["install", "-g", "--omit=optional", "--no-audit", "--no-fund", join(base, JSON.parse(stdout)[0].filename)], { env, maxBuffer: 1e6, timeout: 600000 });
-  loop = (...args) => exec(join(prefix, "bin", "loop"), args, { env, timeout: 300000 });
-  const status = async () => JSON.parse((await loop("status", "--json")).stdout);
+  const { stdout } = await exec(
+    "npm",
+    ["pack", "--ignore-scripts", "--json", "--pack-destination", base],
+    { maxBuffer: 1e6 },
+  );
+  await exec(
+    "npm",
+    [
+      "install",
+      "-g",
+      "--omit=optional",
+      "--no-audit",
+      "--no-fund",
+      join(base, JSON.parse(stdout)[0].filename),
+    ],
+    { env, maxBuffer: 1e6, timeout: 600000 },
+  );
+  loop = (...args) =>
+    exec(join(prefix, "bin", "loop"), args, { env, timeout: 300000 });
+  const status = async () =>
+    JSON.parse((await loop("status", "--json")).stdout);
   const ready = async (previous) => {
     for (let i = 0; i < 240; i++) {
       const s = await status().catch(() => undefined);
-      if (s?.pid && s.pid !== previous && s.connection?.registered && s.supervisor === "systemd") return s;
+      if (
+        s?.pid &&
+        s.pid !== previous &&
+        s.connection?.registered &&
+        s.supervisor === "systemd"
+      )
+        return s;
       await new Promise((r) => setTimeout(r, 500));
     }
     throw new Error("The service-managed application did not become ready");
   };
 
   // A saved launch (fixture harness, existing billing), then the services.
-  await loop("codex", "--executable", fixture, "--project", project, "--billing", "existing");
+  await loop(
+    "codex",
+    "--executable",
+    fixture,
+    "--project",
+    project,
+    "--billing",
+    "existing",
+  );
   await loop("service", "install");
   const before = await ready();
   const service = before.connection.service;
   assert.equal(await mainPid("loop.service"), before.pid);
   assert.equal(await mainPid("loop-connection.service"), service.pid);
-  assert.match(cgroup(service.tunnel.pid), /loop-connection\.service/, "cloudflared lives in the connection unit");
+  assert.match(
+    cgroup(service.tunnel.pid),
+    /loop-connection\.service/,
+    "cloudflared lives in the connection unit",
+  );
   assert.doesNotMatch(cgroup(before.pid), /loop-connection\.service/);
-  assert.equal(before.harnesses[0]?.name, "codex", "the unit repeats the saved launch");
+  assert.equal(
+    before.harnesses[0]?.name,
+    "codex",
+    "the unit repeats the saved launch",
+  );
   assert.match(before.url, /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/);
 
   // Pair through the relay as cloudflared delivers requests.
@@ -64,20 +109,35 @@ try {
   let cookie = "";
   const send = (method, path, body) =>
     new Promise((resolve, reject) => {
-      const req = request({ host: relay.hostname, port: Number(relay.port), method, path, headers: {
-        host: new URL(before.url).host, origin: before.url,
-        ...(cookie ? { cookie } : {}), ...(body ? { "content-type": "application/json" } : {}),
-      } }, (res) => {
-        res.resume();
-        res.on("end", () => {
-          if (res.headers["set-cookie"]) cookie = res.headers["set-cookie"][0].split(";")[0];
-          resolve(res.statusCode);
-        });
-      });
+      const req = request(
+        {
+          host: relay.hostname,
+          port: Number(relay.port),
+          method,
+          path,
+          headers: {
+            host: new URL(before.url).host,
+            origin: before.url,
+            ...(cookie ? { cookie } : {}),
+            ...(body ? { "content-type": "application/json" } : {}),
+          },
+        },
+        (res) => {
+          res.resume();
+          res.on("end", () => {
+            if (res.headers["set-cookie"])
+              cookie = res.headers["set-cookie"][0].split(";")[0];
+            resolve(res.statusCode);
+          });
+        },
+      );
       req.on("error", reject);
       req.end(body ? JSON.stringify(body) : undefined);
     });
-  assert.equal(await send("POST", "/pair", { secret: code, name: "Service fixture" }), 200);
+  assert.equal(
+    await send("POST", "/pair", { secret: code, name: "Service fixture" }),
+    200,
+  );
   assert.equal(await send("GET", "/api/bootstrap"), 200);
 
   let previous = before.pid;
@@ -93,7 +153,11 @@ try {
     assert.equal(after.connection.service.pid, service.pid);
     assert.equal(after.connection.service.tunnel.pid, service.tunnel.pid);
     assert.equal(await mainPid("loop-connection.service"), service.pid);
-    assert.equal(await send("GET", "/api/bootstrap"), 200, "the paired cookie still works");
+    assert.equal(
+      await send("GET", "/api/bootstrap"),
+      200,
+      "the paired cookie still works",
+    );
     previous = after.pid;
   }
 

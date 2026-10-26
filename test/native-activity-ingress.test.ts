@@ -35,7 +35,11 @@ app.use((e: any, _req: any, res: any, _next: any) =>
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((r) => server.once("listening", r));
 const base = "http://127.0.0.1:" + (server.address() as any).port;
-const snapshot = async (conversation: string, after?: number, owner = "owner") => {
+const snapshot = async (
+  conversation: string,
+  after?: number,
+  owner = "owner",
+) => {
   const res = await fetch(
     `${base}/conversations/${conversation}/activities${after ? "?after=" + after : ""}`,
     { headers: { "x-owner": owner } },
@@ -62,7 +66,12 @@ function turn(conversation: string, key: string) {
 }
 // Installs a live session in NativeSessions exactly as session() does: the
 // map entry plus the companion_sessions generation written before start().
-function start(sessions: InstanceType<typeof NativeSessions>, generation: string, bootstrap: any, conversation = "conv") {
+function start(
+  sessions: InstanceType<typeof NativeSessions>,
+  generation: string,
+  bootstrap: any,
+  conversation = "conv",
+) {
   const live: Live = {
     binding: {
       conversation_id: conversation,
@@ -75,7 +84,13 @@ function start(sessions: InstanceType<typeof NativeSessions>, generation: string
       state: "idle",
     },
     adapter: new Codex(
-      { harness: "codex", executable: "", version: "fixture", project: dir, billing: "existing" },
+      {
+        harness: "codex",
+        executable: "",
+        version: "fixture",
+        project: dir,
+        billing: "existing",
+      },
       () => {},
     ),
     generation,
@@ -93,29 +108,60 @@ function start(sessions: InstanceType<typeof NativeSessions>, generation: string
     "UPDATE companion_sessions SET generation=?,state='starting' WHERE conversation_id=?",
   ).run(generation, conversation);
   // The direct adapters' real control publisher, wired to the ingress.
-  const controls = new DirectControls("codex", (e: AdapterEvent) => sessions.event(live, e));
+  const controls = new DirectControls("codex", (e: AdapterEvent) =>
+    sessions.event(live, e),
+  );
   return { live, controls, emit: (e: AdapterEvent) => sessions.event(live, e) };
 }
 const events = () =>
-  db.prepare("SELECT run_id,subject_kind,subject_id,type,payload FROM events ORDER BY id").all() as {
+  db
+    .prepare(
+      "SELECT run_id,subject_kind,subject_id,type,payload FROM events ORDER BY id",
+    )
+    .all() as {
     run_id: string | null;
     subject_kind: string;
     subject_id: string;
     type: string;
     payload: string;
   }[];
-const byKind = (items: any[], kind: string) => items.filter((i) => i.kind === kind);
+const byKind = (items: any[], kind: string) =>
+  items.filter((i) => i.kind === kind);
 it("records native turn tokens through adapter ingress without replay or cross-turn inflation", () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "usage-first");
   const current = start(sessions, "usage-generation", run);
   current.live.run = run;
-  const adapter = new Codex({ harness: "codex", executable: "", project: dir, version: "fixture", billing: "existing" }, current.emit) as any;
+  const adapter = new Codex(
+    {
+      harness: "codex",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+    },
+    current.emit,
+  ) as any;
   adapter.thread = "thread-usage";
-  const send = (method: string, params: any) => adapter.message({ method, params: { threadId: "thread-usage", ...params } });
-  const usage = (turnId: string, input: number, output: number, lastInput = 100, lastOutput = 20) => send("thread/tokenUsage/updated", {
-    turnId, tokenUsage: { total: { inputTokens: input, outputTokens: output }, last: { inputTokens: lastInput, outputTokens: lastOutput } },
-  });
+  const send = (method: string, params: any) =>
+    adapter.message({
+      method,
+      params: { threadId: "thread-usage", ...params },
+    });
+  const usage = (
+    turnId: string,
+    input: number,
+    output: number,
+    lastInput = 100,
+    lastOutput = 20,
+  ) =>
+    send("thread/tokenUsage/updated", {
+      turnId,
+      tokenUsage: {
+        total: { inputTokens: input, outputTokens: output },
+        last: { inputTokens: lastInput, outputTokens: lastOutput },
+      },
+    });
   // Historical usage is not assigned to the next run.
   usage("old", 1000, 200);
   send("turn/started", { turn: { id: "turn-1" } });
@@ -124,24 +170,52 @@ it("records native turn tokens through adapter ingress without replay or cross-t
   usage("turn-1", 1300, 260, 200, 40);
   usage("turn-1", 1100, 220);
   usage("wrong-turn", 9999, 9999);
-  send("thread/tokenUsage/updated", { threadId: "foreign", turnId: "turn-1", tokenUsage: { total: { inputTokens: 9999, outputTokens: 9999 } } });
-  expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({ input_tokens: 300, output_tokens: 60 });
+  send("thread/tokenUsage/updated", {
+    threadId: "foreign",
+    turnId: "turn-1",
+    tokenUsage: { total: { inputTokens: 9999, outputTokens: 9999 } },
+  });
+  expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
+    input_tokens: 300,
+    output_tokens: 60,
+  });
 
   const next = turn("conv", "usage-second");
   current.live.run = next;
   send("turn/started", { turn: { id: "turn-2" } });
   usage("turn-2", 1350, 270, 50, 10);
-  expect(conversationUsage("owner", "conv").runs[next.id]).toEqual({ input_tokens: 50, output_tokens: 10 });
+  expect(conversationUsage("owner", "conv").runs[next.id]).toEqual({
+    input_tokens: 50,
+    output_tokens: 10,
+  });
   const before = events().length;
-  current.emit({ type: "usage", usage: { input_tokens: NaN, output_tokens: 1 } });
-  current.emit({ type: "usage", usage: { input_tokens: -1, output_tokens: 1 } });
+  current.emit({
+    type: "usage",
+    usage: { input_tokens: NaN, output_tokens: 1 },
+  });
+  current.emit({
+    type: "usage",
+    usage: { input_tokens: -1, output_tokens: 1 },
+  });
   current.live.run = turn("other", "usage-foreign");
-  current.emit({ type: "usage", usage: { input_tokens: 9000, output_tokens: 9000 } });
+  current.emit({
+    type: "usage",
+    usage: { input_tokens: 9000, output_tokens: 9000 },
+  });
   current.live.run = next;
-  db.prepare("UPDATE companion_sessions SET generation='replacement' WHERE conversation_id='conv'").run();
-  current.emit({ type: "usage", usage: { input_tokens: 9000, output_tokens: 9000 } });
+  db.prepare(
+    "UPDATE companion_sessions SET generation='replacement' WHERE conversation_id='conv'",
+  ).run();
+  current.emit({
+    type: "usage",
+    usage: { input_tokens: 9000, output_tokens: 9000 },
+  });
   // The foreign run's enqueue/claim events are unrelated to usage.
-  expect(events().slice(before).filter(e => e.type === "native.usage")).toHaveLength(0);
+  expect(
+    events()
+      .slice(before)
+      .filter((e) => e.type === "native.usage"),
+  ).toHaveLength(0);
   expect(() => conversationUsage("intruder", "conv")).toThrow();
 });
 
@@ -149,16 +223,41 @@ it("records Claude result usage including cached inputs, excluding foreign resul
   const run = turn("conv", "usage-claude");
   const current = start(new NativeSessions(), "usage-claude-generation", run);
   current.live.run = run;
-  const adapter = new Claude({ harness: "claude", executable: "", project: dir, version: "fixture", billing: "existing", resume: "claude-usage" }, current.emit) as any;
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-usage",
+    },
+    current.emit,
+  ) as any;
   adapter.active = true;
-  const result = { type: "result", session_id: "claude-usage", usage: { input_tokens: 100, cache_read_input_tokens: 50, cache_creation_input_tokens: 25, output_tokens: 20 } };
+  const result = {
+    type: "result",
+    session_id: "claude-usage",
+    usage: {
+      input_tokens: 100,
+      cache_read_input_tokens: 50,
+      cache_creation_input_tokens: 25,
+      output_tokens: 20,
+    },
+  };
   adapter.message({ ...result, parent_tool_use_id: "child" });
   adapter.message({ ...result, session_id: "other-session" });
   expect(conversationUsage("owner", "conv").runs[run.id]).toBeUndefined();
   adapter.message(result);
-  expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({ input_tokens: 175, output_tokens: 20 });
+  expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
+    input_tokens: 175,
+    output_tokens: 20,
+  });
   adapter.message(result);
-  expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({ input_tokens: 175, output_tokens: 20 });
+  expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
+    input_tokens: 175,
+    output_tokens: 20,
+  });
 });
 const option = (id: string, confirmed: string) => ({
   id,
@@ -173,48 +272,132 @@ const planEvent = (generation: string, statuses: string[]): AdapterEvent => ({
     {
       kind: "plan",
       id: "plan-1",
-      steps: statuses.map((status, i) => ({ id: "s" + i, text: "Step " + i, status })),
+      steps: statuses.map((status, i) => ({
+        id: "s" + i,
+        text: "Step " + i,
+        status,
+      })),
     } as any,
     // The adapter's own notion of generation is never trusted.
     { harness: "codex", generation },
   ),
 });
 
-it.each(["codex", "claude", "pi", "opencode", "acp"])("watches a %s PR through the production native activity ingress", async harness => {
-  const { id, now } = await import("../src/server/db");
-  const { seal } = await import("../src/server/secrets");
-  const { createAgent } = await import("../src/server/domain");
-  const { withGithubFixture } = await import("../src/server/pr-watches");
-  const connection = id();
-  db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'owner','openai','Fixture','','connected','[{\"id\":\"fixture\"}]','{}',?)").run(connection, now());
-  const agent = createAgent("owner", { name: harness + "-watch", connectionId: connection, model: "fixture" });
-  const conversation = id();
-  db.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','PR creation',?)").run(conversation, now());
-  db.prepare("INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES(?,?,?,?)").run(conversation, harness, dir, now());
-  db.prepare("INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,'owner','GitHub','https://api.githubcopilot.com/mcp/',?,'connected','{}',?)")
-    .run(id(), seal(JSON.stringify({ type: "bearer", token: "fixture" }), "owner"), now());
-  const run = turn(conversation, "pr-create-" + harness);
-  run.conversation_id = conversation;
-  run.agent_id = agent.id;
-  db.prepare("UPDATE runs SET conversation_id=?,agent_id=? WHERE id=?").run(conversation, agent.id, run.id);
-  const { live, emit } = start(new NativeSessions(), "pr-gen-" + harness, run, conversation);
-  live.binding.harness = harness as any;
-  live.run = run;
-  const number = 50 + ["codex", "claude", "pi", "opencode", "acp"].indexOf(harness);
-  const restore = withGithubFixture(async () => new Response(JSON.stringify({ state: "open", created_at: new Date(now()).toISOString(), head: { sha: "a".repeat(40) } })));
-  const source = { transport: harness === "acp" ? "acp" as const : "native" as const, harness, origin: "direct" };
-  const output = { v: 1 as const, kind: "output" as const, id: "create", source };
-  try {
-    emit({ type: "activity", activity: { ...output, patch: { command: "gh pr create --fill", replace: [{ stream: "combined", text: `https://github.com/acme/api/pull/${number}` }], status: "running" } } });
-    expect(db.prepare("SELECT 1 FROM pr_watches WHERE number=?").get(number)).toBeUndefined();
-    // ACP may send command input, output and completion in separate frames.
-    emit({ type: "activity", activity: { ...output, patch: { status: "exited" } } });
-    const record = db.prepare("SELECT record FROM agent_activities WHERE run_id=? AND kind='output'").get(run.id) as { record: string } | undefined;
-    expect(record && JSON.parse(record.record).data).toMatchObject({ command: "gh pr create --fill", status: "exited" });
-    await expect.poll(() => db.prepare("SELECT agent_id,state FROM pr_watches WHERE number=?").get(number))
-      .toEqual({ agent_id: agent.id, state: "watching" });
-  } finally { restore(); }
-});
+it.each(["codex", "claude", "pi", "opencode", "acp"])(
+  "watches a %s PR through the production native activity ingress",
+  async (harness) => {
+    const { id, now } = await import("../src/server/db");
+    const { seal } = await import("../src/server/secrets");
+    const { createAgent } = await import("../src/server/domain");
+    const { withGithubFixture } = await import("../src/server/pr-watches");
+    const connection = id();
+    db.prepare(
+      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'owner','openai','Fixture','','connected','[{\"id\":\"fixture\"}]','{}',?)",
+    ).run(connection, now());
+    const agent = createAgent("owner", {
+      name: harness + "-watch",
+      connectionId: connection,
+      model: "fixture",
+    });
+    const conversation = id();
+    db.prepare(
+      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','PR creation',?)",
+    ).run(conversation, now());
+    db.prepare(
+      "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES(?,?,?,?)",
+    ).run(conversation, harness, dir, now());
+    db.prepare(
+      "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,'owner','GitHub','https://api.githubcopilot.com/mcp/',?,'connected','{}',?)",
+    ).run(
+      id(),
+      seal(JSON.stringify({ type: "bearer", token: "fixture" }), "owner"),
+      now(),
+    );
+    const run = turn(conversation, "pr-create-" + harness);
+    run.conversation_id = conversation;
+    run.agent_id = agent.id;
+    db.prepare("UPDATE runs SET conversation_id=?,agent_id=? WHERE id=?").run(
+      conversation,
+      agent.id,
+      run.id,
+    );
+    const { live, emit } = start(
+      new NativeSessions(),
+      "pr-gen-" + harness,
+      run,
+      conversation,
+    );
+    live.binding.harness = harness as any;
+    live.run = run;
+    const number =
+      50 + ["codex", "claude", "pi", "opencode", "acp"].indexOf(harness);
+    const restore = withGithubFixture(
+      async () =>
+        new Response(
+          JSON.stringify({
+            state: "open",
+            created_at: new Date(now()).toISOString(),
+            head: { sha: "a".repeat(40) },
+          }),
+        ),
+    );
+    const source = {
+      transport: harness === "acp" ? ("acp" as const) : ("native" as const),
+      harness,
+      origin: "direct",
+    };
+    const output = {
+      v: 1 as const,
+      kind: "output" as const,
+      id: "create",
+      source,
+    };
+    try {
+      emit({
+        type: "activity",
+        activity: {
+          ...output,
+          patch: {
+            command: "gh pr create --fill",
+            replace: [
+              {
+                stream: "combined",
+                text: `https://github.com/acme/api/pull/${number}`,
+              },
+            ],
+            status: "running",
+          },
+        },
+      });
+      expect(
+        db.prepare("SELECT 1 FROM pr_watches WHERE number=?").get(number),
+      ).toBeUndefined();
+      // ACP may send command input, output and completion in separate frames.
+      emit({
+        type: "activity",
+        activity: { ...output, patch: { status: "exited" } },
+      });
+      const record = db
+        .prepare(
+          "SELECT record FROM agent_activities WHERE run_id=? AND kind='output'",
+        )
+        .get(run.id) as { record: string } | undefined;
+      expect(record && JSON.parse(record.record).data).toMatchObject({
+        command: "gh pr create --fill",
+        status: "exited",
+      });
+      await expect
+        .poll(() =>
+          db
+            .prepare("SELECT agent_id,state FROM pr_watches WHERE number=?")
+            .get(number),
+        )
+        .toEqual({ agent_id: agent.id, state: "watching" });
+    } finally {
+      restore();
+    }
+  },
+);
 
 it("persists native activity events through restarts and serves them to reloads without leaking payloads", async () => {
   const bootstrap = turn("conv", "bootstrap");
@@ -225,13 +408,23 @@ it("persists native activity events through restarts and serves them to reloads 
   // Pre-turn: session/load reports catalogs and capabilities before any turn.
   first.controls.publish(
     [option("model", "gpt-a"), option("sandbox", "workspace-write")],
-    [{ name: "review", token: "/review", kind: "prompt", description: "Review" }],
+    [
+      {
+        name: "review",
+        token: "/review",
+        kind: "prompt",
+        description: "Review",
+      },
+    ],
   );
   // A replayed tool before a turn has no Loop turn and must not become work.
   first.emit({
     type: "activity",
     activity: {
-      v: 1, kind: "tool", id: "replayed", replay: true,
+      v: 1,
+      kind: "tool",
+      id: "replayed",
+      replay: true,
       source: { transport: "native", harness: "codex", origin: "direct" },
       patch: { title: "Edit", status: "completed" },
     },
@@ -240,24 +433,48 @@ it("persists native activity events through restarts and serves them to reloads 
   expect(byKind(page.items, "tool")).toEqual([]);
   const settings1 = byKind(page.items, "settings")[0];
   expect(settings1).toMatchObject({ run: null });
-  expect(settings1.record).toMatchObject({ generation: "gen-1", data: { revision: 1 } });
-  expect(settings1.record.data.options.map((o: any) => o.id)).toEqual(["model", "sandbox"]);
-  expect(byKind(page.items, "commands")[0].record.data.commands[0]).toMatchObject({ token: "/review" });
+  expect(settings1.record).toMatchObject({
+    generation: "gen-1",
+    data: { revision: 1 },
+  });
+  expect(settings1.record.data.options.map((o: any) => o.id)).toEqual([
+    "model",
+    "sandbox",
+  ]);
+  expect(
+    byKind(page.items, "commands")[0].record.data.commands[0],
+  ).toMatchObject({ token: "/review" });
   const caps1 = byKind(page.items, "capabilities")[0];
   expect(caps1.key).toBe("capabilities:native:codex");
   expect(caps1.record).toMatchObject({
     generation: "gen-1",
     source: { transport: "native", harness: "codex" },
-    capabilities: { plans: { state: "supported" }, settings: { state: "supported" } },
+    capabilities: {
+      plans: { state: "supported" },
+      settings: { state: "supported" },
+    },
   });
 
   // Session-only refresh signals are content-free conversation subjects;
   // the raw adapter payload never reaches the events stream.
-  const signals = events().slice(before).filter(e => e.type === "activity.updated");
+  const signals = events()
+    .slice(before)
+    .filter((e) => e.type === "activity.updated");
   expect(signals.length).toBeGreaterThan(0);
-  expect(signals.every((e) => e.run_id === null && e.subject_kind === "conversation" && e.subject_id === "conv")).toBe(true);
+  expect(
+    signals.every(
+      (e) =>
+        e.run_id === null &&
+        e.subject_kind === "conversation" &&
+        e.subject_id === "conv",
+    ),
+  ).toBe(true);
   for (const e of signals) {
-    expect(Object.keys(JSON.parse(e.payload)).sort()).toEqual(["key", "kind", "sequence"]);
+    expect(Object.keys(JSON.parse(e.payload)).sort()).toEqual([
+      "key",
+      "kind",
+      "sequence",
+    ]);
     expect(e.payload).not.toContain("gpt-a");
   }
 
@@ -268,31 +485,56 @@ it("persists native activity events through restarts and serves them to reloads 
   first.emit(planEvent("adapter-private-id", ["completed", "in_progress"]));
   // Duplicate delivery of an unchanged record writes nothing and signals nothing.
   const signalCount = events().length;
-  first.emit({ type: "activity_capabilities", capabilities: first.controls.capabilities });
+  first.emit({
+    type: "activity_capabilities",
+    capabilities: first.controls.capabilities,
+  });
   expect(events().length).toBe(signalCount);
-  first.controls.publish([option("model", "gpt-b"), option("sandbox", "workspace-write")]);
+  first.controls.publish([
+    option("model", "gpt-b"),
+    option("sandbox", "workspace-write"),
+  ]);
   page = (await snapshot("conv")).body;
   const plans = byKind(page.items, "plan");
   expect(plans).toHaveLength(1);
   expect(plans[0]).toMatchObject({ run: run.id });
   expect(plans[0].record).toMatchObject({ generation: "gen-1", revision: 2 });
-  expect(plans[0].record.data.steps.map((s: any) => s.status)).toEqual(["completed", "in_progress"]);
-  expect(byKind(page.items, "settings")[0].record.data).toMatchObject({ revision: 2 });
-  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "running" });
-  const planSignals = events().filter((e) => e.type === "activity.updated" && e.payload.includes('"kind":"plan"'));
+  expect(plans[0].record.data.steps.map((s: any) => s.status)).toEqual([
+    "completed",
+    "in_progress",
+  ]);
+  expect(byKind(page.items, "settings")[0].record.data).toMatchObject({
+    revision: 2,
+  });
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
+    state: "running",
+  });
+  const planSignals = events().filter(
+    (e) => e.type === "activity.updated" && e.payload.includes('"kind":"plan"'),
+  );
   expect(planSignals.map((e) => e.run_id)).toEqual([run.id, run.id]);
-  expect(events().some((e) => e.type === "native.event" && e.payload.includes('"activity'))).toBe(false);
+  expect(
+    events().some(
+      (e) => e.type === "native.event" && e.payload.includes('"activity'),
+    ),
+  ).toBe(false);
 
   // An oversized display update is dropped without interrupting native work.
   first.emit({
     type: "activity",
     activity: {
-      v: 1, kind: "output", id: "huge",
+      v: 1,
+      kind: "output",
+      id: "huge",
       source: { transport: "native", harness: "codex", origin: "direct" },
-      patch: { replace: [{ stream: "stdout", text: "x".repeat(2 * 1024 * 1024) }] },
+      patch: {
+        replace: [{ stream: "stdout", text: "x".repeat(2 * 1024 * 1024) }],
+      },
     },
   });
-  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({ state: "running" });
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
+    state: "running",
+  });
   expect(first.live.closed).toBe(false);
 
   // A run bound to another conversation cannot write into this one.
@@ -305,11 +547,16 @@ it("persists native activity events through restarts and serves them to reloads 
 
   // Reload: a full snapshot and an incremental page from the cursor agree.
   const cursor = page.cursor;
-  first.controls.publish([option("model", "gpt-c"), option("sandbox", "workspace-write")]);
+  first.controls.publish([
+    option("model", "gpt-c"),
+    option("sandbox", "workspace-write"),
+  ]);
   const delta = (await snapshot("conv", cursor)).body;
   expect(delta.items.map((i: any) => i.kind)).toEqual(["settings"]);
   const full = (await snapshot("conv")).body;
-  expect(new Set(full.items.map((i: any) => i.key)).size).toBe(full.items.length);
+  expect(new Set(full.items.map((i: any) => i.key)).size).toBe(
+    full.items.length,
+  );
   expect(byKind(full.items, "settings")[0]).toEqual(delta.items[0]);
   // Another owner cannot read the conversation.
   expect((await snapshot("conv", undefined, "mallory")).status).toBe(404);
@@ -327,20 +574,34 @@ it("persists native activity events through restarts and serves them to reloads 
   // catalog replaces the old one instead of being rejected as stale.
   sessions = new NativeSessions();
   const second = start(sessions, "gen-2", bootstrap);
-  const settingsRevision = byKind(JSON.parse(frozen), "settings")[0].record.revision;
+  const settingsRevision = byKind(JSON.parse(frozen), "settings")[0].record
+    .revision;
   second.controls.publish([option("model", "gpt-d")], []);
   page = (await snapshot("conv")).body;
   const settings2 = byKind(page.items, "settings")[0];
-  expect(settings2.record).toMatchObject({ generation: "gen-2", data: { revision: 1 } });
-  expect(settings2.record.data.options.map((o: any) => [o.id, o.confirmed])).toEqual([["model", "gpt-d"]]);
+  expect(settings2.record).toMatchObject({
+    generation: "gen-2",
+    data: { revision: 1 },
+  });
+  expect(
+    settings2.record.data.options.map((o: any) => [o.id, o.confirmed]),
+  ).toEqual([["model", "gpt-d"]]);
   expect(settings2.record.revision).toBe(settingsRevision + 1);
-  expect(byKind(page.items, "commands")[0].record).toMatchObject({ generation: "gen-2", data: { commands: [], revision: 1 } });
+  expect(byKind(page.items, "commands")[0].record).toMatchObject({
+    generation: "gen-2",
+    data: { commands: [], revision: 1 },
+  });
   expect(byKind(page.items, "capabilities")[0].record.generation).toBe("gen-2");
   // Completed history from the earlier generation is preserved as history.
-  expect(byKind(page.items, "plan")[0].record).toMatchObject({ generation: "gen-1" });
+  expect(byKind(page.items, "plan")[0].record).toMatchObject({
+    generation: "gen-1",
+  });
   // The first process's session object is no longer live for this conversation.
   first.controls.publish([option("model", "zombie")]);
-  expect(byKind((await snapshot("conv")).body.items, "settings")[0].record.data.options[0].confirmed).toBe("gpt-d");
+  expect(
+    byKind((await snapshot("conv")).body.items, "settings")[0].record.data
+      .options[0].confirmed,
+  ).toBe("gpt-d");
 });
 
 it("never sends activity variants on the v1 host wire used by older clients", async () => {
@@ -349,22 +610,42 @@ it("never sends activity variants on the v1 host wire used by older clients", as
     project: dir,
     version: "test",
     billing: { mode: "existing", description: "fixture" },
-    capabilities: { approvals: true, questions: true, resume: true, liveAttach: false, terminal: false },
+    capabilities: {
+      approvals: true,
+      questions: true,
+      resume: true,
+      liveAttach: false,
+      terminal: false,
+    },
   });
   const cursor = host.state.snapshot.cursor;
   const controls = new DirectControls("codex", host.emit);
-  controls.publish([option("model", "gpt-a")], [
-    { name: "review", token: "/review", kind: "prompt", description: "Review" },
-  ]);
+  controls.publish(
+    [option("model", "gpt-a")],
+    [
+      {
+        name: "review",
+        token: "/review",
+        kind: "prompt",
+        description: "Review",
+      },
+    ],
+  );
   host.emit(planEvent("g", ["pending"]));
   expect(host.state.snapshot.cursor).toBe(cursor);
   expect(host.state.events).toEqual([]);
   host.emit({ type: "status", status: "running" });
   // Every frame the host retains for replay is valid for the v1 union, which
   // no longer admits activity variants.
-  for (const frame of host.state.events) expect(ServerFrame.safeParse(frame).success).toBe(true);
+  for (const frame of host.state.events)
+    expect(ServerFrame.safeParse(frame).success).toBe(true);
   expect(
-    ServerFrame.safeParse({ v: 1, epoch: "e", cursor: 1, event: planEvent("g", ["pending"]) }).success,
+    ServerFrame.safeParse({
+      v: 1,
+      epoch: "e",
+      cursor: 1,
+      event: planEvent("g", ["pending"]),
+    }).success,
   ).toBe(false);
   // Cancel the debounced state flush so it cannot write after afterAll removes dir.
   await host.close();
@@ -384,7 +665,9 @@ it("drops activity an adapter files under another transport", async () => {
         kind: "output",
         id: "spoof-" + transport,
         source: { transport, harness: "codex", origin: "direct" },
-        patch: { replace: [{ stream: "stdout", text: "not from " + transport }] },
+        patch: {
+          replace: [{ stream: "stdout", text: "not from " + transport }],
+        },
       },
     });
   expect((await snapshot("conv")).body.items).toHaveLength(before);

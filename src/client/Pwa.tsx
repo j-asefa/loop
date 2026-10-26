@@ -117,10 +117,10 @@ export function PwaStatus() {
       // our previous translation so repeated checks converge without drift.
       const nav = document.querySelector<HTMLElement>(".mobile-nav");
       const navStyle = nav && getComputedStyle(nav);
-      const bottom = nav && navStyle?.position === "fixed" &&
-        navStyle.display !== "none"
-        ? nav.getBoundingClientRect().bottom - dropped
-        : probe.getBoundingClientRect().top;
+      const bottom =
+        nav && navStyle?.position === "fixed" && navStyle.display !== "none"
+          ? nav.getBoundingClientRect().bottom - dropped
+          : probe.getBoundingClientRect().top;
       const drop = viewportDrop(
         window.visualViewport,
         bottom,
@@ -269,7 +269,8 @@ export function watchViewport(
     [win, "touchend"],
     [win, "touchcancel"],
   ];
-  for (const [target, type] of checkEvents) target?.addEventListener(type, checked);
+  for (const [target, type] of checkEvents)
+    target?.addEventListener(type, checked);
   for (const [target, type] of refolds) target.addEventListener(type, refolded);
   win.addEventListener("scroll", scrolled, { passive: true });
   return () => {
@@ -342,7 +343,8 @@ export function viewportDrop(
   if (!v || keyboardOpen || (v.scale || 1) !== 1 || !(layoutBottom > 0))
     return 0;
   const drop = Math.round(
-    Math.max(visibleViewportTop(v, scrollY) + v.height, windowHeight) - layoutBottom,
+    Math.max(visibleViewportTop(v, scrollY) + v.height, windowHeight) -
+      layoutBottom,
   );
   return drop >= 1 ? drop : 0;
 }

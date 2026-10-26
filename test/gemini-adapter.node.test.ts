@@ -150,7 +150,10 @@ test("Gemini rejects unverifiable subscription policy and redacts failed account
   process.env.LOOP_TEST_GEMINI_FAIL = "1";
   const adapter = new Gemini({ ...options, probeOnly: true }, () => {});
   try {
-    await assert.rejects(adapter.start(), /Sign in to Gemini CLI in Provider connections/);
+    await assert.rejects(
+      adapter.start(),
+      /Sign in to Gemini CLI in Provider connections/,
+    );
   } finally {
     delete process.env.LOOP_TEST_GEMINI_FAIL;
     await adapter.dispose();

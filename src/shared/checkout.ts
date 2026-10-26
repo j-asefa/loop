@@ -76,17 +76,26 @@ export type CheckoutDetail = {
 
 /** The card line. */
 export function checkoutParts(summary: CheckoutSummary) {
-  const parts: (string | { files: number; additions: number; deletions: number })[] = [summary.branch];
+  const parts: (
+    string | { files: number; additions: number; deletions: number }
+  )[] = [summary.branch];
   if (summary.ahead != null) {
     parts.push(
       `${summary.ahead} ${summary.ahead === 1 ? "commit" : "commits"} ${summary.scope === "run" ? "since start" : "ahead"}`,
     );
-    if (summary.behind) parts.push(`${summary.behind} ${summary.scope === "run" ? "removed since start" : "behind"}`);
+    if (summary.behind)
+      parts.push(
+        `${summary.behind} ${summary.scope === "run" ? "removed since start" : "behind"}`,
+      );
   }
   if (summary.state === "captured") {
     parts.push(
       summary.files
-        ? { files: summary.files, additions: summary.additions, deletions: summary.deletions }
+        ? {
+            files: summary.files,
+            additions: summary.additions,
+            deletions: summary.deletions,
+          }
         : "no changes",
     );
     if (summary.untracked) parts.push(`${summary.untracked} untracked`);
@@ -105,9 +114,13 @@ export function checkoutParts(summary: CheckoutSummary) {
 }
 
 export function checkoutLine(summary: CheckoutSummary) {
-  return checkoutParts(summary).map((part) => typeof part === "string" ? part
-    : `${part.files} ${part.files === 1 ? "file" : "files"} +${part.additions} −${part.deletions}`,
-  ).join(" · ");
+  return checkoutParts(summary)
+    .map((part) =>
+      typeof part === "string"
+        ? part
+        : `${part.files} ${part.files === 1 ? "file" : "files"} +${part.additions} −${part.deletions}`,
+    )
+    .join(" · ");
 }
 
 /**
@@ -116,7 +129,8 @@ export function checkoutLine(summary: CheckoutSummary) {
  * Returns the raw path, or the input unchanged when it is not quoted.
  */
 export function unquoteGitPath(path: string) {
-  if (!(path.length >= 2 && path.startsWith('"') && path.endsWith('"'))) return path;
+  if (!(path.length >= 2 && path.startsWith('"') && path.endsWith('"')))
+    return path;
   const bytes: number[] = [];
   // By code point, so an emoji is encoded whole rather than as two halves.
   const inner = Array.from(path.slice(1, -1));
@@ -127,11 +141,22 @@ export function unquoteGitPath(path: string) {
       continue;
     }
     const n = inner[++i];
-    const simple: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+    const simple: Record<string, number> = {
+      a: 7,
+      b: 8,
+      t: 9,
+      n: 10,
+      v: 11,
+      f: 12,
+      r: 13,
+      '"': 34,
+      "\\": 92,
+    };
     if (n in simple) bytes.push(simple[n]);
     else if (/[0-7]/.test(n ?? "")) {
       let oct = n;
-      while (oct.length < 3 && /[0-7]/.test(inner[i + 1] ?? "")) oct += inner[++i];
+      while (oct.length < 3 && /[0-7]/.test(inner[i + 1] ?? ""))
+        oct += inner[++i];
       bytes.push(parseInt(oct, 8));
     } else if (n !== undefined) bytes.push(...new TextEncoder().encode(n));
   }
@@ -155,8 +180,10 @@ export function patchByFile(patch: string) {
     const minus = chunk.match(/^--- (?:a\/(.*)|("a\/(?:[^"\\]|\\.)*"))$/m);
     const renamed = chunk.match(/^rename to (.*)$/m);
     let path =
-      plus?.[1] ?? (plus?.[2] ? quoted(plus[2]) : undefined) ??
-      minus?.[1] ?? (minus?.[2] ? quoted(minus[2]) : undefined) ??
+      plus?.[1] ??
+      (plus?.[2] ? quoted(plus[2]) : undefined) ??
+      minus?.[1] ??
+      (minus?.[2] ? quoted(minus[2]) : undefined) ??
       (renamed ? unquoteGitPath(renamed[1]) : undefined);
     if (path === undefined) {
       // "diff --git a/P b/P": the same path twice, plain or quoted.
@@ -164,8 +191,14 @@ export function patchByFile(patch: string) {
       const half = (header.length - 1) / 2;
       const left = header.slice(0, half),
         right = header.slice(half + 1);
-      const same = Number.isInteger(half) && left === right.replace(/^("?)b\//, "$1a/");
-      path = same && /^"?a\//.test(left) ? (left.startsWith('"') ? quoted(left) : left.slice(2)) : "";
+      const same =
+        Number.isInteger(half) && left === right.replace(/^("?)b\//, "$1a/");
+      path =
+        same && /^"?a\//.test(left)
+          ? left.startsWith('"')
+            ? quoted(left)
+            : left.slice(2)
+          : "";
     }
     chunks.set(path, chunk.replace(/^diff --git .*\n(?:index .*\n)?/, ""));
   }

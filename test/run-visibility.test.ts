@@ -14,7 +14,8 @@ const { submit } = await import("../src/server/agent-runtime");
 const { tick, execute } = await import("../src/server/worker");
 const { withTestAdapter } = await import("../src/server/providers");
 const { transition } = await import("../src/server/queue");
-const { resultsRevision, resultsUpdates } = await import("../src/server/results");
+const { resultsRevision, resultsUpdates } =
+  await import("../src/server/results");
 const { core } = await import("../src/server/core-routes");
 const app = express();
 app.use(express.json(), (req, res, next) => {
@@ -107,7 +108,9 @@ it("exposes failures in conversations and removes unfinished answers from feed u
     run.id,
   );
   expect(resultsUpdates("alice", { after, through: 0 }).items).toEqual([]);
-  expect(resultsUpdates("alice", { after, through: 0 }).removed).toHaveLength(1);
+  expect(resultsUpdates("alice", { after, through: 0 }).removed).toHaveLength(
+    1,
+  );
 });
 it("does not mark a provider response with no text or tool call as completed", async () => {
   const run = submit("alice", {

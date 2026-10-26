@@ -149,9 +149,7 @@ export class Relay {
       !req.url?.startsWith("/api/") &&
       /text\/html/.test(String(req.headers.accept ?? ""));
     res.writeHead(503, {
-      "Content-Type": page
-        ? "text/html; charset=utf-8"
-        : "application/json",
+      "Content-Type": page ? "text/html; charset=utf-8" : "application/json",
       "Cache-Control": "no-store",
       "Retry-After": "2",
       "X-Loop-Unavailable": "restarting",

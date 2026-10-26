@@ -80,8 +80,9 @@ function showPair(pair: Pair) {
 }
 function showReady(ready: Ready, withCode = true) {
   console.log(
-    (preview ? `Loop preview ${preview.name} ready. ` : "Loop workspace ready. ") +
-      ready.description,
+    (preview
+      ? `Loop preview ${preview.name} ready. `
+      : "Loop workspace ready. ") + ready.description,
   );
   console.log(
     preview
@@ -115,7 +116,8 @@ export async function forceStop(
   reason: string,
   kill?: (pid: number, signal: NodeJS.Signals) => void,
 ) {
-  const { assertExecutionNamespace, retireStoppedExecution } = await import("./server/execution-ownership.js");
+  const { assertExecutionNamespace, retireStoppedExecution } =
+    await import("./server/execution-ownership.js");
   assertExecutionNamespace(dir);
   if (workspace)
     console.error(
@@ -156,7 +158,10 @@ async function stopWorkspace(dir: string) {
   if (!answered) {
     if (!recorded) {
       // A previous stop may have left records it couldn't resolve.
-      if ((await recordedChildren(dir)).length || existsSync(join(dir, "execution/owner.json")))
+      if (
+        (await recordedChildren(dir)).length ||
+        existsSync(join(dir, "execution/owner.json"))
+      )
         return forceStop(dir, undefined, "exited");
       throw new Error("No workspace is running.");
     }
@@ -178,7 +183,10 @@ async function stopWorkspace(dir: string) {
       `did not exit within ${STOP_WAIT_MS / 1000}s`,
     );
   // Retry anything an earlier incomplete stop left on record.
-  if ((await recordedChildren(dir)).length || existsSync(join(dir, "execution/owner.json")))
+  if (
+    (await recordedChildren(dir)).length ||
+    existsSync(join(dir, "execution/owner.json"))
+  )
     return forceStop(dir, undefined, "exited");
 }
 function runCommand(command: string, args: string[], cwd: string) {
@@ -317,7 +325,12 @@ async function restartWorkspace(
 }
 
 /** An installed service restarts only its application unit. */
-async function restartService(dir: string, root: string, status: any, upgradedFrom?: string) {
+async function restartService(
+  dir: string,
+  root: string,
+  status: any,
+  upgradedFrom?: string,
+) {
   const uid = process.getuid!();
   // An upgrade installs the new build in npm's global prefix while the service
   // entry still names the build it was installed from, often a checkout.
@@ -781,19 +794,42 @@ Uninstall removes the package separately; workspace/native history is retained.`
       ? "claude"
       : positionals[0];
   if (values["stopped-generation"] && action !== "recover-execution")
-    throw new Error("--stopped-generation applies only to loop recover-execution.");
+    throw new Error(
+      "--stopped-generation applies only to loop recover-execution.",
+    );
   if (action === "recover-execution") {
-    if (positionals.length !== 1) throw new Error("Use loop recover-execution [--stopped-generation UUID].");
-    const { recordedExecutionOwner, recoverStoppedExecution } = await import("./server/execution-ownership.js");
+    if (positionals.length !== 1)
+      throw new Error(
+        "Use loop recover-execution [--stopped-generation UUID].",
+      );
+    const { recordedExecutionOwner, recoverStoppedExecution } =
+      await import("./server/execution-ownership.js");
     if (values["stopped-generation"]) {
-      const archive = recoverStoppedExecution(dir, values["stopped-generation"]);
-      console.log(`Execution records archived at ${archive}. Workspace data is retained; run loop start when ready.`);
+      const archive = recoverStoppedExecution(
+        dir,
+        values["stopped-generation"],
+      );
+      console.log(
+        `Execution records archived at ${archive}. Workspace data is retained; run loop start when ready.`,
+      );
     } else {
       const owner = recordedExecutionOwner(dir);
-      if (!owner) console.log("No retained execution owner. No records changed.");
+      if (!owner)
+        console.log("No retained execution owner. No records changed.");
       else {
-        console.log(JSON.stringify({ generation: owner.generation, namespace: owner.namespace, namespaceIdentity: owner.namespaceIdentity, pid: owner.pid }));
-        console.log("Only after independently confirming the prior host/container and every process in that namespace lifetime stopped, run loop recover-execution --stopped-generation " + owner.generation + ". This also applies after an unclean host reboot. A free lock alone does not prove native children stopped.");
+        console.log(
+          JSON.stringify({
+            generation: owner.generation,
+            namespace: owner.namespace,
+            namespaceIdentity: owner.namespaceIdentity,
+            pid: owner.pid,
+          }),
+        );
+        console.log(
+          "Only after independently confirming the prior host/container and every process in that namespace lifetime stopped, run loop recover-execution --stopped-generation " +
+            owner.generation +
+            ". This also applies after an unclean host reboot. A free lock alone does not prove native children stopped.",
+        );
       }
     }
     return;
@@ -1141,7 +1177,9 @@ Uninstall removes the package separately; workspace/native history is retained.`
   let billing =
     values.billing ??
     preferences.billing?.[selected] ??
-    (["acp", "gemini", "muse", "grok"].includes(selected) ? "existing" : "subscription");
+    (["acp", "gemini", "muse", "grok"].includes(selected)
+      ? "existing"
+      : "subscription");
   if (selected === "acp" && billing !== "existing")
     throw new Error(
       "ACP uses the agent's own authentication and billing; choose --billing existing.",

@@ -39,13 +39,18 @@ export async function museHost(
     const init = await native.request("initialize", {
       clientInfo: { name: "loop", title: "Loop", version: "0.1.0" },
       // Loop's workspace tools are added per session as an MCP server.
-      capabilities: { experimentalApi: true, requestedCapabilities: ["sessionMcp"] },
+      capabilities: {
+        experimentalApi: true,
+        requestedCapabilities: ["sessionMcp"],
+      },
     });
     await native.write({ method: "initialized" });
     return {
       native,
       granted: new Set<string>(
-        Array.isArray(init?.grantedCapabilities) ? init.grantedCapabilities : [],
+        Array.isArray(init?.grantedCapabilities)
+          ? init.grantedCapabilities
+          : [],
       ),
     };
   } catch (error) {
@@ -184,7 +189,8 @@ export class Muse implements Adapter {
       this.emit({
         type: "status",
         status: "failed",
-        detail: "Muse Code exited. Check its sign-in in Provider connections, then resume the native session.",
+        detail:
+          "Muse Code exited. Check its sign-in in Provider connections, then resume the native session.",
       }),
     );
     // Prompt-free account check: a signed-out host would only fail at the
@@ -228,21 +234,22 @@ export class Muse implements Adapter {
     if (this.options.workspaceTools && !host.granted.has("sessionMcp"))
       this.notice =
         "Muse Code did not grant session MCP, so Loop's workspace tools are unavailable in this session.";
-    const config = this.options.workspaceTools && host.granted.has("sessionMcp")
-      ? {
-          mcpServers: {
-            // Optional: a workspace-tools outage must not fail the turn.
-            loop_workspace: {
-              transport: "streamableHttp",
-              mode: "optional",
-              url: this.options.workspaceTools.url,
-              headers: {
-                Authorization: "Bearer " + this.options.workspaceTools.token,
+    const config =
+      this.options.workspaceTools && host.granted.has("sessionMcp")
+        ? {
+            mcpServers: {
+              // Optional: a workspace-tools outage must not fail the turn.
+              loop_workspace: {
+                transport: "streamableHttp",
+                mode: "optional",
+                url: this.options.workspaceTools.url,
+                headers: {
+                  Authorization: "Bearer " + this.options.workspaceTools.token,
+                },
               },
             },
-          },
-        }
-      : undefined;
+          }
+        : undefined;
     const r = this.options.resume
       ? // Muse keeps the full context; Loop already persists display history.
         await this.native
@@ -253,12 +260,18 @@ export class Muse implements Adapter {
             ...(config ? { config } : {}),
           })
           .catch((error) => {
-            if (error instanceof NativeRpcError && error.kind === "sessionInUse")
+            if (
+              error instanceof NativeRpcError &&
+              error.kind === "sessionInUse"
+            )
               throw new NativeSetupError(
                 "native_session_in_use",
                 "This conversation is in use by another Muse Code client. Leave the session there, then retry in Loop. No prompt was sent.",
               );
-            if (error instanceof NativeRpcError && error.kind === "sessionNotFound")
+            if (
+              error instanceof NativeRpcError &&
+              error.kind === "sessionNotFound"
+            )
               throw new NativeSetupError(
                 "native_session_missing",
                 "This Muse Code session is no longer stored on this computer. Start a new conversation. No prompt was sent.",
@@ -301,7 +314,9 @@ export class Muse implements Adapter {
     // MSP has no system-instruction field. The first prompt of a session
     // carries the saved instructions (which can include a transferred
     // transcript); Muse keeps them in the session's context after that.
-    const instructions = this.instructed ? undefined : this.options.instructions;
+    const instructions = this.instructed
+      ? undefined
+      : this.options.instructions;
     const revision = this.turnRevision;
     const r = await this.native.request("turn/start", {
       commandId: uuidv7(),
@@ -329,7 +344,9 @@ export class Muse implements Adapter {
         // An error response is Muse refusing the input (for example, the
         // turn just ended). Only a transport failure leaves delivery unknown.
         if (error instanceof NativeRpcError)
-          throw new NotDelivered("Muse Code did not accept the input for this turn.");
+          throw new NotDelivered(
+            "Muse Code did not accept the input for this turn.",
+          );
         throw error;
       });
   }
@@ -439,7 +456,8 @@ export class Muse implements Adapter {
       // would strand the turn, so stop it and say why.
       this.emit({
         type: "error",
-        message: "Muse Code asked for an approval Loop can only grant in Muse itself. The turn was stopped; approve it in Muse Code or retry.",
+        message:
+          "Muse Code asked for an approval Loop can only grant in Muse itself. The turn was stopped; approve it in Muse Code or retry.",
       });
       const turnId = p.turnId || this.turn;
       if (turnId)
@@ -497,7 +515,9 @@ export class Muse implements Adapter {
                 : undefined,
         },
       });
-    else if (["toolCall", "userShell", "subagent", "webSearch"].includes(item.kind))
+    else if (
+      ["toolCall", "userShell", "subagent", "webSearch"].includes(item.kind)
+    )
       this.emit({
         type: "item",
         item: {
@@ -510,7 +530,7 @@ export class Muse implements Adapter {
           status:
             item.status === "inProgress"
               ? "running"
-              : item.status ?? (completed ? "completed" : "running"),
+              : (item.status ?? (completed ? "completed" : "running")),
           text: JSON.stringify(item, null, 2),
         },
       });
@@ -519,7 +539,8 @@ export class Muse implements Adapter {
   }
   private message(m: any) {
     const p = m.params ?? {};
-    const other = !!p.sessionId && !!this.session && p.sessionId !== this.session;
+    const other =
+      !!p.sessionId && !!this.session && p.sessionId !== this.session;
     if (m.id !== undefined && m.method) {
       // Requests are presentations; the decision travels separately. Every
       // request is answered, including ones for a session this run doesn't own.
@@ -533,7 +554,10 @@ export class Muse implements Adapter {
             ? { id: m.id, result: {} }
             : {
                 id: m.id,
-                error: { code: -32601, message: "Unsupported Loop client request" },
+                error: {
+                  code: -32601,
+                  message: "Unsupported Loop client request",
+                },
               },
         )
         .catch(() => {});
@@ -573,8 +597,7 @@ export class Muse implements Adapter {
       if (this.turn && p.turnId !== this.turn) return;
       this.turnRevision++;
       this.turn = "";
-      for (const a of this.approvals.values())
-        this.resolve(a);
+      for (const a of this.approvals.values()) this.resolve(a);
       for (const id of this.questions.keys())
         this.emit({ type: "resolved", id });
       this.approvals.clear();

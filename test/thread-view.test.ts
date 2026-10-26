@@ -45,7 +45,11 @@ describe("relative time and durations", () => {
   it("describes queued and running work", () => {
     expect(
       runTiming(
-        { created_at: now - 2 * HOUR, updated_at: now - 3 * MINUTE, state: "running" },
+        {
+          created_at: now - 2 * HOUR,
+          updated_at: now - 3 * MINUTE,
+          state: "running",
+        },
         now,
       ),
     ).toBe("Started 2h ago · last update 3m ago");
@@ -60,7 +64,10 @@ describe("relative time and durations", () => {
 
 describe("run status vocabulary", () => {
   it("puts pending approvals ahead of the run state", () => {
-    expect(runStatus("running", 1)).toEqual({ label: "Needs approval", tone: "needs" });
+    expect(runStatus("running", 1)).toEqual({
+      label: "Needs approval",
+      tone: "needs",
+    });
     expect(runStatus("waiting_children").tone).toBe("working");
     expect(runStatus("interrupted").tone).toBe("failed");
     expect(runStatus(null)).toEqual({ label: "", tone: "idle" });
@@ -70,7 +77,9 @@ describe("run status vocabulary", () => {
 describe("previews", () => {
   it("drops markdown syntax but keeps words and hyphens", () => {
     expect(
-      preview("## Review complete\n\n- **Keep** the `route`\n> e-mail [link](https://x.test)"),
+      preview(
+        "## Review complete\n\n- **Keep** the `route`\n> e-mail [link](https://x.test)",
+      ),
     ).toBe("Review complete Keep the route e-mail link");
     expect(preview("a".repeat(200), 20)).toHaveLength(20);
     expect(preview("| a | b |\n| --- | --- |\n| 1 | 2 |")).toBe("a b 1 2");
@@ -92,10 +101,18 @@ describe("merging recorded and live activity", () => {
       source,
       data: {
         state,
-        files: files.map((path) => ({ path, operation: "modify", patch: "+1", content: "available" })),
+        files: files.map((path) => ({
+          path,
+          operation: "modify",
+          patch: "+1",
+          content: "available",
+        })),
       },
     }) as unknown as ActivityRecord;
-  const inRun = (run: string | null, item: ActivityRecord) => ({ run, record: item });
+  const inRun = (run: string | null, item: ActivityRecord) => ({
+    run,
+    record: item,
+  });
   it("counts an edit once whether it is recorded, live or both", () => {
     // The same record saved on two messages and also streaming live.
     const recorded = [
@@ -103,7 +120,10 @@ describe("merging recorded and live activity", () => {
       inRun("r1", record("e1", ["a.ts"])),
       inRun("r1", record("e2", ["b.ts"])),
     ];
-    const live = [inRun("r1", record("e2", ["b.ts"])), inRun("r1", record("e3", ["c.ts"], "failed"))];
+    const live = [
+      inRun("r1", record("e2", ["b.ts"])),
+      inRun("r1", record("e3", ["c.ts"], "failed")),
+    ];
     const merged = mergeActivityRecords(recorded, live);
     expect(merged.map(({ record }) => record.id)).toEqual(["e1", "e2", "e3"]);
     // The latest copy wins: e1 was applied after being proposed.
@@ -112,24 +132,42 @@ describe("merging recorded and live activity", () => {
   it("keeps edits from different runs that reuse an activity id", () => {
     // Turn-scoped ids such as item_1:0 restart in every run.
     const merged = mergeActivityRecords(
-      [inRun("r1", record("item_1:0", ["first.ts"])), inRun("r2", record("item_1:0", ["second.ts"]))],
+      [
+        inRun("r1", record("item_1:0", ["first.ts"])),
+        inRun("r2", record("item_1:0", ["second.ts"])),
+      ],
       [],
     );
     expect(merged.map(({ run }) => run)).toEqual(["r1", "r2"]);
-    expect(merged.flatMap(({ record }) => (record.data as any).files.map((file: any) => file.path)))
-      .toEqual(["first.ts", "second.ts"]);
+    expect(
+      merged.flatMap(({ record }) =>
+        (record.data as any).files.map((file: any) => file.path),
+      ),
+    ).toEqual(["first.ts", "second.ts"]);
   });
   it("keeps records with the same id from different producers apart", () => {
     const other = {
       ...record("e1", ["z.ts"]),
       source: { transport: "acp", harness: "claude", origin: "other" },
     } as ActivityRecord;
-    expect(mergeActivityRecords([inRun("r1", record("e1", ["a.ts"]))], [inRun("r1", other)])).toHaveLength(2);
+    expect(
+      mergeActivityRecords(
+        [inRun("r1", record("e1", ["a.ts"]))],
+        [inRun("r1", other)],
+      ),
+    ).toHaveLength(2);
   });
   it("treats session activity as one record across runs", () => {
     const settings = (run: string) =>
-      inRun(run, { kind: "settings", id: "s", source, data: {} } as unknown as ActivityRecord);
-    expect(mergeActivityRecords([settings("r1")], [settings("r2")])).toHaveLength(1);
+      inRun(run, {
+        kind: "settings",
+        id: "s",
+        source,
+        data: {},
+      } as unknown as ActivityRecord);
+    expect(
+      mergeActivityRecords([settings("r1")], [settings("r2")]),
+    ).toHaveLength(1);
   });
 });
 
@@ -142,18 +180,22 @@ describe("feed next actions", () => {
       label: "Approve request",
       message_id: "m2",
     });
-    expect(feedNextAction({ kind: "answer", message_id: null }, "")?.label).toBe(
-      "Answer question",
-    );
+    expect(
+      feedNextAction({ kind: "answer", message_id: null }, "")?.label,
+    ).toBe("Answer question");
     expect(feedNextAction(result, "  ")).toEqual({
       kind: "result",
       label: "Review result",
       message_id: "m1",
     });
-    expect(feedNextAction(result, "half written")?.label).toBe("Continue draft");
+    expect(feedNextAction(result, "half written")?.label).toBe(
+      "Continue draft",
+    );
     expect(feedNextAction(null, "")).toBeNull();
     // Never claims a decision was made.
-    expect(JSON.stringify(feedNextAction(approve, ""))).not.toMatch(/approved/i);
+    expect(JSON.stringify(feedNextAction(approve, ""))).not.toMatch(
+      /approved/i,
+    );
   });
 });
 
@@ -162,7 +204,12 @@ describe("feed reply quotes", () => {
     done_card_key: "run:r1",
     agent_id: "a1",
     origin: "app",
-    last_message: { id: "m1", role: "assistant", content: "The **result**", preview: "The result" },
+    last_message: {
+      id: "m1",
+      role: "assistant",
+      content: "The **result**",
+      preview: "The result",
+    },
   };
   it("quotes the result a Done card shows", () => {
     expect(feedReplyQuote(done)).toEqual({
@@ -171,12 +218,23 @@ describe("feed reply quotes", () => {
       content: "The **result**",
     });
     expect(
-      feedReplyQuote({ ...done, last_message: { ...done.last_message, role: "user" } }),
+      feedReplyQuote({
+        ...done,
+        last_message: { ...done.last_message, role: "user" },
+      }),
     ).toMatchObject({ messageId: "m1", mine: true });
   });
   it("quotes an independently published reply when continuing its conversation", () => {
-    expect(feedReplyQuote({ ...done, done_card_key: undefined, reply_card_key: "reply:m1" })).toEqual({
-      agentId: "a1", messageId: "m1", content: "The **result**",
+    expect(
+      feedReplyQuote({
+        ...done,
+        done_card_key: undefined,
+        reply_card_key: "reply:m1",
+      }),
+    ).toEqual({
+      agentId: "a1",
+      messageId: "m1",
+      content: "The **result**",
     });
   });
   it("replies to the thread unquoted when there is nothing to quote", () => {
@@ -185,7 +243,10 @@ describe("feed reply quotes", () => {
     expect(feedReplyQuote({ ...done, origin: "chatgpt-import" })).toBeNull();
     expect(feedReplyQuote({ ...done, last_message: null })).toBeNull();
     expect(
-      feedReplyQuote({ ...done, last_message: { ...done.last_message, content: "  " } }),
+      feedReplyQuote({
+        ...done,
+        last_message: { ...done.last_message, content: "  " },
+      }),
     ).toBeNull();
   });
 });
@@ -197,14 +258,23 @@ describe("reminder reasons", () => {
       "When the agent finishes",
     );
     expect(
-      reminderReason({ ...base, condition: "run_finished", surfaced_at: now }, now),
+      reminderReason(
+        { ...base, condition: "run_finished", surfaced_at: now },
+        now,
+      ),
     ).toBe("The agent finished");
     expect(
-      reminderReason({ ...base, condition: "project_open", surfaced_at: now }, now),
+      reminderReason(
+        { ...base, condition: "project_open", surfaced_at: now },
+        now,
+      ),
     ).toBe("You opened Site");
     const nine = new Date(2026, 8, 30, 9, 0).getTime();
     expect(
-      reminderReason({ ...base, condition: "time", due_at: nine, surfaced_at: now }, now),
+      reminderReason(
+        { ...base, condition: "time", due_at: nine, surfaced_at: now },
+        now,
+      ),
     ).toMatch(/^Due today at /);
     expect(
       reminderReason({ ...base, condition: "time", due_at: nine + DAY }, now),
@@ -239,8 +309,15 @@ describe("change follow-up prompts", () => {
 describe("later choices", () => {
   it("offers future times and conditional choices only when they apply", () => {
     const choices = laterChoices(now);
-    expect(choices.every((c) => c.condition !== "time" || c.dueAt! > now)).toBe(true);
-    expect(choices.map((c) => c.id)).toEqual(["hour", "tonight", "tomorrow", "monday"]);
+    expect(choices.every((c) => c.condition !== "time" || c.dueAt! > now)).toBe(
+      true,
+    );
+    expect(choices.map((c) => c.id)).toEqual([
+      "hour",
+      "tonight",
+      "tomorrow",
+      "monday",
+    ]);
     const tomorrow = choices.find((c) => c.id === "tomorrow")!;
     expect(new Date(tomorrow.dueAt!).getHours()).toBe(9);
     const withContext = laterChoices(now, {

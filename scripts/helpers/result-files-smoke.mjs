@@ -74,7 +74,8 @@ export async function resultFilesSmoke(page, fixture, capture) {
   const dialog = () => page.locator("dialog[open]").last();
   let workspaceSocket;
   const rememberSocket = (socket) => {
-    if (new URL(socket.url()).pathname === "/api/events/ws") workspaceSocket = socket;
+    if (new URL(socket.url()).pathname === "/api/events/ws")
+      workspaceSocket = socket;
   };
   page.on("websocket", rememberSocket);
   try {
@@ -190,27 +191,38 @@ export async function resultFilesSmoke(page, fixture, capture) {
     assert(workspaceSocket, "The workspace event stream is connected");
     let committedId;
     const delivered = workspaceSocket.waitForEvent("framereceived", {
-      predicate: ({ payload }) => JSON.parse(String(payload)).events?.some(
-        (entry) => entry.id === committedId,
-      ),
+      predicate: ({ payload }) =>
+        JSON.parse(String(payload)).events?.some(
+          (entry) => entry.id === committedId,
+        ),
     });
     const refreshed = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return url.pathname === "/api/runs" && url.searchParams.get("active") === "1";
+      return (
+        url.pathname === "/api/runs" && url.searchParams.get("active") === "1"
+      );
     });
     // A real run write emits the scoped collection invalidation. Legacy
     // artifact events no longer require an unrelated run-list refresh.
-    assert.equal(fixture.db.prepare(
-      "UPDATE runs SET updated_at=updated_at+1 WHERE id=?",
-    ).run(original.run_id).changes, 1);
-    committedId = fixture.db.prepare(
-      "SELECT id FROM events WHERE run_id=? AND type='invalidate' AND json_extract(payload,'$.scope.id')='runs' ORDER BY id DESC LIMIT 1",
-    ).get(original.run_id).id;
+    assert.equal(
+      fixture.db
+        .prepare("UPDATE runs SET updated_at=updated_at+1 WHERE id=?")
+        .run(original.run_id).changes,
+      1,
+    );
+    committedId = fixture.db
+      .prepare(
+        "SELECT id FROM events WHERE run_id=? AND type='invalidate' AND json_extract(payload,'$.scope.id')='runs' ORDER BY id DESC LIMIT 1",
+      )
+      .get(original.run_id).id;
     await delivered;
     // The committed invalidation triggers the real, coalesced workspace refresh.
     await (await refreshed).finished();
     await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)),
+        ),
     );
     await expect(page.locator("dialog[open]")).toHaveCount(2);
     assert(

@@ -26,7 +26,9 @@ export function saveArtifact(
     data.title,
     data.kind || "markdown",
     data.content,
-    JSON.stringify(ArtifactMetadata.parse(data.metadata === undefined ? {} : data.metadata)),
+    JSON.stringify(
+      ArtifactMetadata.parse(data.metadata === undefined ? {} : data.metadata),
+    ),
     data.folder || null,
     time,
     time,

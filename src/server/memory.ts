@@ -1,11 +1,17 @@
 import { registrar } from "./registrar.js";
 import type { QueryRow } from "./query-records.js";
 
-
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { ownedArtifact, ownedConversation, ownedFolder, ownedMemorySource, ownedRun, Problem } from "./domain.js";
+import {
+  ownedArtifact,
+  ownedConversation,
+  ownedFolder,
+  ownedMemorySource,
+  ownedRun,
+  Problem,
+} from "./domain.js";
 import { createHash } from "node:crypto";
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -20,7 +26,8 @@ export function enabled(
     return false;
   const p = db
     .prepare("SELECT enabled FROM memory_policy WHERE owner_id=? AND scope=?")
-    .get(owner, scope) as Pick<QueryRow<"memory_policy">, "enabled"> | undefined;
+    .get(owner, scope) as
+    Pick<QueryRow<"memory_policy">, "enabled"> | undefined;
   return p ? p.enabled === 1 : fallback;
 }
 function eligible(s: any) {
@@ -34,7 +41,8 @@ function eligible(s: any) {
   if (s.kind === "artifact") {
     const artifact = db
       .prepare("SELECT pinned FROM artifacts WHERE id=? AND owner_id=?")
-      .get(s.source_id, s.owner_id) as Pick<QueryRow<"artifacts">, "pinned"> | undefined;
+      .get(s.source_id, s.owner_id) as
+      Pick<QueryRow<"artifacts">, "pinned"> | undefined;
     if (
       !artifact ||
       !enabled(s.owner_id, "artifact:" + s.source_id, !!artifact.pinned)
@@ -42,22 +50,18 @@ function eligible(s: any) {
       return false;
   }
   if (s.conversation_id) {
-    if (
-      !enabled(
-        s.owner_id,
-        "conversation:" + s.conversation_id,
-        false,
-      )
-    )
+    if (!enabled(s.owner_id, "conversation:" + s.conversation_id, false))
       return false;
     const native = db
       .prepare("SELECT coherent FROM native_sessions WHERE conversation_id=?")
-      .get(s.conversation_id) as Pick<QueryRow<"native_sessions">, "coherent"> | undefined;
+      .get(s.conversation_id) as
+      Pick<QueryRow<"native_sessions">, "coherent"> | undefined;
     if (native && !native.coherent) return false;
     if (s.message_id) {
       const m = db
         .prepare("SELECT metadata FROM messages WHERE id=? AND owner_id=?")
-        .get(s.message_id, s.owner_id) as Pick<QueryRow<"messages">, "metadata"> | undefined;
+        .get(s.message_id, s.owner_id) as
+        Pick<QueryRow<"messages">, "metadata"> | undefined;
       if (!m || JSON.parse(m.metadata).superseded) return false;
     }
   }
@@ -121,7 +125,13 @@ export function captureMemory() {
         `SELECT m.*,c.project_id,c.title,c.agent_id,r.state FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN runs r ON r.id=m.run_id
       WHERE m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (r.state IN ('completed','failed','cancelled') OR m.run_id IS NULL) AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.owner_id=m.owner_id AND s.kind='message' AND s.source_id=m.id AND s.updated_at>=m.created_at AND s.content_hash IS NOT NULL AND s.content=m.content) LIMIT 250`,
       )
-      .all() as (QueryRow<"messages"> & { state: string | null; project_id: string | null; title: string; agent_id: string | null; origin?: string })[];
+      .all() as (QueryRow<"messages"> & {
+      state: string | null;
+      project_id: string | null;
+      title: string;
+      agent_id: string | null;
+      origin?: string;
+    })[];
     for (const m of rows) {
       const meta = JSON.parse(m.metadata);
       const include =
@@ -194,7 +204,8 @@ export async function indexMemory() {
         .prepare("SELECT * FROM memory_sources WHERE id=?")
         .get(job.source_id) as QueryRow<"memory_sources"> | undefined;
       try {
-        if (!s) throw new Error(`Memory source ${job.source_id} no longer exists`);
+        if (!s)
+          throw new Error(`Memory source ${job.source_id} no longer exists`);
         await memoryIndex.request(
           "/source",
           {

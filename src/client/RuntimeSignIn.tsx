@@ -7,13 +7,28 @@ import {
 } from "react";
 import { CircleCheck } from "lucide-react";
 import { api } from "./api";
-import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
+import {
+  workspaceApi,
+  type RouteInput,
+  type RouteResponse,
+} from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
 import { useProjectionRoute, useSourceId } from "./SourceContext";
 type NativeAuthView = RouteResponse<typeof workspaceApi.runtimeAuthStatus>;
 type SignIn = NonNullable<NativeAuthView["attempt"]>;
-type Target = { runtime: RouteInput<typeof workspaceApi.runtimeAuthStatus>["params"]["name"]; base?: never; backend: "direct" }
-  | { base: `/subscriptions/${string}/native-auth`; runtime?: never; backend: "environment" };
+type Target =
+  | {
+      runtime: RouteInput<
+        typeof workspaceApi.runtimeAuthStatus
+      >["params"]["name"];
+      base?: never;
+      backend: "direct";
+    }
+  | {
+      base: `/subscriptions/${string}/native-auth`;
+      runtime?: never;
+      backend: "environment";
+    };
 
 type RuntimeSignInProps = Target & {
   location: string;
@@ -25,7 +40,11 @@ type RuntimeSignInProps = Target & {
   enabling: boolean;
   enableAction: ReactNode;
   connectionSetup?: ReactNode;
-  onStateChange(name: string, state: SignIn["state"] | undefined, attemptId?: string): void;
+  onStateChange(
+    name: string,
+    state: SignIn["state"] | undefined,
+    attemptId?: string,
+  ): void;
   onClose(): void;
 };
 
@@ -34,11 +53,19 @@ type RuntimeSignInProps = Target & {
 export const connectsModelProvider = (name: string) =>
   name === "pi" || name === "opencode";
 
-function forStartCommand(view: NativeAuthView, commandId?: string): NativeAuthView {
+function forStartCommand(
+  view: NativeAuthView,
+  commandId?: string,
+): NativeAuthView {
   const attempt = view.attempt;
   // An older completed attempt is evidence of the old account, not success
   // for the new start. Keep unrelated active attempts visible for cancellation.
-  if (commandId && attempt && attempt.commandId !== commandId && !["starting", "waiting"].includes(attempt.state))
+  if (
+    commandId &&
+    attempt &&
+    attempt.commandId !== commandId &&
+    !["starting", "waiting"].includes(attempt.state)
+  )
     return { providers: view.providers };
   return view;
 }
@@ -80,25 +107,35 @@ function RuntimeSignInSession({
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const [changingAccount, setChangingAccount] = useState(false);
-  const [startRecovery, setStartRecovery] = useState<{ id: string; inspected?: boolean }>();
+  const [startRecovery, setStartRecovery] = useState<{
+    id: string;
+    inspected?: boolean;
+  }>();
   const mounted = useRef(true);
   const requestId = useRef<string | undefined>(undefined);
   const attempt = view?.attempt;
   const waiting = !!attempt && ["starting", "waiting"].includes(attempt.state);
   const selected = view?.providers.find((p) => p.id === provider);
   const complete =
-    (!startRecovery || attempt?.commandId === startRecovery.id) && (
-    attempt?.state === "complete" ||
-    // CLI catalogs don't report `configured` for credentials that predate this
-    // auth manager (a restart, or a sign-in outside Loop); the runtime's own
-    // signed-in status covers those.
-    (!attempt && !changingAccount && (selected?.configured ?? signedIn)));
+    (!startRecovery || attempt?.commandId === startRecovery.id) &&
+    (attempt?.state === "complete" ||
+      // CLI catalogs don't report `configured` for credentials that predate this
+      // auth manager (a restart, or a sign-in outside Loop); the runtime's own
+      // signed-in status covers those.
+      (!attempt && !changingAccount && (selected?.configured ?? signedIn)));
   const selectedMethod = selected?.methods.find((m) => m.id === method);
-  const receive = (next: NativeAuthView, recoveryCommand: string | null = startRecovery?.id ?? null) => {
+  const receive = (
+    next: NativeAuthView,
+    recoveryCommand: string | null = startRecovery?.id ?? null,
+  ) => {
     if (!mounted.current) return;
     next = forStartCommand(next, recoveryCommand ?? undefined);
     setError("");
-    if (next.attempt && (!recoveryCommand || next.attempt.commandId === recoveryCommand) && ["starting", "waiting", "complete"].includes(next.attempt.state))
+    if (
+      next.attempt &&
+      (!recoveryCommand || next.attempt.commandId === recoveryCommand) &&
+      ["starting", "waiting", "complete"].includes(next.attempt.state)
+    )
       setStartRecovery(undefined);
     onStateChange(name, next.attempt?.state, next.attempt?.id);
     if (!next.providers.length && !next.attempt) {
@@ -132,12 +169,33 @@ function RuntimeSignInSession({
   };
   function catalog(signal?: AbortSignal) {
     return runtime
-      ? (signal ? readRoute(workspaceApi.runtimeAuthProviders, { params: { name: runtime }, query: { projectId: projectId || "" } }, sourceId, signal) : read(workspaceApi.runtimeAuthProviders, { params: { name: runtime }, query: { projectId: projectId || "" } }))
+      ? signal
+        ? readRoute(
+            workspaceApi.runtimeAuthProviders,
+            {
+              params: { name: runtime },
+              query: { projectId: projectId || "" },
+            },
+            sourceId,
+            signal,
+          )
+        : read(workspaceApi.runtimeAuthProviders, {
+            params: { name: runtime },
+            query: { projectId: projectId || "" },
+          })
       : api<NativeAuthView>(`${base}/providers`, {}, undefined, signal);
   }
   function status(signal?: AbortSignal, onRetry?: (error: unknown) => void) {
     return runtime
-      ? (signal ? readRoute(workspaceApi.runtimeAuthStatus, { params: { name: runtime } }, sourceId, signal, onRetry) : read(workspaceApi.runtimeAuthStatus, { params: { name: runtime } }))
+      ? signal
+        ? readRoute(
+            workspaceApi.runtimeAuthStatus,
+            { params: { name: runtime } },
+            sourceId,
+            signal,
+            onRetry,
+          )
+        : read(workspaceApi.runtimeAuthStatus, { params: { name: runtime } })
       : api<NativeAuthView>(`${base}/status`, {}, undefined, signal);
   }
   useEffect(() => {
@@ -160,7 +218,9 @@ function RuntimeSignInSession({
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const next = await status(controller.signal, () => setError("Couldn’t check sign-in. Reconnecting…"));
+        const next = await status(controller.signal, () =>
+          setError("Couldn’t check sign-in. Reconnecting…"),
+        );
         if (!controller.signal.aborted) {
           receive(next);
           setError("");
@@ -180,11 +240,17 @@ function RuntimeSignInSession({
   // Clear a new prompt before it can accept input. A passive effect can run
   // after the user types and erase that response, leaving Continue disabled.
   useLayoutEffect(() => setValue(""), [attempt?.id, attempt?.prompt?.id]);
-  async function perform(action: () => Promise<NativeAuthView>, confirmedStart = false) {
+  async function perform(
+    action: () => Promise<NativeAuthView>,
+    confirmedStart = false,
+  ) {
     setBusy(true);
     setError("");
     try {
-      receive(await action(), confirmedStart ? null : startRecovery?.id ?? null);
+      receive(
+        await action(),
+        confirmedStart ? null : (startRecovery?.id ?? null),
+      );
     } catch (e) {
       if (mounted.current) setError((e as Error).message);
     } finally {
@@ -194,13 +260,22 @@ function RuntimeSignInSession({
   function start(newAttempt = false) {
     if (busy || !selectedMethod) return;
     if (newAttempt) requestId.current = undefined;
-    const commandId = requestId.current ||= crypto.randomUUID();
+    const commandId = (requestId.current ||= crypto.randomUUID());
     setStartRecovery(undefined);
     void perform(async () => {
       try {
-        const body = { projectId: projectId || "", provider, method, commandId };
+        const body = {
+          projectId: projectId || "",
+          provider,
+          method,
+          commandId,
+        };
         const next = runtime
-          ? await callRoute(workspaceApi.runtimeAuthStart, { params: { name: runtime }, body }, sourceId)
+          ? await callRoute(
+              workspaceApi.runtimeAuthStart,
+              { params: { name: runtime }, body },
+              sourceId,
+            )
           : await api<NativeAuthView>(`${base}/start`, body);
         requestId.current = undefined;
         return next;
@@ -216,11 +291,18 @@ function RuntimeSignInSession({
       let next = await status();
       // A restarted authority has no cached providers until discovery runs.
       // Load the catalog without creating a sign-in attempt.
-      if (!next.providers.length && !next.attempt)
-        next = await catalog();
+      if (!next.providers.length && !next.attempt) next = await catalog();
       next = forStartCommand(next, failure?.id);
-      if (mounted.current && (!next.attempt || !["starting", "waiting", "complete"].includes(next.attempt.state)))
-        setStartRecovery(current => current === failure && current ? { ...current, inspected: true } : current);
+      if (
+        mounted.current &&
+        (!next.attempt ||
+          !["starting", "waiting", "complete"].includes(next.attempt.state))
+      )
+        setStartRecovery((current) =>
+          current === failure && current
+            ? { ...current, inspected: true }
+            : current,
+        );
       return next;
     });
   }
@@ -228,10 +310,20 @@ function RuntimeSignInSession({
     if (busy || !attempt?.prompt || !value.trim()) return;
     const input = value;
     setValue("");
-    const body = { attemptId: attempt.id, promptId: attempt.prompt.id, value: input };
-    void perform(() => runtime
-      ? callRoute(workspaceApi.runtimeAuthInput, { params: { name: runtime }, body }, sourceId)
-      : api<NativeAuthView>(`${base}/input`, body));
+    const body = {
+      attemptId: attempt.id,
+      promptId: attempt.prompt.id,
+      value: input,
+    };
+    void perform(() =>
+      runtime
+        ? callRoute(
+            workspaceApi.runtimeAuthInput,
+            { params: { name: runtime }, body },
+            sourceId,
+          )
+        : api<NativeAuthView>(`${base}/input`, body),
+    );
   }
   return (
     <section
@@ -279,9 +371,9 @@ function RuntimeSignInSession({
         <>
           <h3>Connect a model provider for {label}</h3>
           <p>
-            {label} runs on {location} and needs a model provider. Choose
-            one, then sign in or enter its API key. {label} saves the
-            credential in {location}.
+            {label} runs on {location} and needs a model provider. Choose one,
+            then sign in or enter its API key. {label} saves the credential in{" "}
+            {location}.
           </p>
         </>
       ) : (
@@ -485,14 +577,29 @@ function RuntimeSignInSession({
       )}
       {!waiting && !complete && startRecovery && (
         <div>
-          <p>{startRecovery.inspected ? "No sign-in is in progress. Start a new sign-in if needed." : "Check sign-in status before starting a new attempt."}</p>
-          <button type="button" disabled={busy || !selectedMethod} onClick={() => startRecovery.inspected ? start(true) : inspectStart()}>
-            {startRecovery.inspected ? "Start new sign-in" : "Check sign-in status"}
+          <p>
+            {startRecovery.inspected
+              ? "No sign-in is in progress. Start a new sign-in if needed."
+              : "Check sign-in status before starting a new attempt."}
+          </p>
+          <button
+            type="button"
+            disabled={busy || !selectedMethod}
+            onClick={() =>
+              startRecovery.inspected ? start(true) : inspectStart()
+            }
+          >
+            {startRecovery.inspected
+              ? "Start new sign-in"
+              : "Check sign-in status"}
           </button>
         </div>
       )}
       {waiting && startRecovery && attempt?.commandId !== startRecovery.id && (
-        <p className="note">A different sign-in is in progress. Continue or cancel it before starting a new one.</p>
+        <p className="note">
+          A different sign-in is in progress. Continue or cancel it before
+          starting a new one.
+        </p>
       )}
       {waiting && (
         <button
@@ -501,8 +608,17 @@ function RuntimeSignInSession({
           onClick={() =>
             void perform(() =>
               runtime
-                ? callRoute(workspaceApi.runtimeAuthCancel, { params: { name: runtime }, body: { attemptId: attempt!.id } }, sourceId)
-                : api<NativeAuthView>(`${base}/cancel`, { attemptId: attempt!.id }),
+                ? callRoute(
+                    workspaceApi.runtimeAuthCancel,
+                    {
+                      params: { name: runtime },
+                      body: { attemptId: attempt!.id },
+                    },
+                    sourceId,
+                  )
+                : api<NativeAuthView>(`${base}/cancel`, {
+                    attemptId: attempt!.id,
+                  }),
             )
           }
         >

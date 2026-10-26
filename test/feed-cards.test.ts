@@ -93,27 +93,29 @@ it("retains two nonempty source windows through outage, append and recovery", as
     b = new DoneCardsReader("owner/b");
   let outage = false,
     delta = false;
-  const transport = (source: string): CardReadTransport => async (contract, input) => {
-    const path = routePath(contract, input);
-    if (outage && source === "b") throw failure(503);
-    if (path.includes("/changes?"))
+  const transport =
+    (source: string): CardReadTransport =>
+    async (contract, input) => {
+      const path = routePath(contract, input);
+      if (outage && source === "b") throw failure(503);
+      if (path.includes("/changes?"))
+        return {
+          revision: "r2",
+          items: delta ? [entry(source + "new", 200)] : [],
+          removed: [],
+          more: false,
+        };
       return {
-        revision: "r2",
-        items: delta ? [entry(source + "new", 200)] : [],
-        removed: [],
-        more: false,
+        revision: "r1",
+        items: [
+          entry(
+            source + (path.includes("before=") ? "old" : "first"),
+            path.includes("before=") ? 10 : 100,
+          ),
+        ],
+        next: path.includes("before=") ? null : "older",
       };
-    return {
-      revision: "r1",
-      items: [
-        entry(
-          source + (path.includes("before=") ? "old" : "first"),
-          path.includes("before=") ? 10 : 100,
-        ),
-      ],
-      next: path.includes("before=") ? null : "older",
     };
-  };
   await a.load(transport("a"), selection, false);
   await b.load(transport("b"), selection, false);
   outage = true;
@@ -286,7 +288,8 @@ it("keeps concurrent callers on Cards while an expired revision resets the pager
   const delta = { revision: "r", items: [], removed: [], more: false };
   const page = { revision: "r", items: [entry("kept", 100)], next: null };
   await reader.load(
-    async (contract, input) => (routePath(contract, input).includes("/changes?") ? delta : page),
+    async (contract, input) =>
+      routePath(contract, input).includes("/changes?") ? delta : page,
     selection,
     false,
   );

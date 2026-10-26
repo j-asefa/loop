@@ -119,9 +119,13 @@ export function PersonalDecisions({
       try {
         let result: PersonalDecisionsPage;
         do {
-          result = await call(workspaceApi.personalDecisions, {
-            query: { kind, before: cursor },
-          }, controller.signal);
+          result = await call(
+            workspaceApi.personalDecisions,
+            {
+              query: { kind, before: cursor },
+            },
+            controller.signal,
+          );
           if (stale()) return;
           const visible = boundary
             ? result.items.filter(

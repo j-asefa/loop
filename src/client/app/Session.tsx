@@ -1,4 +1,8 @@
-import { executionSourceId, returnToLocalSource, sourceApiPath } from "../sourceRouting";
+import {
+  executionSourceId,
+  returnToLocalSource,
+  sourceApiPath,
+} from "../sourceRouting";
 import { useEffect } from "react";
 import { Orbit } from "lucide-react";
 
@@ -6,10 +10,10 @@ import { Auth } from "../Auth";
 
 import type { AppModel } from "./AppController";
 
-export function createSessionCheck(props: { setSession(value: unknown): void }) {
-  const {
-    setSession,
-  } = props;
+export function createSessionCheck(props: {
+  setSession(value: unknown): void;
+}) {
+  const { setSession } = props;
   async function check() {
     const r = await fetch(sourceApiPath("/api/auth/get-session"), {
       cache: "no-store",
@@ -35,21 +39,68 @@ export function createSessionCheck(props: { setSession(value: unknown): void }) 
   return check;
 }
 
-export function useSessionLifecycle(props: Pick<AppModel,
-  "check" | "setError" | "personalWorkspace" | "setSession" | "setData" |
-  "setItems" | "setRuns" | "setSendNotice" | "setWorkspaceLoadErrors" | "setTeamSelection" |
-  "setArchivedCard" | "setComposerExpanded" | "setDraft" | "setSelected" | "setFolderChoice" |
-  "setSharedDraft" | "setProfile" | "setConversation" | "setActiveArtifact" | "setContextArtifact" |
-  "setReplyContext" | "setRoutePreview" | "setFiling" | "setLaterCard" | "setSettingsParent" |
-  "setSheet" | "composerFocusRequest" | "setBootstrapOwner"
->) {
+export function useSessionLifecycle(
+  props: Pick<
+    AppModel,
+    | "check"
+    | "setError"
+    | "personalWorkspace"
+    | "setSession"
+    | "setData"
+    | "setItems"
+    | "setRuns"
+    | "setSendNotice"
+    | "setWorkspaceLoadErrors"
+    | "setTeamSelection"
+    | "setArchivedCard"
+    | "setComposerExpanded"
+    | "setDraft"
+    | "setSelected"
+    | "setFolderChoice"
+    | "setSharedDraft"
+    | "setProfile"
+    | "setConversation"
+    | "setActiveArtifact"
+    | "setContextArtifact"
+    | "setReplyContext"
+    | "setRoutePreview"
+    | "setFiling"
+    | "setLaterCard"
+    | "setSettingsParent"
+    | "setSheet"
+    | "composerFocusRequest"
+    | "setBootstrapOwner"
+  >,
+) {
   const {
-    check, setError, personalWorkspace, setSession, setData,
-    setItems, setRuns, setSendNotice, setWorkspaceLoadErrors, setTeamSelection,
-    setArchivedCard, setComposerExpanded, setDraft, setSelected, setFolderChoice,
-    setSharedDraft, setProfile, setConversation, setActiveArtifact, setContextArtifact,
-    setReplyContext, setRoutePreview, setFiling, setLaterCard, setSettingsParent,
-    setSheet, composerFocusRequest, setBootstrapOwner,
+    check,
+    setError,
+    personalWorkspace,
+    setSession,
+    setData,
+    setItems,
+    setRuns,
+    setSendNotice,
+    setWorkspaceLoadErrors,
+    setTeamSelection,
+    setArchivedCard,
+    setComposerExpanded,
+    setDraft,
+    setSelected,
+    setFolderChoice,
+    setSharedDraft,
+    setProfile,
+    setConversation,
+    setActiveArtifact,
+    setContextArtifact,
+    setReplyContext,
+    setRoutePreview,
+    setFiling,
+    setLaterCard,
+    setSettingsParent,
+    setSheet,
+    composerFocusRequest,
+    setBootstrapOwner,
   } = props;
   useEffect(() => {
     void check().catch((e) => setError(e.message));
@@ -96,12 +147,10 @@ export function useSessionLifecycle(props: Pick<AppModel,
   }, []);
 }
 
-export function renderSessionGate(props: Pick<AppModel,
-  "session" | "error" | "check"
->) {
-  const {
-    session, error, check,
-  } = props;
+export function renderSessionGate(
+  props: Pick<AppModel, "session" | "error" | "check">,
+) {
+  const { session, error, check } = props;
   if (session === undefined)
     return (
       <div className="loading">

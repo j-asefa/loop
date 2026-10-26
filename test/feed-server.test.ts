@@ -9,7 +9,8 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { saveArtifact } = await import("../src/server/artifacts");
-const { resultsRevision, resultsUpdates } = await import("../src/server/results");
+const { resultsRevision, resultsUpdates } =
+  await import("../src/server/results");
 const { core } = await import("../src/server/core-routes");
 const { enqueue } = await import("../src/server/queue");
 const app = express();
@@ -148,7 +149,8 @@ it("reconciles file filters and agent labels and includes prompt changes", () =>
       .name,
   ).toBe("After");
   expect(
-    resultsUpdates(owner, { after, through: 0, agent, view: "prompts" }).items[0],
+    resultsUpdates(owner, { after, through: 0, agent, view: "prompts" })
+      .items[0],
   ).toMatchObject({ id: message, name: "After", content: "Question" });
   db.prepare("UPDATE artifacts SET kind='markdown' WHERE id=?").run(artifact);
   expect(
@@ -181,7 +183,11 @@ it("keeps project feed updates scoped when outputs are filed or moved", () => {
     content: "B",
     folder: other,
   });
-  const first = resultsUpdates(owner, { after: 0, through: 0, folder: project });
+  const first = resultsUpdates(owner, {
+    after: 0,
+    through: 0,
+    folder: project,
+  });
   expect(first.items.map((item) => item.id)).toEqual([filed]);
   expect(first.removed).toContain(elsewhere);
   db.prepare("UPDATE artifacts SET folder_id=?,updated_at=? WHERE id=?").run(
@@ -190,8 +196,11 @@ it("keeps project feed updates scoped when outputs are filed or moved", () => {
     filed,
   );
   expect(
-    resultsUpdates(owner, { after: first.revision, through: 0, folder: project })
-      .removed,
+    resultsUpdates(owner, {
+      after: first.revision,
+      through: 0,
+      folder: project,
+    }).removed,
   ).toContain(filed);
 });
 
@@ -347,7 +356,9 @@ it("publishes native answers to feed and profile updates without exposing tools,
   nativeAnswer("native-stranger", "Another owner's answer", "completed");
   for (const filter of ["", `&agent=${answer.agent}`]) {
     expect(
-      (await get(`/results?${filter}`, owner)).items.map((item: any) => item.id),
+      (await get(`/results?${filter}`, owner)).items.map(
+        (item: any) => item.id,
+      ),
     ).toEqual([answer.artifact]);
     const updates = await get(
       `/results/updates?after=${after}&through=0${filter}`,

@@ -7,7 +7,8 @@ let timer: ReturnType<typeof setInterval> | undefined;
 
 /** API-process observation, including time before a request callback can run. */
 export function eventLoopHealth() {
-  const milliseconds = (value: number) => Number.isFinite(value) ? Math.round(value / 1000) / 1000 : 0;
+  const milliseconds = (value: number) =>
+    Number.isFinite(value) ? Math.round(value / 1000) / 1000 : 0;
   return {
     observing: users > 0,
     windowMs: users ? Math.round(performance.now() - started) : 0,
@@ -26,7 +27,9 @@ export function observeApiEventLoop() {
     histogram.enable();
     timer = setInterval(() => {
       // The managed launcher's daemon log is also the source for `loop logs`.
-      console.log(JSON.stringify({ diagnostic: "api-event-loop", ...eventLoopHealth() }));
+      console.log(
+        JSON.stringify({ diagnostic: "api-event-loop", ...eventLoopHealth() }),
+      );
       histogram.reset();
       started = performance.now();
     }, 30_000);

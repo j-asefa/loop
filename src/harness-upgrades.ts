@@ -352,7 +352,9 @@ export class HarnessUpgrades {
           message.startsWith("Managed OpenCode") ||
           message.startsWith("Upgrade this custom") ||
           // Self-updating harnesses name their own update command.
-          / updates itself\. Run (muse|grok update) on the computer/.test(message)
+          / updates itself\. Run (muse|grok update) on the computer/.test(
+            message,
+          )
             ? message
             : "Upgrade this installation on the computer, or rebuild its container image.",
       };

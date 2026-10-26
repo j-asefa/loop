@@ -933,15 +933,27 @@ it("drops the stories of a feed nobody follows any more", async () => {
   await get("/social", "kit");
   expect(storedFeedStories("hackernews")).toHaveLength(2);
   await call("/social/feeds/hackernews", "DELETE", "kit");
-  db.prepare("INSERT INTO feed_reads(owner_id,feed_id,story_id,read_at) VALUES('kit','hackernews','orphan',0)").run();
-  db.prepare("INSERT INTO feed_watches(id,owner_id,query,created_at,since_at) VALUES('orphan-watch','kit','build',0,0)").run();
-  db.prepare("INSERT INTO feed_watch_hits(watch_id,feed_id,story_id,matched_at) VALUES('orphan-watch','hackernews','orphan',0)").run();
+  db.prepare(
+    "INSERT INTO feed_reads(owner_id,feed_id,story_id,read_at) VALUES('kit','hackernews','orphan',0)",
+  ).run();
+  db.prepare(
+    "INSERT INTO feed_watches(id,owner_id,query,created_at,since_at) VALUES('orphan-watch','kit','build',0,0)",
+  ).run();
+  db.prepare(
+    "INSERT INTO feed_watch_hits(watch_id,feed_id,story_id,matched_at) VALUES('orphan-watch','hackernews','orphan',0)",
+  ).run();
   // Kept for a month in case it is added back, then dropped.
   expect(forgetAbandoned(Date.now())).toBe(0);
   expect(forgetAbandoned(Date.now() + 31 * 24 * 60 * 60_000)).toBe(1);
   expect(storedFeedStories("hackernews")).toHaveLength(0);
-  expect(db.prepare("SELECT * FROM feed_reads WHERE feed_id='hackernews'").all()).toEqual([]);
-  expect(db.prepare("SELECT * FROM feed_watch_hits WHERE feed_id='hackernews'").all()).toEqual([]);
+  expect(
+    db.prepare("SELECT * FROM feed_reads WHERE feed_id='hackernews'").all(),
+  ).toEqual([]);
+  expect(
+    db
+      .prepare("SELECT * FROM feed_watch_hits WHERE feed_id='hackernews'")
+      .all(),
+  ).toEqual([]);
 });
 
 it("remembers what you have read, per owner", async () => {
@@ -952,7 +964,12 @@ it("remembers what you have read, per owner", async () => {
   expect(first.data.unread).toBe(2);
   expect(first.data.stories.map((s: any) => s.read)).toEqual([false, false]);
   const id = first.data.stories[0].id;
-  const marked = await send("/social/read", "POST", { stories: ["unknown:gone", id, "hackernews:missing"] }, "lena");
+  const marked = await send(
+    "/social/read",
+    "POST",
+    { stories: ["unknown:gone", id, "hackernews:missing"] },
+    "lena",
+  );
   expect(marked.data).toEqual({ unread: 1 });
   // Profile badges read the same owner-scoped stored count without loading stories.
   expect((await get("/social/unread", "lena")).data).toEqual({ unread: 1 });
@@ -966,7 +983,12 @@ it("remembers what you have read, per owner", async () => {
   // Reading is yours: the other owner's list is untouched.
   expect((await get("/social", "milo")).data.unread).toBe(2);
   // Marking it unread again brings it back.
-  await send("/social/read", "DELETE", { stories: ["unknown:gone", id, "hackernews:missing"] }, "lena");
+  await send(
+    "/social/read",
+    "DELETE",
+    { stories: ["unknown:gone", id, "hackernews:missing"] },
+    "lena",
+  );
   expect((await get("/social", "lena")).data.unread).toBe(2);
   // "Mark all read" is one write, and covers everything listed so far.
   expect((await send("/social/read-all", "POST", {}, "lena")).data).toEqual({
@@ -985,14 +1007,22 @@ it("removes a swiped-away story, per owner, until it is brought back", async () 
   const first = await get("/social", "ruth");
   expect(first.data.unread).toBe(2);
   const id = first.data.stories[0].id;
-  const removed = await send("/social/dismiss", "POST", { stories: ["unknown:gone", id] }, "ruth");
+  const removed = await send(
+    "/social/dismiss",
+    "POST",
+    { stories: ["unknown:gone", id] },
+    "ruth",
+  );
   expect(removed.data).toEqual({ unread: 1 });
   const after = await get("/social", "ruth");
   expect(after.data.stories.map((s: any) => s.id)).not.toContain(id);
   expect(after.data.unread).toBe(1);
   // Search reaches the whole store, but not what you removed.
   const title = first.data.stories[0].title.split(" ")[0];
-  const found = await get(`/social/search?q=${encodeURIComponent(title)}`, "ruth");
+  const found = await get(
+    `/social/search?q=${encodeURIComponent(title)}`,
+    "ruth",
+  );
   expect(found.data.stories.map((s: any) => s.id)).not.toContain(id);
   // Removing is yours: the other owner still sees it.
   const other = await get("/social", "sami");
@@ -1081,7 +1111,6 @@ it("saves a story for later, and keeps it past retention", async () => {
   );
 });
 
-
 it("opens a due story reminder inside Social", async () => {
   const { surfaceLater } = await import("../src/server/mobile-return");
   const { seal } = await import("../src/server/secrets");
@@ -1090,21 +1119,48 @@ it("opens a due story reminder inside Social", async () => {
   await call("/social/feeds/hackernews", "PUT", owner);
   const story = (await get("/social", owner)).data.stories[0];
   const due = Date.now() + 3600_000;
-  const subscription = { endpoint: "https://push.example/story", keys: { p256dh: "fixture", auth: "fixture" } };
-  db.prepare("INSERT INTO push_subscriptions VALUES(?,?,?,?,?)").run("story-sub", owner, subscription.endpoint, seal(JSON.stringify(subscription), owner), Date.now());
-  const saved = await laterCall("/later", "POST", { kind: "story", targetId: story.id, condition: "time", dueAt: due }, owner);
+  const subscription = {
+    endpoint: "https://push.example/story",
+    keys: { p256dh: "fixture", auth: "fixture" },
+  };
+  db.prepare("INSERT INTO push_subscriptions VALUES(?,?,?,?,?)").run(
+    "story-sub",
+    owner,
+    subscription.endpoint,
+    seal(JSON.stringify(subscription), owner),
+    Date.now(),
+  );
+  const saved = await laterCall(
+    "/later",
+    "POST",
+    { kind: "story", targetId: story.id, condition: "time", dueAt: due },
+    owner,
+  );
   expect(saved.status).toBeLessThan(300);
   surfaceLater(due + 1);
-  expect(db.prepare("SELECT url FROM push_messages WHERE subscription_id='story-sub'").get()).toEqual({ url: "/?social=" + encodeURIComponent(story.id) });
+  expect(
+    db
+      .prepare(
+        "SELECT url FROM push_messages WHERE subscription_id='story-sub'",
+      )
+      .get(),
+  ).toEqual({ url: "/?social=" + encodeURIComponent(story.id) });
 });
 
 it("retired catalog subscriptions cannot consume the worker refresh batch", async () => {
-  db.exec("DELETE FROM feed_subscriptions; DELETE FROM feed_sources; DELETE FROM feed_state");
-  const add = db.prepare("INSERT INTO feed_subscriptions(owner_id,feed_id,created_at) VALUES('retired-test',?,0)");
+  db.exec(
+    "DELETE FROM feed_subscriptions; DELETE FROM feed_sources; DELETE FROM feed_state",
+  );
+  const add = db.prepare(
+    "INSERT INTO feed_subscriptions(owner_id,feed_id,created_at) VALUES('retired-test',?,0)",
+  );
   for (let i = 0; i < 10; i++) add.run(`retired-${i}`);
   for (const feed of feedCatalog.slice(0, 10)) add.run(feed.id);
   const asked: string[] = [];
-  restore = withNewsFixture(async url => { asked.push(url); return new Response(officialRss); });
+  restore = withNewsFixture(async (url) => {
+    asked.push(url);
+    return new Response(officialRss);
+  });
   expect(await refreshDueFeeds()).toBe(8);
   expect(asked).toHaveLength(8);
 });
@@ -1117,14 +1173,23 @@ it("publishes story and health changes without logging healthy refresh bookkeepi
     calls++;
     if (mode === "failure") throw new Error("Fixture feed unavailable");
     if (mode === "not-modified") return new Response(null, { status: 304 });
-    return new Response(mode === "changed" ? officialRss.replace("125B model at", "126B model at") : officialRss,
-      { headers: { etag: '"fixture"' } });
+    return new Response(
+      mode === "changed"
+        ? officialRss.replace("125B model at", "126B model at")
+        : officialRss,
+      { headers: { etag: '"fixture"' } },
+    );
   });
   for (const owner of ["refresh-a", "refresh-b"])
     await call("/social/feeds/hackernews", "PUT", owner);
   let at = Date.now();
   expect(await refreshDueFeeds(at)).toBe(1);
-  const events = () => db.prepare("SELECT owner_id,payload FROM events WHERE owner_id IN ('refresh-a','refresh-b') ORDER BY id").all() as { owner_id: string; payload: string }[];
+  const events = () =>
+    db
+      .prepare(
+        "SELECT owner_id,payload FROM events WHERE owner_id IN ('refresh-a','refresh-b') ORDER BY id",
+      )
+      .all() as { owner_id: string; payload: string }[];
   let before = events().length;
   for (let repeat = 0; repeat < 8; repeat++) {
     at += 6 * 60_000;
@@ -1132,49 +1197,87 @@ it("publishes story and health changes without logging healthy refresh bookkeepi
     expect(events()).toHaveLength(before);
   }
   mode = "not-modified";
-  expect(await refreshDueFeeds(at += 6 * 60_000)).toBe(1);
+  expect(await refreshDueFeeds((at += 6 * 60_000))).toBe(1);
   expect(events()).toHaveLength(before);
   mode = "changed";
-  expect(await refreshDueFeeds(at += 6 * 60_000)).toBe(1);
-  expect(events().slice(before).map(row => row.owner_id).sort()).toEqual(["refresh-a", "refresh-b"]);
-  expect(storedFeedStories("hackernews").some(row => row.title.includes("126B"))).toBe(true);
+  expect(await refreshDueFeeds((at += 6 * 60_000))).toBe(1);
+  expect(
+    events()
+      .slice(before)
+      .map((row) => row.owner_id)
+      .sort(),
+  ).toEqual(["refresh-a", "refresh-b"]);
+  expect(
+    storedFeedStories("hackernews").some((row) => row.title.includes("126B")),
+  ).toBe(true);
   before = events().length;
   mode = "failure";
-  expect(await refreshDueFeeds(at += 6 * 60_000)).toBe(1);
-  expect(events().slice(before).map(row => row.owner_id).sort()).toEqual(["refresh-a", "refresh-b"]);
+  expect(await refreshDueFeeds((at += 6 * 60_000))).toBe(1);
+  expect(
+    events()
+      .slice(before)
+      .map((row) => row.owner_id)
+      .sort(),
+  ).toEqual(["refresh-a", "refresh-b"]);
   before = events().length;
   mode = "not-modified";
-  expect(await refreshDueFeeds(at += 6 * 60_000)).toBe(1);
-  expect(events().slice(before).map(row => row.owner_id).sort()).toEqual(["refresh-a", "refresh-b"]);
+  expect(await refreshDueFeeds((at += 6 * 60_000))).toBe(1);
+  expect(
+    events()
+      .slice(before)
+      .map((row) => row.owner_id)
+      .sort(),
+  ).toEqual(["refresh-a", "refresh-b"]);
   expect(calls).toBe(13);
 });
 
-it.each(["same", "not-modified"])("signals pending Social completion after a %s response without waking inactive owners", async (mode) => {
-  db.exec("DELETE FROM feed_subscriptions; DELETE FROM feed_sources");
-  let held: Promise<void> | undefined;
-  let release = () => {};
-  restore = withNewsFixture(async () => {
-    if (held) {
-      await held;
-      if (mode === "not-modified") return new Response(null, { status: 304 });
+it.each(["same", "not-modified"])(
+  "signals pending Social completion after a %s response without waking inactive owners",
+  async (mode) => {
+    db.exec("DELETE FROM feed_subscriptions; DELETE FROM feed_sources");
+    let held: Promise<void> | undefined;
+    let release = () => {};
+    restore = withNewsFixture(async () => {
+      if (held) {
+        await held;
+        if (mode === "not-modified") return new Response(null, { status: 304 });
+      }
+      return new Response(officialRss, {
+        headers: { etag: '"pending-fixture"' },
+      });
+    });
+    for (const owner of ["pending-viewer", "inactive-viewer"])
+      await call("/social/feeds/hackernews", "PUT", owner);
+    await get("/social", "pending-viewer");
+    db.prepare(
+      "UPDATE feed_state SET fetched_at=? WHERE feed_id='hackernews'",
+    ).run(Date.now() - 6 * 60_000);
+    const before = (
+      db.prepare("SELECT max(id) id FROM events").get() as { id: number }
+    ).id;
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const first = await get("/social", "pending-viewer");
+      expect(first.data.pending).toEqual(["hackernews"]);
+      const finished = feedStories(feedById.get("hackernews")!);
+      release();
+      await finished;
+      const changes = db
+        .prepare(
+          "SELECT owner_id,payload FROM events WHERE id>? AND owner_id IN ('pending-viewer','inactive-viewer') ORDER BY id",
+        )
+        .all(before) as { owner_id: string; payload: string }[];
+      expect(changes.map((change) => change.owner_id)).toEqual([
+        "pending-viewer",
+      ]);
+      expect(JSON.parse(changes[0].payload)).toMatchObject({
+        scope: { kind: "collection", id: "social" },
+      });
+      expect((await get("/social", "pending-viewer")).data.pending).toEqual([]);
+    } finally {
+      release();
     }
-    return new Response(officialRss, { headers: { etag: '"pending-fixture"' } });
-  });
-  for (const owner of ["pending-viewer", "inactive-viewer"])
-    await call("/social/feeds/hackernews", "PUT", owner);
-  await get("/social", "pending-viewer");
-  db.prepare("UPDATE feed_state SET fetched_at=? WHERE feed_id='hackernews'").run(Date.now() - 6 * 60_000);
-  const before = (db.prepare("SELECT max(id) id FROM events").get() as {id: number}).id;
-  held = new Promise<void>(resolve => { release = resolve; });
-  try {
-    const first = await get("/social", "pending-viewer");
-    expect(first.data.pending).toEqual(["hackernews"]);
-    const finished = feedStories(feedById.get("hackernews")!);
-    release();
-    await finished;
-    const changes = db.prepare("SELECT owner_id,payload FROM events WHERE id>? AND owner_id IN ('pending-viewer','inactive-viewer') ORDER BY id").all(before) as {owner_id: string; payload: string}[];
-    expect(changes.map(change => change.owner_id)).toEqual(["pending-viewer"]);
-    expect(JSON.parse(changes[0].payload)).toMatchObject({scope:{kind:"collection",id:"social"}});
-    expect((await get("/social", "pending-viewer")).data.pending).toEqual([]);
-  } finally { release(); }
-});
+  },
+);

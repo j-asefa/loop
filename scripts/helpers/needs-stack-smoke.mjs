@@ -119,17 +119,32 @@ export async function needsStackSmoke(page, fixture, capture) {
 
   // A host restart can interrupt an agent while its MCP call is awaiting
   // approval. The approval card must become a visible interruption card.
-  const awaiting = fixture.conversations.find((c) => c.state === "awaiting_approval");
-  fixture.db.prepare("UPDATE runs SET state='interrupted',error='Host stopped before the merge finished.',updated_at=? WHERE id=?")
+  const awaiting = fixture.conversations.find(
+    (c) => c.state === "awaiting_approval",
+  );
+  fixture.db
+    .prepare(
+      "UPDATE runs SET state='interrupted',error='Host stopped before the merge finished.',updated_at=? WHERE id=?",
+    )
     .run(Date.now(), awaiting.run);
-  await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
-  const interrupted = needs.locator(".inbox-card").filter({ hasText: awaiting.title });
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("loop-source-refresh")),
+  );
+  const interrupted = needs
+    .locator(".inbox-card")
+    .filter({ hasText: awaiting.title });
   await expect(interrupted).toBeVisible();
-  await expect(interrupted).toContainText("Host stopped before the merge finished.");
+  await expect(interrupted).toContainText(
+    "Host stopped before the merge finished.",
+  );
   await expect(needs.locator(".approval-card")).toHaveCount(0);
   const recovered = await fixture.api("/feed?filter=needs");
-  expect(recovered.items.find((item) => item.run?.id === awaiting.run)).toMatchObject({
-    run: { state: "interrupted" }, pending_approvals: 0, next_action: null,
+  expect(
+    recovered.items.find((item) => item.run?.id === awaiting.run),
+  ).toMatchObject({
+    run: { state: "interrupted" },
+    pending_approvals: 0,
+    next_action: null,
   });
 
   // A connected source on an older version can still advertise a stale
@@ -139,14 +154,22 @@ export async function needsStackSmoke(page, fixture, capture) {
     const body = await response.json();
     for (const item of body.items ?? [])
       if (item.run?.id === awaiting.run)
-        item.next_action = { kind: "approve", run_id: awaiting.run, message_id: null };
+        item.next_action = {
+          kind: "approve",
+          run_id: awaiting.run,
+          message_id: null,
+        };
     await route.fulfill({ response, json: body });
   });
   await page.reload({ waitUntil: "networkidle" });
   await expect(interrupted).toBeVisible();
   await capture("interrupted-approval-needs-you");
-  await interrupted.getByRole("button", { name: "Thread actions", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Dismiss from Needs you", exact: true }).click();
+  await interrupted
+    .getByRole("button", { name: "Thread actions", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Dismiss from Needs you", exact: true })
+    .click();
   await expect(needs).toBeHidden();
   // Social now lives on Your profile. Its search remains available independently of
   // the Feed's Needs you stack.

@@ -43,7 +43,13 @@ it("registers Gemini separately from custom ACP, creates an agent and resumes it
     status: "connected",
     owner_id: OWNER,
   });
-  expect(harnessName({ ...connection, metadata: JSON.stringify(connection.metadata), models: JSON.stringify(connection.models) })).toBe("Gemini CLI");
+  expect(
+    harnessName({
+      ...connection,
+      metadata: JSON.stringify(connection.metadata),
+      models: JSON.stringify(connection.models),
+    }),
+  ).toBe("Gemini CLI");
   expect(acceptsLiveInput(connection)).toBe(false);
   expect(connection.metadata).toMatchObject({
     loopHarness: "gemini",
@@ -67,7 +73,10 @@ it("registers Gemini separately from custom ACP, creates an agent and resumes it
     conversation: "gemini-conversation",
     agent: agent.id,
     payload: {
-      agentId: agent.id, name: agent.name, provider: "gemini", folderId: null,
+      agentId: agent.id,
+      name: agent.name,
+      provider: "gemini",
+      folderId: null,
       connectionId: connection.id,
       model: "gemini-fixture",
       instructions: "Fixture instructions",
@@ -131,7 +140,10 @@ it("switches an existing Gemini conversation from an explicit model back to the 
     conversation: "gemini-model-conversation",
     agent: agent.id,
     payload: {
-      agentId: agent.id, name: agent.name, provider: "gemini", folderId: null,
+      agentId: agent.id,
+      name: agent.name,
+      provider: "gemini",
+      folderId: null,
       connectionId: "native-gemini",
       model: "gemini-fixture",
       instructions: "Model fixture instructions",
@@ -145,7 +157,9 @@ it("switches an existing Gemini conversation from an explicit model back to the 
       .filter(
         (request) =>
           request.method === "session/prompt" &&
-          request.params.prompt[0].text.startsWith("Model fixture instructions"),
+          request.params.prompt[0].text.startsWith(
+            "Model fixture instructions",
+          ),
       );
   process.env.LOOP_TEST_GEMINI_AUTO = "1";
   process.env.LOOP_TEST_GEMINI_SESSION_ID = "gemini-model-session";

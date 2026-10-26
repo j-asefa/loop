@@ -11,9 +11,11 @@ import {
 } from "node:fs";
 const kind = process.env.LOOP_TEST_HARNESS;
 // Gemini signs in from a throwaway workspace, not the project or HOME.
-if (process.env.LOOP_TEST_CLEAN_ENV === "1" &&
-    (process.env.LOOP_TEST_HOST_ONLY ||
-      (kind !== "gemini" && process.env.HOME !== process.cwd()))) {
+if (
+  process.env.LOOP_TEST_CLEAN_ENV === "1" &&
+  (process.env.LOOP_TEST_HOST_ONLY ||
+    (kind !== "gemini" && process.env.HOME !== process.cwd()))
+) {
   process.exit(91);
 }
 const path =
@@ -27,9 +29,15 @@ const audit = (message) =>
   appendFileSync(path + "/auth-audit", kind + ":" + message + "\n");
 if (process.argv.includes("--version")) {
   console.log(
-    { codex: "0.159.0", claude: "2.1.284", pi: "0.87.1", opencode: "1.18.33", gemini: "0.65.0", muse: "Muse Code 1.4.12 (1.4.12-R6909.1)", grok: "grok 1.0.70 (f50904eaee6c)" }[
-      kind
-    ],
+    {
+      codex: "0.159.0",
+      claude: "2.1.284",
+      pi: "0.87.1",
+      opencode: "1.18.33",
+      gemini: "0.65.0",
+      muse: "Muse Code 1.4.12 (1.4.12-R6909.1)",
+      grok: "grok 1.0.70 (f50904eaee6c)",
+    }[kind],
   );
 } else if (kind === "codex" && process.argv[2] === "login") {
   audit("login");
@@ -170,37 +178,42 @@ if (process.argv.includes("--version")) {
     createInterface({ input: process.stdin }).on("line", (line) => {
       const message = JSON.parse(line);
       if (message.method === "authenticate") audit("authenticate");
-      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: {} }) + "\n");
+      process.stdout.write(
+        JSON.stringify({ jsonrpc: "2.0", id: message.id, result: {} }) + "\n",
+      );
     });
   } else {
-  const ask = () =>
-    process.stdout.write(
-      "\x1b[?1049hPlease visit the following URL to authorize the application:\n\n" + (process.env.LOOP_TEST_GEMINI_URL || "https://accounts.google.com/o/oauth2/v2/auth?state=fixture") + "\n\n\x1b[1G\x1b[0JEnter the authorization code: ",
-    );
-  // A slow start opens the sign-in screen late.
-  setTimeout(ask, Number(process.env.LOOP_TEST_GEMINI_DELAY_MS || 0));
-  let authorized = false;
-  createInterface({ input: process.stdin }).on("line", (line) => {
-    if (!authorized) {
-      if (line !== "fixture-code") {
-        process.stderr.write(
-          "Failed to authenticate with authorization code:invalid_grant\n",
-        );
-        return ask();
+    const ask = () =>
+      process.stdout.write(
+        "\x1b[?1049hPlease visit the following URL to authorize the application:\n\n" +
+          (process.env.LOOP_TEST_GEMINI_URL ||
+            "https://accounts.google.com/o/oauth2/v2/auth?state=fixture") +
+          "\n\n\x1b[1G\x1b[0JEnter the authorization code: ",
+      );
+    // A slow start opens the sign-in screen late.
+    setTimeout(ask, Number(process.env.LOOP_TEST_GEMINI_DELAY_MS || 0));
+    let authorized = false;
+    createInterface({ input: process.stdin }).on("line", (line) => {
+      if (!authorized) {
+        if (line !== "fixture-code") {
+          process.stderr.write(
+            "Failed to authenticate with authorization code:invalid_grant\n",
+          );
+          return ask();
+        }
+        authorized = true;
+        save("oauth");
+        return process.stdout.write("\x1b[?1049l");
       }
-      authorized = true;
-      save("oauth");
-      return process.stdout.write("\x1b[?1049l");
-    }
-    const message = JSON.parse(line);
-    if (message.method === "authenticate") {
-      if (message.params.methodId !== "oauth-personal") process.exit(1);
-      audit("authenticate");
-    }
-    process.stdout.write(
-      JSON.stringify({ jsonrpc: "2.0", id: message.id, result: {} }) + "\n",
-    );
-  });
+      const message = JSON.parse(line);
+      if (message.method === "authenticate") {
+        if (message.params.methodId !== "oauth-personal") process.exit(1);
+        audit("authenticate");
+      }
+      process.stdout.write(
+        JSON.stringify({ jsonrpc: "2.0", id: message.id, result: {} }) + "\n",
+      );
+    });
   }
 } else if (kind === "opencode" && process.argv[2] === "serve") {
   const expected =

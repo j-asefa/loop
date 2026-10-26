@@ -76,19 +76,32 @@ it("isolates text and attachments for identical conversation IDs on different so
   expect(threadDraft(sourceDraftId("same", "docker:alpha")).text).toBe("");
 });
 
-
 it("settles the original global draft after navigation without clearing newer drafts or another owner", () => {
   setDraftOwner("alice");
   const origin = sourceDraftId(GLOBAL_DRAFT, "docker:alpha");
-  saveThreadDraft(origin, "Sent to the existing manager thread", [{ id: "file" }]);
+  saveThreadDraft(origin, "Sent to the existing manager thread", [
+    { id: "file" },
+  ]);
   saveThreadDraft("resolved-thread", "Different thread draft", []);
   setDraftOwner("bob");
   saveThreadDraft(origin, "Bob's draft", []);
-  clearAcceptedDraft(origin, "Sent to the existing manager thread", [{ id: "file" }], "alice");
+  clearAcceptedDraft(
+    origin,
+    "Sent to the existing manager thread",
+    [{ id: "file" }],
+    "alice",
+  );
   expect(threadDraft(origin, "alice").text).toBe("");
-  expect(threadDraft("resolved-thread", "alice").text).toBe("Different thread draft");
+  expect(threadDraft("resolved-thread", "alice").text).toBe(
+    "Different thread draft",
+  );
   expect(threadDraft(origin).text).toBe("Bob's draft");
   saveThreadDraft(origin, "Newer Alice draft", [], "alice");
-  clearAcceptedDraft(origin, "Sent to the existing manager thread", [{ id: "file" }], "alice");
+  clearAcceptedDraft(
+    origin,
+    "Sent to the existing manager thread",
+    [{ id: "file" }],
+    "alice",
+  );
   expect(threadDraft(origin, "alice").text).toBe("Newer Alice draft");
 });

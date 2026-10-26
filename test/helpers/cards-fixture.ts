@@ -59,7 +59,12 @@ export async function cardsFixture(
     errors += chunk;
   });
   const timeout = setTimeout(() => child.kill(), 20000);
-  let ready: { origin: string; owner: string; pair?: string; fixtureSecret?: string };
+  let ready: {
+    origin: string;
+    owner: string;
+    pair?: string;
+    fixtureSecret?: string;
+  };
   try {
     ready = await Promise.race([
       once(child, "message").then(([message]) => message),
@@ -77,8 +82,7 @@ export async function cardsFixture(
   database.pragma("foreign_keys = ON");
   // Opt in when exercising Feed: this independent connection must commit its
   // projection with its source writes, exactly like the production worker.
-  if (options.projectedWrites)
-    installFixtureProjection(database);
+  if (options.projectedWrites) installFixtureProjection(database);
   const { origin } = ready;
   let owner = ready.owner;
   const request = (

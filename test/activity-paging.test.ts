@@ -11,7 +11,8 @@ import {
 const dir = mkdtempSync(join(tmpdir(), "loop-activity-paging-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
-const { activityRoutes, applyActivity, setActivityCapabilities } = await import("../src/server/activities");
+const { activityRoutes, applyActivity, setActivityCapabilities } =
+  await import("../src/server/activities");
 db.exec(`INSERT INTO conversations(id,owner_id,title,created_at) VALUES('c','alice','Long',1),('other','alice','Other',1);
   INSERT INTO runs(id,owner_id,conversation_id,kind,input,state,idempotency_key,created_at,updated_at)
   VALUES('r','alice','c','agent','prompt','completed','r',1,1),('other','alice','other','agent','prompt','completed','other',1,1);`);
@@ -47,19 +48,42 @@ function add(
   scope = "c",
   data?: any,
 ) {
-  const source = { transport: "native", harness: "codex", origin: "paging-fixture" };
-  const context = { owner: "alice", conversation: scope, run, generation: "g1" };
-  const patch = data ?? (kind === "file_change" ? { files: [] } : { title: `tool ${sequence}` });
+  const source = {
+    transport: "native",
+    harness: "codex",
+    origin: "paging-fixture",
+  };
+  const context = {
+    owner: "alice",
+    conversation: scope,
+    run,
+    generation: "g1",
+  };
+  const patch =
+    data ??
+    (kind === "file_change" ? { files: [] } : { title: `tool ${sequence}` });
   if (kind === "file_change" && patch.files)
-    patch.files = patch.files.map((file: object) => ({ operation: "modify", ...file }));
-  const result = kind === "capabilities"
-    ? setActivityCapabilities(context, source, {})
-    : applyActivity(context, { v: 1, kind, id: `${scope}:${kind}:${sequence}`, source, generation: "g1", patch });
+    patch.files = patch.files.map((file: object) => ({
+      operation: "modify",
+      ...file,
+    }));
+  const result =
+    kind === "capabilities"
+      ? setActivityCapabilities(context, source, {})
+      : applyActivity(context, {
+          v: 1,
+          kind,
+          id: `${scope}:${kind}:${sequence}`,
+          source,
+          generation: "g1",
+          patch,
+        });
   expect(result.applied).toBe(true);
   if (!result.applied) throw new Error("Fixture activity was rejected");
   // Exercise gaps and page boundaries without bypassing the production record writer.
-  db.prepare("UPDATE agent_activities SET sequence=? WHERE owner_id='alice' AND scope=? AND activity_key=?")
-    .run(sequence, scope, result.key);
+  db.prepare(
+    "UPDATE agent_activities SET sequence=? WHERE owner_id='alice' AND scope=? AND activity_key=?",
+  ).run(sequence, scope, result.key);
   return result.key;
 }
 

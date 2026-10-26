@@ -116,7 +116,9 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
   ).toBeVisible();
   await capture("gemini-cli-already-signed-in");
   await sheet.getByText("Already signed in on Fixture computer?").click();
-  await sheet.getByRole("button", { name: "Start sign-in", exact: true }).click();
+  await sheet
+    .getByRole("button", { name: "Start sign-in", exact: true })
+    .click();
   await expect(
     sheet.getByRole("link", { name: "Open provider sign-in" }),
   ).toHaveAttribute("href", /^https:\/\/accounts\.google\.com\//);
@@ -141,7 +143,10 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
   await expect(
     sheet.getByRole("button", { name: "Refresh Gemini CLI", exact: true }),
   ).toBeEnabled();
-  expect(enableRequest).toMatchObject({ projectId: "second", billing: "existing" });
+  expect(enableRequest).toMatchObject({
+    projectId: "second",
+    billing: "existing",
+  });
   // Reopening an enabled runtime, with no sign-in in memory, offers Refresh.
   attempt = undefined;
   await sheet.getByRole("button", { name: "Done", exact: true }).click();

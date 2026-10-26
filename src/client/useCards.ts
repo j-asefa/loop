@@ -95,7 +95,11 @@ export function useCards(selection: CardSelection, revision = 0) {
       if (document.visibilityState === "visible") void load();
     };
     const stopFallback = surfaceFallback([source], "results", 2000, refresh);
-    const stopChanges = listenWorkspaceChanges(selection.view === "saved" ? "saved" : "results", refresh, source);
+    const stopChanges = listenWorkspaceChanges(
+      selection.view === "saved" ? "saved" : "results",
+      refresh,
+      source,
+    );
     window.addEventListener("loop-refresh", refresh);
     window.addEventListener("loop-later-change", refresh);
     document.addEventListener("visibilitychange", refresh);

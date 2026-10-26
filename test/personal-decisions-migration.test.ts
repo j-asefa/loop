@@ -60,9 +60,14 @@ it("recovers evidenced personal decisions without inventing old answers or treat
       "legacy-command",
     );
     db.exec(readFileSync("migrations/116-personal-decisions.sql", "utf8"));
-    db.exec(readFileSync("migrations/117-personal-decision-previews.sql", "utf8"));
-    expect(db.prepare("SELECT DISTINCT response_truncated FROM personal_decisions").all())
-      .toEqual([{ response_truncated: 0 }]);
+    db.exec(
+      readFileSync("migrations/117-personal-decision-previews.sql", "utf8"),
+    );
+    expect(
+      db
+        .prepare("SELECT DISTINCT response_truncated FROM personal_decisions")
+        .all(),
+    ).toEqual([{ response_truncated: 0 }]);
     expect(
       db
         .prepare(

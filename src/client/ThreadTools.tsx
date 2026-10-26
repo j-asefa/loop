@@ -1,4 +1,8 @@
-import { useSourceRoute, useSourceId, useSourceRouteRead } from "./SourceContext";
+import {
+  useSourceRoute,
+  useSourceId,
+  useSourceRouteRead,
+} from "./SourceContext";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
@@ -23,7 +27,11 @@ import {
   X,
 } from "lucide-react";
 import { callRoute } from "./workspace-api";
-import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
+import {
+  workspaceApi,
+  type RouteInput,
+  type RouteResponse,
+} from "../shared/workspace-api";
 import { viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
 import { RichText, Sheet } from "./components";
@@ -281,7 +289,9 @@ export function QuotePartSheet({
 }
 
 /** A reminder Loop created, for the confirmation's link and Undo. */
-export type CreatedReminder = Required<Pick<RouteResponse<typeof workspaceApi.laterCreate>, "id" | "replaced">>;
+export type CreatedReminder = Required<
+  Pick<RouteResponse<typeof workspaceApi.laterCreate>, "id" | "replaced">
+>;
 
 /**
  * Remind me: time presets, "when it finishes", "next time I open the
@@ -349,10 +359,16 @@ export function LaterSheet({
     };
     try {
       const created: CreatedReminder = itemId
-        ? await callRoute(workspaceApi.laterSnooze, { params: { id: itemId }, body: trigger }, sourceId ?? scopedSource)
-          .then(row => ({ id: row.id, replaced: null }))
-        : await callRoute(workspaceApi.laterCreate, { body: { kind, targetId, ...trigger } }, sourceId ?? scopedSource)
-          .then(row => ({ id: row.id, replaced: row.replaced ?? null }));
+        ? await callRoute(
+            workspaceApi.laterSnooze,
+            { params: { id: itemId }, body: trigger },
+            sourceId ?? scopedSource,
+          ).then((row) => ({ id: row.id, replaced: null }))
+        : await callRoute(
+            workspaceApi.laterCreate,
+            { body: { kind, targetId, ...trigger } },
+            sourceId ?? scopedSource,
+          ).then((row) => ({ id: row.id, replaced: row.replaced ?? null }));
       if (!current()) return;
       window.dispatchEvent(new Event("loop-later-change"));
       onDone(label, created);
@@ -437,13 +453,23 @@ export async function undoReminder(
   created: CreatedReminder,
   sourceId = executionSourceId(),
 ) {
-  await callRoute(workspaceApi.laterFinish, { params: { id: created.id }, body: undefined }, sourceId);
+  await callRoute(
+    workspaceApi.laterFinish,
+    { params: { id: created.id }, body: undefined },
+    sourceId,
+  );
   if (created.replaced)
-    await callRoute(workspaceApi.laterReopen, { params: { id: created.replaced }, body: {} }, sourceId).catch(() => {});
+    await callRoute(
+      workspaceApi.laterReopen,
+      { params: { id: created.replaced }, body: {} },
+      sourceId,
+    ).catch(() => {});
   window.dispatchEvent(new Event("loop-later-change"));
 }
 
-type OutlineItem = RouteResponse<typeof workspaceApi.conversationOutline>["items"][number];
+type OutlineItem = RouteResponse<
+  typeof workspaceApi.conversationOutline
+>["items"][number];
 const outlineIcon = {
   prompt: <User size={17} />,
   result: <MessageSquareQuote size={17} />,
@@ -459,7 +485,9 @@ const outlineLabel = {
   saved: "Saved",
 };
 
-type ThreadMatch = NonNullable<RouteResponse<typeof workspaceApi.conversationOutline>["matches"]>[number];
+type ThreadMatch = NonNullable<
+  RouteResponse<typeof workspaceApi.conversationOutline>["matches"]
+>[number];
 const matchLabel = {
   prompt: "You",
   response: "Agent",
@@ -526,7 +554,10 @@ export function OutlineSheet({
     let active = true;
     setSearching(true);
     const timer = setTimeout(() => {
-      call(workspaceApi.conversationOutline, { params: { id: conversationId }, query: { q: text } })
+      call(workspaceApi.conversationOutline, {
+        params: { id: conversationId },
+        query: { q: text },
+      })
         .then((result) => active && setMatches(result.matches ?? []))
         .catch((e) => active && setSearchError((e as Error).message))
         .finally(() => active && setSearching(false));
@@ -761,7 +792,10 @@ export function ForkSheet({
           setBusy(true);
           setError("");
           try {
-            const result = await call(workspaceApi.conversationFork, { params: { id: conversationId }, body: { messageId, agentId } });
+            const result = await call(workspaceApi.conversationFork, {
+              params: { id: conversationId },
+              body: { messageId, agentId },
+            });
             onForked(result.id, result.agentId);
           } catch (e) {
             setError((e as Error).message);
@@ -776,7 +810,9 @@ export function ForkSheet({
   );
 }
 
-export type ScheduledSend = RouteResponse<typeof workspaceApi.scheduledSendList>["items"][number];
+export type ScheduledSend = RouteResponse<
+  typeof workspaceApi.scheduledSendList
+>["items"][number];
 
 /**
  * Change the text or time of a message that has not been sent yet. A
@@ -850,7 +886,10 @@ function EditScheduled({
           setBusy(true);
           setError("");
           try {
-            await call(workspaceApi.scheduledSendUpdate, { params: { id: item.id }, body: { input: text, sendAt } });
+            await call(workspaceApi.scheduledSendUpdate, {
+              params: { id: item.id },
+              body: { input: text, sendAt },
+            });
             onSaved();
             onClose();
           } catch (e) {
@@ -902,22 +941,32 @@ export function ScheduledSends({
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<ScheduledSend | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const query = (failedBefore?: string): RouteInput<typeof workspaceApi.scheduledSendList>["query"] => ({
-    conversation: conversationId || undefined, failedBefore,
+  const query = (
+    failedBefore?: string,
+  ): RouteInput<typeof workspaceApi.scheduledSendList>["query"] => ({
+    conversation: conversationId || undefined,
+    failedBefore,
   });
   const load = (signal?: AbortSignal) =>
-    (signal ? read(workspaceApi.scheduledSendList, { query: query() }, signal) : call(workspaceApi.scheduledSendList, { query: query() }))
+    (signal
+      ? read(workspaceApi.scheduledSendList, { query: query() }, signal)
+      : call(workspaceApi.scheduledSendList, { query: query() })
+    )
       .then((result) => {
         if (signal?.aborted) return;
         setItems(result.items);
         setFailedNext(result.failed_next);
         setLoaded(true);
       })
-      .catch((e) => { if (!signal?.aborted) setError((e as Error).message); });
+      .catch((e) => {
+        if (!signal?.aborted) setError((e as Error).message);
+      });
   const loadOlder = async () => {
     if (!failedNext) return;
     try {
-      const page = await call(workspaceApi.scheduledSendList, { query: query(failedNext) });
+      const page = await call(workspaceApi.scheduledSendList, {
+        query: query(failedNext),
+      });
       setItems((old) => {
         const failed = old.filter((item) => item.state === "failed");
         return [
@@ -954,9 +1003,15 @@ export function ScheduledSends({
     setError("");
     try {
       if (action === "cancel")
-        await call(workspaceApi.scheduledSendCancel, { params: { id: item.id }, body: undefined });
+        await call(workspaceApi.scheduledSendCancel, {
+          params: { id: item.id },
+          body: undefined,
+        });
       else {
-        const result = await call(workspaceApi.scheduledSendRetry, { params: { id: item.id }, body: {} });
+        const result = await call(workspaceApi.scheduledSendRetry, {
+          params: { id: item.id },
+          body: {},
+        });
         if (!result.run)
           setError(result.row.error || "Loop could not send this message.");
       }

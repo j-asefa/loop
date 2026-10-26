@@ -132,13 +132,17 @@ export class Acp implements Adapter {
   ) {}
 
   async start(): Promise<Billing> {
-    const child = spawnNative(this.options.executable, this.options.args || [], {
-      cwd: this.options.project,
-      shell: false,
-      detached: true,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: this.environment(),
-    });
+    const child = spawnNative(
+      this.options.executable,
+      this.options.args || [],
+      {
+        cwd: this.options.project,
+        shell: false,
+        detached: true,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: this.environment(),
+      },
+    );
     this.child = child;
     own(child);
     child.once("error", () => {
@@ -904,7 +908,9 @@ export class Acp implements Adapter {
           {
             tool,
             replace: [{ stream: "combined", text: output }],
-            ...(this.toolCommands.has(u.toolCallId) && { command: this.toolCommands.get(u.toolCallId) }),
+            ...(this.toolCommands.has(u.toolCallId) && {
+              command: this.toolCommands.get(u.toolCallId),
+            }),
             ...(joined.length > 64000 && { upstreamTruncated: true }),
             status:
               item.status === "completed"
@@ -926,7 +932,9 @@ export class Acp implements Adapter {
             "output",
             `${tool}:output`,
             {
-              ...(this.toolCommands.has(u.toolCallId) && { command: this.toolCommands.get(u.toolCallId) }),
+              ...(this.toolCommands.has(u.toolCallId) && {
+                command: this.toolCommands.get(u.toolCallId),
+              }),
               status:
                 item.status === "completed"
                   ? "exited"

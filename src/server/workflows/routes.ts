@@ -107,13 +107,15 @@ routes.legacy("POST /workflows/:id/run", (req, res) => {
   res
     .status(202)
     .json(
-      runResponse(startWorkflow(
-        res.locals.owner,
-        req.params.id,
-        d.version,
-        d.inputs,
-        d.idempotencyKey,
-      )),
+      runResponse(
+        startWorkflow(
+          res.locals.owner,
+          req.params.id,
+          d.version,
+          d.inputs,
+          d.idempotencyKey,
+        ),
+      ),
     );
 });
 routes.legacy("GET /runs/:id/steps", (req, res) => {
@@ -140,7 +142,9 @@ routes.on(workspaceApi.approvals, (req, res) => {
           filter +
           " ORDER BY a.created_at",
       )
-      .all(res.locals.owner, ...teams) as z.input<typeof workspaceApi.approvals.response>,
+      .all(res.locals.owner, ...teams) as z.input<
+      typeof workspaceApi.approvals.response
+    >,
   );
 });
 routes.on(workspaceApi.approval, async (req, res) => {

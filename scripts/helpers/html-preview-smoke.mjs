@@ -86,33 +86,60 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
   page.on("request", track);
   try {
     // Published files remain discoverable from You even when hidden/archived.
-    fixture.db.prepare("UPDATE artifacts SET feed_hidden=1,archived=1 WHERE id=?").run(id);
+    fixture.db
+      .prepare("UPDATE artifacts SET feed_hidden=1,archived=1 WHERE id=?")
+      .run(id);
     for (const width of [390, 1024]) {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(fixture.base + "/?page=later");
       await page.getByRole("tab", { name: "Files", exact: true }).click();
-      const library = page.getByRole("region", { name: "Your files", exact: true });
+      const library = page.getByRole("region", {
+        name: "Your files",
+        exact: true,
+      });
       // Let the debounced query apply before opening a result. Applying a new
       // filter replaces the old list, including a preview opened from it.
       const searched = page.waitForResponse((response) => {
         const url = new URL(response.url());
-        return url.pathname === "/api/me/files" && url.searchParams.get("q") === "prototype" && response.ok();
+        return (
+          url.pathname === "/api/me/files" &&
+          url.searchParams.get("q") === "prototype" &&
+          response.ok()
+        );
       });
-      await library.getByRole("searchbox", { name: "Search files" }).fill("prototype");
+      await library
+        .getByRole("searchbox", { name: "Search files" })
+        .fill("prototype");
       await searched;
       await expect(library.getByRole("status")).toHaveCount(0);
       await library.getByLabel("Type", { exact: true }).selectOption("image");
-      await expect(library.getByText("No files match your filters.")).toBeVisible();
+      await expect(
+        library.getByText("No files match your filters."),
+      ).toBeVisible();
       await library.getByLabel("Type", { exact: true }).selectOption("html");
-      await library.getByRole("button", { name: "Preview prototype.html", exact: true }).click();
-      await expect(dialog().frameLocator("iframe").getByRole("heading", { name: "Interactive prototype", exact: true })).toBeVisible();
+      await library
+        .getByRole("button", { name: "Preview prototype.html", exact: true })
+        .click();
+      await expect(
+        dialog()
+          .frameLocator("iframe")
+          .getByRole("heading", { name: "Interactive prototype", exact: true }),
+      ).toBeVisible();
       const download = page.waitForEvent("download");
-      await dialog().getByRole("link", { name: "Download", exact: true }).click();
+      await dialog()
+        .getByRole("link", { name: "Download", exact: true })
+        .click();
       assert.deepEqual(readFileSync(await (await download).path()), bytes);
-      await dialog().getByRole("button", { name: "Close", exact: true }).click();
+      await dialog()
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await capture(`profile-files-${width}`);
-      await library.getByRole("button", { name: "Open conversation", exact: true }).click();
-      await expect.poll(() => new URL(page.url()).searchParams.get("conversation")).toBe(original.conversation_id);
+      await library
+        .getByRole("button", { name: "Open conversation", exact: true })
+        .click();
+      await expect
+        .poll(() => new URL(page.url()).searchParams.get("conversation"))
+        .toBe(original.conversation_id);
     }
     for (const width of [390, 1024]) {
       await page.setViewportSize({ width, height: 844 });

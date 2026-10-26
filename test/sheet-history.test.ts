@@ -5,7 +5,11 @@ import { expect, it, vi } from "vitest";
 const entries: { state: any; url: string }[] = [{ state: null, url: "/" }];
 let index = 0;
 const back = vi.fn(() => {});
-(globalThis as any).location = { get href() { return entries[index].url; } };
+(globalThis as any).location = {
+  get href() {
+    return entries[index].url;
+  },
+};
 (globalThis as any).history = {
   get state() {
     return entries[index].state;
@@ -21,7 +25,8 @@ const back = vi.fn(() => {});
   back,
 };
 const { registerSheet } = await import("../src/client/sheetHistory");
-const settle = () => new Promise((resolve) => queueMicrotask(() => resolve(null)));
+const settle = () =>
+  new Promise((resolve) => queueMicrotask(() => resolve(null)));
 
 it("recovers when closing a sheet's history.back() never completes", async () => {
   vi.useFakeTimers();

@@ -1,4 +1,9 @@
-import { useSourceApi, useSourceCapabilities, useSourceId, useProjectionRoute } from "./SourceContext";
+import {
+  useSourceApi,
+  useSourceCapabilities,
+  useSourceId,
+  useProjectionRoute,
+} from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
@@ -17,7 +22,8 @@ export function Tools({
   onClose: () => void;
   initialView?: "catalog" | "permissions";
 }) {
-  const api = useSourceApi(), readRoute = useProjectionRoute();
+  const api = useSourceApi(),
+    readRoute = useProjectionRoute();
   const capabilities = useSourceCapabilities();
   const sourceId = useSourceId();
   const [connections, setConnections] = useState<any[]>([]),
@@ -36,7 +42,9 @@ export function Tools({
   );
   const [agentMode, setAgentMode] = useState<PermissionMode | null>(null);
   const [configJson, setConfigJson] = useState(""),
-    [hosts, setHosts] = useState<RouteResponse<typeof workspaceApi.runtimeHostList>>([]),
+    [hosts, setHosts] = useState<
+      RouteResponse<typeof workspaceApi.runtimeHostList>
+    >([]),
     [host, setHost] = useState("");
   const [sharingSources, setSharingSources] = useState<
     { id: string; name: string; shared: boolean }[]
@@ -331,13 +339,12 @@ export function Tools({
             <p className="field-hint">
               Allow connected tools also gives managed coding agents your
               connected GitHub token in their shell environment, with its full
-              permissions. Shell commands can read and transmit that token,
-              and can call GitHub with it directly, including merging a pull
+              permissions. Shell commands can read and transmit that token, and
+              can call GitHub with it directly, including merging a pull
               request, without passing through the approval above; output
               redaction does not prevent this. Enable it only for agents and
               content you trust. Agents using the same subscription account
-              share a filesystem and can read or modify each other’s
-              workspaces.
+              share a filesystem and can read or modify each other’s workspaces.
             </p>
           </details>
           <details className="settings-details">

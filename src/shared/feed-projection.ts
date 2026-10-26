@@ -6,11 +6,20 @@ export type FeedIdentity = {
   reply_card_key?: string;
 };
 export const feedProjectionId = (row: FeedIdentity) =>
-  JSON.stringify([row.conversation_id, row.reply_card_key ?? row.done_card_key ?? null]);
+  JSON.stringify([
+    row.conversation_id,
+    row.reply_card_key ?? row.done_card_key ?? null,
+  ]);
 export const FeedEntities = z.object({
   selection: z.string(),
   delta: z.boolean(),
-  entities: z.array(z.object({ id: z.string(), signature: z.string(), revision: z.number().int().nonnegative().safe() })),
+  entities: z.array(
+    z.object({
+      id: z.string(),
+      signature: z.string(),
+      revision: z.number().int().nonnegative().safe(),
+    }),
+  ),
   removed: z.array(z.string()),
 });
 export type FeedEntities = z.infer<typeof FeedEntities>;

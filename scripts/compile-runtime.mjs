@@ -26,19 +26,25 @@ export async function compileRuntime(root, output) {
     target: "node22",
     bundle: true,
     packages: "external",
-    plugins: [{
-      name: "runtime-module-paths",
-      setup(builder) {
-        builder.onResolve({ filter: /^\.\.?\// }, ({ path }) => ({
-          path: path.replace(/\.ts$/, ".mjs"),
-          external: true,
-        }));
+    plugins: [
+      {
+        name: "runtime-module-paths",
+        setup(builder) {
+          builder.onResolve({ filter: /^\.\.?\// }, ({ path }) => ({
+            path: path.replace(/\.ts$/, ".mjs"),
+            external: true,
+          }));
+        },
       },
-    }],
+    ],
   });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  if (!process.argv[2]) throw new Error("Usage: compile-runtime.mjs <output-directory>");
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  if (!process.argv[2])
+    throw new Error("Usage: compile-runtime.mjs <output-directory>");
   await compileRuntime(process.cwd(), process.argv[2]);
 }

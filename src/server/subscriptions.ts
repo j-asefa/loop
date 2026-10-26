@@ -1,8 +1,13 @@
 import { SubscriptionCodeInput } from "../shared/companion-contract-schemas.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { projectResponse, registrar } from "./registrar.js";
-import { ConnectionMetadata, ConnectionModels, requireSealedSecret, type Connection, type ConnectionControl } from "./row-schemas.js";
-
+import {
+  ConnectionMetadata,
+  ConnectionModels,
+  requireSealedSecret,
+  type Connection,
+  type ConnectionControl,
+} from "./row-schemas.js";
 
 import { writeConnectionStatus } from "./connection-status.js";
 import {
@@ -122,7 +127,11 @@ export async function runtimeAction(
       throw new Problem(409, "Native harnesses require the companion profile.");
     if (action === "logout" || action === "cancel") return { ok: true };
     if (action === "status")
-      return executionRequest("runtime.refresh", { connectionId: c.id }, { owner: c.owner_id });
+      return executionRequest(
+        "runtime.refresh",
+        { connectionId: c.id },
+        { owner: c.owner_id },
+      );
     throw new Problem(
       409,
       "Sign in with the native harness on this computer, then run loop " +
@@ -370,14 +379,26 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
   try {
     yield* isSubscription(c)
       ? subscriptionStream(c, input)
-      : adapter(c.provider).stream(unseal(requireSealedSecret(c), c.owner_id), input);
+      : adapter(c.provider).stream(
+          unseal(requireSealedSecret(c), c.owner_id),
+          input,
+        );
   } catch (error) {
     // Only failures from the provider stream can invalidate its credentials.
     // MCP ownership and approvals are checked outside this boundary.
-    if (error && typeof error === "object" && "status" in error && (error.status === 401 || error.status === 403))
-      writeConnectionStatus(c.id, () => db.prepare(
-        "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
-      ).run(c.id, c.owner_id));
+    if (
+      error &&
+      typeof error === "object" &&
+      "status" in error &&
+      (error.status === 401 || error.status === 403)
+    )
+      writeConnectionStatus(c.id, () =>
+        db
+          .prepare(
+            "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
+          )
+          .run(c.id, c.owner_id),
+      );
     if (error instanceof HarnessError) throw new Problem(422, error.message);
     if (error instanceof Problem || input.signal.aborted) throw error;
     const message = isSubscription(c)
@@ -409,24 +430,30 @@ routes.on(workspaceApi.subscriptionCreate, (req, res) => {
           "Use an existing subscription connection; this workspace already has eight.",
         );
       const key = id();
-      writeConnectionStatus(key, () => db.prepare(
-        "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES(?,?,?,?,'','needs_sign_in',?,?)",
-      ).run(
-        key,
-        owner,
-        d.provider === "codex" ? "codex" : "anthropic",
-        d.label,
-        JSON.stringify(ConnectionMetadata.parse({
-          authMode: "subscription",
-          runtime: d.provider,
-          runtimeHostId: d.runtimeHostId,
-          runtimeKind: endpoint.kind,
-          billing: "Subscription allowance",
-          scope:
-            "Official runtime sign-in; no API fallback. Past chats are imported separately.",
-        })),
-        now(),
-      ));
+      writeConnectionStatus(key, () =>
+        db
+          .prepare(
+            "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES(?,?,?,?,'','needs_sign_in',?,?)",
+          )
+          .run(
+            key,
+            owner,
+            d.provider === "codex" ? "codex" : "anthropic",
+            d.label,
+            JSON.stringify(
+              ConnectionMetadata.parse({
+                authMode: "subscription",
+                runtime: d.provider,
+                runtimeHostId: d.runtimeHostId,
+                runtimeKind: endpoint.kind,
+                billing: "Subscription allowance",
+                scope:
+                  "Official runtime sign-in; no API fallback. Past chats are imported separately.",
+              }),
+            ),
+            now(),
+          ),
+      );
       return ownedConnection(key, owner);
     })
     .immediate();
@@ -447,27 +474,38 @@ routes.on(workspaceApi.subscriptionAction, async (req, res) => {
     return;
   }
   if (action === "login")
-    writeConnectionStatus(c.id, () => db.prepare("UPDATE connections SET status='signing_in' WHERE id=?").run(
-      c.id,
-    ));
+    writeConnectionStatus(c.id, () =>
+      db
+        .prepare("UPDATE connections SET status='signing_in' WHERE id=?")
+        .run(c.id),
+    );
   let result;
   try {
-    result = projectResponse(workspaceApi.subscriptionAction, await runtimeAction(c, action));
+    result = projectResponse(
+      workspaceApi.subscriptionAction,
+      await runtimeAction(c, action),
+    );
   } catch (error) {
     if (action === "login")
-      writeConnectionStatus(c.id, () => db.prepare(
-        "UPDATE connections SET status='needs_sign_in' WHERE id=? AND status='signing_in'",
-      ).run(c.id));
+      writeConnectionStatus(c.id, () =>
+        db
+          .prepare(
+            "UPDATE connections SET status='needs_sign_in' WHERE id=? AND status='signing_in'",
+          )
+          .run(c.id),
+      );
     throw error;
   }
-  if (
-    ownedConnection(c.id, c.owner_id).status === "disconnected"
-  ) {
+  if (ownedConnection(c.id, c.owner_id).status === "disconnected") {
     res.json({ authenticated: false });
     return;
   }
   // Only expose the native runtime's auth result. A login URL is never proof of connection.
-  if ("authenticated" in result && result.authenticated === true && result.authMode === "subscription") {
+  if (
+    "authenticated" in result &&
+    result.authenticated === true &&
+    result.authMode === "subscription"
+  ) {
     const models = z
       .array(
         z.object({
@@ -489,26 +527,38 @@ routes.on(workspaceApi.subscriptionAction, async (req, res) => {
       )
       .max(300)
       .parse(result.models);
-    writeConnectionStatus(c.id, () => db.prepare(
-      "UPDATE connections SET models=?,status='connected',metadata=? WHERE id=? AND status<>'disconnected'",
-    ).run(
-      JSON.stringify(ConnectionModels.parse(models)),
-      JSON.stringify({
-        ...c.metadata,
-        // Preserve validated historical fields in place; only this status
-        // patch is new data and must pass the strict write schema.
-        ...ConnectionMetadata.parse({ plan: result.plan, limits: result.limits, checkedAt: now() }),
-      }),
-      c.id,
-    ));
+    writeConnectionStatus(c.id, () =>
+      db
+        .prepare(
+          "UPDATE connections SET models=?,status='connected',metadata=? WHERE id=? AND status<>'disconnected'",
+        )
+        .run(
+          JSON.stringify(ConnectionModels.parse(models)),
+          JSON.stringify({
+            ...c.metadata,
+            // Preserve validated historical fields in place; only this status
+            // patch is new data and must pass the strict write schema.
+            ...ConnectionMetadata.parse({
+              plan: result.plan,
+              limits: result.limits,
+              checkedAt: now(),
+            }),
+          }),
+          c.id,
+        ),
+    );
   } else if (
     ("authenticated" in result && result.authenticated === false) ||
-    ("state" in result && result.state && ["failed", "cancelled"].includes(result.state)) ||
+    ("state" in result &&
+      result.state &&
+      ["failed", "cancelled"].includes(result.state)) ||
     action === "cancel"
   ) {
-    writeConnectionStatus(c.id, () => db.prepare("UPDATE connections SET status='needs_sign_in' WHERE id=?").run(
-      c.id,
-    ));
+    writeConnectionStatus(c.id, () =>
+      db
+        .prepare("UPDATE connections SET status='needs_sign_in' WHERE id=?")
+        .run(c.id),
+    );
   }
   res.json(result);
 });

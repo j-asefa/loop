@@ -59,7 +59,9 @@ it.each(["server", "companion"] as const)(
       expect(await read()).toBe(false);
       const invalid = await refresh("invalid-refresh-arguments");
       expect(invalid.status).toBe(409);
-      expect(await invalid.json()).toMatchObject({ error: expect.stringContaining("result-000") });
+      expect(await invalid.json()).toMatchObject({
+        error: expect.stringContaining("result-000"),
+      });
       // A source descriptor never grants access to the tool connection.
       metadata(source);
       db.prepare(

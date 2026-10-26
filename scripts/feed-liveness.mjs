@@ -28,7 +28,7 @@ withFeedFetch(async (url, init) => {
 const queue = [...feedCatalog];
 const results = [];
 async function worker() {
-  for (let feed; (feed = queue.shift()); ) {
+  for (let feed; (feed = queue.shift());) {
     const started = Date.now();
     try {
       const answer = await download(feed);

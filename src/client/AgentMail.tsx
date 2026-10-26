@@ -69,7 +69,8 @@ function MailThreadsView({
     const controller = new AbortController();
     requests.current.add(controller);
     try {
-      if (body === undefined) return await readInWorkspace<T>(url, sourceId, controller.signal);
+      if (body === undefined)
+        return await readInWorkspace<T>(url, sourceId, controller.signal);
       return await apiInWorkspace<T>(
         url,
         sourceId,
@@ -99,7 +100,11 @@ function MailThreadsView({
   };
   useEffect(() => {
     active.current = true;
-    const stopChanges = listenWorkspaceChanges("mail", () => void load(), sourceId);
+    const stopChanges = listenWorkspaceChanges(
+      "mail",
+      () => void load(),
+      sourceId,
+    );
     void load();
     return () => {
       stopChanges();

@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 import { AgentCreateInput } from "../shared/agent-contract-schemas.js";
 import { db, id, now } from "./db.js";
-import { ownedFolder, ownedAgent, ownedRun, createAgent, Problem } from "./domain.js";
+import {
+  ownedFolder,
+  ownedAgent,
+  ownedRun,
+  createAgent,
+  Problem,
+} from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import type { CreatedAgent } from "../shared/types.js";
 

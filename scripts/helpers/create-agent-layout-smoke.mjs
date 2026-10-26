@@ -38,7 +38,9 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
       await body.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
       "The provider choices must not widen or horizontally pan the form",
     );
-    await sheet.getByLabel("Provider", { exact: true }).selectOption("anthropic");
+    await sheet
+      .getByLabel("Provider", { exact: true })
+      .selectOption("anthropic");
     await expect(
       sheet.getByRole("button", {
         name: "Connect on This laptop",

@@ -39,9 +39,11 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       409,
       `@${agent.name} is retired and can't receive messages.`,
     );
-  const connection = maybeConnection(db
-    .prepare("SELECT * FROM connections WHERE id=? AND owner_id=?")
-    .get(agent.connection_id ?? null, owner));
+  const connection = maybeConnection(
+    db
+      .prepare("SELECT * FROM connections WHERE id=? AND owner_id=?")
+      .get(agent.connection_id ?? null, owner),
+  );
   if (!connection)
     throw new MailRefusal(
       409,
@@ -56,7 +58,16 @@ export function eligibleMailAgent(owner: string, agentId: string) {
   if (
     meta.loopHarness != null &&
     (!companionMode ||
-      !["codex", "claude", "pi", "opencode", "gemini", "muse", "grok", "acp"].includes(meta.loopHarness))
+      ![
+        "codex",
+        "claude",
+        "pi",
+        "opencode",
+        "gemini",
+        "muse",
+        "grok",
+        "acp",
+      ].includes(meta.loopHarness))
   )
     throw new MailRefusal(
       409,

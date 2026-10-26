@@ -18,7 +18,14 @@ test("an upgrade cannot repoint another workspace's application or connection se
     await mkdir(bin);
     for (const name of ["systemctl", "launchctl"])
       await writeFile(join(bin, name), "#!/bin/sh\nexit 91\n", { mode: 0o755 });
-    const units = serviceDefinitions(process.platform, process.execPath, "/production/dist/cli.js", join(home, "production"), home, process.env.PATH!);
+    const units = serviceDefinitions(
+      process.platform,
+      process.execPath,
+      "/production/dist/cli.js",
+      join(home, "production"),
+      home,
+      process.env.PATH!,
+    );
     const saved = [];
     for (const unit of [units.app, units.connection]) {
       if (!unit) continue;
@@ -27,11 +34,22 @@ test("an upgrade cannot repoint another workspace's application or connection se
       saved.push({ path, contents: unit.contents });
     }
     const module = pathToFileURL(resolve("src/service.ts")).href;
-    const { stdout } = await promisify(execFile)(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
-      `import { repointAppService } from ${JSON.stringify(module)}; console.log(await repointAppService('/fixture/dist/cli.js', ${JSON.stringify(join(home, "fixture"))}));`,
-    ], { env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` } });
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `import { repointAppService } from ${JSON.stringify(module)}; console.log(await repointAppService('/fixture/dist/cli.js', ${JSON.stringify(join(home, "fixture"))}));`,
+      ],
+      {
+        env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` },
+      },
+    );
     assert.equal(stdout.trim(), "absent");
-    for (const unit of saved) assert.equal(await readFile(unit.path, "utf8"), unit.contents);
+    for (const unit of saved)
+      assert.equal(await readFile(unit.path, "utf8"), unit.contents);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

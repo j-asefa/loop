@@ -3,7 +3,12 @@ import { workspaceApi } from "../shared/workspace-api";
 import type { ResultCard } from "../shared/cards";
 import type { CardArtifact } from "./card-actions";
 import { CardBody } from "./ContentCard";
-import { useSourceApi, useSourcePath, useSourceRoute, useSourceId } from "./SourceContext";
+import {
+  useSourceApi,
+  useSourcePath,
+  useSourceRoute,
+  useSourceId,
+} from "./SourceContext";
 import { viewOwner } from "./viewCache";
 import { SourceCard } from "./Sharing";
 import { Chart } from "./Chart";
@@ -185,7 +190,10 @@ export function ArtifactViewer({
   async function save() {
     if (!current()) return;
     try {
-      await call(workspaceApi.artifactUpdate, { params: { id: item.id }, body: { content: text, version: item.version } });
+      await call(workspaceApi.artifactUpdate, {
+        params: { id: item.id },
+        body: { content: text, version: item.version },
+      });
       if (!current()) return;
       onChanged();
       onClose();
@@ -229,7 +237,8 @@ export function ArtifactViewer({
                   onClick={async () => {
                     try {
                       await call(workspaceApi.resultUpdate, {
-                        params: { id: item.id }, body: { hidden: false },
+                        params: { id: item.id },
+                        body: { hidden: false },
                       });
                       if (!current()) return;
                       onChanged();
@@ -276,8 +285,19 @@ export function ArtifactViewer({
                 meta.rawObjectId) && (
                 <FileLink
                   className="text-button"
-                  url={card?.display.download ? sourceApiPath(card.display.download)
-                    : routeUrl(workspaceApi.objectFile, { params: { id: String(meta.objectId || meta.rawObjectId) } }, sourceId)}
+                  url={
+                    card?.display.download
+                      ? sourceApiPath(card.display.download)
+                      : routeUrl(
+                          workspaceApi.objectFile,
+                          {
+                            params: {
+                              id: String(meta.objectId || meta.rawObjectId),
+                            },
+                          },
+                          sourceId,
+                        )
+                  }
                   name={meta.name || item.title}
                   mime={meta.mime}
                 >

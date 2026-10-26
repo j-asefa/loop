@@ -4,7 +4,13 @@ import QRCode from "qrcode-terminal/vendor/QRCode/index.js";
 import { Sheet } from "./components";
 
 /** Square SVG QR code. Medium error correction keeps phone scans reliable. */
-export function QrCode({ value, size = 216 }: { value: string; size?: number }) {
+export function QrCode({
+  value,
+  size = 216,
+}: {
+  value: string;
+  size?: number;
+}) {
   const path = useMemo(() => {
     const code = new QRCode(-1, 0);
     code.addData(value);
@@ -49,7 +55,11 @@ export function HandoffSheet({
   const url = new URL(path, location.origin).toString();
   const [notice, setNotice] = useState("");
   return (
-    <Sheet title="Open on another device" onClose={onClose} className="handoff-sheet">
+    <Sheet
+      title="Open on another device"
+      onClose={onClose}
+      className="handoff-sheet"
+    >
       <p className="note">
         Scan with your other device’s camera to continue “{title}” there. It
         opens only on devices already paired with or signed in to this

@@ -6,10 +6,19 @@ import { registrar } from "../src/server/registrar";
 import { errorHandler } from "../src/server/error-handler";
 import { Problem } from "../src/shared/problem";
 
-const routes = registrar("registrar-test", { strict: true, caseSensitive: true });
+const routes = registrar("registrar-test", {
+  strict: true,
+  caseSensitive: true,
+});
 const contract = {
-  method: "POST", access: "session", path: "/input", params: z.object({}), query: z.object({}),
-  status: 201, body: z.object({ label: z.string() }), response: z.object({ label: z.string() }),
+  method: "POST",
+  access: "session",
+  path: "/input",
+  params: z.object({}),
+  query: z.object({}),
+  status: 201,
+  body: z.object({ label: z.string() }),
+  response: z.object({ label: z.string() }),
 } as const;
 routes.on(contract, ({ body }, res) => {
   const projection = { ...body, privateColumn: "secret" };
@@ -30,21 +39,41 @@ await new Promise<void>((resolve, reject) => {
   server.once("listening", resolve);
   server.once("error", reject);
 });
-afterAll(() => new Promise<void>(resolve => server.close(() => resolve())));
+afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 async function post(path: string, body: unknown) {
-  const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}${path}`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-  });
+  const response = await fetch(
+    `http://127.0.0.1:${(server.address() as AddressInfo).port}${path}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
   return { status: response.status, body: await response.json() };
 }
 
 it("validates and projects through the registered HTTP handler", async () => {
-  expect(await post("/input", { label: "public" })).toEqual({ status: 201, body: { label: "public" } });
-  expect(await post("/input", { label: 42 })).toEqual({ status: 400, body: { error: expect.any(String) } });
-  expect(await post("/bad-output", { label: "public" })).toEqual({ status: 500, body: { error: "The workspace response is unavailable. Please try again." } });
-  expect(await post("/async-error", { label: "public" })).toEqual({ status: 409, body: { error: "Inspect first" } });
+  expect(await post("/input", { label: "public" })).toEqual({
+    status: 201,
+    body: { label: "public" },
+  });
+  expect(await post("/input", { label: 42 })).toEqual({
+    status: 400,
+    body: { error: expect.any(String) },
+  });
+  expect(await post("/bad-output", { label: "public" })).toEqual({
+    status: 500,
+    body: { error: "The workspace response is unavailable. Please try again." },
+  });
+  expect(await post("/async-error", { label: "public" })).toEqual({
+    status: 409,
+    body: { error: "Inspect first" },
+  });
   for (const path of ["/Input", "/input/"]) {
-    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}${path}`, { method: "POST" });
+    const response = await fetch(
+      `http://127.0.0.1:${(server.address() as AddressInfo).port}${path}`,
+      { method: "POST" },
+    );
     expect(response.status).toBe(404);
   }
 });
@@ -52,9 +81,15 @@ it("validates and projects through the registered HTTP handler", async () => {
 it("rejects duplicate legacy keys, including registrations in another registrar", () => {
   const workspace = registrar("memoryRoutes");
   workspace.legacy("POST /memory/notes", (_req, res) => res.json({ ok: true }));
-  expect(() => workspace.legacy("POST /memory/notes", () => {})).toThrow("already registered");
-  expect(() => registrar("memoryRoutes").legacy("POST /memory/notes", () => {})).toThrow("already registered");
-  expect(() => registrar("wrong-owner").legacy("GET /memory", () => {})).toThrow("does not belong");
+  expect(() => workspace.legacy("POST /memory/notes", () => {})).toThrow(
+    "already registered",
+  );
+  expect(() =>
+    registrar("memoryRoutes").legacy("POST /memory/notes", () => {}),
+  ).toThrow("already registered");
+  expect(() =>
+    registrar("wrong-owner").legacy("GET /memory", () => {}),
+  ).toThrow("does not belong");
 });
 
 // These assertions are checked by the repository typecheck, never executed.

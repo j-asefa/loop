@@ -77,7 +77,10 @@ export function HarnessPicker({
     const refresh = async () => {
       const own = ++request;
       try {
-        const result = await route(workspaceApi.agentHarness, { params: { id: agentId }, query: { conversation: conversationId || undefined } });
+        const result = await route(workspaceApi.agentHarness, {
+          params: { id: agentId },
+          query: { conversation: conversationId || undefined },
+        });
         if (current === generation.current && own === request) {
           setCatalog((old) =>
             old &&
@@ -99,7 +102,12 @@ export function HarnessPicker({
     void refresh();
     const timer = setInterval(() => void refresh(), 3000);
     const update = () => void refresh();
-    const stopChanges = listenWorkspaceChanges("activities", update, sourceId, conversationId);
+    const stopChanges = listenWorkspaceChanges(
+      "activities",
+      update,
+      sourceId,
+      conversationId,
+    );
     return () => {
       generation.current++;
       clearInterval(timer);
@@ -194,9 +202,7 @@ export function HarnessPicker({
                     {command.disabledReason ||
                       command.reason ||
                       command.description}
-                    {command.argumentHint && (
-                      <em> · {command.argumentHint}</em>
-                    )}
+                    {command.argumentHint && <em> · {command.argumentHint}</em>}
                   </span>
                 </button>
               ))}
@@ -222,7 +228,9 @@ export function HarnessPicker({
                       onClick={() => {
                         const rest = value.replace(/^\s*\/\s*$/, "");
                         onChange(
-                          rest ? `${rest}\n${snippet.content}` : snippet.content,
+                          rest
+                            ? `${rest}\n${snippet.content}`
+                            : snippet.content,
                         );
                         close();
                       }}

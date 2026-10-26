@@ -130,26 +130,51 @@ async function launch(
 }
 const sessionPath = "/auth/get-session";
 
-it.each(["single-user", "multi-user"])("preserves app OPTIONS admission and later-router methods in %s mode", async mode => {
-  const server = await launch(directory(), { LOOP_AUTH_MODE: mode });
-  try {
-    for (const path of ["/capabilities", "/auth-options", "/health", "/build"]) {
-      const response = await server.request(path, undefined, {}, "OPTIONS");
-      expect(response.status, path).toBe(mode === "multi-user" ? 401 : 404);
-      expect(response.headers.get("allow"), path).toBeNull();
-      expect(await response.json()).toEqual({ error: mode === "multi-user" ? "Sign in to Loop" : "Endpoint not found" });
-      const bearer = await server.request(path, undefined, { authorization: "Bearer invalid-fixture", origin: "https://foreign.invalid" }, "OPTIONS");
-      expect(bearer.status, path).toBe(403);
-      expect(bearer.headers.get("access-control-allow-origin"), path).toBeNull();
+it.each(["single-user", "multi-user"])(
+  "preserves app OPTIONS admission and later-router methods in %s mode",
+  async (mode) => {
+    const server = await launch(directory(), { LOOP_AUTH_MODE: mode });
+    try {
+      for (const path of [
+        "/capabilities",
+        "/auth-options",
+        "/health",
+        "/build",
+      ]) {
+        const response = await server.request(path, undefined, {}, "OPTIONS");
+        expect(response.status, path).toBe(mode === "multi-user" ? 401 : 404);
+        expect(response.headers.get("allow"), path).toBeNull();
+        expect(await response.json()).toEqual({
+          error:
+            mode === "multi-user" ? "Sign in to Loop" : "Endpoint not found",
+        });
+        const bearer = await server.request(
+          path,
+          undefined,
+          {
+            authorization: "Bearer invalid-fixture",
+            origin: "https://foreign.invalid",
+          },
+          "OPTIONS",
+        );
+        expect(bearer.status, path).toBe(403);
+        expect(
+          bearer.headers.get("access-control-allow-origin"),
+          path,
+        ).toBeNull();
+      }
+      const runs = await server.request("/runs", undefined, {}, "OPTIONS");
+      expect(runs.status).toBe(mode === "multi-user" ? 401 : 200);
+      expect(runs.headers.get("allow")).toBe(
+        mode === "multi-user" ? null : "POST",
+      );
+      expect((await server.request("/capabilities")).status).toBe(200);
+    } finally {
+      await stop(server.child);
     }
-    const runs = await server.request("/runs", undefined, {}, "OPTIONS");
-    expect(runs.status).toBe(mode === "multi-user" ? 401 : 200);
-    expect(runs.headers.get("allow")).toBe(mode === "multi-user" ? null : "POST");
-    expect((await server.request("/capabilities")).status).toBe(200);
-  } finally {
-    await stop(server.child);
-  }
-}, 30000);
+  },
+  30000,
+);
 
 it("keeps running build observations behind the workspace authentication boundary", async () => {
   const personal = await launch(directory());
@@ -160,7 +185,8 @@ it("keeps running build observations behind the workspace authentication boundar
   expect(data.processes).toEqual([expect.objectContaining({ role: "api" })]);
   expect(JSON.stringify(data)).not.toMatch(/ancestors|secret|directory|token/i);
   expect(
-    (await personal.request("/build", undefined, { host: "rebinding.example" })).status,
+    (await personal.request("/build", undefined, { host: "rebinding.example" }))
+      .status,
   ).toBe(403);
   await stop(personal.child);
   const shared = await launch(directory(), { LOOP_AUTH_MODE: "multi-user" });
@@ -324,10 +350,16 @@ it("reuses an existing account's workspace, preserves multi-user isolation and r
     (await foreignHistory.json()).items.map((item: { id: string }) => item.id),
   ).toEqual(["foreign-prompt"]);
   const foreignFolders = (
-    await (await server.request("/bootstrap", undefined, { cookie: otherCookie })).json()
+    await (
+      await server.request("/bootstrap", undefined, { cookie: otherCookie })
+    ).json()
   ).folders;
   expect(foreignFolders).toHaveLength(1);
-  expect(foreignFolders[0]).toMatchObject({ name: "Workspace", is_workspace: 1, owner_id: otherOwner });
+  expect(foreignFolders[0]).toMatchObject({
+    name: "Workspace",
+    is_workspace: 1,
+    owner_id: otherOwner,
+  });
   expect(foreignFolders[0].id).not.toBe(folder.id);
   expect(
     (

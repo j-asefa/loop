@@ -16,7 +16,11 @@ it("finds agent profiles by partial name or @handle without requiring searchable
 });
 
 it("respects the search agent and project filters", () => {
-  expect(matchingAgents(agents, "orion", { folder: "one" })).toEqual([agents[0]]);
+  expect(matchingAgents(agents, "orion", { folder: "one" })).toEqual([
+    agents[0],
+  ]);
   expect(matchingAgents(agents, "orion", { agent: "b" })).toEqual([agents[1]]);
-  expect(matchingAgents(agents, "orion", { agent: "b", folder: "one" })).toEqual([]);
+  expect(
+    matchingAgents(agents, "orion", { agent: "b", folder: "one" }),
+  ).toEqual([]);
 });

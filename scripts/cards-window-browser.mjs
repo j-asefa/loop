@@ -128,7 +128,12 @@ try {
   {
     const context = await browser.newContext(),
       page = await context.newPage();
-    let releaseOld, releaseNew, startedOld, startedNew, deliveredOld, oldRequest;
+    let releaseOld,
+      releaseNew,
+      startedOld,
+      startedNew,
+      deliveredOld,
+      oldRequest;
     const oldHeld = new Promise((resolve) => {
       releaseOld = resolve;
     });

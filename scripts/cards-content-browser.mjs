@@ -99,7 +99,15 @@ try {
             const body = await response.json();
             for (const { card } of body.items || [{ card: body }]) {
               if (card.type === "result")
-                for (const key of ["size", "text", "download", "source", "refreshable", "app", "workflow_id"])
+                for (const key of [
+                  "size",
+                  "text",
+                  "download",
+                  "source",
+                  "refreshable",
+                  "app",
+                  "workflow_id",
+                ])
                   delete card.display[key];
             }
             await route.fulfill({ response, json: body });
@@ -317,7 +325,9 @@ try {
               .getByRole("tab", { name: "Results", exact: true })
               .click();
             await expect(cards).toHaveCount(46);
-            await expect(page.locator('[data-card-id="a:result-000"]')).toContainText("Old loaded result updated " + mode + width);
+            await expect(
+              page.locator('[data-card-id="a:result-000"]'),
+            ).toContainText("Old loaded result updated " + mode + width);
             await page
               .getByRole("tab", { name: "Files", exact: true })
               .first()
@@ -418,7 +428,9 @@ try {
             .getByRole("button", { name: "Remove from Saved", exact: true })
             .click();
           await expect(savedMessage).toHaveCount(0);
-          await page.getByRole("searchbox", { name: "Search Saved" }).fill("Personal prompt 045");
+          await page
+            .getByRole("searchbox", { name: "Search Saved" })
+            .fill("Personal prompt 045");
           await expect(cards).toHaveCount(0);
           await page.waitForTimeout(350);
           await expect(savedMessage).toHaveCount(0);

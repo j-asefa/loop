@@ -10,13 +10,17 @@ function fixture() {
     stderr: new PassThrough(),
   });
   const requests: { id: string }[] = [];
-  child.stdin.on("data", (chunk) => requests.push(JSON.parse(chunk.toString())));
+  child.stdin.on("data", (chunk) =>
+    requests.push(JSON.parse(chunk.toString())),
+  );
   const stop = vi.fn();
   const retired = vi.fn();
   const worker = new SharedCodex(child, stop, retired);
   const run = () => worker.run({ action: "turn", input: {} }, vi.fn());
   const send = (index: number, event: object) =>
-    child.stdout.write(JSON.stringify({ id: requests[index].id, event }) + "\n");
+    child.stdout.write(
+      JSON.stringify({ id: requests[index].id, event }) + "\n",
+    );
   return { child, worker, run, send, stop, retired };
 }
 

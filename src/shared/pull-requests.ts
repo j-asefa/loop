@@ -14,7 +14,8 @@ export const PULL_FILTERS: { id: PullFilter; label: string }[] = [
 
 /** The combined result of a pull request's checks on its head commit. */
 export type ChecksState = "success" | "failure" | "pending";
-export type ReviewDecision = "approved" | "changes_requested" | "review_required";
+export type ReviewDecision =
+  "approved" | "changes_requested" | "review_required";
 
 export type PullListItem = PullRequestRef & {
   title: string;
@@ -159,7 +160,10 @@ const MEDIA_TYPES: Record<string, string> = {
   mov: "video/quicktime",
 };
 const extension = (path: string) =>
-  path.slice(path.lastIndexOf("/") + 1).match(/\.([^.]+)$/)?.[1]?.toLowerCase() ?? "";
+  path
+    .slice(path.lastIndexOf("/") + 1)
+    .match(/\.([^.]+)$/)?.[1]
+    ?.toLowerCase() ?? "";
 
 /** The image or video type for a file name, or undefined for other files. */
 export const repoMediaType = (path: string): string | undefined =>
@@ -196,7 +200,10 @@ export function resolveRepoPath(
     return undefined;
   const hashAt = value.indexOf("#");
   const hash = hashAt < 0 ? undefined : value.slice(hashAt + 1) || undefined;
-  const target = (hashAt < 0 ? value : value.slice(0, hashAt)).replace(/\?.*$/, "");
+  const target = (hashAt < 0 ? value : value.slice(0, hashAt)).replace(
+    /\?.*$/,
+    "",
+  );
   if (!target) return { path: from, hash };
   let decoded: string;
   try {

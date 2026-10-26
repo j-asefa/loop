@@ -10,13 +10,12 @@ process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 
 const { db, id, now } = await import("../src/server/db");
 const { ownedRun } = await import("../src/server/domain");
-const {
-  observeCompletedOutput,
-  runVerifications,
-  verificationSummary,
-} = await import("../src/server/run-verifications");
-const { classifyVerification, verificationLine } = await import("../src/shared/verification");
-const { shellWords, createdPullRequest } = await import("../src/shared/pr-command");
+const { observeCompletedOutput, runVerifications, verificationSummary } =
+  await import("../src/server/run-verifications");
+const { classifyVerification, verificationLine } =
+  await import("../src/shared/verification");
+const { shellWords, createdPullRequest } =
+  await import("../src/shared/pr-command");
 import type { Run } from "../src/server/queue";
 import type { OutputData } from "../src/agent-activities";
 
@@ -32,8 +31,13 @@ const otherFolder = id();
 db.prepare(
   "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,'Fixture','fixture','codex','fixture',0)",
 ).run(agent, owner);
-for (const [f, name] of [[folder, "Repo"], [otherFolder, "Other"]])
-  db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project',?,0)").run(f, owner, name);
+for (const [f, name] of [
+  [folder, "Repo"],
+  [otherFolder, "Other"],
+])
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project',?,0)",
+  ).run(f, owner, name);
 
 function runFixture(conversation: string): Run {
   db.prepare(
@@ -45,7 +49,11 @@ function runFixture(conversation: string): Run {
   ).run(runId, owner, agent, conversation, runId, now(), now());
   return ownedRun(runId, owner);
 }
-function output(command: string, overrides: Partial<OutputData> = {}, text = "ok\n"): OutputData {
+function output(
+  command: string,
+  overrides: Partial<OutputData> = {},
+  text = "ok\n",
+): OutputData {
   return {
     command,
     chunks: [{ stream: "combined", text, index: 0 }],
@@ -60,10 +68,13 @@ function output(command: string, overrides: Partial<OutputData> = {}, text = "ok
 }
 
 it("recognises test, type-check and lint commands, and nothing else", () => {
-  const tools = (command: string) => classifyVerification(command).map((c) => `${c.kind}:${c.tool}`);
+  const tools = (command: string) =>
+    classifyVerification(command).map((c) => `${c.kind}:${c.tool}`);
   expect(tools("npm test")).toEqual(["test:npm test"]);
   expect(tools("npm run typecheck")).toEqual(["typecheck:npm run typecheck"]);
-  expect(tools("npm run test:unit -- --maxWorkers=1")).toEqual(["test:npm run test:unit"]);
+  expect(tools("npm run test:unit -- --maxWorkers=1")).toEqual([
+    "test:npm run test:unit",
+  ]);
   expect(tools("pnpm lint")).toEqual([]);
   expect(tools("pnpm run lint")).toEqual(["lint:pnpm run lint"]);
   expect(tools("yarn test")).toEqual(["test:yarn test"]);
@@ -73,7 +84,9 @@ it("recognises test, type-check and lint commands, and nothing else", () => {
     "typecheck:npm run typecheck",
     "test:npm test",
   ]);
-  expect(tools('bash -c "pytest -q tests/test_api.py"')).toEqual(["test:pytest"]);
+  expect(tools('bash -c "pytest -q tests/test_api.py"')).toEqual([
+    "test:pytest",
+  ]);
   expect(tools("python -m pytest")).toEqual(["test:pytest"]);
   expect(tools("python3 -m mypy src")).toEqual(["typecheck:mypy"]);
   expect(tools("go test ./...")).toEqual(["test:go test"]);
@@ -130,38 +143,95 @@ it("recognises test, type-check and lint commands, and nothing else", () => {
 });
 
 it("keeps pull request detection as lenient as before", () => {
-  expect(shellWords("cd repo &&\ngh pr create")).toEqual(["cd", "repo", null, "gh", "pr", "create"]);
-  expect(shellWords("cd repo &&\ngh pr create", { strict: true })).toBeUndefined();
-  expect(createdPullRequest("bash -uc 'gh pr create'", "https://github.com/o/r/pull/7")).toMatchObject({ number: 7 });
+  expect(shellWords("cd repo &&\ngh pr create")).toEqual([
+    "cd",
+    "repo",
+    null,
+    "gh",
+    "pr",
+    "create",
+  ]);
+  expect(
+    shellWords("cd repo &&\ngh pr create", { strict: true }),
+  ).toBeUndefined();
+  expect(
+    createdPullRequest(
+      "bash -uc 'gh pr create'",
+      "https://github.com/o/r/pull/7",
+    ),
+  ).toMatchObject({ number: 7 });
 });
 
 it("keeps one observation per invocation when a later update brings the exit", () => {
   const run = runFixture("thread-dedupe");
-  observeCompletedOutput(run, output("npm test", { status: "unknown", exitCode: undefined }, "running…"), () => true, null, "rec-1");
-  observeCompletedOutput(run, output("npm test", {}, "12 passed\n"), () => true, null, "rec-1");
-  observeCompletedOutput(run, output("npm test", {}, "12 passed\n"), () => true, null, "rec-2");
+  observeCompletedOutput(
+    run,
+    output("npm test", { status: "unknown", exitCode: undefined }, "running…"),
+    () => true,
+    null,
+    "rec-1",
+  );
+  observeCompletedOutput(
+    run,
+    output("npm test", {}, "12 passed\n"),
+    () => true,
+    null,
+    "rec-1",
+  );
+  observeCompletedOutput(
+    run,
+    output("npm test", {}, "12 passed\n"),
+    () => true,
+    null,
+    "rec-2",
+  );
   const items = runVerifications(owner, run.id);
   expect(items.map((i) => i.status)).toEqual(["passed", "passed"]);
   expect(items[0].output_tail).toBe("12 passed\n");
-  expect(verificationSummary(owner, run.id)).toMatchObject({ passed: 2, unknown: 0 });
+  expect(verificationSummary(owner, run.id)).toMatchObject({
+    passed: 2,
+    unknown: 0,
+  });
 });
 
 it("records the exit Loop saw, including failures, unknown exits and cut output", () => {
   const run = runFixture("thread-exits");
   observeCompletedOutput(run, output("npm test", {}, "12 passed\n"));
-  observeCompletedOutput(run, output("npx tsc --noEmit", { exitCode: 2 }, "src/a.ts(3,1): error TS2322\n"));
-  observeCompletedOutput(run, output("eslint src", { status: "failed", exitCode: undefined }, ""));
-  observeCompletedOutput(run, output("pytest", { unavailable: "terminal output not retained" }, ""));
   observeCompletedOutput(
     run,
-    output("go test ./...", { truncated: { droppedBytes: 5000, droppedChunks: 2, floor: 0 } }, "x".repeat(4000)),
+    output(
+      "npx tsc --noEmit",
+      { exitCode: 2 },
+      "src/a.ts(3,1): error TS2322\n",
+    ),
+  );
+  observeCompletedOutput(
+    run,
+    output("eslint src", { status: "failed", exitCode: undefined }, ""),
+  );
+  observeCompletedOutput(
+    run,
+    output("pytest", { unavailable: "terminal output not retained" }, ""),
+  );
+  observeCompletedOutput(
+    run,
+    output(
+      "go test ./...",
+      { truncated: { droppedBytes: 5000, droppedChunks: 2, floor: 0 } },
+      "x".repeat(4000),
+    ),
   );
   // Not verification, still running, or from a stale session: never recorded.
   observeCompletedOutput(run, output("npm install"));
-  observeCompletedOutput(run, output("vitest", { status: "running", exitCode: undefined }));
+  observeCompletedOutput(
+    run,
+    output("vitest", { status: "running", exitCode: undefined }),
+  );
   observeCompletedOutput(run, output("vitest"), () => false);
   const items = runVerifications(owner, run.id);
-  expect(items.map((i) => [i.tools.join(","), i.status, i.exit_code, i.truncated])).toEqual([
+  expect(
+    items.map((i) => [i.tools.join(","), i.status, i.exit_code, i.truncated]),
+  ).toEqual([
     ["npm test", "passed", 0, false],
     ["tsc", "failed", 2, false],
     ["eslint", "unknown", null, false],
@@ -173,7 +243,9 @@ it("records the exit Loop saw, including failures, unknown exits and cut output"
   expect(items[4].output_tail!.length).toBe(1500);
   const summary = verificationSummary(owner, run.id)!;
   expect(summary).toMatchObject({ passed: 3, failed: 1, unknown: 1 });
-  expect(verificationLine(summary)).toBe("Ran npm test ✓ · tsc ✗ · eslint ? · pytest ✓ · 1 more");
+  expect(verificationLine(summary)).toBe(
+    "Ran npm test ✓ · tsc ✗ · eslint ? · pytest ✓ · 1 more",
+  );
   expect(verificationLine(null)).toBe("No checks observed");
 });
 
@@ -182,10 +254,19 @@ it("gives a chain one exit shared by its tools, and only trusts a zero exit", ()
   observeCompletedOutput(run, output("npm run typecheck && npm test"));
   // A nonzero exit from a chain says nothing about which step failed, or
   // whether the checks ran at all.
-  observeCompletedOutput(run, output("npm run typecheck && npm test", { exitCode: 1 }));
-  observeCompletedOutput(run, output("cd missing-directory && npm test", { exitCode: 1 }));
+  observeCompletedOutput(
+    run,
+    output("npm run typecheck && npm test", { exitCode: 1 }),
+  );
+  observeCompletedOutput(
+    run,
+    output("cd missing-directory && npm test", { exitCode: 1 }),
+  );
   // A reported nonzero exit is a failure whatever status word accompanies it.
-  observeCompletedOutput(run, output("npm test", { status: "failed", exitCode: 1 }));
+  observeCompletedOutput(
+    run,
+    output("npm test", { status: "failed", exitCode: 1 }),
+  );
   const items = runVerifications(owner, run.id);
   expect(items.map((i) => [i.tools, i.status, i.exit_code])).toEqual([
     [["npm run typecheck", "npm test"], "passed", 0],

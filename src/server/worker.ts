@@ -37,7 +37,10 @@ import { sweepAgentMail } from "./agent-mail.js";
 import { reconcileCheckouts } from "./run-checkouts.js";
 import { observeProcess } from "./deployments.js";
 import { heartbeatWrite } from "./heartbeat-write.js";
-import { assertExecutionGeneration, executionGeneration } from "./execution-ownership.js";
+import {
+  assertExecutionGeneration,
+  executionGeneration,
+} from "./execution-ownership.js";
 const workerId = executionGeneration() ?? id();
 export async function tick(
   execute: (run: Run) => Promise<void | boolean> = async (run) => {
@@ -65,14 +68,27 @@ export async function tick(
       .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
       .get(p.connectionId || "", candidate.owner_id) as
       { metadata: string } | undefined;
-    return !c || !harnessUpgrades.busy(readJson(ConnectionMetadata.passthrough(), c.metadata, "connections", p.connectionId || "", "metadata").loopHarness || "");
+    return (
+      !c ||
+      !harnessUpgrades.busy(
+        readJson(
+          ConnectionMetadata.passthrough(),
+          c.metadata,
+          "connections",
+          p.connectionId || "",
+          "metadata",
+        ).loopHarness || "",
+      )
+    );
   });
   if (!run) return false;
   const heartbeat = setInterval(
-    () => heartbeatWrite("run", () =>
-      db
-        .prepare("UPDATE runs SET heartbeat=? WHERE id=? AND worker_id=?")
-        .run(now(), run.id, workerId)),
+    () =>
+      heartbeatWrite("run", () =>
+        db
+          .prepare("UPDATE runs SET heartbeat=? WHERE id=? AND worker_id=?")
+          .run(now(), run.id, workerId),
+      ),
     10000,
   );
   try {
@@ -155,10 +171,12 @@ export function startWorker() {
   let active = 0;
   let stopping = false;
   const inflight = new Set<Promise<unknown>>();
-  const heartbeat = () => heartbeatWrite("worker", () =>
-    db
-      .prepare("INSERT OR REPLACE INTO worker_health VALUES(?,?)")
-      .run(workerId, now()));
+  const heartbeat = () =>
+    heartbeatWrite("worker", () =>
+      db
+        .prepare("INSERT OR REPLACE INTO worker_health VALUES(?,?)")
+        .run(workerId, now()),
+    );
   heartbeat();
   const maintenanceTimers: ReturnType<typeof setInterval>[] = [];
   let cleaning = false;
@@ -183,32 +201,41 @@ export function startWorker() {
   let maintenanceWake: ReturnType<typeof setImmediate> | undefined;
   let maintenanceDirty = false;
   const maintain = () => {
-      if (stopping) return;
-      if (notifying) { maintenanceDirty = true; return; }
-      notifying = true;
-      // Surface Later items and submit due scheduled messages before
-      // delivery, so their pushes go out in the same pass.
-      try {
-        surfaceLater();
-      } catch {}
-      try {
-        deliverScheduledSends();
-      } catch {}
-      // Results of background delegations, and team messages whose task
-      // ended before reading them.
-      try {
-        sweepAgentMail();
-      } catch {}
-      void deliverNotifications()
-        .catch(() => {})
-        .finally(() => {
-          notifying = false;
-          if (maintenanceDirty) { maintenanceDirty = false; wakeMaintenance(); }
-        });
+    if (stopping) return;
+    if (notifying) {
+      maintenanceDirty = true;
+      return;
+    }
+    notifying = true;
+    // Surface Later items and submit due scheduled messages before
+    // delivery, so their pushes go out in the same pass.
+    try {
+      surfaceLater();
+    } catch {}
+    try {
+      deliverScheduledSends();
+    } catch {}
+    // Results of background delegations, and team messages whose task
+    // ended before reading them.
+    try {
+      sweepAgentMail();
+    } catch {}
+    void deliverNotifications()
+      .catch(() => {})
+      .finally(() => {
+        notifying = false;
+        if (maintenanceDirty) {
+          maintenanceDirty = false;
+          wakeMaintenance();
+        }
+      });
   };
   const wakeMaintenance = () => {
     if (stopping || maintenanceWake) return;
-    maintenanceWake = setImmediate(() => { maintenanceWake = undefined; maintain(); });
+    maintenanceWake = setImmediate(() => {
+      maintenanceWake = undefined;
+      maintain();
+    });
   };
   maintenanceTimers.push(setInterval(maintain, 3000));
   // Watched pull requests; each one is read about once a minute.
@@ -272,7 +299,12 @@ export function startWorker() {
     });
   };
   const unsubscribe = changes.subscribe(null, (events) => {
-    if (events.some(({ type }) => type.startsWith("agent_mail.") || type === "artifact.published"))
+    if (
+      events.some(
+        ({ type }) =>
+          type.startsWith("agent_mail.") || type === "artifact.published",
+      )
+    )
       wakeMaintenance();
     if (
       events.some(
@@ -305,9 +337,13 @@ export function startWorker() {
     if (scheduled) clearImmediate(scheduled);
     // Shutdown owns this transition before native IO is terminated; a
     // resulting pipe failure must not reclassify an interrupted turn as failed.
-    for (const run of RunIdentity.array().parse(db
-      .prepare("SELECT id,owner_id FROM runs WHERE worker_id=? AND state IN ('running','pausing','awaiting_approval')")
-      .all(workerId)))
+    for (const run of RunIdentity.array().parse(
+      db
+        .prepare(
+          "SELECT id,owner_id FROM runs WHERE worker_id=? AND state IN ('running','pausing','awaiting_approval')",
+        )
+        .all(workerId),
+    ))
       transition(run, "interrupted");
   };
   const stop = async () => {
@@ -322,7 +358,9 @@ export function startWorker() {
 
 if (process.argv[1]?.match(/\/worker\.(ts|js)$/)) {
   if (companionMode)
-    throw new Error("The companion host starts its worker through inherited IPC and an ownership lock.");
+    throw new Error(
+      "The companion host starts its worker through inherited IPC and an ownership lock.",
+    );
   const stop = startWorker();
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.once(signal, () => void stop());
