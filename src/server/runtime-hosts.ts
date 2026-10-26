@@ -1,4 +1,5 @@
-import { registrar } from "./registrar.js";
+import { workspaceApi } from "../shared/workspace-api.js";
+import { registrar, projectResponse } from "./registrar.js";
 import { companionMode } from "./profile.js";
 
 import { z } from "zod";
@@ -99,10 +100,11 @@ export function runtimeEndpoint(
 }
 const routes = registrar("runtimeHosts", { middleware: [["/runtime-hosts", (req, res, next) => {
   if (!companionMode) return next();
+  if (req.method === "GET" && req.path === "/") return next();
   if (req.method === "GET")
-    return res.json([
+    return res.json(projectResponse(workspaceApi.runtimeHostList, [
       { id: "local", name: "This computer", kind: "local", url: "" },
-    ]);
+    ]));
   throw new Problem(
     409,
     "Remote runtime management requires the server profile.",
@@ -110,31 +112,17 @@ const routes = registrar("runtimeHosts", { middleware: [["/runtime-hosts", (req,
 }]] });
 export const runtimeHosts = routes.mount;
 
-routes.legacy("GET /runtime-hosts", (_req, res) =>
+routes.on(workspaceApi.runtimeHostList, (_req, res) =>
   res.json(
-    db
+    companionMode ? [{ id: "local", name: "This computer", kind: "local", url: "" }] : db
       .prepare(
         "SELECT id,name,url,kind FROM runtime_hosts WHERE owner_id=? ORDER BY created_at",
       )
-      .all(res.locals.owner),
+      .all(res.locals.owner) as z.input<typeof workspaceApi.runtimeHostList.response>,
   ),
 );
-routes.legacy("POST /runtime-hosts", async (req, res) => {
-  const d = z
-    .object({
-      name: z.string().trim().min(1).max(80),
-      url: z.string().url().max(2000),
-      token: z
-        .string()
-        .trim()
-        .min(32)
-        .max(4096)
-        .regex(/^[^\r\n]+$/),
-      kind: z
-        .enum(["broker", "codex-app-server", "native-host"])
-        .default("broker"),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.runtimeHostCreate, async (req, res) => {
+  const d = req.body;
   const url = validate(d.url);
   if ((kindOf(url) === "codex-app-server") !== (d.kind === "codex-app-server"))
     throw new Problem(
@@ -190,7 +178,7 @@ routes.legacy("POST /runtime-hosts", async (req, res) => {
   );
   res.status(201).json({ id: host, name: d.name, url, kind: d.kind });
 });
-routes.legacy("DELETE /runtime-hosts/:id", (req, res) => {
+routes.on(workspaceApi.runtimeHostDelete, (req, res) => {
   owned("runtime_hosts", req.params.id, res.locals.owner);
   if (
     db

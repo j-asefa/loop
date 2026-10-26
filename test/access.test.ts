@@ -1,4 +1,4 @@
-import { afterAll, expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { request as httpRequest } from "node:http";
@@ -24,9 +24,9 @@ async function stop(child: ChildProcess) {
   child.kill();
   await exited;
 }
-afterAll(async () => {
-  await Promise.all(processes.map(stop));
-  for (const path of directories)
+afterEach(async () => {
+  await Promise.all(processes.splice(0).map(stop));
+  for (const path of directories.splice(0))
     rmSync(path, { recursive: true, force: true });
 });
 async function launch(
@@ -525,6 +525,7 @@ it("allows only state-validated OAuth navigations and retains host and gateway c
   }
 }, 30000);
 
+// The test deadline must leave room for launch's existing 15-second bound.
 it("server capabilities retain managed runtimes and do not expose companion routes", async () => {
   const server = await launch(directory());
   const caps = await fetch(server.origin + "/api/capabilities").then((r) =>
@@ -539,7 +540,7 @@ it("server capabilities retain managed runtimes and do not expose companion rout
   expect((await server.request("/native/decisions")).status).toBe(404);
   expect((await server.request("/workspace")).status).toBe(404);
   await stop(server.child);
-});
+}, 20000);
 it("bare server entrypoint refuses companion mode before opening a listener", async () => {
   const server = await launch(directory(), { LOOP_PROFILE: "companion" }, true);
   expect(server.errors).toContain("device authorization");
@@ -581,7 +582,7 @@ it("companion database startup rejects data bound to the server profile", async 
   const [code] = await once(child, "exit");
   expect(code).not.toBe(0);
   expect(errors).toContain("belongs to the server profile");
-});
+}, 20000);
 
 it("rejects pre-unification databases before migrating them", async () => {
   const dir = directory();

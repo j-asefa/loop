@@ -20,9 +20,7 @@ type Path =
   | `/auth/sign-up/email`
   | `/build`
   | `/capabilities`
-  | `/conversations/${string}/activities`
   | `/conversations/${string}/memory`
-  | `/conversations/${string}/native`
   | `/events`
   | `/github/pulls`
   | `/github/pulls/${string}/${string}/${string}`
@@ -48,9 +46,6 @@ type Path =
   | `/memory/notes/${string}`
   | `/memory/policy`
   | `/memory/sources/${string}`
-  | `/native/history`
-  | `/native/history/${string}`
-  | `/native/history/${string}/fork`
   | `/notifications`
   | `/notifications/subscriptions`
   | `/pr-watches`
@@ -63,8 +58,6 @@ type Path =
   | `/runs/${string}/memory`
   | `/runs/${string}/steps`
   | `/runs/${string}/withdraw`
-  | `/runtime-hosts`
-  | `/runtime-hosts/${string}`
   | `/scheduled-sends`
   | `/scheduled-sends/${string}`
   | `/share/preview`
@@ -89,17 +82,12 @@ type Path =
   | `/social/watches`
   | `/social/watches/${string}`
   | `/social/watches/preview`
-  | `/subscriptions`
-  | `/subscriptions/${string}/cancel`
-  | `/subscriptions/${string}/code`
-  | `/subscriptions/${string}/login`
   | `/subscriptions/${string}/native-auth`
   | `/subscriptions/${string}/native-auth/cancel`
   | `/subscriptions/${string}/native-auth/input`
   | `/subscriptions/${string}/native-auth/providers`
   | `/subscriptions/${string}/native-auth/start`
   | `/subscriptions/${string}/native-auth/status`
-  | `/subscriptions/${string}/status`
   | `/subscriptions/${string}/upgrade`
   | `/subscriptions/${string}/upgrade/recover`
   | `/team-presets`
@@ -119,18 +107,7 @@ type Path =
   | `/workflows/${string}`
   | `/workflows/${string}/run`
   | `/workflows/validate`
-  | `/workspace`
   | `/workspace/devices`
   | `/workspace/revoke`
-  | `/workspace/runtimes`
-  | `/workspace/runtimes/${string}/auth`
-  | `/workspace/runtimes/${string}/auth/cancel`
-  | `/workspace/runtimes/${string}/auth/input`
-  | `/workspace/runtimes/${string}/auth/providers`
-  | `/workspace/runtimes/${string}/auth/start`
-  | `/workspace/runtimes/${string}/auth/status`
-  | `/workspace/runtimes/${string}/enable`
-  | `/workspace/runtimes/${string}/upgrade`
-  | `/workspace/runtimes/${string}/upgrade/recover`;
 export type LegacyClientPath = Path | `${Path}?${string}`;
 export type LegacyFetchPath = `/api${LegacyClientPath}` | `/api/agent-sources/${string}${LegacyClientPath}`;

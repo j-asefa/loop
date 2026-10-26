@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import { useProjectionRoute } from "./SourceContext";
 import { Sheet } from "./components";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 export function PairedDevices({ onClose }: { onClose: () => void }) {
-  const [workspace, setWorkspace] = useState<any>(),
+  const read = useProjectionRoute();
+  const [workspace, setWorkspace] = useState<RouteResponse<typeof workspaceApi.workspace>>(),
     [devices, setDevices] = useState<any[]>([]),
     [error, setError] = useState("");
   async function load() {
     const [w, d] = await Promise.all([
-      api("/workspace"),
+      read(workspaceApi.workspace, {}),
       api("/workspace/devices"),
     ]);
     setWorkspace(w);

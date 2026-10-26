@@ -1,6 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { workspaceApi, CardErrorSchema } from "../src/shared/workspace-api.ts";
+import { PublicRuntimeAuth, PublicUpgradeView } from "../src/shared/companion-contract-schemas.ts";
+import { ActivityRecordSchema } from "../src/agent-activities.ts";
 import {
   ResultCardSchema,
   MessageCardSchema,
@@ -32,6 +34,10 @@ for (const [id, schema] of Object.entries({
   CardEntry: CardEntrySchema,
   CardToken: CardTokenSchema,
   Error: CardErrorSchema,
+  // Both native history and activity pages use this canonical projection.
+  ActivityRecord: ActivityRecordSchema,
+  RuntimeAuth: PublicRuntimeAuth,
+  RuntimeUpgrade: PublicUpgradeView,
 }))
   registry.add(schema, { id });
 for (const [name, route] of Object.entries(workspaceApi)) {

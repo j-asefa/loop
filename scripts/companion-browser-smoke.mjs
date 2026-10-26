@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { nativeAuthBrowser, prepareNativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
+import { companionContractsBrowser } from "./helpers/companion-contracts-browser.mjs";
+import { subscriptionContractsBrowser } from "./helpers/subscription-contracts-browser.mjs";
 import { nativeSettingsBrowser } from "./helpers/native-settings-browser.mjs";
 import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
 import { agentSourcesBrowser } from "./helpers/agent-sources-browser.mjs";
@@ -257,6 +259,8 @@ try {
   await page.goto(workspaceUrl);
   await nativeAuthBrowser({ browser, host, dir, db });
   await nativeSettingsBrowser({ page, host, dir, db });
+  await companionContractsBrowser({ browser, host, db });
+  await subscriptionContractsBrowser({ browser });
   const devices = await control(dir, "devices");
   await control(dir, "revoke", { id: devices[0].id });
   await page.getByRole("heading", { name: "Pair this device" }).waitFor();

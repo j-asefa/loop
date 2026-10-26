@@ -392,6 +392,54 @@ export type ActivityRecord<K extends ActivityKind = ActivityKind> = {
   };
 }[K];
 
+// Public, reduced records reuse the ingest field schemas, without applying
+// per-update array limits to catalogs accumulated across several updates.
+const retained = <T extends z.ZodType>(field: z.ZodOptional<z.ZodNullable<T>>) =>
+  field.unwrap().unwrap().optional();
+const recordedChunk = OutputChunk.strip().required({ index: true });
+const recordBase = {
+  v: z.literal(ACTIVITY_VERSION), id: z.string(), source: ActivitySource.strip(),
+  generation: base.generation, revision: z.number(), fieldSeq: z.record(z.string(), z.number()),
+  partial: z.boolean(), replayed: z.boolean(),
+};
+export const ActivityRecordSchema = z.discriminatedUnion("kind", [
+  z.object({ ...recordBase, kind: z.literal("plan"), data: z.object({
+    steps: z.array(PlanStep.strip()), explanation: retained(PlanPatch.shape.explanation), revision: z.number(),
+  }) }),
+  z.object({ ...recordBase, kind: z.literal("tool"), data: z.object({
+    // Legacy traces predate update limits; their display title and trace key
+    // are retained by recordTrace/legacyTools without those ingestion caps.
+    title: z.string().optional(), category: retained(ToolPatch.shape.category),
+    status: ToolStatus, input: retained(ToolPatch.shape.input),
+    content: z.array(z.discriminatedUnion("type", [ToolContent.options[0].strip(), ToolContent.options[1].strip(), ToolContent.options[2].strip(), ToolContent.options[3].strip(), ToolContent.options[4].strip()])),
+    error: retained(ToolPatch.shape.error), locations: retained(ToolPatch.shape.locations),
+    links: ToolPatch.shape.links.unwrap().strip().extend({ trace: z.string().optional() }),
+  }) }),
+  z.object({ ...recordBase, kind: z.literal("file_change"), data: z.object({
+    tool: retained(FileChangePatch.shape.tool), state: FileChangePatch.shape.state.unwrap(),
+    files: z.array(FileEntry.strip().extend({ content: FileEntry.shape.content.unwrap() })),
+  }) }),
+  z.object({ ...recordBase, kind: z.literal("output"), data: z.object({
+    tool: retained(OutputPatch.shape.tool), terminal: retained(OutputPatch.shape.terminal),
+    command: retained(OutputPatch.shape.command), cwd: retained(OutputPatch.shape.cwd),
+    chunks: z.array(recordedChunk), streams: z.enum(["separate", "combined"]),
+    status: OutputPatch.shape.status.unwrap(), exitCode: retained(OutputPatch.shape.exitCode),
+    signal: retained(OutputPatch.shape.signal), unavailable: retained(OutputPatch.shape.unavailable),
+    truncated: z.object({ droppedBytes: z.number(), droppedChunks: z.number(), floor: z.number(), upstream: z.boolean().optional() }),
+    nextIndex: z.number(), pending: z.array(recordedChunk),
+  }) }),
+  z.object({ ...recordBase, kind: z.literal("settings"), data: z.object({
+    options: z.array(Setting.strip().extend({ choices: Setting.shape.choices.unwrap().unwrap().element.strip().array().nullable().optional() })),
+    revision: z.number(),
+  }) }),
+  z.object({ ...recordBase, kind: z.literal("commands"), data: z.object({
+    // Defaults belong to ingestion, never to a fetched display record.
+    commands: z.array(CatalogCommand.strip().extend({
+      description: CatalogCommand.shape.description.unwrap(), available: CatalogCommand.shape.available.unwrap(),
+    })), revision: z.number(),
+  }) }),
+]) satisfies z.ZodType<ActivityRecord>;
+
 export type ActivityCapabilityState = "supported" | "unsupported" | "undiscovered";
 export type ActivityCapability = {
   state: ActivityCapabilityState;

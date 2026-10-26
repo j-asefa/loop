@@ -141,6 +141,10 @@ if (process.argv.includes("--version")) {
       send({
         type: "complete",
         access_token: "fixture-private-never-send",
+        refresh_token: "fixture-private-refresh-token",
+        device_code: "fixture-private-polling-token",
+        api_key: "fixture-private-api-key",
+        credentials: "fixture-private-credential-file",
         provider,
       });
     }

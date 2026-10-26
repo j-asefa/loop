@@ -2,7 +2,8 @@ import { ActivityRecords } from "./ActivityRecords";
 import type { ActivityRecord } from "../agent-activities";
 import { useEffect, useRef, useState } from "react";
 import { FolderSearch, Info, TerminalSquare } from "lucide-react";
-import { api } from "./api";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import { useProjectionRoute, useSourceRoute } from "./SourceContext";
 import { Sheet, RichText } from "./components";
 import {
   SettingsList,
@@ -18,11 +19,12 @@ export function NativeHistory({
   onClose: () => void;
   onOpen: (id: string) => void;
 }) {
-  const [data, setData] = useState<any>({ managed: [], external: [] }),
+  const read = useProjectionRoute(), call = useSourceRoute();
+  const [data, setData] = useState<RouteResponse<typeof workspaceApi.nativeHistoryList>>({ managed: [], external: [], next: null }),
     [source, setSource] = useState<"managed" | "external">("managed"),
-    [selected, setSelected] = useState<any>(),
+    [selected, setSelected] = useState<(RouteResponse<typeof workspaceApi.nativeHistoryList>["external"][number] & { note: string })>(),
     [activities, setActivities] = useState<ActivityRecord[]>([]),
-    [items, setItems] = useState<any[]>([]),
+    [items, setItems] = useState<RouteResponse<typeof workspaceApi.nativeHistoryDetail>["items"]>([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const selection = useRef(0);
@@ -36,10 +38,8 @@ export function NativeHistory({
     setBusy(true);
     setError("");
     try {
-      const r = await api(
-        discover ? `/native/history?discover=1&cursor=${encodeURIComponent(cursor)}` : "/native/history",
-      );
-      setData((old: any) => ({
+      const r = await read(workspaceApi.nativeHistoryList, { query: discover ? { discover: "1", cursor } : {} });
+      setData((old) => ({
         ...r,
         external: cursor ? [...old.external, ...r.external] : r.external,
       }));
@@ -68,7 +68,7 @@ export function NativeHistory({
       />
       {source === "managed" ? (
         <SettingsList>
-          {data.managed.map((c: any) => (
+          {data.managed.map((c) => (
             <SettingsRow
               key={c.id}
               icon={TerminalSquare}
@@ -107,7 +107,7 @@ export function NativeHistory({
             Claude and OpenCode currently expose Loop-managed history here.
           </SettingsNote>
           <SettingsList>
-            {data.external.map((c: any) => (
+            {data.external.map((c) => (
               <SettingsRow
                 key={c.id}
                 icon={TerminalSquare}
@@ -118,14 +118,12 @@ export function NativeHistory({
                   setBusy(true);
                   setError("");
                   try {
-                    const r = await api(
-                      `/native/history/${encodeURIComponent(c.id)}`,
-                    );
+                    const r = await read(workspaceApi.nativeHistoryDetail, { params: { id: c.id } });
                     if (ticket !== selection.current) return;
                     setSelected({ ...c, note: r.note });
                     setItems(r.items);
                     setActivities(
-                      (r.activities || []).map((a: any) => a.record || a),
+                      (r.activities || []).map(a => a.record),
                     );
                   } catch (e) {
                     if (ticket === selection.current)
@@ -143,7 +141,7 @@ export function NativeHistory({
         <button
           className="secondary"
           disabled={busy}
-          onClick={() => void load(true, data.next)}
+          onClick={() => void load(true, data.next || "")}
         >
           Load more
         </button>
@@ -152,7 +150,7 @@ export function NativeHistory({
         <section className="native-decision">
           <h3>{selected.title}</h3>
           <p className="note">{selected.note}</p>
-          {items.map((item: any) => (
+          {items.map((item) => (
             <article key={item.id}>
               <strong>{item.kind}</strong>
               <RichText content={item.text} />
@@ -172,10 +170,7 @@ export function NativeHistory({
                 sessionStorage.setItem(key, commandId);
               }
               try {
-                const r = await api(
-                  `/native/history/${selected.id}/fork`,
-                  { commandId },
-                );
+                const r = await call(workspaceApi.nativeHistoryFork, { params: { id: selected.id }, body: { commandId } });
                 sessionStorage.removeItem(key);
                 onOpen(r.id);
               } catch (e) {

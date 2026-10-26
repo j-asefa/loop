@@ -14,13 +14,15 @@ Follow this for every PR in the bundle. It encodes how this repository's review 
 - Commit in small, buildable steps with clear subjects. Every commit message ends with the attribution line given in your session's system instructions.
 - Add regressions at the production boundary you change, as [verification](verification.md) describes. A PR with no test at the changed boundary is not ready for review.
 - Update canonical docs in `docs/` for lasting behavior changes only. Execution evidence belongs in the PR body.
-- Stay inside the review capture limits before requesting review (`src/server/review-snapshot.ts`): at most 100 changed files, no single file over 512 KB, total under 16 MB, at most 2,000 repository entries in the capture, a unified diff command bounded at 300 KB, and diffs taken with `--no-renames`, so a moved file counts as a deletion plus an addition. `git diff --stat --no-renames origin/main` is a human scope summary of changed files and lines; it does not measure the blob byte sizes, tree entries or captured context the snapshot checks. For the actual limits, run a preflight that uses the capture logic in `review-snapshot.ts`, or check blob bytes and tree entries directly, and measure the diff with the capture's own options against its compare commits: `git diff --no-ext-diff --no-textconv --no-renames --unified=3 origin/main | wc -c` is a conservative check, not an exact capture measurement. If a spec cannot fit, split as the spec directs, add ledger rows, and land them in order.
+- Stay inside the review capture limits before requesting review (`src/server/review-snapshot.ts`): at most 100 changed files, no single file over 512 KB, total under 16 MB, at most 2,000 repository entries in the capture, a unified diff command bounded at 300 KB, and diffs taken with `--no-renames`, so a moved file counts as a deletion plus an addition. `git diff --stat --no-renames origin/main...HEAD` is a human scope summary of changed files and lines; it does not measure the blob byte sizes, tree entries or captured context the snapshot checks. For the actual limits, run a preflight that uses the capture logic in `review-snapshot.ts`, or check blob bytes and tree entries directly, and measure the diff with the capture's own options against its compare commits: `git diff --no-ext-diff --no-textconv --no-renames --unified=3 origin/main...HEAD | wc -c` checks the branch diff from its merge base, not the exact captured context. If a spec cannot fit, split as the spec directs, add ledger rows, and land them in order.
 
 ## Verify
 
 Run the checks the verification guide lists for the PR's category. Record each command, the date, and the outcome in the PR body. A failure you cannot fix is a block, recorded in the ledger; it is never described as passing.
 
 ## Open the pull request
+
+Immediately before opening the PR, fetch `origin/main` and rebase onto it if needed. If this changes the branch head, run its required checks on the new base before opening the PR or requesting review. Once the PR is open, rebase only after the review gate holds and merge conflicts need resolving; advancing main alone does not trigger a rebase.
 
 ```sh
 git push -u origin contracts/NN-slug
@@ -42,7 +44,7 @@ The review team is the Loop "Review code changes" team, id `75e334bb-e16b-4d61-b
 
 1. The latest pass reports no unresolved P0, P1 or security finding.
 2. Every reviewer completed; the lead's own completion does not prove this. A failed, cancelled or interrupted reviewer is missing coverage, and the pass does not count.
-3. The reviewed head is the branch head, except for commits that touch only `prompts/contract-discipline/STATUS.md`. Any other commit after the reviewed head, including any rebase onto a new base, requires checks and a fresh review: dependencies can change behaviour even when the patch did not. Record the reviewed base and fingerprint alongside the head.
+3. The reviewed head is the branch head, except for commits that touch only `prompts/contract-discipline/STATUS.md`. Any other commit after the reviewed head, including a conflict-resolving rebase, requires checks and a fresh review: dependencies can change behaviour even when the patch did not. Record the reviewed base and fingerprint alongside the head. An update to main alone does not invalidate the branch's checks or review. Branch review captures the merge base of `origin/main` and the branch head, so record the captured base, not the latest main tip.
 4. Remaining P2 findings are fixed, in which case rule 3 applies, or documented in the PR body with the reason they are acceptable.
 
 A disputed P1 or security finding is resolved with code evidence in the PR body. If the next pass repeats it, it stays blocking; never downgrade it to P2 by repetition.
@@ -55,9 +57,13 @@ After each pass, append one line to the ledger's review history and one entry to
 
 When the gate holds:
 
+Fetch main and inspect the PR's mergeability. If there are merge conflicts, rebase onto `origin/main`, resolve them, and repeat the required checks and review on the new head. Otherwise preserve the checked and reviewed branch, even when main has advanced. The user authorized this rebase policy on 2026-10-26; the completed review gate is the approval point for it, since the review team does not emit approval.
+
 ```sh
 git fetch origin main
-git rebase origin/main          # if main moved, the new head needs checks and a fresh review even if your patch is unchanged
+gh pr view <number> --json mergeable,headRefOid
+# Only if mergeable is CONFLICTING: rebase, resolve, re-run checks and review.
+# Wait for a definite mergeability result before merging.
 gh pr merge <number> --squash --delete-branch --match-head-commit <reviewed-or-ledger-only-head>
 ```
 

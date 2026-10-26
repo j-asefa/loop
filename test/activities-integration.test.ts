@@ -251,7 +251,7 @@ it("client merge keeps the newest record per key and renders the production acti
     [item("t", 0, { v: 1, kind: "tool", source: { transport: "native", harness: "codex" }, data: { title: "x", status: "unknown", content: [] } }, { legacy: true })],
     { items: [item("t", 0, { v: 1, kind: "tool", source: { transport: "native", harness: "codex" }, data: { title: "y", status: "completed", content: [] } }), item("z", 9, { v: 2, kind: "plan" })] },
   );
-  expect(visibleActivities(items).map((item) => item.record.data.title)).toEqual(["y"]);
+  expect(visibleActivities(items).map((item) => item.record.kind === "tool" ? item.record.data.title : undefined)).toEqual(["y"]);
   expect(render()).toContain("y · completed");
 });
 

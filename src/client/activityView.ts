@@ -1,35 +1,21 @@
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { surfaceFallback } from "./workspace-projections";
-import { useSourceId, useProjectionRead } from "./SourceContext";
+import { useSourceId, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { ActivityHistory, type ActivityHistoryState } from "./activityHistory";
-// Type-only: the client bundle does not ship the zod schemas.
 import type { ActivityRecord } from "../agent-activities";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 
 // Client side of the shared activity projection. The server has already
 // reduced every record, so the client only replaces items by key: a full load
 // is the snapshot and `?after=<cursor>` returns records changed since then.
 // Refresh, reconnect and completed history therefore render the same records.
-export type ActivityItem = {
-  key: string;
-  kind: ActivityRecord["kind"] | "capabilities";
-  run: string | null;
-  sequence: number;
-  legacy?: boolean;
-  record: any;
-};
-export type ActivityPage = {
-  version: number;
-  items: ActivityItem[];
-  cursor: number;
-  more: boolean;
-  earlier?: number | null;
-  legacyAvailable?: boolean;
-};
+export type ActivityPage = RouteResponse<typeof workspaceApi.conversationActivities>;
+export type ActivityItem = ActivityPage["items"][number];
 
-export function mergeActivities(
-  current: ActivityItem[],
-  page: Pick<ActivityPage, "items">,
+export function mergeActivities<T extends Pick<ActivityItem, "key" | "sequence" | "legacy">>(
+  current: T[],
+  page: { items: T[] },
 ) {
   const byKey = new Map(current.map((item) => [item.key, item]));
   for (const item of page.items) {
@@ -47,29 +33,29 @@ export function mergeActivities(
 export function visibleActivities(items: ActivityItem[]) {
   const traces = new Set(
     items
-      .filter((i) => !i.legacy && i.record?.data?.links?.trace)
-      .map((i) => `${i.run}\0${i.record.data.links.trace}`),
+      .flatMap((i) => !i.legacy && i.record.kind === "tool" && i.record.data.links?.trace
+        ? [`${i.run}\0${i.record.data.links.trace}`] : []),
   );
   return items.filter(
-    (i) =>
-      i.record?.v === 1 &&
-      i.kind !== "capabilities" &&
+    (i): i is ActivityItem & { record: ActivityRecord } =>
+      i.record.v === 1 &&
+      i.record.kind !== "capabilities" &&
       (!i.legacy || !traces.has(`${i.run}\0${i.record.id}`)),
   );
 }
 
 // Pair durable controls only with capabilities from the same producer generation.
 export function recordedSessionControls(items: ActivityItem[]) {
-  const settings = items.filter((i) => i.kind === "settings").at(-1)?.record;
-  const capability = items
+  const settings = items.map(i => i.record).filter(record => record.kind === "settings").at(-1);
+  const capability = items.map(i => i.record)
+    .filter(record => record.kind === "capabilities")
     .filter(
       (i) =>
-        i.kind === "capabilities" &&
-        i.record.generation === settings?.generation &&
-        i.record.source.transport === settings?.source.transport &&
-        i.record.source.harness === settings?.source.harness,
+        i.generation === settings?.generation &&
+        i.source.transport === settings?.source.transport &&
+        i.source.harness === settings?.source.harness,
     )
-    .at(-1)?.record;
+    .at(-1);
   return {
     settings,
     capabilities: capability?.capabilities,
@@ -83,7 +69,7 @@ export function useConversationActivities(
   runs: string[] = [],
   tools = true,
 ) {
-  const api = useProjectionRead();
+  const read = useProjectionRoute();
   const sourceId = useSourceId();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [history, setHistory] = useState<ActivityHistoryState>({
@@ -104,8 +90,7 @@ export function useConversationActivities(
     });
     if (!conversation) return;
     const current = new ActivityHistory(
-      `/conversations/${encodeURIComponent(conversation)}/activities`,
-      (url) => api<ActivityPage>(url),
+      (query) => read(workspaceApi.conversationActivities, { params: { id: conversation }, query }),
       (page) => setItems((old) => mergeActivities(old, page)),
       setHistory,
       tools,

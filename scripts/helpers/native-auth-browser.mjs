@@ -223,6 +223,12 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
     await login.getByRole("button", { name: "Start sign-in", exact: true }).click();
     await expect(login.getByRole("alert")).toContainText("Account change was not confirmed");
     const failedAccountStart = signInIds.at(-1);
+    await context.route("**/api/workspace/runtimes/claude/auth/status", async route => {
+      const response = await route.fetch(), body = await response.json();
+      assert.equal(body.attempt.commandId, previousAttempt.commandId);
+      delete body.attempt.commandId;
+      await route.fulfill({ response, json: body });
+    }, { times: 1 });
     await login.getByRole("button", { name: "Check sign-in status", exact: true }).click();
     await expect(login.getByRole("button", { name: "Start new sign-in", exact: true })).toBeEnabled();
     await expect(login.getByRole("status")).toHaveCount(0);

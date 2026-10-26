@@ -1,4 +1,5 @@
-import { workspaceApi } from "../shared/workspace-api";
+import { useProjectionRoute } from "./SourceContext";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import { capabilities } from "./capabilities";
@@ -56,14 +57,21 @@ type Screen =
   | { page: "setup"; brand: Brand; method: Method; account?: Account }
   | { page: "signin"; account: Account }
   | { page: "connected"; account: Account };
-type Login = {
-  state?: string;
-  error?: string;
-  authenticated?: boolean;
-  authMode?: string;
-  expiresAt?: number;
-  login?: { url: string; code?: string; acceptsCode: boolean };
-};
+type SubscriptionResponse = RouteResponse<typeof workspaceApi.subscriptionAction>;
+function loginView(value: SubscriptionResponse) {
+  return {
+    state: "state" in value ? value.state : undefined,
+    error: "error" in value ? value.error : undefined,
+    authenticated: "authenticated" in value ? value.authenticated : undefined,
+    authMode: "authMode" in value ? value.authMode : undefined,
+    expiresAt: "expiresAt" in value ? value.expiresAt : undefined,
+    login: "login" in value ? value.login : undefined,
+  };
+}
+type Login = ReturnType<typeof loginView>;
+async function subscriptionAction(id: string, action: "login" | "status" | "code" | "cancel", body: unknown = {}) {
+  return loginView(await callRoute(workspaceApi.subscriptionAction, { params: { id, action }, body }, executionSourceId()));
+}
 function accountFrom(c: Connection): Account {
   const meta = parse<{
     authMode?: string;
@@ -123,12 +131,13 @@ function ServerConnections({
     [login, setLogin] = useState<Login | null>(null),
     [polling, setPolling] = useState(false),
     [pollVersion, setPollVersion] = useState(0),
-    [hosts, setHosts] = useState<{ id: string; name: string; kind?: string }[]>(
+    [hosts, setHosts] = useState<RouteResponse<typeof workspaceApi.runtimeHostList>>(
       [],
     ),
     [hostsError, setHostsError] = useState(""),
     [addingHost, setAddingHost] = useState(false),
     [runtimeHostId, setRuntimeHostId] = useState("");
+  const read = useProjectionRoute();
   const secretId = useId(),
     heading = useRef<HTMLHeadingElement>(null),
     generation = useRef(0),
@@ -147,7 +156,7 @@ function ServerConnections({
     mounted.current && generation.current === ticket;
   useEffect(() => {
     mounted.current = true;
-    void api<{ id: string; name: string; kind?: string }[]>("/runtime-hosts")
+    void read(workspaceApi.runtimeHostList, {})
       .then((value) => mounted.current && setHosts(value))
       .catch((e) => mounted.current && setHostsError(e.message));
     return () => {
@@ -243,10 +252,7 @@ function ServerConnections({
     setLogin(null);
     setPolling(false);
     try {
-      const value = await api<Login>(
-        `/subscriptions/${account.id}/${resume ? "status" : "login"}`,
-        {},
-      );
+      const value = await subscriptionAction(account.id, resume ? "status" : "login");
       receive(value, account, ticket);
     } finally {
       // A workspace refresh must not keep a failed sign-in spinning or delay
@@ -259,7 +265,7 @@ function ServerConnections({
     setLogin(null);
     // A lost response can leave the official login running. Resume it before
     // attempting another login, which the runtime would reject as busy.
-    const value = await api<Login>(`/subscriptions/${account.id}/status`, {});
+    const value = await subscriptionAction(account.id, "status");
     if (!current(ticket)) return;
     if (
       value.authenticated === false ||
@@ -279,10 +285,7 @@ function ServerConnections({
       if (pending) return;
       pending = true;
       try {
-        const value = await api<Login>(
-          `/subscriptions/${signing.id}/status`,
-          {},
-        );
+        const value = await subscriptionAction(signing.id, "status");
         if (!live || !current(ticket)) return;
         if (receive(value, signing, ticket)) await refresh(ticket);
       } catch (e) {
@@ -330,11 +333,11 @@ function ServerConnections({
           ? choice.name
           : `${choice.company} API`);
       if (setup.method === "subscription") {
-        const record = await api<{ id: string }>("/subscriptions", {
+        const record = await callRoute(workspaceApi.subscriptionCreate, { body: {
           provider: choice.subscription,
           label: accountLabel,
           runtimeHostId: runtimeHostId || undefined,
-        });
+        } }, executionSourceId());
         if (!current(ticket)) {
           await refresh(ticket);
           return;
@@ -384,13 +387,10 @@ function ServerConnections({
     setPolling(false);
     void perform(async (ticket) => {
       try {
-        await api(`/subscriptions/${signing.id}/code`, { code: value });
+        await subscriptionAction(signing.id, "code", { code: value });
         if (!current(ticket)) return;
         form.reset();
-        const result = await api<Login>(
-          `/subscriptions/${signing.id}/status`,
-          {},
-        );
+        const result = await subscriptionAction(signing.id, "status");
         if (receive(result, signing, ticket)) await refresh(ticket);
       } catch (e) {
         if (current(ticket)) setPolling(true);
@@ -510,7 +510,7 @@ function ServerConnections({
                             onClick={() =>
                               perform(async (ticket) => {
                                 try {
-                                  if (sub) await api(`/subscriptions/${account.id}/status`, {});
+                                  if (sub) await subscriptionAction(account.id, "status");
                                   else await callRoute(workspaceApi.connectionRefresh, { params: { id: account.id }, body: {} }, executionSourceId());
                                 } finally {
                                   await refresh(ticket);
@@ -880,7 +880,7 @@ function ServerConnections({
                   setPolling(false);
                   void perform(async (ticket) => {
                     try {
-                      await api(`/subscriptions/${signing.id}/cancel`, {});
+                      await subscriptionAction(signing.id, "cancel");
                       await refresh(ticket);
                       if (current(ticket)) navigate({ page: "accounts" });
                     } catch (e) {

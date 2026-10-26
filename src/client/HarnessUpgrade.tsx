@@ -1,46 +1,49 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import type { Upgrade } from "../harness-upgrades";
+import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
+import { callRoute, readRoute } from "./workspace-api";
+import { useSourceId } from "./SourceContext";
+type UpgradeView = RouteResponse<typeof workspaceApi.runtimeUpgrade>;
+type Target = { runtime: RouteInput<typeof workspaceApi.runtimeUpgrade>["params"]["name"]; base?: never }
+  | { base: `/subscriptions/${string}/upgrade`; runtime?: never };
 
 export function HarnessUpgrade({
   base,
+  runtime,
   label,
   generation,
   disabled,
   onComplete,
-}: {
-  base: `/workspace/runtimes/${string}/upgrade` | `/subscriptions/${string}/upgrade`;
+}: Target & {
   label: string;
   generation?: number;
   disabled?: boolean;
   onComplete?: () => void;
 }) {
-  const [upgrade, setUpgrade] = useState<Upgrade | null>();
-  const [availability, setAvailability] = useState<{
-    canUpgrade: boolean;
-    upgradeHelp: string;
-  }>();
+  const sourceId = useSourceId();
+  const [upgrade, setUpgrade] = useState<UpgradeView["upgrade"]>();
+  const [availability, setAvailability] = useState<Pick<UpgradeView, "canUpgrade" | "upgradeHelp">>();
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(0);
   const [confirmedStopped, setConfirmedStopped] = useState(false);
   useEffect(
     () => setConfirmedStopped(false),
-    [base, generation, upgrade?.commandId],
+    [base, runtime, generation, upgrade?.commandId],
   );
   useEffect(() => {
     let current = true;
+    const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
       try {
-        const value = await api<{
-          upgrade: Upgrade | null;
-          canUpgrade: boolean;
-          upgradeHelp: string;
-        }>(base);
+        const value = runtime
+          ? await readRoute(workspaceApi.runtimeUpgrade, { params: { name: runtime } }, sourceId, controller.signal, () => setError("Upgrade status unavailable. Check status before starting another upgrade."))
+          : await api<UpgradeView>(base, undefined, undefined, controller.signal);
         if (!current) return;
         setUpgrade(value.upgrade);
         setAvailability(value);
+        setError("");
         if (value.upgrade?.state === "running") timer = setTimeout(poll, 1500);
       } catch {
         if (current)
@@ -52,9 +55,10 @@ export function HarnessUpgrade({
     void poll();
     return () => {
       current = false;
+      controller.abort();
       clearTimeout(timer);
     };
-  }, [base, checking]);
+  }, [base, runtime, sourceId, checking]);
   useEffect(() => {
     if (upgrade?.state === "complete") onComplete?.();
     // Refresh once per confirmed operation, not on every parent's render.
@@ -78,10 +82,10 @@ export function HarnessUpgrade({
           setSending(true);
           setError("");
           try {
-            const value = await api<{ upgrade: Upgrade }>(base, {
-              commandId: crypto.randomUUID(),
-              ...(generation === undefined ? {} : { generation }),
-            });
+            const commandId = crypto.randomUUID();
+            const value = runtime
+              ? await callRoute(workspaceApi.runtimeUpgradeStart, { params: { name: runtime }, body: { commandId } }, sourceId)
+              : await api<UpgradeView>(base, { commandId, ...(generation === undefined ? {} : { generation }) });
             setUpgrade(value.upgrade);
           } catch (e) {
             setError((e as Error).message);
@@ -112,7 +116,8 @@ export function HarnessUpgrade({
                   setSending(true);
                   setError("");
                   try {
-                    await api(base, undefined, "DELETE");
+                    if (runtime) await callRoute(workspaceApi.runtimeUpgradeDismiss, { params: { name: runtime } }, sourceId);
+                    else await api(base, undefined, "DELETE");
                     setUpgrade(null);
                   } catch (e) {
                     setError((e as Error).message);
@@ -144,14 +149,10 @@ export function HarnessUpgrade({
             onClick={async () => {
               setSending(true);
               try {
-                const value = await api<{ upgrade: Upgrade }>(
-                  `${base}/recover`,
-                  {
-                    confirmedStopped: true,
-                    commandId: upgrade.commandId,
-                    ...(generation === undefined ? {} : { generation }),
-                  },
-                );
+                const body = { confirmedStopped: true as const, commandId: upgrade.commandId };
+                const value = runtime
+                  ? await callRoute(workspaceApi.runtimeUpgradeRecover, { params: { name: runtime }, body }, sourceId)
+                  : await api<UpgradeView>(`${base}/recover`, { ...body, ...(generation === undefined ? {} : { generation }) });
                 setUpgrade(value.upgrade);
                 setConfirmedStopped(false);
                 setError("");

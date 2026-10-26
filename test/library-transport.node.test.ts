@@ -4,7 +4,7 @@ import { fork } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, rm, writeFile, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { callRoute, clearAuthorization, fetchStream } from "../src/client/api.js";
 import { workspaceApi } from "../src/shared/workspace-api.js";
@@ -13,16 +13,18 @@ import { Host } from "../src/host.js";
 import { composeSourceId } from "../src/linked-docker.js";
 import { until } from "./helpers.js";
 
-test("typed multipart uses the compiled app directly and through the paired Docker proxy without replaying writes", async () => {
+test("typed multipart and runtime routes use the compiled app directly and through the paired Docker proxy without replaying writes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "loop-library-transport-"));
   const originalFetch = globalThis.fetch;
   const originalPath = process.env.PATH;
   const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")));
+  const { codexFixture, fixtureToken } = await import(resolve("test/helpers/codex-server.mjs"));
+  const codex = await codexFixture();
   const child = fork(new URL("./fixtures/contracts-http.mjs", import.meta.url), [], {
     execArgv: [], stdio: ["ignore", "pipe", "pipe", "ipc"],
-    env: { ...environment, NODE_ENV: "test", LOOP_PROFILE: "server", LOOP_AUTH_MODE: "single-user", LOOP_DATA_DIR: join(directory, "data"), LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"), BETTER_AUTH_SECRET: randomBytes(32).toString("hex") },
+    env: { ...environment, NODE_ENV: "test", LOOP_PROFILE: "server", LOOP_ALLOWED_RUNTIME_ORIGINS: new URL(codex.url).origin, LOOP_AUTH_MODE: "single-user", LOOP_DATA_DIR: join(directory, "data"), LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"), BETTER_AUTH_SECRET: randomBytes(32).toString("hex") },
   });
   let logs = "", port = 0, host: Host | undefined;
   child.stdout!.on("data", data => { logs += data; });
@@ -74,6 +76,13 @@ test("typed multipart uses the compiled app directly and through the paired Dock
         requests.push(url.pathname);
         return originalFetch(url, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin, ...(source ? { cookie } : {}) } });
       };
+      const runtime = await callRoute(workspaceApi.runtimeHostCreate, { body: { name: "Contract runtime", url: codex.url, token: fixtureToken, kind: "codex-app-server" } }, source);
+      assert.ok((await callRoute(workspaceApi.runtimeHostList, {}, source)).some(item => item.id === runtime.id));
+      const subscription = await callRoute(workspaceApi.subscriptionCreate, { body: { provider: "codex", label: "Contract account", runtimeHostId: runtime.id } }, source);
+      const status = await callRoute(workspaceApi.subscriptionAction, { params: { id: subscription.id, action: "status" }, body: {} }, source);
+      assert.ok("authenticated" in status && status.authenticated);
+      assert.doesNotMatch(JSON.stringify(status), /device_code|access_token|refresh_token|secret/);
+      assert.ok(!JSON.stringify(status).includes(fixtureToken));
       const folder = await callRoute(workspaceApi.folderCreate, { body: { name: source || "direct", kind: "project" } }, source);
       const upload = await callRoute(workspaceApi.uploadCreate, { body: { folderId: folder.id }, file: new Blob([bytes], { type: "text/html" }), filename: "private.html" }, source);
       assert.equal(upload.size, bytes.length);
@@ -82,15 +91,17 @@ test("typed multipart uses the compiled app directly and through the paired Dock
       assert.match(response.headers.get("content-security-policy")!, /sandbox/);
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
       const repeated = await fetchStream(workspaceApi.objectFile, { params: { id: upload.objectId }, query: { preview: ["html", "html"] } }, source);
+      assert.equal(repeated.status, 200, repeated.ok ? "" : await repeated.text());
       assert.equal(repeated.headers.get("content-type"), "application/octet-stream");
       const preview = await callRoute(workspaceApi.importPreview, { file: new Blob([archive]), filename: "export.zip" }, source);
       assert.ok(preview.summary.messages > 0);
       const receipt = await callRoute(workspaceApi.importStart, { params: { id: preview.id } }, source);
       assert.ok("id" in receipt);
       await callRoute(workspaceApi.importCancel, { params: { id: preview.id } }, source);
-      const start = requests.length;
+      const uploadRequests = () => requests.filter(path => path.endsWith("/uploads")).length;
+      const start = uploadRequests();
       await assert.rejects(callRoute(workspaceApi.uploadCreate, { file: new Blob([new Uint8Array(MAX_UPLOAD_BYTES + 1)]), filename: "large.bin" }, source), { status: 413 });
-      assert.equal(requests.length - start, 1, "refused writes are not retried");
+      assert.equal(uploadRequests() - start, 1, "refused writes are not retried");
       const abort = new AbortController(); abort.abort();
       await assert.rejects(callRoute(workspaceApi.uploadCreate, { file: new Blob([bytes]), filename: "aborted.html" }, source, abort.signal), { name: "AbortError" });
       const transport = globalThis.fetch;
@@ -115,6 +126,7 @@ test("typed multipart uses the compiled app directly and through the paired Dock
     for (const [key, descriptor] of [["location", originalLocation], ["window", originalWindow]] as const)
       if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
     await host?.close();
+    await codex.close();
     if (child.exitCode === null) {
       const exited = once(child, "exit");
       if (child.connected) child.send("close"); else child.kill();

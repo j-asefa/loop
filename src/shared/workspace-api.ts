@@ -4,6 +4,7 @@ import { ReplyContext, ReplyState } from "./steering-replies.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
+import * as companion from "./companion-contract-schemas.js";
 import { ProviderSchema as Provider } from "./provider-schema.js";
 import { PersonalFilesQuery, PersonalFilesPage } from "./personal-files.js";
 import { PersonalDecisionsQuery, PersonalDecisionsPageSchema } from "./personal-decisions.js";
@@ -150,6 +151,30 @@ export type RouteContract = {
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
 export const workspaceApi = {
+  subscriptionAction: endpoint({ ...base, method: "POST", path: "/subscriptions/:id/:action", params: companion.SubscriptionActionParams, body: z.unknown(), response: companion.PublicSubscriptionAction }),
+  subscriptionCreate: endpoint({ ...base, method: "POST", path: "/subscriptions", body: companion.SubscriptionCreateInput, response: z.object({ id: Text }), status: 201 }),
+  workspace: endpoint({ ...base, method: "GET", path: "/workspace", response: companion.PublicWorkspace }),
+  runtimeList: endpoint({ ...base, method: "GET", path: "/workspace/runtimes", query: z.object({ fresh: Text.optional() }), response: companion.PublicRuntimes }),
+  runtimeAuthProviders: endpoint({ ...base, method: "GET", path: "/workspace/runtimes/:name/auth", params: companion.RuntimeAuthName, query: z.object({ projectId: Text.min(1) }), response: companion.PublicRuntimeAuth }),
+  runtimeAuthStatus: endpoint({ ...base, method: "GET", path: "/workspace/runtimes/:name/auth/status", params: companion.RuntimeAuthName, response: companion.PublicRuntimeAuth }),
+  runtimeAuthStart: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/auth/start", params: companion.RuntimeAuthName, body: companion.RuntimeAuthStart, response: companion.PublicRuntimeAuth }),
+  runtimeAuthInput: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/auth/input", params: companion.RuntimeAuthName, body: companion.RuntimeAuthInput, response: companion.PublicRuntimeAuth }),
+  runtimeAuthCancel: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/auth/cancel", params: companion.RuntimeAuthName, body: companion.RuntimeAuthCancel, response: companion.PublicRuntimeAuth }),
+  runtimeUpgrade: endpoint({ ...base, method: "GET", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, response: companion.PublicUpgradeView }),
+  runtimeUpgradeStart: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, body: companion.CommandIdentity, response: companion.PublicUpgradeView }),
+  runtimeUpgradeDismiss: endpoint({ ...base, method: "DELETE", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, body: z.unknown(), response: companion.PublicUpgradeView }),
+  runtimeUpgradeRecover: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/upgrade/recover", params: companion.RuntimeName, body: companion.UpgradeRecoverInput, response: companion.PublicUpgradeView }),
+  runtimeEnable: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/enable", params: companion.RuntimeName, body: companion.RuntimeEnableInput, response: companion.PublicEnabledRuntime }),
+  workspaceProjectCreate: endpoint({ ...base, method: "POST", path: "/workspace/projects", body: companion.ProjectCreateInput, response: companion.PublicProject, status: 201 }),
+  workspaceProjectUpdate: endpoint({ ...base, method: "PATCH", path: "/workspace/projects/:id", params: Id, body: companion.ProjectUpdateInput, response: z.object({ ok: z.literal(true), path: Text, note: Text }) }),
+  conversationNative: endpoint({ ...base, method: "GET", path: "/conversations/:id/native", params: Id, response: companion.PublicNativeConversation }),
+  nativeHistoryList: endpoint({ ...base, method: "GET", path: "/native/history", query: z.object({ discover: Text.optional(), cursor: Text.max(4096).optional() }), response: companion.PublicNativeHistory }),
+  nativeHistoryDetail: endpoint({ ...base, method: "GET", path: "/native/history/:id", params: Id, response: companion.PublicNativeHistoryDetail }),
+  nativeHistoryFork: endpoint({ ...base, method: "POST", path: "/native/history/:id/fork", params: Id, body: companion.CommandIdentity, response: z.object({ id: Text }), additionalStatuses: [201] }),
+  runtimeHostList: endpoint({ ...base, method: "GET", path: "/runtime-hosts", response: z.array(companion.PublicRuntimeHost) }),
+  runtimeHostCreate: endpoint({ ...base, method: "POST", path: "/runtime-hosts", body: companion.RuntimeHostCreateInput, response: companion.PublicRuntimeHost, status: 201 }),
+  runtimeHostDelete: endpoint({ ...base, method: "DELETE", path: "/runtime-hosts/:id", params: Id, body: z.unknown(), response: Ok }),
+  conversationActivities: endpoint({ ...base, method: "GET", path: "/conversations/:id/activities", params: Id, query: companion.ActivityQuery, response: companion.PublicActivityPage }),
   // All three reads admit either grant; card:results names the minimum grant.
   // The admission boundary still limits each grant's selections and excludes Done.
   cardList: endpoint({ ...base, method: "GET", path: "/v1/cards", query: CardListQuerySchema, response: CardPageSchema, access: "card:results" }),

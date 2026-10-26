@@ -1,4 +1,5 @@
-import { useSourceApi, useSourceCapabilities, useSourceId } from "./SourceContext";
+import { useSourceApi, useSourceCapabilities, useSourceId, useProjectionRoute } from "./SourceContext";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { apiInWorkspace, parse } from "./api";
@@ -16,7 +17,7 @@ export function Tools({
   onClose: () => void;
   initialView?: "catalog" | "permissions";
 }) {
-  const api = useSourceApi();
+  const api = useSourceApi(), readRoute = useProjectionRoute();
   const capabilities = useSourceCapabilities();
   const sourceId = useSourceId();
   const [connections, setConnections] = useState<any[]>([]),
@@ -35,7 +36,7 @@ export function Tools({
   );
   const [agentMode, setAgentMode] = useState<PermissionMode | null>(null);
   const [configJson, setConfigJson] = useState(""),
-    [hosts, setHosts] = useState<any[]>([]),
+    [hosts, setHosts] = useState<RouteResponse<typeof workspaceApi.runtimeHostList>>([]),
     [host, setHost] = useState("");
   const [sharingSources, setSharingSources] = useState<
     { id: string; name: string; shared: boolean }[]
@@ -62,7 +63,7 @@ export function Tools({
   async function loadHosts() {
     if (!capabilities.runtimeHosts) return;
     await read("hosts", async () => {
-      const rows = await api<any[]>("/runtime-hosts");
+      const rows = await readRoute(workspaceApi.runtimeHostList, {});
       setHosts(rows.filter((h) => !h.kind || h.kind === "broker"));
     });
   }

@@ -2413,6 +2413,8 @@ it("does not let blocked followers starve retryable thread heads across owners",
   expect(heads.map((head) => mail(head).state)).toEqual(Array(12).fill("sent"));
 });
 
+// Three sequential races each start two real workers. Bound each child below,
+// and leave room for all three races in the outer test deadline.
 it("arbitrates mail claims between independent worker processes and never replays an uncertain native turn", async () => {
   const owner = "concurrent-claimers";
   const a = agent(owner, "sender"),
@@ -2432,6 +2434,7 @@ it("arbitrates mail claims between independent worker processes and never replay
           process.execPath,
           ["--import", "tsx", "--input-type=module", "-e", script],
           {
+            timeout: 5000,
             env: {
               ...process.env,
               LOOP_DATA_DIR: dir,
@@ -2459,7 +2462,7 @@ it("arbitrates mail claims between independent worker processes and never replay
   });
   expect(statuses.messages[0].status).toBe("unconfirmed");
   expect(mail(receipts[1].messageId).requeued_run_id).toBeNull();
-});
+}, 20000);
 
 it.each(["models", "secret", "metadata"] as const)("isolates damaged teammate %s from healthy turns and directory discovery", async (column) => {
   const owner = id(), { manager, coder, piWorker, team } = mixedTeam(owner);

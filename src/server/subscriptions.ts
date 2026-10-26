@@ -1,4 +1,6 @@
-import { registrar } from "./registrar.js";
+import { SubscriptionCodeInput } from "../shared/companion-contract-schemas.js";
+import { workspaceApi } from "../shared/workspace-api.js";
+import { projectResponse, registrar } from "./registrar.js";
 import { ConnectionMetadata, ConnectionModels, requireSealedSecret, type Connection, type ConnectionControl } from "./row-schemas.js";
 
 
@@ -386,14 +388,8 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
 }
 const routes = registrar("subscriptions");
 export const subscriptions = routes.mount;
-routes.legacy("POST /subscriptions", (req, res) => {
-  const d = z
-    .object({
-      provider: z.enum(["codex", "claude"]),
-      label: z.string().trim().min(1).max(80),
-      runtimeHostId: z.string().optional(),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.subscriptionCreate, (req, res) => {
+  const d = req.body;
   const endpoint = runtimeEndpoint(
     res.locals.owner,
     d.runtimeHostId,
@@ -436,25 +432,17 @@ routes.legacy("POST /subscriptions", (req, res) => {
     .immediate();
   res.status(201).json({ id: record.id });
 });
-routes.legacy("POST /subscriptions/:id/:action", async (req, res) => {
+routes.on(workspaceApi.subscriptionAction, async (req, res) => {
   const c = ownedConnection(String(req.params.id), res.locals.owner);
   if (!isSubscription(c))
     throw new Problem(400, "This connection uses an API key");
-  const action = z
-    .enum(["login", "status", "code", "cancel"])
-    .parse(req.params.action);
+  const action = req.params.action;
   if (action === "status" && c.status === "disconnected") {
     res.json({ authenticated: false });
     return;
   }
   if (action === "code") {
-    const code = z
-      .string()
-      .trim()
-      .min(1)
-      .max(4096)
-      .regex(/^[^\r\n]+$/)
-      .parse(req.body.code);
+    const { code } = SubscriptionCodeInput.parse(req.body);
     res.json(await runtimeAction(c, action, { code }));
     return;
   }
@@ -464,7 +452,7 @@ routes.legacy("POST /subscriptions/:id/:action", async (req, res) => {
     ));
   let result;
   try {
-    result = await runtimeAction(c, action);
+    result = projectResponse(workspaceApi.subscriptionAction, await runtimeAction(c, action));
   } catch (error) {
     if (action === "login")
       writeConnectionStatus(c.id, () => db.prepare(
@@ -479,7 +467,7 @@ routes.legacy("POST /subscriptions/:id/:action", async (req, res) => {
     return;
   }
   // Only expose the native runtime's auth result. A login URL is never proof of connection.
-  if (result.authenticated === true && result.authMode === "subscription") {
+  if ("authenticated" in result && result.authenticated === true && result.authMode === "subscription") {
     const models = z
       .array(
         z.object({
@@ -514,8 +502,8 @@ routes.legacy("POST /subscriptions/:id/:action", async (req, res) => {
       c.id,
     ));
   } else if (
-    result.authenticated === false ||
-    ["failed", "cancelled"].includes(result.state) ||
+    ("authenticated" in result && result.authenticated === false) ||
+    ("state" in result && result.state && ["failed", "cancelled"].includes(result.state)) ||
     action === "cancel"
   ) {
     writeConnectionStatus(c.id, () => db.prepare("UPDATE connections SET status='needs_sign_in' WHERE id=?").run(

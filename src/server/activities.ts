@@ -1,3 +1,4 @@
+import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 import type { QueryRow } from "./query-records.js";
 
@@ -569,27 +570,6 @@ export function listActivities(
 
 const routes = registrar("activityRoutes");
 export const activityRoutes = routes.mount;
-routes.legacy("GET /conversations/:id/activities", (req, res) => {
-  const query = z
-    .object({
-      after: z.coerce.number().int().nonnegative().optional(),
-      run: z.string().max(100).optional(),
-      before: z.coerce
-        .number()
-        .int()
-        .nonnegative()
-        .max(Number.MAX_SAFE_INTEGER)
-        .optional(),
-      view: z.enum(["recent", "updates", "legacy", "files"]).optional(),
-      tools: z.enum(["0", "1"]).optional(),
-      runs: z
-        .string()
-        .max(7600)
-        .transform((value) => value.split(","))
-        .pipe(z.array(z.string().min(1).max(150)).min(1).max(50))
-        .optional(),
-    })
-    .safeParse(req.query);
-  if (!query.success) throw new Problem(400, "Invalid activity query");
-  res.json(listActivities(res.locals.owner, String(req.params.id), query.data));
+routes.on(workspaceApi.conversationActivities, (req, res) => {
+  res.json(listActivities(res.locals.owner, req.params.id, { ...req.query, runs: req.query.runs?.split(",") }) as z.input<typeof workspaceApi.conversationActivities.response>);
 });

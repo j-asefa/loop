@@ -146,7 +146,7 @@ const BillingSchema = z.object({
   provider: z.string().optional(),
   model: z.string().optional(),
 });
-const ItemSchema = z.object({
+export const ItemSchema = z.object({
   id: z.string(),
   kind: z.enum(["user", "assistant", "tool", "notice"]),
   text: z.string(),

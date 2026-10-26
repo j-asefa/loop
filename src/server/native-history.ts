@@ -1,3 +1,4 @@
+import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 
 import { z } from "zod";
@@ -69,15 +70,15 @@ export function historyProjection(thread: any) {
   );
   return [...records].map(([key, record]) => ({ key, kind: record.kind, record }));
 }
-routes.legacy("GET /native/history", async (req, res) => {
+routes.on(workspaceApi.nativeHistoryList, async (req, res) => {
   const managed = db
     .prepare(
       "SELECT n.conversation_id id,n.harness,n.project,n.state,c.title FROM companion_sessions n JOIN conversations c ON c.id=n.conversation_id ORDER BY n.updated_at DESC LIMIT 200",
     )
-    .all();
+    .all() as z.input<typeof workspaceApi.nativeHistoryList.response>["managed"];
   if (req.query.discover !== "1")
     return res.json({ managed, external: [], next: null });
-  const cursor = z.string().max(4096).optional().parse(req.query.cursor);
+  const { cursor } = req.query;
   const result = await inspect((native) =>
     native.inspect("thread/list", {
       cursor,
@@ -122,7 +123,7 @@ routes.legacy("GET /native/history", async (req, res) => {
     note: "Saved native Codex history across directories. External live ownership cannot be established; read or fork without taking over the original.",
   });
 });
-routes.legacy("GET /native/history/:id", async (req, res) => {
+routes.on(workspaceApi.nativeHistoryDetail, async (req, res) => {
   const record = db
     .prepare("SELECT * FROM native_catalog WHERE id=?")
     .get(req.params.id) as any;
@@ -139,11 +140,8 @@ routes.legacy("GET /native/history/:id", async (req, res) => {
     note: "Read from native history. Large paginated native threads may require the native client for their complete history.",
   });
 });
-routes.legacy("POST /native/history/:id/fork", async (req, res) => {
-  const { commandId } = z
-    .object({ commandId: z.string().uuid() })
-    .strict()
-    .parse(req.body);
+routes.on(workspaceApi.nativeHistoryFork, async (req, res) => {
+  const { commandId } = req.body;
   const record = db
     .prepare("SELECT * FROM native_catalog WHERE id=?")
     .get(req.params.id) as any;

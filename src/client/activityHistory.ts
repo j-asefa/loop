@@ -1,4 +1,6 @@
 import type { ActivityPage } from "./activityView";
+import type { RouteInput, workspaceApi } from "../shared/workspace-api";
+export type ActivityHistoryQuery = RouteInput<typeof workspaceApi.conversationActivities>["query"];
 
 export type ActivityHistoryState = {
   loading: boolean;
@@ -29,8 +31,7 @@ export class ActivityHistory {
   };
 
   constructor(
-    private base: `/conversations/${string}/activities` | `/runs/${string}/activities`,
-    private fetch: (url: `/conversations/${string}/activities?${string}` | `/runs/${string}/activities?${string}`) => Promise<ActivityPage>,
+    private fetch: (query: ActivityHistoryQuery) => Promise<ActivityPage>,
     private receive: (page: ActivityPage) => void,
     private changed: (state: ActivityHistoryState) => void,
     private tools = true,
@@ -68,9 +69,9 @@ export class ActivityHistory {
     return work;
   }
 
-  private async page(query: string) {
+  private async page(query: ActivityHistoryQuery) {
     if (this.stopped) return null;
-    const page = await this.fetch(`${this.base}?${query}`);
+    const page = await this.fetch(query);
     if (this.stopped) return null;
     this.receive(page);
     return page;
@@ -86,7 +87,7 @@ export class ActivityHistory {
     this.refreshing = this.enqueue(async () => {
       if (!this.initialized) {
         const page = await this.page(
-          this.tools ? "view=recent" : "view=recent&tools=0",
+          { view: "recent", ...(this.tools ? {} : { tools: "0" }) },
         );
         if (!page) return;
         this.supportsPaging = "earlier" in page;
@@ -100,7 +101,7 @@ export class ActivityHistory {
         let current = page;
         while (current.more && !this.stopped) {
           const next = await this.page(
-            `view=updates${this.tools ? "" : "&tools=0"}&after=${this.cursor}`,
+            { view: "updates", ...(this.tools ? {} : { tools: "0" }), after: String(this.cursor) },
           );
           if (!next) return;
           this.cursor = next.cursor;
@@ -111,7 +112,7 @@ export class ActivityHistory {
         let page: ActivityPage | null;
         do {
           page = await this.page(
-            `view=updates${this.tools ? "" : "&tools=0"}&after=${this.cursor}`,
+            { view: "updates", ...(this.tools ? {} : { tools: "0" }), after: String(this.cursor) },
           );
           if (!page) return;
           this.cursor = page.cursor;
@@ -143,7 +144,7 @@ export class ActivityHistory {
       let page: ActivityPage | null;
       do {
         page = await this.page(
-          `view=files&runs=${encodeURIComponent(batch.join(","))}&after=${after}`,
+          { view: "files", runs: batch.join(","), after: String(after) },
         );
         if (!page) return;
         after = page.cursor;
@@ -157,10 +158,10 @@ export class ActivityHistory {
     this.publish({ loadingEarlier: true });
     return this.enqueue(async () => {
       if (this.before !== null) {
-        const page = await this.page(`view=recent&before=${this.before}`);
+        const page = await this.page({ view: "recent", before: String(this.before) });
         if (page) this.before = page.earlier ?? null;
       } else if (this.legacyBefore !== null) {
-        const page = await this.page(`view=legacy&before=${this.legacyBefore}`);
+        const page = await this.page({ view: "legacy", before: String(this.legacyBefore) });
         if (page) this.legacyBefore = page.earlier ?? null;
       }
     }).finally(() => this.publish({ loadingEarlier: false }));

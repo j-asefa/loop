@@ -6,6 +6,7 @@ import { OpenCode } from "../src/adapters/opencode";
 import {
   ActivityUpdate,
   reduceActivities,
+  reduceActivity,
   outputText,
 } from "../src/agent-activities";
 import { DirectControls } from "../src/adapters/direct-controls";
@@ -441,19 +442,18 @@ it("incremental durable broker cards replace legacy cards without merging distin
     run: "r",
     sequence: 0,
     legacy: true,
-    record: { v: 1, id: "tool:b", kind: "tool" },
+    record: reduceActivity(undefined, { v: 1, id: "tool:b", kind: "tool", source: { transport: "api", origin: "trace" }, patch: {} }).record!,
   };
   const durable = {
     key: "durable",
     kind: "tool" as const,
     run: "r",
     sequence: 2,
-    record: {
-      v: 1,
-      id: "b",
-      kind: "tool",
-      data: { links: { trace: "tool:b" } },
-    },
+    legacy: false,
+    record: reduceActivity(undefined, {
+      v: 1, id: "b", kind: "tool", source: { transport: "api", origin: "broker" },
+      patch: { links: { trace: "tool:b" } },
+    }).record!,
   };
   const other = { ...legacy, key: "other", run: "other" };
   expect(

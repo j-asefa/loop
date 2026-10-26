@@ -9,7 +9,9 @@ import {
   ShieldAlert,
   TriangleAlert,
 } from "lucide-react";
-import { api } from "./api";
+import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
+import { useProjectionRoute, useSourceRoute } from "./SourceContext";
+type HostKind = RouteInput<typeof workspaceApi.runtimeHostCreate>["body"]["kind"];
 import { Sheet } from "./components";
 import {
   SettingsCommand,
@@ -26,13 +28,14 @@ function ServerRuntimeHosts({
   initialKind = "codex-app-server",
 }: {
   onClose: () => void;
-  onAdded?: (host: { id: string; name: string; kind: string }) => void;
-  initialKind?: string;
+  onAdded?: (host: RouteResponse<typeof workspaceApi.runtimeHostCreate>) => void;
+  initialKind?: HostKind;
 }) {
-  const [hosts, setHosts] = useState<any[]>([]),
+  const read = useProjectionRoute(), call = useSourceRoute();
+  const [hosts, setHosts] = useState<RouteResponse<typeof workspaceApi.runtimeHostList>>([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [kind, setKind] = useState(initialKind),
+    [kind, setKind] = useState<HostKind>(initialKind),
     [detail, setDetail] = useState("");
   const command =
     kind === "codex-app-server"
@@ -47,7 +50,7 @@ mkdir -p "$HOME/.config/loop"
 test -f "$HOME/.config/loop/host-token" || openssl rand -hex 32 > "$HOME/.config/loop/host-token"
 LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/absolute/path/to/your/project" node runtime/host.mjs`;
   async function load() {
-    setHosts(await api("/runtime-hosts"));
+    setHosts(await read(workspaceApi.runtimeHostList, {}));
   }
   useEffect(() => {
     void load().catch((e) => setError(e.message));
@@ -96,7 +99,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
                     onClick={async () => {
                       setBusy(true);
                       try {
-                        await api(`/runtime-hosts/${h.id}`, {}, "DELETE");
+                        await call(workspaceApi.runtimeHostDelete, { params: { id: h.id }, body: {} });
                         await load();
                       } catch (e) {
                         setError((e as Error).message);
@@ -125,12 +128,11 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
           setBusy(true);
           setError("");
           try {
-            const added = await api("/runtime-hosts", {
-              name: f.get("name"),
-              url: f.get("url"),
-              token: f.get("token"),
-              kind,
-            });
+            const added = await call(workspaceApi.runtimeHostCreate, { body: {
+              name: String(f.get("name") || ""),
+              url: String(f.get("url") || ""),
+              token: String(f.get("token") || ""), kind,
+            } });
             form.reset();
             await load();
             onAdded?.(added);
@@ -146,7 +148,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
           <select
             value={kind}
             onChange={(e) => {
-              setKind(e.target.value);
+              setKind(e.target.value as HostKind);
               setError("");
               setDetail("");
             }}

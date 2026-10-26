@@ -1,37 +1,22 @@
-import { workspaceApi } from "../shared/workspace-api";
+import { useProjectionRoute } from "./SourceContext";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import {
   runtimeSetupMessages,
-  type RuntimeSetupState,
 } from "../shared/runtime-setup";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, parse } from "./api";
+import { parse } from "./api";
 import { Sheet } from "./components";
 import { ConnectionDetails } from "./ConnectionDetails";
 import type { Connection } from "../shared/types";
 import { runtimeAuthScope } from "../shared/runtime-auth-scope";
 import { HarnessUpgrade } from "./HarnessUpgrade";
 import { connectsModelProvider, RuntimeSignIn } from "./RuntimeSignIn";
-import type { NativeAuthView, SignIn } from "../shared/native-auth";
+type SignIn = NonNullable<RouteResponse<typeof workspaceApi.runtimeAuthStatus>["attempt"]>;
 
-type Runtime = {
-  name: string;
-  installed: boolean;
-  available: boolean;
-  enabled: boolean;
-  version?: string;
-  help: string;
-  authentication: string;
-  billing?: string;
-  project?: string;
-};
-type Discovery = {
-  computer: string;
-  online: boolean;
-  setup?: RuntimeSetupState;
-  runtimes: Runtime[];
-};
+type Discovery = RouteResponse<typeof workspaceApi.runtimeList>;
+type Runtime = Discovery["runtimes"][number];
 const labels: Record<string, string> = {
   codex: "Codex",
   claude: "Claude Code",
@@ -44,12 +29,6 @@ const labels: Record<string, string> = {
 // These harnesses cannot attest subscription billing, so setup has no picker.
 const existingOnly = (name: string) =>
   name === "gemini" || name === "muse" || name === "grok";
-function authBase(runtime: Runtime) {
-  return `/workspace/runtimes/${runtime.name}/auth` as const;
-}
-function authStatus(runtime: Runtime) {
-  return api<NativeAuthView>(`${authBase(runtime)}/status`);
-}
 function matchesRuntime(connection: Connection, runtime: Runtime) {
   return parse<any>(connection.metadata, {}).loopHarness === runtime.name;
 }
@@ -60,10 +39,9 @@ export function RuntimeSetup({
   onEnabled: (name: string) => Promise<void>;
   connections?: Connection[];
 }) {
+  const read = useProjectionRoute();
   const [discovery, setDiscovery] = useState<Discovery>();
-  const [projects, setProjects] = useState<
-    { folder_id: string; path: string }[]
-  >([]);
+  const [projects, setProjects] = useState<RouteResponse<typeof workspaceApi.workspace>["projectPaths"]>([]);
   const [project, setProject] = useState("");
   const [billing, setBilling] = useState("subscription");
   const [enabling, setEnabling] = useState<string>();
@@ -101,10 +79,8 @@ export function RuntimeSetup({
   async function refresh() {
     const revision = authRevision.current;
     const [host, workspace] = await Promise.all([
-      api<Discovery>("/workspace/runtimes?fresh=1"),
-      api<{ projectPaths: { folder_id: string; path: string }[] }>(
-        "/workspace",
-      ),
+      read(workspaceApi.runtimeList, { query: { fresh: "1" } }),
+      read(workspaceApi.workspace, {}),
     ]);
     setDiscovery(host);
     setProjects(workspace.projectPaths);
@@ -114,7 +90,7 @@ export function RuntimeSetup({
     // Read existing attempts without starting a harness or another sign-in.
     const states = await Promise.allSettled(
       host.runtimes.map(async (runtime) => {
-        const auth = await authStatus(runtime);
+        const auth = await read(workspaceApi.runtimeAuthStatus, { params: { name: runtime.name } });
         return [runtimeAuthScope(runtime), auth.attempt?.state, auth.attempt?.id] as const;
       }),
     );
@@ -162,11 +138,10 @@ export function RuntimeSetup({
       if (newAttempt) enableCommands.current.delete(commandKey);
       const commandId = enableCommands.current.get(commandKey) || crypto.randomUUID();
       enableCommands.current.set(commandKey, commandId);
-      await api(`/workspace/runtimes/${runtime.name}/enable`, {
-        projectId,
-        billing: selectedBilling,
-        commandId,
-      });
+      await callRoute(workspaceApi.runtimeEnable, { params: { name: runtime.name }, body: {
+        projectId: projectId || "",
+        billing: workspaceApi.runtimeEnable.body.shape.billing.parse(selectedBilling), commandId,
+      } }, executionSourceId());
       enableCommands.current.delete(commandKey);
       const results = await Promise.allSettled([
         onEnabled(runtime.name),
@@ -197,7 +172,7 @@ export function RuntimeSetup({
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const host = await api<Discovery>("/workspace/runtimes");
+        const host = await read(workspaceApi.runtimeList, {});
         if (!disposed) setDiscovery(host);
       } catch {
         // Preserve the last status; the explicit refresh can report errors.
@@ -229,7 +204,7 @@ export function RuntimeSetup({
             ),
           )
           .map(async (runtime) => {
-            const view = await authStatus(runtime);
+            const view = await read(workspaceApi.runtimeAuthStatus, { params: { name: runtime.name } });
             if (!disposed)
               onAuthState(runtimeAuthScope(runtime), view.attempt?.state, view.attempt?.id);
           }),
@@ -451,7 +426,7 @@ export function RuntimeSetup({
                   </p>
                   {runtime.available && discovery.online ? (
                     <RuntimeSignIn
-                      base={authBase(runtime)}
+                      runtime={runtime.name}
                       backend="direct"
                       location={discovery.computer}
                       key={scope}
@@ -507,7 +482,7 @@ export function RuntimeSetup({
                       ))}
                     {runtime.version && <p>Version {runtime.version}</p>}
                     <HarnessUpgrade
-                      base={`/workspace/runtimes/${runtime.name}/upgrade`}
+                      runtime={runtime.name}
                       label={label}
                       disabled={
                         busy ||
