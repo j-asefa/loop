@@ -85,11 +85,17 @@ export function revokeFederationPeer(
         `UPDATE mcp_connections SET status='disconnected',secret=?
          WHERE owner_id=? AND json_extract(metadata,'$.federatedPeer')=?`,
       ).run(seal(JSON.stringify({ type: "none" }), owner), owner, peerId);
-      const calls = db.prepare(
-        "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE owner_id=? AND peer_id=? AND state IN ('pending','claimed') RETURNING id,run_key",
-      ).all(now(), owner, peerId) as { id: string; run_key: string }[];
+      const calls = db
+        .prepare(
+          "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE owner_id=? AND peer_id=? AND state IN ('pending','claimed') RETURNING id,run_key",
+        )
+        .all(now(), owner, peerId) as { id: string; run_key: string }[];
       for (const call of calls)
-        if (db.prepare("SELECT 1 FROM runs WHERE id=? AND owner_id=?").get(call.run_key, owner))
+        if (
+          db
+            .prepare("SELECT 1 FROM runs WHERE id=? AND owner_id=?")
+            .get(call.run_key, owner)
+        )
           emit(owner, call.run_key, "reverse.settled", { callId: call.id });
       return { peerId, revoked: true };
     })
@@ -183,18 +189,20 @@ function sourceBindings(owner: string): Binding[] {
     )
     .all(owner) as MCPConnection[];
   return rows.flatMap((connection) =>
-    ToolSchema.array().parse(JSON.parse(connection.tools)).map((tool) => ({
-      name:
-        "shared_" +
-        hash(JSON.stringify([connection.id, tool.name])).slice(0, 24),
-      connectionId: connection.id,
-      tool: tool.name,
-      description: `${connection.name}: ${String(tool.description || tool.name).slice(0, 1500)}`,
-      inputSchema: tool.inputSchema,
-      github: isGithubMcpUrl(connection.url),
-      // Shared GitHub merges follow the executing owner's approval policy too.
-      alwaysAsk: false,
-    })),
+    ToolSchema.array()
+      .parse(JSON.parse(connection.tools))
+      .map((tool) => ({
+        name:
+          "shared_" +
+          hash(JSON.stringify([connection.id, tool.name])).slice(0, 24),
+        connectionId: connection.id,
+        tool: tool.name,
+        description: `${connection.name}: ${String(tool.description || tool.name).slice(0, 1500)}`,
+        inputSchema: tool.inputSchema,
+        github: isGithubMcpUrl(connection.url),
+        // Shared GitHub merges follow the executing owner's approval policy too.
+        alwaysAsk: false,
+      })),
   );
 }
 export function localFederationCatalog(owner: string) {
@@ -280,12 +288,17 @@ async function call(
     .prepare(
       "SELECT * FROM mcp_federation_calls WHERE peer_id=? AND run_key=? AND request_key=?",
     )
-    .get(peer.id, runKey, requestKey) as QueryRow<"mcp_federation_calls"> | undefined;
+    .get(peer.id, runKey, requestKey) as
+    QueryRow<"mcp_federation_calls"> | undefined;
   if (saved) {
     if (saved.tool_name !== name || saved.args !== encodedArgs)
       throw new Problem(409, "Shared tool call identity was reused");
     if (saved.state === "completed") {
-      if (saved.result === null) throw new Problem(409, `Shared tool call ${saved.id} has no saved result`);
+      if (saved.result === null)
+        throw new Problem(
+          409,
+          `Shared tool call ${saved.id} has no saved result`,
+        );
       return JSON.parse(saved.result);
     }
     throw new Problem(
@@ -327,9 +340,7 @@ async function call(
     );
     const clean = redactCredentials(response, [
       readSecret(connection),
-      readSecret(
-        ownedMcpConnection(connection.id, peer.owner_id),
-      ),
+      readSecret(ownedMcpConnection(connection.id, peer.owner_id)),
     ]);
     const result = JSON.stringify(clean);
     if (Buffer.byteLength(result) > 4 * 1024 * 1024)
@@ -389,13 +400,15 @@ export async function handleFederationMcp(
       throw new Problem(400, "Shared tool run identity required");
     if (typeof callKey !== "string" || !callKey || callKey.length > 200)
       throw new Problem(400, "Shared tool call identity required");
-    return CallToolResultSchema.parse(await call(
-      peer,
-      runKey,
-      callKey,
-      request.params.name,
-      request.params.arguments || {},
-    ));
+    return CallToolResultSchema.parse(
+      await call(
+        peer,
+        runKey,
+        callKey,
+        request.params.name,
+        request.params.arguments || {},
+      ),
+    );
   });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,

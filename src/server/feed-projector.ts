@@ -10,7 +10,12 @@ import {
   threadDetails,
   type ThreadDetails,
 } from "./feed-card-details.js";
-import { displayFeedCard, feedCardTitle, feedMessagePrefix, type FeedCardDetail } from "./feed-card-display.js";
+import {
+  displayFeedCard,
+  feedCardTitle,
+  feedMessagePrefix,
+  type FeedCardDetail,
+} from "./feed-card-display.js";
 
 export type StoredCard = {
   row: SourceRow;
@@ -33,9 +38,13 @@ function threadDisplayRow(row: SourceRow): SourceRow {
   // Result and idle rows retain complete content for the Cards detail reader.
   return {
     ...row,
-    card_title: (row.card_run_input?.length ?? 0) > 1000 ? feedCardTitle(row) : undefined,
+    card_title:
+      (row.card_run_input?.length ?? 0) > 1000 ? feedCardTitle(row) : undefined,
     card_run_input: row.card_run_input?.slice(0, 1000) ?? null,
-    message_content: row.message_content === null ? null : feedMessagePrefix(row.message_content),
+    message_content:
+      row.message_content === null
+        ? null
+        : feedMessagePrefix(row.message_content),
     message_metadata: null,
   };
 }
@@ -139,15 +148,23 @@ export function projectFeed(db: Database.Database, emit: Emit) {
       // indexed columns would still rewrite their B-tree pages in SQLite.
       const columns = Object.keys(values) as (keyof typeof values)[];
       const identity = { owner, conversation, kind, key };
-      const previous = db.prepare(`SELECT ${columns.join(",")} FROM feed_cards
-        WHERE owner_id=@owner AND conversation_id=@conversation AND kind=@kind AND card_key=@key`)
+      const previous = db
+        .prepare(
+          `SELECT ${columns.join(",")} FROM feed_cards
+        WHERE owner_id=@owner AND conversation_id=@conversation AND kind=@kind AND card_key=@key`,
+        )
         .get(identity) as typeof values | undefined;
-      const changedColumns = previous ? columns.filter(column => previous[column] !== values[column]) : columns;
+      const changedColumns = previous
+        ? columns.filter((column) => previous[column] !== values[column])
+        : columns;
       if (!changedColumns.length) return;
       const changed = previous
-        ? db.prepare(`UPDATE feed_cards SET ${changedColumns.map(column => `${column}=@${column}`).join(",")}
-          WHERE owner_id=@owner AND conversation_id=@conversation AND kind=@kind AND card_key=@key`)
-          .run({ ...identity, ...values }).changes
+        ? db
+            .prepare(
+              `UPDATE feed_cards SET ${changedColumns.map((column) => `${column}=@${column}`).join(",")}
+          WHERE owner_id=@owner AND conversation_id=@conversation AND kind=@kind AND card_key=@key`,
+            )
+            .run({ ...identity, ...values }).changes
         : insert.run({ ...identity, ...values }).changes;
       if (changed) {
         // Snapshot clients invalidate the collection; the bounded card also
@@ -180,7 +197,8 @@ export function projectFeed(db: Database.Database, emit: Emit) {
           // page. Larger displays retain the scoped reconciliation signal;
           // the HTTP page delta supplies the complete current display.
           card:
-            Buffer.byteLength(JSON.stringify(display)) <= (kind === "thread" ? 3_000 : 60_000)
+            Buffer.byteLength(JSON.stringify(display)) <=
+            (kind === "thread" ? 3_000 : 60_000)
               ? display
               : null,
         });
@@ -233,10 +251,21 @@ export function projectFeed(db: Database.Database, emit: Emit) {
     // those threads have no observable idle fallback. Approval timestamps are
     // deliberately excluded: their expiry must reveal an idle without a write.
     // The same applies while historical results replace the idle fallback.
-    if (row.needs_run || row.is_working || row.has_queued || row.snoozed ||
-      db.prepare("SELECT 1 FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' LIMIT 1")
-        .get(owner, conversation)) {
-      for (const old of db.prepare("SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='idle'")
+    if (
+      row.needs_run ||
+      row.is_working ||
+      row.has_queued ||
+      row.snoozed ||
+      db
+        .prepare(
+          "SELECT 1 FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' LIMIT 1",
+        )
+        .get(owner, conversation)
+    ) {
+      for (const old of db
+        .prepare(
+          "SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='idle'",
+        )
         .all(owner, conversation) as { card_key: string }[])
         remove("idle", old.card_key);
     } else {

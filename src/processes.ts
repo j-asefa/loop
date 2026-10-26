@@ -7,7 +7,8 @@ const identities = new WeakMap<ChildProcess, string>();
 /** Only call for children launched detached by Loop: their process group is ours. */
 export function killOwned(child: ChildProcess, signal: NodeJS.Signals) {
   if (!child.pid) return;
-  const recorded = identities.get(child), live = identity(child.pid);
+  const recorded = identities.get(child),
+    live = identity(child.pid);
   if (recorded && live && recorded !== live) return;
   try {
     process.kill(-child.pid, signal);
@@ -21,7 +22,9 @@ export function killOwned(child: ChildProcess, signal: NodeJS.Signals) {
 let registry: string | undefined;
 const owned = new Map<number, string>();
 let stopping = false;
-export function stopOwnedProcessLaunches() { stopping = true; }
+export function stopOwnedProcessLaunches() {
+  stopping = true;
+}
 function persist() {
   if (registry)
     atomic(
@@ -57,18 +60,26 @@ export function own(child: ChildProcess) {
 /** The worker is a process-group leader. Stop its non-detached subprocesses
  * while that leader still proves ownership; detached natives use the registry. */
 export async function stopAttachedChildren() {
-  const members = () => groupMembers(process.pid).filter(pid => pid !== process.pid);
+  const members = () =>
+    groupMembers(process.pid).filter((pid) => pid !== process.pid);
   const end = Date.now() + 2000;
   let signal: NodeJS.Signals = "SIGTERM";
   while (members().length) {
     for (const pid of members()) {
       const recorded = { pid, identity: identity(pid) || "" };
       if (processState(recorded) === "running" && members().includes(pid)) {
-        try { process.kill(pid, signal); } catch { /* exited */ }
+        try {
+          process.kill(pid, signal);
+        } catch {
+          /* exited */
+        }
       }
     }
-    if (Date.now() >= end) throw new Error("Worker subprocesses did not stop; ownership records are retained.");
-    await new Promise(resolve => setTimeout(resolve, 100));
+    if (Date.now() >= end)
+      throw new Error(
+        "Worker subprocesses did not stop; ownership records are retained.",
+      );
+    await new Promise((resolve) => setTimeout(resolve, 100));
     signal = "SIGKILL";
   }
 }

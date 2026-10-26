@@ -2,7 +2,11 @@ import { readdir, readFile, copyFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { db, id, now } from "./db.js";
-import { nativeSessions, OWNER, prepareImportedWorkspace } from "./native-sessions.js";
+import {
+  nativeSessions,
+  OWNER,
+  prepareImportedWorkspace,
+} from "./native-sessions.js";
 import { control } from "../host-control.js";
 import { config } from "./config.js";
 import type { Options } from "../adapters/types.js";
@@ -10,36 +14,90 @@ import { Harness, type Item } from "../protocol.js";
 import { Problem } from "./domain.js";
 import type { AgentWorkspace } from "./agent-worktree.js";
 
-type PreparedImport = { agent: string; project: string; workspace: AgentWorkspace };
+type PreparedImport = {
+  agent: string;
+  project: string;
+  workspace: AgentWorkspace;
+};
 const preparingImports = new Map<string, Promise<PreparedImport>>();
 // Prepare before the result-import transaction or an external fork.
-export async function prepareImportSession(options: Options, kind: "fork" | "desktop", importKey: string, source: string): Promise<PreparedImport> {
+export async function prepareImportSession(
+  options: Options,
+  kind: "fork" | "desktop",
+  importKey: string,
+  source: string,
+): Promise<PreparedImport> {
   const project = nativeSessions.directory(options.project);
   // Commit the identity before creating files. Retries and concurrent handoffs
   // reuse it, and an uncertain fork retains its workspace under the command ID.
-  const row = db.transaction(() => {
-    const previous = db.prepare("SELECT harness,project,source FROM native_import_workspaces WHERE owner_id=? AND kind=? AND import_key=? LIMIT 1")
-      .get(OWNER, kind, importKey) as { harness: string; project: string; source: string } | undefined;
-    if (previous && previous.source !== source)
-      throw new Problem(409, "Command identity belongs to another conversation");
-    if (previous && (previous.harness !== options.harness || previous.project !== project))
-      throw new Problem(409, "This native import was prepared for a different harness or directory. Use its original destination.");
-    db.prepare("INSERT OR IGNORE INTO native_import_workspaces(owner_id,kind,import_key,source,harness,project,agent_id,created_at) VALUES(?,?,?,?,?,?,?,?)")
-      .run(OWNER, kind, importKey, source, options.harness, project, id(), now());
-    const saved = db.prepare("SELECT agent_id,workspace FROM native_import_workspaces WHERE owner_id=? AND kind=? AND import_key=? AND imported_at IS NULL")
-      .get(OWNER, kind, importKey) as { agent_id: string; workspace: string | null };
-    return saved;
-  }).immediate();
+  const row = db
+    .transaction(() => {
+      const previous = db
+        .prepare(
+          "SELECT harness,project,source FROM native_import_workspaces WHERE owner_id=? AND kind=? AND import_key=? LIMIT 1",
+        )
+        .get(OWNER, kind, importKey) as
+        { harness: string; project: string; source: string } | undefined;
+      if (previous && previous.source !== source)
+        throw new Problem(
+          409,
+          "Command identity belongs to another conversation",
+        );
+      if (
+        previous &&
+        (previous.harness !== options.harness || previous.project !== project)
+      )
+        throw new Problem(
+          409,
+          "This native import was prepared for a different harness or directory. Use its original destination.",
+        );
+      db.prepare(
+        "INSERT OR IGNORE INTO native_import_workspaces(owner_id,kind,import_key,source,harness,project,agent_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+      ).run(
+        OWNER,
+        kind,
+        importKey,
+        source,
+        options.harness,
+        project,
+        id(),
+        now(),
+      );
+      const saved = db
+        .prepare(
+          "SELECT agent_id,workspace FROM native_import_workspaces WHERE owner_id=? AND kind=? AND import_key=? AND imported_at IS NULL",
+        )
+        .get(OWNER, kind, importKey) as {
+        agent_id: string;
+        workspace: string | null;
+      };
+      return saved;
+    })
+    .immediate();
   const key = row.agent_id;
   const pending = preparingImports.get(key);
   if (pending) return pending;
   const preparation = (async () => {
-    const expected = row.workspace === null ? undefined : JSON.parse(row.workspace) as AgentWorkspace;
-    const workspace = await prepareImportedWorkspace(project, row.agent_id, options.harness, expected);
-    const published = db.prepare("UPDATE native_import_workspaces SET workspace=? WHERE owner_id=? AND agent_id=? AND workspace IS ? AND imported_at IS NULL")
+    const expected =
+      row.workspace === null
+        ? undefined
+        : (JSON.parse(row.workspace) as AgentWorkspace);
+    const workspace = await prepareImportedWorkspace(
+      project,
+      row.agent_id,
+      options.harness,
+      expected,
+    );
+    const published = db
+      .prepare(
+        "UPDATE native_import_workspaces SET workspace=? WHERE owner_id=? AND agent_id=? AND workspace IS ? AND imported_at IS NULL",
+      )
       .run(JSON.stringify(workspace), OWNER, row.agent_id, row.workspace);
     if (!published.changes)
-      throw new Problem(409, "The native import workspace changed during preparation. Retry with its saved binding.");
+      throw new Problem(
+        409,
+        "The native import workspace changed during preparation. Retry with its saved binding.",
+      );
     return { agent: row.agent_id, project, workspace };
   })();
   preparingImports.set(key, preparation);
@@ -63,17 +121,36 @@ export function importSession(
     )
     .get(options.harness, nativeId) as any;
   if (existing) {
-    if (prepared && (existing.project !== prepared.workspace.directory ||
+    if (
+      prepared &&
+      (existing.project !== prepared.workspace.directory ||
         existing.worktree_source !== prepared.workspace.worktreeSource ||
-        existing.worktree_agent_id !== prepared.agent))
-      throw new Problem(409, "This native session was imported into a different workspace. Open its existing conversation or start a new native session.");
+        existing.worktree_agent_id !== prepared.agent)
+    )
+      throw new Problem(
+        409,
+        "This native session was imported into a different workspace. Open its existing conversation or start a new native session.",
+      );
     return existing.conversation_id as string;
   }
   if (prepared) {
-    const consumed = db.prepare("UPDATE native_import_workspaces SET imported_at=? WHERE owner_id=? AND agent_id=? AND project=? AND harness=? AND workspace=? AND imported_at IS NULL")
-      .run(now(), OWNER, prepared.agent, prepared.project, options.harness, JSON.stringify(prepared.workspace));
+    const consumed = db
+      .prepare(
+        "UPDATE native_import_workspaces SET imported_at=? WHERE owner_id=? AND agent_id=? AND project=? AND harness=? AND workspace=? AND imported_at IS NULL",
+      )
+      .run(
+        now(),
+        OWNER,
+        prepared.agent,
+        prepared.project,
+        options.harness,
+        JSON.stringify(prepared.workspace),
+      );
     if (!consumed.changes)
-      throw new Problem(409, "The native import workspace changed or was already imported. Retry the handoff with a fresh preparation.");
+      throw new Problem(
+        409,
+        "The native import workspace changed or was already imported. Retry the handoff with a fresh preparation.",
+      );
   }
   const agent = prepared?.agent ?? id(),
     conversation = id(),
@@ -82,7 +159,10 @@ export function importSession(
   // Fresh handoffs and forks need the same pinned workspace as new chats.
   // Backups retain their legacy directory and remain read-only until the user
   // starts a new conversation; migration must not fetch or move native context.
-  const workspace = prepared?.workspace ?? { directory: project, worktreeSource: null };
+  const workspace = prepared?.workspace ?? {
+    directory: project,
+    worktreeSource: null,
+  };
   const folder = nativeSessions.addProject(project) as any;
   const connection = db
     .prepare("SELECT id FROM connections WHERE id=?")
@@ -106,8 +186,15 @@ export function importSession(
   ).run(conversation, OWNER, agent, title, now());
   db.prepare(
     "INSERT INTO companion_sessions(conversation_id,harness,native_id,project,state,updated_at,worktree_source,worktree_agent_id) VALUES(?,?,?,?,'disconnected',?,?,?)",
-  ).run(conversation, options.harness, nativeId, workspace.directory, now(),
-    workspace.worktreeSource, prepared ? agent : null);
+  ).run(
+    conversation,
+    options.harness,
+    nativeId,
+    workspace.directory,
+    now(),
+    workspace.worktreeSource,
+    prepared ? agent : null,
+  );
   for (const item of items.slice(-2000)) {
     if (!item || typeof item.text !== "string") continue;
     db.prepare("INSERT OR IGNORE INTO native_items VALUES(?,?,NULL,?,?)").run(
@@ -134,18 +221,36 @@ export function importSession(
 export async function resumeFromDesktop(options: Options, nativeId: string) {
   if (!nativeId || nativeId.length > 4096)
     throw new Error("Invalid native session identifier");
-  const existing = db.prepare("SELECT conversation_id,project,worktree_agent_id,COALESCE(worktree_source,project) AS source FROM companion_sessions WHERE harness=? AND native_id=?")
-    .get(options.harness, nativeId) as { conversation_id: string; project: string; worktree_agent_id: string | null; source: string } | undefined;
+  const existing = db
+    .prepare(
+      "SELECT conversation_id,project,worktree_agent_id,COALESCE(worktree_source,project) AS source FROM companion_sessions WHERE harness=? AND native_id=?",
+    )
+    .get(options.harness, nativeId) as
+    | {
+        conversation_id: string;
+        project: string;
+        worktree_agent_id: string | null;
+        source: string;
+      }
+    | undefined;
   // Legacy bindings reopen read-only history even when their raw directory
   // used an alias or has moved. Dispatch still requires a verified binding.
   if (existing && !existing.worktree_agent_id) return existing.conversation_id;
   const project = nativeSessions.directory(options.project);
   if (existing) {
     if (existing.source !== project && existing.project !== project)
-      throw new Problem(409, "This native session is already bound to a different directory. Open its existing conversation or start a new native session.");
+      throw new Problem(
+        409,
+        "This native session is already bound to a different directory. Open its existing conversation or start a new native session.",
+      );
     return existing.conversation_id;
   }
-  const prepared = await prepareImportSession({ ...options, project }, "desktop", JSON.stringify([options.harness, nativeId, project]), nativeId);
+  const prepared = await prepareImportSession(
+    { ...options, project },
+    "desktop",
+    JSON.stringify([options.harness, nativeId, project]),
+    nativeId,
+  );
   return db
     .transaction(() =>
       importSession(options, nativeId, [], "Native session handoff", prepared),

@@ -402,17 +402,35 @@ export function listCards(owner: string, input: unknown) {
   const observedAt = now();
   // Folder closure and team membership are mutable selection state too. Read
   // the watermark before resolving them so a concurrent move is replayed.
-  const revision = options.view === "done"
-    ? (db.prepare("SELECT COALESCE(max(revision),0) revision FROM done_card_revisions WHERE owner_id=?").get(owner) as {revision: number}).revision
-    : resultsRevision(owner);
+  const revision =
+    options.view === "done"
+      ? (
+          db
+            .prepare(
+              "SELECT COALESCE(max(revision),0) revision FROM done_card_revisions WHERE owner_id=?",
+            )
+            .get(owner) as { revision: number }
+        ).revision
+      : resultsRevision(owner);
   const selected = selection(owner, options),
     scope = fingerprint(owner, selected);
   const before = readBefore(options.before, scope);
   if (options.view === "done") {
-    const found = doneCards(owner, {...selected, before, limit: options.limit + 1, atTime: observedAt});
+    const found = doneCards(owner, {
+      ...selected,
+      before,
+      limit: options.limit + 1,
+      atTime: observedAt,
+    });
     const items = found.slice(0, options.limit);
-    return {revision: encode([scope, revision, observedAt, ""]), items,
-      next: found.length > options.limit ? encode([scope, items.at(-1)!.order]) : null};
+    return {
+      revision: encode([scope, revision, observedAt, ""]),
+      items,
+      next:
+        found.length > options.limit
+          ? encode([scope, items.at(-1)!.order])
+          : null,
+    };
   }
   const found = rows(owner, selected, { before, limit: options.limit + 1 });
   const items = found
@@ -436,7 +454,13 @@ export function cardDetail(
     throw new Problem(404, "Card not found");
   if (id.startsWith("d:")) {
     if (scope) throw new Problem(404, "Card not found");
-    const found = doneCards(owner, {folders: null, teamIds: [], ids: [id], limit: 1, detail: true});
+    const found = doneCards(owner, {
+      folders: null,
+      teamIds: [],
+      ids: [id],
+      limit: 1,
+      detail: true,
+    });
     if (!found.length) throw new Problem(404, "Card not found");
     return found[0].card;
   }
@@ -455,20 +479,41 @@ export function cardChanges(owner: string, input: unknown) {
   const options = CardChangesQuerySchema.parse(input);
   if (options.through !== undefined && options.view !== "results")
     throw new Problem(400, "through is a Results publication bound only");
-  const revision = options.view === "done"
-    ? (db.prepare("SELECT COALESCE(max(revision),0) revision FROM done_card_revisions WHERE owner_id=?").get(owner) as {revision: number}).revision
-    : resultsRevision(owner);
+  const revision =
+    options.view === "done"
+      ? (
+          db
+            .prepare(
+              "SELECT COALESCE(max(revision),0) revision FROM done_card_revisions WHERE owner_id=?",
+            )
+            .get(owner) as { revision: number }
+        ).revision
+      : resultsRevision(owner);
   const selected = selection(owner, options),
     scope = fingerprint(owner, selected);
   const observedAt = now();
-  let expiryAt = observedAt, expiryId = "";
+  let expiryAt = observedAt,
+    expiryId = "";
   let after: number;
   if (options.view === "done") {
     try {
-      const value = z.tuple([z.string(), z.number().int().nonnegative(), z.number().int().nonnegative(), z.string()]).parse(decode(options.after));
-      if (value[0] !== scope || value[1] > revision) throw new Error("Different domain");
+      const value = z
+        .tuple([
+          z.string(),
+          z.number().int().nonnegative(),
+          z.number().int().nonnegative(),
+          z.string(),
+        ])
+        .parse(decode(options.after));
+      if (value[0] !== scope || value[1] > revision)
+        throw new Error("Different domain");
       [, after, expiryAt, expiryId] = value;
-    } catch { throw new Problem(409, "Resynchronization required: reload this card selection"); }
+    } catch {
+      throw new Problem(
+        409,
+        "Resynchronization required: reload this card selection",
+      );
+    }
   } else after = readRevision(options.after, scope, revision);
   // Scan all entities for this owner, including irrelevant candidates, to make
   // progress through removals. Both prompt/message entities map to one identity.
@@ -487,7 +532,10 @@ export function cardChanges(owner: string, input: unknown) {
     // second, bounded cursor so timestamp ties and revision backlogs cannot
     // skip those transitions or require an unbounded refresh.
     const remaining = 200 - changed.length;
-    const expired = remaining ? db.prepare(`WITH expired_watches AS (
+    const expired = remaining
+      ? (db
+          .prepare(
+            `WITH expired_watches AS (
       SELECT conversation_id,updated_at+604800000 at FROM pr_watches
       WHERE owner_id=@owner AND state='stopped' AND updated_at+604800000>=@afterAt
         AND updated_at+604800000<=@now
@@ -501,17 +549,45 @@ export function cardChanges(owner: string, input: unknown) {
         ON m.conversation_id=w.conversation_id AND m.owner_id=@owner
       UNION SELECT w.at,'d:idle:'||w.conversation_id FROM expired_watches w
     ) SELECT key id,at,key FROM expiries WHERE (at,key)>(@afterAt,@afterId)
-      ORDER BY at,key LIMIT @limit`).all({owner,afterAt:expiryAt,afterId:expiryId,now:observedAt,limit:remaining+1}) as {id: string; at: number; key: string}[] : [];
+      ORDER BY at,key LIMIT @limit`,
+          )
+          .all({
+            owner,
+            afterAt: expiryAt,
+            afterId: expiryId,
+            now: observedAt,
+            limit: remaining + 1,
+          }) as { id: string; at: number; key: string }[])
+      : [];
     const pendingExpiry = !remaining || expired.length > remaining;
     const page = expired.slice(0, remaining);
     const last = page.at(-1);
-    const ids = [...new Set([...changed.filter(row => row.entity === "done").map(row => row.object_id), ...page.map(row => row.key)])];
-    const items = doneCards(owner, {...selected, ids, limit: 200, atTime: observedAt});
-    const present = new Set(items.map(item => item.card.id));
-    return {revision: encode([scope, changed.length === 200 ? changed.at(-1)!.revision : revision,
-      pendingExpiry ? last?.at ?? expiryAt : observedAt,
-      pendingExpiry ? last?.id ?? expiryId : ""]),
-      items, removed: ids.filter(id => !present.has(id)), more: changed.length === 200 || pendingExpiry};
+    const ids = [
+      ...new Set([
+        ...changed
+          .filter((row) => row.entity === "done")
+          .map((row) => row.object_id),
+        ...page.map((row) => row.key),
+      ]),
+    ];
+    const items = doneCards(owner, {
+      ...selected,
+      ids,
+      limit: 200,
+      atTime: observedAt,
+    });
+    const present = new Set(items.map((item) => item.card.id));
+    return {
+      revision: encode([
+        scope,
+        changed.length === 200 ? changed.at(-1)!.revision : revision,
+        pendingExpiry ? (last?.at ?? expiryAt) : observedAt,
+        pendingExpiry ? (last?.id ?? expiryId) : "",
+      ]),
+      items,
+      removed: ids.filter((id) => !present.has(id)),
+      more: changed.length === 200 || pendingExpiry,
+    };
   }
   const artifacts = new Set(
     changed.filter((r) => r.entity === "artifact").map((r) => r.object_id),

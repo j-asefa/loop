@@ -64,9 +64,7 @@ async function discover() {
     return [];
   }
   const found = await Promise.all(ids.map(inspect));
-  const items = found.filter(
-    (item): item is LinkedDockerWorkspace => !!item,
-  );
+  const items = found.filter((item): item is LinkedDockerWorkspace => !!item);
   cached = { at: Date.now(), items };
   return items;
 }
@@ -126,10 +124,12 @@ async function inspect(id: string): Promise<LinkedDockerWorkspace | null> {
 // Only the discovered local server decides its owner. No browser credential,
 // URL, command or arbitrary header crosses this read-only source connection.
 export async function connectLinkedDockerEvents(
-  socket: WebSocket, sourceId: string, query: URLSearchParams,
+  socket: WebSocket,
+  sourceId: string,
+  query: URLSearchParams,
 ) {
   const workspace = (await linkedDockerWorkspaces()).find(
-    item => item.id === sourceId || item.containerId === sourceId,
+    (item) => item.id === sourceId || item.containerId === sourceId,
   );
   if (socket.readyState !== WebSocket.OPEN) return;
   if (!workspace) {
@@ -141,8 +141,11 @@ export async function connectLinkedDockerEvents(
   for (const key of ["epoch", "cursor", "v", "clock", "projection"])
     if (query.has(key)) url.searchParams.set(key, query.get(key)!);
   const upstream = new WebSocket(url, {
-    origin, handshakeTimeout: 10_000, maxPayload: 8 * 1024 * 1024,
-    perMessageDeflate: false, followRedirects: false,
+    origin,
+    handshakeTimeout: 10_000,
+    maxPayload: 8 * 1024 * 1024,
+    perMessageDeflate: false,
+    followRedirects: false,
   });
   upstream.on("message", (data, binary) => {
     if (socket.readyState !== WebSocket.OPEN) return;
@@ -151,7 +154,8 @@ export async function connectLinkedDockerEvents(
       upstream.terminate();
     } else socket.send(data.toString());
   });
-  const unavailable = () => socket.close(1013, "Execution source updates unavailable");
+  const unavailable = () =>
+    socket.close(1013, "Execution source updates unavailable");
   upstream.on("error", unavailable);
   upstream.on("close", unavailable);
   socket.once("close", () => upstream.terminate());

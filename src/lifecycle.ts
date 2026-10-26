@@ -7,12 +7,19 @@ import { atomic } from "./state.js";
 const DARWIN_IDENTITY = "darwin-utc:";
 function psIdentity(pid: number, normalized = false) {
   try {
-    return execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
-      encoding: "utf8", timeout: 3000,
-      env: normalized ? { ...process.env, LC_ALL: "C", TZ: "UTC" } : process.env,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim() || undefined;
-  } catch { return undefined; }
+    return (
+      execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
+        encoding: "utf8",
+        timeout: 3000,
+        env: normalized
+          ? { ...process.env, LC_ALL: "C", TZ: "UTC" }
+          : process.env,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() || undefined
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 /** Boot and start time of a live process; undefined when it can't be read. */
@@ -28,14 +35,19 @@ export function identity(pid: number): string | undefined {
       );
     }
     const value = psIdentity(pid, process.platform === "darwin");
-    return value && (process.platform === "darwin" ? DARWIN_IDENTITY + value : value);
+    return (
+      value && (process.platform === "darwin" ? DARWIN_IDENTITY + value : value)
+    );
   } catch {
     return undefined;
   }
 }
 /** Legacy macOS timestamps have no locale or timezone. A mismatch is not proof
  * of PID reuse; only the normalized format supports that inference. */
-export function processIdentityState(pid: number, expected: string): "same" | "different" | "unknown" {
+export function processIdentityState(
+  pid: number,
+  expected: string,
+): "same" | "different" | "unknown" {
   const live = identity(pid);
   if (!live || !expected) return "unknown";
   if (live === expected) return "same";
@@ -67,14 +79,18 @@ function dead(owner: Owner) {
   if (process.platform === "linux") {
     try {
       const stat = readFileSync(`/proc/${owner.pid}/stat`, "utf8");
-      if (stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0] === "Z") return true;
-    } catch { /* Identity verification below remains conservative. */ }
+      if (stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0] === "Z")
+        return true;
+    } catch {
+      /* Identity verification below remains conservative. */
+    }
   }
   return processIdentityState(owner.pid, owner.identity) === "different";
 }
 const WORKSPACE_LOCK = {
   name: "host.lock",
-  owner: "Another Loop host is starting or running. Wait for it, then run loop again; no process was stopped.",
+  owner:
+    "Another Loop host is starting or running. Wait for it, then run loop again; no process was stopped.",
 };
 /** Complete records are installed atomically. A separate recovery lock serializes stale takeover. */
 export function workspaceLock(

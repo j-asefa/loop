@@ -109,7 +109,9 @@ export function previewWatch(owner: string, body: unknown) {
   const d = checked(owner, body);
   const terms = watchTerms(d.query);
   return {
-    stories: candidates(owner, d.feeds ?? null, 0, ({ story }) => matchesWatch(terms, story))
+    stories: candidates(owner, d.feeds ?? null, 0, ({ story }) =>
+      matchesWatch(terms, story),
+    )
       .slice(0, 10)
       .map(({ feed, story }) => ({
         feed,

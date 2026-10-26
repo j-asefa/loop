@@ -75,12 +75,15 @@ export type FeedCardDetail = {
 const collapse = (text: string | null | undefined, max: number) =>
   (text || "").replace(/\s+/g, " ").trim().slice(0, max);
 export function feedCardTitle(row: FeedRow) {
-  return row.card_title ??
-    ((row.card_run_state && collapse(row.card_run_input, 200)) || row.title);
+  return (
+    row.card_title ??
+    ((row.card_run_state && collapse(row.card_run_input, 200)) || row.title)
+  );
 }
 export function feedMessagePrefix(text: string) {
   // Match SQLite substr: its limit counts Unicode code points, not UTF-16.
-  let value = "", count = 0;
+  let value = "",
+    count = 0;
   for (const point of text) {
     if (count++ === 1000) break;
     value += point;

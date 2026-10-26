@@ -11,7 +11,13 @@ import Ajv from "ajv";
 import Ajv2019 from "ajv/dist/2019.js";
 import Ajv2020 from "ajv/dist/2020.js";
 import { db, id, now, emit } from "../db.js";
-import { ownedAgent, ownedMcpConnection, ownedApproval, ownedRun, Problem } from "../domain.js";
+import {
+  ownedAgent,
+  ownedMcpConnection,
+  ownedApproval,
+  ownedRun,
+  Problem,
+} from "../domain.js";
 import { type Run, transition } from "../queue.js";
 
 import { requestApproval } from "../approvals.js";
@@ -105,7 +111,8 @@ export function loopHints(
 ) {
   let federated = false;
   try {
-    federated = JSON.parse(connection.metadata || "{}").transport === "federation";
+    federated =
+      JSON.parse(connection.metadata || "{}").transport === "federation";
   } catch {
     // Unreadable metadata grants no hints.
   }
@@ -166,7 +173,10 @@ export async function invokeTool(
     throw new Problem(409, "Tool call identity was reused for different input");
   if (invocation && ["completed", "failed"].includes(invocation.state)) {
     if (invocation.result === null || invocation.artifact_id === null)
-      throw new Problem(409, `Tool invocation ${invocation.id} has no saved result`);
+      throw new Problem(
+        409,
+        `Tool invocation ${invocation.id} has no saved result`,
+      );
     return {
       result: JSON.parse(invocation.result),
       artifactId: invocation.artifact_id,
@@ -183,8 +193,7 @@ export async function invokeTool(
     .transaction(() => {
       // Permission comes from the owner's saved policy, never server-provided hints.
       const automaticallyAllowed =
-        mcpApprovalMode(run.owner_id) === "allow" &&
-        !authorized.alwaysAsk;
+        mcpApprovalMode(run.owner_id) === "allow" && !authorized.alwaysAsk;
       let approval = invocation?.approval_id
         ? ownedApproval(invocation.approval_id, run.owner_id)
         : null;
@@ -217,9 +226,11 @@ export async function invokeTool(
           approval.id,
           now(),
         );
-        invocation = QueryRecords.tool_invocations.parse(db
-          .prepare("SELECT * FROM tool_invocations WHERE id=?")
-          .get(invocationId));
+        invocation = QueryRecords.tool_invocations.parse(
+          db
+            .prepare("SELECT * FROM tool_invocations WHERE id=?")
+            .get(invocationId),
+        );
       }
       if (
         approval.state === "pending" &&
@@ -308,9 +319,7 @@ export async function invokeTool(
       redactCredentials(value, [
         readSecret(connection),
         // OAuth may rotate credentials during a tool call.
-        readSecret(
-          ownedMcpConnection(connection.id, run.owner_id),
-        ),
+        readSecret(ownedMcpConnection(connection.id, run.owner_id)),
       ]);
     const encoded = JSON.stringify(redact(result));
     if (encoded.length > 4 * 1024 * 1024)
@@ -367,12 +376,17 @@ export async function invokeTool(
         return artifactId;
       })
       .immediate();
-    if (binding.tool === "create_pull_request" && isGithubMcpUrl(connection.url)) {
+    if (
+      binding.tool === "create_pull_request" &&
+      isGithubMcpUrl(connection.url)
+    ) {
       const pr = createdPullRequest(result, args);
       // The external create has already succeeded. Registration must never
       // turn its known result into an uncertain tool failure.
       if (pr) {
-        try { (await import("../pr-watches.js")).watchCreatedPullRequest(run, pr); } catch {}
+        try {
+          (await import("../pr-watches.js")).watchCreatedPullRequest(run, pr);
+        } catch {}
       }
     }
     emit(run.owner_id, run.id, toolFailed ? "tool.failed" : "tool.completed", {
@@ -401,9 +415,7 @@ export async function invokeTool(
     try {
       const secrets = [
         readSecret(connection),
-        readSecret(
-          ownedMcpConnection(connection.id, run.owner_id),
-        ),
+        readSecret(ownedMcpConnection(connection.id, run.owner_id)),
       ];
       cause = diagnosticText(
         redactCredentials(

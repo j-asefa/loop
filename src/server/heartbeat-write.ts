@@ -13,10 +13,17 @@ export function heartbeatWrite(label: string, write: () => unknown) {
     return true;
   } catch (error) {
     const code = (error as { code?: string })?.code;
-    if (code !== "SQLITE_BUSY" && !code?.startsWith("SQLITE_BUSY_")) throw error;
+    if (code !== "SQLITE_BUSY" && !code?.startsWith("SQLITE_BUSY_"))
+      throw error;
     if (!delayed.has(label)) {
       delayed.add(label);
-      console.warn(JSON.stringify({ diagnostic: "heartbeat-delayed", heartbeat: label, code }));
+      console.warn(
+        JSON.stringify({
+          diagnostic: "heartbeat-delayed",
+          heartbeat: label,
+          code,
+        }),
+      );
     }
     return false;
   } finally {

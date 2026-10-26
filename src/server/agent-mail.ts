@@ -1,9 +1,13 @@
 import { registrar } from "./registrar.js";
-import { readRunConnectionId, maybeConnection, maybeRunNotice, InvalidRow, type RunNotice } from "./row-schemas.js";
-
+import {
+  readRunConnectionId,
+  maybeConnection,
+  maybeRunNotice,
+  InvalidRow,
+  type RunNotice,
+} from "./row-schemas.js";
 
 import { READABLE_MAIL_SQL } from "./mail-context.js";
-
 
 import {
   messageSchema,
@@ -16,7 +20,13 @@ export {
   statusSchema,
 } from "./agent-mail-schema.js";
 import { db, emit, id, now } from "./db.js";
-import { ownedAgent, ownedTeam, ownedRun, ownedRunNotice, Problem } from "./domain.js";
+import {
+  ownedAgent,
+  ownedTeam,
+  ownedRun,
+  ownedRunNotice,
+  Problem,
+} from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import {
   authorizeMail,
@@ -133,7 +143,11 @@ function runtimeOf(owner: string, connectionId: string | null | undefined) {
   let connection;
   try {
     connection = connectionId
-      ? maybeConnection(db.prepare("SELECT * FROM connections WHERE id=? AND owner_id=?").get(connectionId, owner))
+      ? maybeConnection(
+          db
+            .prepare("SELECT * FROM connections WHERE id=? AND owner_id=?")
+            .get(connectionId, owner),
+        )
       : undefined;
   } catch (error) {
     if (!(error instanceof InvalidRow)) throw error;
@@ -175,10 +189,7 @@ export function teamRoster(team: Team, owner: string, self: string) {
 }
 
 /** Bounded local directory; never project prompts or connection metadata. */
-export function agentDirectory(
-  run: Run,
-  input: unknown,
-) {
+export function agentDirectory(run: Run, input: unknown) {
   assertMailRun(run);
   const args = directorySchema.parse(input);
   const rows = db
@@ -199,7 +210,8 @@ export function agentDirectory(
       try {
         eligibleMailAgent(run.owner_id, agent.id);
       } catch (error) {
-        if (!(error instanceof MailRefusal) && !(error instanceof InvalidRow)) throw error;
+        if (!(error instanceof MailRefusal) && !(error instanceof InvalidRow))
+          throw error;
         reason = error.message;
       }
       const connected = db
@@ -448,13 +460,16 @@ function wrap(
   const senderRun = mail.sender_run_id
     ? (db
         .prepare("SELECT id,payload FROM runs WHERE id=? AND owner_id=?")
-        .get(mail.sender_run_id, mail.owner_id) as { id: string; payload: string } | undefined)
+        .get(mail.sender_run_id, mail.owner_id) as
+        { id: string; payload: string } | undefined)
     : undefined;
   let from = "unknown";
   try {
     from = runtimeOf(
       mail.owner_id,
-      senderRun ? readRunConnectionId(senderRun.payload, senderRun.id) : sender.connection_id,
+      senderRun
+        ? readRunConnectionId(senderRun.payload, senderRun.id)
+        : sender.connection_id,
     ).place;
   } catch (error) {
     // This location is only a display hint. An invalid carried connection ID
@@ -565,7 +580,11 @@ function dispatch(
   const sender = agentRow(mail.owner_id, mail.sender_agent_id)!;
   const recipient = ownedAgent(mail.recipient_agent_id, mail.owner_id);
   const senderRun = mail.sender_run_id
-    ? (maybeRunNotice(db.prepare("SELECT * FROM runs WHERE id=? AND owner_id=?").get(mail.sender_run_id, mail.owner_id)))
+    ? maybeRunNotice(
+        db
+          .prepare("SELECT * FROM runs WHERE id=? AND owner_id=?")
+          .get(mail.sender_run_id, mail.owner_id),
+      )
     : undefined;
   const binding = db
     .prepare(
@@ -820,11 +839,7 @@ function receipt(mail: Mail) {
 }
 
 /** loop_message. Refusals throw Problem; the caller returns them to the agent. */
-export function sendMail(
-  run: Run,
-  callId: string,
-  input: unknown,
-) {
+export function sendMail(run: Run, callId: string, input: unknown) {
   const args = messageSchema.parse(input);
   const key = `mail:${run.id}:${callId}`;
   const request = JSON.stringify(args);

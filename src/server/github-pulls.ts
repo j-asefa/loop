@@ -102,7 +102,10 @@ function problem(error: unknown, write = false): never {
             : 502,
       error.message,
     );
-  if ((error as Error)?.name === "TimeoutError" || (error as Error)?.name === "AbortError")
+  if (
+    (error as Error)?.name === "TimeoutError" ||
+    (error as Error)?.name === "AbortError"
+  )
     throw new Problem(
       504,
       write
@@ -124,18 +127,23 @@ const ITEM = `
   lastCommit: commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }`;
 
 const text = (value: unknown, max = 300) =>
-  typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
+  typeof value === "string" && value.trim()
+    ? value.trim().slice(0, max)
+    : undefined;
 const commitMessage = (value: unknown) => {
   const message = text(value, COMMIT_MESSAGE_CHARS + 1);
   if (!message) return "Untitled commit";
   return message.length > COMMIT_MESSAGE_CHARS
-    ? message.slice(0, COMMIT_MESSAGE_CHARS) + "\n\n[… shortened; read the rest on GitHub]"
+    ? message.slice(0, COMMIT_MESSAGE_CHARS) +
+        "\n\n[… shortened; read the rest on GitHub]"
     : message;
 };
 const count = (value: unknown) =>
-  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+  typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined;
 const login = (value: any) => text(value?.login, 39);
-const nodes = (value: any) => Array.isArray(value?.nodes) ? value.nodes : [];
+const nodes = (value: any) => (Array.isArray(value?.nodes) ? value.nodes : []);
 
 function checksState(value: unknown): ChecksState | undefined {
   switch (value) {
@@ -161,7 +169,10 @@ function reviewDecision(value: unknown): ReviewDecision | undefined {
 }
 
 /** A GraphQL pull request as a list item, or undefined if it isn't one. */
-function listItem(node: any, expected?: PullRequestRef): PullListItem | undefined {
+function listItem(
+  node: any,
+  expected?: PullRequestRef,
+): PullListItem | undefined {
   const url = text(node?.url, 500);
   const ref = url ? parsePullRequestUrl(url) : undefined;
   const title = text(node?.title);
@@ -212,12 +223,25 @@ const summaryReads = new Map<string, Promise<ConversationPull>>();
 const summaryFailures = new Map<string, { error: unknown; retryAt: number }>();
 
 /** A small, current PR/review read for conversations; no checkout or CI data. */
-export async function pullSummary(owner: string, ref: PullRequestRef, refresh = false): Promise<ConversationPull> {
+export async function pullSummary(
+  owner: string,
+  ref: PullRequestRef,
+  refresh = false,
+): Promise<ConversationPull> {
   const token = reading(owner);
-  if (!token) throw new Problem(409, "Connect GitHub to refresh pull requests.");
+  if (!token)
+    throw new Problem(409, "Connect GitHub to refresh pull requests.");
   // Never reuse another owner's or a replaced connection's private data.
-  const connection = JSON.stringify([owner, createHash("sha256").update(token).digest("hex")]);
-  const key = JSON.stringify([connection, ref.owner.toLowerCase(), ref.repo.toLowerCase(), ref.number]);
+  const connection = JSON.stringify([
+    owner,
+    createHash("sha256").update(token).digest("hex"),
+  ]);
+  const key = JSON.stringify([
+    connection,
+    ref.owner.toLowerCase(),
+    ref.repo.toLowerCase(),
+    ref.number,
+  ]);
   // Rate limits apply to every summary using this connection, including
   // manual refresh. Other failures back off automatic reads for one minute.
   for (const failureKey of refresh ? [connection] : [connection, key]) {
@@ -226,11 +250,14 @@ export async function pullSummary(owner: string, ref: PullRequestRef, refresh = 
     summaryFailures.delete(failureKey);
   }
   const cached = summaries.get(key);
-  if (!refresh && cached?.fetchedAt && now() - cached.fetchedAt < 60_000) return cached;
+  if (!refresh && cached?.fetchedAt && now() - cached.fetchedAt < 60_000)
+    return cached;
   const pending = summaryReads.get(key);
   if (pending) return pending;
   const read = (async () => {
-    const data = await githubGraphql<any>(token, `query ConversationPull($owner: String!, $name: String!, $number: Int!) {
+    const data = await githubGraphql<any>(
+      token,
+      `query ConversationPull($owner: String!, $name: String!, $number: Int!) {
         repository(owner: $owner, name: $name) { pullRequest(number: $number) {
           number title url state isDraft headRefOid changedFiles additions deletions reviewDecision
           reviewRequests(first: 20) { pageInfo { hasNextPage } nodes { requestedReviewer {
@@ -238,28 +265,60 @@ export async function pullSummary(owner: string, ref: PullRequestRef, refresh = 
           } } }
           latestReviews(first: 20) { pageInfo { hasNextPage } nodes { author { login } state commit { oid } } }
         } }
-      }`, { owner: ref.owner, name: ref.repo, number: ref.number });
+      }`,
+      { owner: ref.owner, name: ref.repo, number: ref.number },
+    );
     const node = data?.repository?.pullRequest;
     const item = listItem(node, ref);
     const headSha = text(node?.headRefOid, 40);
     if (!item || !headSha || !SHA.test(headSha))
-      throw new Problem(404, "GitHub could not find this pull request with your connection.");
+      throw new Problem(
+        404,
+        "GitHub could not find this pull request with your connection.",
+      );
     const result: ConversationPull = {
-      ...ref, title: item.title, state: item.state, headSha,
-      changedFiles: item.changedFiles, additions: item.additions, deletions: item.deletions,
+      ...ref,
+      title: item.title,
+      state: item.state,
+      headSha,
+      changedFiles: item.changedFiles,
+      additions: item.additions,
+      deletions: item.deletions,
       review: item.review,
       requested: nodes(node.reviewRequests).flatMap((r: any) => {
         const reviewer = r?.requestedReviewer;
-        const name = reviewer?.__typename === "Team" ? text(reviewer.slug, 100) : login(reviewer);
-        return name ? [reviewer.__typename === "Team" ? `team ${name}` : `@${name}`] : [];
+        const name =
+          reviewer?.__typename === "Team"
+            ? text(reviewer.slug, 100)
+            : login(reviewer);
+        return name
+          ? [reviewer.__typename === "Team" ? `team ${name}` : `@${name}`]
+          : [];
       }),
       reviews: nodes(node.latestReviews).flatMap((r: any) => {
         const author = login(r?.author);
         const state = text(r?.state)?.toLowerCase();
-        if (!author || !["approved", "changes_requested", "commented", "dismissed"].includes(state ?? "")) return [];
-        return [{ author, state: state as NonNullable<ConversationPull["reviews"]>[number]["state"], headSha: text(r?.commit?.oid, 40) }];
+        if (
+          !author ||
+          !["approved", "changes_requested", "commented", "dismissed"].includes(
+            state ?? "",
+          )
+        )
+          return [];
+        return [
+          {
+            author,
+            state: state as NonNullable<
+              ConversationPull["reviews"]
+            >[number]["state"],
+            headSha: text(r?.commit?.oid, 40),
+          },
+        ];
       }),
-      reviewsOmitted: !!(node.latestReviews?.pageInfo?.hasNextPage || node.reviewRequests?.pageInfo?.hasNextPage),
+      reviewsOmitted: !!(
+        node.latestReviews?.pageInfo?.hasNextPage ||
+        node.reviewRequests?.pageInfo?.hasNextPage
+      ),
       fetchedAt: now(),
     };
     summaries.delete(key);
@@ -267,15 +326,23 @@ export async function pullSummary(owner: string, ref: PullRequestRef, refresh = 
     summaryFailures.delete(key);
     if (summaries.size > 500) summaries.delete(summaries.keys().next().value!);
     return result;
-  })().catch(error => {
-    summaries.delete(key);
-    const limited = error instanceof GithubError && error.retryAt;
-    const failureKey = limited ? connection : key;
-    summaryFailures.delete(failureKey);
-    summaryFailures.set(failureKey, { error, retryAt: limited || now() + 60_000 });
-    if (summaryFailures.size > 500) summaryFailures.delete(summaryFailures.keys().next().value!);
-    problem(error);
-  }).finally(() => { summaryReads.delete(key); });
+  })()
+    .catch((error) => {
+      summaries.delete(key);
+      const limited = error instanceof GithubError && error.retryAt;
+      const failureKey = limited ? connection : key;
+      summaryFailures.delete(failureKey);
+      summaryFailures.set(failureKey, {
+        error,
+        retryAt: limited || now() + 60_000,
+      });
+      if (summaryFailures.size > 500)
+        summaryFailures.delete(summaryFailures.keys().next().value!);
+      problem(error);
+    })
+    .finally(() => {
+      summaryReads.delete(key);
+    });
   summaryReads.set(key, read);
   return read;
 }
@@ -356,7 +423,8 @@ function comment(node: any, chars = COMMENT_CHARS): PullComment | undefined {
   const body = markdown(node.body);
   return {
     author: login(node.author),
-    body: body.length > chars ? body.slice(0, chars) + "\n\n[… shortened]" : body,
+    body:
+      body.length > chars ? body.slice(0, chars) + "\n\n[… shortened]" : body,
     createdAt: text(node.submittedAt || node.createdAt, 40),
     url: githubLink(node.url),
     member: ROLE.has(node.authorAssociation),
@@ -421,7 +489,10 @@ const THREADS = `totalCount pageInfo { hasNextPage endCursor }
     comments(first: 30) { totalCount nodes { author { login } authorAssociation body createdAt url } } }`;
 
 /** One pull request with what you need to review it, read now. */
-export async function detail(owner: string, ref: PullRequestRef): Promise<PullDetail> {
+export async function detail(
+  owner: string,
+  ref: PullRequestRef,
+): Promise<PullDetail> {
   const token = reading(owner);
   if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
   let data: any;
@@ -460,7 +531,10 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
   const item = node ? listItem(node, ref) : undefined;
   const headSha = text(node?.headRefOid, 40);
   if (!item || !headSha || !SHA.test(headSha))
-    throw new Problem(404, "GitHub could not find this pull request with your connection.");
+    throw new Problem(
+      404,
+      "GitHub could not find this pull request with your connection.",
+    );
   // Later pages of review threads, so an unresolved thread past the first
   // page still shows; past MAX_THREADS the page says how many it left out.
   const threadNodes = [...nodes(node.reviewThreads)];
@@ -478,7 +552,12 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
             pullRequest(number: $number) { reviewThreads(first: 100, after: $after) { ${THREADS} } }
           }
         }`,
-        { owner: ref.owner, name: ref.repo, number: ref.number, after: pageInfo.endCursor },
+        {
+          owner: ref.owner,
+          name: ref.repo,
+          number: ref.number,
+          after: pageInfo.endCursor,
+        },
       );
       const connection = more?.repository?.pullRequest?.reviewThreads;
       if (!nodes(connection).length) break;
@@ -504,42 +583,53 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
     .map((r: any) => {
       const c = comment(r);
       const state = text(r?.state, 40);
-      return c && state && state !== "PENDING" && (c.body.trim() || state !== "COMMENTED")
+      return c &&
+        state &&
+        state !== "PENDING" &&
+        (c.body.trim() || state !== "COMMENTED")
         ? { ...c, state: state.toLowerCase() }
         : undefined;
     })
-    .filter((r: (PullComment & { state: string }) | undefined): r is PullComment & { state: string } => !!r);
+    .filter(
+      (
+        r: (PullComment & { state: string }) | undefined,
+      ): r is PullComment & { state: string } => !!r,
+    );
   // GitHub's total includes blank inline-comment reviews. Older reviews may
   // also be blank, so their displayable count cannot be inferred from it.
-  const reviewsOmitted = (count(node.reviews?.totalCount) ?? 0) > reviewNodes.length;
+  const reviewsOmitted =
+    (count(node.reviews?.totalCount) ?? 0) > reviewNodes.length;
   const body = markdown(node.body);
   return {
     ...item,
     body:
       body.length > BODY_CHARS
-        ? body.slice(0, BODY_CHARS) + "\n\n[… shortened; read the rest on GitHub]"
+        ? body.slice(0, BODY_CHARS) +
+          "\n\n[… shortened; read the rest on GitHub]"
         : body,
     headSha,
     mergeState: text(node.mergeStateStatus, 40)?.toLowerCase(),
     conflicts: node.mergeable === "CONFLICTING",
     commits: count(node.commitCount?.totalCount),
-    commitHistory: nodes(node.commitHistory)
-      .flatMap((entry: any) => {
-        const commit = entry?.commit;
-        const sha = text(commit?.oid, 40);
-        if (!sha || !SHA.test(sha)) return [];
-        return [{
+    commitHistory: nodes(node.commitHistory).flatMap((entry: any) => {
+      const commit = entry?.commit;
+      const sha = text(commit?.oid, 40);
+      if (!sha || !SHA.test(sha)) return [];
+      return [
+        {
           sha,
           message: commitMessage(commit.message),
           author: login(commit.author?.user) || text(commit.author?.name, 100),
           committedAt: text(commit.committedDate, 40),
           url: `https://github.com/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/commit/${sha}`,
-        }];
-      }),
+        },
+      ];
+    }),
     requested: nodes(node.reviewRequests)
       .map((r: any) =>
         r?.requestedReviewer?.__typename === "Team"
-          ? text(r.requestedReviewer.slug, 100) && "team " + r.requestedReviewer.slug
+          ? text(r.requestedReviewer.slug, 100) &&
+            "team " + r.requestedReviewer.slug
           : login(r?.requestedReviewer),
       )
       .filter((r: unknown): r is string => typeof r === "string")
@@ -575,7 +665,9 @@ export async function detail(owner: string, ref: PullRequestRef): Promise<PullDe
     viewer: {
       login: viewerLogin,
       author: node.viewerDidAuthor === true,
-      canMerge: ["ADMIN", "MAINTAIN", "WRITE"].includes(repository.viewerPermission),
+      canMerge: ["ADMIN", "MAINTAIN", "WRITE"].includes(
+        repository.viewerPermission,
+      ),
     },
     mergeMethods: methods,
     fetchedAt: now(),
@@ -592,7 +684,8 @@ function changedFile(f: any): PullFile | undefined {
     status: text(f.status, 20) || "modified",
     additions: count(f.additions) ?? 0,
     deletions: count(f.deletions) ?? 0,
-    patch: patch && patch.length > PATCH_CHARS ? patch.slice(0, PATCH_CHARS) : patch,
+    patch:
+      patch && patch.length > PATCH_CHARS ? patch.slice(0, PATCH_CHARS) : patch,
     truncated: !!patch && patch.length > PATCH_CHARS,
   };
 }
@@ -602,7 +695,11 @@ function changedFile(f: any): PullFile | undefined {
  * head commit you were shown: GitHub lists the files of whatever the head is
  * now, so a head that moved before or while reading them is refused.
  */
-export async function files(owner: string, ref: PullRequestRef, headSha: string) {
+export async function files(
+  owner: string,
+  ref: PullRequestRef,
+  headSha: string,
+) {
   const token = reading(owner);
   if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
   const base = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}/files?per_page=100&page=`;
@@ -630,7 +727,11 @@ export async function files(owner: string, ref: PullRequestRef, headSha: string)
 }
 
 /** Changes to an immutable commit, independent of the pull request's current head. */
-export async function commitFiles(owner: string, ref: PullRequestRef, sha: string): Promise<PullCommitFiles> {
+export async function commitFiles(
+  owner: string,
+  ref: PullRequestRef,
+  sha: string,
+): Promise<PullCommitFiles> {
   const token = reading(owner);
   if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
   const list: PullFile[] = [];
@@ -641,8 +742,14 @@ export async function commitFiles(owner: string, ref: PullRequestRef, sha: strin
     const base = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/commits/${sha.toLowerCase()}?per_page=100&page=`;
     for (let page = 1; page <= MAX_FILES / 100; page++) {
       const { data, link } = await githubRest<any>(token, base + page);
-      if (data?.sha?.toLowerCase() !== sha.toLowerCase() || !Array.isArray(data.files))
-        throw new Problem(502, "GitHub did not return the requested commit's changes. Try again.");
+      if (
+        data?.sha?.toLowerCase() !== sha.toLowerCase() ||
+        !Array.isArray(data.files)
+      )
+        throw new Problem(
+          502,
+          "GitHub did not return the requested commit's changes. Try again.",
+        );
       for (const f of data.files) {
         const file = changedFile(f);
         if (file) list.push(file);
@@ -653,7 +760,12 @@ export async function commitFiles(owner: string, ref: PullRequestRef, sha: strin
   } catch (error) {
     problem(error);
   }
-  return { files: list.slice(0, MAX_FILES), sha: sha.toLowerCase(), hasMore, fetchedAt: now() };
+  return {
+    files: list.slice(0, MAX_FILES),
+    sha: sha.toLowerCase(),
+    hasMore,
+    fetchedAt: now(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -714,7 +826,9 @@ export async function fileAt(
   const file = join(
     directory,
     createHash("sha256")
-      .update(JSON.stringify([owner, ref.owner, ref.repo, head.toLowerCase(), path]))
+      .update(
+        JSON.stringify([owner, ref.owner, ref.repo, head.toLowerCase(), path]),
+      )
       .digest("hex"),
   );
   try {
@@ -761,7 +875,11 @@ function sendViewed(res: Response, file: string, path: string) {
     "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
   );
   res.setHeader("Cache-Control", "private, max-age=86400, immutable");
-  res.sendFile(file, { cacheControl: false, lastModified: false, dotfiles: "allow" });
+  res.sendFile(file, {
+    cacheControl: false,
+    lastModified: false,
+    dotfiles: "allow",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -781,7 +899,8 @@ async function current(token: string, ref: PullRequestRef, headSha: string) {
   const data = await readPull(token, ref);
   if (data?.merged || data?.merged_at)
     throw new Problem(409, "This pull request was already merged.");
-  if (data?.state === "closed") throw new Problem(409, "This pull request is closed.");
+  if (data?.state === "closed")
+    throw new Problem(409, "This pull request is closed.");
   if (String(data?.head?.sha || "").toLowerCase() !== headSha.toLowerCase())
     throw new Problem(
       409,
@@ -795,7 +914,11 @@ const REVIEW_EVENT = {
   comment: "COMMENT",
 } as const;
 
-export async function review(owner: string, ref: PullRequestRef, body: unknown) {
+export async function review(
+  owner: string,
+  ref: PullRequestRef,
+  body: unknown,
+) {
   const input = z
     .object({
       event: z.enum(["approve", "request_changes", "comment"]),
@@ -827,9 +950,19 @@ export async function review(owner: string, ref: PullRequestRef, body: unknown) 
   }
 }
 
-export async function addComment(owner: string, ref: PullRequestRef, body: unknown) {
+export async function addComment(
+  owner: string,
+  ref: PullRequestRef,
+  body: unknown,
+) {
   const input = z
-    .object({ body: z.string().trim().min(1, "Write a comment first.").max(MAX_REVIEW_BODY) })
+    .object({
+      body: z
+        .string()
+        .trim()
+        .min(1, "Write a comment first.")
+        .max(MAX_REVIEW_BODY),
+    })
     .parse(body);
   const token = writing(owner);
   try {
@@ -862,7 +995,10 @@ export async function merge(owner: string, ref: PullRequestRef, body: unknown) {
       body: { merge_method: input.method, sha: input.headSha },
     });
     if (data?.merged !== true)
-      throw new Problem(409, text(data?.message) || "GitHub did not merge this pull request.");
+      throw new Problem(
+        409,
+        text(data?.message) || "GitHub did not merge this pull request.",
+      );
     return { merged: true, sha: text(data?.sha, 40) };
   } catch (error) {
     if (error instanceof GithubError && error.status === 409)
@@ -900,31 +1036,57 @@ routes.legacy("GET /github/pulls", async (req, res) => {
 routes.legacy("GET /github/pulls/:owner/:repo/:number", async (req, res) =>
   res.json(await detail(res.locals.owner, refOf(req.params))),
 );
-routes.legacy("GET /github/pulls/:owner/:repo/:number/files", async (req, res) => {
-  const { head } = z
-    .object({ head: z.string().regex(SHA, "Refresh the pull request first") })
-    .parse(req.query);
-  res.json(await files(res.locals.owner, refOf(req.params), head));
-});
-routes.legacy("GET /github/pulls/:owner/:repo/:number/commits/:sha/files", async (req, res) => {
-  const sha = z.string().regex(SHA, "Choose a full commit SHA").parse(req.params.sha);
-  res.json(await commitFiles(res.locals.owner, refOf(req.params), sha));
-});
-routes.legacy("GET /github/pulls/:owner/:repo/:number/file", async (req, res) => {
-  const { head, path } = z
-    .object({
-      head: z.string().regex(SHA, "Refresh the pull request first"),
-      path: z.string().refine(isRepoPath, "Choose a file in the repository"),
-    })
-    .parse(req.query);
-  sendViewed(res, await fileAt(res.locals.owner, refOf(req.params), head, path), path);
-});
-routes.legacy("POST /github/pulls/:owner/:repo/:number/reviews", async (req, res) =>
-  res.status(201).json(await review(res.locals.owner, refOf(req.params), req.body)),
+routes.legacy(
+  "GET /github/pulls/:owner/:repo/:number/files",
+  async (req, res) => {
+    const { head } = z
+      .object({ head: z.string().regex(SHA, "Refresh the pull request first") })
+      .parse(req.query);
+    res.json(await files(res.locals.owner, refOf(req.params), head));
+  },
 );
-routes.legacy("POST /github/pulls/:owner/:repo/:number/comments", async (req, res) =>
-  res.status(201).json(await addComment(res.locals.owner, refOf(req.params), req.body)),
+routes.legacy(
+  "GET /github/pulls/:owner/:repo/:number/commits/:sha/files",
+  async (req, res) => {
+    const sha = z
+      .string()
+      .regex(SHA, "Choose a full commit SHA")
+      .parse(req.params.sha);
+    res.json(await commitFiles(res.locals.owner, refOf(req.params), sha));
+  },
 );
-routes.legacy("POST /github/pulls/:owner/:repo/:number/merge", async (req, res) =>
-  res.json(await merge(res.locals.owner, refOf(req.params), req.body)),
+routes.legacy(
+  "GET /github/pulls/:owner/:repo/:number/file",
+  async (req, res) => {
+    const { head, path } = z
+      .object({
+        head: z.string().regex(SHA, "Refresh the pull request first"),
+        path: z.string().refine(isRepoPath, "Choose a file in the repository"),
+      })
+      .parse(req.query);
+    sendViewed(
+      res,
+      await fileAt(res.locals.owner, refOf(req.params), head, path),
+      path,
+    );
+  },
+);
+routes.legacy(
+  "POST /github/pulls/:owner/:repo/:number/reviews",
+  async (req, res) =>
+    res
+      .status(201)
+      .json(await review(res.locals.owner, refOf(req.params), req.body)),
+);
+routes.legacy(
+  "POST /github/pulls/:owner/:repo/:number/comments",
+  async (req, res) =>
+    res
+      .status(201)
+      .json(await addComment(res.locals.owner, refOf(req.params), req.body)),
+);
+routes.legacy(
+  "POST /github/pulls/:owner/:repo/:number/merge",
+  async (req, res) =>
+    res.json(await merge(res.locals.owner, refOf(req.params), req.body)),
 );

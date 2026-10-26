@@ -1,7 +1,10 @@
 import { registrar } from "../registrar.js";
 import type { QueryRow } from "../query-records.js";
-import { McpConnectionRecord, parseRecord, runResponse } from "../row-schemas.js";
-
+import {
+  McpConnectionRecord,
+  parseRecord,
+  runResponse,
+} from "../row-schemas.js";
 
 import { z } from "zod";
 import {
@@ -9,7 +12,15 @@ import {
   toolInvocationSchema,
 } from "../../shared/artifact-refresh.js";
 import { db, id, now } from "../db.js";
-import { owned, ownedMcpConnection, ownedAgent, ownedFolder, ownedArtifact, ownedRun, Problem } from "../domain.js";
+import {
+  owned,
+  ownedMcpConnection,
+  ownedAgent,
+  ownedFolder,
+  ownedArtifact,
+  ownedRun,
+  Problem,
+} from "../domain.js";
 import { seal } from "../secrets.js";
 import { enqueue, transition, type Run } from "../queue.js";
 import {
@@ -199,9 +210,7 @@ routes.legacy("POST /mcp", async (req, res) => {
   );
   res
     .status(201)
-    .json(
-      publicConnection(ownedMcpConnection(connection, res.locals.owner)),
-    );
+    .json(publicConnection(ownedMcpConnection(connection, res.locals.owner)));
 });
 routes.legacy("POST /mcp/:id/test", async (req, res) => {
   const c = ownedMcpConnection(String(req.params.id), res.locals.owner);
@@ -226,15 +235,16 @@ routes.legacy("POST /mcp/:id/test", async (req, res) => {
 routes.legacy("PATCH /mcp/:id", async (req, res) => {
   const raw = owned("mcp_connections", String(req.params.id), res.locals.owner);
   const data = z
-      .object({
-        action: z.enum(["disable", "enable", "disconnect", "credentials"]),
-        auth: secretSchema.optional(),
-      })
-      .parse(req.body);
+    .object({
+      action: z.enum(["disable", "enable", "disconnect", "credentials"]),
+      auth: secretSchema.optional(),
+    })
+    .parse(req.body);
   // Disconnect never dispatches a tool or reuses the old credential.
-  const c = data.action === "disconnect"
-    ? parseRecord(McpConnectionRecord, raw, "mcp_connections")
-    : ownedMcpConnection(String(req.params.id), res.locals.owner);
+  const c =
+    data.action === "disconnect"
+      ? parseRecord(McpConnectionRecord, raw, "mcp_connections")
+      : ownedMcpConnection(String(req.params.id), res.locals.owner);
   if (data.action === "disconnect") {
     db.transaction(() => {
       db.prepare(
@@ -273,7 +283,8 @@ routes.legacy("GET /mcp/oauth/callback", async (req, res) => {
         .prepare(
           "SELECT * FROM oauth_states WHERE state=? AND owner_id=? AND expires_at>?",
         )
-        .get(state, res.locals.owner, now()) as QueryRow<"oauth_states"> | undefined;
+        .get(state, res.locals.owner, now()) as
+        QueryRow<"oauth_states"> | undefined;
       if (!row)
         throw new Problem(
           403,
@@ -335,12 +346,14 @@ routes.legacy("POST /artifacts/:id/tool-call", (req, res) => {
     throw new Problem(400, "This artifact has no tool context");
   const body = callSchema.parse(req.body);
   res.json(
-    runResponse(queueTool(res.locals.owner, {
-      ...body,
-      agentId: a.agent_id,
-      connectionId: meta.connectionId,
-      folderId: a.folder_id || undefined,
-    })),
+    runResponse(
+      queueTool(res.locals.owner, {
+        ...body,
+        agentId: a.agent_id,
+        connectionId: meta.connectionId,
+        folderId: a.folder_id || undefined,
+      }),
+    ),
   );
 });
 routes.legacy("POST /artifacts/:id/refresh", (req, res) => {
@@ -349,20 +362,28 @@ routes.legacy("POST /artifacts/:id/refresh", (req, res) => {
   const source = artifactRefreshSource(a.agent_id, meta);
   if (!source) throw new Problem(400, "No refresh source is available");
   res.json(
-    runResponse(queueTool(res.locals.owner, {
-      ...callSchema.parse({
-        ...req.body,
-        tool: source.tool,
-        arguments: source.arguments,
+    runResponse(
+      queueTool(res.locals.owner, {
+        ...callSchema.parse({
+          ...req.body,
+          tool: source.tool,
+          arguments: source.arguments,
+        }),
+        agentId: source.agentId,
+        connectionId: source.connectionId,
+        folderId: a.folder_id || undefined,
       }),
-      agentId: source.agentId,
-      connectionId: source.connectionId,
-      folderId: a.folder_id || undefined,
-    })),
+    ),
   );
 });
 export async function executeMcp(run: Run) {
-  const p = z.object({ tool: z.string().min(1), connectionId: z.string().min(1), arguments: z.record(z.string(), z.unknown()) }).parse(run.payload),
+  const p = z
+      .object({
+        tool: z.string().min(1),
+        connectionId: z.string().min(1),
+        arguments: z.record(z.string(), z.unknown()),
+      })
+      .parse(run.payload),
     out = await invokeTool(
       run,
       {

@@ -34,11 +34,12 @@ export function observeProcess(role: Instance["role"], build?: BuildStamp) {
     started,
     started,
   );
-  const pulse = () => heartbeatWrite(`deployment-${role}`, () => {
-    db.prepare(
-      "UPDATE deployment_instances SET seen_at=?,build=? WHERE id=? AND stopped_at IS NULL",
-    ).run(now(), JSON.stringify(build ?? observedBuild()), instance);
-  });
+  const pulse = () =>
+    heartbeatWrite(`deployment-${role}`, () => {
+      db.prepare(
+        "UPDATE deployment_instances SET seen_at=?,build=? WHERE id=? AND stopped_at IS NULL",
+      ).run(now(), JSON.stringify(build ?? observedBuild()), instance);
+    });
   pulse();
   const timer = setInterval(pulse, 5000);
   timer.unref();
@@ -46,7 +47,9 @@ export function observeProcess(role: Instance["role"], build?: BuildStamp) {
     stopEventLoop?.();
     clearInterval(timer);
     heartbeatWrite(`deployment-${role}`, () =>
-      db.prepare("UPDATE deployment_instances SET stopped_at=? WHERE id=?").run(now(), instance),
+      db
+        .prepare("UPDATE deployment_instances SET stopped_at=? WHERE id=?")
+        .run(now(), instance),
     );
   };
 }

@@ -5,7 +5,16 @@ import type {
 } from "./agent-activities.js";
 
 export const VERSION = 1;
-export const Harness = z.enum(["pi", "claude", "codex", "opencode", "gemini", "muse", "grok", "acp"]);
+export const Harness = z.enum([
+  "pi",
+  "claude",
+  "codex",
+  "opencode",
+  "gemini",
+  "muse",
+  "grok",
+  "acp",
+]);
 export type Harness = z.infer<typeof Harness>;
 export const Command = z.discriminatedUnion("type", [
   z

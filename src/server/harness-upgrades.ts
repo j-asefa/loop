@@ -7,7 +7,9 @@ let instance: HarnessUpgrades | undefined;
 // acquisition. The execution authority initializes this singleton explicitly.
 export const harnessUpgrades = new Proxy({} as HarnessUpgrades, {
   get(_target, property) {
-    instance ??= new HarnessUpgrades(join(config.data, "harness-upgrades.json"));
+    instance ??= new HarnessUpgrades(
+      join(config.data, "harness-upgrades.json"),
+    );
     const value = Reflect.get(instance, property, instance);
     return typeof value === "function" ? value.bind(instance) : value;
   },

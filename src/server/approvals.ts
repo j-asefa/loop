@@ -49,9 +49,10 @@ export function decide(
   return db
     .transaction(() => {
       const approval = ownedApproval(approvalId, owner);
-      const run = decision === "reject"
-        ? ownedRunControl(approval.run_id, owner)
-        : ownedRun(approval.run_id, owner);
+      const run =
+        decision === "reject"
+          ? ownedRunControl(approval.run_id, owner)
+          : ownedRun(approval.run_id, owner);
       if (approval.state !== "pending" || run.state !== "awaiting_approval")
         throw new Problem(409, "This approval is no longer pending");
       if (approval.expires_at < now())

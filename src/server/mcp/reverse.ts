@@ -2,7 +2,11 @@ import { watchRun } from "../run-signal.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ToolSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ToolSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { db, emit, id, now } from "../db.js";
 import { ownedMcpConnection, Problem } from "../domain.js";
 import { seal, unseal } from "../secrets.js";
@@ -169,7 +173,11 @@ export function pendingReverseCalls(owner: string, peerId: string) {
 // The laptop claims a call immediately before running it. Only a call still
 // pending for an active run can be claimed, so a call this source already
 // reported as uncertain (timed out, cancelled or disconnected) never runs.
-export function claimReverseCall(owner: string, peerId: string, callId: string) {
+export function claimReverseCall(
+  owner: string,
+  peerId: string,
+  callId: string,
+) {
   if (!peer(owner, peerId))
     throw new Problem(403, "Execution source is not enrolled");
   const claimed =
@@ -190,53 +198,62 @@ export function completeReverseCall(
   state: "completed" | "unknown",
   result?: unknown,
 ) {
-  return db.transaction(() => {
-    if (!peer(owner, peerId))
-      throw new Problem(403, "Execution source is not enrolled");
-    const saved = db
-      .prepare(
-        "SELECT * FROM mcp_reverse_calls WHERE id=? AND owner_id=? AND peer_id=?",
-      )
-      .get(callId, owner, peerId) as Queued | undefined;
-    if (!saved) throw new Problem(404, "Shared tool call unavailable");
-    const encoded = state === "completed" ? JSON.stringify(result) : null;
-    if (encoded && Buffer.byteLength(encoded) > 4 * 1024 * 1024)
-      throw new Problem(413, "Shared tool result exceeds size limit");
-    if (!["pending", "claimed"].includes(saved.state)) {
-      if (saved.state === state && saved.result === encoded) {
-        notifySettled(owner, saved.run_key, callId);
-        return { state };
+  return db
+    .transaction(() => {
+      if (!peer(owner, peerId))
+        throw new Problem(403, "Execution source is not enrolled");
+      const saved = db
+        .prepare(
+          "SELECT * FROM mcp_reverse_calls WHERE id=? AND owner_id=? AND peer_id=?",
+        )
+        .get(callId, owner, peerId) as Queued | undefined;
+      if (!saved) throw new Problem(404, "Shared tool call unavailable");
+      const encoded = state === "completed" ? JSON.stringify(result) : null;
+      if (encoded && Buffer.byteLength(encoded) > 4 * 1024 * 1024)
+        throw new Problem(413, "Shared tool result exceeds size limit");
+      if (!["pending", "claimed"].includes(saved.state)) {
+        if (saved.state === state && saved.result === encoded) {
+          notifySettled(owner, saved.run_key, callId);
+          return { state };
+        }
+        throw new Problem(409, "Shared tool call already resolved");
       }
-      throw new Problem(409, "Shared tool call already resolved");
-    }
-    db.prepare(
-      "UPDATE mcp_reverse_calls SET state=?,result=?,updated_at=? WHERE id=? AND state IN ('pending','claimed')",
-    ).run(state, encoded, now(), callId);
-    notifySettled(owner, saved.run_key, callId);
-    return { state };
-  }).immediate();
+      db.prepare(
+        "UPDATE mcp_reverse_calls SET state=?,result=?,updated_at=? WHERE id=? AND state IN ('pending','claimed')",
+      ).run(state, encoded, now(), callId);
+      notifySettled(owner, saved.run_key, callId);
+      return { state };
+    })
+    .immediate();
 }
 
 function notifySettled(owner: string, run: string, callId: string) {
   // Reverse-call identities outlive a deleted run; keep its known outcome even
   // when there is no run left on which to publish a notification.
-  if (db.prepare("SELECT 1 FROM runs WHERE id=? AND owner_id=?").get(run, owner))
+  if (
+    db.prepare("SELECT 1 FROM runs WHERE id=? AND owner_id=?").get(run, owner)
+  )
     emit(owner, run, "reverse.settled", { callId });
 }
 const waiters = new Map<string, Set<() => void>>();
 function markUnknown(owner: string, callId: string) {
-  return db.transaction(() => {
-    const changed = db.prepare(
-      "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE id=? AND owner_id=? AND state IN ('pending','claimed') RETURNING run_key",
-    ).get(now(), callId, owner) as { run_key: string } | undefined;
-    if (changed) notifySettled(owner, changed.run_key, callId);
-    return !!changed;
-  }).immediate();
+  return db
+    .transaction(() => {
+      const changed = db
+        .prepare(
+          "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE id=? AND owner_id=? AND state IN ('pending','claimed') RETURNING run_key",
+        )
+        .get(now(), callId, owner) as { run_key: string } | undefined;
+      if (changed) notifySettled(owner, changed.run_key, callId);
+      return !!changed;
+    })
+    .immediate();
 }
 
 /** Shared-call identity is durable; every HTTP waiter observes the same result. */
 export async function waitForReverseCall(owner: string, callId: string) {
-  const initial = db.prepare("SELECT * FROM mcp_reverse_calls WHERE id=? AND owner_id=?")
+  const initial = db
+    .prepare("SELECT * FROM mcp_reverse_calls WHERE id=? AND owner_id=?")
     .get(callId, owner) as Queued | undefined;
   if (!initial) throw new Problem(404, "Shared tool call unavailable");
   const watched = watchRun({ id: initial.run_key, owner_id: owner });
@@ -252,18 +269,33 @@ export async function waitForReverseCall(owner: string, callId: string) {
       };
       const check = () => {
         if (settled) return;
-        if (!["running", "awaiting_approval"].includes(watched.state || "") ||
-          watched.signal.aborted || !peer(owner, initial.peer_id)) markUnknown(owner, callId);
-        const saved = db.prepare("SELECT state,result FROM mcp_reverse_calls WHERE id=? AND owner_id=?")
+        if (
+          !["running", "awaiting_approval"].includes(watched.state || "") ||
+          watched.signal.aborted ||
+          !peer(owner, initial.peer_id)
+        )
+          markUnknown(owner, callId);
+        const saved = db
+          .prepare(
+            "SELECT state,result FROM mcp_reverse_calls WHERE id=? AND owner_id=?",
+          )
           .get(callId, owner) as Queued | undefined;
-        if (saved?.state === "completed") settle(undefined, JSON.parse(saved.result!));
+        if (saved?.state === "completed")
+          settle(undefined, JSON.parse(saved.result!));
         else if (!saved || !["pending", "claimed"].includes(saved.state))
-          settle(new Problem(409, "Shared tool outcome is uncertain; inspect it before retrying"));
+          settle(
+            new Problem(
+              409,
+              "Shared tool outcome is uncertain; inspect it before retrying",
+            ),
+          );
       };
       const registered = waiters.get(callId) || new Set();
       registered.add(check);
       waiters.set(callId, registered);
-      const notify = () => { for (const waiter of [...registered]) waiter(); };
+      const notify = () => {
+        for (const waiter of [...registered]) waiter();
+      };
       const unlisten = watched.on("*", notify);
       watched.signal.addEventListener("abort", notify, { once: true });
       remove = () => {
@@ -272,15 +304,26 @@ export async function waitForReverseCall(owner: string, callId: string) {
         watched.signal.removeEventListener("abort", notify);
         unlisten();
       };
-      deadline = setTimeout(() => {
-        check();
-        if (settled) return;
-        // A foreign completion may win between this read and the conditional
-        // update. Its known result must still win over the local deadline.
-        if (!markUnknown(owner, callId)) { check(); return; }
-        settle(new Problem(408, "Shared tool response timed out; outcome is uncertain"));
-        notify();
-      }, Math.max(1, MCP_TOOL_TIMEOUT_MS - 5000));
+      deadline = setTimeout(
+        () => {
+          check();
+          if (settled) return;
+          // A foreign completion may win between this read and the conditional
+          // update. Its known result must still win over the local deadline.
+          if (!markUnknown(owner, callId)) {
+            check();
+            return;
+          }
+          settle(
+            new Problem(
+              408,
+              "Shared tool response timed out; outcome is uncertain",
+            ),
+          );
+          notify();
+        },
+        Math.max(1, MCP_TOOL_TIMEOUT_MS - 5000),
+      );
       // Completion can have landed before registration, including in another API.
       check();
     });

@@ -8,7 +8,11 @@ import { config } from "./config.js";
 import { changeClock, createDeadlineScheduler } from "./change-deadlines.js";
 import { createChangeBus } from "./changes.js";
 import { eventSubjects } from "./event-subjects.js";
-import { parseEmission, type WorkspaceEmission, type WorkspaceSubject } from "../shared/workspace-events.js";
+import {
+  parseEmission,
+  type WorkspaceEmission,
+  type WorkspaceSubject,
+} from "../shared/workspace-events.js";
 export const db: Database.Database = new Database(join(config.data, "loop.db"));
 const subjects = eventSubjects(db);
 let wakeChanges = () => {};
@@ -56,24 +60,41 @@ db.transaction(() => {
 }).immediate();
 installProjectionBoundary(db, () => projectFeed(db, emit));
 db.pragma("busy_timeout = 5000");
-export function now() { return Date.now(); }
-export function id() { return crypto.randomUUID(); }
+export function now() {
+  return Date.now();
+}
+export function id() {
+  return crypto.randomUUID();
+}
 export const changes = createChangeBus(db, { pollMs: config.changePollMs });
 wakeChanges = changes.wake;
 export const deadlines = createDeadlineScheduler(db, changes);
 export function workspaceClock(owner: string) {
-  const identity = db.prepare(`SELECT COALESCE(w.epoch,c.epoch) epoch,COALESCE(w.last_event_id,0) cursor
-    FROM change_log_identity c LEFT JOIN change_watermark w ON w.owner_id=? WHERE c.singleton=1`)
+  const identity = db
+    .prepare(
+      `SELECT COALESCE(w.epoch,c.epoch) epoch,COALESCE(w.last_event_id,0) cursor
+    FROM change_log_identity c LEFT JOIN change_watermark w ON w.owner_id=? WHERE c.singleton=1`,
+    )
     .get(owner) as { epoch: string; cursor: number };
   return { ...changeClock(db, owner), ...identity };
 }
 export function ensureWorkspaceOwner(owner: string): string {
-  const existing = db.prepare("SELECT epoch FROM change_watermark WHERE owner_id=?").get(owner) as { epoch: string } | undefined;
+  const existing = db
+    .prepare("SELECT epoch FROM change_watermark WHERE owner_id=?")
+    .get(owner) as { epoch: string } | undefined;
   if (existing) return existing.epoch;
-  return db.transaction(() => {
-    db.prepare("INSERT OR IGNORE INTO change_watermark(owner_id,last_event_id,epoch) SELECT ?,0,epoch FROM change_log_identity WHERE singleton=1").run(owner);
-    return (db.prepare("SELECT epoch FROM change_watermark WHERE owner_id=?").get(owner) as { epoch: string }).epoch;
-  }).immediate();
+  return db
+    .transaction(() => {
+      db.prepare(
+        "INSERT OR IGNORE INTO change_watermark(owner_id,last_event_id,epoch) SELECT ?,0,epoch FROM change_log_identity WHERE singleton=1",
+      ).run(owner);
+      return (
+        db
+          .prepare("SELECT epoch FROM change_watermark WHERE owner_id=?")
+          .get(owner) as { epoch: string }
+      ).epoch;
+    })
+    .immediate();
 }
 // Capture before deleting a subject, inside the deletion transaction.
 export const ownedEventSubject = subjects.prove;
@@ -82,17 +103,27 @@ export function emit(
   input: string | WorkspaceSubject,
   ...[type, payload]: WorkspaceEmission
 ) {
-  return db.transaction(() => {
-    const subject = subjects.resolve(owner, input);
-    const run = subject.kind === "run" ? subject.id : null;
-    if (type === "tombstone") subjects.resolve(owner, payload.removed);
-    parseEmission(run, type, payload, subject);
-    const row = db
-      .prepare(
-        "INSERT INTO events(owner_id,run_id,type,payload,created_at,subject_kind,subject_id) VALUES(?,?,?,?,?,?,?)",
-      )
-      .run(owner, run, type, JSON.stringify(payload), now(), subject.kind, subject.id).lastInsertRowid;
-    wakeChanges();
-    return row;
-  }).immediate();
+  return db
+    .transaction(() => {
+      const subject = subjects.resolve(owner, input);
+      const run = subject.kind === "run" ? subject.id : null;
+      if (type === "tombstone") subjects.resolve(owner, payload.removed);
+      parseEmission(run, type, payload, subject);
+      const row = db
+        .prepare(
+          "INSERT INTO events(owner_id,run_id,type,payload,created_at,subject_kind,subject_id) VALUES(?,?,?,?,?,?,?)",
+        )
+        .run(
+          owner,
+          run,
+          type,
+          JSON.stringify(payload),
+          now(),
+          subject.kind,
+          subject.id,
+        ).lastInsertRowid;
+      wakeChanges();
+      return row;
+    })
+    .immediate();
 }

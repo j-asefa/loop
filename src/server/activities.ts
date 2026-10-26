@@ -88,9 +88,14 @@ function write(
   // Content-free refresh signal. Every client, including cached ones that do
   // not know activities, treats an unknown event as "refresh projections";
   // the record itself is only served by GET /conversations/:id/activities.
-  emit(scope.owner, scope.run
-    ? { kind: "run", id: scope.run }
-    : { kind: "conversation", id: scope.conversation! }, "activity.updated", { key, kind, sequence });
+  emit(
+    scope.owner,
+    scope.run
+      ? { kind: "run", id: scope.run }
+      : { kind: "conversation", id: scope.conversation! },
+    "activity.updated",
+    { key, kind, sequence },
+  );
   return sequence;
 }
 
@@ -127,8 +132,11 @@ export function applyActivity(
         .prepare(
           "SELECT record FROM agent_activities WHERE owner_id=? AND scope=? AND activity_key=?",
         )
-        .get(scope.owner, scopeOf(scope), key) as { record: string } | undefined;
-      const stored = row ? (JSON.parse(row.record) as ActivityRecord) : undefined;
+        .get(scope.owner, scopeOf(scope), key) as
+        { record: string } | undefined;
+      const stored = row
+        ? (JSON.parse(row.record) as ActivityRecord)
+        : undefined;
       if (stored && stored.kind !== update.kind)
         return { applied: false, key, reason: "activity kind mismatch" };
       const session = update.kind === "settings" || update.kind === "commands";
@@ -144,7 +152,8 @@ export function applyActivity(
         update.generation !== stored.generation;
       const previous = restarted ? undefined : stored;
       const result = reduceActivity(previous, update);
-      if (!result.changed) return { applied: false, key, reason: result.reason };
+      if (!result.changed)
+        return { applied: false, key, reason: result.reason };
       if (restarted) result.record.revision = stored.revision + 1;
       const sequence = write(scope, key, update.kind, result.record, session);
       return { applied: true, key, sequence, record: result.record };
@@ -153,7 +162,11 @@ export function applyActivity(
 }
 
 type NativeLive = {
-  run?: { id: string; owner_id: string; conversation_id?: string | null } | null;
+  run?: {
+    id: string;
+    owner_id: string;
+    conversation_id?: string | null;
+  } | null;
   bootstrapRun?: { id: string; owner_id: string } | null;
   generation: string;
   binding: { conversation_id: string; harness?: string };
@@ -188,7 +201,9 @@ export function ingestNativeActivity(
   live: NativeLive,
   update: unknown,
 ): ActivityResult {
-  if (Buffer.byteLength(JSON.stringify(update ?? null)) > ACTIVITY_LIMITS.ingest)
+  if (
+    Buffer.byteLength(JSON.stringify(update ?? null)) > ACTIVITY_LIMITS.ingest
+  )
     return { applied: false, reason: "activity update too large" };
   const owner = nativeOwner(live);
   if (!owner) return { applied: false, reason: "unknown conversation" };
@@ -214,7 +229,10 @@ const Capabilities = z
   .object(
     Object.fromEntries(
       ACTIVITY_FEATURES.map((f) => [f, Capability.optional()]),
-    ) as Record<(typeof ACTIVITY_FEATURES)[number], z.ZodOptional<typeof Capability>>,
+    ) as Record<
+      (typeof ACTIVITY_FEATURES)[number],
+      z.ZodOptional<typeof Capability>
+    >,
   )
   .strip();
 
@@ -227,7 +245,8 @@ export function ingestNativeCapabilities(
   input: unknown,
 ): CapabilitiesResult {
   const parsed = Capabilities.safeParse(input);
-  if (!parsed.success) return { applied: false, reason: "invalid capabilities" };
+  if (!parsed.success)
+    return { applied: false, reason: "invalid capabilities" };
   const owner = nativeOwner(live);
   if (!owner) return { applied: false, reason: "unknown conversation" };
   return setActivityCapabilities(
@@ -271,7 +290,8 @@ export function setActivityCapabilities(
         .prepare(
           "SELECT record FROM agent_activities WHERE owner_id=? AND scope=? AND activity_key=?",
         )
-        .get(scope.owner, scopeOf(scope), key) as { record: string } | undefined;
+        .get(scope.owner, scopeOf(scope), key) as
+        { record: string } | undefined;
       if (row?.record === JSON.stringify(record))
         return { applied: false, key, reason: "no change" };
       const sequence = write(scope, key, "capabilities", record, true);
@@ -314,7 +334,16 @@ function legacyTools(
       scope,
       before ?? Number.MAX_SAFE_INTEGER,
       before === undefined ? 2000 : 101,
-    ) as Pick<QueryRow<"run_traces">, "run_id" | "trace_key" | "title" | "content" | "metadata" | "artifact_id" | "id">[];
+    ) as Pick<
+    QueryRow<"run_traces">,
+    | "run_id"
+    | "trace_key"
+    | "title"
+    | "content"
+    | "metadata"
+    | "artifact_id"
+    | "id"
+  >[];
   const more = before !== undefined && traces.length > 100;
   if (more) traces.pop();
   const next = more ? (traces.at(-1)!.id as number) : null;
@@ -571,5 +600,10 @@ export function listActivities(
 const routes = registrar("activityRoutes");
 export const activityRoutes = routes.mount;
 routes.on(workspaceApi.conversationActivities, (req, res) => {
-  res.json(listActivities(res.locals.owner, req.params.id, { ...req.query, runs: req.query.runs?.split(",") }) as z.input<typeof workspaceApi.conversationActivities.response>);
+  res.json(
+    listActivities(res.locals.owner, req.params.id, {
+      ...req.query,
+      runs: req.query.runs?.split(","),
+    }) as z.input<typeof workspaceApi.conversationActivities.response>,
+  );
 });

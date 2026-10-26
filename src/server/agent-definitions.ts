@@ -3,7 +3,15 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 import { db, now } from "./db.js";
-import { ownedAgent, ownedTeam, ownedConnection, agentInput, createAgent, handle, Problem } from "./domain.js";
+import {
+  ownedAgent,
+  ownedTeam,
+  ownedConnection,
+  agentInput,
+  createAgent,
+  handle,
+  Problem,
+} from "./domain.js";
 import { addTeamMember, createTeam, listTeams } from "./teams.js";
 import { parseDefinition } from "./definition-markdown.js";
 import {
@@ -13,7 +21,6 @@ import {
   type DefinitionRole,
   type DefinitionSummary,
 } from "../shared/agent-definitions.js";
-
 
 type StoredDefinition = DefinitionSummary & {
   owner_id: string;
@@ -227,8 +234,15 @@ export function createFromDefinition(
           const catalog = connection.models;
           const model = catalog.find((model) => model.id === settings.model);
           if (!model)
-            throw new Problem(400, "Choose an available model from this connection");
-          if (!model.effortLevels?.some((level) => level.value === settings.effort))
+            throw new Problem(
+              400,
+              "Choose an available model from this connection",
+            );
+          if (
+            !model.effortLevels?.some(
+              (level) => level.value === settings.effort,
+            )
+          )
             throw new Problem(
               400,
               "Choose an effort level reported by this model, or the runtime default",

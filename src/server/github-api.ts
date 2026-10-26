@@ -13,11 +13,17 @@ type GithubFetch = (url: string, init: RequestInit) => Promise<Response>;
 // (the MCP network layer loads it) it becomes the global dispatcher, and
 // Node's built-in fetch then returns GitHub's gzipped responses undecoded.
 let githubFetch: GithubFetch = (url, init) =>
-  undiciFetch(url, init as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
+  undiciFetch(
+    url,
+    init as Parameters<typeof undiciFetch>[1],
+  ) as unknown as Promise<Response>;
 // Browser fixtures point this at a dead local address, never at GitHub.
 let githubApi = process.env.LOOP_GITHUB_API_URL || "https://api.github.com";
 /** Tests swap GitHub for a fixture (or only its address); returns a restore function. */
-export function withGithubFixture(fetcher: GithubFetch | undefined, base = githubApi) {
+export function withGithubFixture(
+  fetcher: GithubFetch | undefined,
+  base = githubApi,
+) {
   const previous = { githubFetch, githubApi };
   if (fetcher) githubFetch = fetcher;
   githubApi = base;
@@ -140,7 +146,9 @@ export async function githubRest<T>(
       authorization: "Bearer " + token,
       "x-github-api-version": "2022-11-28",
       "user-agent": "Loop",
-      ...(init.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(init.body === undefined
+        ? {}
+        : { "content-type": "application/json" }),
     },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
     signal: AbortSignal.timeout(20_000),
@@ -199,7 +207,10 @@ export async function githubRaw(token: string, path: string, maxBytes: number) {
   });
   await refused(response);
   const tooLarge = () =>
-    new GithubError("This file is too large to show here. Open it on GitHub.", 413);
+    new GithubError(
+      "This file is too large to show here. Open it on GitHub.",
+      413,
+    );
   if (Number(response.headers.get("content-length")) > maxBytes) {
     await response.body?.cancel();
     throw tooLarge();

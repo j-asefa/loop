@@ -6,7 +6,13 @@ import type { RequestHandler } from "express";
 import { designPreview } from "../preview-context.js";
 import { db, changes, emit, id, now } from "./db.js";
 import { OWNER } from "./native-sessions.js";
-import { ownedConnection, ownedApproval, ownedRun, createAgent, Problem } from "./domain.js";
+import {
+  ownedConnection,
+  ownedApproval,
+  ownedRun,
+  createAgent,
+  Problem,
+} from "./domain.js";
 import { seal } from "./secrets.js";
 import { saveArtifact } from "./artifacts.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
@@ -135,7 +141,12 @@ function reply(run: Run, content: string, partial = false) {
     run.id,
     "assistant",
     content,
-    JSON.stringify(MessageMetadata.parse({ preview: true, ...(partial ? { partial: true } : {}) })),
+    JSON.stringify(
+      MessageMetadata.parse({
+        preview: true,
+        ...(partial ? { partial: true } : {}),
+      }),
+    ),
     now(),
   );
   return message;
@@ -182,15 +193,19 @@ export function seedDesignPreview() {
   db.transaction(() => {
     const project = ensureWorkspaceProject(OWNER),
       connection = id();
-    writeConnectionStatus(connection, () => db.prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Preview simulator',?,'connected',?,'{\"preview\":true}',?)",
-    ).run(
-      connection,
-      OWNER,
-      seal("preview-only-not-a-provider-key", OWNER),
-      JSON.stringify(models),
-      now(),
-    ));
+    writeConnectionStatus(connection, () =>
+      db
+        .prepare(
+          "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Preview simulator',?,'connected',?,'{\"preview\":true}',?)",
+        )
+        .run(
+          connection,
+          OWNER,
+          seal("preview-only-not-a-provider-key", OWNER),
+          JSON.stringify(models),
+          now(),
+        ),
+    );
     const agents = ["willow", "cedar", "iris", "fern", "maple"].map((name) =>
       createAgent(OWNER, {
         name,
@@ -257,7 +272,9 @@ export function seedDesignPreview() {
         time,
         time,
       );
-      const run = parseRun(db.prepare("SELECT * FROM runs WHERE id=?").get(runId));
+      const run = parseRun(
+        db.prepare("SELECT * FROM runs WHERE id=?").get(runId),
+      );
       const turns = index === 0 ? 24 : 1;
       for (let turn = 0; turn < turns; turn++) {
         db.prepare(
@@ -283,7 +300,12 @@ export function seedDesignPreview() {
             runId,
             "assistant",
             content,
-            JSON.stringify(MessageMetadata.parse({ preview: true, partial: state === "running" })),
+            JSON.stringify(
+              MessageMetadata.parse({
+                preview: true,
+                partial: state === "running",
+              }),
+            ),
             time + turn * 2000 + 1,
           );
       }
@@ -325,72 +347,106 @@ export function startDesignSimulation() {
   const watched = new Map<string, ReturnType<typeof watchRun>>();
   const wake = () => {
     if (stopped || scheduled) return;
-    scheduled = setImmediate(() => { scheduled = undefined; tick(); });
+    scheduled = setImmediate(() => {
+      scheduled = undefined;
+      tick();
+    });
   };
   const reconcile = () => {
-    const live = parseRuns(db.prepare("SELECT * FROM runs WHERE owner_id=? AND state IN ('queued','running','awaiting_approval')").all(OWNER));
+    const live = parseRuns(
+      db
+        .prepare(
+          "SELECT * FROM runs WHERE owner_id=? AND state IN ('queued','running','awaiting_approval')",
+        )
+        .all(OWNER),
+    );
     const ids = new Set(live.map((run) => run.id));
-    for (const [id, subscription] of watched) if (!ids.has(id)) {
-      subscription.release(); watched.delete(id);
-    }
-    for (const run of live) if (!watched.has(run.id)) {
-      const subscription = watchRun(run);
-      subscription.on("fallback", wake);
-      watched.set(run.id, subscription);
-    }
+    for (const [id, subscription] of watched)
+      if (!ids.has(id)) {
+        subscription.release();
+        watched.delete(id);
+      }
+    for (const run of live)
+      if (!watched.has(run.id)) {
+        const subscription = watchRun(run);
+        subscription.on("fallback", wake);
+        watched.set(run.id, subscription);
+      }
   };
   const tick = () => {
-    db
-      .transaction(() => {
-        db.prepare(
-          "INSERT OR REPLACE INTO worker_health VALUES('design-preview',?)",
-        ).run(now());
-        for (let i = 0; i < 10; i++) {
-          // Use the ordinary queue's approval, pause and ordering barriers without dispatching work.
-          const run = claim(
-            "design-preview",
-            (candidate) =>
-              candidate.owner_id === OWNER &&
-              candidate.kind === "agent" &&
-              candidate.state === "queued" &&
-              (!candidate.payload.previewFixture ||
-                !!db
-                  .prepare(
-                    "SELECT 1 FROM events WHERE owner_id=? AND run_id=? AND type='queued' LIMIT 1",
-                  )
-                  .get(OWNER, candidate.id)),
-          );
-          if (!run) break;
-          finish(run, REPLY);
-        }
-        const steered = parseRuns(db
+    db.transaction(() => {
+      db.prepare(
+        "INSERT OR REPLACE INTO worker_health VALUES('design-preview',?)",
+      ).run(now());
+      for (let i = 0; i < 10; i++) {
+        // Use the ordinary queue's approval, pause and ordering barriers without dispatching work.
+        const run = claim(
+          "design-preview",
+          (candidate) =>
+            candidate.owner_id === OWNER &&
+            candidate.kind === "agent" &&
+            candidate.state === "queued" &&
+            (!candidate.payload.previewFixture ||
+              !!db
+                .prepare(
+                  "SELECT 1 FROM events WHERE owner_id=? AND run_id=? AND type='queued' LIMIT 1",
+                )
+                .get(OWNER, candidate.id)),
+        );
+        if (!run) break;
+        finish(run, REPLY);
+      }
+      const steered = parseRuns(
+        db
           .prepare(
             `SELECT * FROM runs WHERE owner_id=? AND state IN ('running','awaiting_approval')
             AND EXISTS(SELECT 1 FROM run_steering s WHERE s.owner_id=runs.owner_id AND s.run_id=runs.id AND s.state='pending')
             ORDER BY created_at LIMIT 10`,
           )
-          .all(OWNER));
-        for (const run of steered) {
-          if (run.state === "awaiting_approval") {
-            new SteeringInbox(run).appendPending([]);
-            reply(
-              run,
-              REPLY +
-                "\n\nThe sample approval is still waiting for your decision.",
-              true,
-            );
-          } else finish(run, REPLY);
-        }
-      })
-      .immediate();
+          .all(OWNER),
+      );
+      for (const run of steered) {
+        if (run.state === "awaiting_approval") {
+          new SteeringInbox(run).appendPending([]);
+          reply(
+            run,
+            REPLY +
+              "\n\nThe sample approval is still waiting for your decision.",
+            true,
+          );
+        } else finish(run, REPLY);
+      }
+    }).immediate();
     reconcile();
   };
   const unsubscribe = changes.subscribe(OWNER, (events) => {
-    if (events.some(({ type }) => ["queued", "running", "completed", "failed", "cancelled", "interrupted", "steering.pending"].includes(type) || type.startsWith("approval."))) wake();
+    if (
+      events.some(
+        ({ type }) =>
+          [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted",
+            "steering.pending",
+          ].includes(type) || type.startsWith("approval."),
+      )
+    )
+      wake();
   });
   tick();
   // The simulation still advertises liveness without polling run/steering rows.
-  const timer = setInterval(() => db.prepare("INSERT OR REPLACE INTO worker_health VALUES('design-preview',?)").run(now()), 5000);
+  const timer = setInterval(
+    () =>
+      db
+        .prepare(
+          "INSERT OR REPLACE INTO worker_health VALUES('design-preview',?)",
+        )
+        .run(now()),
+    5000,
+  );
   return async () => {
     stopped = true;
     if (scheduled) clearImmediate(scheduled);

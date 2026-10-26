@@ -19,7 +19,8 @@ export function doneCards(
         agent_id: row.agent_id,
       },
       author: {
-        kind: row.card_run && row.message_id && row.agent_id ? "agent" : "unknown",
+        kind:
+          row.card_run && row.message_id && row.agent_id ? "agent" : "unknown",
         id: row.card_run ? row.agent_id : null,
         name: row.card_run ? row.agent_name : null,
         provider: row.card_run ? row.provider : null,
@@ -48,7 +49,10 @@ export function doneCards(
         (row.message_id
           ? "&message=" + encodeURIComponent(row.message_id)
           : ""),
-      display: DoneDisplaySchema.parse({ ...display, position_message_id: null }),
+      display: DoneDisplaySchema.parse({
+        ...display,
+        position_message_id: null,
+      }),
     },
     order: [
       row.sort_at,

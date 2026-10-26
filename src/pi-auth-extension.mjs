@@ -37,10 +37,15 @@ export default function loopSignIn(pi) {
         if (message.type === "input") pending.get(message.id)?.(message.value);
         if (message.type === "logout" && !abort) {
           abort = new AbortController();
-          void runtime.logout(message.provider, { signal: abort.signal }).then(
-            () => send({ type: "logout_complete" }),
-            () => send({ type: "logout_failed" }),
-          ).finally(() => { abort = undefined; });
+          void runtime
+            .logout(message.provider, { signal: abort.signal })
+            .then(
+              () => send({ type: "logout_complete" }),
+              () => send({ type: "logout_failed" }),
+            )
+            .finally(() => {
+              abort = undefined;
+            });
           continue;
         }
         if (message.type !== "login" || abort) continue;

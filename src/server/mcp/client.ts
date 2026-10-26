@@ -69,8 +69,7 @@ function updateSecret(c: MCPConnection, patch: Partial<AuthSecret>) {
 }
 export function oauthProvider(c: MCPConnection) {
   let redirect: string | undefined;
-  const current = () =>
-    readSecret(ownedMcpConnection(c.id, c.owner_id));
+  const current = () => readSecret(ownedMcpConnection(c.id, c.owner_id));
   const provider: OAuthClientProvider = {
     get redirectUrl() {
       return config.url + "/api/mcp/oauth/callback";
@@ -209,8 +208,8 @@ export async function connect(
           requestInit: { headers: requestHeaders },
           fetch:
             metadata.transport === "federation"
-              ? ((input: any, init: any) =>
-                  fetch(input, { ...init, redirect: "error" }))
+              ? (input: any, init: any) =>
+                  fetch(input, { ...init, redirect: "error" })
               : safeToolFetch,
           authProvider: oauth?.provider,
         });
@@ -243,30 +242,44 @@ export async function discover(
   const client = await connect(c);
   try {
     const capabilities = client.getServerCapabilities();
-    async function pages<T>(fetch: (cursor?: string) => Promise<{ items: T[]; nextCursor?: string }>) {
+    async function pages<T>(
+      fetch: (cursor?: string) => Promise<{ items: T[]; nextCursor?: string }>,
+    ) {
       const result: T[] = [];
       let cursor: string | undefined;
       do {
         const page = await fetch(cursor);
         result.push(...page.items);
         if (result.length > 300)
-          throw new Problem(422, "Server catalog is too large; use a scoped toolset");
+          throw new Problem(
+            422,
+            "Server catalog is too large; use a scoped toolset",
+          );
         cursor = page.nextCursor;
       } while (cursor);
       return result;
     }
-    const tools = capabilities?.tools ? await pages(async cursor => {
-      const page = await client.listTools({ cursor }, { timeout: 15000 });
-      return { items: page.tools, nextCursor: page.nextCursor };
-    }) : [];
-    const resources = capabilities?.resources ? await pages(async cursor => {
-      const page = await client.listResources({ cursor }, { timeout: 15000 });
-      return { items: page.resources, nextCursor: page.nextCursor };
-    }) : [];
-    const prompts = capabilities?.prompts ? await pages(async cursor => {
-      const page = await client.listPrompts({ cursor }, { timeout: 15000 });
-      return { items: page.prompts, nextCursor: page.nextCursor };
-    }) : [];
+    const tools = capabilities?.tools
+      ? await pages(async (cursor) => {
+          const page = await client.listTools({ cursor }, { timeout: 15000 });
+          return { items: page.tools, nextCursor: page.nextCursor };
+        })
+      : [];
+    const resources = capabilities?.resources
+      ? await pages(async (cursor) => {
+          const page = await client.listResources(
+            { cursor },
+            { timeout: 15000 },
+          );
+          return { items: page.resources, nextCursor: page.nextCursor };
+        })
+      : [];
+    const prompts = capabilities?.prompts
+      ? await pages(async (cursor) => {
+          const page = await client.listPrompts({ cursor }, { timeout: 15000 });
+          return { items: page.prompts, nextCursor: page.nextCursor };
+        })
+      : [];
     const metadata = {
       ...JSON.parse(c.metadata),
       capabilities,

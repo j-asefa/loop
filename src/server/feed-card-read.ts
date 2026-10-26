@@ -32,14 +32,20 @@ const needs = "(t.needs_run OR COALESCE(t.approval_until,0)>@now)";
 const idle = `NOT (${needs} OR t.working OR t.queued) AND NOT t.snoozed`;
 const scope = (alias: string, params: Scope) => {
   // Parameters come from the validated route's resolved folder selection.
-  const folders = params.folders ? JSON.parse(params.folders) as (string | null)[] : null;
+  const folders = params.folders
+    ? (JSON.parse(params.folders) as (string | null)[])
+    : null;
   const folderPredicates = folders && [
-    ...(folders.some(folder => folder !== null) ? [`${alias}.folder_id IN (SELECT value FROM json_each(@folders))`] : []),
+    ...(folders.some((folder) => folder !== null)
+      ? [`${alias}.folder_id IN (SELECT value FROM json_each(@folders))`]
+      : []),
     ...(folders.includes(null) ? [`${alias}.folder_id IS NULL`] : []),
   ];
   return [
     `${alias}.owner_id=@owner`,
-    ...(params.teams ? [`${alias}.team_id IN (SELECT value FROM json_each(@teams))`] : []),
+    ...(params.teams
+      ? [`${alias}.team_id IN (SELECT value FROM json_each(@teams))`]
+      : []),
     ...(params.agent ? [`${alias}.agent_id=@agent`] : []),
     ...(folderPredicates ? [`(${folderPredicates.join(" OR ") || "0"})`] : []),
   ].join(" AND ");
@@ -151,15 +157,29 @@ export function projectionFeed(
     COALESCE(sum(t.working),0) working,COALESCE(sum(t.queued),0) queued
     FROM feed_cards t WHERE t.kind='thread' AND ${scope("t", params)}`;
   type Summary = { needs: number; working: number; queued: number };
-  const rows = db.prepare(`WITH summary AS (${summarySql})
+  const rows = db
+    .prepare(
+      `WITH summary AS (${summarySql})
     SELECT page.*,summary.needs,summary.working,summary.queued FROM summary
     LEFT JOIN (${results ? sql : sql.replace(/\bt\./g, "p.")}) page ON 1
-    ORDER BY page.sort_at DESC,page.conversation_id DESC,page.card_key DESC`)
+    ORDER BY page.sort_at DESC,page.conversation_id DESC,page.card_key DESC`,
+    )
     .all(params) as ((RecordRow | { payload: null }) & Summary)[];
   const { needs: needsCount, working, queued } = rows[0];
   return {
-    page: rows.flatMap(row => row.payload === null ? [] :
-      [display(row, mode, params.now, filter === "done" && !results, false)]),
+    page: rows.flatMap((row) =>
+      row.payload === null
+        ? []
+        : [
+            display(
+              row,
+              mode,
+              params.now,
+              filter === "done" && !results,
+              false,
+            ),
+          ],
+    ),
     summary: { needs: needsCount, working, queued },
   };
 }
