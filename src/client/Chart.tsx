@@ -1,5 +1,5 @@
 import { parse } from "./api";
-import { chartSchema } from "../server/mcp/results";
+import { chartSchema } from "../shared/chart";
 export function Chart({
   content,
   compact = false,

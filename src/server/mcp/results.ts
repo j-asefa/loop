@@ -1,43 +1,6 @@
 import { z } from "zod";
 import { pullRequestCard } from "../../shared/github.js";
-const timestamp = z
-  .number()
-  .finite()
-  .min(-8640000000000000)
-  .max(8640000000000000);
-const point = z.tuple([timestamp, z.number().finite().nullable()]);
-export const chartSchema = z
-  .object({
-    type: z.literal("timeseries"),
-    title: z.string().max(200),
-    timezone: z.literal("UTC"),
-    series: z
-      .array(
-        z.object({
-          name: z.string().max(200),
-          unit: z.string().max(60),
-          points: z.array(point).max(10000),
-        }),
-      )
-      .min(1)
-      .max(20),
-    source: z.object({
-      connectionId: z.string(),
-      tool: z.string(),
-      fetchedAt: timestamp,
-      fixture: z.boolean().default(false),
-    }),
-    range: z.object({ from: timestamp, to: timestamp }),
-  })
-  .refine(
-    (d) =>
-      d.range.from <= d.range.to &&
-      d.series.every((s) =>
-        s.points.every((p) => p[0] >= d.range.from && p[0] <= d.range.to),
-      ),
-    "Samples must be inside the declared range",
-  );
-export type ChartData = z.infer<typeof chartSchema>;
+import { chartPoint, chartSchema } from "../../shared/chart.js";
 // Callers pass a credential-redacted result. The complete response remains in
 // its saved artifact; traces and run failures use this bounded explanation.
 export function toolErrorMessage(result: any) {
@@ -135,7 +98,7 @@ export function normalizeResult(
             s.unit ||
             "unit not supplied",
         ),
-        points: z.array(point).min(1).max(10000).parse(s.pointlist),
+        points: z.array(chartPoint).min(1).max(10000).parse(s.pointlist),
       }));
       const times = series.flatMap((s: any) => s.points.map((p: any) => p[0]));
       const chart = chartSchema.parse({
