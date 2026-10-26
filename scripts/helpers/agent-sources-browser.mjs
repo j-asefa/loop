@@ -9,6 +9,13 @@ import { expect } from "@playwright/test";
 export async function agentSourcesBrowser(page, workspaceUrl) {
   const now = Date.now();
   const computer = "Alex’s MacBook Pro";
+  const localIds = {
+    agent: randomUUID(),
+    owner: randomUUID(),
+    connection: randomUUID(),
+    conversation: randomUUID(),
+    message: randomUUID(),
+  };
   const sources = [
     { id: `docker:${"a".repeat(64)}`, name: "Docker · Alpha", kind: "docker" },
     { id: "cloud:beta", name: "Cloud · Beta", kind: "cloud" },
@@ -16,11 +23,11 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
   const records = new Map(
     sources.map((source, index) => {
       const agent = {
-        id: `remote-agent-${index}`,
-        owner_id: `remote-owner-${index}`,
+        id: randomUUID(),
+        owner_id: randomUUID(),
         name: `remote-${index}`,
         provider: "codex",
-        connection_id: `remote-connection-${index}`,
+        connection_id: randomUUID(),
         model: "gpt-5.5",
         instructions: "",
         folder_id: null,
@@ -44,7 +51,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       };
       const thread = {
         // Deliberate collision with the laptop: source must qualify identity.
-        conversation_id: index === 0 ? "laptop-thread" : `remote-thread-${index}`,
+        conversation_id: index === 0 ? localIds.conversation : randomUUID(),
         title: `Remote thread ${index}`,
         agent_id: agent.id,
         connection_id: agent.connection_id,
@@ -56,7 +63,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
         origin: "direct",
         last_activity_at: now + index,
         last_message: {
-          id: `remote-message-${index}`,
+          id: randomUUID(),
           role: "assistant",
           preview: `Answer from ${source.name}`,
           created_at: now + index,
@@ -71,11 +78,11 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
   );
   const local = {
     agent: {
-      id: "laptop-agent",
-      owner_id: "laptop-owner",
+      id: localIds.agent,
+      owner_id: localIds.owner,
       name: "laptop-agent",
       provider: "codex",
-      connection_id: "laptop-connection",
+      connection_id: localIds.connection,
       model: "gpt-5.5",
       instructions: "",
       folder_id: null,
@@ -84,8 +91,8 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       created_at: now - 100,
     },
     connection: {
-      id: "laptop-connection",
-      owner_id: "laptop-owner",
+      id: localIds.connection,
+      owner_id: localIds.owner,
       provider: "codex",
       label: "Codex",
       secret: "",
@@ -99,10 +106,10 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       created_at: now,
     },
     thread: {
-      conversation_id: "laptop-thread",
+      conversation_id: localIds.conversation,
       title: "Laptop thread",
-      agent_id: "laptop-agent",
-      connection_id: "laptop-connection",
+      agent_id: localIds.agent,
+      connection_id: localIds.connection,
       agent_name: "laptop-agent",
       provider: "codex",
       project_id: null,
@@ -111,7 +118,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       origin: "direct",
       last_activity_at: now - 100,
       last_message: {
-        id: "laptop-message",
+        id: localIds.message,
         role: "assistant",
         preview: "Answer from laptop",
         created_at: now - 100,
@@ -381,7 +388,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await expect(destinations).toContainText("Cloud · Beta");
     await expect(destinations).toContainText(computer);
     const sheet = page.getByRole("dialog", { name: "Meet your next agent" });
-    const dockerRunner = `${sources[0].id}:remote-connection-0`;
+    const dockerRunner = `${sources[0].id}:${records.get(sources[0].id).connection.id}`;
     await destinations.selectOption(dockerRunner);
     await sheet.getByLabel("Unique name").fill("docker-files");
     await sheet.getByLabel("Initial prompt", { exact: true }).fill("Read these files");
@@ -394,7 +401,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await sheet.getByRole("button", { name: "Preview attachment-0.txt" }).click();
     await expect(page.locator(".file-preview-content pre")).toHaveText("hello");
     await page.locator("dialog[open]").last().getByRole("button", { name: "Close", exact: true }).click();
-    await destinations.selectOption("laptop:laptop-connection");
+    await destinations.selectOption(`laptop:${local.connection.id}`);
     await expect(sheet.locator(".connection-details")).toContainText(computer);
     await expect(sheet).not.toContainText("This laptop");
     await expect(sheet.getByRole("button", { name: "Create & start" })).toBeDisabled();
@@ -429,7 +436,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       .click();
     await expect
       .poll(() => new URL(page.url()).searchParams.get("conversation"))
-      .toBe("laptop-thread");
+      .toBe(local.thread.conversation_id);
     assert.equal(new URL(page.url()).searchParams.get("source"), null);
 
     // A hung discovery request times out instead of blocking later refreshes.

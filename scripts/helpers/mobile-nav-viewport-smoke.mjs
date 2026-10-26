@@ -33,7 +33,10 @@ export async function mobileNavViewportSmoke(page, fixture, capture) {
       visualViewport.dispatchEvent(new Event("resize"));
     });
     await expect(nav).toBeHidden();
-    await sheet.getByRole("button", { name: "Close", exact: true }).click();
+    // Exercise touch input: a mouse press can blur the field and move Close
+    // between down/up when this fixture changes the simulated keyboard state.
+    await sheet.getByRole("button", { name: "Close", exact: true }).tap();
+    await expect(sheet).toBeHidden();
     await expect(nav).toBeVisible();
     await page.evaluate(() => {
       for (const el of document.querySelectorAll(".mobile-nav, .main-column > .composer-dock"))
@@ -74,6 +77,22 @@ export async function mobileNavViewportSmoke(page, fixture, capture) {
     await aligned();
     await expect(dock).toBeVisible();
   }
+  // The shell keeps an unsent draft while navigating through page views.
+  await page.getByRole("button", { name: "Compose a message", exact: true }).click();
+  const draft = page.locator(".main-column #composer");
+  const unsent = "Keep this draft while I visit other pages.";
+  await draft.fill(unsent);
+  await draft.blur();
   await nav.getByRole("button", { name: "Projects", exact: true }).tap();
   await expect(nav.getByRole("button", { name: "Projects", exact: true })).toHaveClass(/current/);
+  await expect(draft).toHaveValue(unsent);
+  for (const name of ["Your profile", "Feed"]) {
+    await nav.getByRole("button", { name, exact: true }).tap();
+    await expect(nav.getByRole("button", { name, exact: true })).toHaveClass(/current/);
+    await expect(draft).toHaveValue(unsent);
+  }
+  await page.getByRole("button", { name: "Compose a message", exact: true }).click();
+  await expect(draft).toBeFocused();
+  await expect(draft).toHaveValue(unsent);
+  await capture("navigation-preserved-draft");
 }
