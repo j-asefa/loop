@@ -1,4 +1,5 @@
 import { workspaceApi } from "../shared/workspace-api";
+import { runErrorText } from "../shared/run-errors";
 import { useSourceRoute } from "./SourceContext";
 import type { RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState } from "react";
@@ -207,7 +208,7 @@ function TraceList({
               <RichText content={prompt} />
             </details>
             {!runId && group[0].run_error && (
-              <p className="error">{group[0].run_error}</p>
+              <p className="error">{runErrorText(group[0].run_error)}</p>
             )}
             {group.map((item) => {
               const meta = parse<any>(item.metadata, {});
@@ -273,7 +274,7 @@ function TraceList({
                       {item.kind === "message" ? (
                         <RichText content={item.content} />
                       ) : (
-                        <pre className="trace-log">{item.content}</pre>
+                        <pre className="trace-log">{item.trace_key === "run:failure" ? runErrorText(item.content) : item.content}</pre>
                       )}
                     </details>
                   )}

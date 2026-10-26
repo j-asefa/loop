@@ -102,6 +102,14 @@ A handoff does not transfer a native session, stop the sender's process, copy a 
 
 ## Sign-in and upgrades
 
+Startup failures name the native step that timed out, an exit signal/code, or
+a known installation/setup problem directly on the failed run. Loop records
+these safe transport facts in its failure trace without exposing native stderr,
+credentials or raw provider messages. A startup failure says no prompt was sent;
+failures after dispatch retain uncertain-outcome handling and are never replayed
+automatically. Older generic failures identify when the specific cause was not
+recorded instead of promising further details.
+
 Settings → Provider connections offers native account status, sign-in, model refresh and supported harness upgrades. Complete the provider flow, then enable/refresh the connection. Native credentials stay with the CLI. Closing the sign-in sheet does not cancel an active attempt; cancelling is explicit. Attempts expire after 15 minutes or a workspace restart. Loop does not replay uncertain sign-in steps or installers.
 
 Finish active runs and sign-in before upgrading a harness. Loop uses the installation's package manager without sudo, checks the resulting version, and attempts rollback when supported. An interrupted upgrade stays unconfirmed until its state is checked. Container installations are updated with their image.

@@ -77,9 +77,11 @@ systemctl --user restart loop.service
 
 The installer copies the launcher and installs
 [loop-agents.slice](../deployment/loop-agents.slice): all native agent processes
-together have a 4 GiB memory pressure threshold, a 5 GiB hard memory ceiling,
+together have a 5 GiB hard memory ceiling,
 at most 1 GiB of swap and three CPUs. This leaves capacity for Loop and the OS;
-it is an aggregate limit, not a fresh allowance for each agent. A workload that
+it is an aggregate limit, not a fresh allowance for each agent. There is no
+lower `MemoryHigh` threshold: early reclaim can otherwise stall all harnesses
+even while the server's reserved capacity is free. A workload that
 exhausts the ceiling can have its processes killed by the kernel; Loop must
 report that failure and never automatically replay an uncertain action.
 

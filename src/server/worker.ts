@@ -1,4 +1,5 @@
 import { ConnectionMetadata, readJson } from "./row-schemas.js";
+import { UNKNOWN_RUN_FAILURE } from "../shared/run-errors.js";
 
 import { errorFacts, errorSummary } from "../../runtime/diagnostics.ts";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
@@ -94,7 +95,9 @@ export async function tick(
     const message =
       error instanceof Problem
         ? error.message
-        : `The run stopped during ${phase} (${errorSummary(error, [], false)}). Open failure details to inspect the saved progress.`;
+        : errorSummary(error, [], false) === "Error"
+          ? UNKNOWN_RUN_FAILURE
+          : `Loop could not complete this run (${errorSummary(error, [], false)}). Review any saved progress before retrying.`;
     // A released or replaced lease cannot fail its former work. Keep the
     // lease check and failure transition atomic across API/worker processes.
     db.transaction(() => {

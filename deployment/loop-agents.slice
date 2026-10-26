@@ -4,7 +4,9 @@ Description=Aggregate resource budget for Loop native agents and their commands
 [Slice]
 # Example for an 8 GiB, four CPU host. Leave capacity for Loop and the OS.
 MemoryAccounting=yes
-MemoryHigh=4G
+# Early memory.high reclaim can stall every harness while the host has spare
+# RAM. Enforce the aggregate hard ceiling without that earlier throttle.
+MemoryHigh=infinity
 MemoryMax=5G
 MemorySwapMax=1G
 CPUAccounting=yes

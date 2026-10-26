@@ -9,7 +9,7 @@ import { db, id, now } from "../db.js";
 import { ownedConnection, ownedConversation, Problem } from "../domain.js";
 
 
-import { NativeSetupError } from "../../adapters/setup-error.js";
+import { nativeStartupFailure } from "./startup-failure.js";
 import { type Adapter, type Options } from "../../adapters/types.js";
 import { type Billing, type Harness } from "../../protocol.js";
 import type { Snapshot } from "../agent-runtime.js";
@@ -132,15 +132,8 @@ export class NativeProjects {
     } catch (error) {
       // This is a prompt-free verification adapter, before registration writes.
       // Disposal below must complete before a failed probe becomes retryable.
-      if (error instanceof NativeSetupError)
-        throw new ExecutionRefused(422, error.message, {
-          phase: "native startup",
-          code: error.code,
-        });
-      throw new ExecutionRefused(
-        422,
-        "Could not verify native runtime startup. Check its CLI sign-in and configuration, then retry. No task prompt was sent.",
-      );
+      const failure = nativeStartupFailure(labels[options.harness], error);
+      throw new ExecutionRefused(failure.status, failure.message, failure.diagnostic);
     } finally {
       await native.dispose();
     }

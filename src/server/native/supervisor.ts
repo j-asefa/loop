@@ -20,7 +20,7 @@ import { saveArtifact } from "../artifacts.js";
 import { attachedFiles, localAttachmentPrompt } from "../uploads.js";
 import { transition, type Run } from "../queue.js";
 
-import { NativeSetupError } from "../../adapters/setup-error.js";
+import { nativeStartupFailure } from "./startup-failure.js";
 import { NotDelivered, type Adapter, type Options } from "../../adapters/types.js";
 import { type AdapterEvent, type Harness } from "../../protocol.js";
 import { replyPrompt } from "../../shared/replies.js";
@@ -498,21 +498,7 @@ export class NativeSessions {
         db.prepare(
           "UPDATE companion_sessions SET state='failed',updated_at=? WHERE conversation_id=? AND generation=?",
         ).run(now(), conversation, generation);
-        if (error instanceof NativeSetupError)
-          throw new Problem(422, error.message, {
-            phase: "native startup",
-            code: error.code,
-          });
-        // Keep actionable setup guidance at the worker's safe error boundary.
-        // Raw process/SDK errors may contain local paths or provider details.
-        if (["acp", "gemini", "muse", "grok"].includes(harness) && !(error instanceof Problem))
-          throw new Problem(
-            503,
-            harness === "acp"
-              ? "ACP setup failed. Check the agent executable, local sign-in, and ACP compatibility, then start a new run."
-              : `${labels[harness]} setup failed. Sign in to ${labels[harness]} in Provider connections, then refresh the connection and retry.`,
-          );
-        throw error;
+        throw nativeStartupFailure(labels[harness], error, !!options.resume);
       }
     })();
     await live.ready;

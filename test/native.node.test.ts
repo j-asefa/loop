@@ -47,7 +47,8 @@ test("a refused resource placement never falls back to executing the harness", {
   process.env.LOOP_NATIVE_LAUNCHER = "/bin/false";
   const native = new Native(process.execPath, ["-e", "process.stdout.write('should not execute')"], process.cwd());
   try {
-    await assert.rejects(native.request("inspect"), /Native process exited/);
+    // The closed stdin can be observed before the OS delivers the exit event.
+    await assert.rejects(native.request("inspect"), /Native process exited|Native connection closed/);
   } finally {
     await native.dispose();
     if (previous === undefined) delete process.env.LOOP_NATIVE_LAUNCHER;
