@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
+import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
 import codexToolApproval from "../test/fixtures/codex-tool-approval.json" with { type: "json" };
 import codexReviewApproval from "../test/fixtures/codex-review-approval.json" with { type: "json" };
 import { nativeQuestionLayoutSmoke } from "./helpers/native-question-layout-smoke.mjs";
@@ -23,6 +24,7 @@ for (const engine of selectedEngines()) {
           ? process.env.CHROMIUM_PATH || undefined
           : undefined,
     });
+    const closeBrowser = trackSmokeCleanup(() => browser.close());
     try {
       const page = await browser.newPage({
         viewport: { width: 390, height: 844 },
@@ -34,9 +36,14 @@ for (const engine of selectedEngines()) {
       // suite compresses many cases into seconds; keep a fresh fixture-owned
       // request window per case while retaining the real limiter within it.
       page.on("request", (request) => {
-        if (request.isNavigationRequest() && request.frame() === page.mainFrame() &&
-          new URL(request.url()).origin === fixture.base)
-          fixture.db.prepare("DELETE FROM request_limits WHERE owner_id=?").run(fixture.owner);
+        if (
+          request.isNavigationRequest() &&
+          request.frame() === page.mainFrame() &&
+          new URL(request.url()).origin === fixture.base
+        )
+          fixture.db
+            .prepare("DELETE FROM request_limits WHERE owner_id=?")
+            .run(fixture.owner);
       });
       await page.route("**/api/capabilities", async (route) => {
         const response = await route.fetch();
@@ -279,7 +286,7 @@ for (const engine of selectedEngines()) {
         `${engine.name()}: approval actions, native question responses and Pi composer layout passed`,
       );
     } finally {
-      await browser.close();
+      await closeBrowser();
     }
   } finally {
     await fixture.close();

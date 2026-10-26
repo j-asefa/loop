@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { withHeavySlot } from "./heavy-command.mjs";
 import { cp, rm, mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,19 +29,24 @@ try {
   await writeFile(stampFile, JSON.stringify(source.stamp));
   const env = { ...process.env, LOOP_BUILD_STAMP_FILE: stampFile };
   for (const args of [
-    ["node_modules/typescript/bin/tsc", "--noEmit"],
+    ["scripts/typecheck.mjs"],
     ["node_modules/vite/bin/vite.js", "build"],
     ["scripts/build-sw.mjs"],
     ["scripts/build-cli.mjs"],
   ]) {
-    const child = spawnSync(process.execPath, args, {
+    const status = await withHeavySlot(process.execPath, args, {
+      label: `build ${args[0]}`,
       cwd: source.directory,
       env,
       stdio: "inherit",
     });
-    if (child.status !== 0) throw new Error(`Build failed (${args[0]})`);
+    if (status !== 0) {
+      process.exitCode = status;
+      console.error(`Build failed (${args[0]}, status ${status})`);
+      break;
+    }
   }
-  if (source.directory !== root) {
+  if (!process.exitCode && source.directory !== root) {
     await rm(join(root, "dist"), { recursive: true, force: true });
     for (const file of [
       "dist",

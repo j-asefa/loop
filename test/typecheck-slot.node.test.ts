@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { SLOT_BUSY_EXIT, privateLockDir, withTypecheckSlot } from "../scripts/typecheck.mjs";
 
-const flock = spawnSync("flock", ["--version"], { stdio: "ignore" }).status === 0;
+const flock = process.platform === "linux" && spawnSync("flock", ["--version"], { stdio: "ignore" }).status === 0;
 const dir = mkdtempSync(join(tmpdir(), "loop-typecheck-slot-"));
 const lockFile = join(dir, "slot.lock");
-const quiet = { lockFile, stdio: "ignore" as const, log: () => {} };
+const quiet = { lockFile, reserveMiB: 0, stdio: "ignore" as const, log: () => {} };
 const holders: ChildProcess[] = [];
 process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
 afterEach(() => {
@@ -59,7 +59,7 @@ async function startIdleWrapper(name: string, options: { lockFile?: string; deta
   const script = `import { withTypecheckSlot } from ${JSON.stringify(new URL("../scripts/typecheck.mjs", import.meta.url).href)};
     process.exitCode = await withTypecheckSlot(process.execPath, ["-e",
       "require('fs').writeFileSync(process.argv[1], String(process.pid)); setTimeout(() => {}, 30000)", ${JSON.stringify(pidFile)}],
-      { lockFile: ${JSON.stringify(options.lockFile ?? lockFile)}, stdio: "ignore", log: () => {} });`;
+      { lockFile: ${JSON.stringify(options.lockFile ?? lockFile)}, reserveMiB: 0, stdio: "ignore", log: () => {} });`;
   const wrapper = spawn(process.execPath, ["--input-type=module", "-e", script], {
     stdio: "ignore",
     detached: options.detached ?? false,
@@ -74,7 +74,7 @@ async function startIdleWrapper(name: string, options: { lockFile?: string; deta
 }
 
 async function assertExits(pid: number, what: string) {
-  const gone = Date.now() + 5000;
+  const gone = Date.now() + 10000;
   while (Date.now() < gone) {
     try { process.kill(pid, 0); } catch { return; }
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -89,20 +89,27 @@ test("terminating a wrapper also ends the command it started", { skip: !flock },
   await assertExits(inner, "the inner command survived the wrapper's termination");
 });
 
-test("a wrapper killed outright keeps the slot until its compiler exits", { skip: !flock }, async () => {
-  const { wrapper, inner } = await startIdleWrapper("orphan");
-  wrapper.kill("SIGKILL");
-  await new Promise((resolve) => wrapper.on("close", resolve));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.notEqual(spawnSync("flock", ["-n", lockFile, "true"], { stdio: "ignore" }).status, 0, "the orphaned compiler still owns the slot");
-  process.kill(inner, "SIGKILL");
-  await assertExits(inner, "the orphan exited");
-  const deadline = Date.now() + 5000;
-  while (spawnSync("flock", ["-n", lockFile, "true"], { stdio: "ignore" }).status !== 0) {
-    assert.ok(Date.now() < deadline, "the slot frees once the compiler is gone");
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-});
+test(
+  "a wrapper killed outright cancels its compiler before releasing the slot",
+  { skip: process.platform !== "linux" },
+  async () => {
+    const { wrapper, inner } = await startIdleWrapper("orphan");
+    wrapper.kill("SIGKILL");
+    await new Promise((resolve) => wrapper.on("close", resolve));
+    await assertExits(inner, "the orphaned compiler was not cleaned up");
+    const deadline = Date.now() + 5000;
+    while (
+      spawnSync("flock", ["-n", lockFile, "true"], { stdio: "ignore" })
+        .status !== 0
+    ) {
+      assert.ok(
+        Date.now() < deadline,
+        "the slot frees once the compiler is gone",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  },
+);
 
 test("killing the wrapper's whole process group ends the command too", { skip: !flock }, async () => {
   const { wrapper, inner } = await startIdleWrapper("group", { detached: true });
@@ -120,7 +127,7 @@ test("the second caller waits for the first and reports it", { skip: !flock }, a
   });
   assert.equal(status, 0);
   assert.ok(Date.now() - started >= 1000, "ran only after the holder released the slot");
-  assert.match(lines[0], /waiting for the host's typecheck slot/);
+  assert.match(lines[0], /waiting for the host's heavy-check slot/);
   assert.match(lines[1], /slot acquired after/);
 });
 

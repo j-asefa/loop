@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { trackSmokeCleanup, stopFixtureProcess } from "./smoke-lifecycle.mjs";
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,7 +10,8 @@ import { createServer } from "node:net";
 import { tsImport } from "tsx/esm/api";
 
 const { installFixtureProjection } = await tsImport(
-  "../../test/helpers/projected-writer.ts", import.meta.url,
+  "../../test/helpers/projected-writer.ts",
+  import.meta.url,
 );
 
 // No .env file, real accounts, provider calls, worker execution, or persisted browser auth.
@@ -53,27 +55,41 @@ export async function designFixture({ githubApi } = {}) {
     },
   );
   let logs = "",
+    startupError,
     db,
     heartbeat;
+  server.once("error", (error) => {
+    startupError = error;
+  });
   server.stdout.on("data", (data) => {
     logs += data;
   });
   server.stderr.on("data", (data) => {
     logs += data;
   });
-  const close = async () => {
+  const close = trackSmokeCleanup(async () => {
     clearInterval(heartbeat);
-    db?.close();
-    if (server.exitCode === null && !server.killed) {
-      const stopped = new Promise((resolve) => server.once("exit", resolve));
-      server.kill();
-      await stopped;
+    try {
+      await stopFixtureProcess(server);
+    } finally {
+      try {
+        if (db?.open) db.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
-    rmSync(dir, { recursive: true, force: true });
-  };
+  });
   try {
     let ready = false;
     for (let i = 0; i < 100; i++) {
+      if (
+        startupError ||
+        server.exitCode !== null ||
+        server.signalCode !== null
+      )
+        throw new Error(
+          "Fixture did not start: " + (startupError?.message || logs),
+        );
       try {
         if ((await fetch(base + "/api/auth/get-session")).ok) {
           ready = true;
@@ -373,7 +389,9 @@ export async function designFixture({ githubApi } = {}) {
       ).run(
         randomUUID(),
         owner,
-        [iv, cipher.getAuthTag(), data].map((x) => x.toString("base64")).join("."),
+        [iv, cipher.getAuthTag(), data]
+          .map((x) => x.toString("base64"))
+          .join("."),
         Date.now(),
       );
     };

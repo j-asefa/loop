@@ -6,6 +6,7 @@ export function withTypecheckSlot(
   options?: {
     lockFile?: string;
     waitSeconds?: number;
+    reserveMiB?: number;
     stdio?: "inherit" | "ignore";
     log?: (line: string) => void;
   },

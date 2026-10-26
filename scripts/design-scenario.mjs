@@ -19,13 +19,22 @@ import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
+import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
+import {
+  startSmokeTrace,
+  reportSmokePressure,
+} from "./helpers/smoke-diagnostics.mjs";
 import { runReceipt } from "./helpers/run-receipt.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 import { workspaceControlsSmoke } from "./helpers/workspace-controls-smoke.mjs";
 import { teamNavigationSmoke } from "./helpers/team-navigation-smoke.mjs";
 import { teamPresetsSmoke } from "./helpers/team-presets-smoke.mjs";
-import { markdownDefinitionsSmoke, markdownModelsSmoke, markdownSourceSmoke } from "./helpers/markdown-definitions-smoke.mjs";
+import {
+  markdownDefinitionsSmoke,
+  markdownModelsSmoke,
+  markdownSourceSmoke,
+} from "./helpers/markdown-definitions-smoke.mjs";
 import { teamFeedVisibilitySmoke } from "./helpers/team-feed-visibility-smoke.mjs";
 import { profileNavigationSmoke } from "./helpers/profile-navigation-smoke.mjs";
 import { personalDecisionsSmoke } from "./helpers/personal-decisions-smoke.mjs";
@@ -60,9 +69,15 @@ const scenarios = {
   "execution-environments": executionEnvironmentsSmoke,
   "clear-search": async (page, fixture) => {
     await page.goto(fixture.base);
-    await page.locator(".mobile-nav").getByRole("button", { name: "Search", exact: true }).click();
+    await page
+      .locator(".mobile-nav")
+      .getByRole("button", { name: "Search", exact: true })
+      .click();
     const input = page.getByLabel("Search everything");
-    const clear = page.getByRole("button", { name: "Clear search", exact: true });
+    const clear = page.getByRole("button", {
+      name: "Clear search",
+      exact: true,
+    });
     await expect(clear).toHaveCount(0);
     await input.fill("preserve");
     await input.press("Enter");
@@ -73,7 +88,9 @@ const scenarios = {
     await expect(page.locator(".search-result")).toHaveCount(0);
     await expect(clear).toHaveCount(0);
     let releaseSearch;
-    const heldSearch = new Promise((resolve) => { releaseSearch = resolve; });
+    const heldSearch = new Promise((resolve) => {
+      releaseSearch = resolve;
+    });
     await page.route("**/api/search?**", async (route) => {
       await heldSearch;
       await route.continue();
@@ -83,7 +100,9 @@ const scenarios = {
     await expect(page.getByText("Finding…", { exact: true })).toBeVisible();
     await clear.click();
     releaseSearch();
-    await page.waitForResponse((response) => response.url().includes("/api/search?"));
+    await page.waitForResponse((response) =>
+      response.url().includes("/api/search?"),
+    );
     await expect(input).toHaveValue("");
     await expect(page.locator(".search-result")).toHaveCount(0);
   },
@@ -151,68 +170,76 @@ for (const engine of selectedEngines()) {
           ? process.env.CHROMIUM_PATH || undefined
           : undefined,
     });
-    const context = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-      serviceWorkers: "block",
-    });
-    const page = await context.newPage();
-    page.setDefaultTimeout(8000);
-    const errors = [];
-    // Some journeys use their own fixture server. Keep its origin while
-    // navigating to about:blank so interrupted reads are recognized too.
-    let documentOrigin = fixture.base;
-    page.on("framenavigated", (frame) => {
-      if (frame === page.mainFrame() && /^https?:/.test(frame.url()))
-        documentOrigin = new URL(frame.url()).origin;
-    });
-    page.on("pageerror", (error) => {
-      // WebKit reports a same-origin fetch interrupted by page navigation as
-      // an access-control page error. The app handles the rejected request;
-      // this browser-only message does not indicate a failed API response.
-      if (isWebKitNavigationFetchError(engine.name(), error, documentOrigin))
-        return;
-      errors.push(error.message);
-      console.error(
-        `${engine.name()} page error at ${page.url()}: ${error.stack}`,
-      );
-    });
-    const dialog = () => page.locator("dialog[open]").last();
-    const thread = () => page.locator("dialog.conversation-sheet[open]");
-    const capture = async (name) => {
-      if (screenshots)
-        await page.screenshot({
-          path: join(screenshots, `${engine.name()}-${scenario}-${name}.png`),
-        });
-      assert(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-        `Horizontal page overflow: ${name}`,
-      );
-    };
-    const close = async () => {
-      await dialog()
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
-      await page.waitForTimeout(100);
-    };
-    const nav = async (name) =>
-      page
-        .locator(".mobile-nav")
-        .getByRole("button", { name, exact: true })
-        .click();
-    const openConversation = async (index = 0) => {
-      await page.goto(
-        fixture.base + "/?conversation=" + fixture.conversations[index].id,
-      );
-      await dialog()
-        .getByRole("textbox", { name: "Reply to agent", exact: true })
-        .waitFor();
-      await expect(thread().locator(".message").first()).toBeVisible();
-    };
+    const closeBrowser = trackSmokeCleanup(() => browser.close());
+    let page;
+    let finishTrace = async (_failed) => {};
+    let failed = false;
     try {
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        isMobile: true,
+        hasTouch: true,
+        serviceWorkers: "block",
+      });
+      finishTrace = await startSmokeTrace(
+        context,
+        `${engine.name()}-${scenario}`,
+      );
+      page = await context.newPage();
+      page.setDefaultTimeout(8000);
+      const errors = [];
+      // Some journeys use their own fixture server. Keep its origin while
+      // navigating to about:blank so interrupted reads are recognized too.
+      let documentOrigin = fixture.base;
+      page.on("framenavigated", (frame) => {
+        if (frame === page.mainFrame() && /^https?:/.test(frame.url()))
+          documentOrigin = new URL(frame.url()).origin;
+      });
+      page.on("pageerror", (error) => {
+        // WebKit reports a same-origin fetch interrupted by page navigation as
+        // an access-control page error. The app handles the rejected request;
+        // this browser-only message does not indicate a failed API response.
+        if (isWebKitNavigationFetchError(engine.name(), error, documentOrigin))
+          return;
+        errors.push(error.message);
+        console.error(
+          `${engine.name()} page error at ${page.url()}: ${error.stack}`,
+        );
+      });
+      const dialog = () => page.locator("dialog[open]").last();
+      const thread = () => page.locator("dialog.conversation-sheet[open]");
+      const capture = async (name) => {
+        if (screenshots)
+          await page.screenshot({
+            path: join(screenshots, `${engine.name()}-${scenario}-${name}.png`),
+          });
+        assert(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          `Horizontal page overflow: ${name}`,
+        );
+      };
+      const close = async () => {
+        await dialog()
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
+        await page.waitForTimeout(100);
+      };
+      const nav = async (name) =>
+        page
+          .locator(".mobile-nav")
+          .getByRole("button", { name, exact: true })
+          .click();
+      const openConversation = async (index = 0) => {
+        await page.goto(
+          fixture.base + "/?conversation=" + fixture.conversations[index].id,
+        );
+        await dialog()
+          .getByRole("textbox", { name: "Reply to agent", exact: true })
+          .waitFor();
+        await expect(thread().locator(".message").first()).toBeVisible();
+      };
       if (scenario === "core") {
         await page.goto(fixture.base);
         const inbox = page.getByRole("region", { name: "Feed", exact: true });
@@ -364,7 +391,9 @@ for (const engine of selectedEngines()) {
         await expect(
           composer.getByRole("button", { name: "Select model and effort" }),
         ).toBeHidden();
-        await composer.getByRole("button", { name: "Chat options", exact: true }).click();
+        await composer
+          .getByRole("button", { name: "Chat options", exact: true })
+          .click();
         await expect(
           composer.getByRole("button", { name: "Select model and effort" }),
         ).toBeVisible();
@@ -378,7 +407,9 @@ for (const engine of selectedEngines()) {
           if (route.request().method() !== "POST") return route.continue();
           requests.push(route.request().postDataJSON());
           if (requests.length > 1)
-            return route.fulfill({ json: runReceipt(route.request(), "accepted") });
+            return route.fulfill({
+              json: runReceipt(route.request(), "accepted"),
+            });
           return route.fulfill({
             status: 503,
             json: { error: "Fixture reply unavailable" },
@@ -428,7 +459,9 @@ for (const engine of selectedEngines()) {
         await expect(
           page.getByRole("heading", { name: "code-reviewer", exact: true }),
         ).toBeVisible();
-        await expect(page.locator(".profile-handle")).toHaveText("@code-reviewer");
+        await expect(page.locator(".profile-handle")).toHaveText(
+          "@code-reviewer",
+        );
         await expect(page.locator(".composer-launch")).toHaveAttribute(
           "title",
           /@code-reviewer/,
@@ -437,7 +470,14 @@ for (const engine of selectedEngines()) {
         // gained their own tab.
         await expect(
           page.locator(".profile-head ~ .segmented button"),
-        ).toHaveText(["Results", "Threads", "Messages", "Agent mail", "Files", "Traces"]);
+        ).toHaveText([
+          "Results",
+          "Threads",
+          "Messages",
+          "Agent mail",
+          "Files",
+          "Traces",
+        ]);
         await expect(
           page
             .locator(".profile-head")
@@ -500,8 +540,12 @@ for (const engine of selectedEngines()) {
           const response = await route.fetch();
           assert(response.ok());
           const body = await response.json();
-          const messages = new URL(route.request().url()).pathname.endsWith("/messages");
-          const keys = messages ? ["model", "run_id"] : ["trace_key", "run_error", "server", "invocation_state"];
+          const messages = new URL(route.request().url()).pathname.endsWith(
+            "/messages",
+          );
+          const keys = messages
+            ? ["model", "run_id"]
+            : ["trace_key", "run_error", "server", "invocation_state"];
           for (const item of body.items) {
             for (const key of keys) {
               if (Object.hasOwn(item, key)) removedMetadata.add(key);
@@ -511,10 +555,14 @@ for (const engine of selectedEngines()) {
           }
           await route.fulfill({ response, json: body });
         };
-        const agentHistory = url => /^\/api\/agents\/[^/]+\/(messages|traces)$/.test(url.pathname);
+        const agentHistory = (url) =>
+          /^\/api\/agents\/[^/]+\/(messages|traces)$/.test(url.pathname);
         await page.route(agentHistory, olderAgentResponse);
         await page.getByRole("tab", { name: "Messages", exact: true }).click();
-        const agentMessages = page.getByRole("region", { name: "Agent messages", exact: true });
+        const agentMessages = page.getByRole("region", {
+          name: "Agent messages",
+          exact: true,
+        });
         await expect(agentMessages.locator(".feed-card").first()).toBeVisible();
         await expect(agentMessages.getByRole("alert")).toHaveCount(0);
         await page.getByRole("tab", { name: "Traces", exact: true }).click();
@@ -560,7 +608,17 @@ for (const engine of selectedEngines()) {
         );
         await capture("traces-dark");
         await expect(page.locator(".trace-list [role=alert]")).toHaveCount(0);
-        assert.deepEqual([...removedMetadata].sort(), ["model", "run_id", "trace_key", "run_error", "server", "invocation_state"].sort());
+        assert.deepEqual(
+          [...removedMetadata].sort(),
+          [
+            "model",
+            "run_id",
+            "trace_key",
+            "run_error",
+            "server",
+            "invocation_state",
+          ].sort(),
+        );
         await page.unroute(agentHistory, olderAgentResponse);
         await page.evaluate(
           () => (document.documentElement.dataset.theme = "light"),
@@ -826,7 +884,11 @@ for (const engine of selectedEngines()) {
         // gestures themselves.
         if (engine.name() === "chromium") {
           const pageTop = await page.evaluate(() => scrollY);
-          assert.equal(pageTop, 0, "The page body is fixed while a sheet is open");
+          assert.equal(
+            pageTop,
+            0,
+            "The page body is fixed while a sheet is open",
+          );
           const drawer = await dialog().boundingBox();
           for (const [x, y] of [
             [drawer.x + drawer.width / 2, drawer.y + 30],
@@ -998,7 +1060,16 @@ for (const engine of selectedEngines()) {
         await expect(yourProfile).toBeVisible();
         await expect(
           yourProfile.getByRole("tablist", { name: "Show" }).getByRole("tab"),
-        ).toHaveText(["Messages", "Approvals", "Answers", "Saved", "Reminders", "Scheduled", "Files", /^Social/]);
+        ).toHaveText([
+          "Messages",
+          "Approvals",
+          "Answers",
+          "Saved",
+          "Reminders",
+          "Scheduled",
+          "Files",
+          /^Social/,
+        ]);
         await expect(
           page.getByRole("button", { name: "Recent", exact: true }),
         ).toHaveCount(0);
@@ -1085,7 +1156,9 @@ for (const engine of selectedEngines()) {
         `${engine.name()}: design/${scenario} passed (${((performance.now() - started) / 1000).toFixed(1)}s)`,
       );
     } catch (error) {
-      if (screenshots)
+      failed = true;
+      reportSmokePressure();
+      if (screenshots && page)
         await page
           .screenshot({
             path: join(screenshots, `${engine.name()}-${scenario}-failure.png`),
@@ -1093,7 +1166,12 @@ for (const engine of selectedEngines()) {
           .catch(() => {});
       throw error;
     } finally {
-      await browser.close();
+      try {
+        await finishTrace(failed);
+      } catch (error) {
+        console.error("Trace capture:", error.message);
+      }
+      await closeBrowser();
     }
   } finally {
     await fixture.close();

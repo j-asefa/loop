@@ -1,7 +1,7 @@
 // The repository's convention gate: types, source boundaries and API
 // contracts. Steps run in order and stop at the first failure. It is not the
 // full test suite; run the checks for the boundary you changed as well.
-import { spawnSync } from "node:child_process";
+import { withHeavySlot } from "./heavy-command.mjs";
 import { existsSync, globSync } from "node:fs";
 import { testEnvironment } from "./test-runner.mjs";
 
@@ -41,15 +41,14 @@ for (const tool of ["typescript", "tsx", "vitest", "rolldown"])
 for (const [name, args, env = process.env] of steps) {
   const started = Date.now();
   console.log(`check: ${name}`);
-  const { status, signal } = spawnSync(process.execPath, args, {
+  const status = await withHeavySlot(process.execPath, args, {
+    label: `check ${name}`,
     stdio: "inherit",
     env,
   });
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   if (status !== 0) {
-    console.error(
-      `check: ${name} failed (${signal ?? status}) after ${seconds} s`,
-    );
+    console.error(`check: ${name} failed (${status}) after ${seconds} s`);
     // Keep typecheck's "slot busy, nothing ran" status for callers that retry.
     process.exit(status ?? 1);
   }

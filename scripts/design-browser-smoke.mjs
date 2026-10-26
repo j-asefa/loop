@@ -1,6 +1,6 @@
 // Each scenario owns its database, server and browser context. Child processes
 // also isolate helper-level environment mutations. Existing smoke:design stays full.
-import { spawn } from "node:child_process";
+import { withHeavySlot } from "./heavy-command.mjs";
 const names = [
   "beginner-chat",
   "profile-photos-recipient",
@@ -53,38 +53,35 @@ const selected = process.argv.slice(2);
 if (selected.some((name) => !names.includes(name)))
   throw new Error("Unknown design scenario");
 const queue = selected.length ? selected : names;
-const workers = Number(process.env.LOOP_BROWSER_WORKERS || 2);
+const workers = Number(process.env.LOOP_BROWSER_WORKERS || 1);
 if (![1, 2].includes(workers))
   throw new Error("LOOP_BROWSER_WORKERS must be 1 or 2");
-const children = new Set();
+const controller = new AbortController();
 let failed = false,
   next = 0;
-const stop = (signal) => {
-  for (const child of children) child.kill(signal);
-};
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () => {
-    stop(signal);
-    process.exitCode = 1;
+    controller.abort();
+    process.exitCode = signal === "SIGINT" ? 130 : 143;
     failed = true;
   });
 async function worker() {
   while (next < queue.length && !failed) {
     const name = queue[next++];
-    const child = spawn(
+    const code = await withHeavySlot(
       process.execPath,
       ["scripts/design-scenario.mjs", name],
-      { stdio: "inherit", env: process.env },
+      {
+        label: `design/${name}`,
+        signal: controller.signal,
+      },
     );
-    children.add(child);
-    const code = await new Promise((resolve, reject) => {
-      child.once("error", reject);
-      child.once("exit", resolve);
-    });
-    children.delete(child);
-    if (code !== 0) {
+    // Cancelling siblings must not replace the failure that stopped the suite
+    // (in particular, admission refusal 75) with their cancellation status.
+    if (code !== 0 && !failed) {
       failed = true;
-      process.exitCode = 1;
+      process.exitCode = code;
+      controller.abort();
     }
   }
 }

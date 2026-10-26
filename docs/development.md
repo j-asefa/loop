@@ -67,7 +67,7 @@ The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` runtime
 
 `feeds:check` is the exception to fixture-only testing: it fetches the checked-in [feed catalog](../src/shared/news.ts) through [feed-fetch.ts](../src/server/feed-fetch.ts), the same transport Social uses, and exits non-zero for any feed that no longer parses. Run it when changing the catalog and put its output in the PR. The Vitest suite never reaches a feed.
 
-For a focused Vitest run, invoke it directly, for example `npx vitest run test/runtime-network.test.ts --maxWorkers=1`. Do not append file paths to `npm test --`: the script already supplies `test/`, so that still selects the full directory. Vitest defaults to two workers in [vite.config.ts](../vite.config.ts). `npm run typecheck` runs through [scripts/typecheck.mjs](../scripts/typecheck.mjs), which holds a one-slot `flock` lock in a private per-user directory (`XDG_RUNTIME_DIR` or `~/.cache`) so agents sharing a host serialize their 2 GiB compiles; a caller reports when it is waiting, and if the slot stays busy for two minutes it exits 75 without having started. Hosts without `flock`, and watch mode, check directly. This is cooperative scheduling, not a resource limit; see the [agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-server) for enforcement. On process-limited hosts, use `npm test -- --maxWorkers=1` for the full suite; native runtime fixtures also spawn child processes.
+For a focused Vitest run, invoke it directly, for example `npx vitest run test/runtime-network.test.ts --maxWorkers=1`. Do not append file paths to `npm test --`: the script already supplies `test/`, so that still selects the full directory. Vitest defaults to two workers in [vite.config.ts](../vite.config.ts). Heavy repository checks use [shared host admission](#shared-host-admission). On process-limited hosts, use `npm test -- --maxWorkers=1` for the full suite; native runtime fixtures also spawn child processes.
 
 The workspace-event socket suite compiles the current server into an isolated temporary fixture, so focused tests do not require or reuse the checkout's `dist` build.
 
@@ -84,6 +84,43 @@ worker counts and JavaScript heap limits are not whole-process memory limits.
 Connection-service tests (`test/connection.node.test.ts`, `test/cli-connection.node.test.ts`) run the real service, relay, sockets and CLI with [a fixture cloudflared](../test/fixtures/fake-cloudflared.mjs) selected by `LOOP_TEST_CLOUDFLARED`, which is ignored when `NODE_ENV=production`. `smoke:reconnect` adds a local TLS edge so a paired Chromium or WebKit page crosses `loop restart`. None of these reach Cloudflare: real Quick Tunnel behavior is covered by the Docker companion smoke (`scripts/compose-companion-smoke.mjs`), the service lifecycle smoke (`scripts/service-lifecycle-smoke.mjs`, real user systemd units; it installs units in the current user's systemd, so run it only on a disposable machine) and by live acceptance recorded in the PR.
 
 Native async tests use bounded waits from `test/helpers.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.
+
+## Shared host admission
+
+On Linux, `npm run typecheck`, each `npm run build` and `npm run check` phase,
+`npm test`, `npm run test:native`, the browser smoke package scripts and
+`test:browser:acp` share one per-user slot. The design runner takes it separately
+for each named scenario, including when invoked directly. Queueing happens
+before that phase starts; it reports waiting and exits 75 if the slot or memory
+headroom remains unavailable for 120 seconds. Earlier phases of a compound
+command may already have completed. A refused phase is never retried automatically.
+
+[scripts/heavy-command.mjs](../scripts/heavy-command.mjs) uses Python 3.8+'s standard
+library supervisor on Linux. The lock stays at `loop-typecheck/slot.lock` under
+`XDG_RUNTIME_DIR` or `~/.cache`, so older typecheck wrappers use the same slot.
+All callers must use the same runtime directory. Before admission, the supervisor
+checks for 2048 MiB of available host memory and estimated headroom under every
+visible cgroup v2 ancestor memory ceiling, discounting clean inactive filesystem cache. This is an admission estimate, not a reserved
+allocation. Nested checks recognize a live supervising ancestor and use its slot.
+The test runner carries this scheduling marker and the three admission controls
+through environment sanitization;
+application settings and credentials remain stripped.
+
+The command stays in the caller's process group and cgroup. On interruption or
+caller death, the supervisor terminates the command, adopts orphaned descendants,
+and gives cleanup five seconds before escalating to SIGKILL. It holds the slot
+until those processes are reaped. Killing the supervisor itself with SIGKILL
+cannot run cleanup; the [agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-server)
+is still the enforcement boundary. This is cooperative admission, not a security
+boundary: direct tool invocations and older test/build scripts can bypass it.
+
+`LOOP_HEAVY_WAIT_SECONDS` and `LOOP_HEAVY_RESERVE_MB` tune the wait and headroom
+estimate; setting the reserve to zero keeps locking but disables the headroom
+requirement. `LOOP_HEAVY_SCHEDULING=off` explicitly disables admission on a host
+with independently managed capacity. Watch mode, explicit opt-out and non-Linux hosts run directly
+with a notice. Linux requires Python 3.8+ and refuses to start if admission setup
+fails. Container builds need their own limits; a host-side slot cannot account
+for work launched by a separate Docker daemon.
 
 ## Browser checks
 
@@ -122,18 +159,20 @@ GitHub Actions are temporarily removed to avoid hosted-runner costs. Run the rel
 
 Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them. The Docker companion smoke (`node scripts/compose-companion-smoke.mjs`) builds its images by default. The server smoke (`node scripts/compose-smoke.mjs`) expects the server Compose stack to be running; see [server operation](server.md).
 
-The design smoke runs named scenarios with separate databases, servers and browser contexts, at most two at a time. For a focused design regression:
+The design smoke runs named scenarios with separate databases, servers and browser contexts, one at a time by default. `LOOP_BROWSER_WORKERS=2` enables two scenario workers; Linux host admission still limits them to one active scenario unless explicitly disabled. For a focused design regression:
 
 ```sh
 LOOP_BROWSER=webkit node scripts/design-browser-smoke.mjs models
 LOOP_BROWSER=chromium LOOP_BROWSER_WORKERS=1 npm run smoke:design
 ```
 
+Set `LOOP_BROWSER_TRACE_DIR=/tmp/loop-traces` to capture Playwright traces for failing design scenarios; tracing is opt-in to avoid adding overhead to every run. Failures also print available cgroup memory and CPU pressure counters. Open a saved trace with `npx playwright show-trace /tmp/loop-traces/<trace>.zip`.
+
 Omitting scenario names runs all scenarios; unknown names fail. Each scenario reports timing, and screenshots include its engine/name. `smoke:journey` remains the integrated service-worker/provider journey.
 
 The native contract checks exercise direct adapter framing, paired sign-in, native session recovery, live steering and team messaging across harnesses. They use subprocess fixtures and do not verify real provider OAuth or inference.
 
-Before a PR, run `npm run check` on the commit you are submitting and paste its `check:` lines into the PR; the review team reads a snapshot and does not run it. It runs [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the legacy route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. On 2026-10-26 it took about 30 seconds: 7 s typecheck under the shared slot, under 1 s OpenAPI and 22 s of contract tests with two Vitest workers; the legacy route inventory starts the server twice, once per profile. It refuses to start without `node_modules` from `npm ci`, and exits 75 like `typecheck` when the typecheck slot stays busy. It is not the full suite. Also run checks relevant to the change and report exact failures or unavailable dependencies. Documentation-only changes need valid relative links/anchors, real package commands and consistency with current CLI/configuration. Keep dated results in the PR. Real account inference, permission round trips, tunnel behavior and physical-phone installation remain separate live checks requiring the corresponding environment.
+Before a PR, run `npm run check` on the commit you are submitting and paste its `check:` lines into the PR; the review team reads a snapshot and does not run it. It runs [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the legacy route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. On 2026-10-26 it took about 30 seconds: 7 s typecheck under the shared slot, under 1 s OpenAPI and 22 s of contract tests with two Vitest workers; the legacy route inventory starts the server twice, once per profile. It refuses to start without `node_modules` from `npm ci`, and exits 75 like `typecheck` when admission for a phase remains unavailable. It is not the full suite. Also run checks relevant to the change and report exact failures or unavailable dependencies. Documentation-only changes need valid relative links/anchors, real package commands and consistency with current CLI/configuration. Keep dated results in the PR. Real account inference, permission round trips, tunnel behavior and physical-phone installation remain separate live checks requiring the corresponding environment.
 
 `npm run openapi:check` checks the generated OpenAPI document against the unified workspace and Cards contracts.
 `npm run cards:example` runs the source-bound full-collection sync example; see [Cards API](cards-api.md#typed-readers-and-the-example) for its environment.
