@@ -278,7 +278,11 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     // Discovery alone cannot offer setup for an already connected source.
     await page.getByRole("region", { name: "Your agents", exact: true })
       .getByRole("button", { name: "New agent", exact: true }).click();
-    const creation = page.getByRole("dialog", { name: "Meet your next agent" });
+    await page
+      .getByRole("dialog", { name: "New chat", exact: true })
+      .getByText("Customize", { exact: true })
+      .click();
+    const creation = page.getByRole("dialog", { name: "New chat" });
     await expect(creation.getByLabel("Run on")).not.toContainText(sources[0].name);
     await creation.getByRole("button", { name: "Close", exact: true }).click();
     await capture("first-result-before-other-reads");

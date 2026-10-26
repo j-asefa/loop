@@ -141,7 +141,11 @@ try {
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await closeSheets(page);
   await page
-    .getByRole("button", { name: "Create your first agent", exact: true })
+    .getByRole("button", { name: /^(New agent|Start chatting)$/ })
+    .click();
+  await page
+    .getByRole("dialog", { name: "New chat", exact: true })
+    .getByText("Customize", { exact: true })
     .click();
   const agentName = page.getByLabel("Unique name");
   // Wait for the asynchronous suggestion before replacing it: it can otherwise
@@ -159,13 +163,13 @@ try {
   );
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Create agent", exact: true })
+    .getByRole("button", { name: "Start chatting", exact: true })
     .click();
   const createdResponse = await agentCreated;
   assert.equal(createdResponse.status(), 201);
   assert.equal((await createdResponse.json()).name, "journey-agent");
   await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
-  await page.getByRole("button", { name: "Compose a message" }).click();
+  await expect(page.getByLabel("Message your agent")).toBeVisible();
   await page.getByLabel("Message your agent").fill("Explain bids precisely");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(

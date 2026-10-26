@@ -18,6 +18,8 @@ type WorkspaceProps = {
   ownerRef: RefObject<string | undefined>;
   readContract: ReturnType<typeof useProjectionRoute>;
   setData: Dispatch<SetStateAction<Bootstrap>>;
+  setBootstrapOwner(owner: string | undefined): void;
+  openAgentChat(agent: Agent): void;
   initialAgentId: RefObject<string | null>;
   setProfile: Dispatch<SetStateAction<Agent | null>>;
   setTeamSelection: Dispatch<SetStateAction<string[]>>;
@@ -29,6 +31,7 @@ export function useWorkspaceData(props: WorkspaceProps) {
   const {
     setWorkspaceLoadErrors, ownerRef, readContract, setData, initialAgentId,
     setProfile, setTeamSelection, setRuns, loadResults,
+    setBootstrapOwner, openAgentChat,
   } = props;
   function workspaceReadError(kind: "bootstrap" | "runs", error?: unknown) {
     const message = !error ? "" : (error as {reconnecting?: boolean}).reconnecting
@@ -52,14 +55,17 @@ export function useWorkspaceData(props: WorkspaceProps) {
     ) {
       workspaceReadError("bootstrap");
       setData(result);
+      setBootstrapOwner(owner);
       if (initialAgentId.current) {
         const match = result.agents.find(
           (agent: Agent) => agent.id === initialAgentId.current,
         );
         initialAgentId.current = null;
-        if (match) setProfile(match);
         const url = new URL(location.href);
+        if (match && url.searchParams.has("compose")) openAgentChat(match);
+        else if (match) setProfile(match);
         url.searchParams.delete("agent");
+        url.searchParams.delete("compose");
         history.replaceState(history.state, "", url.pathname + url.search);
       }
       setTeamSelection((old) => {

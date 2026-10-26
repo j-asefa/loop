@@ -190,28 +190,33 @@ try {
   );
   await page.reload();
   await page
-    .getByRole("button", { name: "Create your first agent", exact: true })
+    .getByRole("button", { name: /^(New agent|Start chatting)$/ })
     .click();
-  const creation = page.getByRole("dialog", { name: "Meet your next agent" });
+  await page
+    .getByRole("dialog", { name: "New chat", exact: true })
+    .getByText("Customize", { exact: true })
+    .click();
+  const creation = page.getByRole("dialog", { name: "New chat" });
   await expect(creation.getByLabel("Unique name")).toHaveAttribute(
     "placeholder",
     "Choose a name",
   );
   await creation.getByLabel("Unique name").fill("native-model-picker");
   await expect(creation.getByRole("alert")).toContainText(
-    "Fixture model refresh failed",
+    "Couldn’t get this connection ready",
   );
   await expect(
-    creation.getByRole("button", { name: "Create agent", exact: true }),
+    creation.getByRole("button", { name: "Start chatting", exact: true }),
   ).toBeDisabled();
   await creation
-    .getByRole("button", { name: "Refresh models", exact: true })
+    .getByRole("button", { name: "Try again", exact: true })
     .click();
   await expect(creation.getByLabel("Model", { exact: true })).toBeEnabled();
   await expect(creation.getByLabel("Model", { exact: true })).toContainText(
     "Claude Opus 5 (1M)",
   );
-  await expect(creation.getByLabel("Model", { exact: true })).toHaveValue("opus");
+  await expect(creation.getByLabel("Model", { exact: true })).toHaveValue("default");
+  await creation.getByLabel("Model", { exact: true }).selectOption("opus");
   await expect(creation.getByLabel("Effort", { exact: true })).toBeEnabled();
   await creation.getByLabel("Model", { exact: true }).selectOption("default");
   await expect(creation.getByLabel("Effort", { exact: true })).toBeDisabled();
@@ -230,7 +235,7 @@ try {
     fullPage: true,
   });
   await creation
-    .getByRole("button", { name: "Create agent", exact: true })
+    .getByRole("button", { name: "Start chatting", exact: true })
     .click();
   await creation.waitFor({ state: "hidden" });
   // Closing the sheet schedules history.back(). Let that navigation settle

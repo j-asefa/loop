@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import { parse } from "./api";
 import { executionSourceId } from "./sourceRouting";
-import { Sheet, Badge, providerName } from "./components";
+import { Sheet, Avatar, providerName } from "./components";
 import type { Connection, CreatedAgent } from "../shared/types";
 import type {
   AgentSource,
@@ -93,6 +93,9 @@ export function CreateAgent({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const formId = useId();
+  const [customize, setCustomize] = useState(false);
+  const [nameError, setNameError] = useState(false);
+  const [nameRevision, setNameRevision] = useState(0);
   const [definitionsOpen, setDefinitionsOpen] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [importedName, setImportedName] = useState("");
@@ -115,12 +118,13 @@ export function CreateAgent({
   useEffect(() => {
     let cancelled = false;
     if (!nameTouched) setLoadingName(true);
+    setNameError(false);
     callRoute(workspaceApi.agentSuggestName, {}, source)
       .then((suggestion) => {
         if (!cancelled && !nameTouched) setSuggestedName(suggestion.name);
       })
       .catch(() => {
-        // Manual naming remains available if suggestions cannot be loaded.
+        if (!cancelled) setNameError(true);
       })
       .finally(() => {
         if (!cancelled) setLoadingName(false);
@@ -128,12 +132,13 @@ export function CreateAgent({
     return () => {
       cancelled = true;
     };
-  }, [source]);
+  }, [source, nameRevision]);
   const nativeConnection = !!parse<any>(selected?.metadata, {}).loopHarness
     ? selected?.id || ""
     : "";
   const [catalog, setCatalog] = useState<{
     connectionId: string;
+    source: string;
     models?: ModelOption[];
     error?: string;
   }>();
@@ -141,14 +146,19 @@ export function CreateAgent({
   useEffect(() => {
     if (!nativeConnection) return;
     let current = true;
-    setCatalog({ connectionId: nativeConnection });
+    setCatalog({ connectionId: nativeConnection, source });
     void callRoute(workspaceApi.connectionModels, { params: { id: nativeConnection } }, source).then(
       ({ models }) => {
-        if (current) setCatalog({ connectionId: nativeConnection, models });
+        if (current)
+          setCatalog({ connectionId: nativeConnection, source, models });
       },
       (error: Error) => {
         if (current)
-          setCatalog({ connectionId: nativeConnection, error: error.message });
+          setCatalog({
+            connectionId: nativeConnection,
+            source,
+            error: error.message,
+          });
       },
     );
     return () => {
@@ -156,7 +166,9 @@ export function CreateAgent({
     };
   }, [nativeConnection, source, catalogRevision]);
   const currentCatalog =
-    catalog?.connectionId === nativeConnection ? catalog : undefined;
+    catalog?.connectionId === nativeConnection && catalog.source === source
+      ? catalog
+      : undefined;
   const refreshingModels =
     !!nativeConnection && !currentCatalog?.models && !currentCatalog?.error;
   const models = nativeConnection
@@ -167,6 +179,7 @@ export function CreateAgent({
   const chosen = missingDefinitionModel
     ? ""
     : models.find((m) => m.id === model)?.id ||
+      models.find((m) => ["native-default", "default"].includes(m.id))?.id ||
       models.find((m) => m.effortLevels?.length)?.id ||
       models[0]?.id ||
       "";
@@ -192,12 +205,13 @@ export function CreateAgent({
     if (
       locked.current ||
       uploading ||
+      !selected ||
+      !name.trim() ||
       !chosen ||
       refreshingModels ||
       invalidEffort
     )
       return;
-    const f = new FormData(e.currentTarget);
     if (crossSource && attachments.length) {
       setError(
         `Files uploaded to ${currentSourceName} can’t be sent to another runtime. Remove them or choose a runner on ${currentSourceName}.`,
@@ -205,19 +219,15 @@ export function CreateAgent({
       return;
     }
     const data = {
-      name: String(f.get("name") || "")
-        .trim()
-        .toLowerCase(),
-      connectionId: selected?.id || "",
+      name: name.trim().toLowerCase(),
+      connectionId: selected.id,
       model: chosen,
       effort: effort || null,
-      instructions: String(f.get("instructions") || ""),
+      instructions,
       initialPrompt: initialPrompt.trim(),
       attachmentIds: attachments.map((file) => file.id),
-      folderId: availableFolders.some(
-        (folder) => folder.id === String(f.get("folder") || ""),
-      )
-        ? String(f.get("folder"))
+      folderId: availableFolders.some((folder) => folder.id === folderChoice)
+        ? folderChoice
         : undefined,
     };
     const signature = JSON.stringify({ source, ...data });
@@ -236,34 +246,31 @@ export function CreateAgent({
       setBusy(false);
     }
   }
-  // First-time setup leads; once a runtime is connected it moves below the form.
-  const setupBlock = (
+  const setupBlock = capabilities.localProjects ? (
     <details className="runtime-setup-options" open={!connected.length}>
-      <summary>Runtimes and execution environments</summary>
-      {capabilities.localProjects && (
-        <div>
-          <p className="field-hint">
-            Choose or enable a runtime on this computer.
-          </p>
-          <RuntimeSetup
-            onEnabled={async (runtimeName) => {
-              const updated = await onConnectionsChanged();
-              const next = updated.find(
-                (c) =>
-                  c.status === "connected" &&
-                  parse<any>(c.metadata, {}).loopHarness === runtimeName,
-              );
-              if (next && !selected) {
-                setProvider(next.provider);
-                setConnection(connectionKey(next));
-              }
-              setCatalogRevision((revision) => revision + 1);
-            }}
-          />
-        </div>
-      )}
+      <summary>More connection options</summary>
+      <div>
+        <p className="field-hint">
+          Choose or enable a runtime on this computer.
+        </p>
+        <RuntimeSetup
+          onEnabled={async (runtimeName) => {
+            const updated = await onConnectionsChanged();
+            const next = updated.find(
+              (c) =>
+                c.status === "connected" &&
+                parse<any>(c.metadata, {}).loopHarness === runtimeName,
+            );
+            if (next && !selected) {
+              setProvider(next.provider);
+              setConnection(connectionKey(next));
+            }
+            setCatalogRevision((revision) => revision + 1);
+          }}
+        />
+      </div>
     </details>
-  );
+  ) : null;
   if (definitionsOpen)
     return (
       <MarkdownDefinitions
@@ -282,14 +289,16 @@ export function CreateAgent({
           setRequestedModel(requested);
           setModel(requested || chosen);
           setEffort(spec.effort || "");
+          setCustomize(true);
           setDefinitionsOpen(false);
         }}
       />
     );
   return (
     <Sheet
-      title="Meet your next agent"
+      title="New chat"
       onClose={onClose}
+      dismissible={!busy}
       className="create-agent-sheet"
       footer={
         <button
@@ -307,255 +316,36 @@ export function CreateAgent({
             crossSource
           }
         >
-          {busy
-            ? "Creating…"
-            : initialPrompt.trim()
-              ? "Create & start"
-              : "Create agent"}
+          {busy ? "Starting…" : "Start chatting"}
           <ArrowRight size={18} />
         </button>
       }
     >
-      <p className="muted">
-        Pick a project and a model. Everything else is optional and can change
-        later.
-      </p>
-      <button
-        type="button"
-        className="text-button"
-        disabled={busy || uploading}
-        onClick={() => setDefinitionsOpen(true)}
-      >
-        From Markdown
-      </button>
-      {importedName && (
-        <p className="field-hint">
-          Loaded {importedName}. Changes below apply to this agent; the saved
-          definition stays in Loop.
-        </p>
-      )}
-      {!connected.length && setupBlock}
-      <form id={formId} onSubmit={create}>
-        <label>
-          Project
-          <select
-            name="folder"
-            aria-label="Project"
-            disabled={busy || uploading}
-            value={
-              availableFolders.some((item) => item.id === folderChoice)
-                ? folderChoice
-                : ""
-            }
-            onChange={(event) => setFolderChoice(event.target.value)}
-          >
-            <option value="">Workspace</option>
-            {availableFolders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <span className="field-hint">
-            This agent belongs to the project. New conversations save their
-            outputs there.
-          </span>
-        </label>
-        <div className="provider-picker">
-          {(
-            [
-              "codex",
-              "anthropic",
-              "pi",
-              "opencode",
-              "gemini",
-              "muse",
-              "grok",
-              "acp",
-              "openai",
-            ] as const
-          ).map((p) => (
-            <button
-              type="button"
-              key={p}
-              disabled={busy || uploading}
-              className={provider === p ? "selected" : ""}
-              aria-pressed={provider === p}
-              onClick={() => {
-                setProvider(p);
-                setConnection("");
-                setModel("");
-                setRequestedModel("");
-                setEffort("");
-              }}
-            >
-              <Badge provider={p} />
-            </button>
-          ))}
+      <div className="create-agent-welcome">
+        <Avatar name={name || "Loop"} />
+        <div>
+          <strong>
+            {name ? `Meet ${name}` : "A little help with anything"}
+          </strong>
+          <p>Ask a question, explore an idea, or get things done.</p>
         </div>
-        {selected ? (
-          <>
-            <ConnectionPicker
-              disabled={busy || uploading}
-              value={connectionKey(selected)}
-              onChange={(value) => {
-                if (value.startsWith("setup-source:")) {
-                  onSourceSetup?.(value.slice("setup-source:".length));
-                  return;
-                }
-                setConnection(value);
-                setFolderChoice("");
-                setModel("");
-                setRequestedModel("");
-                setEffort("");
-              }}
-            >
-              {accounts.map((c) => (
-                <option key={connectionKey(c)} value={connectionKey(c)}>
-                  {c.label.startsWith(c.executionEnvironment || "This computer")
-                    ? c.label
-                    : `${c.executionEnvironment || "This computer"} · ${c.label}`}
-                </option>
-              ))}
-              {setupSources.map((item) => (
-                <option key={item.id} value={`setup-source:${item.id}`}>
-                  {item.name} · connect {providerName(provider)}
-                </option>
-              ))}
-            </ConnectionPicker>
-            <p className="field-hint">
-              Runs on {selected.executionEnvironment || "This computer"}.
-            </p>
-            <ConnectionDetails connection={selected} />
-            <ModelPicker
-              models={models}
-              value={chosen}
-              onChange={(value) => {
-                setModel(value);
-                setRequestedModel("");
-                setEffort("");
-              }}
-              disabled={busy || refreshingModels}
-              refreshing={refreshingModels}
-            />
-            {missingDefinitionModel && !refreshingModels && (
-              <p className="error" role="alert">
-                The definition requests {requestedModel}, which is unavailable
-                on this connection. Choose a model.
-              </p>
-            )}
-            {nativeConnection && currentCatalog?.error && (
-              <div>
-                <p className="error" role="alert">
-                  Could not refresh available models. {currentCatalog.error}
-                </p>
-                <button
-                  type="button"
-                  disabled={busy || uploading}
-                  onClick={() => {
-                    setCatalog({ connectionId: nativeConnection });
-                    setCatalogRevision((revision) => revision + 1);
-                  }}
-                >
-                  Refresh models
-                </button>
-              </div>
-            )}
-            <EffortSelect
-              model={chosenModel}
-              value={effort}
-              onChange={setEffort}
-            />
-            {invalidEffort && (
-              <p className="error" role="alert">
-                This model does not report {effort} effort. Choose a reported
-                effort level or the runtime default.
-              </p>
-            )}
-          </>
-        ) : (
-          <div className="note">
-            Connect {providerName(provider)} to choose an available model.
-            {
-              <button type="button" className="text-button" onClick={onConnect}>
-                <Plus size={16} />
-                Connect on {currentSourceName}
-              </button>
-            }
-            {setupSources.map((item) => (
-              <button
-                type="button"
-                className="text-button"
-                key={item.id}
-                onClick={() => onSourceSetup?.(item.id)}
-              >
-                <Plus size={16} />
-                Connect on {item.name}
-              </button>
-            ))}
-          </div>
-        )}
-        <label>
-          Unique name
-          <div className="input-prefix">
-            <span>@</span>
-            <input
-              name="name"
-              required
-              value={name}
-              onFocus={(e) => {
-                if (nameTouched) return;
-                setTypedName(e.currentTarget.value);
-                setNameTouched(true);
-              }}
-              onChange={(e) => {
-                setNameTouched(true);
-                setTypedName(e.target.value);
-              }}
-              placeholder={loadingName ? "Choosing a name…" : "Choose a name"}
-              pattern="[a-zA-Z][a-zA-Z0-9-]{2,31}"
-              maxLength={32}
-              disabled={busy || uploading}
-            />
-          </div>
-        </label>
-        <details
-          className="advanced-agent-options"
-          open={importedName ? true : undefined}
-        >
-          <summary>Instructions & advanced options</summary>
-          <label>
-            Agent instructions
-            <textarea
-              name="instructions"
-              value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
-              aria-label="Agent instructions"
-              rows={3}
-              maxLength={12000}
-              disabled={busy || uploading}
-              aria-describedby={instructionsHint}
-              placeholder="Research carefully, cite sources, and keep answers concise."
-            />
-          </label>
-          <p className="field-hint" id={instructionsHint}>
-            Optional. Guidance for every task, such as the agent’s role, focus,
-            or writing style. You can edit it later.
-          </p>
-        </details>
-        <label>
-          Initial prompt
+      </div>
+      <form id={formId} onSubmit={create}>
+        <label className="create-agent-message">
+          <span>
+            First message <span className="muted">(optional)</span>
+          </span>
           <textarea
             name="initialPrompt"
-            aria-label="Initial prompt"
+            aria-label="First message"
             rows={3}
             maxLength={30000}
             required={attachments.length > 0}
             disabled={busy || uploading}
             value={initialPrompt}
             onChange={(e) => setInitialPrompt(e.target.value)}
-            aria-describedby={promptHint}
-            placeholder="Find three promising ideas for my next project…"
+            aria-describedby={attachments.length ? promptHint : undefined}
+            placeholder="What’s on your mind?"
           />
         </label>
         <div className="initial-prompt-attachments">
@@ -567,7 +357,7 @@ export function CreateAgent({
                 ? folderChoice
                 : undefined
             }
-            disabled={busy || crossSource}
+            disabled={busy || crossSource || !selected}
             remaining={MAX_MESSAGE_FILES - attachments.length}
             onBusy={setUploading}
             onUploaded={(file) => {
@@ -575,11 +365,7 @@ export function CreateAgent({
               setAttachments((files) => [...files, file]);
             }}
           />
-          <span className="field-hint">
-            {crossSource
-              ? `These files belong to ${currentSourceName}. Remove them or select that runtime to continue.`
-              : "Add photos or files to your first message"}
-          </span>
+          <span className="field-hint">Add photos or files</span>
         </div>
         <AttachmentList
           sourceId={attachmentSource}
@@ -593,24 +379,283 @@ export function CreateAgent({
                   )
           }
         />
-        <p className="field-hint" id={promptHint}>
-          {attachments.length
-            ? "Add a prompt for these files. The agent receives them when its first task starts."
-            : "Optional. Your first message to this agent. It starts work when you create the agent. Leave blank to start later."}
-        </p>
-
-        <p className="field-hint">
-          Connected MCP tools are available to every agent in your workspace.
-          Manage tools and approval preferences in Settings → Tools &amp;
-          integrations.
-        </p>
+        {!!attachments.length && (
+          <p className="field-hint" id={promptHint}>
+            {crossSource
+              ? `These files belong to ${currentSourceName}. Remove them or choose that connection in Customize.`
+              : "Add a message to send with your files."}
+          </p>
+        )}
+        {!connected.length && (
+          <div className="note create-agent-setup">
+            <strong>Connect once to start chatting</strong>
+            <p>Link an AI account to use in Loop.</p>
+            <button type="button" onClick={onConnect}>
+              <Plus size={16} /> Connect an account
+            </button>
+            {setupBlock}
+          </div>
+        )}
+        {loadingName || refreshingModels ? (
+          <p className="field-hint" role="status">
+            Getting your chat ready…
+          </p>
+        ) : null}
+        {nameError && !name.trim() && (
+          <p className="error" role="alert">
+            Couldn’t choose a name. Try again or enter one in Customize.
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => setNameRevision((value) => value + 1)}
+            >
+              Try again
+            </button>
+          </p>
+        )}
+        {nativeConnection && currentCatalog?.error && (
+          <div className="error" role="alert">
+            Couldn’t get this connection ready. Try again or choose another in
+            Customize.
+            <button
+              type="button"
+              className="text-button"
+              disabled={busy || uploading}
+              onClick={() => {
+                setCatalog({ connectionId: nativeConnection, source });
+                setCatalogRevision((revision) => revision + 1);
+              }}
+            >
+              Try again
+            </button>
+          </div>
+        )}
+        {selected &&
+          !refreshingModels &&
+          !currentCatalog?.error &&
+          !models.length && (
+            <p className="error" role="alert">
+              This connection isn’t ready to chat. Choose another in Customize.
+            </p>
+          )}
+        {!selected && connected.length > 0 && (
+          <p className="note" role="status">
+            Choose a connected account in Customize to start chatting.
+          </p>
+        )}
+        {missingDefinitionModel && !refreshingModels && (
+          <p className="error" role="alert">
+            The definition requests {requestedModel}, which is unavailable on
+            this connection. Choose a model in Customize.
+          </p>
+        )}
+        {invalidEffort && (
+          <p className="error" role="alert">
+            This model does not report {effort} effort. Choose a reported effort
+            level or the runtime default in Customize.
+          </p>
+        )}
+        <details
+          className="advanced-agent-options"
+          open={customize}
+          onToggle={(event) => setCustomize(event.currentTarget.open)}
+        >
+          <summary>Customize</summary>
+          <div className="create-agent-settings">
+            <label>
+              Name
+              <div className="input-prefix">
+                <span>@</span>
+                <input
+                  name="name"
+                  aria-label="Unique name"
+                  required
+                  value={name}
+                  onFocus={(e) => {
+                    if (nameTouched) return;
+                    setTypedName(e.currentTarget.value);
+                    setNameTouched(true);
+                  }}
+                  onChange={(e) => {
+                    setNameTouched(true);
+                    setTypedName(e.target.value);
+                  }}
+                  onInvalid={() => setCustomize(true)}
+                  placeholder={
+                    loadingName ? "Choosing a name…" : "Choose a name"
+                  }
+                  pattern="[a-zA-Z][a-zA-Z0-9-]{2,31}"
+                  maxLength={32}
+                  disabled={busy || uploading}
+                />
+              </div>
+            </label>
+            <label>
+              Agent instructions
+              <textarea
+                name="instructions"
+                value={instructions}
+                onChange={(event) => setInstructions(event.target.value)}
+                aria-label="Agent instructions"
+                rows={3}
+                maxLength={12000}
+                disabled={busy || uploading}
+                aria-describedby={instructionsHint}
+                placeholder="Keep answers concise and explain things simply."
+              />
+            </label>
+            <p className="field-hint" id={instructionsHint}>
+              Guidance for every conversation. You can change it later.
+            </p>
+            <button
+              type="button"
+              className="text-button"
+              disabled={busy || uploading}
+              onClick={() => setDefinitionsOpen(true)}
+            >
+              From Markdown
+            </button>
+            {importedName && (
+              <p className="field-hint">
+                Using {importedName} as a starting point.
+              </p>
+            )}
+            <label>
+              Project
+              <select
+                name="folder"
+                aria-label="Project"
+                disabled={busy || uploading}
+                value={
+                  availableFolders.some((item) => item.id === folderChoice)
+                    ? folderChoice
+                    : ""
+                }
+                onChange={(event) => setFolderChoice(event.target.value)}
+              >
+                <option value="">Workspace</option>
+                {availableFolders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Provider
+              <select
+                aria-label="Provider"
+                disabled={busy || uploading}
+                value={provider}
+                onChange={(event) => {
+                  setProvider(event.target.value as typeof provider);
+                  setConnection("");
+                  setModel("");
+                  setRequestedModel("");
+                  setEffort("");
+                }}
+              >
+                {(
+                  [
+                    "codex",
+                    "anthropic",
+                    "pi",
+                    "opencode",
+                    "gemini",
+                    "muse",
+                    "grok",
+                    "acp",
+                    "openai",
+                  ] as const
+                ).map((p) => (
+                  <option key={p} value={p}>
+                    {providerName(p)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selected ? (
+              <>
+                <ConnectionPicker
+                  disabled={busy || uploading}
+                  value={connectionKey(selected)}
+                  onChange={(value) => {
+                    if (value.startsWith("setup-source:")) {
+                      onSourceSetup?.(value.slice("setup-source:".length));
+                      return;
+                    }
+                    setConnection(value);
+                    setFolderChoice("");
+                    setModel("");
+                    setRequestedModel("");
+                    setEffort("");
+                  }}
+                >
+                  {accounts.map((c) => (
+                    <option key={connectionKey(c)} value={connectionKey(c)}>
+                      {c.label.startsWith(
+                        c.executionEnvironment || "This computer",
+                      )
+                        ? c.label
+                        : `${c.executionEnvironment || "This computer"} · ${c.label}`}
+                    </option>
+                  ))}
+                  {setupSources.map((item) => (
+                    <option key={item.id} value={`setup-source:${item.id}`}>
+                      {item.name} · connect {providerName(provider)}
+                    </option>
+                  ))}
+                </ConnectionPicker>
+                <ModelPicker
+                  models={models}
+                  value={chosen}
+                  onChange={(value) => {
+                    setModel(value);
+                    setRequestedModel("");
+                    setEffort("");
+                  }}
+                  disabled={busy || uploading || refreshingModels}
+                  refreshing={refreshingModels}
+                />
+                <EffortSelect
+                  model={chosenModel}
+                  value={effort}
+                  onChange={setEffort}
+                />
+                <ConnectionDetails connection={selected} />
+              </>
+            ) : connected.length > 0 ? (
+              <div className="note">
+                Connect {providerName(provider)} to use it here.
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={onConnect}
+                >
+                  <Plus size={16} /> Connect on{" "}
+                  {sources.find((item) => !item.id)?.name || "This computer"}
+                </button>
+                {setupSources.map((item) => (
+                  <button
+                    type="button"
+                    className="text-button"
+                    key={item.id}
+                    onClick={() => onSourceSetup?.(item.id)}
+                  >
+                    <Plus size={16} /> Connect on {item.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {connected.length > 0 && setupBlock}
+          </div>
+        </details>
         {error && (
           <p className="error" role="alert">
             {error}
           </p>
         )}
       </form>
-      {connected.length > 0 && setupBlock}
     </Sheet>
   );
 }

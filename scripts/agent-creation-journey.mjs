@@ -13,9 +13,13 @@ export async function agentCreationJourney(page, api) {
   await page.reload();
   const button = (name) => page.getByRole("button", { name, exact: true });
   const open = async () => {
-    await button("New agent").click();
-    await page.getByRole("heading", { name: "Meet your next agent" }).waitFor();
-    await button("OpenAI API").click();
+    await page.getByRole("button", { name: /^(New agent|Start chatting)$/ }).click();
+    await page
+      .getByRole("dialog", { name: "New chat", exact: true })
+      .getByText("Customize", { exact: true })
+      .click();
+    await page.getByRole("heading", { name: "New chat" }).waitFor();
+    await page.getByLabel("Provider", { exact: true }).selectOption("openai");
     await page
       .getByRole("combobox", { name: /^Model/ })
       .selectOption("openai-fixture");
@@ -47,14 +51,11 @@ export async function agentCreationJourney(page, api) {
   );
   await expect(page.getByLabel("Unique name")).toHaveValue("creation-idle");
   await page
-    .getByText("Instructions & advanced options", { exact: true })
-    .click();
-  await page
     .getByLabel("Agent instructions", { exact: true })
     .fill("Keep answers concise.");
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Create agent", exact: true })
+    .getByRole("button", { name: "Start chatting", exact: true })
     .click();
   await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   const idle = (await api("/bootstrap")).agents.find(
@@ -71,12 +72,9 @@ export async function agentCreationJourney(page, api) {
   const instructions = "Research carefully and cite sources.";
   const prompt = "Find three ideas for my next project.";
   await page
-    .getByText("Instructions & advanced options", { exact: true })
-    .click();
-  await page
     .getByLabel("Agent instructions", { exact: true })
     .fill(instructions);
-  await page.getByLabel("Initial prompt", { exact: true }).fill(prompt);
+  await page.getByLabel("First message", { exact: true }).fill(prompt);
   assert.equal(await page.getByLabel("Unique name").inputValue(), suggested);
   await page.getByLabel("Unique name").fill("creation-starter");
   const projectChoice = page
@@ -130,12 +128,12 @@ export async function agentCreationJourney(page, api) {
   };
   await (await choosing).setFiles([brief, removed]);
   await expect.poll(() => typeof releaseUpload).toBe("function");
-  await expect(button("Create & start")).toBeDisabled();
+  await expect(button("Start chatting")).toBeDisabled();
   releaseUpload();
   await expect(
     creationSheet().getByRole("list", { name: "Attached files" }),
   ).toContainText(removed.name);
-  await expect(button("Create & start")).toBeEnabled();
+  await expect(button("Start chatting")).toBeEnabled();
   await creationSheet()
     .getByRole("button", { name: "Remove " + removed.name, exact: true })
     .click();
@@ -150,13 +148,13 @@ export async function agentCreationJourney(page, api) {
   );
   await menu().getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(1);
-  await page.getByLabel("Initial prompt", { exact: true }).fill("");
-  await expect(button("Create agent")).toBeDisabled();
-  await page.getByLabel("Initial prompt", { exact: true }).fill(prompt);
+  await page.getByLabel("First message", { exact: true }).fill("");
+  await expect(button("Start chatting")).toBeDisabled();
+  await page.getByLabel("First message", { exact: true }).fill(prompt);
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
     await page
-      .getByLabel("Initial prompt", { exact: true })
+      .getByLabel("First message", { exact: true })
       .scrollIntoViewIfNeeded();
     const dialog = page.locator("dialog[open]").last();
     assert.equal(
@@ -169,7 +167,7 @@ export async function agentCreationJourney(page, api) {
   }
   // Typing the prompt on a phone: the keyboard shrinks the sheet, and the
   // field sits just above it. The Create button must not cover the field.
-  const promptField = page.getByLabel("Initial prompt", { exact: true });
+  const promptField = page.getByLabel("First message", { exact: true });
   await promptField.focus();
   await page.evaluate(() => {
     Object.defineProperty(window.visualViewport, "height", {
@@ -185,7 +183,7 @@ export async function agentCreationJourney(page, api) {
   await expect(page.locator("html")).toHaveAttribute("data-keyboard", "open");
   await promptField.evaluate((el) => el.scrollIntoView({ block: "end" }));
   const field = await promptField.boundingBox();
-  const create = await button("Create & start").boundingBox();
+  const create = await button("Start chatting").boundingBox();
   assert.ok(
     create.y >= field.y + field.height || create.y + create.height <= field.y,
     "The Create button does not cover the prompt while typing",
@@ -212,10 +210,10 @@ export async function agentCreationJourney(page, api) {
     },
     { times: 1 },
   );
-  await button("Create & start").click();
+  await button("Start chatting").click();
   await page.getByRole("alert").waitFor();
-  await expect(button("Create & start")).toBeEnabled();
-  await expect(page.getByLabel("Initial prompt", { exact: true })).toHaveValue(
+  await expect(button("Start chatting")).toBeEnabled();
+  await expect(page.getByLabel("First message", { exact: true })).toHaveValue(
     prompt,
   );
   await expect(
@@ -228,7 +226,7 @@ export async function agentCreationJourney(page, api) {
   const retry = page.waitForResponse(
     (r) => r.url().endsWith("/api/agents") && r.request().method() === "POST",
   );
-  await button("Create & start").click();
+  await button("Start chatting").click();
   const created = await (await retry).json();
   assert.equal(created.id, first.id);
   assert.deepEqual(created.initialRun, first.initialRun);

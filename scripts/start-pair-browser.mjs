@@ -46,7 +46,7 @@ try {
   await page.goto(host.pair().url);
   await page.getByRole("button", { name: "Pair and open Loop" }).click();
   await page
-    .getByRole("button", { name: "Create your first agent", exact: true })
+    .getByRole("button", { name: /^(New agent|Start chatting)$/ })
     .click();
   const setup = page.getByRole("region", { name: "Runtime setup" });
   await expect(
@@ -58,21 +58,20 @@ try {
   await setup
     .getByRole("button", { name: "Enable Codex", exact: true })
     .click();
+  await page.getByRole("dialog", { name: "New chat", exact: true })
+    .getByText("Customize", { exact: true }).click();
   await expect(page.getByLabel("Run on")).toBeVisible();
   await page.getByLabel("Unique name").fill("start-browser");
-  await page
-    .getByText("Instructions & advanced options", { exact: true })
-    .click();
   await page
     .getByRole("dialog")
     .getByLabel("Project", { exact: true })
     .selectOption({ label: basename(dir) });
-  await page.getByLabel("Initial prompt", { exact: true }).fill("hello");
+  await page.getByLabel("First message", { exact: true }).fill("hello");
   await page
-    .getByRole("button", { name: "Create & start", exact: true })
+    .getByRole("button", { name: "Start chatting", exact: true })
     .click();
   await expect(
-    page.getByRole("dialog", { name: "Meet your next agent" }),
+    page.getByRole("dialog", { name: "New chat" }),
   ).not.toBeVisible();
   await expect
     .poll(

@@ -89,6 +89,8 @@ import { renderSessionGate } from "./app/Session";
 export default function App() {
   const props = useAppController();
   const {
+    bootstrapOwner, setBootstrapOwner, composerOptions, setComposerOptions,
+    composerFocusRequest, startChat,
     tab, lastNavTap, setFeedFilter, setFeedHomeKey, setTab,
     setProfile, setView, displayName, runningAgentCount, session,
     error, check, conversation, data, projectFilter,
@@ -257,6 +259,10 @@ export default function App() {
     availableAgents,
     composerRef,
     composerExpanded,
+    workspaceReady: bootstrapOwner === session?.user?.id,
+    composerOptions,
+    setComposerOptions,
+    startChat,
     sendNotice,
     sentRun,
     setSelected,
@@ -643,10 +649,7 @@ export default function App() {
                   connections={unified.connections}
                   runs={unified.runs}
                   onProfile={openSourcedAgent}
-                  onCreate={() => {
-                    setFolder(projectFilter);
-                    setSheet("create");
-                  }}
+                  onCreate={startChat}
                 />
               )}
               <Feed
@@ -707,7 +710,7 @@ export default function App() {
                         ? focusComposer()
                         : unified.agents.length
                           ? setSheet("agents")
-                          : setSheet("create")
+                          : startChat()
                     }
                   >
                     <Plus size={17} />
@@ -715,7 +718,7 @@ export default function App() {
                       ? data.agents.length
                         ? "Start a conversation"
                         : "Choose an agent"
-                      : "Create your first agent"}
+                      : "Start chatting"}
                   </button>
                 }
               />
@@ -1182,7 +1185,9 @@ export default function App() {
                   setConversation(null);
                   setProfile(null);
                   setSession(null);
+                  composerFocusRequest.current = null;
                   setData({ agents: [], connections: [], folders: [] });
+                  setBootstrapOwner(undefined);
                   setItems([]);
                   setRuns([]);
                 }}
@@ -1430,14 +1435,17 @@ export default function App() {
               return;
             }
             if (sourceId !== executionSourceId()) {
-              location.assign(
+              const url = new URL(
                 sourceUrl(
                   sourceId,
                   a.initialRun?.conversation_id
                     ? { conversation: a.initialRun.conversation_id }
                     : { agent: a.id },
                 ),
+                location.origin,
               );
+              if (!a.initialRun) url.searchParams.set("compose", "1");
+              location.assign(url.pathname + url.search);
               return;
             }
             if (newAgentPrompt) {
@@ -1447,6 +1455,8 @@ export default function App() {
             await bootstrap();
             setSelected(a.id);
             setFolder(f);
+            if (!["share", "workflows", "teams"].includes(returnTo))
+              setSettingsParent(false);
             if (returnTo === "share") {
               setShareAgent(a.id);
               setSheet("share");
@@ -1463,6 +1473,19 @@ export default function App() {
               setTab("feed");
               setContextArtifact(null);
               setConversation(a.initialRun.conversation_id);
+            } else if (
+              !a.initialRun &&
+              !["share", "workflows", "teams"].includes(returnTo)
+            ) {
+              setConversation(null);
+              setSelected(a.id);
+              setTeamSelection([]);
+              setProfile(null);
+              setContextArtifact(null);
+              setReplyContext(null);
+              setFolderChoice(undefined);
+              setComposerOptions(false);
+              afterSheetsClose(focusComposer);
             }
             setReturnTo("");
             setEnvironmentToOpen("");

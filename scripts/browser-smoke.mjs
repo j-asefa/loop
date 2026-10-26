@@ -220,6 +220,7 @@ try {
     .getByRole("button", { name: "Preview route", exact: true })
     .click();
   await page.getByRole("button", { name: "Choose provider & model" }).click();
+  await page.getByText("Customize", { exact: true }).click();
   await page
     .getByRole("combobox", { name: /^Model/ })
     .selectOption("browser-fixture-model");
@@ -227,7 +228,7 @@ try {
   await page.getByLabel("Unique name").fill(newName);
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Create agent", exact: true })
+    .getByRole("button", { name: "Start chatting", exact: true })
     .click();
   await page.getByRole("heading", { name: "Bring it into Loop" }).waitFor();
   assert.equal(

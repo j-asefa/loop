@@ -4,7 +4,7 @@ import {
 } from "react";
 import {
   ArrowUp, ArrowUpRight, X, Plus, ChevronDown,
-  Reply as ReplyIcon, Clock3, AlarmClock,
+  Reply as ReplyIcon, Clock3, AlarmClock, SlidersHorizontal,
 } from "lucide-react";
 import { workspaceApi, type Bootstrap as BootstrapResponse } from "../../shared/workspace-api";
 import type { Agent, Artifact, RunView as Run } from "../../shared/types";
@@ -127,6 +127,10 @@ type ComposerProps = {
   steersActive: boolean;
   destination: { agent: string; project: string; thread: string };
   composerExpanded: boolean;
+  workspaceReady: boolean;
+  composerOptions: boolean;
+  setComposerOptions: Dispatch<SetStateAction<boolean>>;
+  startChat(): void;
   sendNotice: SendNotice | null;
   sentRun: Run | undefined;
   composerError: string;
@@ -688,6 +692,10 @@ export function renderComposer({
   availableAgents,
   composerRef,
   composerExpanded,
+  workspaceReady,
+  composerOptions,
+  setComposerOptions,
+  startChat,
   sendNotice,
   sentRun,
   setSelected,
@@ -729,6 +737,8 @@ export function renderComposer({
   | "activeAgent" | "conversationTarget" | "send"
   | "sendPress" | "composerData" | "availableAgents"
   | "composerRef" | "composerExpanded" | "sendNotice"
+  | "workspaceReady"
+  | "composerOptions" | "setComposerOptions" | "startChat"
   | "sentRun" | "setSelected" | "setConversation"
   | "setSendNotice" | "attachments" | "session"
   | "setContextArtifact" | "setFolderChoice" | "setFolder"
@@ -885,7 +895,9 @@ export function renderComposer({
                     {!availableAgents.length && (
                       <option value="">Choose your first agent</option>
                     )}
-                    <option value="__route__">Let Loop route this</option>
+                    {(composerOptions || selected === "__route__") && (
+                      <option value="__route__">Let Loop choose</option>
+                    )}
                     {activeAgent?.retired_at && (
                       <option value={activeAgent.id} disabled>
                         @{activeAgent.name} · Retired
@@ -913,15 +925,20 @@ export function renderComposer({
                 </button>
               </div>
             )}
-            {!threadMode && activeAgent && selected !== "__route__" && (
-              <p className="composer-destination">
-                To <strong>@{destination.agent}</strong> · Project{" "}
-                <strong>{destination.project}</strong> ·{" "}
-                {steersActive
-                  ? "Sending now steers its current task"
-                  : destination.thread}
-              </p>
-            )}
+            {!threadMode &&
+              activeAgent &&
+              selected !== "__route__" &&
+              (steersActive ||
+                replyContext ||
+                !["Unfiled", "Workspace"].includes(destination.project)) && (
+                <p className="composer-destination">
+                  {steersActive
+                    ? "Continues the current task"
+                    : replyContext
+                      ? destination.thread
+                      : destination.project}
+                </p>
+              )}
             {activeAgent?.retired_at && (
               <p className="note">
                 This agent is retired. Restore it from its profile to send new
@@ -1008,7 +1025,7 @@ export function renderComposer({
                 placeholder={
                   threadMode
                     ? `Reply to @${activeAgent?.name || "agent"}…`
-                    : "An idea, a question, a ‘what if’… (@new creates an agent)"
+                    : "Ask anything…"
                 }
                 rows={threadMode ? 1 : 2}
               />
@@ -1063,8 +1080,21 @@ export function renderComposer({
                 setAttachments(attachmentsRef.current);
               }}
             />
+            <VoiceButton value={draft} onChange={setDraft} disabled={busy} />
+            <button
+              type="button"
+              className="icon-button composer-options-toggle"
+              aria-label="Chat options"
+              title="Chat options"
+              aria-expanded={composerOptions}
+              aria-controls="composer-options"
+              onClick={() => setComposerOptions((open) => !open)}
+            >
+              <SlidersHorizontal size={18} />
+            </button>
             <HarnessPicker
               compact
+              showTrigger={composerOptions}
               conversationId={
                 replyContext?.conversationId || (conversation ?? undefined)
               }
@@ -1073,6 +1103,13 @@ export function renderComposer({
               onChange={setDraft}
               focusInput={() => document.getElementById("composer")?.focus()}
             />
+            {!threadMode && sendButton}
+          </div>
+          <div
+            id="composer-options"
+            className="composer-options"
+            hidden={!composerOptions}
+          >
             {activeAgent?.provider === "pi" && (
               <button
                 type="button"
@@ -1082,7 +1119,6 @@ export function renderComposer({
                 Active in this chat
               </button>
             )}
-            <VoiceButton value={draft} onChange={setDraft} disabled={busy} />
             <button
               type="button"
               className="composer-model"
@@ -1122,15 +1158,12 @@ export function renderComposer({
                 <Clock3 size={18} />
               </button>
             )}
-            {!threadMode && sendButton}
           </div>
           {threadMode && threadWork && draft.trim() && (
             <p className="field-hint composer-intent">
               {threadWork.steerable
                 ? `Send steers @${destination.agent}’s current task.`
-                : `Send waits for @${destination.agent}’s current task.`}{" "}
-              Tap the clock to {threadWork.steerable ? "queue it or " : ""}send
-              later.
+                : `Send waits for @${destination.agent}’s current task.`}
             </p>
           )}
           {threadNotice && threadMode && (
@@ -1146,6 +1179,16 @@ export function renderComposer({
             </p>
           )}
         </div>
+      </section>
+    ) : workspaceReady && !conversation ? (
+      <section className="composer-dock collapsed">
+        <button
+          className="composer-launch"
+          onClick={startChat}
+          aria-label="Compose a message"
+        >
+          <Plus size={26} aria-hidden="true" />
+        </button>
       </section>
     ) : null;
   return messageComposer;

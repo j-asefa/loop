@@ -41,7 +41,7 @@ export function useSessionLifecycle(props: Pick<AppModel,
   "setArchivedCard" | "setComposerExpanded" | "setDraft" | "setSelected" | "setFolderChoice" |
   "setSharedDraft" | "setProfile" | "setConversation" | "setActiveArtifact" | "setContextArtifact" |
   "setReplyContext" | "setRoutePreview" | "setFiling" | "setLaterCard" | "setSettingsParent" |
-  "setSheet"
+  "setSheet" | "composerFocusRequest" | "setBootstrapOwner"
 >) {
   const {
     check, setError, personalWorkspace, setSession, setData,
@@ -49,7 +49,7 @@ export function useSessionLifecycle(props: Pick<AppModel,
     setArchivedCard, setComposerExpanded, setDraft, setSelected, setFolderChoice,
     setSharedDraft, setProfile, setConversation, setActiveArtifact, setContextArtifact,
     setReplyContext, setRoutePreview, setFiling, setLaterCard, setSettingsParent,
-    setSheet,
+    setSheet, composerFocusRequest, setBootstrapOwner,
   } = props;
   useEffect(() => {
     void check().catch((e) => setError(e.message));
@@ -59,7 +59,9 @@ export function useSessionLifecycle(props: Pick<AppModel,
         return;
       }
       setSession(null);
+      composerFocusRequest.current = null;
       setData({ agents: [], connections: [], folders: [] });
+      setBootstrapOwner(undefined);
       setItems([]);
       setRuns([]);
       setSendNotice(null);

@@ -69,7 +69,7 @@ export function YourAgents({
             <Plus size={27} />
           </span>
           <span className="agent-shortcut-name">New agent</span>
-          <span className="agent-shortcut-status">Create</span>
+          <span className="agent-shortcut-status">Start chatting</span>
         </button>
         {orderByActivity(agents, runs).map((agent) => {
           const model = agentModelName(

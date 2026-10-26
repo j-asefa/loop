@@ -1,3 +1,4 @@
+import { openChatOptions } from "./browser-ui.mjs";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { deflateSync } from "node:zlib";
@@ -146,6 +147,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     "background-color",
     "rgb(201, 162, 39)",
   );
+  await openChatOptions(page);
   await composer
     .getByRole("button", { name: "Select model and effort", exact: true })
     .click();
@@ -328,6 +330,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   const sent = fixture.db
     .prepare("SELECT * FROM runs WHERE agent_id=? ORDER BY rowid DESC LIMIT 1")
     .get(recipient.id);
+  assert.equal(sent.input, "Read the attached brief.");
   const fileId = JSON.parse(sent.payload).attachmentIds[0];
   const userMessage = fixture.db
     .prepare("SELECT metadata FROM messages WHERE run_id=? AND role='user'")

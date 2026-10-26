@@ -40,7 +40,8 @@ export async function executionEnvironmentsSmoke(
     );
     const checkDestinations = async (names) => {
       await strip.getByRole("button", { name: "New agent", exact: true }).click();
-      const sheet = page.getByRole("dialog", { name: "Meet your next agent" });
+      const sheet = page.getByRole("dialog", { name: "New chat" });
+      await sheet.getByText("Customize", { exact: true }).click();
       for (const [id, name] of names) {
         await expect(sheet.getByLabel("Run on")).toContainText(name);
         await sheet.getByLabel("Run on").selectOption("laptop:" + id);

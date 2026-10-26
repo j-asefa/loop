@@ -1,3 +1,4 @@
+import { openChatOptions } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import Database from "better-sqlite3";
@@ -66,6 +67,7 @@ export async function harnessJourney(page, api, agent, token, expected) {
   await conversation
     .getByLabel("Reply to agent")
     .fill("Keep these reply instructions");
+  await openChatOptions(page);
   await conversation
     .getByRole("button", { name: "Commands & skills", exact: true })
     .click();

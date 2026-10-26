@@ -159,15 +159,19 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(fixture.base, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: "New agent", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "New chat", exact: true })
+      .getByText("Customize", { exact: true })
+      .click();
     const input = dialog().getByLabel("Unique name");
     await expect(input).toHaveValue(/^[a-z]{3,32}$/);
     const suggestion = await input.inputValue();
     assert(
       !fixture.db.prepare("SELECT 1 FROM handles WHERE name=?").get(suggestion),
     );
-    await dialog().getByRole("button", { name: "Claude", exact: true }).click();
+    await dialog().getByLabel("Provider", { exact: true }).selectOption("anthropic");
     await dialog()
-      .getByLabel("Initial prompt", { exact: true })
+      .getByLabel("First message", { exact: true })
       .fill("A first task");
     await expect(input).toHaveValue(suggestion);
     await input.scrollIntoViewIfNeeded();
@@ -182,6 +186,10 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
       await route.fulfill({ json: { name: "willow" } });
     });
     await page.getByRole("button", { name: "New agent", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "New chat", exact: true })
+      .getByText("Customize", { exact: true })
+      .click();
     await input.fill("mychosenname");
     await input.fill("");
     const response = page.waitForResponse("**/api/agents/suggest-name");

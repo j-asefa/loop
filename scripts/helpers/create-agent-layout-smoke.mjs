@@ -22,8 +22,12 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
     .getByRole("region", { name: "Your agents", exact: true })
     .getByRole("button", { name: "New agent", exact: true })
     .click();
+  await page
+    .getByRole("dialog", { name: "New chat", exact: true })
+    .getByText("Customize", { exact: true })
+    .click();
   const sheet = page.getByRole("dialog", {
-    name: "Meet your next agent",
+    name: "New chat",
     exact: true,
   });
   const body = sheet.locator(".sheet-body");
@@ -34,10 +38,7 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
       await body.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
       "The provider choices must not widen or horizontally pan the form",
     );
-    await sheet
-      .locator(".provider-picker")
-      .getByRole("button", { name: "Claude", exact: true })
-      .click();
+    await sheet.getByLabel("Provider", { exact: true }).selectOption("anthropic");
     await expect(
       sheet.getByRole("button", {
         name: "Connect on This laptop",
@@ -45,13 +46,13 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
       }),
     ).toHaveCount(1);
     const prompt = sheet.getByRole("textbox", {
-      name: "Initial prompt",
+      name: "First message",
       exact: true,
     });
     await prompt.fill("Keep my draft while changing fields.");
     await prompt.evaluate((el) => el.scrollIntoView({ block: "end" }));
     const submit = sheet.getByRole("button", {
-      name: "Create & start",
+      name: "Start chatting",
       exact: true,
     });
     const inputBounds = await prompt.boundingBox(),
@@ -114,11 +115,11 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
     );
   }
   // The footer's submit button must still submit the associated form.
-  await sheet.getByRole("button", { name: "ChatGPT", exact: true }).click();
+  await sheet.getByLabel("Provider", { exact: true }).selectOption("codex");
   await sheet.getByLabel("Unique name").fill("mobilelayout");
-  await sheet.getByLabel("Initial prompt", { exact: true }).fill("");
+  await sheet.getByLabel("First message", { exact: true }).fill("");
   await sheet
-    .getByRole("button", { name: "Create agent", exact: true })
+    .getByRole("button", { name: "Start chatting", exact: true })
     .click();
   await expect(sheet).toHaveCount(0);
   assert(

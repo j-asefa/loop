@@ -2,6 +2,7 @@ import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
 import { geminiSmoke } from "./helpers/gemini-smoke.mjs";
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
+import { beginnerChatSmoke } from "./helpers/beginner-chat-smoke.mjs";
 import { workspaceProjectSmoke } from "./helpers/workspace-project-smoke.mjs";
 import { executionEnvironmentsSmoke } from "./helpers/execution-environments-smoke.mjs";
 import { safariSheetKeyboardSmoke } from "./helpers/safari-sheet-keyboard-smoke.mjs";
@@ -51,6 +52,7 @@ import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 import { attachmentPickerSmoke } from "./helpers/attachment-picker-smoke.mjs";
 
 const scenarios = {
+  "beginner-chat": beginnerChatSmoke,
   "profile-photos-recipient": profilePhotosRecipientSmoke,
   "visual-layout": visualLayoutSmoke,
   gemini: geminiSmoke,
@@ -206,7 +208,7 @@ for (const engine of selectedEngines()) {
         fixture.base + "/?conversation=" + fixture.conversations[index].id,
       );
       await dialog()
-        .getByRole("button", { name: "Commands & skills", exact: true })
+        .getByRole("textbox", { name: "Reply to agent", exact: true })
         .waitFor();
       await expect(thread().locator(".message").first()).toBeVisible();
     };
@@ -298,7 +300,7 @@ for (const engine of selectedEngines()) {
           .click();
         await expect(
           dialog().getByRole("heading", {
-            name: "Meet your next agent",
+            name: "New chat",
             exact: true,
           }),
         ).toBeVisible();
@@ -359,6 +361,10 @@ for (const engine of selectedEngines()) {
           composer.getByRole("region", { name: "Original message" }),
         ).toBeVisible();
         await composer.locator(".composer-quote-toggle > summary").click();
+        await expect(
+          composer.getByRole("button", { name: "Select model and effort" }),
+        ).toBeHidden();
+        await composer.getByRole("button", { name: "Chat options", exact: true }).click();
         await expect(
           composer.getByRole("button", { name: "Select model and effort" }),
         ).toBeVisible();

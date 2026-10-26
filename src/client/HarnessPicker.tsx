@@ -23,6 +23,7 @@ export function HarnessPicker({
   onChange,
   focusInput,
   compact = false,
+  showTrigger = true,
 }: {
   agentId?: string;
   conversationId?: string;
@@ -30,6 +31,7 @@ export function HarnessPicker({
   onChange: (value: string) => void;
   focusInput: () => void;
   compact?: boolean;
+  showTrigger?: boolean;
 }) {
   const route = useSourceRoute();
   const sourceId = useSourceId();
@@ -123,19 +125,23 @@ export function HarnessPicker({
     query || allSnippets ? matchingSnippets : matchingSnippets.slice(0, 3);
   return (
     <>
-      <button
-        type="button"
-        className={"text-button harness-trigger" + (compact ? " compact" : "")}
-        aria-label="Commands & skills"
-        title="Commands, skills and snippets (type /)"
-        onClick={() => {
-          setQuery("");
-          setAllSnippets(false);
-          setOpen(true);
-        }}
-      >
-        {compact ? "/" : "Commands & skills"}
-      </button>
+      {showTrigger && (
+        <button
+          type="button"
+          className={
+            "text-button harness-trigger" + (compact ? " compact" : "")
+          }
+          aria-label="Commands & skills"
+          title="Commands, skills and snippets (type /)"
+          onClick={() => {
+            setQuery("");
+            setAllSnippets(false);
+            setOpen(true);
+          }}
+        >
+          {compact ? "/" : "Commands & skills"}
+        </button>
+      )}
       {open && (
         <Sheet title="Commands & skills" onClose={close}>
           <input

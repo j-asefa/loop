@@ -14,9 +14,9 @@ export async function safariSheetKeyboardSmoke(page, fixture, capture) {
   await page
     .getByRole("button", { name: "New agent", exact: true })
     .evaluate((el) => el.click());
-  const sheet = page.getByRole("dialog", { name: "Meet your next agent" });
+  const sheet = page.getByRole("dialog", { name: "New chat" });
   await expect(sheet).toBeVisible();
-  const field = sheet.getByLabel("Initial prompt", { exact: true });
+  const field = sheet.getByLabel("First message", { exact: true });
   await field.fill("Preserve this Safari draft.");
   await page.evaluate(() => {
     // Some keyboard states shrink innerHeight as well as visualViewport.

@@ -37,6 +37,12 @@ export async function isolatedBrowserEnv() {
   };
 }
 
+export async function openChatOptions(page) {
+  const options = page.getByRole("button", { name: "Chat options", exact: true });
+  if ((await options.getAttribute("aria-expanded")) !== "true")
+    await options.click();
+}
+
 // The header gear opens the settings drawer.
 export async function openSettings(page) {
   await page

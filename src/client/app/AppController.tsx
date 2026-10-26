@@ -30,7 +30,7 @@ import { showLater } from "../Later";
 import { useLongPress, type ScheduledSend } from "../ThreadTools";
 import { notify } from "../toast";
 import { sourceDraftId, saveThreadDraft as writeThreadDraft, setDraftOwner, threadDraft as readThreadDraft } from "../drafts";
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import { UserRound, Newspaper, Search, Folder, GitPullRequest } from "lucide-react";
 import { api, apiInWorkspace, parse } from "../api";
 import { type ThreadWork } from "../Conversation";
@@ -162,6 +162,12 @@ export function useAppController() {
     new URLSearchParams(location.search).get("message"),
   );
   const [composerExpanded, setComposerExpanded] = useState(false);
+  const composerFocusRequest = useRef<number | null>(null);
+  const [bootstrapOwner, setBootstrapOwner] = useState<string>();
+  const [composerOptions, setComposerOptions] = useState(false);
+  useEffect(() => {
+    if (!composerExpanded && !conversation) setComposerOptions(false);
+  }, [composerExpanded, conversation]);
   const initialAgentId = useRef(
     new URLSearchParams(location.search).get("agent"),
   );
@@ -305,8 +311,10 @@ export function useAppController() {
     }
     if (id !== conversation || source !== conversationSource) {
       navigationGeneration.current++;
+      composerFocusRequest.current = null;
       threadIdentityRef.current = "";
       setModelAgent(null);
+      setComposerOptions(false);
       setSendMenu(false);
       setScheduleAt(null);
       if (sheet === "pi-active") setSheet("");
@@ -353,11 +361,34 @@ export function useAppController() {
       history.replaceState(history.state, "", url.pathname + url.search);
     }
   }
+  function focusRequestedComposer() {
+    if (composerFocusRequest.current !== navigationGeneration.current) return;
+    const input = document.querySelector<HTMLTextAreaElement>("#composer");
+    input?.focus();
+    if (input && document.activeElement === input)
+      composerFocusRequest.current = null;
+  }
+  useLayoutEffect(() => {
+    // A frame callback can run before React reveals the input. Finish an
+    // explicit focus request after commit, without focusing on other updates.
+    if (composerExpanded) focusRequestedComposer();
+  });
   function focusComposer() {
+    composerFocusRequest.current = navigationGeneration.current;
     setComposerExpanded(true);
-    requestAnimationFrame(() =>
-      document.querySelector<HTMLTextAreaElement>("#composer")?.focus(),
-    );
+    requestAnimationFrame(focusRequestedComposer);
+  }
+  function startChat() {
+    setFolder(projectFilter);
+    setNewAgentPrompt("");
+    setSheet("create");
+  }
+  function openAgentChat(agent: Agent) {
+    setSelected(agent.id);
+    setFolder(agent.folder_id || "");
+    setFolderChoice(undefined);
+    setReplyContext(null);
+    afterSheetsClose(focusComposer);
   }
   // Focus a thread's composer once its sheet has opened, but only if that
   // thread is still open; a quick close must not expand the global composer.
@@ -397,8 +428,10 @@ export function useAppController() {
     return () => window.removeEventListener(OPEN_PULL, open);
   }, []);
   function collapseComposer() {
+    composerFocusRequest.current = null;
     document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
     setComposerExpanded(false);
+    setComposerOptions(false);
   }
   // A tapped notification opens its link in this window: a thread at its
   // message, or a result. Any other link loads normally.
@@ -1066,6 +1099,7 @@ export function useAppController() {
   const { bootstrap, loadRuns, runsGeneration, refresh } = useWorkspaceData({
     setWorkspaceLoadErrors, ownerRef, readContract, setData, initialAgentId,
     setProfile, setTeamSelection, setRuns, loadResults,
+    setBootstrapOwner, openAgentChat,
   });
   useSessionLifecycle({
     check, setError, personalWorkspace, setSession, setData,
@@ -1073,7 +1107,7 @@ export function useAppController() {
     setArchivedCard, setComposerExpanded, setDraft, setSelected, setFolderChoice,
     setSharedDraft, setProfile, setConversation, setActiveArtifact, setContextArtifact,
     setReplyContext, setRoutePreview, setFiling, setLaterCard, setSettingsParent,
-    setSheet,
+    setSheet, composerFocusRequest, setBootstrapOwner,
   });
   useWorkspaceEvents({
     session, refresh, setError, profile, view,
@@ -1235,6 +1269,8 @@ export function useAppController() {
     }
   }, [projectFilter, teamKey, data.agents, conversation]);
   return {
+    bootstrapOwner, setBootstrapOwner, composerOptions, setComposerOptions,
+    composerFocusRequest, startChat,
     tab, lastNavTap, setFeedFilter, setFeedHomeKey, setTab,
     setProfile, setView, displayName, runningAgentCount, session,
     error, check, conversation, data, projectFilter,

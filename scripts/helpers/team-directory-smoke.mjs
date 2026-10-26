@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
-import { openAgentProfile } from "./browser-ui.mjs";
+import { openAgentProfile, openChatOptions } from "./browser-ui.mjs";
 
 export async function teamDirectorySmoke(page, fixture, team) {
   const projects = [];
@@ -117,6 +117,7 @@ export async function teamDirectorySmoke(page, fixture, team) {
     );
 
     for (const recipient of [fixture.agents[2].id, "__route__"]) {
+      await openChatOptions(page);
       await composer().getByLabel("Agent recipient").selectOption(recipient);
       await composer()
         .getByLabel("Message your agent", { exact: true })

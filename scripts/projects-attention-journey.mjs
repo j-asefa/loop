@@ -63,6 +63,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   ).toBeDisabled();
   await page.getByRole("button", { name: "New agent", exact: true }).click();
   dialog = page.locator("dialog[open]").last();
+  await dialog.getByText("Customize", { exact: true }).click();
   await expect(dialog.getByLabel("Project", { exact: true })).toHaveValue(
     project.id,
   );
@@ -71,7 +72,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     "project-resident",
   );
   await dialog
-    .getByRole("button", { name: "Create agent", exact: true })
+    .getByRole("button", { name: "Start chatting", exact: true })
     .click();
   await expect(page.locator(".projects-view .project-agent")).toHaveCount(1);
   await expect(page.locator(".projects-view")).not.toContainText(

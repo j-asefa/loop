@@ -1,3 +1,4 @@
+import { openChatOptions } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { chromium, expect } from "@playwright/test";
@@ -242,6 +243,7 @@ for (const engine of selectedEngines()) {
       pointerType: "touch",
       pointerId: 2,
     });
+    await openChatOptions(page);
     await composer
       .getByRole("button", { name: "Send later", exact: true })
       .click();

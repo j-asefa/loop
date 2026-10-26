@@ -381,17 +381,21 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     );
     await page.getByRole("tab", { name: "Done", exact: true }).click();
     await strip.getByRole("button", { name: "New agent" }).click();
+    await page
+      .getByRole("dialog", { name: "New chat", exact: true })
+      .getByText("Customize", { exact: true })
+      .click();
     const destinations = page
-      .getByRole("dialog", { name: "Meet your next agent" })
+      .getByRole("dialog", { name: "New chat" })
       .getByLabel("Run on");
     await expect(destinations).toContainText("Docker · Alpha");
     await expect(destinations).toContainText("Cloud · Beta");
     await expect(destinations).toContainText(computer);
-    const sheet = page.getByRole("dialog", { name: "Meet your next agent" });
+    const sheet = page.getByRole("dialog", { name: "New chat" });
     const dockerRunner = `${sources[0].id}:${records.get(sources[0].id).connection.id}`;
     await destinations.selectOption(dockerRunner);
     await sheet.getByLabel("Unique name").fill("docker-files");
-    await sheet.getByLabel("Initial prompt", { exact: true }).fill("Read these files");
+    await sheet.getByLabel("First message", { exact: true }).fill("Read these files");
     await expect(sheet.getByRole("button", { name: "Add attachments", exact: true })).toBeEnabled();
     await sheet.getByLabel("Attach files", { exact: true }).setInputFiles({
       name: "brief.txt", mimeType: "text/plain", buffer: Buffer.from("hello"),
@@ -404,14 +408,14 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await destinations.selectOption(`laptop:${local.connection.id}`);
     await expect(sheet.locator(".connection-details")).toContainText(computer);
     await expect(sheet).not.toContainText("This laptop");
-    await expect(sheet.getByRole("button", { name: "Create & start" })).toBeDisabled();
+    await expect(sheet.getByRole("button", { name: "Start chatting" })).toBeDisabled();
     await expect(sheet.getByRole("button", { name: "Add attachments", exact: true })).toBeDisabled();
     await destinations.selectOption(dockerRunner);
-    await sheet.getByRole("button", { name: "Create & start" }).click();
+    await sheet.getByRole("button", { name: "Start chatting" }).click();
     await expect(sheet.getByRole("alert")).toContainText("Fixture connection interrupted");
     assert.deepEqual(creations[0].attachmentIds, [uploads[0].file.id]);
     assert.equal(creations[0].source, sources[0].id);
-    await sheet.getByRole("button", { name: "Create & start" }).click();
+    await sheet.getByRole("button", { name: "Start chatting" }).click();
     await expect.poll(() => creations.length).toBe(2);
     assert.equal(creations[0].idempotencyKey, creations[1].idempotencyKey);
 

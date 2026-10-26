@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
+import { closeSheets, openSettings, openChatOptions } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { mockViewportCoordinates } from "./helpers/mock-viewport.mjs";
 import { expect } from "@playwright/test";
@@ -98,6 +98,7 @@ export async function composerJourney(page, api) {
     await page.getByRole("button", { name: "Done", exact: true }).click();
 
     await openComposer.click();
+    await openChatOptions(page);
     await page.getByLabel("Agent recipient").selectOption(manager.id);
     await expect(
       page.locator(".composer").getByLabel("Project", { exact: true }),
@@ -183,6 +184,7 @@ export async function composerJourney(page, api) {
       ["Add attachments", "Add to message"],
     ]) {
       await openComposer.click();
+      await openChatOptions(page);
       await page.getByLabel("Message your agent").focus();
       await expect(page.locator(".mobile-nav")).toBeHidden();
       const triggerButton = page.getByRole("button", {
@@ -225,6 +227,7 @@ export async function composerJourney(page, api) {
     }
     // Zooming shrinks the visual viewport too, but must not raise the composer.
     await openComposer.click();
+    await openChatOptions(page);
     await page.getByLabel("Message your agent").focus();
     await page.evaluate(() => {
       Object.defineProperty(window.visualViewport, "scale", {
@@ -281,6 +284,7 @@ export async function composerJourney(page, api) {
     await closeSheets(page);
     await expect(picker).toBeFocused();
     await openComposer.click();
+    await openChatOptions(page);
     await expect(page.getByLabel("Message your agent")).toHaveValue(
       "Keep this draft while I choose a team.",
     );
@@ -528,6 +532,7 @@ export async function scheduledSendJourney(page, api, dir) {
   // "Send later at a time…" confirms recipient, project, thread and time,
   // then schedules a message that waits in the thread until then.
   await input.fill("Scheduled fixture follow-up");
+  await openChatOptions(page);
   await later.click();
   const options = page.getByRole("dialog", {
     name: "Send options",
@@ -596,6 +601,7 @@ export async function scheduledSendJourney(page, api, dir) {
   page.on("request", record);
   try {
     await input.fill("Queued fixture follow-up");
+    await openChatOptions(page);
     await later.click();
     await options
       .getByRole("menuitem", { name: /^Queue after (this task|current work)/ })
@@ -632,6 +638,7 @@ export async function scheduledSendJourney(page, api, dir) {
   await page.getByRole("button", { name: "Compose a message" }).click();
   const message = page.getByLabel("Message your agent");
   await message.fill("Global scheduled kickoff");
+  await openChatOptions(page);
   await page.getByRole("button", { name: "Send later", exact: true }).click();
   await options
     .getByRole("menuitem", { name: /^Send later at a time/ })
@@ -695,6 +702,7 @@ export async function scheduledSendJourney(page, api, dir) {
   await profile.getByRole("tab", { name: "Messages", exact: true }).click();
   await page.getByRole("button", { name: "Compose a message" }).click();
   await message.fill("Global scheduled from the profile");
+  await openChatOptions(page);
   await page.getByRole("button", { name: "Send later", exact: true }).click();
   await options
     .getByRole("menuitem", { name: /^Send later at a time/ })

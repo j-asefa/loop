@@ -81,22 +81,26 @@ async function cut() {
 }
 async function createAgent(name, provider, connection, prompt, beforeCreate) {
   await page
-    .getByRole("button", { name: /^(Create your first agent|New agent)$/ })
+    .getByRole("button", { name: /^(New agent|Start chatting)$/ })
     .first()
     .click();
-  const dialog = page.getByRole("dialog", { name: "Meet your next agent" });
-  await dialog.getByRole("button", { name: provider, exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "New chat", exact: true })
+    .getByText("Customize", { exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "New chat" });
+  await dialog.getByLabel("Provider", { exact: true }).selectOption({ label: provider });
   await dialog.getByLabel("Run on").selectOption(`laptop:${connection}`);
   await expect(dialog.getByLabel("Run on")).toHaveValue(`laptop:${connection}`);
   await dialog.getByLabel("Unique name").fill(name);
-  await dialog.getByLabel("Initial prompt", { exact: true }).fill(prompt);
+  await dialog.getByLabel("First message", { exact: true }).fill(prompt);
   if (/^(direct|acp)-/.test(name))
     await page.screenshot({
       path: `${evidence}/selection-${name}.png`,
       fullPage: true,
     });
   const create = dialog.getByRole("button", {
-    name: "Create & start",
+    name: "Start chatting",
     exact: true,
   });
   await expect(create).toBeEnabled();

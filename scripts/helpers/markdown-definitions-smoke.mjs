@@ -69,6 +69,10 @@ export async function markdownDefinitionsSmoke(
     .getByRole("region", { name: "Your agents", exact: true })
     .getByRole("button", { name: "New agent", exact: true })
     .click();
+  await page
+    .getByRole("dialog", { name: "New chat", exact: true })
+    .getByText("Customize", { exact: true })
+    .click();
   await dialog()
     .getByRole("button", { name: "From Markdown", exact: true })
     .click();
@@ -100,16 +104,16 @@ export async function markdownDefinitionsSmoke(
   ).toHaveValue("Review the code carefully.\nKeep findings concise.");
   await expect(dialog().getByRole("alert")).toContainText("unavailable-model");
   await expect(
-    dialog().getByRole("button", { name: "Create agent", exact: true }),
+    dialog().getByRole("button", { name: "Start chatting", exact: true }),
   ).toBeDisabled();
   await dialog()
     .getByLabel("Model", { exact: true })
     .selectOption({ index: 1 });
   await dialog()
-    .getByRole("button", { name: "Create agent", exact: true })
+    .getByRole("button", { name: "Start chatting", exact: true })
     .click();
   await expect(
-    page.getByRole("dialog", { name: "Meet your next agent", exact: true }),
+    page.getByRole("dialog", { name: "New chat", exact: true }),
   ).toHaveCount(0);
   const original = (await fixture.api("/bootstrap")).agents.find(
     (a) => a.name === "markdown-reviewer",
@@ -271,7 +275,11 @@ export async function markdownModelsSmoke(page, fixture) {
     await page.goto(fixture.base, { waitUntil: "networkidle" });
     await page.getByRole("region", { name: "Your agents", exact: true })
       .getByRole("button", { name: "New agent", exact: true }).click();
-    await dialog().getByRole("button", { name: "ChatGPT", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "New chat", exact: true })
+      .getByText("Customize", { exact: true })
+      .click();
+    await dialog().getByLabel("Provider", { exact: true }).selectOption("codex");
   };
   const openTeams = async () => {
     await page.waitForLoadState("networkidle");
@@ -302,12 +310,12 @@ export async function markdownModelsSmoke(page, fixture) {
     await expect(dialog().getByLabel("Model", { exact: true })).toHaveValue(selected);
     await expect(dialog().getByLabel("Effort", { exact: true })).toHaveValue("low");
     await expect(dialog().getByRole("alert")).toContainText("does not report low effort");
-    const create = dialog().getByRole("button", { name: "Create agent", exact: true });
+    const create = dialog().getByRole("button", { name: "Start chatting", exact: true });
     await expect(create).toBeDisabled();
     await dialog().getByLabel("Effort", { exact: true }).selectOption(effort);
     await expect(create).toBeEnabled();
     await create.click();
-    await expect(page.getByRole("dialog", { name: "Meet your next agent", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "New chat", exact: true })).toHaveCount(0);
     const created = (await fixture.api("/bootstrap")).agents.find((a) => a.name === name);
     assert.equal(created.model, selected);
     assert.equal(created.effort, effort || null);
@@ -450,7 +458,11 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
     await page.goto(`${fixture.base}/?source=${encodeURIComponent(source)}`, { waitUntil: "networkidle" });
     await page.getByRole("region", { name: "Your agents", exact: true })
       .getByRole("button", { name: "New agent", exact: true }).click();
-    await dialog().getByRole("button", { name: "ChatGPT", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "New chat", exact: true })
+      .getByText("Customize", { exact: true })
+      .click();
+    await dialog().getByLabel("Provider", { exact: true }).selectOption("codex");
     await dialog().getByLabel("Run on").selectOption(`${source}:${codex.id}`);
     await dialog().getByRole("button", { name: "From Markdown", exact: true }).click();
     await unavailable("agent");

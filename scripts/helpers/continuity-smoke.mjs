@@ -1,3 +1,4 @@
+import { openChatOptions } from "./browser-ui.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
@@ -348,8 +349,9 @@ export async function continuitySmoke(page, fixture, capture) {
     await nav("Feed").click();
     await page.getByRole("button", { name: "Compose a message" }).click();
     const composer = page.locator(".composer-dock");
-    await expect(composer.locator(".composer-destination")).toContainText("To @");
+    await expect(composer.getByLabel("Agent recipient")).toBeVisible();
     await page.locator("#composer").fill("Send the weekly summary");
+    await openChatOptions(page);
     await composer.getByRole("button", { name: "Send later", exact: true }).click();
     await expect(dialog()).toHaveAttribute("aria-label", "Send options");
     await expect(dialog().locator(".send-destination")).toContainText("New thread");
@@ -723,6 +725,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(page.locator(".composer-intent")).toContainText(
       "Send steers @",
     );
+    await openChatOptions(page);
     await page
       .locator(".conversation-composer")
       .getByRole("button", { name: "Send later", exact: true })
@@ -781,6 +784,7 @@ export async function continuitySmoke(page, fixture, capture) {
     assert.equal(resent[0].input, "Also check the mobile layout");
     // Undo on the queued confirmation puts the message back exactly once.
     await page.locator("#composer").fill("One more follow-up");
+    await openChatOptions(page);
     await page
       .locator(".conversation-composer")
       .getByRole("button", { name: "Send later", exact: true })

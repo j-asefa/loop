@@ -663,11 +663,15 @@ syncBuiltinESMExports();`,
           await page
             .getByRole("button", { name: "New agent", exact: true })
             .click();
+          await page
+            .getByRole("dialog", { name: "New chat", exact: true })
+            .getByText("Customize", { exact: true })
+            .click();
           const create = page.getByRole("dialog", {
-            name: "Meet your next agent",
+            name: "New chat",
           });
           await create
-            .getByText("Runtimes and execution environments", { exact: true })
+            .getByText("More connection options", { exact: true })
             .click();
           await create
             .getByRole("heading", { name: "Design preview", exact: true })
