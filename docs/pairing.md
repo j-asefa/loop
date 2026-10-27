@@ -40,21 +40,27 @@ Local `loop devices` listing and revocation remain available independently of
 authentication eligibility. Valid devices can still authenticate during database
 writer contention; optional session renewal defers on contention.
 
-Companion gateways expose a dedicated [fleet enrollment protocol](fleet-openapi.json)
-at fixed `/api/fleet/peer/v1/enrollment/` endpoints. It accepts machine proofs
+Companion gateways expose a dedicated [fleet protocol](fleet-openapi.json)
+at fixed `/api/fleet/peer/v1/` endpoints. Enrollment accepts machine proofs
 and the one-time enrollment capability, never a browser cookie, Cards token or
 local-administration credential. The destination binds consent to its own local
 owner. A signed receipt query resolves a lost response without repeating the
 effect; enrollment never creates a device cookie for a peer. Previews and
 server-profile applications do not expose this companion protocol.
 
+The `directory/` endpoints exchange signed history and acknowledgements under
+existing local grants. The `handoff/` endpoints accept an old controller's exact
+signed transition and serve proof-bound receipts. Neither protocol grants a
+browser device session or permits a peer to choose a local owner. The authority
+and recovery rules are described in [architecture](architecture.md#source-map).
+
 Peer clients contact bare public HTTPS origins through connection-time DNS
 validation. They verify the confirmed machine identity before transmitting the
 enrollment capability and refuse redirects. Requests and responses are bounded
-to 4 MiB; enrollment transport has a 15-second deadline and does not retry
-uncertain effects. The companion admits at most 16 incomplete enrollment
+to 4 MiB; peer transport has a 15-second deadline and does not retry
+uncertain effects. The companion admits at most 16 incomplete protocol
 requests at a time, separately from its browser routes. The interactive fleet
-administration and directory synchronization workflow is not yet exposed.
+administration workflow and automatic directory distribution are not yet exposed.
 
 HTTPS pairing links carry independent device and fleet-enrollment capabilities.
 The local pairing page retains and submits only the device capability, removes

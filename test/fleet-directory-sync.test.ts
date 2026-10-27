@@ -1,0 +1,414 @@
+import { afterAll, expect, it } from "vitest";
+import Database from "better-sqlite3";
+import { randomBytes, randomUUID } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { applyMigrations } from "../src/server/migrations.js";
+import { FleetAuthority } from "../src/server/fleet-authority.js";
+import {
+  FleetDirectorySync,
+  verifyFleetDirectoryAck,
+  verifyFleetHistoryResponse,
+} from "../src/server/fleet-directory-sync.js";
+import { FleetProof, verifyFleetProof } from "../src/server/fleet-proof.js";
+import {
+  directoryDigest,
+  fleetPayloadDigest,
+  generateMachineKey,
+  signDirectory,
+} from "../src/server/fleet-crypto.js";
+import type { SignedFleetDirectory } from "../src/shared/fleet.js";
+import type { SignedFleetDirectoryPush } from "../src/shared/fleet-directory-sync.js";
+import { secret } from "../src/state.js";
+
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-directory-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const secrets = await import("../src/server/secrets.js");
+const databases: Database.Database[] = [];
+const scope = ["read", "events"] as const;
+afterAll(() => {
+  for (const db of databases) if (db.open) db.close();
+  rmSync(root, { recursive: true, force: true });
+});
+function machine() {
+  const dir = join(root, randomUUID()),
+    owner = randomUUID();
+  mkdirSync(dir);
+  const db = new Database(join(dir, "workspace.db"));
+  databases.push(db);
+  applyMigrations(db);
+  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
+  const authority = new FleetAuthority(db, secrets);
+  const proof = new FleetProof(db, authority.identity, secrets);
+  const sync = new FleetDirectorySync(db, authority, owner, secrets);
+  return {
+    dir,
+    owner,
+    db,
+    authority,
+    proof,
+    sync,
+    origin: `https://${randomUUID()}.example`,
+  };
+}
+type Machine = ReturnType<typeof machine>;
+function revise(
+  a: Machine,
+  members: SignedFleetDirectory["document"]["members"],
+) {
+  return a.authority.revise(a.owner, {
+    mutationId: randomUUID(),
+    expected: a.authority.status(a.owner).head!,
+    members,
+  });
+}
+function enroll(a: Machine, b: Machine) {
+  const current = a.authority.directory(a.owner)!;
+  const grantId = randomUUID();
+  const signed = revise(a, [
+    ...current.document.members,
+    { ...b.authority.identity, grantId, name: "Same name", origin: b.origin },
+  ]);
+  b.authority.approve(b.owner, {
+    mutationId: randomUUID(),
+    expected: null,
+    kind: "enroll",
+    grantId,
+    scope: [...scope],
+    controller: a.authority.identity,
+    directory: signed,
+  });
+  return signed;
+}
+function fixture() {
+  const a = machine(),
+    b = machine(),
+    c = machine();
+  a.authority.create(a.owner, {
+    mutationId: randomUUID(),
+    name: "Same name",
+    origin: a.origin,
+    scope: [...scope],
+  });
+  const first = enroll(a, b),
+    second = enroll(a, c);
+  return { a, b, c, first, second };
+}
+function push(
+  sender: Machine,
+  destination: Machine,
+  anchor: SignedFleetDirectory,
+  entries: SignedFleetDirectory[],
+): SignedFleetDirectoryPush {
+  const push = {
+    version: 1 as const,
+    nonce: secret(),
+    sender: sender.authority.identity,
+    destination: destination.authority.identity,
+    anchor: directoryDigest(anchor.document),
+    entries,
+  };
+  return { push, signature: sender.proof.sign("directory-sync", push) };
+}
+function history(
+  sender: Machine,
+  destination: Machine,
+  cursor: string | null = null,
+) {
+  const query = {
+    version: 1 as const,
+    nonce: secret(),
+    sender: sender.authority.identity,
+    destination: destination.authority.identity,
+    cursor,
+  };
+  return { query, signature: sender.proof.sign("directory-query", query) };
+}
+
+it("accepts a new peer's signed admission relay and derives grants only within the local owner's consent", () => {
+  const { a, b, c, first, second } = fixture();
+  const request = push(c, b, first, [second]);
+  const response = b.sync.receive(request);
+  expect(verifyFleetDirectoryAck(request, first, response)).toEqual(response);
+  const replay = push(c, b, first, [second]);
+  expect(() => verifyFleetDirectoryAck(replay, first, response)).toThrow(
+    "outside",
+  );
+  expect(response.ack.requestDigest).toBe(fleetPayloadDigest(request.push));
+  expect(response.ack.accepted).toBe(directoryDigest(second.document));
+  expect(
+    verifyFleetProof(
+      b.authority.identity,
+      "directory-ack",
+      response.ack,
+      response.signature,
+    ),
+  ).toBe(true);
+  const local = second.document.members.find(
+    (m) => m.machineId === b.authority.identity.machineId,
+  )!;
+  const context = {
+    fleetId: second.document.fleetId,
+    grantId: local.grantId,
+    destination: b.authority.identity.machineId,
+    peer: c.authority.identity.machineId,
+    directory: directoryDigest(second.document),
+    operation: "read" as const,
+  };
+  expect(b.authority.authorize(context).owner).toBe(b.owner);
+  expect(b.owner).not.toBe(a.owner);
+  expect(() => b.authority.authorize({ ...context, operation: "act" })).toThrow(
+    "outside",
+  );
+  expect(b.sync.receive(request).ack).toEqual(response.ack);
+  const otherOwner = new FleetDirectorySync(
+    b.db,
+    b.authority,
+    a.owner,
+    secrets,
+  );
+  expect(() => otherOwner.receive(request)).toThrow("no fleet grant");
+});
+
+it("rejects an unenrolled directory sender before waiting for a concurrent database writer", () => {
+  const { b, first, second } = fixture(),
+    outsider = machine();
+  const request = push(outsider, b, first, [second]);
+  const writer = new Database(b.db.name);
+  b.db.pragma("busy_timeout=25");
+  writer.exec("BEGIN IMMEDIATE");
+  try {
+    expect(() => b.sync.receive(request)).toThrow("outside");
+  } finally {
+    writer.exec("ROLLBACK");
+    writer.close();
+    b.db.pragma("busy_timeout=5000");
+  }
+  expect(b.authority.status(b.owner).head).toBe(
+    directoryDigest(first.document),
+  );
+});
+
+it("serves nonce-bound signed history from a replica without controller contact or bearer credentials", () => {
+  const { b, c, first, second } = fixture();
+  b.sync.receive(push(c, b, first, [second]));
+  const request = history(c, b);
+  const response = b.sync.history(request);
+  expect(verifyFleetHistoryResponse(request, response)).toEqual(response);
+  expect(() => verifyFleetHistoryResponse(history(c, b), response)).toThrow(
+    "outside",
+  );
+  expect(response.page.queryDigest).toBe(fleetPayloadDigest(request.query));
+  expect(response.page.entries).toEqual([second, first]);
+  expect(response.page.next).toBe(first.document.parent);
+  expect(
+    verifyFleetProof(
+      b.authority.identity,
+      "directory-history",
+      response.page,
+      response.signature,
+    ),
+  ).toBe(true);
+  expect(JSON.stringify(response)).not.toContain(b.owner);
+  const changed = { ...request, query: { ...request.query, nonce: secret() } };
+  expect(() => b.sync.history(changed)).toThrow("outside");
+  const outsider = machine();
+  expect(() => b.sync.history(history(outsider, b))).toThrow("outside");
+});
+
+it("bounds history pages and preserves a cursor without treating a missing ancestor as a root", () => {
+  const { a, b } = fixture();
+  for (let i = 0; i < 35; i++)
+    revise(a, a.authority.directory(a.owner)!.document.members);
+  const page = a.sync.history(history(b, a));
+  expect(page.page.entries).toHaveLength(32);
+  expect(page.page.next).not.toBeNull();
+  const next = a.sync.history(history(b, a, page.page.next));
+  expect(directoryDigest(next.page.entries[0].document)).toBe(page.page.next);
+  expect(next.page.entries.at(-1)!.document.kind).toBe("genesis");
+  expect(next.page.next).toBeNull();
+  expect(() => a.sync.history(history(b, a, "f".repeat(64)))).toThrow(
+    "outside",
+  );
+});
+
+it("pages large signed rosters below the signing and transport body limits", () => {
+  const { a, b } = fixture();
+  const members = [...a.authority.directory(a.owner)!.document.members];
+  for (let i = members.length; i < 128; i++) {
+    members.push({
+      ...generateMachineKey().identity,
+      grantId: randomUUID(),
+      name: "Large roster",
+      origin: `https://peer-${i}.${("a".repeat(50) + ".").repeat(36)}example`,
+    });
+  }
+  for (let i = 0; i < 5; i++) revise(a, members);
+  const page = a.sync.history(history(b, a));
+  expect(page.page.entries.length).toBeLessThan(5);
+  expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(800_000);
+  expect(page.page.next).not.toBeNull();
+  const next = a.sync.history(history(b, a, page.page.next));
+  expect(directoryDigest(next.page.entries[0].document)).toBe(page.page.next);
+});
+
+it("rejects conflicting successors and verifies the entire batch before any grant changes", () => {
+  const { a, b, c, first, second } = fixture();
+  const third = revise(
+    a,
+    second.document.members.map((m) => ({ ...m, name: "New label" })),
+  );
+  const fourth = revise(a, third.document.members);
+  const damaged = { ...fourth, signature: second.signature };
+  expect(() =>
+    b.sync.receive(push(a, b, first, [second, third, damaged])),
+  ).toThrow("signature");
+  expect(b.authority.status(b.owner).head).toBe(
+    directoryDigest(first.document),
+  );
+  b.sync.receive(push(c, b, first, [second]));
+  const key = a.db
+    .prepare("SELECT private_key FROM fleet_machine_identity")
+    .get() as { private_key: string };
+  const document = { ...second.document, mutationId: randomUUID() };
+  const fork = {
+    document,
+    signature: signDirectory(
+      document,
+      secrets.unseal(
+        key.private_key,
+        `fleet:machine:${a.authority.identity.machineId}`,
+      ),
+    ),
+    acceptance: null,
+  };
+  expect(() => b.sync.receive(push(a, b, first, [fork]))).toThrow(
+    "lineage conflict",
+  );
+  expect(b.authority.status(b.owner).head).toBe(
+    directoryDigest(second.document),
+  );
+});
+
+it("limits removed senders to their removal proof and refuses their old directory pushes", () => {
+  const { a, b, c, first, second } = fixture();
+  b.sync.receive(push(c, b, first, [second]));
+  const removed = revise(
+    a,
+    second.document.members.filter(
+      (m) => m.machineId !== c.authority.identity.machineId,
+    ),
+  );
+  b.sync.receive(push(a, b, second, [removed]));
+  const response = b.sync.history(history(c, b));
+  expect(response.page.head).toBe(directoryDigest(removed.document));
+  expect(response.page.entries[0]).toEqual(removed);
+  expect(() => b.sync.receive(push(c, b, first, [second]))).toThrow("outside");
+  expect(b.sync.receive(push(a, b, second, [removed])).ack.head).toBe(
+    directoryDigest(removed.document),
+  );
+});
+
+it("acknowledges its own removal without accepting later updates or reviving an old grant", () => {
+  const { a, b, c, first, second } = fixture();
+  const removed = revise(
+    a,
+    second.document.members.filter(
+      (m) => m.machineId !== b.authority.identity.machineId,
+    ),
+  );
+  const later = revise(a, removed.document.members);
+  const request = push(a, b, first, [second, removed, later]);
+  const response = b.sync.receive(request);
+  expect(verifyFleetDirectoryAck(request, first, response)).toEqual(response);
+  expect(response.ack.state).toBe("removed");
+  expect(response.ack.requested).toBe(directoryDigest(later.document));
+  expect(response.ack.accepted).toBe(directoryDigest(removed.document));
+  expect(response.ack.head).toBe(directoryDigest(removed.document));
+  expect(
+    b.db
+      .prepare("SELECT count(*) n FROM fleet_peer_grants WHERE active=1")
+      .get(),
+  ).toEqual({ n: 0 });
+  expect(() => b.sync.history(history(c, b))).toThrow("outside");
+  b.sync.receive(push(a, b, first, [second]));
+  expect(b.authority.status(b.owner).state).toBe("removed");
+});
+
+it("refuses implicit enrollment and mismatched identities at the production replica boundary", () => {
+  const { a, b, first, second } = fixture();
+  const outsider = machine();
+  expect(() =>
+    outsider.sync.receive(push(a, outsider, first, [second])),
+  ).toThrow("completed local enrollment");
+  const request = push(a, b, first, [second]);
+  expect(() =>
+    b.sync.receive({
+      ...request,
+      push: { ...request.push, destination: outsider.authority.identity },
+    }),
+  ).toThrow("outside");
+  expect(() =>
+    b.sync.receive({
+      ...request,
+      push: {
+        ...request.push,
+        sender: {
+          ...a.authority.identity,
+          publicKey: outsider.authority.identity.publicKey,
+        },
+      },
+    }),
+  ).toThrow("outside");
+  expect(() =>
+    b.sync.receive({ ...request, owner: outsider.owner } as never),
+  ).toThrow();
+  expect(b.authority.status(b.owner).head).toBe(
+    directoryDigest(first.document),
+  );
+});
+
+it("keeps recovery as an explicit consent boundary rather than an ordinary relay successor", () => {
+  const { a, b, c, first, second } = fixture();
+  b.sync.receive(push(c, b, first, [second]));
+  const recovered = b.authority.recover(b.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(second.document),
+    name: "Recovered",
+    origin: b.origin,
+    scope: [...scope],
+  });
+  const d = machine();
+  const joined = enroll(b, d);
+  const query = history(d, b),
+    response = b.sync.history(query);
+  expect(response.page.entries).toEqual([joined, recovered]);
+  expect(response.page.next).toBeNull();
+  expect(recovered.document.parent).toBe(directoryDigest(second.document));
+  expect(verifyFleetHistoryResponse(query, response)).toEqual(response);
+  for (const prior of [first, second])
+    expect(() =>
+      b.sync.history(history(d, b, directoryDigest(prior.document))),
+    ).toThrow("outside");
+  expect(
+    b.sync.history(history(d, b, directoryDigest(recovered.document))).page
+      .entries,
+  ).toEqual([recovered]);
+  for (const excluded of [a, c])
+    expect(() => b.sync.receive(push(excluded, b, first, [second]))).toThrow(
+      "outside",
+    );
+  expect(b.authority.status(b.owner).head).toBe(
+    directoryDigest(joined.document),
+  );
+  expect(() =>
+    a.sync.receive(push(b, a, second, [recovered, joined])),
+  ).toThrow();
+  expect(a.authority.status(a.owner).state).toBe("controller");
+  expect(a.authority.status(a.owner).head).toBe(
+    directoryDigest(second.document),
+  );
+});

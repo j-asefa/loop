@@ -30,7 +30,7 @@ process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = root;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
-const { createFleetEnrollmentHttp } =
+const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
 const { FleetEnrollmentHttpTransport } =
   await import("../src/server/fleet-enrollment-http.js");
@@ -88,7 +88,7 @@ beforeAll(async () => {
       workspaceCalls++;
       res.writeHead(404).end();
     },
-    peerHttp: createFleetEnrollmentHttp(destination, () => host.origin),
+    peerHttp: createFleetPeerHttp(destination, () => host.origin),
     status: () => ({}),
     admin: async () => ({}),
     connect: () => () => {},

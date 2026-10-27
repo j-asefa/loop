@@ -8,6 +8,7 @@ import {
 } from "node:crypto";
 import {
   FleetDirectory,
+  FleetHandoffProposal,
   MachineIdentity,
   MachinePublicKey,
   SignedFleetDirectory,
@@ -128,6 +129,26 @@ function signatureValid(
     }),
     Buffer.from(signature, "base64url"),
   );
+}
+
+/** Authenticate the outgoing controller before opening the destination's
+ * private key. Full transition and acceptance validation still follows. */
+export function verifyHandoffProposalSignature(
+  input: FleetHandoffProposal,
+  previous: FleetDirectory,
+) {
+  const proposal = FleetHandoffProposal.parse(input);
+  if (
+    proposal.document.fleetId !== previous.fleetId ||
+    proposal.document.parent !== directoryDigest(previous) ||
+    !signatureValid(
+      proposal.document,
+      proposal.signature,
+      previous.controller.publicKey,
+      "directory",
+    )
+  )
+    throw new Problem(403, "Invalid fleet handoff signature.");
 }
 
 export function validateDirectory(input: unknown): SignedFleetDirectory {

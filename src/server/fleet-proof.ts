@@ -17,7 +17,11 @@ type Purpose =
   | "enrollment-query"
   | "enrollment-receipt"
   | "directory-sync"
-  | "directory-ack";
+  | "directory-ack"
+  | "directory-query"
+  | "directory-history"
+  | "handoff-query"
+  | "handoff-receipt";
 function bytes(purpose: Purpose, parsed: unknown) {
   return Buffer.from(`loop:fleet:${purpose}:v1\n${fleetPayloadDigest(parsed)}`);
 }

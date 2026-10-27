@@ -2,20 +2,31 @@ import express, { type ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
 import { FleetOrigin } from "../shared/fleet.js";
 import { fleetPeerApi } from "../shared/fleet-peer-api.js";
+import { fleetHandoffApi } from "../shared/fleet-handoff-api.js";
+import { fleetDirectoryApi } from "../shared/fleet-directory-api.js";
 import { Problem } from "../shared/problem.js";
 import { registrar } from "./registrar.js";
 import type { FleetEnrollmentDestination } from "./fleet-enrollment.js";
+import type { FleetHandoffDestination } from "./fleet-handoff.js";
+import type { FleetDirectorySync } from "./fleet-directory-sync.js";
 
-const paths = new Set(
-  Object.values(fleetPeerApi).map((route) => "/api" + route.path),
-);
-
-/** This application has only fixed enrollment handlers. It cannot fall through
+/** This application has only fixed fleet protocol handlers. It cannot fall through
  * to the workspace API, native providers, browser sessions or local admin. */
-export function createFleetEnrollmentHttp(
+export function createFleetPeerHttp(
   destination: FleetEnrollmentDestination,
   origin: () => string,
+  options: {
+    handoff?: FleetHandoffDestination;
+    directory?: FleetDirectorySync;
+  } = {},
 ) {
+  const paths = new Set(
+    [
+      ...Object.values(fleetPeerApi),
+      ...(options.handoff ? Object.values(fleetHandoffApi) : []),
+      ...(options.directory ? Object.values(fleetDirectoryApi) : []),
+    ].map((route) => "/api" + route.path),
+  );
   const app = express();
   app.disable("x-powered-by");
   app.set("query parser", "simple");
@@ -42,14 +53,16 @@ export function createFleetEnrollmentHttp(
       Object.keys(req.headers).some((header) => header.startsWith("sec-fetch-"))
     )
       return res.status(403).json({
-        error: "Use machine enrollment proofs without browser credentials.",
+        error: "Use machine protocol proofs without browser credentials.",
       });
     // Match the raw path before Express normalization or body parsing. No query,
     // encoded path, trailing slash or unrelated route reaches a protocol handler.
     if (!paths.has(req.url))
       return res.status(404).json({ error: "Unknown fleet endpoint." });
     if (req.method !== "POST")
-      return res.status(405).json({ error: "Use POST for fleet enrollment." });
+      return res
+        .status(405)
+        .json({ error: "Use POST for the fleet protocol." });
     if (req.headers["x-loop-fleet-version"] !== "1")
       return res
         .status(400)
@@ -58,12 +71,14 @@ export function createFleetEnrollmentHttp(
       req.headers["content-type"]?.split(";")[0].trim().toLowerCase() !==
       "application/json"
     )
-      return res.status(415).json({ error: "Use a JSON enrollment request." });
+      return res
+        .status(415)
+        .json({ error: "Use a JSON fleet protocol request." });
     if (pending >= 16) {
       res.setHeader("Retry-After", "1");
       return res
         .status(503)
-        .json({ error: "Fleet enrollment is busy. Try again later." });
+        .json({ error: "The fleet protocol is busy. Try again later." });
     }
     pending++;
     const timer = setTimeout(() => {
@@ -83,7 +98,7 @@ export function createFleetEnrollmentHttp(
     next();
   });
   app.use(express.json({ limit: "4mb", strict: true }));
-  const routes = registrar("fleet-enrollment", {
+  const routes = registrar("fleet-peer-protocol", {
     prefix: "/api",
     automaticOptions: false,
   });
@@ -99,6 +114,24 @@ export function createFleetEnrollmentHttp(
   routes.on(fleetPeerApi.enrollmentReceipt, ({ body }, res) =>
     res.json(destination.receipt(body)),
   );
+  if (options.handoff) {
+    const handoff = options.handoff;
+    routes.on(fleetHandoffApi.handoffCommit, ({ body }, res) =>
+      res.json(handoff.commit(body)),
+    );
+    routes.on(fleetHandoffApi.handoffReceipt, ({ body }, res) =>
+      res.json(handoff.receipt(body)),
+    );
+  }
+  if (options.directory) {
+    const directory = options.directory;
+    routes.on(fleetDirectoryApi.directoryHistory, ({ body }, res) =>
+      res.json(directory.history(body)),
+    );
+    routes.on(fleetDirectoryApi.directoryPush, ({ body }, res) =>
+      res.json(directory.receive(body)),
+    );
+  }
   app.use(routes.mount);
   const errors: ErrorRequestHandler = (error, _req, res, _next) => {
     if (res.headersSent) return res.end();
@@ -113,7 +146,7 @@ export function createFleetEnrollmentHttp(
     // Body-parser and Zod diagnostics can include capability-bearing input.
     return res
       .status(status)
-      .json({ error: "The fleet enrollment request is unavailable." });
+      .json({ error: "The fleet protocol request is unavailable." });
   };
   app.use(errors);
   return app;

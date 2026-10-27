@@ -37,7 +37,8 @@ Companion gateway startup maintains a durable Ed25519 machine identity in
 store and stays on that installation; changing a tunnel origin does not replace
 it. Missing or inconsistent signing material fails startup rather than creating
 a replacement identity. Server-profile and preview gateways do not initialize
-this identity. This foundation does not enroll peers or enable remote access.
+this identity. Initializing an identity alone does not enroll peers or enable
+remote access.
 
 The fleet authority layer stores signed directory history, local owner consent,
 peer scopes and controller handoff receipts in immediate transactions. Directory
@@ -48,13 +49,47 @@ reply never automatically restores the old writer. An explicit local recovery
 pins a new controller and grant while retaining the previously accepted history.
 It grants no recovered authority to members that have not separately consented.
 
+Controller handoff jobs persist the proposal and writer fence together before
+dispatch. Only one durable attempt sends the transition. An uncertain outcome
+survives replacement instances; a nonce-bound receipt query can recover the
+destination's committed acceptance without sending the proposal again. A missing
+receipt never reactivates the old writer. A confirmed changed origin can route
+that proof-bound read without rewriting directory addresses. Completion records
+the historical outcome without replacing a later explicit recovery decision.
+Destination acceptance and pending dissemination rows commit atomically.
+
+Directory synchronization serves authenticated pages of already signed history
+from any currently authorized replica. Pages contain at most 32 entries and
+768 KiB of entry data; a reported remote head does not establish global freshness.
+A removed caller can prove its former machine key to retrieve only the chain
+ending at its own recorded removal. Later revisions and unrelated cursors remain
+inaccessible. The removal index is populated with directory acceptance and
+backfilled from retained predecessor history during migration.
+Receivers verify a complete successor chain from local trust before updating
+grants in one transaction. Known revisions are read-only, forks and automatic
+recovery resets are refused, and a known tombstone cannot be overwritten by an
+older map. A removed destination stops at its own removal and acknowledges the
+exact accepted prefix. These routes require completed local enrollment; they
+cannot activate pending consent. Pending dissemination is recorded, but there is
+no automatic distribution worker or interactive fleet administration yet.
+
+The directory reconciliation primitive retrieves those pages from an enrolled
+replica without an access credential. It verifies the complete connecting chain
+before atomically accepting successors of the local head. A concurrent authority
+change, unknown recovery root, conflicting ancestor or invalid page leaves local
+grants unchanged. Reads have two concurrent slots, a 45-second overall deadline,
+and a 1,024-entry/16 MiB assembly limit; unavailable history remains unsynchronized.
+A shared refresh rotates among replicas within its deadline, so an unreachable
+controller does not permanently prevent another replica from supplying history.
+This primitive is not yet connected to an automatic distribution/renewal worker.
+
 Destination fleet command receipts retain their original identity across retries,
 gateway changes and restarts. They project responses through the owning public
 contract, bound cached response bodies, and retain compacted completion records.
 A process exiting after dispatch leaves an uncertain receipt; reading or retrying
 it never submits the effect again. Directory/grant checks precede dispatch, and
-the owning native handler still enforces decision generations. These foundations
-do not register peer or fleet-administration HTTP endpoints.
+the owning native handler still enforces decision generations. Peer agent-action
+and fleet-administration HTTP endpoints are not registered yet.
 
 Currently authorized peers share the destination owner's approved operation
 scope, including receipt reconciliation. Receipts retain the originating peer
@@ -97,7 +132,7 @@ cannot block a later removal. A replacement instance fences older in-flight
 callbacks, and the first commit dispatch rechecks membership and authority.
 Receipt reconciliation can use a repaired canonical origin for the same key
 while preserving the original operation, intent and signed query. Controller
-jobs have no browser or peer administration route yet. The dedicated enrollment
+jobs have no browser or peer administration route yet. The dedicated fleet
 HTTP protocol and its admission limits are described in [pairing](pairing.md).
 
 ## Saved rows

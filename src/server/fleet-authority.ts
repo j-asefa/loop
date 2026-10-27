@@ -20,6 +20,7 @@ import {
   signDirectory,
   verifyApprovedDirectory,
   verifyDirectorySuccessor,
+  verifyHandoffProposalSignature,
 } from "./fleet-crypto.js";
 import { initializeFleetIdentity } from "./fleet-identity.js";
 
@@ -220,6 +221,30 @@ export class FleetAuthority {
         JSON.stringify(signed),
         Date.now(),
       );
+    const previous = signed.document.parent
+      ? this.saved(owner, signed.document.parent)
+      : undefined;
+    if (previous && signed.document.kind === "revision") {
+      const record = this.db.prepare(
+        "INSERT OR IGNORE INTO fleet_removal_history VALUES(?,?,?,?,?,?)",
+      );
+      for (const peer of previous.document.members) {
+        if (
+          signed.document.tombstones.includes(peer.machineId) &&
+          !signed.document.members.some(
+            (member) => member.machineId === peer.machineId,
+          )
+        )
+          record.run(
+            owner,
+            peer.machineId,
+            peer.publicKey,
+            signed.document.fleetId,
+            digest,
+            signed.document.parent,
+          );
+      }
+    }
     return digest;
   }
 
@@ -626,9 +651,11 @@ export class FleetAuthority {
             403,
             "This machine is not the proposed controller.",
           );
+        const previous = this.saved(owner, binding.head)!.document;
+        verifyHandoffProposalSignature(proposal, previous);
         const signed = verifyDirectorySuccessor(
           { ...proposal, acceptance: this.sign(proposal.document, "handoff") },
-          this.saved(owner, binding.head)!.document,
+          previous,
         );
         this.install(
           owner,

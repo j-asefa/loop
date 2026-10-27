@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Loop companion fleet enrollment",
+    "title": "Loop companion fleet protocol",
     "version": "1",
     "description": "Dedicated machine-to-machine JSON protocol. Available on non-preview companions only. Each request/response is limited to 4 MiB; the transport does not follow redirects, accept private DNS destinations, forward cookies or automatically repeat uncertain effects. Read the protocol-specific proof requirements on each operation."
   },
@@ -36,7 +36,7 @@
         },
         "responses": {
           "200": {
-            "description": "Signed enrollment response; never a device cookie.",
+            "description": "Signed fleet protocol response; never a device cookie.",
             "content": {
               "application/json": {
                 "schema": {
@@ -168,7 +168,7 @@
         },
         "responses": {
           "200": {
-            "description": "Signed enrollment response; never a device cookie.",
+            "description": "Signed fleet protocol response; never a device cookie.",
             "content": {
               "application/json": {
                 "schema": {
@@ -300,7 +300,7 @@
         },
         "responses": {
           "200": {
-            "description": "Signed enrollment response; never a device cookie.",
+            "description": "Signed fleet protocol response; never a device cookie.",
             "content": {
               "application/json": {
                 "schema": {
@@ -432,11 +432,539 @@
         },
         "responses": {
           "200": {
-            "description": "Signed enrollment response; never a device cookie.",
+            "description": "Signed fleet protocol response; never a device cookie.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/enrollmentReceiptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/handoff/commit": {
+      "post": {
+        "operationId": "handoffCommit",
+        "description": "Requires the old controller's directory signature over the exact next-epoch handoff. The enrolled destination durably accepts with its own signature and queues dissemination. Repeated accepted proposals return the same signed transition without restoring an obsolete authority. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:handoff",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/handoffCommitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/handoffCommitResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/handoff/receipt": {
+      "post": {
+        "operationId": "handoffReceipt",
+        "description": "Requires the old controller's nonce-bound query signature and its locally known predecessor. A signed missing receipt is an observation, never permission to reactivate the old writer or replay the proposal. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:handoff",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/handoffReceiptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/handoffReceiptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/directory/history": {
+      "post": {
+        "operationId": "directoryHistory",
+        "description": "Requires a nonce-bound machine signature. Current members may retrieve signed history from an enrolled replica without an access credential or controller connection. Removed members may retrieve only the chain ending at their recorded removal after proving their former key; later revisions and unrelated cursors are refused. Unanchored pages do not create trust. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:directory",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/directoryHistoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/directoryHistoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/directory/push": {
+      "post": {
+        "operationId": "directoryPush",
+        "description": "Requires an enrolled sender's nonce-bound signature and a complete signed successor chain from a known local anchor. Updates only existing locally approved grants. Unknown enrollments, forks and automatic recovery resets are refused; a signed acknowledgement reports the exact accepted chain. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:directory",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/directoryPushRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/directoryPushResponse"
                 }
               }
             }
@@ -1807,6 +2335,1238 @@
         },
         "required": [
           "receipt",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "handoffCommitRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "fleetId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "epoch": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "mutationId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "parent": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "genesis",
+                  "revision",
+                  "handoff",
+                  "recovery"
+                ]
+              },
+              "controller": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "members": {
+                "minItems": 1,
+                "maxItems": 128,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "pattern": "^m_[a-f0-9]{64}$"
+                    },
+                    "publicKey": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{59}$"
+                    },
+                    "grantId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "origin": {
+                      "type": "string",
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "machineId",
+                    "publicKey",
+                    "grantId",
+                    "name",
+                    "origin"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "tombstones": {
+                "maxItems": 4096,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^m_[a-f0-9]{64}$"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "fleetId",
+              "epoch",
+              "revision",
+              "mutationId",
+              "parent",
+              "kind",
+              "controller",
+              "members",
+              "tombstones"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "document",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "handoffCommitResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "fleetId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "epoch": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "mutationId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "parent": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "genesis",
+                  "revision",
+                  "handoff",
+                  "recovery"
+                ]
+              },
+              "controller": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "members": {
+                "minItems": 1,
+                "maxItems": 128,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "pattern": "^m_[a-f0-9]{64}$"
+                    },
+                    "publicKey": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{59}$"
+                    },
+                    "grantId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "origin": {
+                      "type": "string",
+                      "maxLength": 2048
+                    }
+                  },
+                  "required": [
+                    "machineId",
+                    "publicKey",
+                    "grantId",
+                    "name",
+                    "origin"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "tombstones": {
+                "maxItems": 4096,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^m_[a-f0-9]{64}$"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "fleetId",
+              "epoch",
+              "revision",
+              "mutationId",
+              "parent",
+              "kind",
+              "controller",
+              "members",
+              "tombstones"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          },
+          "acceptance": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "document",
+          "signature",
+          "acceptance"
+        ],
+        "additionalProperties": false
+      },
+      "handoffReceiptRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+              },
+              "operationId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expected": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "controller": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "destination": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "version",
+              "nonce",
+              "operationId",
+              "expected",
+              "directory",
+              "controller",
+              "destination"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "query",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "handoffReceiptResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "queryDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "destination": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "complete"
+                ]
+              },
+              "directory": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "document": {
+                        "type": "object",
+                        "properties": {
+                          "version": {
+                            "type": "number",
+                            "const": 1
+                          },
+                          "fleetId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "epoch": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "mutationId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "parent": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "genesis",
+                              "revision",
+                              "handoff",
+                              "recovery"
+                            ]
+                          },
+                          "controller": {
+                            "type": "object",
+                            "properties": {
+                              "machineId": {
+                                "type": "string",
+                                "pattern": "^m_[a-f0-9]{64}$"
+                              },
+                              "publicKey": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_-]{59}$"
+                              }
+                            },
+                            "required": [
+                              "machineId",
+                              "publicKey"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "members": {
+                            "minItems": 1,
+                            "maxItems": 128,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "machineId": {
+                                  "type": "string",
+                                  "pattern": "^m_[a-f0-9]{64}$"
+                                },
+                                "publicKey": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9_-]{59}$"
+                                },
+                                "grantId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80
+                                },
+                                "origin": {
+                                  "type": "string",
+                                  "maxLength": 2048
+                                }
+                              },
+                              "required": [
+                                "machineId",
+                                "publicKey",
+                                "grantId",
+                                "name",
+                                "origin"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "tombstones": {
+                            "maxItems": 4096,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^m_[a-f0-9]{64}$"
+                            }
+                          }
+                        },
+                        "required": [
+                          "version",
+                          "fleetId",
+                          "epoch",
+                          "revision",
+                          "mutationId",
+                          "parent",
+                          "kind",
+                          "controller",
+                          "members",
+                          "tombstones"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "signature": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                      },
+                      "acceptance": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "document",
+                      "signature",
+                      "acceptance"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "queryDigest",
+              "destination",
+              "state",
+              "directory"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "receipt",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "directoryHistoryRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+              },
+              "sender": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "destination": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "cursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "nonce",
+              "sender",
+              "destination",
+              "cursor"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "query",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "directoryHistoryResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "queryDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "destination": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "head": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "entries": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "document": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "fleetId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "epoch": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "mutationId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "parent": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "genesis",
+                            "revision",
+                            "handoff",
+                            "recovery"
+                          ]
+                        },
+                        "controller": {
+                          "type": "object",
+                          "properties": {
+                            "machineId": {
+                              "type": "string",
+                              "pattern": "^m_[a-f0-9]{64}$"
+                            },
+                            "publicKey": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{59}$"
+                            }
+                          },
+                          "required": [
+                            "machineId",
+                            "publicKey"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "members": {
+                          "minItems": 1,
+                          "maxItems": 128,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "machineId": {
+                                "type": "string",
+                                "pattern": "^m_[a-f0-9]{64}$"
+                              },
+                              "publicKey": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_-]{59}$"
+                              },
+                              "grantId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "name": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "origin": {
+                                "type": "string",
+                                "maxLength": 2048
+                              }
+                            },
+                            "required": [
+                              "machineId",
+                              "publicKey",
+                              "grantId",
+                              "name",
+                              "origin"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "tombstones": {
+                          "maxItems": 4096,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^m_[a-f0-9]{64}$"
+                          }
+                        }
+                      },
+                      "required": [
+                        "version",
+                        "fleetId",
+                        "epoch",
+                        "revision",
+                        "mutationId",
+                        "parent",
+                        "kind",
+                        "controller",
+                        "members",
+                        "tombstones"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "signature": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                    },
+                    "acceptance": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "document",
+                    "signature",
+                    "acceptance"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "next": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "queryDigest",
+              "destination",
+              "head",
+              "entries",
+              "next"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "page",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "directoryPushRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "push": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+              },
+              "sender": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "destination": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "anchor": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "entries": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "document": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "fleetId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "epoch": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "mutationId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "parent": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "genesis",
+                            "revision",
+                            "handoff",
+                            "recovery"
+                          ]
+                        },
+                        "controller": {
+                          "type": "object",
+                          "properties": {
+                            "machineId": {
+                              "type": "string",
+                              "pattern": "^m_[a-f0-9]{64}$"
+                            },
+                            "publicKey": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{59}$"
+                            }
+                          },
+                          "required": [
+                            "machineId",
+                            "publicKey"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "members": {
+                          "minItems": 1,
+                          "maxItems": 128,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "machineId": {
+                                "type": "string",
+                                "pattern": "^m_[a-f0-9]{64}$"
+                              },
+                              "publicKey": {
+                                "type": "string",
+                                "pattern": "^[A-Za-z0-9_-]{59}$"
+                              },
+                              "grantId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "name": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "origin": {
+                                "type": "string",
+                                "maxLength": 2048
+                              }
+                            },
+                            "required": [
+                              "machineId",
+                              "publicKey",
+                              "grantId",
+                              "name",
+                              "origin"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "tombstones": {
+                          "maxItems": 4096,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^m_[a-f0-9]{64}$"
+                          }
+                        }
+                      },
+                      "required": [
+                        "version",
+                        "fleetId",
+                        "epoch",
+                        "revision",
+                        "mutationId",
+                        "parent",
+                        "kind",
+                        "controller",
+                        "members",
+                        "tombstones"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "signature": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                    },
+                    "acceptance": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "document",
+                    "signature",
+                    "acceptance"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "version",
+              "nonce",
+              "sender",
+              "destination",
+              "anchor",
+              "entries"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "push",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "directoryPushResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ack": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "destination": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "requested": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "accepted": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "head": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "controller",
+                  "replica",
+                  "handoff_pending",
+                  "removed"
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "requestDigest",
+              "destination",
+              "requested",
+              "accepted",
+              "head",
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "ack",
           "signature"
         ],
         "additionalProperties": false

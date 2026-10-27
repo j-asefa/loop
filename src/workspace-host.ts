@@ -26,7 +26,9 @@ import { authenticateCardToken } from "./server/card-tokens.js";
 import { FleetAuthority } from "./server/fleet-authority.js";
 import { FleetPairing } from "./server/fleet-pairing.js";
 import { FleetEnrollmentDestination } from "./server/fleet-enrollment.js";
-import { createFleetEnrollmentHttp } from "./server/fleet-peer-http.js";
+import { FleetHandoffDestination } from "./server/fleet-handoff.js";
+import { FleetDirectorySync } from "./server/fleet-directory-sync.js";
+import { createFleetPeerHttp } from "./server/fleet-peer-http.js";
 import { seal, unseal } from "./server/secrets.js";
 
 // Identifies the browser assets this launch serves. A reconnecting page
@@ -99,7 +101,16 @@ export class WorkspaceHost {
       isolated: !!preview,
       http: app,
       peerHttp: this.enrollment
-        ? createFleetEnrollmentHttp(this.enrollment, () => this.gateway.origin)
+        ? createFleetPeerHttp(this.enrollment, () => this.gateway.origin, {
+            directory: new FleetDirectorySync(db, this.fleet!, OWNER, {
+              seal,
+              unseal,
+            }),
+            handoff: new FleetHandoffDestination(db, this.fleet!, OWNER, {
+              seal,
+              unseal,
+            }),
+          })
         : undefined,
       authorizeCards: authenticateCardToken,
       status: () => ({

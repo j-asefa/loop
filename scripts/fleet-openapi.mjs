@@ -1,6 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.ts";
+import { fleetHandoffApi } from "../src/shared/fleet-handoff-api.ts";
+import { fleetDirectoryApi } from "../src/shared/fleet-directory-api.ts";
 
 // A separate document describes this machine protocol: its body proofs and
 // rejected browser credentials are different from workspace session security.
@@ -18,8 +20,20 @@ const proof = {
     "Requires the original controller's signature and the bound canonical successor directory. Activates only the pending destination consent. Exact completed retries return the durable receipt.",
   enrollmentReceipt:
     "Requires the original controller's signature over the operation and intent digest. Returns a signed receipt without replaying enrollment.",
+  handoffCommit:
+    "Requires the old controller's directory signature over the exact next-epoch handoff. The enrolled destination durably accepts with its own signature and queues dissemination. Repeated accepted proposals return the same signed transition without restoring an obsolete authority.",
+  handoffReceipt:
+    "Requires the old controller's nonce-bound query signature and its locally known predecessor. A signed missing receipt is an observation, never permission to reactivate the old writer or replay the proposal.",
+  directoryHistory:
+    "Requires a nonce-bound machine signature. Current members may retrieve signed history from an enrolled replica without an access credential or controller connection. Removed members may retrieve only the chain ending at their recorded removal after proving their former key; later revisions and unrelated cursors are refused. Unanchored pages do not create trust.",
+  directoryPush:
+    "Requires an enrolled sender's nonce-bound signature and a complete signed successor chain from a known local anchor. Updates only existing locally approved grants. Unknown enrollments, forks and automatic recovery resets are refused; a signed acknowledgement reports the exact accepted chain.",
 };
-for (const [name, route] of Object.entries(fleetPeerApi)) {
+for (const [name, route] of Object.entries({
+  ...fleetPeerApi,
+  ...fleetHandoffApi,
+  ...fleetDirectoryApi,
+})) {
   schemas[name + "Request"] = z.toJSONSchema(route.body, {
     ...options,
     io: "input",
@@ -67,7 +81,7 @@ for (const [name, route] of Object.entries(fleetPeerApi)) {
       },
       responses: {
         200: {
-          description: "Signed enrollment response; never a device cookie.",
+          description: "Signed fleet protocol response; never a device cookie.",
           content: {
             "application/json": {
               schema: { $ref: "#/components/schemas/" + name + "Response" },
@@ -87,7 +101,7 @@ for (const [name, route] of Object.entries(fleetPeerApi)) {
 const document = {
   openapi: "3.1.0",
   info: {
-    title: "Loop companion fleet enrollment",
+    title: "Loop companion fleet protocol",
     version: "1",
     description:
       "Dedicated machine-to-machine JSON protocol. Available on non-preview companions only. Each request/response is limited to 4 MiB; the transport does not follow redirects, accept private DNS destinations, forward cookies or automatically repeat uncertain effects. Read the protocol-specific proof requirements on each operation.",
