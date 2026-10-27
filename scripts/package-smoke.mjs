@@ -401,7 +401,12 @@ async function upgradeBehindConnection() {
     "--billing",
     "existing",
   );
-  const code = started.stdout.match(/#pair=([\w-]+)/)[1];
+  const { fleetDeviceFromLink } =
+    await import("../dist/shared/fleet-pairing.js");
+  const pairUrl = started.stdout.match(
+    /https:\/\/[^\s]+\/#(?:pair|fleet)=[\w-]+/,
+  )[0];
+  const code = fleetDeviceFromLink(pairUrl, new URL(pairUrl).origin).secret;
   const status = async () =>
     JSON.parse((await loop("status", "--json")).stdout);
   const before = await status();

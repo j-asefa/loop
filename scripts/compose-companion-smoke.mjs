@@ -108,9 +108,10 @@ try {
     ["exec", "-T", "loop-companion", "node", "--input-type=module"],
     `
     import { control } from "/app/dist/host-control.js";
+    import { fleetDeviceFromLink } from "/app/dist/shared/fleet-pairing.js";
     const dir = process.env.LOOP_HOME + "/workspace";
     const first = await control(dir, "pair");
-    console.log(new URLSearchParams(new URL(first.url).hash.slice(1)).get("pair"));
+    console.log(fleetDeviceFromLink(first.url, new URL(first.url).origin).secret);
     `,
   ).trim();
   inConnection(`

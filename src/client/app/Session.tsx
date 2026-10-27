@@ -8,6 +8,13 @@ import { Auth } from "../Auth";
 
 import type { AppModel } from "./AppController";
 
+function discardPairingFragment() {
+  const url = new URL(location.href);
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  if (fragment.has("pair") || fragment.has("fleet"))
+    history.replaceState(null, "", url.pathname + url.search);
+}
+
 export function createSessionCheck(props: {
   setSession(value: unknown): void;
 }) {
@@ -22,6 +29,11 @@ export function createSessionCheck(props: {
         signal,
       );
       if (signal.aborted) return;
+      if (result?.user) {
+        // An already paired browser bypasses the pairing page. Discard a
+        // newly opened capability without storing or redeeming either half.
+        discardPairingFragment();
+      }
       setSession(
         result ? { ...result, mode: result.mode || "multi-user" } : null,
       );
@@ -45,6 +57,7 @@ export function createSessionCheck(props: {
 export function useSessionLifecycle(
   props: Pick<
     AppModel,
+    | "session"
     | "check"
     | "setError"
     | "personalWorkspace"
@@ -105,6 +118,15 @@ export function useSessionLifecycle(
     composerFocusRequest,
     setBootstrapOwner,
   } = props;
+  useEffect(() => {
+    if (!props.session?.user) return;
+    // Opening another fragment at this origin can be a same-document
+    // navigation; it does not mount Pairing or fetch the session again.
+    discardPairingFragment();
+    window.addEventListener("hashchange", discardPairingFragment);
+    return () =>
+      window.removeEventListener("hashchange", discardPairingFragment);
+  }, [props.session?.user]);
   useEffect(() => {
     const controller = new AbortController();
     void check(controller.signal).catch((e) => {

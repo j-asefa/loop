@@ -14,7 +14,7 @@ import { identity, processIdentityState } from "./lifecycle.js";
 import { atomic } from "./state.js";
 
 export const LOG_MAX_BYTES = 5 * 1024 * 1024;
-const PAIRING_SECRET = /#pair=[\w-]+/g;
+const PAIRING_SECRET = /#(pair|fleet)=[\w-]+/g;
 
 /**
  * Routes this process's stdout and stderr into a log capped at maxBytes, with
@@ -104,7 +104,7 @@ export async function retireLog(path: string) {
   }
   await writeFile(
     path + ".1",
-    previous.replace(PAIRING_SECRET, "#pair=<redacted>"),
+    previous.replace(PAIRING_SECRET, "#$1=<redacted>"),
     { mode: 0o600 },
   );
   await chmod(path + ".1", 0o600);

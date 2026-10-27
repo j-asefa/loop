@@ -104,7 +104,12 @@ try {
   assert.match(before.url, /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/);
 
   // Pair through the relay as cloudflared delivers requests.
-  const code = (await loop("pair")).stdout.match(/#pair=([\w-]+)/)[1];
+  const { fleetDeviceFromLink } =
+    await import("../dist/shared/fleet-pairing.js");
+  const pairUrl = (await loop("pair")).stdout.match(
+    /https:\/\/[^\s]+\/#(?:pair|fleet)=[\w-]+/,
+  )[0];
+  const code = fleetDeviceFromLink(pairUrl, new URL(pairUrl).origin).secret;
   const relay = new URL(service.relay);
   let cookie = "";
   const send = (method, path, body) =>

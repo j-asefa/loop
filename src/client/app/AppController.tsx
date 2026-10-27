@@ -1151,6 +1151,7 @@ export function useAppController() {
     openAgentChat,
   });
   useSessionLifecycle({
+    session,
     check,
     setError,
     personalWorkspace,

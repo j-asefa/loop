@@ -18,6 +18,38 @@ loop stop
 
 Device trust survives restart and address changes. It renews on use for up to one year of inactivity, subject to a fixed two-year maximum lifetime. Older records without a maximum retain their existing expiry as that maximum. Revocation persists. Expired or revoked devices must pair again. The implementation is [src/host.ts](../src/host.ts).
 
+Companion workspaces store device trust in their workspace database through
+[FleetPairing](../src/server/fleet-pairing.ts). On first
+startup, they import the existing `devices.json` once and replace it with a
+migration marker before opening the gateway. Restore the complete workspace
+directory, including the database, `devices.json` and `device-expiry-checks/`,
+together. Older binaries refuse this marker instead of using a stale
+device list that could undo a revocation. Isolated previews keep separate device
+state.
+
+The gateway checks device expiry on access, at startup and on its heartbeat.
+Before reading the clock, it writes a durable check containing only the owner
+and device IDs. A successful check removes that record after any expired device
+has been deleted from the database. If storage fails or the process exits during
+the check, recovery retires the named devices before opening the gateway, even
+if the clock has moved backwards. This can require a device to pair again after
+an interrupted check; completed checks preserve ordinary restart sessions.
+Unreadable checks, a clock rollback or failure to record a new check refuse
+device access until the clock/storage issue is repaired and Loop restarts.
+Local `loop devices` listing and revocation remain available independently of
+authentication eligibility. Valid devices can still authenticate during database
+writer contention; optional session renewal defers on contention.
+
+HTTPS pairing links carry independent device and fleet-enrollment capabilities.
+The local pairing page retains and submits only the device capability, removes
+the fragment from browser history, and consumes both capabilities in the same
+transaction that creates the device record. A failed validation or full device
+list does not consume the code. Local HTTP links retain the legacy device-only
+format. Unused codes expire using both local wall and monotonic time and become
+invalid on application restart; run `loop pair` for a fresh code. Completed
+enrollment receipts and existing device trust survive restart. Enrollment
+transport is not yet exposed by this pairing foundation.
+
 Existing Expo app installations must migrate to the browser: run `loop pair`, open the new link in your phone’s browser, and add Loop to the home screen again. The native app’s session hand-off is no longer supported.
 
 ## Tunnels and reconnect

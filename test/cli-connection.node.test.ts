@@ -20,6 +20,7 @@ import { identity, pidNamespace } from "../src/lifecycle.js";
 import { ensureRunDir } from "../src/connection.js";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
+import { fleetDeviceFromLink } from "../src/shared/fleet-pairing.js";
 
 const exec = promisify(execFile);
 const FAKE = resolve("test/fixtures/fake-cloudflared.mjs");
@@ -147,7 +148,10 @@ function browser(relay: string, origin: string) {
     },
   };
 }
-const pairCode = (stdout: string) => stdout.match(/#pair=([\w-]+)/)![1];
+const pairCode = (stdout: string) => {
+  const link = stdout.match(/https?:\/\/[^\s]+\/#(?:pair|fleet)=[\w-]+/)![0];
+  return fleetDeviceFromLink(link, new URL(link).origin).secret;
+};
 
 test("restart replaces only the application: same service, cloudflared, address, device and settings", async () => {
   const w = await workspace();
@@ -180,7 +184,7 @@ test("restart replaces only the application: same service, cloudflared, address,
     assert.match(restarted.stdout, /Same address: https:\/\/loop-fixture-/);
     assert.doesNotMatch(
       restarted.stdout,
-      /#pair=/,
+      /#(?:pair|fleet)=/,
       "no new pairing after an application restart",
     );
     const after = await w.status();
@@ -453,7 +457,7 @@ test("loop start restores a crashed connection service behind the running applic
     assert.equal(after.url, service.url, "the application adopted it");
     assert.match(stdout, /public address changed/);
     assert(
-      stdout.includes(after.url + "/#pair="),
+      stdout.includes(after.url + "/#fleet="),
       "the code is for the new address",
     );
     await until(() => !alive(tunnel.pid));
@@ -499,7 +503,7 @@ test("loop pair refuses a code once the connection service is gone", async () =>
     assert.match(attempt.stderr, /connection service is not running/);
     assert.match(attempt.stderr, /loop start/, "the error says how to recover");
     assert(
-      !/#pair=/.test(attempt.stdout + attempt.stderr),
+      !/#(?:pair|fleet)=/.test(attempt.stdout + attempt.stderr),
       "no code was issued",
     );
     const after = await w.status();
@@ -513,7 +517,7 @@ test("loop pair refuses a code once the connection service is gone", async () =>
     const serving = await w.status();
     assert.equal(serving.connection.registered, true);
     assert(
-      paired.stdout.includes(serving.url + "/#pair="),
+      paired.stdout.includes(serving.url + "/#fleet="),
       "the code is for the live address",
     );
   } finally {

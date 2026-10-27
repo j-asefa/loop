@@ -7,6 +7,7 @@ const fetcher = vi.fn<typeof fetch>();
 const setSession = vi.fn();
 const reload = vi.fn();
 const assign = vi.fn();
+const replaceState = vi.fn();
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
@@ -15,11 +16,43 @@ beforeEach(() => {
   setViewOwner("session-fixture");
   vi.stubGlobal("fetch", fetcher);
   vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+  vi.stubGlobal("history", { replaceState });
   vi.stubGlobal("location", {
     href: "https://loop.test/?source=docker:one",
     reload,
     assign,
   });
+});
+
+it.each(["pair", "fleet"])(
+  "discards a %s link when an existing device session bypasses pairing",
+  async (kind) => {
+    vi.stubGlobal("location", {
+      href: `https://loop.test/?page=feed#${kind}=one-time-capability`,
+    });
+    fetcher.mockResolvedValueOnce(
+      Response.json({ user: { id: "owner", name: "Owner" } }),
+    );
+    await createSessionCheck({ setSession })();
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/?page=feed");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][1]?.method).toBe("GET");
+  },
+);
+
+it("preserves anonymous pairing and unrelated shared fragments for their owning flow", async () => {
+  vi.stubGlobal("location", { href: "https://loop.test/#fleet=capability" });
+  fetcher.mockResolvedValueOnce(Response.json(null));
+  await createSessionCheck({ setSession })();
+  expect(replaceState).not.toHaveBeenCalled();
+  vi.stubGlobal("location", {
+    href: "https://loop.test/#share=shared-content",
+  });
+  fetcher.mockResolvedValueOnce(
+    Response.json({ user: { id: "owner", name: "Owner" } }),
+  );
+  await createSessionCheck({ setSession })();
+  expect(replaceState).not.toHaveBeenCalled();
 });
 afterEach(() => {
   setShellSource("");

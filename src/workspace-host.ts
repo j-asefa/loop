@@ -24,6 +24,7 @@ import { observeProcess } from "./server/deployments.js";
 import { observedBuild } from "./server/build-runtime.js";
 import { authenticateCardToken } from "./server/card-tokens.js";
 import { FleetAuthority } from "./server/fleet-authority.js";
+import { FleetPairing } from "./server/fleet-pairing.js";
 import { seal, unseal } from "./server/secrets.js";
 
 // Identifies the browser assets this launch serves. A reconnecting page
@@ -41,6 +42,7 @@ const BUILD = (() => {
 export class WorkspaceHost {
   gateway: Host;
   readonly fleet?: FleetAuthority;
+  readonly pairing?: FleetPairing;
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
@@ -62,19 +64,24 @@ export class WorkspaceHost {
     // Identity survives URL changes and application restarts. This does not
     // create fleet membership, grant peer access, or expose a peer endpoint.
     if (!preview) this.fleet = new FleetAuthority(db, { seal, unseal });
-    this.gateway = new Host(dir, {
-      harness: options.harness,
-      project: options.project,
-      version: options.version,
-      billing: { mode: options.billing, description: "Workspace host" },
-      capabilities: {
-        approvals: true,
-        questions: true,
-        resume: true,
-        liveAttach: false,
-        terminal: false,
+    if (this.fleet) this.pairing = new FleetPairing(db, this.fleet, OWNER, dir);
+    this.gateway = new Host(
+      dir,
+      {
+        harness: options.harness,
+        project: options.project,
+        version: options.version,
+        billing: { mode: options.billing, description: "Workspace host" },
+        capabilities: {
+          approvals: true,
+          questions: true,
+          resume: true,
+          liveAttach: false,
+          terminal: false,
+        },
       },
-    });
+      this.pairing,
+    );
     this.gateway.workspace = {
       isolated: !!preview,
       http: app,

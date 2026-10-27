@@ -31,15 +31,9 @@ import {
   type CardAuthorization,
 } from "./shared/card-access.js";
 import { Problem } from "./shared/problem.js";
+import type { DeviceTrust, TrustedDevice } from "./device-trust.js";
 
-type Device = {
-  id: string;
-  name: string;
-  hash: string;
-  csrf: string;
-  expires: number;
-  maxExpires: number;
-};
+type Device = TrustedDevice;
 const cleanDevice = ({ id, name, expires }: Device) => ({ id, name, expires });
 const equal = (a: string, b: string) =>
   a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -60,6 +54,7 @@ const Pair = z
     secret: z.string().min(40).max(60),
     name: z.string().trim().max(80).default("Phone"),
     credential: z.literal("cookie").default("cookie"),
+    ceremonyId: z.string().uuid().optional(),
   })
   .strict();
 
@@ -107,8 +102,10 @@ export class Host {
   constructor(
     private dir: string,
     initial: ConstructorParameters<typeof State>[1],
+    private readonly trust?: DeviceTrust,
   ) {
     this.state = new State(dir, initial);
+    if (trust) return;
     try {
       const devices = z
         .array(
@@ -166,8 +163,8 @@ export class Host {
       void this.adapter?.cancel().catch(() => {});
     }
     for (const [socket, id] of this.clients) {
-      if (!this.devices.has(id) || this.devices.get(id)!.expires <= Date.now())
-        socket.close(4003, "Device revoked");
+      const device = this.device(id);
+      if (!device) socket.close(4003, "Device revoked");
       else this.send(socket, frame);
     }
     if (!this.flush)
@@ -309,6 +306,11 @@ export class Host {
       pid: process.pid,
     });
     this.heartbeat = setInterval(() => {
+      this.trust?.expire();
+      for (const [socket, id] of this.clients) {
+        const device = this.device(id);
+        if (!device) socket.close(4003, "Device revoked");
+      }
       for (const d of this.devices.values())
         if (d.expires <= Date.now()) this.revoke(d.id);
     }, 30000);
@@ -329,10 +331,12 @@ export class Host {
     // Device trust belongs to this workspace. Changing transport invalidates
     // unused pairing links and old sockets, but never grants trust to a new device.
     this.pairs.clear();
+    this.trust?.originChanged(this.origin);
     for (const socket of this.clients.keys())
       socket.close(1012, "Gateway address changed");
   }
   pair() {
+    if (this.trust) return this.trust.pair(this.origin);
     const token = secret();
     this.pairs.clear();
     this.pairs.set(hash(token), Date.now() + 120000);
@@ -343,7 +347,7 @@ export class Host {
       return {
         ...(this.workspace.status() as object),
         url: this.origin,
-        devices: [...this.devices.values()].map(cleanDevice),
+        devices: this.deviceList().map(cleanDevice),
         pid: process.pid,
       };
     const s = this.state.snapshot;
@@ -356,15 +360,26 @@ export class Host {
       state: s.status,
       billing: s.billing,
       url: this.origin,
-      devices: [...this.devices.values()].map(cleanDevice),
+      devices: this.deviceList().map(cleanDevice),
       pid: process.pid,
     };
   }
   private revoke(id: string) {
-    this.devices.delete(id);
+    if (this.trust) this.trust.revoke(id);
+    else this.devices.delete(id);
     for (const [s, d] of this.clients)
       if (d === id) s.close(4003, "Device revoked");
-    this.saveDevices();
+    if (!this.trust) this.saveDevices();
+  }
+  private deviceList() {
+    return this.trust ? this.trust.devices() : [...this.devices.values()];
+  }
+  private device(id: string) {
+    // The delegated store owns both expiry observation and durable retirement.
+    // A second clock read here or in callers could escape its recovery guard.
+    if (this.trust) return this.trust.device(id);
+    const device = this.devices.get(id);
+    return device && device.expires > Date.now() ? device : undefined;
   }
   private saveDevices() {
     atomic(join(this.dir, "devices.json"), [...this.devices.values()]);
@@ -396,6 +411,7 @@ export class Host {
       .find((x) => x.startsWith(this.cookieName + "="))
       ?.slice(this.cookieName.length + 1);
     if (!token || token.length > 100) return;
+    if (this.trust) return this.trust.authenticate(hash(token));
     const device = [...this.devices.values()].find(
       (d) => equal(d.hash, hash(token)) && d.expires > Date.now(),
     );
@@ -478,6 +494,24 @@ export class Host {
         const input = Pair.parse(await body(req));
         if (!this.validOrigin(req))
           return this.json(res, 403, { error: "Origin rejected." });
+        if (this.trust) {
+          try {
+            const { token, expires } = this.trust.redeem(
+              {
+                secret: input.secret,
+                name: input.name,
+                ceremonyId: input.ceremonyId,
+              },
+              this.origin,
+            );
+            res.setHeader("Set-Cookie", this.cookie(token, expires));
+            return this.json(res, 200, { paired: true });
+          } catch (error) {
+            if (error instanceof Problem)
+              return this.json(res, error.status, { error: error.message });
+            throw error;
+          }
+        }
         const digest = hash(input.secret);
         const expiry = this.pairs.get(digest);
         if (!expiry || expiry <= Date.now())
@@ -614,11 +648,7 @@ export class Host {
           return;
         }
         if (path === "/api/workspace/devices" && req.method === "GET")
-          return this.json(
-            res,
-            200,
-            [...this.devices.values()].map(cleanDevice),
-          );
+          return this.json(res, 200, this.deviceList().map(cleanDevice));
         if (path === "/api/workspace/revoke" && req.method === "POST") {
           const input = await body(req);
           this.revoke(String(input.id));
@@ -686,12 +716,8 @@ export class Host {
         .strict()
         .parse(JSON.parse(raw));
       c = envelope.command;
-      const device = this.devices.get(deviceId);
-      if (
-        !device ||
-        device.expires <= Date.now() ||
-        !equal(device.csrf, envelope.csrf)
-      )
+      const device = this.device(deviceId);
+      if (!device || !equal(device.csrf, envelope.csrf))
         throw new Error("Device authorization expired.");
       if (c.session !== this.state.snapshot.session)
         throw new Error("Wrong session.");
@@ -798,13 +824,11 @@ export class Host {
         case "/pair":
           return this.json(res, 200, this.pair());
         case "/devices":
-          return this.json(
-            res,
-            200,
-            [...this.devices.values()].map(cleanDevice),
-          );
+          return this.json(res, 200, this.deviceList().map(cleanDevice));
         case "/revoke":
-          if (typeof input.id !== "string" || !this.devices.has(input.id))
+          // Revocation is idempotent and must remain possible even when an
+          // expiry/clock failure prevents this device from authenticating.
+          if (typeof input.id !== "string" || !input.id)
             throw new Error("Unknown device");
           this.revoke(input.id);
           return this.json(res, 200, { revoked: true });

@@ -74,8 +74,9 @@ An issuer clock rollback also fails closed. A fresh client nonce binds each proo
 to its response. Client acceptance subtracts round-trip latency and returns local
 monotonic expiry and renewal deadlines, with renewal due two minutes before
 expiry. Versioned pairing link parsers project the device and enrollment
-capabilities separately. These
-primitives do not yet register enrollment/renewal routes or redeem pairing links.
+capabilities separately. The companion gateway's transactional device pairing is
+described in [pairing](pairing.md). Peer enrollment and renewal routes are not yet
+exposed.
 
 ## Saved rows
 

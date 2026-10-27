@@ -208,7 +208,7 @@ test("a relaunch retires the old log with pairing secrets redacted", async () =>
   try {
     await writeFile(
       log,
-      "Loop workspace ready.\nhttp://127.0.0.1:1/#pair=AbC_d-123456789012345678901234567890123\n",
+      "Loop workspace ready.\nhttp://127.0.0.1:1/#pair=AbC_d-123456789012345678901234567890123\nhttps://destination.example/#fleet=EncodedCombinedCapabilities\n",
       { mode: 0o644 },
     );
     await retireLog(log);
@@ -216,6 +216,8 @@ test("a relaunch retires the old log with pairing secrets redacted", async () =>
     assert.match(retired, /Loop workspace ready/);
     assert.match(retired, /#pair=<redacted>/);
     assert.doesNotMatch(retired, /AbC_d/);
+    assert.match(retired, /#fleet=<redacted>/);
+    assert.doesNotMatch(retired, /EncodedCombinedCapabilities/);
     assert.equal((await stat(log + ".1")).mode & 0o777, 0o600);
     assert(!existsSync(log), "the next launch starts a fresh 0600 log");
 

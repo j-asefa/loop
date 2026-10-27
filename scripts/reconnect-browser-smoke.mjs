@@ -142,7 +142,7 @@ try {
     "existing",
   );
   const pairUrl = started.stdout.match(
-    /https:\/\/[\w-]+\.trycloudflare\.com\/#pair=[\w-]+/,
+    /https:\/\/[\w-]+\.trycloudflare\.com\/#(?:pair|fleet)=[\w-]+/,
   )[0];
   const before = await status();
   relayPort = Number(new URL(before.connection.service.relay).port);
@@ -173,14 +173,67 @@ try {
     )
       errors.push(error.message);
   });
+  await page.goto(new URL("/#notes=keep-this", pairUrl).href);
+  await expect(
+    page.getByRole("heading", { name: "Pair this device" }),
+  ).toBeVisible();
+  assert.equal(
+    new URL(page.url()).hash,
+    "#notes=keep-this",
+    "unrelated fragments survive the unauthenticated pairing page",
+  );
   await page.goto(pairUrl);
+  const { fleetDeviceFromLink, fleetEnrollmentFromLink } =
+    await import("../dist/shared/fleet-pairing.js");
+  const deviceCapability = fleetDeviceFromLink(
+    pairUrl,
+    new URL(pairUrl).origin,
+  );
+  const enrollmentCapability = fleetEnrollmentFromLink(pairUrl).enrollment;
+  await expect(
+    page.getByRole("button", { name: "Pair and open Loop" }),
+  ).toBeVisible();
+  assert.equal(
+    new URL(page.url()).hash,
+    "",
+    "pairing fragments are scrubbed before confirmation",
+  );
+  const pairRequest = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === "/pair" &&
+      request.method() === "POST",
+  );
   await page.getByRole("button", { name: "Pair and open Loop" }).click();
+  const submitted = (await pairRequest).postDataJSON();
+  assert.deepEqual(submitted, { ...deviceCapability, name: "Phone" });
+  assert(
+    !JSON.stringify(submitted).includes(enrollmentCapability),
+    "device pairing never submits the enrollment half",
+  );
   const authenticated = (path) =>
     page.evaluate(
       async (p) => (await fetch(p, { cache: "no-store" })).status,
       path,
     );
   await expect.poll(() => authenticated("/api/bootstrap")).toBe(200);
+  // A camera scan in a browser that is already trusted bypasses Pairing.
+  // It must still scrub the new capabilities and keep the existing session.
+  const another = await loop("pair");
+  const anotherUrl = another.stdout.match(
+    /https:\/\/[\w-]+\.trycloudflare\.com\/#fleet=[\w-]+/,
+  )[0];
+  const pairedRequests = [];
+  const recordPair = (request) => {
+    if (new URL(request.url()).pathname === "/pair")
+      pairedRequests.push(request.method());
+  };
+  page.on("request", recordPair);
+  await page.goto(anotherUrl);
+  await expect.poll(() => new URL(page.url()).hash).toBe("");
+  assert.equal(await authenticated("/api/bootstrap"), 200);
+  assert.deepEqual(pairedRequests, []);
+  page.off("request", recordPair);
+  assert.equal((await status()).devices.length, 1);
   // A thread with history, then an unsent reply and a scrolled position.
   const csrf = await page.evaluate(
     async () => (await (await fetch("/session")).json()).csrf,

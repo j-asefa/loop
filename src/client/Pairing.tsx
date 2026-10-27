@@ -1,16 +1,56 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Orbit, ShieldCheck } from "lucide-react";
 import { authorize, clearAuthorization } from "./api";
 import { executionSourceId } from "./sourceRouting";
+import { fleetDeviceFromLink } from "../shared/fleet-pairing";
+function readPairing(): {
+  input: ReturnType<typeof fleetDeviceFromLink> | undefined;
+  error: string;
+} {
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  if (!fragment.has("pair") && !fragment.has("fleet"))
+    return { input: undefined, error: "" };
+  try {
+    return {
+      input: fleetDeviceFromLink(location.href, location.origin),
+      error: "",
+    };
+  } catch (error) {
+    return {
+      input: undefined,
+      error:
+        error instanceof Error ? error.message : "Use a fresh pairing link.",
+    };
+  } finally {
+    // Retain only the device projection in memory; never submit the enrollment
+    // half to /pair, persist it, or leave either capability in browser history.
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+}
 export function Pairing({ onDone }: { onDone: () => void }) {
-  const secret = useRef(
-    new URLSearchParams(location.hash.slice(1)).get("pair") || "",
-  );
+  const [pairing, setPairing] = useState(readPairing);
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(pairing.error);
   const lock = useRef(false);
+  useEffect(() => {
+    const opened = () => {
+      const fragment = new URLSearchParams(location.hash.slice(1));
+      if (!fragment.has("pair") && !fragment.has("fleet")) return;
+      const next = readPairing();
+      // Scrub a new link even while an earlier confirmation is in flight.
+      // The submitted request keeps its original, device-only projection.
+      setPairing(next);
+      setError(next.error);
+    };
+    window.addEventListener("hashchange", opened);
+    // Navigation can occur after the first render but before this effect is
+    // installed. Process the current fragment as well as subsequent events.
+    // An already scrubbed fragment must not clear the retained device input.
+    opened();
+    return () => window.removeEventListener("hashchange", opened);
+  }, []);
   async function pair() {
-    if (lock.current) return;
+    if (lock.current || !pairing.input) return;
     lock.current = true;
     setBusy(true);
     setError("");
@@ -19,12 +59,12 @@ export function Pairing({ onDone }: { onDone: () => void }) {
       const response = await fetch("/pair", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ secret: secret.current, name: "Phone" }),
+        body: JSON.stringify({ ...pairing.input, name: "Phone" }),
         credentials: "same-origin",
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Pairing failed");
-      secret.current = "";
+      pairing.input = undefined;
       clearAuthorization();
       if (executionSourceId()) {
         location.reload();
@@ -66,7 +106,7 @@ export function Pairing({ onDone }: { onDone: () => void }) {
           This device will be able to create and control agents using your
           desktop harnesses, tools and files.
         </p>
-        {secret.current ? (
+        {pairing.input ? (
           <button
             className="primary"
             onClick={() => void pair()}
