@@ -408,6 +408,7 @@ export function renderApp(props: AppViewProps) {
     threadWork,
     threadNotice,
     setThreadNotice,
+    profile,
   });
   const { replySaved, resultCard, resultsList } = renderResults({
     beginReply,

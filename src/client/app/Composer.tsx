@@ -28,6 +28,7 @@ import { callRoute } from "../workspace-api";
 import { executionSourceId } from "../sourceRouting";
 import type { CardArtifact } from "../card-actions";
 import type { ComposerContext } from "../composerContext";
+import { composerLaunchRecipient } from "../composerLaunch";
 import type { ThreadWork } from "../Conversation";
 import { AttachmentList, UploadButton } from "../Attachments";
 import { HarnessPicker } from "../HarnessPicker";
@@ -828,8 +829,10 @@ export function renderComposer({
   threadWork,
   threadNotice,
   setThreadNotice,
+  profile,
 }: Pick<
   ComposerProps,
+  | "profile"
   | "replyContext"
   | "replyQuoted"
   | "contextArtifact"
@@ -930,19 +933,27 @@ export function renderComposer({
       return;
     }
     if (!draft.trim() && !attachments.length && !replyContext) {
+      let last: string | null = null;
       try {
-        const last = localStorage.getItem(
+        last = localStorage.getItem(
           `loop-last-recipient:${JSON.stringify([session?.user?.id, executionSourceId() || "laptop"])}`,
         );
-        const agent = availableAgents.find((agent) => agent.id === last);
-        if (agent) {
-          setSelected(agent.id);
-          setContextArtifact(null);
-          setFolderChoice(undefined);
-          setFolder(agent.folder_id || "");
-        }
       } catch {
-        // Keep the current recipient when browser storage is unavailable.
+        // Storage unavailable: the profile default below still applies, and
+        // otherwise the current recipient is kept.
+      }
+      // On an agent's profile page, "+" addresses that agent; elsewhere the
+      // last recipient is restored.
+      const agent = composerLaunchRecipient(
+        availableAgents,
+        conversation ? null : profile,
+        last,
+      );
+      if (agent) {
+        setSelected(agent.id);
+        setContextArtifact(null);
+        setFolderChoice(undefined);
+        setFolder(agent.folder_id || "");
       }
     }
     focusComposer();
