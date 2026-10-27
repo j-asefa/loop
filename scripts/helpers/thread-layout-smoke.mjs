@@ -178,9 +178,13 @@ export async function threadLayoutSmoke(page, capture) {
       "Thread search bounds, failure recovery, plural counts and reading controls passed in both themes at 320/390/768px",
     );
   } finally {
-    await page.unroute(usagePattern, olderUsage);
-    await page.goto("about:blank");
-    await page.emulateMedia({ colorScheme: "light" });
-    await fixture.close();
+    try {
+      // Finish intercepted usage reads before stopping their private server.
+      await page.unrouteAll({ behavior: "wait" });
+      await page.goto("about:blank");
+      await page.emulateMedia({ colorScheme: "light" });
+    } finally {
+      await fixture.close();
+    }
   }
 }

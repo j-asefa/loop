@@ -18,7 +18,10 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 | Server subscription/native-host transport                 | [subscriptions.ts](../src/server/subscriptions.ts), [runtime-hosts.ts](../src/server/runtime-hosts.ts), [runtime](../runtime) |
 | Database and migrations                                   | [db.ts](../src/server/db.ts), [migrations](../migrations)                                                                     |
 | Persisted row contracts | [storage-schemas.ts](../src/server/storage-schemas.ts), [row-schemas.ts](../src/server/row-schemas.ts), [query-records.ts](../src/server/query-records.ts) |
-| Feed (thread list, `/api/feed`), reading position, Later and scheduled sends | [mobile-return.ts](../src/server/mobile-return.ts), [mobile-routes.ts](../src/server/mobile-routes.ts) |
+| Feed and mobile-return API facade | [mobile-return.ts](../src/server/mobile-return.ts), [mobile-routes.ts](../src/server/mobile-routes.ts) |
+| Reading position and outlines | [reading-position.ts](../src/server/mobile-return/reading-position.ts), [outlines.ts](../src/server/mobile-return/outlines.ts) |
+| Later and scheduled sends | [later.ts](../src/server/mobile-return/later.ts), [scheduled-sends.ts](../src/server/mobile-return/scheduled-sends.ts) |
+| Queued-message editing and conversation forks | [queued-runs.ts](../src/server/mobile-return/queued-runs.ts), [forking.ts](../src/server/mobile-return/forking.ts) |
 | Results stream (result cards and files, `/api/results`)   | [results.ts](../src/server/results.ts), [core-routes.ts](../src/server/core-routes.ts)                                         |
 | Your profile, sent prompts and decision history | [user-profile.ts](../src/server/user-profile.ts), [personal-history.ts](../src/server/personal-history.ts), [personal-decisions.ts](../src/server/personal-decisions.ts) |
 | UI and shared contracts                                   | [client](../src/client), [shared](../src/shared), [workspace HTTP contracts](../src/shared/workspace-api.ts)                 |
