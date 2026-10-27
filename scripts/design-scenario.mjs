@@ -51,6 +51,7 @@ import { profileWorkSmoke } from "./helpers/profile-work-smoke.mjs";
 import { conversationLiveSmoke } from "./helpers/conversation-live-smoke.mjs";
 import { messageNavigationSmoke } from "./helpers/message-navigation-smoke.mjs";
 import { inboxFlowsSmoke } from "./helpers/inbox-flows-smoke.mjs";
+import { cardRemindersSmoke } from "./helpers/card-reminders-smoke.mjs";
 import { needsStackSmoke } from "./helpers/needs-stack-smoke.mjs";
 import { continuitySmoke } from "./helpers/continuity-smoke.mjs";
 import { continuationSmoke, continuationTabsSmoke, continuationLegacySmoke, continuationRecoverySmoke } from "./helpers/continuation-smoke.mjs";
@@ -122,6 +123,7 @@ const scenarios = {
   "attachment-picker": attachmentPickerSmoke,
   "withdraw-draft": withdrawDraftSmoke,
   inbox: (p, f, e, c) => inboxFlowsSmoke(p, f, c),
+  "card-reminders": cardRemindersSmoke,
   "needs-stack": (p, f, e, c) => needsStackSmoke(p, f, c),
   "continuity-320": async (p, f, e, c) => {
     await p.setViewportSize({ width: 320, height: 844 });

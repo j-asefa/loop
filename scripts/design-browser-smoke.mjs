@@ -24,6 +24,7 @@ const names = [
   "upload-destination",
   "attachment-picker",
   "inbox",
+  "card-reminders",
   "needs-stack",
   "continuity-320",
   "continuity-390",

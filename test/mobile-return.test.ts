@@ -1232,13 +1232,83 @@ it("builds an outline of prompts, results, failures, approvals and saved message
   expect((await api("intruder", `/conversations/${cid}/outline`)).status).toBe(404);
 });
 
+it("keeps reminders on individual card messages when the conversation moves on", async () => {
+  const w = workspaceFor(), a = w.agent(), sid = subscribe(w.owner);
+  const cid = conversation(w.owner, a.id, "Original conversation title");
+  const firstRun = run(w.owner, a.id, cid, "completed", { input: "First  task\nplan" });
+  const firstMessage = message(w.owner, cid, "assistant", "The first result", firstRun);
+  const dueAt = now() + 60000;
+  const remind = (targetId: string) => api(w.owner, "/later", "POST", {
+    kind: "message", targetId, condition: "time", dueAt,
+  });
+  const first = await remind(firstMessage);
+  expect(first.status).toBe(201);
+  const secondRun = run(w.owner, a.id, cid, "completed", { input: "Second task" });
+  const secondMessage = message(w.owner, cid, "assistant", "The second result", secondRun);
+  const second = await remind(secondMessage);
+  expect(second.data.replaced).toBeNull();
+  db.prepare("UPDATE conversations SET title=? WHERE id=?").run("A newer conversation title", cid);
+  message(w.owner, cid, "assistant", "An unrelated latest update", secondRun);
+
+  const replacement = await remind(firstMessage);
+  expect(replacement.data.replaced).toBe(first.data.id);
+  const upcoming = (await api(w.owner, "/later")).data.upcoming;
+  expect(upcoming).toHaveLength(2);
+  for (const [target, title, content] of [
+    [firstMessage, "First task plan", "The first result"],
+    [secondMessage, "Second task", "The second result"],
+  ]) {
+    expect(upcoming.find((item: any) => item.target_id === target)).toMatchObject({
+      kind: "message", title, content, conversation_id: cid, message_id: target,
+    });
+  }
+  expect((await api("intruder", "/later", "POST", {
+    kind: "message", targetId: firstMessage, condition: "time", dueAt,
+  })).status).toBe(404);
+  expect((await api("intruder", "/later")).data).toEqual({ due: [], upcoming: [] });
+
+  expect(surfaceLater(dueAt)).toBe(2);
+  expect(surfaceLater(dueAt)).toBe(0);
+  expect(db.prepare("SELECT body,url FROM push_messages WHERE subscription_id=? ORDER BY body").all(sid)).toEqual([
+    { body: "First task plan", url: `/?conversation=${cid}&message=${firstMessage}` },
+    { body: "Second task", url: `/?conversation=${cid}&message=${secondMessage}` },
+  ]);
+  await api(w.owner, `/later/${replacement.data.id}`, "DELETE");
+  expect((await api(w.owner, "/later")).data.due.map((item: any) => item.id)).toEqual([second.data.id]);
+  db.prepare("DELETE FROM push_messages WHERE subscription_id=?").run(sid);
+  db.prepare("DELETE FROM push_subscriptions WHERE id=?").run(sid);
+});
+
+it("uses a published reply's own question for its reminder and keeps legacy fallbacks isolated", async () => {
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id, "Imported thread");
+  const rid = run(w.owner, a.id, cid, "completed", { input: "The overall task" });
+  const question = message(w.owner, cid, "user", "A specific  question?", rid);
+  const reply = message(w.owner, cid, "assistant", "A specific answer", rid);
+  const setReply = (to: string) => db.prepare("UPDATE messages SET metadata=? WHERE id=?")
+    .run(JSON.stringify({ reply: { to, published: true } }), reply);
+  setReply(question);
+  const imported = message(w.owner, cid, "assistant", "Imported result");
+  for (const targetId of [reply, imported]) {
+    await api(w.owner, "/later", "POST", { kind: "message", targetId, condition: "time", dueAt: now() + 60000 });
+  }
+  const titles = async () => Object.fromEntries((await api(w.owner, "/later")).data.upcoming.map((item: any) => [item.target_id, item.title]));
+  expect(await titles()).toEqual({ [reply]: "A specific question?", [imported]: "Imported thread" });
+  const other = workspaceFor(), otherAgent = other.agent();
+  const privateThread = conversation(other.owner, otherAgent.id);
+  setReply(message(other.owner, privateThread, "user", "Private question"));
+  expect(await titles()).toEqual({ [reply]: "The overall task", [imported]: "Imported thread" });
+  for (const item of (await api(w.owner, "/later")).data.upcoming)
+    await api(w.owner, `/later/${item.id}`, "DELETE");
+});
+
 it("surfaces Later items by time, finished run and project open, with a push", async () => {
   const w = workspaceFor(),
     a = w.agent(),
     sid = subscribe(w.owner);
   const timed = conversation(w.owner, a.id, "Timed");
   const busy = conversation(w.owner, a.id, "Busy");
-  const busyRun = run(w.owner, a.id, busy, "running");
+  const busyRun = run(w.owner, a.id, busy, "running", { input: "Busy" });
   const msg = message(w.owner, busy, "assistant", "Result text", busyRun);
   const project = id();
   db.prepare(

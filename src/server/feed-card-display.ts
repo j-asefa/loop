@@ -74,7 +74,12 @@ export type FeedCardDetail = {
 };
 const collapse = (text: string | null | undefined, max: number) =>
   (text || "").replace(/\s+/g, " ").trim().slice(0, max);
-export function feedCardTitle(row: FeedRow) {
+export function feedCardTitle(
+  row: Pick<
+    FeedRow,
+    "card_title" | "card_run_state" | "card_run_input" | "title"
+  >,
+) {
   return (
     row.card_title ??
     ((row.card_run_state && collapse(row.card_run_input, 200)) || row.title)

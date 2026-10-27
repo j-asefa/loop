@@ -1133,6 +1133,10 @@ export function Feed({
   const [unsupportedReplySources, setUnsupportedReplySources] = useState(shown?.unsupportedReplySources || []);
   const [menu, setMenu] = useState<FeedItem | null>(null);
   const [later, setLater] = useState<FeedItem | null>(null);
+  // Finished cards have their own message; work in progress keeps thread reminders.
+  const reminderMessage = later && (
+    later.done_card_key || later.reply_card_key || !later.run || later.run.state === "completed"
+  ) ? later.last_message : null;
   const [editing, setEditing] = useState<QueuedMessage | null>(null);
   const [moving, setMoving] = useState<QueuedMessage | null>(null);
   // Threads waiting on you, whichever filter is shown, for the stack above
@@ -2331,8 +2335,8 @@ export function Feed({
       )}
       {later && (
         <LaterSheet
-          kind="conversation"
-          targetId={later.conversation_id}
+          kind={reminderMessage ? "message" : "conversation"}
+          targetId={reminderMessage?.id ?? later.conversation_id}
           sourceId={later.sourceId ?? scopedSource}
           title={later.title}
           running={[
