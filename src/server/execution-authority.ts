@@ -83,10 +83,10 @@ const handlers: Handlers = {
   "provider.remove": removeProvider,
   "provider.refresh": refreshProviders,
   "auth.start": async (input, { commandId }) => {
-    const checkUpgrade = () => {
+    const checkUpgrade = (ownsProviderChange = false) => {
       if (
         harnessUpgrades.busy(input.name) ||
-        providerChangeInProgress(input.name)
+        (!ownsProviderChange && providerChangeInProgress(input.name))
       )
         throw new ExecutionRefused(
           409,
@@ -99,6 +99,9 @@ const handlers: Handlers = {
       try {
         requireProviderIdle(input.name);
         const options = await authOptions(input);
+        // Discovery yields. Recheck the upgrade hold before opening a driver,
+        // while excluding the provider-change reservation this request owns.
+        checkUpgrade(true);
         return await nativeSignIns.start(
           options,
           input.provider,
