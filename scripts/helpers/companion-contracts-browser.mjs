@@ -1,7 +1,10 @@
 import { expect } from "@playwright/test";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { isWebKitNavigationFetchError } from "./browser-errors.mjs";
+import {
+  isWebKitNavigationFetchError,
+  collectionReadRecovery,
+} from "./browser-errors.mjs";
 
 // Omit additive fields from real paired production responses, never substitute
 // successful responses. Older sources must keep rendering without new authority.
@@ -104,6 +107,12 @@ export async function companionContractsBrowser({ browser, host, db }) {
     ).toBeVisible();
     assert(historyOmitted > 0);
     await expect(history.getByRole("alert")).toHaveCount(0);
+    await collectionReadRecovery(page, {
+      route: (url) => url.pathname === "/api/native/history",
+      scope: history,
+      start: () =>
+        history.getByRole("button", { name: /Discover Codex history/ }).click(),
+    });
     await mkdir("test-results", { recursive: true });
     await page.screenshot({
       path: `test-results/companion-contracts-${process.env.LOOP_BROWSER || "chromium"}-history.png`,

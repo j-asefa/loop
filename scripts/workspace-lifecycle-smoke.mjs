@@ -4,7 +4,10 @@ import { mkdirSync } from "node:fs";
 import { chromium, expect } from "@playwright/test";
 import { selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
-import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
+import {
+  isWebKitNavigationFetchError,
+  collectionReadRecovery,
+} from "./helpers/browser-errors.mjs";
 
 import { teamPresetsSmoke } from "./helpers/team-presets-smoke.mjs";
 import { markdownDefinitionsSmoke } from "./helpers/markdown-definitions-smoke.mjs";
@@ -129,6 +132,18 @@ for (const engine of selectedEngines()) {
       );
       await expect(card).toBeVisible();
       await page.unroute(savedReads, failSaved);
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event("loop-later-change")),
+      );
+      await expect(page.locator(".collection-read-error")).toHaveCount(0);
+      await collectionReadRecovery(page, {
+        route: savedReads,
+        start: () =>
+          page.evaluate(() =>
+            window.dispatchEvent(new Event("loop-later-change")),
+          ),
+      });
+      await expect(card).toBeVisible();
       const saved = (await fixture.api("/saved")).items.find(
         (item) => item.kind === "result",
       ).result;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { runReceipt } from "./run-receipt.mjs";
+import { collectionReadRecovery, signalCollection } from "./browser-errors.mjs";
 
 // Core Feed journeys: open a thread, reply in place, save a message into
 // Later, jump through the outline and set a thread reminder.
@@ -321,6 +322,27 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(reminder.locator(".eyebrow")).toContainText("Reminder");
     await expect(reminder.locator(".subline")).toContainText("Tomorrow at");
     await capture("later-snoozed");
+    await collectionReadRecovery(page, {
+      route: (url) => url.pathname === "/api/later",
+      scope: later,
+      change: () => signalCollection(page, "later"),
+      start: () =>
+        page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-later-change")),
+        ),
+    });
+    await expect(reminder).toHaveCount(1);
+    await laterTab("Scheduled").click();
+    await collectionReadRecovery(page, {
+      route: (url) => url.pathname === "/api/scheduled-sends",
+      scope: later,
+      change: () => signalCollection(page, "scheduled"),
+      start: () =>
+        page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-scheduled-change")),
+        ),
+    });
+    await laterTab("Reminders").click();
     // Older linked sources omit these additions independently. Remove only
     // that field from a real response, then render the production client.
     for (const field of ["snoozes", "url"]) {

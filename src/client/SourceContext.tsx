@@ -6,7 +6,12 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
-import { apiInWorkspace, readInWorkspace, type api } from "./api";
+import {
+  apiInWorkspace,
+  readInWorkspace,
+  type api,
+  type ReadMode,
+} from "./api";
 import { capabilities as shellCapabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
@@ -129,8 +134,18 @@ export function useProjectionRead(sourceId?: string) {
   const handle = useProjectionScope(sourceId);
   return useMemo(
     () =>
-      <T = any,>(path: LegacyClientPath, source = handle.source) =>
-        readInWorkspace<T>(path, source, handle.controller.signal),
+      <T = any,>(
+        path: LegacyClientPath,
+        source = handle.source,
+        mode: ReadMode = "automatic",
+      ) =>
+        readInWorkspace<T>(
+          path,
+          source,
+          handle.controller.signal,
+          undefined,
+          mode,
+        ),
     [handle],
   );
 }
@@ -142,8 +157,16 @@ export function useProjectionRoute(sourceId?: string) {
         contract: C,
         input: RouteInput<C>,
         source = handle.source,
+        mode: ReadMode = "automatic",
       ) =>
-        readRoute(contract, input, source, handle.controller.signal),
+        readRoute(
+          contract,
+          input,
+          source,
+          handle.controller.signal,
+          undefined,
+          mode,
+        ),
     [handle],
   );
 }

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { expect } from "@playwright/test";
 import { openAgentProfile } from "./browser-ui.mjs";
 import { seedNewerReplyMessage } from "./quoted-reply-fixture.mjs";
+import { collectionReadRecovery, signalCollection } from "./browser-errors.mjs";
 
 export async function resultFilesSmoke(page, fixture, capture) {
   const newer = await seedNewerReplyMessage(fixture);
@@ -353,6 +354,12 @@ export async function resultFilesSmoke(page, fixture, capture) {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     // Result cards live on the author's profile.
     await openAgentProfile(page, agent.name);
+    await collectionReadRecovery(page, {
+      route: (url) =>
+        /^\/api\/v1\/cards(?:\/changes)?$/.test(url.pathname) &&
+        url.searchParams.get("view") === "results",
+      start: () => signalCollection(page, "results"),
+    });
     const resultCard = page.locator(".feed-card").filter({
       has: page.getByRole("heading", { name: original.title, exact: true }),
     });
@@ -422,6 +429,11 @@ export async function resultFilesSmoke(page, fixture, capture) {
     await expect(
       fileCard.getByRole("img", { name: "mockup.png", exact: true }),
     ).toBeVisible();
+    await collectionReadRecovery(page, {
+      route: (url) => /^\/api\/results(?:\/updates)?$/.test(url.pathname),
+      start: () => signalCollection(page, "results"),
+    });
+    await expect(fileCard).toBeVisible();
     await fileCard
       .getByRole("button", { name: "View full result", exact: true })
       .click();

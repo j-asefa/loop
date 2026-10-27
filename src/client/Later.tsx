@@ -1,4 +1,4 @@
-import { surfaceFallback } from "./workspace-projections";
+import { reactiveSource, surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -11,14 +11,11 @@ import {
   Search,
   Tag,
 } from "lucide-react";
-import { callRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./workspace-api";
+import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
-import {
-  useSourceId,
-  useProjectionRoute,
-  useSourceRoute,
-} from "./SourceContext";
+import { useSourceId, useSourceRoute } from "./SourceContext";
 import { useCards } from "./useCards";
 import { ContentCard } from "./ContentCard";
 import { cardArtifact, cardMessage } from "./card-actions";
@@ -286,8 +283,10 @@ function SavedCollection({
     items,
     next,
     loading,
+    busy,
     error: readError,
     load,
+    retry,
     key,
   } = useCards(
     { view: "saved", project, teams, q: filter || undefined },
@@ -388,9 +387,14 @@ function SavedCollection({
           }}
         />
       </form>
-      {(error || readError) && (
+      <CollectionReadNotice
+        error={readError}
+        busy={busy}
+        retry={() => void retry()}
+      />
+      {error && (
         <div className="error" role="alert">
-          {error || readError}
+          {error}
           <button
             className="text-button"
             onClick={() => {
@@ -513,9 +517,11 @@ export function Later({
   ) => ReactNode;
 }) {
   const sourceId = useSourceId();
-  const read = useProjectionRoute();
+  const recovery = useCollectionRead(JSON.stringify([sourceId, only]));
+  const read = recovery.load;
   type Reminders = RouteResponse<typeof workspaceApi.laterList>;
-  const shown = cachedView<Reminders>("later:reminders");
+  const cacheKey = "later:reminders:" + sourceId;
+  const shown = cachedView<Reminders>(cacheKey);
   const [later, setLater] = useState<Reminders | null>(shown || null);
   const [failed, setFailed] = useState(0);
   const [error, setError] = useState("");
@@ -550,25 +556,54 @@ export function Later({
     setFocus(null);
     cacheView("later-section", value, viewOwner());
   };
-  async function load() {
+  async function load(manual = false, background = false) {
+    // The selected section owns its reader. Scheduled/Saved render their own
+    // collections; their hidden reminder/count reader must not fail beside it.
+    if (only && only !== "reminders") return;
     // The account this request is for; a late answer for another is dropped.
     const owner = viewOwner();
-    try {
-      const [items, scheduled] = await Promise.all([
-        read(workspaceApi.laterList, {}),
-        read(workspaceApi.scheduledSendList, {}),
-      ]);
-      if (owner !== viewOwner()) return;
-      setLater(items);
-      setFailed(scheduled.items.filter((i) => i.state === "failed").length);
-      cacheView("later:reminders", items, owner);
-      setError("");
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    await read(
+      (signal, mode) =>
+        Promise.all([
+          readRoute(
+            workspaceApi.laterList,
+            {},
+            sourceId,
+            signal,
+            undefined,
+            mode,
+          ),
+          only
+            ? Promise.resolve({ items: [] })
+            : readRoute(
+                workspaceApi.scheduledSendList,
+                {},
+                sourceId,
+                signal,
+                undefined,
+                mode,
+              ),
+        ]),
+      ([items, scheduled]) => {
+        setLater(items);
+        setFailed(scheduled.items.filter((i) => i.state === "failed").length);
+        cacheView(cacheKey, items, owner);
+      },
+      manual,
+      background,
+    );
   }
   useEffect(() => {
-    void load();
+    setLater(cachedView<Reminders>(cacheKey) || null);
+    setFailed(0);
+  }, [read]);
+  useEffect(() => {
+    // Complete sources refresh through the scoped subscription below. Parent
+    // revisions supply only the legacy fallback and must not cancel a read.
+    if (!reactiveSource(sourceId, "workspace")) void load(false, true);
+  }, [revision, sourceId, read]);
+  useEffect(() => {
+    void load(false, true);
     const update = () => void load();
     window.addEventListener("loop-later-change", update);
     window.addEventListener("loop-scheduled-change", update);
@@ -576,7 +611,7 @@ export function Later({
       [sourceId],
       "workspace",
       30_000,
-      update,
+      () => void load(false, true),
     );
     const stopChanges = listenWorkspaceChanges("later", update, sourceId);
     const stopScheduled = listenWorkspaceChanges("scheduled", update, sourceId);
@@ -587,7 +622,7 @@ export function Later({
       stopChanges();
       stopScheduled();
     };
-  }, [revision, sourceId, read]);
+  }, [sourceId, read]);
   useEffect(() => {
     if (!focus || !later) return;
     const node = document.getElementById("later-" + focus);
@@ -728,13 +763,11 @@ export function Later({
           ))}
         </div>
       )}
+      <CollectionReadNotice {...recovery} retry={() => void load(true)} />
       {error && (
-        <div className="error" role="alert">
+        <p className="error" role="alert">
           {error}
-          <button className="text-button" onClick={() => void load()}>
-            Try again
-          </button>
-        </div>
+        </p>
       )}
       {show("reminders") && (
         <>

@@ -2,6 +2,7 @@ import { Empty } from "./components";
 import { ContentCard } from "./ContentCard";
 import { cardArtifact } from "./card-actions";
 import { useCards } from "./useCards";
+import { CollectionReadNotice } from "./CollectionRead";
 import { useSourceId } from "./SourceContext";
 import type { Agent, Artifact, Connection } from "../shared/types";
 
@@ -35,18 +36,17 @@ function ProjectActivityFeed({
   onFile,
 }: Props) {
   const source = useSourceId();
-  const { items, next, loading, error, load } = useCards(
+  const { items, next, loading, busy, error, load, retry } = useCards(
     { view: "results", project: projectId },
     revision,
   );
   return (
     <div className="feed" aria-label="Project activity">
-      {error && (
-        <p className="error" role="alert">
-          {error}
-          <button onClick={() => void load()}>Try again</button>
-        </p>
-      )}
+      <CollectionReadNotice
+        error={error}
+        busy={busy}
+        retry={() => void retry()}
+      />
       {loading && !items.length && (
         <p role="status">Loading project activity…</p>
       )}

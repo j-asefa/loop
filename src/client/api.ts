@@ -220,10 +220,11 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
 
 /** One-shot projections recover from cooldowns and at most two transient
  * server failures. Only GETs retry; view cancellation stops IO and waits. */
-export function readInWorkspace<T = any>(path: LegacyClientPath, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<T> {
-  return readRequest<T>(path, sourceId, signal, onRetry);
+export type ReadMode = "automatic" | "manual";
+export function readInWorkspace<T = any>(path: LegacyClientPath, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void, mode: ReadMode = "automatic"): Promise<T> {
+  return readRequest<T>(path, sourceId, signal, onRetry, undefined, mode);
 }
-async function readRequest<T>(path: string, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void, kind?: "stream"): Promise<T> {
+async function readRequest<T>(path: string, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void, kind?: "stream", mode: ReadMode = "automatic"): Promise<T> {
   let failures = 0;
   for (;;) {
     try { return await requestInWorkspace<T>(path, sourceId, undefined, "GET", signal, kind); }
@@ -231,7 +232,7 @@ async function readRequest<T>(path: string, sourceId: string, signal: AbortSigna
       if (signal.aborted) throw error;
       const status = (error as {status?:number}).status;
       const delay = isRateLimited(error) ? retryAfter(error) :
-        status && status >= 500 && status < 600 && failures < 2 ? 2000 * ++failures : undefined;
+        mode === "automatic" && status && status >= 500 && status < 600 && failures < 2 ? 2000 * ++failures : undefined;
       if (delay === undefined) throw error;
       onRetry?.(error);
       await new Promise<void>((resolve, reject) => {
@@ -289,6 +290,6 @@ export async function callRoute<C extends ClientRouteContract>(contract: C, inpu
   }
   return response(contract, await requestInWorkspace<unknown>(path, sourceId, body, contract.method, signal, contract.kind === "stream" ? "stream" : undefined, contract.multipart, contract.status === 204));
 }
-export async function readRoute<C extends RouteContract & { method: "GET" }>(contract: C, input: RouteInput<C>, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<RouteResponse<C>> {
-  return response(contract, await readRequest<unknown>(routePath(contract, input), sourceId, signal, onRetry, contract.kind));
+export async function readRoute<C extends RouteContract & { method: "GET" }>(contract: C, input: RouteInput<C>, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void, mode: ReadMode = "automatic"): Promise<RouteResponse<C>> {
+  return response(contract, await readRequest<unknown>(routePath(contract, input), sourceId, signal, onRetry, contract.kind, mode));
 }

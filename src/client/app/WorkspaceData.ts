@@ -253,7 +253,7 @@ export function useWorkspaceEvents(
               ...(broad ? [bootstrap()] : []),
               ...(refreshRuns ? [loadRuns()] : []),
               ...(refreshResults && resultsVisible.current
-                ? [loadResults(false, false)]
+                ? [loadResults(false, false, false, "change")]
                 : []),
             ]);
           }
@@ -279,7 +279,7 @@ export function useWorkspaceEvents(
       1800,
       () => {
         if (!capabilities.pairedDevices && resultsVisible.current)
-          void loadResults(false, true);
+          void loadResults(false, true, false, "fallback");
       },
     );
     return () => {

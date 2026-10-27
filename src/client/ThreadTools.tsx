@@ -1,8 +1,4 @@
-import {
-  useSourceRoute,
-  useSourceId,
-  useSourceRouteRead,
-} from "./SourceContext";
+import { useSourceRoute, useSourceId } from "./SourceContext";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
@@ -26,7 +22,10 @@ import {
   User,
   X,
 } from "lucide-react";
-import { callRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./workspace-api";
+import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
+import { listenWorkspaceChanges } from "./workspace-changes";
+import { reactiveSource } from "./workspace-projections";
 import {
   workspaceApi,
   type RouteInput,
@@ -930,7 +929,11 @@ export function ScheduledSends({
   failedOnly?: boolean;
 }) {
   const call = useSourceRoute();
-  const read = useSourceRouteRead();
+  const sourceId = useSourceId();
+  const recovery = useCollectionRead(
+    JSON.stringify([sourceId, conversationId]),
+  );
+  const read = recovery.load;
   const [all, setItems] = useState<ScheduledSend[]>([]);
   // Older messages that could not be sent load a page at a time.
   const [failedNext, setFailedNext] = useState<string | null>(null);
@@ -938,6 +941,11 @@ export function ScheduledSends({
     ? all.filter((item) => item.state === "failed")
     : all;
   const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    setItems([]);
+    setFailedNext(null);
+    setLoaded(false);
+  }, [read]);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<ScheduledSend | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -947,20 +955,25 @@ export function ScheduledSends({
     conversation: conversationId || undefined,
     failedBefore,
   });
-  const load = (signal?: AbortSignal) =>
-    (signal
-      ? read(workspaceApi.scheduledSendList, { query: query() }, signal)
-      : call(workspaceApi.scheduledSendList, { query: query() })
-    )
-      .then((result) => {
-        if (signal?.aborted) return;
+  const load = (manual = false, background = false) =>
+    read(
+      (signal, mode) =>
+        readRoute(
+          workspaceApi.scheduledSendList,
+          { query: query() },
+          sourceId,
+          signal,
+          undefined,
+          mode,
+        ),
+      (result) => {
         setItems(result.items);
         setFailedNext(result.failed_next);
         setLoaded(true);
-      })
-      .catch((e) => {
-        if (!signal?.aborted) setError((e as Error).message);
-      });
+      },
+      manual,
+      background,
+    );
   const loadOlder = async () => {
     if (!failedNext) return;
     try {
@@ -981,15 +994,20 @@ export function ScheduledSends({
     }
   };
   useEffect(() => {
-    const controller = new AbortController();
-    const refresh = () => void load(controller.signal);
-    refresh();
+    // Complete sources already refresh through their scoped subscription.
+    // Parent revisions are needed only for legacy polling.
+    if (!reactiveSource(sourceId, "workspace")) void load(false, true);
+  }, [conversationId, revision, sourceId, read]);
+  useEffect(() => {
+    void load(false, true);
+    const refresh = () => void load();
+    const stopChanges = listenWorkspaceChanges("scheduled", refresh, sourceId);
     window.addEventListener("loop-scheduled-change", refresh);
     return () => {
-      controller.abort();
+      stopChanges();
       window.removeEventListener("loop-scheduled-change", refresh);
     };
-  }, [conversationId, revision, read]);
+  }, [conversationId, sourceId, read]);
   // Scroll to the item a confirmation linked to, once it is listed.
   useEffect(() => {
     if (!focusId || !items.some((item) => item.id === focusId)) return;
@@ -1024,17 +1042,31 @@ export function ScheduledSends({
     }
   };
   const global = !conversationId;
-  if (failedOnly && !items.length) return null;
-  if (global && !loaded) return <p className="section-empty">Loading…</p>;
+  const readNotice = (
+    <CollectionReadNotice {...recovery} retry={() => void load(true)} />
+  );
+  if (failedOnly && !items.length) return readNotice;
+  if (global && !loaded)
+    return recovery.error ? (
+      readNotice
+    ) : (
+      <p className="section-empty">Loading…</p>
+    );
   if (!items.length)
     return global ? (
-      <p className="section-empty">
-        Nothing scheduled. Use “Send later” in the composer to schedule a
-        message to an agent.
-      </p>
-    ) : null;
+      <>
+        {readNotice}
+        <p className="section-empty">
+          Nothing scheduled. Use “Send later” in the composer to schedule a
+          message to an agent.
+        </p>
+      </>
+    ) : (
+      readNotice
+    );
   return (
     <section className="scheduled-sends" aria-label="Scheduled messages">
+      {readNotice}
       {items.map((item) => {
         const failed = item.state === "failed";
         const where = [

@@ -5,7 +5,7 @@ import { chromium, expect } from "@playwright/test";
 import { seedCheckout } from "./helpers/checkout-fixture.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { selectedEngines } from "./helpers/engines.mjs";
-import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
+import { isWebKitNavigationFetchError, collectionReadRecovery } from "./helpers/browser-errors.mjs";
 import { conversationFilesSmoke } from "./helpers/conversation-files-smoke.mjs";
 import { undiscoveredCapabilities } from "../src/agent-activities.ts";
 
@@ -335,6 +335,12 @@ for (const engine of selectedEngines()) {
         url.searchParams.get("tools") !== "0",
     );
     assert.equal(update.searchParams.get("after"), "1201");
+    await collectionReadRecovery(page, {
+      route: (url) => url.pathname === `/api/conversations/${conversation.id}/activities` && url.searchParams.has("before"),
+      scope: tools,
+      start: () => tools.getByRole("button", { name: "Load earlier activity", exact: true }).click(),
+    });
+    await expect(tools.getByText("History tool 1002 · completed", { exact: true })).toBeVisible();
     await tools.getByRole("button", { name: "Close", exact: true }).click();
     // A pending or failed capture must never substitute the reported edits.
     for (const [state, label] of [["started", "in progress"], ["failed", "checkout not captured"]]) {

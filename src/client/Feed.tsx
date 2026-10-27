@@ -1,6 +1,7 @@
 import type { CardReadTransport } from "../shared/card-client";
 import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
+import { CollectionReadNotice } from "./CollectionRead";
 import { DoneCardsReader } from "./feed-cards";
 import type { CardWindow } from "./card-pager";
 import { compareCardOrder, type Card, type CardEntry } from "../shared/cards";
@@ -1058,19 +1059,19 @@ export function Feed({
   const generation = viewGeneration();
   const readRecovery = useRef(new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>());
   const recoverSource = useRef<(source: string) => void>(() => {});
-  const readSnapshot = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>, purpose = "") => {
+  const readSnapshot = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>, purpose = "", manual = false) => {
     const { known: _known, ...page } = query;
     const context = activeView.current;
     return readRecovery.current.read(source, purpose + JSON.stringify(page),
-      (signal, onRetry) => readRoute(workspaceApi.feed, { query }, source, signal, onRetry),
+      (signal, onRetry) => readRoute(workspaceApi.feed, { query }, source, signal, onRetry, manual ? "manual" : "automatic"),
       () => {
         if (generation === viewGeneration() && context === activeView.current)
           recoverSource.current(source);
       });
   };
   const projectionPages = useRef(new FeedProjectionReader<FeedItem, Shown>());
-  const readProjectionPage = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>) => {
-    const read = (known?: string) => readSnapshot(source, { ...query, known });
+  const readProjectionPage = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>, manual = false) => {
+    const read = (known?: string) => readSnapshot(source, { ...query, known }, "", manual);
     return reactiveSource(source, "feed") ? projectionPages.current.read(source, JSON.stringify(query), read) : read();
   };
   const combined = !!sources && !project && !teams && !agent;
@@ -1187,7 +1188,7 @@ export function Feed({
   const doneRefresh = useRef<{ key: string; sources: Map<string, DoneRefresh> }>({
     key: "", sources: new Map(),
   });
-  async function loadNeeds(onlySources?: string[]) {
+  async function loadNeeds(onlySources?: string[], manual = false) {
     if (hideFilters) return;
     const ticketGeneration = needsRequest.current;
     const owner = viewOwner();
@@ -1200,7 +1201,7 @@ export function Feed({
     }));
     const settled = await Promise.allSettled(
       requested.map(async (source) => {
-        const page = await readSnapshot(combined ? source.id : scopedSource, query(undefined, "needs"));
+        const page = await readSnapshot(combined ? source.id : scopedSource, query(undefined, "needs"), "", manual);
         return combined
           ? page.items.map((item) => ({
               ...item,
@@ -1243,7 +1244,18 @@ export function Feed({
         void load(false, true, [...pendingRefresh.current.sources]);
     }, 100);
   }
-  async function load(append = false, background = false, onlySources?: string[]) {
+  const [readError, setReadError] = useState("");
+  const [readBusy, setReadBusy] = useState(false);
+  type ReadAttempt = { append: boolean; before?: string; doneSummary?: boolean };
+  const retryPages = useRef(new Map<string, ReadAttempt>());
+  const retryRead = () => {
+    if (inFlight.current) return;
+    const failed = [...retryPages.current];
+    for (const [source] of failed) readRecovery.current.reset(source);
+    void load(failed.length > 0 && failed.every(([, page]) => page.append), false,
+      failed.length ? failed.map(([source]) => source) : undefined, true);
+  };
+  async function load(append = false, background = false, onlySources?: string[], manual = false) {
     const refreshContext = JSON.stringify([viewOwner(), shownKey()]);
     // A completed action may still hold the load function for an old view.
     // Reject it before it can supersede the current view's request ticket.
@@ -1258,6 +1270,14 @@ export function Feed({
     const requestedSources = activeSources
       .filter(source => !onlySources || onlySources.includes(source.id))
       .map(source => source.id);
+    // Capture each failed operation before any source succeeds and clears it.
+    // A partial retry must neither advance a healthy source nor borrow a later
+    // cursor from another read. Head and append failures can coexist.
+    const cursors: Record<string, string> = combined && append && next ? JSON.parse(next) : {};
+    const pages = new Map<string, ReadAttempt>(activeSources.map(source => [source.id,
+      (manual && retryPages.current.get(source.id)) || {
+        append, before: append ? (combined ? cursors[source.id] : next || undefined) : undefined,
+      }]));
     const pending = pendingRefresh.current.sources;
     if (background && inFlight.current) {
       for (const source of requestedSources) pending.add(source);
@@ -1266,13 +1286,15 @@ export function Feed({
     // A superseded head read has not reconciled its sources. Appending cannot
     // consume any head notification; a scoped head consumes only its sources.
     if (inFlight.current) for (const source of headSources.current) pending.add(source);
-    headSources.current = new Set(append ? [] : requestedSources);
-    if (!append) {
-      for (const source of requestedSources) pending.delete(source);
-      void loadNeeds(requestedSources);
+    headSources.current = new Set(requestedSources.filter(source => !pages.get(source)!.append));
+    if (headSources.current.size) {
+      for (const source of headSources.current) pending.delete(source);
+      void loadNeeds([...headSources.current], manual);
     }
+    if (!manual && !background) setReadError("");
     clearTimeout(doneCatchup.current);
     inFlight.current = true;
+    setReadBusy(true);
     const followup = new Set<string>();
     const ticket = ++request.current;
     // The account this request is for; a late answer for another is dropped.
@@ -1285,10 +1307,7 @@ export function Feed({
       let result: Page;
       let partialError = "";
       let cached = cachedView<Shown>(shownKey());
-      let previous =
-        !append && retainHistory
-          ? cached
-          : undefined;
+      let previous = retainHistory ? cached : undefined;
       const refreshKey = JSON.stringify([owner, shownKey()]);
       if (doneRefresh.current.key !== refreshKey)
         doneRefresh.current = { key: refreshKey, sources: new Map() };
@@ -1297,11 +1316,12 @@ export function Feed({
         source: string,
         before?: string,
       ) => {
+        const appending = pages.get(source)!.append;
         if (filter === "replies") {
           const readSource = read;
           read = async cursor => {
             const { page, supported } = await readReplyFeedPage(readSource,
-              () => readSnapshot(source, query(undefined, "needs"), "reply-support:"), cursor);
+              () => readSnapshot(source, query(undefined, "needs"), "reply-support:", manual), cursor);
             return supported ? page : {
               ...page,
               // Keep already-loaded replies if a source loses support.
@@ -1330,9 +1350,14 @@ export function Feed({
           const resetVersion = reader.resetVersion;
           let window: CardWindow | null;
           try {
-            window = await reader.load(transport, {
+            // A successful card append already advanced its cursor. If only
+            // its summary failed, publish the current committed window without
+            // asking for another page. Actions may have edited that window.
+            const summaryOnly = pages.get(source)!.doneSummary;
+            window = summaryOnly ? reader.pager.snapshot() : null;
+            if (!window) window = await reader.load(transport, {
               view: "done", project: project || undefined, agent: agent || undefined, teams: teams || undefined,
-            }, append || !!catchUp);
+            }, !summaryOnly && (appending || !!catchUp));
           } finally {
             if (reader.discardPrior && ticket === request.current && owner === viewOwner()) {
               if (reader.resetVersion !== resetVersion) cacheView(cardKey, undefined, owner);
@@ -1347,7 +1372,7 @@ export function Feed({
                 delete cursors[source];
                 cached = {...saved, items: saved.items.filter(keep),
                   next: combined && Object.keys(cursors).length ? JSON.stringify(cursors) : null};
-                previous = append ? undefined : cached;
+                previous = cached;
                 cacheView(shownKey(), cached, owner);
                 setNext(cached.next);
               }
@@ -1363,6 +1388,7 @@ export function Feed({
             if (reader.hasMore || (window.boundary && priorItems.some(item => compareCardOrder(order(item), window.boundary!) < 0))) followup.add(source);
             if (ticket === request.current && owner === viewOwner()) cacheView(cardKey, window, owner);
             // Counters remain conversation-based operational Feed state.
+            pages.set(source, { ...pages.get(source)!, doneSummary: true });
             const operational = await callRoute(workspaceApi.feed, { query: query(undefined, "needs") }, source);
             if (ticket === request.current && owner === viewOwner()) {
               reader.discardPrior = false;
@@ -1384,10 +1410,10 @@ export function Feed({
           fallbackTransition = !!cachedView<CardWindow>(cardKey);
           if (fallbackTransition) doneRefresh.current.sources.delete(source);
         }
-        if (!previous) {
+        if (appending || !previous) {
           const page = await read(fallbackTransition ? undefined : before);
           if (fallbackTransition && ticket === request.current) cacheView(cardKey, undefined, owner);
-          if (append && retainHistory && cached) {
+          if (appending && retainHistory && cached) {
             const earlier = cached.items.filter(item => (item.sourceId ?? scopedSource) === source);
             const incoming = new Set(page.items.map(item => feedItemKey(item, source)));
             return {...page, items: [...earlier.filter(item => !incoming.has(feedItemKey(item, source))), ...page.items].sort(feedItemOrder)};
@@ -1414,11 +1440,9 @@ export function Feed({
         return result.page;
       };
       if (combined) {
-        const cursors: Record<string, string> =
-          append && next ? JSON.parse(next) : {};
-        const pending = (append
-          ? activeSources.filter((source) => cursors[source.id])
-          : activeSources).filter(source => !onlySources || onlySources.includes(source.id));
+        const pending = activeSources.filter(source =>
+          (!pages.get(source.id)!.append || pages.get(source.id)!.before) &&
+          (!onlySources || onlySources.includes(source.id)));
         const key = pagesKey();
         if (sourcePages.current.key !== key) {
           sourcePages.current = { key, pages: new Map(), failures: new Set() };
@@ -1446,13 +1470,13 @@ export function Feed({
         const settled = await Promise.allSettled(
           pending.map(async (source) => {
             const incoming = await readPage(
-              (before) => readProjectionPage(source.id, query(before)),
+              (before) => readProjectionPage(source.id, query(before), manual),
               source.id,
-              append ? cursors[source.id] : undefined,
+              pages.get(source.id)!.before,
             );
             if (!isCurrent()) return { source, page: incoming };
             const page = { ...incoming, items: pendingUnsaves(incoming.items, source.id) };
-            if (!append && !cached && completedView.current !== shownKey()) {
+            if (!pages.get(source.id)!.append && !cached && completedView.current !== shownKey()) {
               // Publish the initial sources immediately. A refresh keeps
               // its rows and cursors together until the whole pass settles,
               // so Load more can safely supersede it while another source waits.
@@ -1473,9 +1497,15 @@ export function Feed({
         settled.forEach((entry, index) => {
           const id = pending[index].id;
           if (entry.status === "rejected") {
-            if (entry.reason?.name !== "AbortError") sourcePages.current.failures.add(id);
+            if (entry.reason?.name !== "AbortError") {
+              sourcePages.current.failures.add(id);
+              retryPages.current.set(id, pages.get(id)!);
+            }
           }
-          else sourcePages.current.failures.delete(id);
+          else {
+            sourcePages.current.failures.delete(id);
+            retryPages.current.delete(id);
+          }
         });
         const loaded = settled.flatMap((entry) =>
           entry.status === "fulfilled" ? [{ ...entry.value, page: {
@@ -1488,16 +1518,18 @@ export function Feed({
           const page=sourcePages.current.pages.get(source.id);
           if(page)loaded.push({source,page});
         }
-        for (const { source, page } of loaded) {
+        for (const entry of loaded) {
+          const { source, page } = entry;
           // The outage fallback must include pages appended by Load more.
-          const earlier = append && !retainHistory ? sourcePages.current.pages.get(source.id)?.items : undefined;
+          const earlier = pages.get(source.id)!.append && !retainHistory ? sourcePages.current.pages.get(source.id)?.items : undefined;
           const known = new Set(earlier?.map((item) => feedItemKey(item, source.id)));
-          sourcePages.current.pages.set(source.id, {
+          entry.page = {
             ...page,
             items: earlier
               ? [...earlier, ...page.items.filter((item) => !known.has(feedItemKey(item, source.id)))]
               : page.items,
-          });
+          };
+          sourcePages.current.pages.set(source.id, entry.page);
         }
         if (!loaded.length && settled.length && settled.every(entry => entry.status === "rejected" && entry.reason?.name === "AbortError"))
           throw new DOMException("Feed read superseded", "AbortError");
@@ -1569,10 +1601,11 @@ export function Feed({
         };
       } else {
         result = await readPage(
-          (before) => readProjectionPage(scopedSource, query(before)),
+          (before) => readProjectionPage(scopedSource, query(before), manual),
           scopedSource,
-          append ? next || undefined : undefined,
+          pages.get(scopedSource)!.before,
         );
+        if (isCurrent()) retryPages.current.delete(scopedSource);
       }
       if (!isCurrent()) return;
       const key = shownKey();
@@ -1611,11 +1644,17 @@ export function Feed({
       setNext(result.next);
       setUnsupportedReplySources(result.unsupportedReplySources ?? []);
       if (!append) setSummary(result.summary);
-      setError(partialError);
+      setReadError(partialError);
     } catch (e) {
-      if (isCurrent() && (e as Error).name !== "AbortError") setError((e as Error).message);
+      if (isCurrent() && (e as Error).name !== "AbortError") {
+        if (!combined) retryPages.current.set(scopedSource, pages.get(scopedSource)!);
+        setReadError((e as Error).message);
+      }
     } finally {
-      if (ticket === request.current) inFlight.current = false;
+      if (ticket === request.current) {
+        inFlight.current = false;
+        setReadBusy(false);
+      }
       if (isCurrent()) {
         markLoaded(shownKey());
         headSources.current.clear();
@@ -1628,6 +1667,8 @@ export function Feed({
   const firstLoad = useRef(true);
   useEffect(() => {
     setNeedsOpen(false);
+    setReadError("");
+    retryPages.current.clear();
     const cached = cachedView<Shown>(shownKey());
     // The first render already shows the cached list; a filter change swaps
     // to that filter's cached list, or a loader.
@@ -1652,6 +1693,7 @@ export function Feed({
       if(frame.type !== "reset") return;
       projectionPages.current.reset(source.id);
       readRecovery.current.reset(source.id);
+      retryPages.current.delete(source.id);
       if (inFlight.current) pendingRefresh.current.sources.add(source.id);
     }));
     void load();
@@ -1664,6 +1706,7 @@ export function Feed({
       pendingRefresh.current = { key: "", sources: new Set() };
       headSources.current.clear();
       inFlight.current = false;
+      setReadBusy(false);
     };
   }, [filter, project, teams, agent, sourceKey, generation]);
   useEffect(() => {
@@ -1678,13 +1721,17 @@ export function Feed({
     window.addEventListener("loop-later-change", update);
     // Reading a story changes the Social chip's count.
     window.addEventListener("loop-social-read", update);
-    // "Retry connection" asks every source-backed view to reload now.
+    // Source discovery and completed actions refresh the head with its normal
+    // retry budget. Only this view's notice retries the failed operation once.
     window.addEventListener("loop-source-refresh", update);
     const stopChanges = listenWorkspaceChanges("feed", event => {
       const detail=(event as CustomEvent<WorkspaceChangeDetail>).detail;
       const affected=activeSources.filter(source=>workspaceChangeAffects(event,"feed",source.id) &&
         (reactiveSource(source.id,"feed") || !detail?.changes)).map(source=>source.id);
-      if(affected.length)void load(false,true,affected);
+      if (affected.length) {
+        if ([...retryPages.current.keys()].every(source => affected.includes(source))) setReadError("");
+        void load(false,true,affected);
+      }
     });
     const stopFallback = surfaceFallback(activeSources.map(source=>source.id),"feed",30_000,
       missing => void load(false,true,missing));
@@ -1839,6 +1886,7 @@ export function Feed({
       if (active) {
         ++request.current;
         inFlight.current = false;
+        setReadBusy(false);
         for (const source of headSources.current) pendingRefresh.current.sources.add(source);
         headSources.current.clear();
         schedulePendingRefresh();
@@ -2246,6 +2294,7 @@ export function Feed({
           ))}
         </div>
       )}
+      <CollectionReadNotice error={readError} busy={readBusy} retry={retryRead} />
       {error && (
         <div className="error" role="alert">
           {error}
@@ -2284,7 +2333,7 @@ export function Feed({
               {items.map((item) => card(item))}
             </ul>
           ) : (
-            !error && (
+            !error && !readError && (
               <div className="inbox-empty">
                 <p>
                   <strong>

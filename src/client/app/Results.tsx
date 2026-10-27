@@ -2,6 +2,7 @@ import { workspaceApi, type ResultItem } from "../../shared/workspace-api";
 import { ContentCard } from "../ContentCard";
 import { cardArtifact, type CardArtifact } from "../card-actions";
 import { CardPager, type CardWindow } from "../card-pager";
+import { CollectionReadNotice } from "../CollectionRead";
 import { cardReader } from "../../shared/card-client";
 import { useProjectionRead, useProjectionRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
@@ -23,7 +24,11 @@ type ResultsProps = {
   teamKey: string;
   projectFilter: string;
   resultsContext: RefObject<string>;
-  resultsSelection: RefObject<{ key: string }>;
+  resultsSelection: RefObject<{
+    key: string;
+    retryAppend?: boolean;
+    pending?: number;
+  }>;
   resultsPager: RefObject<ResultsPager<ResultItem>>;
   cardsPager: RefObject<CardPager>;
   setItems(value: ResultItem[] | CardArtifact[]): void;
@@ -54,7 +59,13 @@ export function createResultsLoader(props: ResultsProps) {
     readContract,
     setRevision,
   } = props;
-  async function loadResults(append = false, notify = true) {
+  async function loadResults(
+    append = false,
+    notify = true,
+    manual = false,
+    reason?: "change" | "fallback",
+  ) {
+    if (manual) append = resultsSelection.current.retryAppend ?? false;
     const owner = ownerRef.current,
       source = executionSourceId(),
       key = JSON.stringify([
@@ -71,6 +82,7 @@ export function createResultsLoader(props: ResultsProps) {
       // Both transports publish into the same list. Restore only this exact
       // owner/source/selection's committed window before reconciling changes.
       resultsSelection.current = { key };
+      setResultsError("");
       resultsPager.current = new ResultsPager<ResultItem>();
       cardsPager.current.reset();
       const saved = view !== "files" && cachedView<CardWindow>(cacheKey);
@@ -87,6 +99,10 @@ export function createResultsLoader(props: ResultsProps) {
       }
     }
     const selectionContext = resultsSelection.current;
+    if ((manual || reason === "fallback") && selectionContext.pending) return;
+    selectionContext.pending = (selectionContext.pending || 0) + 1;
+    if (manual || selectionContext.retryAppend !== undefined)
+      setResultsLoading(true);
     if (
       (view === "files" ? resultsPager.current : cardsPager.current).key !==
         key ||
@@ -96,7 +112,7 @@ export function createResultsLoader(props: ResultsProps) {
       setNext(null);
       setResultsLoading(true);
     }
-    setResultsError("");
+    if (reason === "change") setResultsError("");
     try {
       const query = () => {
         const q = new URLSearchParams({
@@ -107,7 +123,10 @@ export function createResultsLoader(props: ResultsProps) {
         if (projectFilter && !profile) q.set("folder", projectFilter);
         return q;
       };
-      const reader = cardReader((path, signal) => readSnapshot(path, source));
+      const mode = manual ? "manual" : "automatic";
+      const reader = cardReader((path, signal) =>
+        readSnapshot(path, source, mode),
+      );
       const selection = {
         view: "results" as const,
         agent: profile?.id,
@@ -146,6 +165,7 @@ export function createResultsLoader(props: ResultsProps) {
                   workspaceApi.results,
                   { query: Object.fromEntries(q) },
                   source,
+                  mode,
                 );
               },
               async (after, through) => {
@@ -163,6 +183,7 @@ export function createResultsLoader(props: ResultsProps) {
                     },
                   },
                   source,
+                  mode,
                 );
               },
             );
@@ -176,6 +197,9 @@ export function createResultsLoader(props: ResultsProps) {
         const saved = cardsPager.current.snapshot();
         if (saved) cacheView(cacheKey, saved, owner);
       }
+      // A successful unchanged page also resolves the connection failure.
+      setResultsError("");
+      delete selectionContext.retryAppend;
       if (!result) return;
       setItems(result.items);
       setNext(result.next);
@@ -193,13 +217,15 @@ export function createResultsLoader(props: ResultsProps) {
           setNext(null);
         }
         setResultsError((e as Error).message);
+        selectionContext.retryAppend = append;
       }
     } finally {
+      selectionContext.pending!--;
       if (
         selectionContext === resultsSelection.current &&
         key === resultsContext.current
       )
-        setResultsLoading(false);
+        setResultsLoading(selectionContext.pending! > 0);
     }
   }
   return loadResults;
@@ -357,15 +383,12 @@ export function renderResults(
     );
   const resultsList = (
     <div className="feed">
-      {resultsError && items.length > 0 && (
-        <div className="error" role="alert">
-          {resultsError}
-          <button className="text-button" onClick={() => void loadResults()}>
-            Try again
-          </button>
-        </div>
-      )}
-      {resultsLoading ? (
+      <CollectionReadNotice
+        error={resultsError}
+        busy={resultsLoading}
+        retry={() => void loadResults(false, false, true)}
+      />
+      {resultsLoading && !items.length ? (
         <div
           className="feed-loading"
           role="status"
@@ -375,14 +398,7 @@ export function renderResults(
           <span />
           <span />
         </div>
-      ) : resultsError && !items.length ? (
-        <div className="error" role="alert">
-          {resultsError}
-          <button className="text-button" onClick={() => void loadResults()}>
-            Try again
-          </button>
-        </div>
-      ) : items.length ? (
+      ) : resultsError && !items.length ? null : items.length ? (
         items
           // Typed cards already carry public selection membership. Retained
           // Files/legacy rows keep their existing snippet filter.

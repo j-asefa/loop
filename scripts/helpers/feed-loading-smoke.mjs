@@ -1,12 +1,351 @@
 import { expect } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import {
+  collectionReadRecovery,
+  signalCollection,
+  isWebKitNavigationFetchError,
+} from "./browser-errors.mjs";
 
 // Hold independent reads at the browser boundary: ready feed cards must not
 // wait for discovery, agent metadata, or a slower environment's feed.
-export async function feedLoadingSmoke(page, fixture, _engine, capture) {
+export async function feedLoadingSmoke(page, fixture, engine, capture) {
+  // These fixture-only companion and linked sources have no real socket
+  // servers. Negotiate a quiet complete stream so HTTP fallback invalidations
+  // cannot replace the append operation during its retry assertions.
+  await page.routeWebSocket(
+    (url) =>
+      url.pathname === "/ws" ||
+      /^\/api\/agent-sources\/[^/]+\/events\/ws$/.test(url.pathname),
+    (route) => {
+      route.send(
+        JSON.stringify({
+          v: 3,
+          type: "reset",
+          epoch: "feed-loading",
+          cursor: 0,
+          build: "fixture",
+          buildIdentity: null,
+          serverNow: Date.now(),
+          nextDeadline: null,
+          capabilities: {
+            invalidations: "complete",
+            deadlines: true,
+            transcript: "delta",
+            feed: "delta",
+            results: "delta",
+          },
+        }),
+      );
+    },
+  );
   for (const legacy of [false, true])
     await feedLoadingCase(page, fixture, legacy, (name) =>
       capture((legacy ? "legacy-" : "cards-") + name),
     );
+  await openConnectedFeed(page, fixture.base);
+  await page.getByRole("tab", { name: /^Working/ }).click();
+  await collectionReadRecovery(page, {
+    route: (url) =>
+      url.pathname === "/api/feed" &&
+      url.searchParams.get("filter") === "working",
+    scope: page.getByRole("region", { name: "Feed", exact: true }),
+    errorText:
+      /Couldn.t load the Feed|Some environments|Collection recovery fixture/,
+    start: () => signalCollection(page, "feed"),
+  });
+  await feedRefreshAfterAppendRecovery(page, fixture);
+  await feedRetryDoneSummary(page, fixture);
+  await feedClearTeamWithCursor(page, fixture, engine);
+}
+
+async function feedRetryDoneSummary(page, fixture) {
+  // A standalone answer produces a third Done card through the real projector.
+  const messageId = randomUUID();
+  fixture.db
+    .prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'assistant','Additional completed answer for summary recovery',?)",
+    )
+    .run(
+      messageId,
+      fixture.owner,
+      fixture.conversations.find((item) => item.state === "completed").id,
+      Date.now(),
+    );
+  const first = await fixture.api("/v1/cards?view=done&limit=1");
+  expect(first.next).toBeTruthy();
+  const second = await fixture.api(
+    "/v1/cards?view=done&limit=1&before=" + encodeURIComponent(first.next),
+  );
+  expect(second.next).toBeTruthy();
+  const cardMatch = (url) =>
+    url.pathname === "/api/v1/cards" && url.searchParams.get("view") === "done";
+  const summaryMatch = (url) =>
+    url.pathname === "/api/feed" && url.searchParams.get("filter") === "needs";
+  const appends = [];
+  let summaryReads = 0;
+  let summaryFailed = false;
+  let recovering = false;
+  const cards = async (route) => {
+    const url = new URL(route.request().url());
+    const before = url.searchParams.get("before");
+    if (before) {
+      appends.push(before);
+      if (before !== first.next)
+        return route.fulfill({
+          status: 503,
+          json: { error: "The following Done page is still unavailable" },
+        });
+      summaryFailed = true;
+    }
+    url.searchParams.set("limit", "1");
+    return route.fulfill({ response: await route.fetch({ url: url.href }) });
+  };
+  const summary = (route) => {
+    if (summaryFailed || recovering) summaryReads++;
+    return summaryFailed
+      ? route.fulfill({
+          status: 503,
+          json: { error: "Done summary unavailable after a successful page" },
+        })
+      : route.continue();
+  };
+  await page.route(cardMatch, cards);
+  await page.route(summaryMatch, summary);
+  try {
+    await openConnectedFeed(page, fixture.base + "/?filter=done");
+    // Let the initial reset and fixture write notifications settle before the
+    // outage, as in the other collection recovery cases.
+    await page.waitForTimeout(2500);
+    const feed = page.getByRole("region", { name: "Feed", exact: true });
+    const rows = feed.locator(".inbox-results .inbox-row");
+    const notice = feed.locator(".collection-read-error");
+    const retry = notice.getByRole("button", {
+      name: "Retry connection",
+      exact: true,
+    });
+    await expect(rows).toHaveCount(1);
+    await feed.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(notice).toBeVisible();
+    await expect(rows).toHaveCount(1);
+    expect(appends).toEqual([first.next]);
+    expect(summaryReads).toBe(1);
+    await retry.click();
+    await expect.poll(() => summaryReads).toBe(2);
+    await expect(retry).toBeEnabled();
+    await page.waitForTimeout(6_500);
+    expect(summaryReads).toBe(2);
+    expect(appends).toEqual([first.next]);
+    await expect(rows).toHaveCount(1);
+    summaryFailed = false;
+    recovering = true;
+    await retry.click();
+    await expect(rows).toHaveCount(2);
+    await expect(notice).toHaveCount(0);
+    expect(summaryReads).toBe(3);
+    expect(appends).toEqual([first.next]);
+    await expect(
+      feed.getByRole("button", { name: "Load more", exact: true }),
+    ).toBeVisible();
+  } finally {
+    await page.unroute(cardMatch, cards);
+    await page.unroute(summaryMatch, summary);
+    fixture.db.prepare("DELETE FROM messages WHERE id=?").run(messageId);
+  }
+}
+
+async function feedClearTeamWithCursor(page, fixture, engine) {
+  const team = (await fixture.api("/teams"))[0];
+  const cards = await fixture.api("/v1/cards?view=done");
+  const ids = [
+    ...new Set(cards.items.map((item) => item.card.source.conversation_id)),
+  ]
+    .filter(Boolean)
+    .slice(0, 2);
+  expect(ids).toHaveLength(2);
+  const previous = ids.map((id) =>
+    fixture.db
+      .prepare("SELECT id,team_id FROM conversations WHERE id=?")
+      .get(id),
+  );
+  const setTeam = fixture.db.prepare(
+    "UPDATE conversations SET team_id=? WHERE id=?",
+  );
+  fixture.db.transaction(() => {
+    for (const id of ids) setTeam.run(team.id, id);
+  })();
+  const match = (url) =>
+    url.pathname === "/api/v1/cards" && url.searchParams.get("view") === "done";
+  let combinedHeads = 0;
+  const errors = [];
+  const onError = (error) => {
+    if (!isWebKitNavigationFetchError(engine, error, fixture.base))
+      errors.push(error.message);
+  };
+  const handler = async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("teams") === team.id) {
+      // Ask the real server for a small page, retaining its real opaque cursor.
+      url.searchParams.set("limit", "1");
+      const response = await route.fetch({ url: url.href });
+      return route.fulfill({ response });
+    }
+    if (!url.searchParams.get("teams") && !url.searchParams.has("before"))
+      combinedHeads++;
+    return route.continue();
+  };
+  await page.route(match, handler);
+  try {
+    const scoped = await fixture.api(
+      `/v1/cards?view=done&teams=${team.id}&limit=1`,
+    );
+    expect(scoped.next).toBeTruthy();
+    expect(() => JSON.parse(scoped.next)).toThrow();
+    await openConnectedFeed(
+      page,
+      `${fixture.base}/?filter=done&teams=${team.id}`,
+    );
+    const feed = page.getByRole("region", { name: "Feed", exact: true });
+    await expect(feed.locator(".inbox-row")).toHaveCount(1);
+    await expect(
+      feed.getByRole("button", { name: "Load more", exact: true }),
+    ).toBeVisible();
+    page.on("pageerror", onError);
+    combinedHeads = 0;
+    await page.getByRole("button", { name: /^Filter by team:/ }).click();
+    const dialog = page.locator("dialog[open]").last();
+    await dialog.getByRole("button", { name: /^All teams/ }).click();
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await expect.poll(() => combinedHeads).toBeGreaterThan(0);
+    await expect
+      .poll(() => feed.locator(".inbox-row").count())
+      .toBeGreaterThan(1);
+    await expect(feed.locator(".collection-read-error")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  } finally {
+    page.off("pageerror", onError);
+    await page.unroute(match, handler);
+    fixture.db.transaction(() => {
+      for (const row of previous) setTeam.run(row.team_id, row.id);
+    })();
+  }
+}
+
+async function openConnectedFeed(page, url) {
+  let ready = false;
+  const watch = (socket) => {
+    if (new URL(socket.url()).pathname !== "/api/events/ws") return;
+    socket.on("framereceived", ({ payload }) => {
+      const frame = JSON.parse(payload.toString());
+      if (frame.type === "reset" || frame.type === "events") ready = true;
+    });
+  };
+  page.on("websocket", watch);
+  try {
+    await page.goto(url);
+    // HTTP fallback also reports Connected. Wait for the socket's initial
+    // frame so its later reset cannot cancel the recovery under test.
+    await expect.poll(() => ready, { timeout: 15_000 }).toBe(true);
+  } finally {
+    page.off("websocket", watch);
+  }
+}
+
+async function feedRefreshAfterAppendRecovery(page, fixture) {
+  const working = await fixture.api("/feed?filter=working");
+  expect(working.items.length).toBeGreaterThan(0);
+  const match = (url) =>
+    url.pathname === "/api/feed" &&
+    url.searchParams.get("filter") === "working";
+  let phase = "initial";
+  const appendReads = [];
+  const refreshReads = [];
+  const manual = Promise.withResolvers();
+  const handler = async (route) => {
+    const url = new URL(route.request().url());
+    if (phase === "append" && url.searchParams.has("before")) {
+      appendReads.push(url);
+      return route.fulfill({ status: 503, json: { error: "Append outage" } });
+    }
+    if (phase === "refresh") {
+      refreshReads.push(url);
+      return route.fulfill({ status: 503, json: { error: "Refresh outage" } });
+    }
+    if (phase === "manual") {
+      refreshReads.push(url);
+      await manual.promise;
+    }
+    return route.fulfill({
+      json: {
+        ...working,
+        items: [{ ...working.items[0], title: `Recovery head ${phase}` }],
+        next: "older",
+      },
+    });
+  };
+  await page.route(match, handler);
+  try {
+    await openConnectedFeed(page, fixture.base + "/?filter=working");
+    await expect(
+      page.getByText("Recovery head initial", { exact: true }),
+    ).toBeVisible();
+    // Let the initial reset's trailing refresh settle before the outage.
+    await page.waitForTimeout(2500);
+    const feed = page.getByRole("region", { name: "Feed", exact: true });
+    const marker = feed.locator(".collection-read-error");
+    phase = "append";
+    await feed.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect.poll(() => appendReads.length, { timeout: 10_000 }).toBe(3);
+    await expect(marker).toBeVisible();
+    expect(appendReads.map((url) => url.searchParams.get("before"))).toEqual([
+      "older",
+      "older",
+      "older",
+    ]);
+    await page.waitForTimeout(2100);
+    expect(appendReads).toHaveLength(3);
+
+    // A successful signal-driven head read clears a failed append. A later
+    // post-action refresh must read the head, even with a remaining tail cursor.
+    phase = "recovered";
+    await signalCollection(page, "feed");
+    await expect(
+      page.getByText("Recovery head recovered", { exact: true }),
+    ).toBeVisible();
+    await expect(marker).toHaveCount(0);
+    phase = "refresh";
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("loop-source-refresh")),
+    );
+    await expect.poll(() => refreshReads.length).toBeGreaterThan(0);
+    expect(refreshReads[0].searchParams.get("filter")).toBe("working");
+    expect(refreshReads[0].searchParams.has("before")).toBe(false);
+    // This shared event retains the automatic two-retry budget.
+    await expect.poll(() => refreshReads.length, { timeout: 10_000 }).toBe(3);
+    expect(refreshReads.every((url) => !url.searchParams.has("before"))).toBe(
+      true,
+    );
+    await expect(marker).toBeVisible();
+    await page.waitForTimeout(2100);
+    expect(refreshReads).toHaveLength(3);
+
+    phase = "manual";
+    const retry = marker.getByRole("button", {
+      name: "Retry connection",
+      exact: true,
+    });
+    await retry.click();
+    await expect.poll(() => refreshReads.length).toBe(4);
+    await expect(retry).toBeDisabled();
+    expect(refreshReads[3].searchParams.has("before")).toBe(false);
+    manual.resolve();
+    await expect(marker).toHaveCount(0);
+    await expect(
+      page.getByText("Recovery head manual", { exact: true }),
+    ).toBeVisible();
+  } finally {
+    manual.resolve();
+    await page.unroute(match, handler);
+  }
 }
 
 async function feedLoadingCase(page, fixture, legacy, capture) {
@@ -285,6 +624,8 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     discoveryFails = false;
     discovery = Promise.withResolvers();
     await page
+      .getByRole("status")
+      .filter({ hasText: "Couldn’t connect to your execution environments" })
       .getByRole("button", { name: "Retry connection", exact: true })
       .click();
     await expect(loading).toBeVisible();
@@ -457,7 +798,7 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     metadataFails = false;
     metadata = Promise.withResolvers();
     const beforeRetry = metadataReads;
-    await page
+    await outage
       .getByRole("button", { name: "Retry connection", exact: true })
       .click();
     await expect
@@ -473,8 +814,57 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     workingHold = Promise.withResolvers();
     await page.getByRole("tab", { name: /^Working/ }).click();
     await expect(rows).toHaveCount(2);
-    await loadMore.click();
-    await expect(rows).toHaveCount(4);
+    const appendRequests = [];
+    const captureAppend = (request) => {
+      const url = new URL(request.url());
+      if (
+        url.pathname.includes("/agent-sources/") &&
+        url.pathname.endsWith("/feed") &&
+        url.searchParams.get("filter") === "working" &&
+        url.searchParams.has("before")
+      )
+        appendRequests.push({
+          source: decodeURIComponent(url.pathname.split("/")[3]),
+          before: url.searchParams.get("before"),
+        });
+    };
+    page.on("request", captureAppend);
+    try {
+      unavailableFeeds.add(sources[1].id);
+      await loadMore.click();
+      const failedReads = () =>
+        appendRequests.filter((read) => read.source === sources[1].id).length;
+      await expect.poll(failedReads, { timeout: 10_000 }).toBe(3);
+      await expect(rows).toHaveCount(3); // Only the healthy source advanced.
+      const retry = page
+        .getByRole("region", { name: "Feed", exact: true })
+        .locator(".collection-read-error")
+        .getByRole("button", { name: "Retry connection", exact: true });
+      await retry.click();
+      await expect.poll(failedReads).toBe(4);
+      await page.waitForTimeout(6500);
+      expect(failedReads()).toBe(4);
+      expect(
+        appendRequests.filter((read) => read.source === sources[0].id),
+      ).toEqual([{ source: sources[0].id, before: "1" }]);
+      unavailableFeeds.clear();
+      await retry.click();
+      await expect(rows).toHaveCount(4);
+      await expect(retry).toHaveCount(0);
+      expect(
+        appendRequests.filter((read) => read.source === sources[1].id),
+      ).toEqual(
+        Array.from({ length: 5 }, () => ({
+          source: sources[1].id,
+          before: "1",
+        })),
+      );
+      expect(
+        appendRequests.filter((read) => read.source === sources[0].id),
+      ).toHaveLength(1);
+    } finally {
+      page.off("request", captureAppend);
+    }
     await loadMore.click();
     await expect(rows).toHaveCount(6);
     const fastWorkingRefresh = page.waitForResponse((response) => {
@@ -606,6 +996,16 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     // Names update even when discovery returns the same source ids and the
     // card's archived agent has no metadata projection to provide its label.
     await expect(firstBadge).toHaveText(sources[0].name);
+    // The badge updates before source metadata settles. Finish that discovery
+    // pass before requesting another topology change; local agents appear only
+    // after its metadata projection has been published.
+    await expect(
+      page
+        .getByRole("region", { name: "Your agents", exact: true })
+        .getByRole("button")
+        .filter({ hasText: bootstrap.environmentName })
+        .first(),
+    ).toBeVisible();
     discoveredSources = sources;
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop-source-refresh")),

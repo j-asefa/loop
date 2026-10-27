@@ -3,7 +3,13 @@ import type { ActivityRecord } from "../agent-activities";
 import { useEffect, useRef, useState } from "react";
 import { FolderSearch, Info, TerminalSquare } from "lucide-react";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import { useProjectionRoute, useSourceRoute } from "./SourceContext";
+import {
+  useProjectionRoute,
+  useSourceRoute,
+  useSourceId,
+} from "./SourceContext";
+import { readRoute } from "./workspace-api";
+import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { Sheet, RichText } from "./components";
 import {
   SettingsList,
@@ -21,6 +27,9 @@ export function NativeHistory({
 }) {
   const read = useProjectionRoute(),
     call = useSourceRoute();
+  const sourceId = useSourceId();
+  const recovery = useCollectionRead(sourceId);
+  const lastList = useRef({ discover: false, cursor: "" });
   const [data, setData] = useState<
       RouteResponse<typeof workspaceApi.nativeHistoryList>
     >({ managed: [], external: [], next: null }),
@@ -43,29 +52,41 @@ export function NativeHistory({
     },
     [],
   );
-  async function load(discover = false, cursor = "") {
-    setBusy(true);
-    setError("");
-    try {
-      const r = await read(workspaceApi.nativeHistoryList, {
-        query: discover ? { discover: "1", cursor } : {},
-      });
-      setData((old) => ({
-        ...r,
-        external: cursor ? [...old.external, ...r.external] : r.external,
-      }));
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+  async function load(discover = false, cursor = "", manual = false) {
+    lastList.current = { discover, cursor };
+    await recovery.load(
+      (signal, mode) =>
+        readRoute(
+          workspaceApi.nativeHistoryList,
+          {
+            query: discover ? { discover: "1", cursor } : {},
+          },
+          sourceId,
+          signal,
+          undefined,
+          mode,
+        ),
+      (r) =>
+        setData((old) => ({
+          ...r,
+          external: cursor ? [...old.external, ...r.external] : r.external,
+        })),
+      manual,
+    );
   }
   useEffect(() => {
+    setData({ managed: [], external: [], next: null });
     void load();
-  }, []);
+  }, [recovery.load, sourceId]);
   return (
     <Sheet title="Native conversations" onClose={onClose}>
       <p className="settings-intro">Threads that keep their harness context.</p>
+      <CollectionReadNotice
+        {...recovery}
+        retry={() =>
+          void load(lastList.current.discover, lastList.current.cursor, true)
+        }
+      />
       <SettingsSegmented
         label="History source"
         value={source}
@@ -107,7 +128,7 @@ export function NativeHistory({
               icon={FolderSearch}
               title="Discover Codex history"
               description="Saved threads in other directories"
-              disabled={busy}
+              disabled={busy || recovery.busy}
               onClick={() => void load(true)}
             />
           </SettingsList>
@@ -149,7 +170,7 @@ export function NativeHistory({
       {source === "external" && data.next && (
         <button
           className="secondary"
-          disabled={busy}
+          disabled={busy || recovery.busy}
           onClick={() => void load(true, data.next || "")}
         >
           Load more

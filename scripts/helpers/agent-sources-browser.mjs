@@ -335,6 +335,8 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     sourceFailed = false;
     // Retry reloads both the agent sources and the Feed threads it explains.
     await page
+      .getByRole("status")
+      .filter({ hasText: "Connection check unavailable" })
       .getByRole("button", { name: "Retry connection", exact: true })
       .click();
     await expect(

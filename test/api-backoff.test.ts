@@ -281,3 +281,45 @@ it.each(["<html>Gateway unavailable</html>", ""])(
     expect(fetcher).toHaveBeenCalledTimes(3);
   },
 );
+
+it("makes one manual retry after exhaustion and still honors Retry-After", async () => {
+  fetcher.mockImplementation(
+    async () => new Response("unavailable", { status: 503 }),
+  );
+  const controller = new AbortController();
+  const automatic = readInWorkspace(
+    "/scheduled-sends",
+    "",
+    controller.signal,
+  ).catch((error) => error);
+  await vi.advanceTimersByTimeAsync(6000);
+  expect((await automatic).status).toBe(503);
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  await expect(
+    readInWorkspace(
+      "/scheduled-sends",
+      "",
+      controller.signal,
+      undefined,
+      "manual",
+    ),
+  ).rejects.toMatchObject({ status: 503 });
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(fetcher).toHaveBeenCalledTimes(4);
+
+  fetcher.mockResolvedValueOnce(limited("8"));
+  const manual = readRoute(
+    workspaceApi.scheduledSendList,
+    {},
+    "",
+    controller.signal,
+    undefined,
+    "manual",
+  ).catch((error) => error);
+  await vi.advanceTimersByTimeAsync(7999);
+  expect(fetcher).toHaveBeenCalledTimes(5);
+  await vi.advanceTimersByTimeAsync(1);
+  expect((await manual).status).toBe(503);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(fetcher).toHaveBeenCalledTimes(6);
+});

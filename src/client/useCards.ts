@@ -16,15 +16,14 @@ export function useCards(selection: CardSelection, revision = 0) {
     read = useProjectionRoute();
   const owner = viewOwner(),
     key = JSON.stringify([owner, source, selection]);
-  const context = useMemo(() => ({ key, foreground: 0 }), [key]);
+  const context = useMemo(
+    () => ({ key, foreground: 0, pending: 0, retryAppend: false }),
+    [key],
+  );
   const cacheKey = "cards:" + key;
   const restored = cachedView<CardWindow>(cacheKey);
   const current = useRef<typeof context | null>(context);
   current.current = context;
-  const reader = useMemo(
-    () => contractCardReader((contract, input) => read(contract, input)),
-    [read],
-  );
   const pager = useRef(new CardPager());
   const loaded = useRef(restored ? key : "");
   const [shown, setShown] = useState<{ key: string; page: CardPage } | null>(
@@ -32,8 +31,12 @@ export function useCards(selection: CardSelection, revision = 0) {
   );
   const [status, setStatus] = useState({ key, loading: !restored, error: "" });
   const load = useCallback(
-    async (append = false) => {
+    async (append = false, manual = false) => {
       if (!owner || current.current !== context) return;
+      if (manual && context.pending) return;
+      const reader = contractCardReader((contract, input) =>
+        read(contract, input, source, manual ? "manual" : "automatic"),
+      );
       if (pager.current.key !== key) {
         const saved = cachedView<CardWindow>(cacheKey);
         if (saved) {
@@ -42,8 +45,9 @@ export function useCards(selection: CardSelection, revision = 0) {
           setShown({ key, page: saved.page });
         }
       }
-      const foreground = append || loaded.current !== key;
+      const foreground = manual || append || loaded.current !== key;
       if (foreground) context.foreground++;
+      context.pending++;
       setStatus((old) => ({
         key,
         loading: context.foreground > 0,
@@ -67,6 +71,7 @@ export function useCards(selection: CardSelection, revision = 0) {
         }
       } catch (error) {
         if (current.current === context && viewOwner() === owner) {
+          context.retryAppend = append;
           if ((error as { status?: number }).status === 409) {
             cacheView(cacheKey, undefined, owner);
             loaded.current = "";
@@ -80,21 +85,28 @@ export function useCards(selection: CardSelection, revision = 0) {
         }
       } finally {
         if (foreground) context.foreground--;
+        context.pending--;
         if (current.current === context && viewOwner() === owner)
           setStatus((old) =>
             old.key === key ? { ...old, loading: context.foreground > 0 } : old,
           );
       }
     },
-    [context, reader],
+    [context, read],
   );
   useEffect(() => {
     current.current = context;
     void load();
     const refresh = () => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") {
+        setStatus((old) => (old.key === key ? { ...old, error: "" } : old));
+        void load();
+      }
     };
-    const stopFallback = surfaceFallback([source], "results", 2000, refresh);
+    const stopFallback = surfaceFallback([source], "results", 2000, () => {
+      if (document.visibilityState === "visible" && !context.pending)
+        void load();
+    });
     const stopChanges = listenWorkspaceChanges(
       selection.view === "saved" ? "saved" : "results",
       refresh,
@@ -122,8 +134,10 @@ export function useCards(selection: CardSelection, revision = 0) {
     items: shown?.key === key ? shown.page.items : noItems,
     next: shown?.key === key ? shown.page.next : null,
     loading: status.key !== key || status.loading,
+    busy: status.key !== key || context.pending > 0,
     error: status.key === key ? status.error : "",
     load,
+    retry: () => load(context.retryAppend, true),
     key,
   };
 }

@@ -155,9 +155,11 @@ it("discards an in-flight old conversation response and coalesces concurrent ref
 it("retries a failed older-page read with the same cursor", async () => {
   let fail = true;
   const requests: string[] = [];
+  const modes: string[] = [];
   let state: any;
   const loader = new ActivityHistory(
-    async (query) => {
+    async (query, mode) => {
+      modes.push(mode);
       const url = routePath(workspaceApi.conversationActivities, {
         params: { id: "thread" },
         query,
@@ -181,12 +183,67 @@ it("retries a failed older-page read with the same cursor", async () => {
     loadingEarlier: false,
     error: "Disconnected",
   });
-  await loader.loadEarlier();
+  await loader.setRuns([]);
+  expect(state.error).toBe("Disconnected");
+  await loader.setRuns(["new-run"]);
+  expect(state.error).toBe("Disconnected");
+  await loader.refresh();
+  expect(state.error).toBe("Disconnected");
+  await loader.retry();
   expect(requests.slice(1)).toEqual([
     "/conversations/thread/activities?view=recent&before=5",
+    "/conversations/thread/activities?view=files&runs=new-run&after=0",
+    "/conversations/thread/activities?view=updates&after=10",
     "/conversations/thread/activities?view=recent&before=5",
   ]);
+  expect(modes).toEqual([
+    "automatic",
+    "automatic",
+    "automatic",
+    "automatic",
+    "manual",
+  ]);
   expect(state).toMatchObject({ hasEarlier: false, error: "" });
+});
+
+it("retains separate failed operations and coalesces repeated manual retries", async () => {
+  const requests: { query: unknown; mode: string }[] = [];
+  let failEarlier = true,
+    failFiles = true;
+  let state: any;
+  const loader = new ActivityHistory(
+    async (query, mode) => {
+      requests.push({ query, mode });
+      if (query?.before && failEarlier) throw new Error("Earlier unavailable");
+      if (query?.view === "files" && failFiles)
+        throw new Error("Files unavailable");
+      return page(10, [], { earlier: query?.before ? null : 5 });
+    },
+    () => {},
+    (next) => {
+      state = next;
+    },
+  );
+  await loader.refresh();
+  await loader.loadEarlier();
+  await loader.setRuns(["run"]);
+  expect(state.error).toBe("Earlier unavailable");
+  failEarlier = false;
+  const retry = loader.retry();
+  expect(state.loading).toBe(true);
+  expect(loader.retry()).toBe(retry);
+  await retry;
+  expect(state).toMatchObject({
+    hasEarlier: false,
+    error: "Files unavailable",
+  });
+  failFiles = false;
+  await loader.retry();
+  expect(requests.slice(3)).toEqual([
+    { query: { view: "recent", before: "5" }, mode: "manual" },
+    { query: { view: "files", runs: "run", after: "0" }, mode: "manual" },
+  ]);
+  expect(state).toMatchObject({ loading: false, error: "" });
 });
 
 it("preserves snapshot paging with older desktops without refetching it for every displayed run", async () => {
@@ -242,6 +299,36 @@ it("follows a change signalled during a read with one more read", async () => {
     "/conversations/thread/activities?view=recent",
     "/conversations/thread/activities?view=updates&after=200",
   ]);
+});
+
+it("keeps exhausted errors visible while fallback reads run and ignores ticks during an active read", async () => {
+  let reads = 0;
+  let release!: (value: ActivityPage) => void;
+  let state = { error: "", loading: false };
+  const loader = new ActivityHistory(
+    async () => {
+      if (++reads === 1) throw new Error("Offline");
+      return new Promise<ActivityPage>((resolve) => {
+        release = resolve;
+      });
+    },
+    () => {},
+    (next) => {
+      state = next;
+    },
+  );
+  await loader.refresh();
+  expect(state.error).toBe("Offline");
+  const pending = loader.refresh(false, true);
+  await Promise.resolve();
+  expect(state).toMatchObject({ error: "Offline", loading: true });
+  expect(loader.refresh(false, true)).toBe(pending);
+  expect(reads).toBe(2);
+  release(page(200, [], { earlier: null }));
+  await pending;
+  await Promise.resolve();
+  expect(reads).toBe(2);
+  expect(state).toMatchObject({ error: "", loading: false });
 });
 
 it("loads conversation controls and displayed files without requesting tool or legacy history", async () => {

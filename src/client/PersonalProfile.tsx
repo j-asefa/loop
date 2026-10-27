@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ContentCard } from "./ContentCard";
 import { useCards } from "./useCards";
+import { CollectionReadNotice } from "./CollectionRead";
 import type { Agent, Provider } from "../shared/types";
 
 export { opensContentCard as opensConversationFromCard } from "./ContentCard";
@@ -33,7 +34,7 @@ export function PersonalProfile({
     const timer = setTimeout(() => setFilter(query.trim()), 300);
     return () => clearTimeout(timer);
   }, [query]);
-  const { items, next, loading, error, load } = useCards({
+  const { items, next, loading, busy, error, load, retry } = useCards({
     view: "sent",
     ...(filter ? { q: filter } : {}),
   });
@@ -104,12 +105,11 @@ export function PersonalProfile({
         );
       })}
       {loading && <p role="status">Loading prompts…</p>}
-      {error && (
-        <div role="alert">
-          <p>{error}</p>
-          <button onClick={() => void load()}>Retry</button>
-        </div>
-      )}
+      <CollectionReadNotice
+        error={error}
+        busy={busy}
+        retry={() => void retry()}
+      />
       {!loading && !error && !items.length && (
         <p>
           {filter

@@ -1,5 +1,6 @@
 import { workspaceApi, type ConversationPage, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { readRoute, UnavailableResponse } from "./workspace-api";
+import { CollectionReadNotice } from "./CollectionRead";
 import { listenWorkspaceChanges, broadWorkspaceChange } from "./workspace-changes";
 import { CodeReviewStatus } from "./CodeReview";
 import { useSourceId, useSourceRoute, useProjectionRoute, useSourceCapabilities } from "./SourceContext";
@@ -1310,7 +1311,7 @@ function ConversationView({
           {!activityHistory.loading && !activityHistory.error && !toolRecords().length && !activityHistory.hasEarlier && (
             <p className="field-hint">No tool activity yet.</p>
           )}
-          {activityHistory.error && <p className="error" role="alert">{activityHistory.error}</p>}
+          <CollectionReadNotice error={activityHistory.error} busy={activityHistory.loading || activityHistory.loadingEarlier} retry={() => void activityHistory.retry()} />
           {activityHistory.hasEarlier && (
             <button type="button" disabled={activityHistory.loadingEarlier}
               onClick={() => { void activityHistory.loadEarlier(); }}>

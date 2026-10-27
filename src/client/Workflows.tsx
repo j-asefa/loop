@@ -1,10 +1,11 @@
-import { useProjectionRead, useSourceId } from "./SourceContext";
+import { useSourceId } from "./SourceContext";
+import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
 import { Play, Plus, Check, FileCode, MessageSquare } from "lucide-react";
 import { reorderSteps } from "./workflowOrder";
-import { api, parse } from "./api";
+import { api, parse, readInWorkspace } from "./api";
 import { Sheet, RichText } from "./components";
 import type { Agent, Folder } from "../shared/types";
 export function starter(agents: Agent[], folder: string) {
@@ -81,8 +82,7 @@ export function WorkflowEditor({
   onConversation: (id: string) => void;
   onCreateAgent: (source: string, id?: string) => void;
 }) {
-  const read = useProjectionRead(),
-    sourceId = useSourceId();
+  const sourceId = useSourceId();
   const [list, setList] = useState<any[]>([]),
     [record, setRecord] = useState<any>(null),
     [source, setSource] = useState(initialSource || starter(agents, "")),
@@ -93,6 +93,23 @@ export function WorkflowEditor({
     [busy, setBusy] = useState(false),
     [selectedRun, setSelectedRun] = useState<string | null>(null),
     [steps, setSteps] = useState<any[]>([]);
+  const recovery = useCollectionRead(JSON.stringify([sourceId, selectedRun]));
+  const read = recovery.load;
+  const loadSteps = (manual = false, background = false) =>
+    selectedRun &&
+    read(
+      (signal, mode) =>
+        readInWorkspace<any[]>(
+          `/runs/${selectedRun}/steps`,
+          sourceId,
+          signal,
+          undefined,
+          mode,
+        ),
+      setSteps,
+      manual,
+      background,
+    );
   const request = useRef({ signature: "", key: "" }),
     spec = parse<any>(source, null);
   async function load(id: string, restoreDraft = false) {
@@ -113,13 +130,16 @@ export function WorkflowEditor({
     if (initialId) void load(initialId, true);
   }, []);
   useEffect(() => {
+    setSteps([]);
     if (!selectedRun) return;
-    const update = () =>
-      read<any[]>(`/runs/${selectedRun}/steps`)
-        .then(setSteps)
-        .catch((e) => setError(e.message));
+    const update = () => void loadSteps();
     const stopChanges = listenWorkspaceChanges("runs", update, sourceId);
-    const stopFallback = surfaceFallback([sourceId], "workspace", 1800, update);
+    const stopFallback = surfaceFallback(
+      [sourceId],
+      "workspace",
+      1800,
+      () => void loadSteps(false, true),
+    );
     void update();
     return () => {
       stopChanges();
@@ -489,6 +509,10 @@ export function WorkflowEditor({
           ))}
           {selectedRun && (
             <div className="workflow-trace">
+              <CollectionReadNotice
+                {...recovery}
+                retry={() => void loadSteps(true)}
+              />
               {steps.map((s) => (
                 <div key={s.step_id} className="connection-card">
                   <strong>{s.step_id}</strong>

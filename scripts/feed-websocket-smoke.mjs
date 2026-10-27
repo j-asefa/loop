@@ -288,7 +288,7 @@ for (const engine of engines) {
           await failedSource.waitForTimeout(400);
           await expect(sourceError).toBeVisible();
           await failedSource.unroute(unavailable);
-          await sourceError.getByRole("button", {name:"Try again",exact:true}).click();
+          await sourceError.getByRole("button", {name:"Retry connection",exact:true}).click();
           await expect(row(failedSource, "Remote task")).toHaveCount(1, {timeout:revisionTimeout});
           await expect(sourceError).toHaveCount(0);
           await failedSource.close();

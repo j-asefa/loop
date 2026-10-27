@@ -1,9 +1,10 @@
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceApi, useSourceId, useProjectionRead } from "./SourceContext";
+import { useSourceApi, useSourceId } from "./SourceContext";
+import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { useEffect, useState } from "react";
 import { Bookmark, Info, MessageSquare } from "lucide-react";
-import { parse } from "./api";
+import { parse, readInWorkspace } from "./api";
 import { Sheet } from "./components";
 import {
   SettingsList,
@@ -347,31 +348,51 @@ export function MemoryUsed({ runId }: { runId: string }) {
 }
 export function NativeConversation({ id }: { id: string }) {
   const api = useSourceApi(),
-    read = useProjectionRead(),
     sourceId = useSourceId();
+  const recovery = useCollectionRead(JSON.stringify([sourceId, id]));
+  const read = recovery.load;
   const [data, setData] = useState<any>(null),
     [error, setError] = useState(""),
     [include, setInclude] = useState(true);
+  const load = (manual = false, background = false) =>
+    read(
+      (signal, mode) =>
+        readInWorkspace(
+          `/conversations/${id}/memory`,
+          sourceId,
+          signal,
+          undefined,
+          mode,
+        ),
+      (value) => {
+        setData(value);
+        setInclude(value.memoryIncluded);
+      },
+      manual,
+      background,
+    );
   useEffect(() => {
-    const load = () =>
-      read(`/conversations/${id}/memory`)
-        .then((v) => {
-          setData(v);
-          setInclude(v.memoryIncluded);
-        })
-        .catch((e) => setError(e.message));
-    const stopChanges = listenWorkspaceChanges("metadata", load, sourceId);
-    const stopFallback = surfaceFallback([sourceId], "workspace", 4000, load);
+    setData(null);
+    const update = () => void load();
+    const stopChanges = listenWorkspaceChanges("metadata", update, sourceId);
+    const stopFallback = surfaceFallback(
+      [sourceId],
+      "workspace",
+      4000,
+      () => void load(false, true),
+    );
     void load();
     return () => {
       stopChanges();
       stopFallback();
     };
   }, [id, sourceId, read]);
-  if (!data) return null;
+  if (!data)
+    return <CollectionReadNotice {...recovery} retry={() => void load(true)} />;
   return (
     <details className="native-conversation">
       <summary>Conversation memory</summary>
+      <CollectionReadNotice {...recovery} retry={() => void load(true)} />
       {error && <p role="alert">{error}</p>}
       <label className="native-toggle">
         <input

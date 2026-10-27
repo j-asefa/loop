@@ -26,7 +26,7 @@ import {
 } from "./helpers/smoke-diagnostics.mjs";
 import { runReceipt } from "./helpers/run-receipt.mjs";
 import { seedNewerReplyMessage } from "./helpers/quoted-reply-fixture.mjs";
-import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
+import { isWebKitNavigationFetchError, collectionReadRecovery, signalCollection, legacyFallbackRecovery } from "./helpers/browser-errors.mjs";
 
 import { workspaceControlsSmoke } from "./helpers/workspace-controls-smoke.mjs";
 import { teamNavigationSmoke } from "./helpers/team-navigation-smoke.mjs";
@@ -653,6 +653,12 @@ for (const engine of selectedEngines()) {
         await expect(
           dialog().getByRole("checkbox", { name: "Include in shared memory" }),
         ).toBeVisible();
+        await collectionReadRecovery(page, {
+          route: (url) => url.pathname === `/api/conversations/${fixture.conversations[0].id}/memory`,
+          scope: dialog(),
+          start: () => signalCollection(page, "metadata"),
+          recovered: () => signalCollection(page, "metadata"),
+        });
         assert(
           (await thread()
             .locator(".messages")
@@ -1037,6 +1043,12 @@ for (const engine of selectedEngines()) {
           exact: true,
         });
         await expect(oldest).toHaveCount(1);
+        await collectionReadRecovery(page, {
+          route: (url) => /^\/api\/v1\/cards(?:\/changes)?$/.test(url.pathname) && url.searchParams.get("view") === "results" && url.searchParams.get("project") === fixture.projects[0].id,
+          scope: activity,
+          start: () => page.evaluate(() => window.dispatchEvent(new Event("loop-later-change"))),
+        });
+        await expect(oldest).toHaveCount(1);
         fixture.db
           .prepare("UPDATE artifacts SET title=?,updated_at=? WHERE id=?")
           .run("Updated project history", Date.now(), historyIds.at(-1));
@@ -1109,6 +1121,11 @@ for (const engine of selectedEngines()) {
         ).toBeVisible();
         await page.getByLabel("Search everything").fill("release notes");
         await expect(page.locator(".personal-message-card")).toHaveCount(1);
+        await collectionReadRecovery(page, {
+          route: (url) => /^\/api\/v1\/cards(?:\/changes)?$/.test(url.pathname) && url.searchParams.get("view") === "sent",
+          scope: page.getByRole("region", { name: "Your sent prompts" }),
+          start: () => signalCollection(page, "results"),
+        });
         await expect(page.locator(".personal-message-card")).toContainText(
           "Summarize the release notes and draft a short update",
         );
@@ -1138,6 +1155,16 @@ for (const engine of selectedEngines()) {
           .getByRole("button", { name: "Edit steps", exact: true })
           .click();
         await capture("workflow");
+        await dialog().getByRole("button", { name: "Save workflow", exact: true }).click();
+        await dialog().getByRole("button", { name: "Go for it · v1", exact: true }).click();
+        await expect(dialog().locator(".workflow-trace")).toBeAttached();
+        await collectionReadRecovery(page, {
+          route: (url) => /^\/api\/runs\/[^/]+\/steps$/.test(url.pathname),
+          scope: dialog().locator(".workflow-trace"),
+          start: () => signalCollection(page, "runs"),
+          recovered: () => signalCollection(page, "runs"),
+        });
+        await legacyFallbackRecovery(browser, fixture);
         await close();
         await openSettings();
         await dialog()

@@ -97,11 +97,16 @@ export function useConversationActivities(
     });
     if (!conversation) return;
     const current = new ActivityHistory(
-      (query) =>
-        read(workspaceApi.conversationActivities, {
-          params: { id: conversation },
-          query,
-        }),
+      (query, mode) =>
+        read(
+          workspaceApi.conversationActivities,
+          {
+            params: { id: conversation },
+            query,
+          },
+          sourceId,
+          mode,
+        ),
       (page) => setItems((old) => mergeActivities(old, page)),
       setHistory,
       tools,
@@ -116,7 +121,12 @@ export function useConversationActivities(
       sourceId,
       conversation,
     );
-    const stopFallback = surfaceFallback([sourceId], "workspace", 5000, update);
+    const stopFallback = surfaceFallback(
+      [sourceId],
+      "workspace",
+      5000,
+      () => void current.refresh(false, true),
+    );
     update();
     return () => {
       current.stop();
@@ -132,5 +142,6 @@ export function useConversationActivities(
     items,
     ...history,
     loadEarlier: () => loader.current?.loadEarlier(),
+    retry: () => loader.current?.retry(),
   };
 }
