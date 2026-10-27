@@ -23,6 +23,8 @@ import { publicBuild } from "./shared/build.js";
 import { observeProcess } from "./server/deployments.js";
 import { observedBuild } from "./server/build-runtime.js";
 import { authenticateCardToken } from "./server/card-tokens.js";
+import { initializeFleetIdentity } from "./server/fleet-identity.js";
+import { seal, unseal } from "./server/secrets.js";
 
 // Identifies the browser assets this launch serves. A reconnecting page
 // compares it to offer a reload without discarding its draft.
@@ -56,6 +58,9 @@ export class WorkspaceHost {
       throw new Error(
         "WorkspaceHost requires LOOP_PROFILE=companion before loading the application",
       );
+    // Identity survives URL changes and application restarts. This does not
+    // create fleet membership, grant peer access, or expose a peer endpoint.
+    if (!preview) initializeFleetIdentity(db, { seal, unseal });
     this.gateway = new Host(dir, {
       harness: options.harness,
       project: options.project,

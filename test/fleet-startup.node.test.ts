@@ -1,0 +1,186 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  statSync,
+  existsSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID, randomBytes } from "node:crypto";
+
+async function startup(directory: string, extra: Record<string, string> = {}) {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      `
+      const { db } = await import('./src/server/db.ts');
+      let refused = false;
+      if (process.env.LOOP_TEST_FLEET_IDENTITY_ONLY === '1') {
+        const { initializeFleetIdentity } = await import('./src/server/fleet-identity.ts');
+        const { seal, unseal } = await import('./src/server/secrets.ts');
+        initializeFleetIdentity(db, { seal, unseal });
+      } else try {
+        const { WorkspaceHost } = await import('./src/workspace-host.ts');
+        new WorkspaceHost(process.env.LOOP_DATA_DIR, {
+          harness: 'codex', executable: process.execPath,
+          project: process.env.LOOP_DATA_DIR, version: 'fixture', billing: 'existing'
+        });
+      } catch (error) {
+        if (process.env.LOOP_PROFILE !== 'server') throw error;
+        refused = /requires LOOP_PROFILE=companion/.test(error.message);
+        if (!refused) throw error;
+      }
+      console.log(JSON.stringify({
+        refused,
+        identities: db.prepare('SELECT machine_id,public_key FROM fleet_machine_identity').all(),
+        integrity: db.pragma('integrity_check'),
+      }));
+      db.close();
+      process.exit(0);
+    `,
+    ],
+    {
+      encoding: "utf8",
+      timeout: 30_000,
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(
+            ([key]) => !key.startsWith("LOOP_"),
+          ),
+        ),
+        LOOP_DATA_DIR: directory,
+        LOOP_PROFILE: "companion",
+        LOOP_ENCRYPTION_KEY: "ab".repeat(32),
+        LOOP_PREVIEW_MANIFEST: "",
+        BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+        GITHUB_CLIENT_ID: "",
+        GITHUB_CLIENT_SECRET: "",
+        NODE_ENV: "test",
+        ...extra,
+      },
+    },
+  );
+  return JSON.parse(stdout);
+}
+
+test("companion gateway startup keeps machine identity across process and origin changes", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "loop-fleet-startup-"));
+  try {
+    const first = await startup(directory, { LOOP_ENCRYPTION_KEY: "" });
+    const encryptionKey = readFileSync(
+      join(directory, "encryption-key"),
+      "utf8",
+    );
+    assert.match(encryptionKey, /^[a-f0-9]{64}$/);
+    assert.equal(
+      statSync(join(directory, "encryption-key")).mode & 0o777,
+      0o600,
+    );
+    assert.equal(first.identities.length, 1);
+    assert.match(first.identities[0].machine_id, /^m_[a-f0-9]{64}$/);
+    assert.deepEqual(
+      await startup(directory, {
+        LOOP_URL: "https://rotated.example",
+        LOOP_ENCRYPTION_KEY: "",
+      }),
+      first,
+    );
+    assert.deepEqual(first.integrity, [{ integrity_check: "ok" }]);
+    assert.equal(
+      readFileSync(join(directory, "encryption-key"), "utf8"),
+      encryptionKey,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("server profile and isolated preview startup never create fleet signing identities", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "loop-fleet-profile-"));
+  try {
+    const server = await startup(join(directory, "server"), {
+      LOOP_PROFILE: "server",
+    });
+    assert.equal(server.refused, true);
+    assert.deepEqual(server.identities, []);
+    const home = join(directory, "preview"),
+      data = join(home, "workspace");
+    mkdirSync(data, { recursive: true });
+    const manifest = {
+      schema: 1,
+      previewId: randomUUID(),
+      name: "fleet-fixture",
+      mode: "design",
+      home,
+      build: {
+        id: randomUUID(),
+        branch: "fixture",
+        commit: "a".repeat(40),
+        dirty: false,
+        builtAt: "fixture",
+        sourceHash: "b".repeat(64),
+        artifactHash: "c".repeat(64),
+      },
+    };
+    const path = join(data, "preview-owner.json");
+    writeFileSync(path, JSON.stringify(manifest));
+    assert.deepEqual(
+      (
+        await startup(data, {
+          LOOP_PREVIEW_MANIFEST: path,
+          LOOP_HOME: home,
+          LOOP_ENCRYPTION_KEY: "",
+        })
+      ).identities,
+      [],
+    );
+    assert.equal(existsSync(join(data, "encryption-key")), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("concurrent processes initialize one key and do not revive unreadable signing material", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "loop-fleet-concurrent-"));
+  const options = {
+    LOOP_TEST_FLEET_IDENTITY_ONLY: "1",
+    LOOP_ENCRYPTION_KEY: "",
+  };
+  try {
+    const attempts = await Promise.allSettled([
+      startup(directory, options),
+      startup(directory, options),
+    ]);
+    for (const result of attempts)
+      if (result.status === "rejected") throw result.reason;
+    assert.equal(attempts[0].status, "fulfilled");
+    assert.equal(attempts[1].status, "fulfilled");
+    if (
+      attempts[0].status !== "fulfilled" ||
+      attempts[1].status !== "fulfilled"
+    )
+      return;
+    assert.equal(attempts[0].value.identities.length, 1);
+    assert.deepEqual(attempts[0].value, attempts[1].value);
+    // Removing the encryption key cannot silently mint a new machine identity.
+    const keyPath = join(directory, "encryption-key");
+    const key = readFileSync(keyPath, "utf8");
+    rmSync(keyPath);
+    await assert.rejects(startup(directory, options));
+    writeFileSync(keyPath, key, { mode: 0o600 });
+    assert.deepEqual(await startup(directory, options), attempts[0].value);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
