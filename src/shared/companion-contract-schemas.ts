@@ -12,6 +12,7 @@ import {
 } from "./agent-contract-schemas.js";
 import { SessionCapabilities } from "./session-controls.js";
 import { signInFailureCodes } from "./native-auth.js";
+import { NativeProvider } from "./native-providers.js";
 
 const Text = z.string();
 export const RuntimeName = z.object({ name: RuntimeHarness });
@@ -27,7 +28,7 @@ export const RuntimeAuthCancel = executionOperations["auth.cancel"].input.omit({
 });
 export const PublicRuntimeAuth = z.object({
   providers: z.array(
-    z.object({
+    NativeProvider.extend({
       id: Text,
       name: Text,
       configured: z.boolean().optional(),

@@ -114,6 +114,20 @@ recorded instead of promising further details.
 
 Settings → Provider connections offers native account status, sign-in, model refresh and supported harness upgrades. Complete the provider flow, then enable/refresh the connection. Native credentials stay with the CLI. Closing the sign-in sheet does not cancel an active attempt; cancelling is explicit. Attempts expire after 15 minutes or a workspace restart. Loop does not replay uncertain sign-in steps or installers.
 
+### OpenCode and Pi model providers
+
+OpenCode and Pi are harnesses; their model providers own the accounts, API keys and billing. In **Settings → Provider connections → Harnesses**, choose **Manage providers** for the installed harness on the selected execution computer. Loop discovers its native providers, authentication methods and configured models. Existing native sign-ins, environment keys and custom provider configuration remain usable.
+
+Choose **Add provider**, select OpenRouter, OpenAI or another native provider, and enter an API key. **Save key and refresh models** passes the key to that harness's authentication interface, then refreshes its connection and model choices without sending a model prompt. You can explicitly select the other installed harness to save the same key there too. Each store is independent; Loop reports success or an unconfirmed result separately for each. The **Loop runtime API** tab configures Loop's own API connections and does not configure either harness.
+
+For provider account sign-in, select the method advertised by the harness and complete its guided flow. A successful sign-in refreshes the model choices automatically. An Anthropic sign-in inside Pi belongs to Pi's provider store; it is separate from the Claude Code CLI account. Provider plan limits and charges still apply. Model discovery reports configured availability, not a verified entitlement to every model.
+
+Pi writes credentials through its `ModelRuntime` authentication interface to its agent directory (normally `~/.pi/agent/auth.json`). OpenCode uses its native authentication endpoints and data directory (normally `~/.local/share/opencode/auth.json`). Their directory overrides and credential precedence still apply. Loop does not copy credentials into its connection database or return stored values to the browser. The API-key field accepts literal keys; configure command-based credentials in the harness itself.
+
+Use **Replace credential or reconnect** to change one provider without replacing the others. **Remove saved credential** appears when the native catalog identifies a stored credential; it shows affected agents and removes only that harness's saved credential. OpenCode's catalog identifies stored API keys, while Pi also identifies stored provider sign-ins. Manage credentials whose storage cannot be identified in the harness itself. Removal disables its Loop connection until you review remaining providers and refresh models; an inherited environment or configuration credential may become effective. Credential changes require idle runs and hold queued work until the change finishes. Idle native sessions reopen with their existing context and the updated credentials.
+
+New connections use the harness's provider billing. A previously saved subscription-only restriction stays in force until you explicitly choose **Use provider billing (API charges may apply)**. If a save succeeds but model refresh fails, the credential remains saved and model refresh can be retried. After an unconfirmed credential change, inspect provider status before starting another change; Loop never automatically resubmits the key.
+
 Finish active runs and sign-in before upgrading a harness. Loop uses the installation's package manager without sudo, checks the resulting version, and attempts rollback when supported. An interrupted upgrade stays unconfirmed until its state is checked. Container installations are updated with their image.
 
 ## Recovering retired connections

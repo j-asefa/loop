@@ -2,6 +2,8 @@ import { ConnectionModels, ConnectionMetadata } from "../row-schemas.js";
 import { ExecutionRefused } from "../execution-refusal.js";
 import { writeConnectionStatus } from "../connection-status.js";
 import { harnessUpgrades } from "../harness-upgrades.js";
+import { providerChangeInProgress } from "../native-provider-locks.js";
+import { nativeSignIns } from "../native-auth.js";
 import {
   verifyAgentWorkspace,
   type AgentWorkspace,
@@ -66,7 +68,19 @@ export class NativeProjects {
       );
     return JSON.parse(row.options);
   }
-  enable(options: Options) {
+  isEnabling(name: Harness) {
+    return this.enabling.has(name);
+  }
+  enable(options: Options, providerChange = false, signal?: AbortSignal) {
+    if (
+      (providerChangeInProgress(options.harness) ||
+        nativeSignIns.inProgress(options.harness)) &&
+      !providerChange
+    )
+      throw new ExecutionRefused(
+        409,
+        "Wait for this harness’s provider change to finish.",
+      );
     if (harnessUpgrades.busy(options.harness))
       throw new ExecutionRefused(
         409,
@@ -78,13 +92,14 @@ export class NativeProjects {
         409,
         "This harness is already being enabled. Retry shortly.",
       );
-    const promise = this.probe(options).finally(() =>
+    const promise = this.probe(options, signal).finally(() =>
       this.enabling.delete(options.harness),
     );
     this.enabling.set(options.harness, promise);
     return promise;
   }
-  private async probe(options: Options) {
+  private async probe(options: Options, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     if (this.context.isStopped())
       throw new ExecutionRefused(409, "Workspace is stopping");
     if (options.harness === "acp") {
@@ -150,6 +165,7 @@ export class NativeProjects {
     }
     if (this.context.isStopped())
       throw new ExecutionRefused(409, "Workspace is stopping");
+    signal?.throwIfAborted();
     const models = [
       native.defaultModelOption || {
         id: "native-default",

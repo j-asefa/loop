@@ -2,9 +2,7 @@ import { useProjectionRoute } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
 import { executionSourceId } from "./sourceRouting";
-import {
-  runtimeSetupMessages,
-} from "../shared/runtime-setup";
+import { runtimeSetupMessages } from "../shared/runtime-setup";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parse } from "./api";
 import { Sheet } from "./components";
@@ -13,7 +11,10 @@ import type { Connection } from "../shared/types";
 import { runtimeAuthScope } from "../shared/runtime-auth-scope";
 import { HarnessUpgrade } from "./HarnessUpgrade";
 import { connectsModelProvider, RuntimeSignIn } from "./RuntimeSignIn";
-type SignIn = NonNullable<RouteResponse<typeof workspaceApi.runtimeAuthStatus>["attempt"]>;
+import { HarnessProviders } from "./HarnessProviders";
+type SignIn = NonNullable<
+  RouteResponse<typeof workspaceApi.runtimeAuthStatus>["attempt"]
+>;
 
 type Discovery = RouteResponse<typeof workspaceApi.runtimeList>;
 type Runtime = Discovery["runtimes"][number];
@@ -28,7 +29,10 @@ const labels: Record<string, string> = {
 };
 // These harnesses cannot attest subscription billing, so setup has no picker.
 const existingOnly = (name: string) =>
-  name === "gemini" || name === "muse" || name === "grok";
+  connectsModelProvider(name) ||
+  name === "gemini" ||
+  name === "muse" ||
+  name === "grok";
 function matchesRuntime(connection: Connection, runtime: Runtime) {
   return parse<any>(connection.metadata, {}).loopHarness === runtime.name;
 }
@@ -41,7 +45,9 @@ export function RuntimeSetup({
 }) {
   const read = useProjectionRoute();
   const [discovery, setDiscovery] = useState<Discovery>();
-  const [projects, setProjects] = useState<RouteResponse<typeof workspaceApi.workspace>["projectPaths"]>([]);
+  const [projects, setProjects] = useState<
+    RouteResponse<typeof workspaceApi.workspace>["projectPaths"]
+  >([]);
   const [project, setProject] = useState("");
   const [billing, setBilling] = useState("subscription");
   const [enabling, setEnabling] = useState<string>();
@@ -90,8 +96,14 @@ export function RuntimeSetup({
     // Read existing attempts without starting a harness or another sign-in.
     const states = await Promise.allSettled(
       host.runtimes.map(async (runtime) => {
-        const auth = await read(workspaceApi.runtimeAuthStatus, { params: { name: runtime.name } });
-        return [runtimeAuthScope(runtime), auth.attempt?.state, auth.attempt?.id] as const;
+        const auth = await read(workspaceApi.runtimeAuthStatus, {
+          params: { name: runtime.name },
+        });
+        return [
+          runtimeAuthScope(runtime),
+          auth.attempt?.state,
+          auth.attempt?.id,
+        ] as const;
       }),
     );
     // A sign-in response received during discovery is newer than this snapshot.
@@ -115,8 +127,11 @@ export function RuntimeSetup({
     setError("");
     try {
       await refresh();
-      setEnableError((current) => current === failure && current
-        ? { ...current, inspected: true } : current);
+      setEnableError((current) =>
+        current === failure && current
+          ? { ...current, inspected: true }
+          : current,
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -128,20 +143,39 @@ export function RuntimeSetup({
     setEnableError(undefined);
     setError("");
     try {
-      const projectId = runtime.enabled
+      const projectId = runtime.project
         ? projects.find((p) => p.path === runtime.project)?.folder_id
         : project;
-      const selectedBilling = existingOnly(runtime.name) ? "existing" : runtime.billing || billing;
-      const commandKey = JSON.stringify([runtime.name, projectId, selectedBilling, runtime.version, authAttempts.current.get(runtimeAuthScope(runtime))]);
+      const selectedBilling =
+        runtime.billing || (existingOnly(runtime.name) ? "existing" : billing);
+      const commandKey = JSON.stringify([
+        runtime.name,
+        projectId,
+        selectedBilling,
+        runtime.version,
+        authAttempts.current.get(runtimeAuthScope(runtime)),
+      ]);
       // Only an explicit action after inspection starts a new verification.
       // Ordinary retries keep reconciling the original durable command.
       if (newAttempt) enableCommands.current.delete(commandKey);
-      const commandId = enableCommands.current.get(commandKey) || crypto.randomUUID();
+      const commandId =
+        enableCommands.current.get(commandKey) || crypto.randomUUID();
       enableCommands.current.set(commandKey, commandId);
-      await callRoute(workspaceApi.runtimeEnable, { params: { name: runtime.name }, body: {
-        projectId: projectId || "",
-        billing: workspaceApi.runtimeEnable.body.shape.billing.parse(selectedBilling), commandId,
-      } }, executionSourceId());
+      await callRoute(
+        workspaceApi.runtimeEnable,
+        {
+          params: { name: runtime.name },
+          body: {
+            projectId: projectId || "",
+            billing:
+              workspaceApi.runtimeEnable.body.shape.billing.parse(
+                selectedBilling,
+              ),
+            commandId,
+          },
+        },
+        executionSourceId(),
+      );
       enableCommands.current.delete(commandKey);
       const results = await Promise.allSettled([
         onEnabled(runtime.name),
@@ -204,9 +238,15 @@ export function RuntimeSetup({
             ),
           )
           .map(async (runtime) => {
-            const view = await read(workspaceApi.runtimeAuthStatus, { params: { name: runtime.name } });
+            const view = await read(workspaceApi.runtimeAuthStatus, {
+              params: { name: runtime.name },
+            });
             if (!disposed)
-              onAuthState(runtimeAuthScope(runtime), view.attempt?.state, view.attempt?.id);
+              onAuthState(
+                runtimeAuthScope(runtime),
+                view.attempt?.state,
+                view.attempt?.id,
+              );
           }),
       );
       if (!disposed) timer = setTimeout(poll, 1200);
@@ -295,11 +335,14 @@ export function RuntimeSetup({
             authStates[scope] === "complete" ||
             runtime.authentication === "signed_in" ||
             // An enabled runtime passed its account check when it was enabled.
-            (runtime.enabled && runtime.authentication === "previously_verified");
+            (runtime.enabled &&
+              runtime.authentication === "previously_verified");
           const authenticating = ["starting", "waiting"].includes(
             authStates[scope] || "",
           );
-          const projectId = runtime.enabled
+          // A disconnected harness still owns its saved project binding.
+          // Keep provider outcomes mounted while discovery updates its status.
+          const projectId = runtime.project
             ? projects.find((p) => p.path === runtime.project)?.folder_id
             : project;
           // Direct sign-in runs the harness in a project directory.
@@ -341,15 +384,31 @@ export function RuntimeSetup({
                 <div className="settings-error" role="alert">
                   <strong>Connection not verified</strong>
                   <p>{enableError.message}</p>
-                  <p>{enableError.inspected
-                    ? "Runtime status is up to date. Start a new verification if needed."
-                    : "Your sign-in is saved. Check runtime status before starting a new verification."}</p>
+                  <p>
+                    {enableError.inspected
+                      ? "Runtime status is up to date. Start a new verification if needed."
+                      : "Your sign-in is saved. Check runtime status before starting a new verification."}
+                  </p>
                   <button
                     type="button"
-                    disabled={busy || authenticating || !projectId || !runtime.available || !discovery.online}
-                    onClick={() => void (enableError.inspected ? enable(runtime, true) : inspect(runtime))}
+                    disabled={
+                      busy ||
+                      authenticating ||
+                      !projectId ||
+                      !runtime.available ||
+                      !discovery.online
+                    }
+                    onClick={() =>
+                      void (enableError.inspected
+                        ? enable(runtime, true)
+                        : inspect(runtime))
+                    }
                   >
-                    {inspecting === runtime.name ? "Checking…" : enableError.inspected ? "Start new verification" : "Check runtime status"}
+                    {inspecting === runtime.name
+                      ? "Checking…"
+                      : enableError.inspected
+                        ? "Start new verification"
+                        : "Check runtime status"}
                   </button>
                 </div>
               )}
@@ -364,13 +423,14 @@ export function RuntimeSetup({
                 <div>
                   <h3>{label}</h3>
                   <small>
-                    {runtime.billing === "existing" ||
-                    runtime.name === "pi" ||
-                    existingOnly(runtime.name)
-                      ? "Existing billing · may incur API charges"
-                      : runtime.billing === "subscription"
-                        ? "Native subscription"
-                        : "Choose billing during setup"}
+                    {connectsModelProvider(runtime.name)
+                      ? "Model providers managed by the harness"
+                      : runtime.billing === "existing" ||
+                          existingOnly(runtime.name)
+                        ? "Existing billing · may incur API charges"
+                        : runtime.billing === "subscription"
+                          ? "Native subscription"
+                          : "Choose billing during setup"}
                   </small>
                 </div>
                 <span
@@ -391,22 +451,26 @@ export function RuntimeSetup({
                 aria-label={
                   !runtime.available || !discovery.online
                     ? `${label} setup details`
-                    : signedIn || runtime.enabled
-                      ? `Manage ${label} account`
-                      : connectsModelProvider(runtime.name)
-                        ? `Connect a model provider for ${label}`
-                        : `Sign in to ${label}`
+                    : connectsModelProvider(runtime.name)
+                      ? `Manage ${label} providers`
+                      : signedIn || runtime.enabled
+                        ? `Manage ${label} account`
+                        : connectsModelProvider(runtime.name)
+                          ? `Connect a model provider for ${label}`
+                          : `Sign in to ${label}`
                 }
               >
                 {!runtime.available || !discovery.online
                   ? "Setup details"
-                  : signedIn || runtime.enabled
-                    ? runtime.enabled
-                      ? "Manage account"
-                      : "Finish connecting"
-                    : connectsModelProvider(runtime.name)
-                      ? "Connect a provider"
-                      : `Sign in to ${label}`}{" "}
+                  : connectsModelProvider(runtime.name)
+                    ? "Manage providers"
+                    : signedIn || runtime.enabled
+                      ? runtime.enabled
+                        ? "Manage account"
+                        : "Finish connecting"
+                      : connectsModelProvider(runtime.name)
+                        ? "Connect a provider"
+                        : `Sign in to ${label}`}{" "}
                 <span aria-hidden="true">→</span>
               </button>
               {!runtime.available && (
@@ -414,7 +478,7 @@ export function RuntimeSetup({
               )}
               {needsProject && runtime.available && discovery.online && (
                 <p className="field-hint">
-                  {runtime.enabled
+                  {runtime.project
                     ? `${label} is bound to a directory that is no longer in Projects. Add it back to manage this account.`
                     : "Add a desktop directory in Projects before signing in."}
                 </p>
@@ -428,7 +492,41 @@ export function RuntimeSetup({
                   <p className="settings-intro">
                     {discovery.computer} · Native harness
                   </p>
-                  {runtime.available && discovery.online ? (
+                  {runtime.available &&
+                  discovery.online &&
+                  (runtime.name === "pi" || runtime.name === "opencode") ? (
+                    <HarnessProviders
+                      key={`${executionSourceId()}:${runtime.name}:${projectId}`}
+                      runtime={runtime.name}
+                      projectId={projectId || ""}
+                      location={discovery.computer}
+                      targets={discovery.runtimes.flatMap((r) => {
+                        if (
+                          (r.name !== "pi" && r.name !== "opencode") ||
+                          !r.available ||
+                          r.name === runtime.name
+                        )
+                          return [];
+                        const id = r.project
+                          ? projects.find((p) => p.path === r.project)
+                              ?.folder_id
+                          : project;
+                        return id
+                          ? [
+                              {
+                                name: r.name,
+                                label: labels[r.name],
+                                projectId: id,
+                              },
+                            ]
+                          : [];
+                      })}
+                      onChange={async () => {
+                        await onEnabled(runtime.name);
+                        await refresh();
+                      }}
+                    />
+                  ) : runtime.available && discovery.online ? (
                     <RuntimeSignIn
                       runtime={runtime.name}
                       backend="direct"
@@ -463,7 +561,9 @@ export function RuntimeSetup({
                         </section>
                       }
                       enableAction={enableAction}
-                      onStateChange={(_, state, attemptId) => onAuthState(scope, state, attemptId)}
+                      onStateChange={(_, state, attemptId) =>
+                        onAuthState(scope, state, attemptId)
+                      }
                       onClose={() => {
                         setSigningIn(undefined);
                         void refresh().catch((e) => setError(e.message));
@@ -536,7 +636,11 @@ export function RuntimeSetup({
                   setEnabling(connection.id);
                   setError("");
                   try {
-                    await callRoute(workspaceApi.connectionRefresh, { params: { id: connection.id }, body: {} }, executionSourceId());
+                    await callRoute(
+                      workspaceApi.connectionRefresh,
+                      { params: { id: connection.id }, body: {} },
+                      executionSourceId(),
+                    );
                     await onEnabled(metadata.loopHarness || metadata.flavor);
                   } catch (cause) {
                     setError((cause as Error).message);

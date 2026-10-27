@@ -6,6 +6,7 @@ import { db } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { nativeSessions, OWNER } from "./native-sessions.js";
 import { nativeSignIns } from "./native-auth.js";
+import { providerChangeInProgress } from "./native-provider-locks.js";
 import { harnessUpgrades as upgrades } from "./harness-upgrades.js";
 import {
   RuntimeHarness,
@@ -38,6 +39,7 @@ export async function authOptions({
   return {
     name,
     executable: probe.executable!,
+    version: probe.version!,
     project: saved?.project || project.path,
   };
 }
@@ -114,7 +116,7 @@ export async function upgradeStart(
     throw new Problem(409, (error as Error).message);
   }
   try {
-    if (nativeSignIns.inProgress(name))
+    if (nativeSignIns.inProgress(name) || providerChangeInProgress(name))
       throw new Problem(409, "Finish or cancel sign-in before upgrading.");
     if (
       db
@@ -171,7 +173,7 @@ export function upgradeRecover(
 }
 export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
   const { name } = input;
-  if (nativeSignIns.inProgress(name))
+  if (nativeSignIns.inProgress(name) || providerChangeInProgress(name))
     throw new ExecutionRefused(
       409,
       "Finish or cancel this runtime’s sign-in before enabling it.",

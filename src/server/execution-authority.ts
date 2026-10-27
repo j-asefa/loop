@@ -8,6 +8,20 @@ import { z } from "zod";
 import { NativeToolBridge } from "./native-tool-bridge.js";
 import { nativeSessions, OWNER } from "./native-sessions.js";
 import { nativeSignIns } from "./native-auth.js";
+import {
+  providerCatalog,
+  saveProviderKey,
+  removeProvider,
+  refreshProviders,
+  reconcileProviderKey,
+  requireProviderIdle,
+  invalidateProviderConnection,
+  completeProviderSignIn,
+} from "./native-providers.js";
+import {
+  providerChangeInProgress,
+  reserveProviderChange,
+} from "./native-provider-locks.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { db } from "./db.js";
 import {
@@ -64,15 +78,48 @@ const handlers: Handlers = {
   "auth.catalog": async (input) =>
     nativeSignIns.catalog(await authOptions(input)),
   "auth.status": ({ name }) => nativeSignIns.status(name),
+  "provider.catalog": providerCatalog,
+  "provider.key": (input, { commandId }) => saveProviderKey(input, commandId),
+  "provider.remove": removeProvider,
+  "provider.refresh": refreshProviders,
   "auth.start": async (input, { commandId }) => {
     const checkUpgrade = () => {
-      if (harnessUpgrades.busy(input.name))
+      if (
+        harnessUpgrades.busy(input.name) ||
+        providerChangeInProgress(input.name)
+      )
         throw new ExecutionRefused(
           409,
           "Wait for the runtime upgrade to finish before signing in.",
         );
     };
     checkUpgrade();
+    if (input.name === "pi" || input.name === "opencode") {
+      const release = reserveProviderChange(input.name);
+      try {
+        requireProviderIdle(input.name);
+        const options = await authOptions(input);
+        return await nativeSignIns.start(
+          options,
+          input.provider,
+          input.method,
+          commandId,
+          {
+            beforeStart: async () => {
+              await nativeSessions.resetProviderSessions(input.name);
+              invalidateProviderConnection(input.name);
+            },
+            authenticated: (signal) =>
+              completeProviderSignIn(
+                { ...input, name: input.name as "pi" | "opencode" },
+                signal,
+              ),
+          },
+        );
+      } finally {
+        release();
+      }
+    }
     const options = await authOptions(input);
     checkUpgrade();
     return nativeSignIns.start(
@@ -266,6 +313,8 @@ export class ExecutionAuthority {
               run,
               operation.effect === "session"
                 ? () => {
+                    if (request.method === "provider.key")
+                      return reconcileProviderKey(request.commandId!);
                     if (request.method === "auth.start") {
                       const start = input as ExecutionInput<"auth.start">;
                       return nativeSignIns.reconcileStart(

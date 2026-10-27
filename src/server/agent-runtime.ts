@@ -44,6 +44,8 @@ import {
 import type { Agent } from "../shared/types.js";
 import type { Automation } from "../shared/agent-mail.js";
 import { nativeSessions } from "./native-sessions.js";
+import { nativeSignIns } from "./native-auth.js";
+import { providerChangeInProgress } from "./native-provider-locks.js";
 import { assertReviewIdentity, reviewContext } from "./review-access.js";
 
 export type Snapshot = import("./row-schemas.js").AgentSnapshot;
@@ -495,6 +497,12 @@ export async function executeAgent(run: Run): Promise<boolean> {
     );
   }
   const connection = ownedConnection(snapshot.connectionId, run.owner_id);
+  const harness = connection.metadata.loopHarness;
+  if (harness &&
+    (providerChangeInProgress(harness) || nativeSignIns.inProgress(harness)) &&
+    !db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id) &&
+    !db.prepare("SELECT 1 FROM agent_checkpoints WHERE run_id=?").get(run.id))
+    throw new RunDeferred("Wait for this harness’s provider change to finish.");
   if (connection.status !== "connected") {
     // Disconnection can race the atomic queue claim. Only a mail turn that
     // has not begun model/tool work can safely return to the queue here.

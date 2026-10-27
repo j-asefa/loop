@@ -2,6 +2,7 @@ import { FeedEntities } from "./feed-projection.js";
 import { ConversationPulls } from "./conversation-pulls.js";
 import { ReplyContext, ReplyState } from "./steering-replies.js";
 import { z } from "zod";
+import { ManagedHarness, NativeProviderView, ProviderKey, ProviderRemove, ProviderRefresh } from "./native-providers.js";
 import { Capabilities } from "./capabilities.js";
 import * as app from "./app-contract-schemas.js";
 import * as mobile from "./mobile-contract-schemas.js";
@@ -258,6 +259,44 @@ export const workspaceApi = {
   runtimeAuthStart: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/auth/start", params: companion.RuntimeAuthName, body: companion.RuntimeAuthStart, response: companion.PublicRuntimeAuth }),
   runtimeAuthInput: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/auth/input", params: companion.RuntimeAuthName, body: companion.RuntimeAuthInput, response: companion.PublicRuntimeAuth }),
   runtimeAuthCancel: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/auth/cancel", params: companion.RuntimeAuthName, body: companion.RuntimeAuthCancel, response: companion.PublicRuntimeAuth }),
+  runtimeProviders: endpoint({
+    ...base,
+    method: "GET",
+    path: "/workspace/runtimes/:name/providers",
+    params: z.object({ name: ManagedHarness }),
+    query: z.object({ projectId: Text.min(1) }),
+    response: NativeProviderView,
+  }),
+  runtimeProviderKey: endpoint({
+    ...base,
+    method: "POST",
+    path: "/workspace/runtimes/:name/providers/key",
+    params: z.object({ name: ManagedHarness }),
+    body: ProviderKey.omit({ name: true })
+      .extend({ commandId: Text.uuid() })
+      .strict(),
+    response: NativeProviderView,
+  }),
+  runtimeProviderRemove: endpoint({
+    ...base,
+    method: "POST",
+    path: "/workspace/runtimes/:name/providers/remove",
+    params: z.object({ name: ManagedHarness }),
+    body: ProviderRemove.omit({ name: true })
+      .extend({ commandId: Text.uuid() })
+      .strict(),
+    response: NativeProviderView,
+  }),
+  runtimeProviderRefresh: endpoint({
+    ...base,
+    method: "POST",
+    path: "/workspace/runtimes/:name/providers/refresh",
+    params: z.object({ name: ManagedHarness }),
+    body: ProviderRefresh.omit({ name: true })
+      .extend({ commandId: Text.uuid() })
+      .strict(),
+    response: NativeProviderView,
+  }),
   runtimeUpgrade: endpoint({ ...base, method: "GET", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, response: companion.PublicUpgradeView }),
   runtimeUpgradeStart: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, body: companion.CommandIdentity, response: companion.PublicUpgradeView }),
   runtimeUpgradeDismiss: endpoint({ ...base, method: "DELETE", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, body: z.unknown(), response: companion.PublicUpgradeView }),

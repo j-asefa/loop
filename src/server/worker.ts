@@ -23,6 +23,8 @@ import {
 } from "./queue.js";
 import { RunDeferred } from "./run-deferred.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
+import { providerChangeInProgress } from "./native-provider-locks.js";
+import { nativeSignIns } from "./native-auth.js";
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 import { indexMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
@@ -68,17 +70,19 @@ export async function tick(
       .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
       .get(p.connectionId || "", candidate.owner_id) as
       { metadata: string } | undefined;
+    if (!c) return true;
+    const harness =
+      readJson(
+        ConnectionMetadata.passthrough(),
+        c.metadata,
+        "connections",
+        p.connectionId || "",
+        "metadata",
+      ).loopHarness || "";
     return (
-      !c ||
-      !harnessUpgrades.busy(
-        readJson(
-          ConnectionMetadata.passthrough(),
-          c.metadata,
-          "connections",
-          p.connectionId || "",
-          "metadata",
-        ).loopHarness || "",
-      )
+      !harnessUpgrades.busy(harness) &&
+      !providerChangeInProgress(harness) &&
+      !nativeSignIns.inProgress(harness)
     );
   });
   if (!run) return false;

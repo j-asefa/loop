@@ -41,6 +41,9 @@ type RuntimeSignInProps = Target & {
   enabling: boolean;
   enableAction: ReactNode;
   connectionSetup?: ReactNode;
+  initialProvider?: string;
+  initialMethod?: string;
+  onAuthenticated?: () => void;
   onStateChange(
     name: string,
     state: SignIn["state"] | undefined,
@@ -95,19 +98,24 @@ function RuntimeSignInSession({
   enabling,
   enableAction,
   connectionSetup,
+  initialProvider,
+  initialMethod,
+  onAuthenticated,
   onStateChange,
   onClose,
 }: RuntimeSignInProps) {
   const sourceId = useSourceId();
   const read = useProjectionRoute();
   const [view, setView] = useState<NativeAuthView>();
-  const [provider, setProvider] = useState("");
-  const [method, setMethod] = useState("");
+  const [provider, setProvider] = useState(initialProvider || "");
+  const [method, setMethod] = useState(initialMethod || "");
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
-  const [changingAccount, setChangingAccount] = useState(false);
+  const [changingAccount, setChangingAccount] = useState(!!initialProvider);
+  const completedAttempt = useRef<string | undefined>(undefined);
+  const acceptExistingAttempt = useRef(!initialProvider);
   const [startRecovery, setStartRecovery] = useState<{
     id: string;
     inspected?: boolean;
@@ -125,11 +133,28 @@ function RuntimeSignInSession({
       // signed-in status covers those.
       (!attempt && !changingAccount && (selected?.configured ?? signedIn)));
   const selectedMethod = selected?.methods.find((m) => m.id === method);
+  useEffect(() => {
+    if (
+      attempt?.state === "complete" &&
+      completedAttempt.current !== attempt.id &&
+      onAuthenticated
+    ) {
+      completedAttempt.current = attempt.id;
+      onAuthenticated();
+    }
+  }, [attempt?.id, attempt?.state, onAuthenticated]);
   const receive = (
     next: NativeAuthView,
     recoveryCommand: string | null = startRecovery?.id ?? null,
   ) => {
     if (!mounted.current) return;
+    // Opening Add provider must not treat another provider's previous login as
+    // completion. An active exchange can still be resumed or cancelled.
+    if (!acceptExistingAttempt.current && next.attempt) {
+      if (["starting", "waiting"].includes(next.attempt.state))
+        acceptExistingAttempt.current = true;
+      else next = { providers: next.providers };
+    }
     next = forStartCommand(next, recoveryCommand ?? undefined);
     setError("");
     if (
@@ -260,6 +285,7 @@ function RuntimeSignInSession({
   }
   function start(newAttempt = false) {
     if (busy || !selectedMethod) return;
+    acceptExistingAttempt.current = true;
     if (newAttempt) requestId.current = undefined;
     const commandId = (requestId.current ||= crypto.randomUUID());
     setStartRecovery(undefined);
@@ -441,12 +467,6 @@ function RuntimeSignInSession({
             </select>
           </label>
         </>
-      )}
-      {name === "pi" && provider === "anthropic" && (
-        <p className="note">
-          Claude sign-in through Pi uses separately billed extra usage. It does
-          not use your included Claude plan allowance.
-        </p>
       )}
       {selectedMethod?.type === "api" && (
         <p className="note">

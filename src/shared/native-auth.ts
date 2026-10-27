@@ -2,6 +2,9 @@ export type AuthProvider = {
   id: string;
   name: string;
   configured?: boolean;
+  source?: "stored" | "environment" | "configuration" | "runtime" | "unknown";
+  credentialType?: "api" | "oauth";
+  removable?: boolean;
   methods: { id: string; label: string; type: "oauth" | "api" }[];
 };
 export type AuthPrompt = {

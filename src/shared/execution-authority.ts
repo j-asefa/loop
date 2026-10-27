@@ -1,7 +1,18 @@
 import { z } from "zod";
+import {
+  NativeProvider,
+  NativeProviderView,
+  ProviderTarget,
+  ProviderKey,
+  ProviderRemove,
+  ProviderRefresh,
+} from "./native-providers.js";
 import { signInFailureCodes } from "./native-auth.js";
 import { Harness } from "../protocol.js";
-import { SessionControls as Controls, SessionCapabilities as Capabilities } from "./session-controls.js";
+import {
+  SessionControls as Controls,
+  SessionCapabilities as Capabilities,
+} from "./session-controls.js";
 
 // Private execution transport. Browser authorization remains at the HTTP host;
 // the authority independently resolves every object against the supplied owner.
@@ -74,7 +85,15 @@ export const RuntimeHarness = z.enum([
   "muse",
   "grok",
 ]);
-export const AuthHarness = z.enum(["codex", "claude", "pi", "opencode", "gemini", "muse", "grok"]);
+export const AuthHarness = z.enum([
+  "codex",
+  "claude",
+  "pi",
+  "opencode",
+  "gemini",
+  "muse",
+  "grok",
+]);
 export const RegistrationOptions = z.strictObject({
   harness: Harness,
   executable: Path,
@@ -91,7 +110,7 @@ const Enabled = z.strictObject({
 });
 const SignIn = z.strictObject({
   providers: z.array(
-    z.strictObject({
+    NativeProvider.extend({
       id: Id,
       name: z.string(),
       configured: z.boolean().optional(),
@@ -102,7 +121,7 @@ const SignIn = z.strictObject({
           type: z.enum(["oauth", "api"]),
         }),
       ),
-    }),
+    }).strict(),
   ),
   attempt: z
     .strictObject({
@@ -224,6 +243,18 @@ export const executionOperations = {
   "auth.catalog": method(
     z.strictObject({ name: AuthHarness, projectId: Id }),
     SignIn,
+  ),
+  "provider.catalog": method(ProviderTarget.strict(), NativeProviderView),
+  "provider.key": method(ProviderKey.strict(), NativeProviderView, "session"),
+  "provider.remove": method(
+    ProviderRemove.strict(),
+    NativeProviderView,
+    "receipt",
+  ),
+  "provider.refresh": method(
+    ProviderRefresh.strict(),
+    NativeProviderView,
+    "receipt",
   ),
   "auth.status": method(z.strictObject({ name: AuthHarness }), SignIn),
   "auth.start": method(
@@ -390,12 +421,20 @@ export type ExecutionResponse = z.infer<typeof ExecutionResponse>;
 export const ExecutionParentMessage = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("request"), request: ExecutionRequest }),
   z.strictObject({
-    type: z.literal("lifecycle"), requestId: z.uuid(), generation: z.uuid(),
-    action: z.enum(["schedule", "origin", "stop"]), origin: z.string().max(4096).optional(),
+    type: z.literal("lifecycle"),
+    requestId: z.uuid(),
+    generation: z.uuid(),
+    action: z.enum(["schedule", "origin", "stop"]),
+    origin: z.string().max(4096).optional(),
   }),
 ]);
 export const ExecutionChildMessage = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("ready"), ready: ExecutionReady }),
   z.strictObject({ type: z.literal("response"), response: ExecutionResponse }),
-  z.strictObject({ type: z.literal("ack"), requestId: z.uuid(), generation: z.uuid(), ok: z.boolean() }),
+  z.strictObject({
+    type: z.literal("ack"),
+    requestId: z.uuid(),
+    generation: z.uuid(),
+    ok: z.boolean(),
+  }),
 ]);

@@ -9,6 +9,7 @@ import type {
 import { AuthFailure, createAuthDriver } from "../native-auth/drivers.js";
 import { Problem } from "../shared/problem.js";
 import { ExecutionRefused } from "./execution-refusal.js";
+import { NativeProvider } from "../shared/native-providers.js";
 
 export type AuthOptions = {
   name: string;
@@ -40,7 +41,7 @@ const identifier = z.string().min(1).max(200);
 const label = z.string().min(1).max(500);
 const providersSchema = z
   .array(
-    z.object({
+    NativeProvider.extend({
       id: identifier,
       name: label,
       configured: z.boolean().optional(),
@@ -176,6 +177,20 @@ export class NativeSignIns {
   async catalog(options: AuthOptions) {
     return this.view(await this.session(options));
   }
+  async invalidate(name: string) {
+    const pending = this.opening.get(name);
+    if (pending) await pending;
+    const session = this.sessions.get(name);
+    if (!session) return;
+    if (active(session.attempt))
+      throw new ExecutionRefused(
+        409,
+        "Finish or cancel provider sign-in first.",
+      );
+    await this.dispose(session);
+    clearTimeout(session.timer);
+    this.sessions.delete(name);
+  }
   status(name: string): NativeAuthView {
     const session = this.sessions.get(name);
     return session ? this.view(session) : { providers: [] };
@@ -232,6 +247,10 @@ export class NativeSignIns {
     provider: string,
     method: string,
     commandId: string,
+    hooks?: {
+      beforeStart?(): Promise<void>;
+      authenticated?(signal: AbortSignal): Promise<unknown>;
+    },
   ): Promise<NativeAuthView> {
     let session = await this.session(options);
     if (this.commands.has(commandId))
@@ -245,7 +264,7 @@ export class NativeSignIns {
       session = await this.session(options, true);
       // Another device may have started while this driver's catalog was loading.
       if (active(session.attempt))
-        return this.start(options, provider, method, commandId);
+        return this.start(options, provider, method, commandId, hooks);
     }
     const choice = session.providers
       .find((p) => p.id === provider)
@@ -260,6 +279,18 @@ export class NativeSignIns {
         429,
         "Too many sign-in attempts. Restart the workspace before trying again.",
       );
+    // Provider/method validation must precede disconnecting an existing
+    // execution connection. A rejected selection has no credential effect.
+    if (hooks?.beforeStart) {
+      await hooks.beforeStart();
+      if (this.closing || this.sessions.get(options.name) !== session)
+        throw new ExecutionRefused(
+          503,
+          "The sign-in session ended before it could start.",
+        );
+      if (active(session.attempt))
+        throw new ExecutionRefused(409, "A sign-in is already in progress.");
+    }
     const attempt: SignIn = {
       id: randomUUID(),
       commandId,
@@ -328,10 +359,23 @@ export class NativeSignIns {
     void Promise.resolve()
       .then(() => session.driver.login(provider, method, interaction))
       .then(
-        () => {
+        async () => {
           if (!live()) return;
           const providerInfo = session.providers.find((p) => p.id === provider);
           if (providerInfo) providerInfo.configured = true;
+          if (hooks?.authenticated) {
+            // Authentication is saved. Finish the prompt-free model sync on the
+            // authority even if the initiating browser has gone away.
+            delete attempt.url;
+            delete attempt.code;
+            delete attempt.instructions;
+            delete attempt.prompt;
+            attempt.state = "starting";
+            await this.dispose(session);
+            if (!live()) return;
+            await hooks.authenticated(abort.signal).catch(() => {});
+          }
+          if (!live()) return;
           this.end(session, "complete");
         },
         (error) => {

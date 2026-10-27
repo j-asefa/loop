@@ -14,6 +14,48 @@ import { executionRequest } from "./execution-client.js";
 
 const routes = registrar("companion", { middleware: [[nativeHistory]] });
 export const companion = routes.mount;
+routes.on(workspaceApi.runtimeProviders, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(
+    await executionRequest("provider.catalog", {
+      name: req.params.name,
+      projectId: req.query.projectId,
+    }),
+  );
+});
+routes.on(workspaceApi.runtimeProviderKey, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const { commandId, ...input } = req.body;
+  res.json(
+    await executionRequest(
+      "provider.key",
+      { ...input, name: req.params.name },
+      { commandId },
+    ),
+  );
+});
+routes.on(workspaceApi.runtimeProviderRemove, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const { commandId, ...input } = req.body;
+  res.json(
+    await executionRequest(
+      "provider.remove",
+      { ...input, name: req.params.name },
+      { commandId },
+    ),
+  );
+});
+routes.on(workspaceApi.runtimeProviderRefresh, async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const { commandId, ...input } = req.body;
+  res.json(
+    await executionRequest(
+      "provider.refresh",
+      { ...input, name: req.params.name },
+      { commandId },
+    ),
+  );
+});
 routes.on(workspaceApi.runtimeAuthProviders, async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json(

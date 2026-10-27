@@ -122,6 +122,7 @@ if (process.argv.includes("--version")) {
   }
   createInterface({ input: channel }).on("line", (line) => {
     const message = JSON.parse(line);
+    if (message.type === "models") send({ type: "models", models: [] });
     if (message.type === "login") {
       audit("login");
       ({ provider, method } = message);

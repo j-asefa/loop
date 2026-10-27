@@ -12,7 +12,6 @@ src/client/Conversation.tsx
 src/client/Feed.tsx
 src/client/MyProfile.tsx
 src/client/NativeControls.tsx
-src/client/RuntimeSetup.tsx
 src/client/SessionActivityControls.tsx
 src/client/agentSources.ts
 src/client/api.ts
@@ -23,7 +22,6 @@ src/server/mobile-return.ts
 src/server/mobile-routes.ts
 src/server/row-schemas.ts
 src/server/workspace-events.ts
-src/shared/execution-authority.ts
 src/shared/types.ts
 src/shared/workspace-api.ts
 src/shared/workspace-events.ts

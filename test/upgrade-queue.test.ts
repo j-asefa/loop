@@ -1,4 +1,4 @@
-import { afterAll, expect, it } from "vitest";
+import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,6 +10,10 @@ const { enqueue, claim, deferUndispatched } =
 const { tick } = await import("../src/server/worker");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { harnessUpgrades } = await import("../src/server/harness-upgrades");
+const { reserveProviderChange } =
+  await import("../src/server/native-provider-locks");
+const { nativeSignIns } = await import("../src/server/native-auth");
+const { executeAgent } = await import("../src/server/agent-runtime");
 db.prepare(
   "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('codex','local-workspace','openai','fixture','','connected','[]',?,0)",
 ).run(JSON.stringify({ loopHarness: "codex" }));
@@ -90,6 +94,89 @@ it("returns a run claimed immediately before maintenance to the queue without fa
     state: "queued",
     error: null,
     idempotency_key: "race",
+  });
+  await tick(async () => {});
+  expect(outcome(queued)).toMatchObject({ state: "completed" });
+});
+
+it.each(["credential change", "provider sign-in"])(
+  "holds queued runs during %s without losing their identity",
+  async (reason) => {
+    const queued = enqueue(
+      "local-workspace",
+      "provider hold",
+      "provider-" + reason,
+      {
+        payload: {
+          agentId: "maintenance-fixture",
+          name: "Fixture",
+          provider: "openai",
+          folderId: null,
+          connectionId: "codex",
+          model: "native-default",
+          instructions: "",
+        },
+      },
+    );
+    const release =
+      reason === "credential change"
+        ? reserveProviderChange("codex")
+        : () => {};
+    const signIn = vi
+      .spyOn(nativeSignIns, "inProgress")
+      .mockImplementation(
+        (name) => reason === "provider sign-in" && name === "codex",
+      );
+    db.prepare(
+      "UPDATE connections SET status='disconnected' WHERE id='codex'",
+    ).run();
+    try {
+      expect(await tick(executeAgent)).toBe(false);
+      expect(outcome(queued)).toMatchObject({ state: "queued", error: null });
+    } finally {
+      release();
+      signIn.mockRestore();
+      db.prepare(
+        "UPDATE connections SET status='connected' WHERE id='codex'",
+      ).run();
+    }
+    await tick(async (run) => {
+      expect(run.id).toBe(queued.id);
+    });
+    expect(outcome(queued)).toMatchObject({ state: "completed" });
+  },
+);
+
+it("defers a claimed run before the disconnected-provider check during a credential change", async () => {
+  const queued = enqueue("local-workspace", "provider race", "provider-race", {
+    payload: {
+      agentId: "maintenance-fixture",
+      name: "Fixture",
+      provider: "openai",
+      folderId: null,
+      connectionId: "codex",
+      model: "native-default",
+      instructions: "",
+    },
+  });
+  await tick(async (run) => {
+    const release = reserveProviderChange("codex");
+    db.prepare(
+      "UPDATE connections SET status='disconnected' WHERE id='codex'",
+    ).run();
+    try {
+      return await executeAgent(run);
+    } finally {
+      release();
+      db.prepare(
+        "UPDATE connections SET status='connected' WHERE id='codex'",
+      ).run();
+    }
+  });
+  expect(outcome(queued)).toMatchObject({
+    state: "queued",
+    error: null,
+    idempotency_key: "provider-race",
   });
   await tick(async () => {});
   expect(outcome(queued)).toMatchObject({ state: "completed" });

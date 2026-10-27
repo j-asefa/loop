@@ -43,7 +43,7 @@ export function NativeConnections({
           aria-pressed={tab === "api"}
           onClick={() => setTab("api")}
         >
-          API connections
+          Loop runtime API
         </button>
       </div>
       {tab === "harnesses" && (

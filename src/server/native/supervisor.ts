@@ -1,5 +1,7 @@
 import { agentPayload } from "../row-schemas.js";
 import { ExecutionRefused } from "../execution-refusal.js";
+import { providerChangeInProgress } from "../native-provider-locks.js";
+import { nativeSignIns } from "../native-auth.js";
 import { watchRun } from "../run-signal.js";
 import { READABLE_MAIL_SQL } from "../mail-context.js";
 import { harnessUpgrades } from "../harness-upgrades.js";
@@ -153,8 +155,11 @@ export class NativeSessions {
   registration(name: Harness): Options {
     return this.projects.registration(name);
   }
-  enable(options: Options) {
-    return this.projects.enable(options);
+  isEnabling(name: Harness) {
+    return this.projects.isEnabling(name);
+  }
+  enable(options: Options, providerChange = false, signal?: AbortSignal) {
+    return this.projects.enable(options, providerChange, signal);
   }
   directory(path: string) {
     return this.projects.directory(path);
@@ -172,6 +177,26 @@ export class NativeSessions {
   /** Forget probed catalogs after Pi configuration or trust changes. */
   clearProbes() {
     return this.projects.clearProbes();
+  }
+  async resetProviderSessions(name: Harness) {
+    const sessions = [...this.live.values()].filter(
+      (live) => live.binding.harness === name,
+    );
+    if (sessions.some((live) => live.run))
+      throw new ExecutionRefused(
+        409,
+        "Finish active harness runs before changing credentials.",
+      );
+    for (const live of sessions) {
+      await live.ready;
+      if (live.run)
+        throw new ExecutionRefused(
+          409,
+          "Finish active harness runs before changing credentials.",
+        );
+      await this.dispose(live);
+    }
+    this.clearProbes();
   }
   /** @internal Adapter event entry point. */
   event(live: Live, input: AdapterEvent) {
@@ -560,10 +585,12 @@ export class NativeSessions {
       { metadata: string } | undefined;
     if (
       connection &&
-      harnessUpgrades.busy(JSON.parse(connection.metadata).loopHarness)
+      (harnessUpgrades.busy(JSON.parse(connection.metadata).loopHarness) ||
+        providerChangeInProgress(JSON.parse(connection.metadata).loopHarness) ||
+        nativeSignIns.inProgress(JSON.parse(connection.metadata).loopHarness))
     )
       throw new RunDeferred(
-        "Wait for the runtime upgrade to finish before starting a run.",
+        "Wait for the runtime upgrade or provider change to finish before starting a run.",
       );
     if (db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id))
       throw new Problem(

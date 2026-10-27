@@ -35,6 +35,20 @@ export default function loopSignIn(pi) {
           continue;
         }
         if (message.type === "input") pending.get(message.id)?.(message.value);
+        if (message.type === "models" && !abort) {
+          void runtime.refresh({ allowNetwork: true }).then(
+            () =>
+              send({
+                type: "models",
+                models: runtime.getAvailableSnapshot().map((m) => ({
+                  id: `${m.provider}/${m.id}`,
+                  name: m.name || m.id,
+                })),
+              }),
+            () => send({ type: "models_failed" }),
+          );
+          continue;
+        }
         if (message.type === "logout" && !abort) {
           abort = new AbortController();
           void runtime
@@ -123,6 +137,18 @@ export default function loopSignIn(pi) {
           id: provider.id,
           name: provider.name,
           configured: runtime.hasConfiguredAuth(provider.id),
+          source:
+            {
+              stored: "stored",
+              environment: "environment",
+              runtime: "runtime",
+              models_json_key: "configuration",
+              models_json_command: "configuration",
+              fallback: "configuration",
+            }[runtime.getProviderAuthStatus(provider.id).source] || "unknown",
+          credentialType: runtime.isUsingOAuth(provider.id) ? "oauth" : "api",
+          removable:
+            runtime.getProviderAuthStatus(provider.id).source === "stored",
           methods: [
             ...(provider.auth?.oauth
               ? [

@@ -196,6 +196,8 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
     | { io: AuthInteraction; resolve(): void; reject(error: Error): void }
     | undefined;
   let logout: { resolve(): void; reject(error: Error): void } | undefined;
+  let modelRequest:
+    { resolve(models: unknown): void; reject(error: Error): void } | undefined;
   const prompts = new Map<string, AbortController>();
   const providers = await new Promise<AuthProvider[]>((resolve, reject) => {
     const timer = setTimeout(
@@ -205,6 +207,7 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
     native.on("failure", () => {
       dead = true;
       logout?.reject(new Error("Pi sign-out process exited"));
+      modelRequest?.reject(new Error("Pi catalog process exited"));
       clearTimeout(timer);
       reject(new Error("Pi authentication process exited"));
       current?.reject(new Error("Pi authentication process exited"));
@@ -216,6 +219,9 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
         resolve(message.providers);
       }
       if (message.type === "logout_complete") logout?.resolve();
+      if (message.type === "models") modelRequest?.resolve(message.models);
+      if (message.type === "models_failed")
+        modelRequest?.reject(new Error("Pi catalog refresh failed"));
       if (message.type === "logout_failed")
         logout?.reject(new Error("Pi sign-out failed"));
       const login = current;
@@ -279,8 +285,20 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
     },
     async models() {
       if (dead) throw new Error("Pi authentication process exited");
-      const result = await native.request("get_available_models", {}, false);
-      return result.models;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await new Promise((resolve, reject) => {
+          modelRequest = { resolve, reject };
+          timer = setTimeout(
+            () => reject(new Error("Pi catalog refresh timed out")),
+            30000,
+          );
+          channel.write(JSON.stringify({ type: "models" }) + "\n");
+        });
+      } finally {
+        clearTimeout(timer);
+        modelRequest = undefined;
+      }
     },
     async logout(provider) {
       if (dead || current || logout)
@@ -310,6 +328,7 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
       });
     },
     async dispose() {
+      modelRequest?.reject(new Error("Catalog cancelled"));
       logout?.reject(new Error("Sign-out cancelled"));
       current?.reject(new Error("Sign-in cancelled"));
       current = undefined;
@@ -321,6 +340,7 @@ async function piDriver(options: AuthOptions): Promise<AuthDriver> {
 
 async function openCodeDriver(options: AuthOptions): Promise<AuthDriver> {
   const password = randomBytes(32).toString("hex");
+  const authOverride = !!(options.env ?? process.env).OPENCODE_AUTH_CONTENT;
   const child = spawn(
     options.executable,
     ["serve", "--hostname", "127.0.0.1", "--port", "0"],
@@ -395,6 +415,21 @@ async function openCodeDriver(options: AuthOptions): Promise<AuthDriver> {
         id: provider.id,
         name: provider.name,
         configured: catalog.connected.includes(provider.id),
+        source:
+          provider.source === "env" ||
+          (authOverride && ["api", "custom"].includes(provider.source))
+            ? "environment"
+            : provider.source === "api"
+              ? "stored"
+              : provider.source === "config"
+                ? "configuration"
+                : "unknown",
+        ...(provider.source === "api"
+          ? { credentialType: "api" as const }
+          : {}),
+        // Configuration/custom availability is not evidence of stored auth.
+        // OpenCode's public catalog only identifies stored API credentials.
+        removable: !authOverride && provider.source === "api",
         methods: (auth[provider.id] || [{ type: "api", label: "API key" }]).map(
           (method: any, index: number) => ({
             id: String(index),
@@ -464,6 +499,20 @@ async function openCodeDriver(options: AuthOptions): Promise<AuthDriver> {
       const catalog = await api("/provider");
       if (!catalog.connected.includes(provider))
         throw new Error("Provider did not confirm authentication");
+    },
+    async logout(provider) {
+      await api("/auth/" + encodeURIComponent(provider), undefined, "DELETE");
+    },
+    async models() {
+      const catalog = await api("/provider");
+      return catalog.all
+        .filter((p: any) => catalog.connected.includes(p.id))
+        .flatMap((p: any) =>
+          Object.entries(p.models || {}).map(([id, m]: [string, any]) => ({
+            id: p.id + "/" + id,
+            name: m.name || id,
+          })),
+        );
     },
     async dispose() {
       await stop(child);
