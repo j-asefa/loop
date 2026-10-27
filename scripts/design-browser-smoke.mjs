@@ -1,6 +1,6 @@
 // Each scenario owns its database, server and browser context. Child processes
 // also isolate helper-level environment mutations. Existing smoke:design stays full.
-import { withHeavySlot } from "./heavy-command.mjs";
+import { runSupervised } from "./heavy-command.mjs";
 const names = [
   "beginner-chat",
   "profile-photos-recipient",
@@ -73,7 +73,7 @@ for (const signal of ["SIGINT", "SIGTERM"])
 async function worker() {
   while (next < queue.length && !failed) {
     const name = queue[next++];
-    const code = await withHeavySlot(
+    const code = await runSupervised(
       process.execPath,
       ["scripts/design-scenario.mjs", name],
       {
@@ -81,8 +81,7 @@ async function worker() {
         signal: controller.signal,
       },
     );
-    // Cancelling siblings must not replace the failure that stopped the suite
-    // (in particular, admission refusal 75) with their cancellation status.
+    // Cancelling siblings must not replace the failure that stopped the suite.
     if (code !== 0 && !failed) {
       failed = true;
       process.exitCode = code;

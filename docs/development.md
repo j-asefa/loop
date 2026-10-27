@@ -67,7 +67,7 @@ The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` runtime
 
 `feeds:check` is the exception to fixture-only testing: it fetches the checked-in [feed catalog](../src/shared/news.ts) through [feed-fetch.ts](../src/server/feed-fetch.ts), the same transport Social uses, and exits non-zero for any feed that no longer parses. Run it when changing the catalog and put its output in the PR. The Vitest suite never reaches a feed.
 
-For a focused Vitest run, invoke it directly, for example `npx vitest run test/runtime-network.test.ts --maxWorkers=1`. Do not append file paths to `npm test --`: the script already supplies `test/`, so that still selects the full directory. Vitest defaults to two workers in [vite.config.ts](../vite.config.ts). Heavy repository checks use [shared host admission](#shared-host-admission). On process-limited hosts, use `npm test -- --maxWorkers=1` for the full suite; native runtime fixtures also spawn child processes.
+For a focused Vitest run, invoke it directly, for example `npx vitest run test/runtime-network.test.ts --maxWorkers=1`. Do not append file paths to `npm test --`: the script already supplies `test/`, so that still selects the full directory. Vitest defaults to two workers in [vite.config.ts](../vite.config.ts). Repository checks use [command supervision](#command-supervision). On process-limited hosts, use `npm test -- --maxWorkers=1` for the full suite; native runtime fixtures also spawn child processes.
 
 The workspace-event socket suite compiles the current server into an isolated temporary fixture, so focused tests do not require or reuse the checkout's `dist` build.
 
@@ -85,42 +85,33 @@ Connection-service tests (`test/connection.node.test.ts`, `test/cli-connection.n
 
 Native async tests use bounded waits from `test/helpers.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.
 
-## Shared host admission
+## Command supervision
 
-On Linux, `npm run typecheck`, each `npm run build` and `npm run check` phase,
-`npm test`, `npm run test:native`, the browser smoke package scripts and
-`test:browser:acp` share one per-user slot. The design runner takes it separately
-for each named scenario, including when invoked directly. Queueing happens
-before that phase starts; it reports waiting and exits 75 if the slot or memory
-headroom remains unavailable for 120 seconds. Earlier phases of a compound
-command may already have completed. A refused phase is never retried automatically.
+Builds, checks, tests and browser scenarios start immediately. They do not acquire
+an exclusive host slot, wait for estimated memory headroom or return a slot-busy
+status. Separate invocations can run concurrently; each suite still controls its
+own worker count.
 
-[scripts/heavy-command.mjs](../scripts/heavy-command.mjs) uses Python 3.8+'s standard
-library supervisor on Linux. The lock stays at `loop-typecheck/slot.lock` under
-`XDG_RUNTIME_DIR` or `~/.cache`, so older typecheck wrappers use the same slot.
-All callers must use the same runtime directory. Before admission, the supervisor
-checks for 2048 MiB of available host memory and estimated headroom under every
-visible cgroup v2 ancestor memory ceiling, discounting clean inactive filesystem cache. This is an admission estimate, not a reserved
-allocation. Nested checks recognize a live supervising ancestor and use its slot.
-The test runner carries this scheduling marker and the three admission controls
-through environment sanitization;
-application settings and credentials remain stripped.
+[scripts/heavy-command.mjs](../scripts/heavy-command.mjs) remains the compatible
+browser-check entrypoint. Its `runSupervised` helper uses Python 3.8+'s standard
+library on Linux to preserve process cleanup. The command stays in the caller's
+process group and cgroup. On interruption or caller death, the supervisor
+terminates the command, adopts orphaned descendants and gives cleanup five seconds
+before escalating to SIGKILL. Killing the supervisor itself with SIGKILL cannot
+run cleanup. Non-Linux hosts launch the command directly and forward signals.
+Linux requires Python 3.8+; a supervision setup failure exits 127.
 
-The command stays in the caller's process group and cgroup. On interruption or
-caller death, the supervisor terminates the command, adopts orphaned descendants,
-and gives cleanup five seconds before escalating to SIGKILL. It holds the slot
-until those processes are reaped. Killing the supervisor itself with SIGKILL
-cannot run cleanup; the [agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-server)
-is still the enforcement boundary. This is cooperative admission, not a security
-boundary: direct tool invocations and older test/build scripts can bypass it.
+The old `LOOP_HEAVY_SLOT`, `LOOP_HEAVY_WAIT_SECONDS`, `LOOP_HEAVY_RESERVE_MB` and
+`LOOP_HEAVY_SCHEDULING` controls have no effect on current checks. The
+[agent resource installer](../deployment/install-agent-resources.sh) sets
+`LOOP_HEAVY_SCHEDULING=off` for newly launched harnesses so older agent worktrees
+also bypass their admission gate. Restart Loop after applying that installer.
 
-`LOOP_HEAVY_WAIT_SECONDS` and `LOOP_HEAVY_RESERVE_MB` tune the wait and headroom
-estimate; setting the reserve to zero keeps locking but disables the headroom
-requirement. `LOOP_HEAVY_SCHEDULING=off` explicitly disables admission on a host
-with independently managed capacity. Watch mode, explicit opt-out and non-Linux hosts run directly
-with a notice. Linux requires Python 3.8+ and refuses to start if admission setup
-fails. Container builds need their own limits; a host-side slot cannot account
-for work launched by a separate Docker daemon.
+The [agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-server)
+still limits aggregate agent memory and CPU. There is no repository job queue or
+memory reservation; choose suite worker counts for the available capacity.
+Container builds need their own limits because Docker work runs outside the
+caller's process tree and cgroup.
 
 ## Browser checks
 
@@ -159,7 +150,7 @@ GitHub Actions are temporarily removed to avoid hosted-runner costs. Run the rel
 
 Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them. The Docker companion smoke (`node scripts/compose-companion-smoke.mjs`) builds its images by default. The server smoke (`node scripts/compose-smoke.mjs`) expects the server Compose stack to be running; see [server operation](server.md).
 
-The design smoke runs named scenarios with separate databases, servers and browser contexts, one at a time by default. `LOOP_BROWSER_WORKERS=2` enables two scenario workers; Linux host admission still limits them to one active scenario unless explicitly disabled. For a focused design regression:
+The design smoke runs named scenarios with separate databases, servers and browser contexts, one at a time by default. `LOOP_BROWSER_WORKERS=2` enables two concurrent scenario workers. For a focused design regression:
 
 ```sh
 LOOP_BROWSER=webkit node scripts/design-browser-smoke.mjs models
@@ -172,7 +163,7 @@ Omitting scenario names runs all scenarios; unknown names fail. Each scenario re
 
 The native contract checks exercise direct adapter framing, paired sign-in, native session recovery, live steering and team messaging across harnesses. They use subprocess fixtures and do not verify real provider OAuth or inference.
 
-Before a PR, run `npm run check` on the commit you are submitting and paste its `check:` lines into the PR; repeat after revisions. The review team reads a snapshot and does not run it. The command runs Prettier's check, [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the [formatting policy](../test/format-policy.test.ts), the legacy route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. Budget roughly a minute on an idle shared host, plus up to two minutes waiting for [shared host admission](#shared-host-admission) per phase. Typecheck needs about 2 GiB, and the contract tests use two Vitest workers; the legacy inventory starts the server twice, once per profile. Run it per submitted PR head, not in a mandatory push hook. It refuses to start without the required local `node_modules` tools or with a different Prettier version; use `npm ci`. It exits 75 when admission for a phase remains unavailable; earlier phases may already have completed. It is not the full suite. Also run checks relevant to the change and report exact failures or unavailable dependencies.
+Before a PR, run `npm run check` on the commit you are submitting and paste its `check:` lines into the PR; repeat after revisions. The review team reads a snapshot and does not run it. The command runs Prettier's check, [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the [formatting policy](../test/format-policy.test.ts), the legacy route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. Budget roughly a minute on an idle shared host. Typecheck needs about 2 GiB, and the contract tests use two Vitest workers; the legacy inventory starts the server twice, once per profile. Run it per submitted PR head, not in a mandatory push hook. It refuses to start without the required local `node_modules` tools or with a different Prettier version; use `npm ci`. It is not the full suite. Also run checks relevant to the change and report exact failures or unavailable dependencies.
 
 TypeScript and JavaScript (`ts`, `tsx`, `js`, `jsx`, `mjs`, `cjs`) in `src/`, `test/` and `scripts/` use the exactly pinned Prettier version with its defaults; `npm run format` rewrites them. The [ignore list](../.prettierignore) names files left unformatted because many open branches edit them. It only shrinks: format a file when its in-flight work lands and remove its entry from both the ignore list and the formatting policy's named allowance. The policy rejects new exemptions, broad patterns and missing paths. Reviewers check that the allowance itself has not grown.
 

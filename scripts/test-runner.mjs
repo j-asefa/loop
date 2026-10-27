@@ -1,6 +1,6 @@
 // Tests choose their own profile/workspace. A live Loop-launched terminal must
 // not inject its database, disabled memory setting, daemon flags or credentials.
-import { watchRequested, withHeavySlot } from "./heavy-command.mjs";
+import { runSupervised } from "./heavy-command.mjs";
 import { globSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 export function testEnvironment(env, suite) {
@@ -42,10 +42,9 @@ if (
           ...extra,
           ...globSync("test/*.node.test.ts"),
         ];
-  process.exitCode = await withHeavySlot(process.execPath, args, {
+  process.exitCode = await runSupervised(process.execPath, args, {
     label: `${suite} tests`,
     stdio: "inherit",
     env: testEnvironment(process.env, suite),
-    schedule: !watchRequested(extra),
   });
 }

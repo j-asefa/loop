@@ -3,7 +3,7 @@
 // full test suite; run the checks for the boundary you changed as well.
 import { existsSync, globSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { withHeavySlot } from "./heavy-command.mjs";
+import { runSupervised } from "./heavy-command.mjs";
 import { testEnvironment } from "./test-runner.mjs";
 
 // Paths below are relative to the repository root, wherever this is run from.
@@ -68,7 +68,7 @@ if (installedPrettier !== pinnedPrettier) {
 for (const [name, args, env = process.env] of steps) {
   const started = Date.now();
   console.log(`check: ${name}`);
-  const status = await withHeavySlot(process.execPath, args, {
+  const status = await runSupervised(process.execPath, args, {
     label: `check ${name}`,
     stdio: "inherit",
     env,
@@ -76,7 +76,7 @@ for (const [name, args, env = process.env] of steps) {
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   if (status !== 0) {
     console.error(`check: ${name} failed (${status}) after ${seconds} s`);
-    // Preserve admission refusal for this phase; earlier phases may have run.
+    // Preserve the failing phase's status; earlier phases may have run.
     process.exit(status ?? 1);
   }
   console.log(`check: ${name} passed in ${seconds} s`);

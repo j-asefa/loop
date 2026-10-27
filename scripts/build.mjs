@@ -1,4 +1,4 @@
-import { withHeavySlot } from "./heavy-command.mjs";
+import { runSupervised } from "./heavy-command.mjs";
 import { cp, rm, mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +34,7 @@ try {
     ["scripts/build-sw.mjs"],
     ["scripts/build-cli.mjs"],
   ]) {
-    const status = await withHeavySlot(process.execPath, args, {
+    const status = await runSupervised(process.execPath, args, {
       label: `build ${args[0]}`,
       cwd: source.directory,
       env,

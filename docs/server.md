@@ -75,6 +75,10 @@ bash deployment/install-agent-resources.sh loop.service
 systemctl --user restart loop.service
 ```
 
+The installer sets `LOOP_HEAVY_SCHEDULING=off` for new harnesses so tests in
+older worktrees bypass their removed shared-slot limiter. Current repository
+checks start immediately; see [command supervision](development.md#command-supervision).
+
 The installer copies the launcher and installs
 [loop-agents.slice](../deployment/loop-agents.slice): all native agent processes
 together have a 5 GiB hard memory ceiling,

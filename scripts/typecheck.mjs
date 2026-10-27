@@ -1,14 +1,9 @@
-// TypeScript shares admission with builds, tests and browser smokes.
+// Run TypeScript with the same descendant cleanup as other repository checks.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { watchRequested, withHeavySlot } from "./heavy-command.mjs";
-export { SLOT_BUSY_EXIT, privateLockDir } from "./heavy-command.mjs";
-export function withTypecheckSlot(command, args, options = {}) {
-  return withHeavySlot(command, args, { label: "typecheck", ...options });
-}
-
+import { runSupervised } from "./heavy-command.mjs";
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -30,10 +25,7 @@ if (
     typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.tsc;
   if (!bin) throw new Error("The typescript package declares no tsc binary.");
   const args = [join(root, bin), "--noEmit", ...process.argv.slice(2)];
-  // Watch mode would hold the slot for a whole session; it runs outside it.
-  const watch = watchRequested(process.argv.slice(2));
-  process.exitCode = await withHeavySlot(process.execPath, args, {
+  process.exitCode = await runSupervised(process.execPath, args, {
     label: "typecheck",
-    schedule: !watch,
   });
 }

@@ -44,7 +44,7 @@ Loop puts the agents on your computer into one phone workspace. Start runs, appr
 
 ## Setup
 
-Use Node.js **24** and a persistent disk. Building from source on Linux also requires **Python 3.8+** for [shared check admission](docs/development.md#shared-host-admission). Docker is required only for container execution.
+Use Node.js **24** and a persistent disk. Building from source on Linux also requires **Python 3.8+** for [command supervision](docs/development.md#command-supervision). Docker is required only for container execution.
 
 ```sh
 git clone https://github.com/j-asefa/loop.git

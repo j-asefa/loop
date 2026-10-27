@@ -17,9 +17,11 @@ fi
 python3 - "$helper_dir/agent-scope.py" "$unit_dir/$service.d/agent-resources.conf" <<'PY'
 import json, pathlib, sys
 launcher = 'LOOP_NATIVE_LAUNCHER=' + sys.argv[1]
+# Older agent worktrees still have the cooperative test limiter. Disable it in
+# their inherited environment too; current checks retain cleanup without admission.
 # Systemd interprets percent specifiers even inside quoted Environment values.
 launcher = launcher.replace('%', '%%')
-pathlib.Path(sys.argv[2]).write_text('[Service]\nEnvironment=' + json.dumps(launcher) + '\nMemoryLow=512M\n')
+pathlib.Path(sys.argv[2]).write_text('[Service]\nEnvironment=' + json.dumps(launcher) + '\nEnvironment=LOOP_HEAVY_SCHEDULING=off\nMemoryLow=512M\n')
 PY
 systemctl --user daemon-reload
 systemctl --user start loop-agents.slice
