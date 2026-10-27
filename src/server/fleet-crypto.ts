@@ -29,7 +29,12 @@ function canonical(value: unknown): string {
 export function machineIdentity(publicKey: string): MachineIdentity {
   MachinePublicKey.parse(publicKey);
   const bytes = Buffer.from(publicKey, "base64url");
-  const key = createPublicKey({ key: bytes, format: "der", type: "spki" });
+  let key: ReturnType<typeof createPublicKey>;
+  try {
+    key = createPublicKey({ key: bytes, format: "der", type: "spki" });
+  } catch {
+    throw new Problem(400, "Invalid fleet machine key.");
+  }
   if (
     key.asymmetricKeyType !== "ed25519" ||
     key.export({ format: "der", type: "spki" }).toString("base64url") !==
@@ -77,6 +82,16 @@ function bytes(document: FleetDirectory, purpose: "directory" | "handoff") {
 export function directoryDigest(document: FleetDirectory): string {
   return createHash("sha256")
     .update(bytes(FleetDirectory.parse(document), "directory"))
+    .digest("hex");
+}
+
+/** Digest parsed JSON input, excluding transport credentials and retry timing. */
+export function fleetPayloadDigest(input: unknown): string {
+  const json = JSON.stringify(input);
+  if (json === undefined || Buffer.byteLength(json) > 1024 * 1024)
+    throw new Problem(413, "Fleet operation input is too large.");
+  return createHash("sha256")
+    .update(`loop:fleet:operation:v1\n${canonical(JSON.parse(json))}`)
     .digest("hex");
 }
 
@@ -230,5 +245,29 @@ export function verifyDirectoryRoot(input: unknown): SignedFleetDirectory {
     )
   )
     throw new Problem(403, "Invalid fleet directory root.");
+  return signed;
+}
+
+/** An explicit local enrollment/reset may pin a current controller's signed
+ * head without trusting an unavailable historical controller. This establishes
+ * a local trust anchor only; it never proves succession from an existing head. */
+export function verifyApprovedDirectory(input: unknown): SignedFleetDirectory {
+  const signed = validateDirectory(input),
+    doc = signed.document;
+  if (doc.kind === "genesis" || doc.kind === "recovery")
+    return verifyDirectoryRoot(signed);
+  if (
+    doc.parent === null ||
+    (doc.kind === "revision"
+      ? doc.revision < 1
+      : doc.revision !== 0 || doc.epoch < 1) ||
+    !signatureValid(
+      doc,
+      doc.kind === "handoff" ? signed.acceptance! : signed.signature,
+      doc.controller.publicKey,
+      doc.kind === "handoff" ? "handoff" : "directory",
+    )
+  )
+    throw new Problem(403, "Invalid locally approved fleet directory.");
   return signed;
 }

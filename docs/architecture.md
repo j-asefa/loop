@@ -39,6 +39,23 @@ it. Missing or inconsistent signing material fails startup rather than creating
 a replacement identity. Server-profile and preview gateways do not initialize
 this identity. This foundation does not enroll peers or enable remote access.
 
+The fleet authority layer stores signed directory history, local owner consent,
+peer scopes and controller handoff receipts in immediate transactions. Directory
+edits compare the expected head; replicas cannot administer membership. Preparing
+a handoff durably fences the old controller before returning its signed proposal.
+The incoming controller commits its acceptance before returning proof, and a lost
+reply never automatically restores the old writer. An explicit local recovery
+pins a new controller and grant while retaining the previously accepted history.
+It grants no recovered authority to members that have not separately consented.
+
+Destination fleet command receipts retain their original identity across retries,
+gateway changes and restarts. They project responses through the owning public
+contract, bound cached response bodies, and retain compacted completion records.
+A process exiting after dispatch leaves an uncertain receipt; reading or retrying
+it never submits the effect again. Directory/grant checks precede dispatch, and
+the owning native handler still enforces decision generations. These foundations
+do not register peer or fleet-administration HTTP endpoints.
+
 ## Saved rows
 
 [Typed readers](../src/server/row-schemas.ts) validate persisted execution payloads and JSON metadata once, preserving owner predicates. Team setup, saved agent definitions, workspace content and continuation routes, artifact filing and PR-watch registration use the [owner-scoped readers](../src/server/domain.ts) before changing configuration or organization. The generic ownership guard returns `unknown`; execution uses one parsed `Run` and the [legal state map](../src/shared/run-state.ts). New records and update patches are strict; subscription status refresh preserves existing validated metadata while validating its new status fields. Reads retain unknown top-level run-payload and metadata fields but reject malformed present identity, routing, permission and credential fields. Model catalog entries are strict; only an absent model display name defaults to its ID. Execution projects known fields into new output, leaving the saved historical payload intact. Invalid records fail closed with their row ID; malformed team configuration also remains unavailable for deletion and filtering. Artifact responses retain serialized metadata; continuation copies validate selected messages before creating a conversation and preserve historical extras inside their original metadata. Folder ancestry is validated when changing the parent; renames do not depend on unrelated ancestor display fields. Import cancellation checks ownership and scalar run identities without interpreting execution payloads or damaged import display fields; starting an import still validates its record.

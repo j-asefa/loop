@@ -23,7 +23,7 @@ import { publicBuild } from "./shared/build.js";
 import { observeProcess } from "./server/deployments.js";
 import { observedBuild } from "./server/build-runtime.js";
 import { authenticateCardToken } from "./server/card-tokens.js";
-import { initializeFleetIdentity } from "./server/fleet-identity.js";
+import { FleetAuthority } from "./server/fleet-authority.js";
 import { seal, unseal } from "./server/secrets.js";
 
 // Identifies the browser assets this launch serves. A reconnecting page
@@ -40,6 +40,7 @@ const BUILD = (() => {
 })();
 export class WorkspaceHost {
   gateway: Host;
+  readonly fleet?: FleetAuthority;
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
@@ -60,7 +61,7 @@ export class WorkspaceHost {
       );
     // Identity survives URL changes and application restarts. This does not
     // create fleet membership, grant peer access, or expose a peer endpoint.
-    if (!preview) initializeFleetIdentity(db, { seal, unseal });
+    if (!preview) this.fleet = new FleetAuthority(db, { seal, unseal });
     this.gateway = new Host(dir, {
       harness: options.harness,
       project: options.project,

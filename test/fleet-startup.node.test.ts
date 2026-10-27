@@ -1,4 +1,5 @@
 import test from "node:test";
+import Database from "better-sqlite3";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -114,38 +115,40 @@ test("server profile and isolated preview startup never create fleet signing ide
     });
     assert.equal(server.refused, true);
     assert.deepEqual(server.identities, []);
-    const home = join(directory, "preview"),
-      data = join(home, "workspace");
-    mkdirSync(data, { recursive: true });
-    const manifest = {
-      schema: 1,
-      previewId: randomUUID(),
-      name: "fleet-fixture",
-      mode: "design",
-      home,
-      build: {
-        id: randomUUID(),
-        branch: "fixture",
-        commit: "a".repeat(40),
-        dirty: false,
-        builtAt: "fixture",
-        sourceHash: "b".repeat(64),
-        artifactHash: "c".repeat(64),
-      },
-    };
-    const path = join(data, "preview-owner.json");
-    writeFileSync(path, JSON.stringify(manifest));
-    assert.deepEqual(
-      (
-        await startup(data, {
-          LOOP_PREVIEW_MANIFEST: path,
-          LOOP_HOME: home,
-          LOOP_ENCRYPTION_KEY: "",
-        })
-      ).identities,
-      [],
-    );
-    assert.equal(existsSync(join(data, "encryption-key")), false);
+    for (const mode of ["design", "working"]) {
+      const home = join(directory, "preview-" + mode),
+        data = join(home, "workspace");
+      mkdirSync(data, { recursive: true });
+      const manifest = {
+        schema: 1,
+        previewId: randomUUID(),
+        name: "fleet-fixture",
+        mode,
+        home,
+        build: {
+          id: randomUUID(),
+          branch: "fixture",
+          commit: "a".repeat(40),
+          dirty: false,
+          builtAt: "fixture",
+          sourceHash: "b".repeat(64),
+          artifactHash: "c".repeat(64),
+        },
+      };
+      const path = join(data, "preview-owner.json");
+      writeFileSync(path, JSON.stringify(manifest));
+      assert.deepEqual(
+        (
+          await startup(data, {
+            LOOP_PREVIEW_MANIFEST: path,
+            LOOP_HOME: home,
+            LOOP_ENCRYPTION_KEY: "",
+          })
+        ).identities,
+        [],
+      );
+      assert.equal(existsSync(join(data, "encryption-key")), false);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -173,6 +176,32 @@ test("concurrent processes initialize one key and do not revive unreadable signi
       return;
     assert.equal(attempts[0].value.identities.length, 1);
     assert.deepEqual(attempts[0].value, attempts[1].value);
+    await assert.rejects(
+      startup(directory, { ...options, LOOP_ENCRYPTION_KEY: "cd".repeat(32) }),
+    );
+    const database = new Database(join(directory, "loop.db"));
+    const original = database
+      .prepare("SELECT private_key FROM fleet_machine_identity")
+      .get() as { private_key: string };
+    const parts = original.private_key.split(".");
+    parts[1] = (parts[1][0] === "0" ? "1" : "0") + parts[1].slice(1);
+    database
+      .prepare("UPDATE fleet_machine_identity SET private_key=?")
+      .run(parts.join("."));
+    await assert.rejects(startup(directory, options));
+    assert.equal(
+      (
+        database
+          .prepare("SELECT private_key FROM fleet_machine_identity")
+          .get() as { private_key: string }
+      ).private_key,
+      parts.join("."),
+    );
+    database
+      .prepare("UPDATE fleet_machine_identity SET private_key=?")
+      .run(original.private_key);
+    database.close();
+    assert.deepEqual(await startup(directory, options), attempts[0].value);
     // Removing the encryption key cannot silently mint a new machine identity.
     const keyPath = join(directory, "encryption-key");
     const key = readFileSync(keyPath, "utf8");

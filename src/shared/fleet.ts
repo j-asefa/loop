@@ -90,3 +90,25 @@ export const FleetAuthorityState = z.enum([
 export function fleetSourceId(machineId: string): string {
   return `peer:${MachineId.parse(machineId)}`;
 }
+
+export const FleetHandoffProposal = z
+  .object({
+    document: FleetDirectory.refine((doc) => doc.kind === "handoff"),
+    signature: FleetSignature,
+  })
+  .strict();
+export type FleetHandoffProposal = z.infer<typeof FleetHandoffProposal>;
+
+// The destination maps this grant to its own owner. A peer cannot nominate a
+// local owner ID; the credential boundary must first prove the peer identity.
+export const FleetGrantContext = z
+  .object({
+    fleetId: z.string().uuid(),
+    grantId: z.string().uuid(),
+    destination: MachineId,
+    peer: MachineId,
+    directory: FleetDigest,
+    operation: FleetOperation,
+  })
+  .strict();
+export type FleetGrantContext = z.infer<typeof FleetGrantContext>;
