@@ -56,6 +56,27 @@ it never submits the effect again. Directory/grant checks precede dispatch, and
 the owning native handler still enforces decision generations. These foundations
 do not register peer or fleet-administration HTTP endpoints.
 
+Currently authorized peers share the destination owner's approved operation
+scope, including receipt reconciliation. Receipts retain the originating peer
+for provenance; the owner, fleet, grant, operation and original command UUID
+identify the same accepted work across gateways.
+
+Peer credential primitives bind destination-issued, ten-minute access to the
+enrolled machine key, destination grant, operation and accepted directory.
+Signed challenges use a short-lived nonce bound to the issuer instance and its
+monotonic deadline; successful proof redemption persists nonce consumption and a
+hashed credential in one transaction. Credentials expire on gateway restart;
+durable grants permit fresh machine-to-machine renewal. A durable issuer fence
+prevents a replaced instance from issuing against cleared nonce receipts.
+This fails closed when
+elapsed monotonic time cannot be recovered after a stalled wall clock or reboot.
+An issuer clock rollback also fails closed. A fresh client nonce binds each proof
+to its response. Client acceptance subtracts round-trip latency and returns local
+monotonic expiry and renewal deadlines, with renewal due two minutes before
+expiry. Versioned pairing link parsers project the device and enrollment
+capabilities separately. These
+primitives do not yet register enrollment/renewal routes or redeem pairing links.
+
 ## Saved rows
 
 [Typed readers](../src/server/row-schemas.ts) validate persisted execution payloads and JSON metadata once, preserving owner predicates. Team setup, saved agent definitions, workspace content and continuation routes, artifact filing and PR-watch registration use the [owner-scoped readers](../src/server/domain.ts) before changing configuration or organization. The generic ownership guard returns `unknown`; execution uses one parsed `Run` and the [legal state map](../src/shared/run-state.ts). New records and update patches are strict; subscription status refresh preserves existing validated metadata while validating its new status fields. Reads retain unknown top-level run-payload and metadata fields but reject malformed present identity, routing, permission and credential fields. Model catalog entries are strict; only an absent model display name defaults to its ID. Execution projects known fields into new output, leaving the saved historical payload intact. Invalid records fail closed with their row ID; malformed team configuration also remains unavailable for deletion and filtering. Artifact responses retain serialized metadata; continuation copies validate selected messages before creating a conversation and preserve historical extras inside their original metadata. Folder ancestry is validated when changing the parent; renames do not depend on unrelated ancestor display fields. Import cancellation checks ownership and scalar run identities without interpreting execution payloads or damaged import display fields; starting an import still validates its record.
