@@ -1,7 +1,7 @@
 import { workspaceApi, type Bootstrap } from "../shared/workspace-api";
-import { callRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./workspace-api";
 import { useEffect, useState } from "react";
-import { apiInWorkspace, retryAfter, isRateLimited, RATE_LIMITED } from "./api";
+import { retryAfter, isRateLimited, RATE_LIMITED } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
@@ -38,13 +38,7 @@ export function useThreadSource(source: string | null, owner?: string) {
       try {
         const [data, capabilities] = await Promise.all([
           callRoute(workspaceApi.bootstrap, {}, source, signal),
-          apiInWorkspace<Capabilities>(
-            "/capabilities",
-            source,
-            undefined,
-            undefined,
-            signal,
-          ),
+          readRoute(workspaceApi.capabilities, {}, source, signal),
         ]);
         if (!active || owner !== viewOwner()) return;
         const fresh = { key, data, capabilities };

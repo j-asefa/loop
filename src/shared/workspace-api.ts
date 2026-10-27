@@ -2,6 +2,8 @@ import { FeedEntities } from "./feed-projection.js";
 import { ConversationPulls } from "./conversation-pulls.js";
 import { ReplyContext, ReplyState } from "./steering-replies.js";
 import { z } from "zod";
+import { Capabilities } from "./capabilities.js";
+import * as app from "./app-contract-schemas.js";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
 import * as teams from "./team-contract-schemas.js";
@@ -142,19 +144,43 @@ const Ok = z.object({ ok: z.boolean() });
 const ResultSelection = { agent: Text.optional(), folder: Text.optional(), teams: Teams, view: z.enum(["all", "prompts", "files"]).default("all"), saved: z.enum(["1", "0"]).optional() };
 const NumberCursor = z.coerce.number<string>().int().min(0).max(Number.MAX_SAFE_INTEGER);
 export type RouteContract = {
-  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;
+  path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;
   status?: number;
-  // Other success statuses the handler writes (for example an accepted replay).
+  // Other statuses using this response shape (accepted replay or health failure).
   additionalStatuses?: readonly number[];
-  kind?: "stream";
   // One file part named "file", plus the ordinary body schema's text fields.
   multipart?: true;
   contentType?: string;
+  // Documentation of existing middleware; never an authorization bypass.
+  security?: "public" | "local-setup" | "optional-session";
   access: "session" | "card:results" | "card:cards";
-};
+} & ({ method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; kind?: "stream"; protocol?: never }
+  | { method: "POST" | "ALL"; kind: "transport"; protocol: "mcp" | "authentication" });
+export type ClientRouteContract = RouteContract & { method: Exclude<RouteContract["method"], "ALL"> };
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
 export const workspaceApi = {
+  capabilities: endpoint({ ...base, security: "public", method: "GET", path: "/capabilities", response: Capabilities }),
+  health: endpoint({ ...base, security: "public", method: "GET", path: "/health", response: app.PublicHealth, additionalStatuses: [503] }),
+  build: endpoint({ ...base, method: "GET", path: "/build", response: app.PublicBuild }),
+  diagnostic: endpoint({ ...base, method: "POST", path: "/diagnostic", body: app.DiagnosticInput, response: PublicRun }),
+  events: endpoint({ ...base, method: "GET", path: "/events", query: z.object({ after: z.unknown().optional() }), response: z.array(app.PublicHttpEvent) }),
+  authOptions: endpoint({ ...base, security: "public", method: "GET", path: "/auth-options", response: app.PublicAuthOptions }),
+  authSession: endpoint({ ...base, security: "optional-session", method: "GET", path: "/auth/get-session", query: app.AuthSessionQuery, response: app.PublicAuthSession }),
+  authSignInEmail: endpoint({ ...base, method: "POST", path: "/auth/sign-in/email", body: app.AuthSignInEmailInput, kind: "transport", protocol: "authentication", response: z.unknown() }),
+  authSignUpEmail: endpoint({ ...base, method: "POST", path: "/auth/sign-up/email", body: app.AuthSignUpEmailInput, kind: "transport", protocol: "authentication", response: z.unknown() }),
+  authSignInSocial: endpoint({ ...base, method: "POST", path: "/auth/sign-in/social", body: z.object({ provider: z.literal("github"), callbackURL: Text }), kind: "transport", protocol: "authentication", response: z.object({ url: Text }) }),
+  authSignOut: endpoint({ ...base, method: "POST", path: "/auth/sign-out", body: z.unknown(), kind: "transport", protocol: "authentication", response: z.object({ success: z.boolean() }) }),
+  authTransport: endpoint({ ...base, method: "ALL", path: "/auth/*splat", body: z.unknown(), kind: "transport", protocol: "authentication", response: z.unknown() }),
+  mcpFederationTransport: endpoint({ ...base, method: "ALL", path: "/mcp/federation", body: z.unknown(), kind: "transport", protocol: "mcp", response: z.unknown() }),
+  mcpReverseTransport: endpoint({ ...base, method: "ALL", path: "/mcp/reverse", body: z.unknown(), kind: "transport", protocol: "mcp", response: z.unknown() }),
+  federationEnroll: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/enroll", body: z.unknown(), response: z.object({ token: Text }) }),
+  federationImport: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/import", body: app.FederationImportInput, response: app.PublicFederationImport }),
+  federationImportReverse: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/import-reverse", body: app.FederationReverseInput, response: app.PublicFederationImport }),
+  federationRevoke: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/revoke", body: z.unknown(), response: z.object({ peerId: Text, revoked: z.literal(true) }) }),
+  federationPending: endpoint({ ...base, security: "local-setup", method: "GET", path: "/mcp/federation/pending", query: z.object({ peerId: z.unknown().optional() }), response: app.PublicReverseCalls }),
+  federationClaim: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/claim/:id", params: Id, body: z.object({ peerId: Text }), response: z.object({ claimed: z.boolean() }) }),
+  federationComplete: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/complete/:id", params: Id, body: z.object({ peerId: Text, state: z.enum(["completed", "unknown"]), result: z.unknown().optional() }), response: z.object({ state: z.enum(["completed", "unknown"]) }) }),
   prWatchList: endpoint({ ...base, method: "GET", path: "/pr-watches", query: z.object({ conversation: Text.max(150).optional() }), response: z.object({ watches: z.array(github.PublicPrWatch) }) }),
   prWatchCreate: endpoint({ ...base, method: "POST", path: "/pr-watches", body: github.PrWatchInput, response: github.PublicCreatedPrWatch, status: 201 }),
   prWatchResume: endpoint({ ...base, method: "POST", path: "/pr-watches/:id/resume", params: Id, body: z.unknown(), response: Ok }),

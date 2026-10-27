@@ -107,8 +107,17 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
   await expect(thread.locator(".composer-reply-chip")).toContainText(
     "The reconnect race is isolated",
   );
-  const input = thread.locator("textarea").last();
+  const input = thread.getByRole("textbox", {
+    name: "Reply to agent",
+    exact: true,
+  });
+  // Let the quoted message load before choosing the reply box. Its anchor can
+  // receive focus after the sheet opens, so select the input as a person would.
+  await expect(thread.locator(`[data-message-id="${first}"]`)).toBeVisible();
+  await input.click();
+  await expect(input).toBeFocused();
   await input.fill("Please explain the reconnect race.");
+  await expect(input).toHaveValue("Please explain the reconnect race.");
   await thread.getByRole("button", { name: "Send reply", exact: true }).click();
   await expect
     .poll(

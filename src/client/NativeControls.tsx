@@ -1,7 +1,8 @@
+import { readRoute } from "./workspace-api";
 import { workspaceApi, type NativeDecision as Decision, type RouteInput } from "../shared/workspace-api";
 import { useSourceId, useSourceCapabilities, useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { parse, clearAuthorization, apiInWorkspace } from "./api";
+import { parse, clearAuthorization } from "./api";
 import { RichText } from "./components";
 import type { Request } from "../protocol";
 import { Check, X } from "lucide-react";
@@ -67,13 +68,7 @@ export function WorkspaceConnection({
       return watchWorkspaceEvents({
         url, source: sourceId,
         read: (after, signal) =>
-          apiInWorkspace(
-            `/events?after=${after}`,
-            sourceId,
-            undefined,
-            undefined,
-            signal,
-          ),
+          readRoute(workspaceApi.events, { query: { after } }, sourceId, signal),
         changed: (events) => changed(sourceId, events),
         frame: (m) => {
           publishProjectionFrame(sourceId, m);

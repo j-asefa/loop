@@ -1,31 +1,38 @@
-import { authorizedFetch } from "./api";
+import { readRoute } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import { profileCapabilities, type Capabilities } from "../shared/capabilities";
-import {
-  executionSourceId,
-  returnToLocalSource,
-  sourceApiPath,
-} from "./sourceRouting";
+import { executionSourceId, returnToLocalSource } from "./sourceRouting";
 export let capabilities: Capabilities = profileCapabilities("server");
 export async function loadCapabilities() {
-  const response = await authorizedFetch(sourceApiPath("/api/capabilities"), {
-    cache: "no-store",
-    credentials: "same-origin",
-  });
-  if (response.status === 401 && executionSourceId()) {
-    const local = await authorizedFetch("/api/capabilities", {
-      cache: "no-store",
-      credentials: "same-origin",
-    });
-    if (local.ok) {
-      capabilities = await local.json();
+  const source = executionSourceId();
+  const controller = new AbortController();
+  try {
+    capabilities = await readRoute(
+      workspaceApi.capabilities,
+      {},
+      source,
+      controller.signal,
+    );
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status === 401 && source) {
+      try {
+        capabilities = await readRoute(
+          workspaceApi.capabilities,
+          {},
+          "",
+          controller.signal,
+        );
+      } catch (localError) {
+        if (!(localError as { status?: number }).status) throw localError;
+      }
+    }
+    if (status && source) {
       returnToLocalSource();
       return;
     }
+    throw error;
+  } finally {
+    controller.abort();
   }
-  if (!response.ok && executionSourceId()) {
-    returnToLocalSource();
-    return;
-  }
-  if (!response.ok) throw new Error("Cannot load workspace capabilities");
-  capabilities = await response.json();
 }

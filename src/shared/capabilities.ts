@@ -1,17 +1,19 @@
-export type DeploymentProfile = "server" | "companion";
-export interface Capabilities {
-  profile: DeploymentProfile;
-  nativeHarnesses: boolean;
-  pairedDevices: boolean;
-  runtimeHosts: boolean;
-  localProjects: boolean;
+import { z } from "zod";
+export const Capabilities = z.object({
+  profile: z.enum(["server", "companion"]),
+  nativeHarnesses: z.boolean(),
+  pairedDevices: z.boolean(),
+  runtimeHosts: z.boolean(),
+  localProjects: z.boolean(),
   /** Absent on older sources; preview sources explicitly disable management. */
-  cardTokens?: boolean;
+  cardTokens: z.boolean().optional(),
   /** Absent on sources that predate personal decision history. */
-  personalDecisions?: boolean;
+  personalDecisions: z.boolean().optional(),
   /** Absent on sources without the idempotent continuation-start endpoint. */
-  continuationStart?: boolean;
-}
+  continuationStart: z.boolean().optional(),
+});
+export type Capabilities = z.infer<typeof Capabilities>;
+export type DeploymentProfile = Capabilities["profile"];
 export function profileCapabilities(profile: DeploymentProfile): Capabilities {
   const companion = profile === "companion";
   return {

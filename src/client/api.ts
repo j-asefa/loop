@@ -1,6 +1,6 @@
 import { routePath } from "../shared/route-path";
 export { routePath } from "../shared/route-path";
-import type { RouteContract, RouteInput, RouteResponse } from "../shared/workspace-api";
+import type { RouteContract, ClientRouteContract, RouteInput, RouteResponse } from "../shared/workspace-api";
 import type { LegacyClientPath, LegacyFetchPath } from "./legacy-paths";
 import { WorkspaceClock } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
@@ -177,7 +177,7 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
   ) {
     clearAuthorization();
     window.dispatchEvent(new Event("loop-auth-expired"));
-    throw new Error("Sign in to Loop");
+    throw Object.assign(new Error("Sign in to Loop"), { redirected: true });
   }
   // Multipart callers previously named the HTTP status when a tunnel or proxy
   // returned an error page instead of Loop's JSON receipt.
@@ -272,7 +272,8 @@ function response<C extends RouteContract>(contract: C, value: unknown): RouteRe
   if (!parsed.success) throw new UnavailableResponse();
   return parsed.data as RouteResponse<C>;
 }
-export async function callRoute<C extends RouteContract>(contract: C, input: RouteInput<C>, sourceId: string, signal?: AbortSignal): Promise<RouteResponse<C>> {
+export async function callRoute<C extends ClientRouteContract>(contract: C, input: RouteInput<C>, sourceId: string, signal?: AbortSignal): Promise<RouteResponse<C>> {
+  if ((contract as RouteContract).method === "ALL") throw new Error("Protocol dispatch requires a concrete HTTP method");
   const path = routePath(contract, input);
   let body: unknown = input.body;
   if (contract.multipart && "file" in input) {
@@ -286,7 +287,7 @@ export async function callRoute<C extends RouteContract>(contract: C, input: Rou
     else form.append("file", upload.file, upload.filename);
     body = form;
   }
-  return response(contract, await requestInWorkspace<unknown>(path, sourceId, body, contract.method, signal, contract.kind, contract.multipart, contract.status === 204));
+  return response(contract, await requestInWorkspace<unknown>(path, sourceId, body, contract.method, signal, contract.kind === "stream" ? "stream" : undefined, contract.multipart, contract.status === 204));
 }
 export async function readRoute<C extends RouteContract & { method: "GET" }>(contract: C, input: RouteInput<C>, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void): Promise<RouteResponse<C>> {
   return response(contract, await readRequest<unknown>(routePath(contract, input), sourceId, signal, onRetry, contract.kind));

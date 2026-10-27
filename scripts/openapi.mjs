@@ -96,11 +96,13 @@ for (const [name, route] of Object.entries(workspaceApi)) {
   registry.add(
     route.kind === "stream"
       ? z.string().meta({ format: "binary" })
-      : cardNames[name]
-        ? route.response
-        : publicResponses.has(route.response)
-          ? z.lazy(() => route.response)
-          : route.response.clone(),
+      : route.kind === "transport"
+        ? z.unknown()
+        : cardNames[name]
+          ? route.response
+          : publicResponses.has(route.response)
+            ? z.lazy(() => route.response)
+            : route.response.clone(),
     { id: prefix + "Response" },
   );
   inputs.add(route.params.clone(), { id: prefix + "Params" });
@@ -144,8 +146,8 @@ const schemas = {
   ...registeredSchemas(registry, "output", "ResponseShared"),
   ...registeredSchemas(inputs, "input", "RequestShared"),
 };
-const paths = {};
 const responses = {};
+const paths = {};
 // Share errors by complete route family so later contract additions do not
 // push the document over the review capture's per-file limit. Cards retain
 // their published operation objects, including route-specific errors.
@@ -170,13 +172,16 @@ const sharedErrorGroups = new Set([
   "notifications",
 ]);
 for (const [name, route] of Object.entries(workspaceApi)) {
-  const path = "/api" + route.path.replace(/:([^/]+)/g, "{$1}");
-  const method = route.method.toLowerCase();
+  const path = "/api" + route.path.replace(/[:*]([^/]+)/g, "{$1}");
+  // OpenAPI has no ALL verb. Document the protocol's POST entrypoint and mark
+  // its delegated method dispatch explicitly, without inventing registry keys.
+  const method = route.method === "ALL" ? "post" : route.method.toLowerCase();
+  const transport = route.kind === "transport";
   const writes = method !== "get";
   const cardRead = route.access.startsWith("card:");
   const prefix = schemaName(name);
   const parameters = [];
-  if (writes)
+  if (writes && !transport)
     parameters.push({
       name: "Origin",
       in: "header",
@@ -199,9 +204,26 @@ for (const [name, route] of Object.entries(workspaceApi)) {
         schema,
       });
   }
+  if (route.security === "local-setup")
+    parameters.push({
+      name: "x-loop-source-setup",
+      in: "header",
+      required: true,
+      schema: { type: "string", const: "1" },
+      description:
+        "Local single-user execution-source setup only; paired browser proxies cannot forward this header.",
+    });
   const params = z.toJSONSchema(route.params, jsonOptions);
   for (const [key, schema] of Object.entries(params.properties || {}))
     parameters.push({ name: key, in: "path", required: true, schema });
+  for (const match of route.path.matchAll(/\*([^/]+)/g))
+    parameters.push({
+      name: match[1],
+      in: "path",
+      required: true,
+      schema: { type: "string" },
+      description: "Protocol-owned path, including slash-separated segments.",
+    });
   const response = {
     description: "Successful response",
     ...(route.status === 204
@@ -272,12 +294,31 @@ for (const [name, route] of Object.entries(workspaceApi)) {
       : errors;
   const operation = {
     operationId: name,
+    ...(transport
+      ? {
+          description:
+            route.protocol === "mcp"
+              ? "Opaque MCP JSON-RPC transport. The MCP handler owns all methods, authentication and responses, including streaming. Its 12 MB JSON parser runs before dispatch. The workspace registrar does not validate or project protocol messages. Browser Origin headers are refused."
+              : "Better Auth owns request validation, session cookies, redirects and response bodies. This protocol endpoint bypasses workspace input/output projection; single-user installations retain their existing personal-workspace response or refusal.",
+          "x-loop-transport": route.protocol,
+          ...(route.method === "ALL" ? { "x-loop-method": "ALL" } : {}),
+        }
+      : {}),
     parameters,
-    security: [
-      ...(cardRead ? [{ CardBearer: [] }] : []),
-      { OwnerSession: [] },
-      { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
-    ],
+    security: transport
+      ? route.protocol === "mcp"
+        ? [{ FederationBearer: [] }]
+        : [{ OwnerSession: [] }, {}]
+      : route.security === "public"
+        ? []
+        : route.security === "local-setup"
+          ? [{ LocalSourceSetup: [] }]
+          : [
+              ...(route.security === "optional-session" ? [{}] : []),
+              ...(cardRead ? [{ CardBearer: [] }] : []),
+              { OwnerSession: [] },
+              { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
+            ],
     ...(cardRead
       ? {
           "x-card-grants":
@@ -302,10 +343,22 @@ for (const [name, route] of Object.entries(workspaceApi)) {
     responses: {
       ...Object.fromEntries(
         [route.status ?? 200, ...(route.additionalStatuses ?? [])].map(
-          (status) => [status, response],
+          (status) => [
+            status,
+            status >= 400
+              ? { ...response, description: "Declared error response" }
+              : response,
+          ],
         ),
       ),
-      ...documentedErrors,
+      ...(transport
+        ? {
+            default: {
+              description:
+                "Protocol-owned response, including errors, redirects and streaming. The workspace registrar does not reshape it.",
+            },
+          }
+        : documentedErrors),
     },
   };
   paths[path] ||= {};
@@ -337,6 +390,19 @@ const document = {
     schemas,
     responses,
     securitySchemes: {
+      LocalSourceSetup: {
+        type: "apiKey",
+        in: "header",
+        name: "x-loop-source-setup",
+        description:
+          "Must equal 1 on an authenticated single-user request arriving at the local authority. This is a source-adapter capability unavailable through paired-browser proxies; remote or multi-user requests are refused.",
+      },
+      FederationBearer: {
+        type: "http",
+        scheme: "bearer",
+        description:
+          "Service credential issued by local execution-source enrollment. The protocol handler authenticates it independently and refuses browser origins.",
+      },
       CardBearer: {
         type: "http",
         scheme: "bearer",

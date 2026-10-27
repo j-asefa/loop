@@ -12,7 +12,11 @@ import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
 import { viewGeneration } from "./viewCache";
 import { callRoute, readRoute } from "./workspace-api";
-import type { RouteContract, RouteInput } from "../shared/workspace-api";
+import type {
+  RouteContract,
+  ClientRouteContract,
+  RouteInput,
+} from "../shared/workspace-api";
 
 const SourceContext = createContext<{
   sourceId: string;
@@ -80,7 +84,7 @@ export function useSourceRoute() {
   const source = useSourceId();
   return useMemo(
     () =>
-      <C extends RouteContract>(
+      <C extends ClientRouteContract>(
         contract: C,
         input: RouteInput<C>,
         signal?: AbortSignal,

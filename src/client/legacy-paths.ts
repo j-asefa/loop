@@ -7,16 +7,7 @@ type Path =
   | `/artifacts/${string}/move`
   | `/artifacts/${string}/refresh`
   | `/artifacts/${string}/tool-call`
-  | `/auth-options`
-  | `/auth/get-session`
-  | `/auth/sign-in/email`
-  | `/auth/sign-in/social`
-  | `/auth/sign-out`
-  | `/auth/sign-up/email`
-  | `/build`
-  | `/capabilities`
   | `/conversations/${string}/memory`
-  | `/events`
   | `/mcp`
   | `/mcp-sharing`
   | `/mcp/${string}`

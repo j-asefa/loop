@@ -2,13 +2,22 @@ import { capabilities } from "./capabilities";
 import { Pairing } from "./Pairing";
 import { useState, useEffect, type FormEvent } from "react";
 import { Orbit, ArrowRight, ShieldCheck } from "lucide-react";
-import { api } from "./api";
+import { readRoute, callRoute } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
+import { executionSourceId } from "./sourceRouting";
 function ServerAuth({ onDone }: { onDone: () => void }) {
   const [github, setGithub] = useState(false);
   useEffect(() => {
-    api("/auth-options")
+    const controller = new AbortController();
+    readRoute(
+      workspaceApi.authOptions,
+      {},
+      executionSourceId(),
+      controller.signal,
+    )
       .then((v) => setGithub(v.github))
       .catch(() => {});
+    return () => controller.abort();
   }, []);
   const [signup, setSignup] = useState(false),
     [error, setError] = useState(""),
@@ -19,11 +28,17 @@ function ServerAuth({ onDone }: { onDone: () => void }) {
     setError("");
     const f = new FormData(e.currentTarget);
     try {
-      await api(`/auth/${signup ? "sign-up" : "sign-in"}/email`, {
-        name: f.get("name") || "Loop user",
-        email: f.get("email"),
-        password: f.get("password"),
-      });
+      await callRoute(
+        signup ? workspaceApi.authSignUpEmail : workspaceApi.authSignInEmail,
+        {
+          body: {
+            name: String(f.get("name") || "Loop user"),
+            email: String(f.get("email") || ""),
+            password: String(f.get("password") || ""),
+          },
+        },
+        executionSourceId(),
+      );
       onDone();
     } catch (e) {
       setError((e as Error).message);
@@ -71,10 +86,16 @@ function ServerAuth({ onDone }: { onDone: () => void }) {
           <button
             onClick={async () => {
               try {
-                const r = await api("/auth/sign-in/social", {
-                  provider: "github",
-                  callbackURL: location.href,
-                });
+                const r = await callRoute(
+                  workspaceApi.authSignInSocial,
+                  {
+                    body: {
+                      provider: "github",
+                      callbackURL: location.href,
+                    },
+                  },
+                  executionSourceId(),
+                );
                 if (r.url) location.assign(r.url);
               } catch (e) {
                 setError((e as Error).message);

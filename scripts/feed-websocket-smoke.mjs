@@ -812,6 +812,22 @@ for (const engine of engines) {
           await context.addCookies([{name,value,url:fixture.origin,httpOnly:true,sameSite:"Lax"}]);
         }
         await context.unroute(/\/api\/(?:agent-sources\/[^/]+\/)?events\?/);
+        const legacyEventRows = new Set();
+        await context.route(/\/api\/(?:agent-sources\/[^/]+\/)?events\?/, async route => {
+          const response = await route.fetch();
+          if (!response.ok()) return route.fulfill({ response });
+          const rows = await response.json();
+          const localRows = [];
+          for (const row of rows) {
+            if (new URL(route.request().url()).pathname === "/api/events" &&
+                row.owner_id === fixture.owner &&
+                ("subject_kind" in row || "subject_id" in row)) localRows.push(row.id);
+            delete row.subject_kind;
+            delete row.subject_id;
+          }
+          await route.fulfill({ response, json: rows });
+          for (const id of localRows) legacyEventRows.add(id);
+        });
         const replay = await context.newPage();
         replay.on("pageerror", e => { if (!isWebKitNavigationFetchError(engine,e,fixture.origin)) errors.push(e.message); });
         await replay.goto(fixture.origin + "/?filter=working");
@@ -862,6 +878,10 @@ for (const engine of engines) {
         });
         fallback.on("requestfailed", request => fallbackRequests.push({path:new URL(request.url()).pathname,error:request.failure()?.errorText}));
         fallback.on("pageerror", (e) => errors.push(e.message));
+        const initialFeed = fallback.waitForResponse(response => {
+          const url = new URL(response.url());
+          return url.pathname === "/api/feed" && url.searchParams.get("filter") === "working";
+        });
         await fallback.goto(fixture.origin + "/?filter=working");
         await expect(fallback.locator(".workspace-connection")).toHaveText(
           "Connected to workspace",
@@ -870,20 +890,34 @@ for (const engine of engines) {
           throw error;
         });
         await expect(fallback.locator(".connection-notice")).toHaveCount(0);
-        fixture.db
+        // Finish the initial snapshot before mutating: otherwise startup can
+        // render the changed row and advance the cursor without polling it.
+        assert.equal((await initialFeed).status(), 200);
+        await (await initialFeed).finished();
+        await expect(fallback.getByRole("status", { name: "Loading feed", exact: true })).toHaveCount(0);
+        await expect(row(fallback, "Local task")).toHaveCount(0);
+        const fallbackUpdates = await fallback.evaluate(() => window.__workspaceUpdates);
+        const eventId = Number(fixture.db
           .transaction(() => {
             fixture.db
               .prepare(
                 "UPDATE runs SET state='running',updated_at=? WHERE id='live'",
               )
               .run(Date.now());
-            fixture.db
+            return fixture.db
               .prepare(
                 "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'live','run_started','{}',?)",
               )
-              .run(fixture.owner, Date.now());
+              .run(fixture.owner, Date.now()).lastInsertRowid;
           })
-          .immediate();
+          .immediate());
+        await expect.poll(() => legacyEventRows.has(eventId), {
+          message: "The actual new event reaches HTTP fallback without subject fields",
+          timeout: revisionTimeout,
+        }).toBe(true);
+        await expect.poll(() => fallback.evaluate(() => window.__workspaceUpdates), {
+          timeout: revisionTimeout,
+        }).toBeGreaterThan(fallbackUpdates);
         await expect(row(fallback, "Local task")).toHaveCount(1, {
           timeout: 5000,
         }).catch(error => {
@@ -894,12 +928,14 @@ for (const engine of engines) {
           "Connected to workspace",
         );
         await expect(fallback.locator(".connection-notice")).toHaveCount(0);
+        assert(legacyEventRows.has(eventId), "HTTP fallback renders production events without legacy subject fields");
         assert.deepEqual(errors, []);
         console.log(
           `PASS ${engine}/${mode}: Working -> Done, retained history, concurrent refresh, reconnect, HTTP fallback health${remote ? ", linked source isolation" : ""}`,
         );
       } finally {
         process.env.PATH = priorPath;
+        await context?.unrouteAll({ behavior: "wait" });
         await context?.close();
         await fixture?.close();
         await remote?.close();

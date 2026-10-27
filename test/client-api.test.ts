@@ -67,6 +67,8 @@ function pathTypes(path: string, signal: AbortSignal) {
   api("/bootstrap");
   // @ts-expect-error JSON contracts cannot bypass response validation.
   fetchStream(workspaceApi.personalProfile, {}, "");
+  // @ts-expect-error Protocol dispatch is server-only; callers select a concrete operation.
+  callRoute(workspaceApi.authTransport, { body: {} }, "");
 }
 it("returns server proxy redirects to the auth screen", async () => {
   const dispatchEvent = vi.fn();

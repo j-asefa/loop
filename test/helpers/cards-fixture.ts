@@ -13,7 +13,7 @@ import { installFixtureProjection } from "./projected-writer.js";
 export async function cardsFixture(
   mode: "server" | "companion" | "multi-user",
   compiled: boolean | string = false,
-  options: { projectedWrites?: boolean } = {},
+  options: { projectedWrites?: boolean; nodeEnv?: "test" | "production" } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "loop-card-access-"));
   let port = 0;
@@ -45,7 +45,8 @@ export async function cardsFixture(
         PORT: String(port),
         LOOP_TEST_CARDS_COMPILED: compiled ? "1" : "0",
         LOOP_TEST_CARDS_SOURCE: typeof compiled === "string" ? compiled : "",
-        NODE_ENV: "test",
+        NODE_ENV: options.nodeEnv ?? "test",
+        TEST: options.nodeEnv === "production" ? "" : process.env.TEST,
         LOOP_LISTEN_HOST: "127.0.0.1",
         LOOP_BIND_ADDRESS: "127.0.0.1",
         BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),

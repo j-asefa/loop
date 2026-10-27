@@ -34,7 +34,9 @@ it("surfaces Retry-After and backs off every read for only the rate-limited sour
   });
   await vi.advanceTimersByTimeAsync(3000);
   expect(retryAfter(error)).toBe(5000);
-  await expect(read("docker:one", "/events?after=12")).rejects.toMatchObject({
+  await expect(
+    callRoute(workspaceApi.events, { query: { after: 12 } }, "docker:one"),
+  ).rejects.toMatchObject({
     status: 429,
     retryAfterMs: 5000,
   });

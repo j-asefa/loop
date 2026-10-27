@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { apiInWorkspace } from "./api";
+import { readRoute } from "./workspace-api";
+import { workspaceApi } from "../shared/workspace-api";
 import {
   BuildIdentity,
   browserNeedsReload,
@@ -20,11 +21,10 @@ export function BrowserBuildStatus() {
       pending = controller;
       const timeout = setTimeout(() => controller.abort(), 30_000);
       try {
-        const response = await apiInWorkspace<{ serving: unknown }>(
-          "/build",
+        const response = await readRoute(
+          workspaceApi.build,
+          {},
           "",
-          undefined,
-          undefined,
           controller.signal,
         );
         const serving = BuildIdentity.safeParse(response.serving);

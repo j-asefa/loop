@@ -1,8 +1,6 @@
-import {
-  executionSourceId,
-  returnToLocalSource,
-  sourceApiPath,
-} from "../sourceRouting";
+import { executionSourceId, returnToLocalSource } from "../sourceRouting";
+import { readRoute } from "../workspace-api";
+import { workspaceApi } from "../../shared/workspace-api";
 import { useEffect } from "react";
 import { Orbit } from "lucide-react";
 
@@ -14,27 +12,32 @@ export function createSessionCheck(props: {
   setSession(value: unknown): void;
 }) {
   const { setSession } = props;
-  async function check() {
-    const r = await fetch(sourceApiPath("/api/auth/get-session"), {
-      cache: "no-store",
-    });
-    if (
-      r.redirected &&
-      !r.headers.get("content-type")?.includes("application/json")
-    ) {
-      location.reload();
-      return;
+  async function check(signal = new AbortController().signal) {
+    const source = executionSourceId();
+    try {
+      const result = await readRoute(
+        workspaceApi.authSession,
+        {},
+        source,
+        signal,
+      );
+      if (signal.aborted) return;
+      setSession(
+        result ? { ...result, mode: result.mode || "multi-user" } : null,
+      );
+    } catch (error) {
+      if (signal.aborted) throw error;
+      const failure = error as { status?: number; redirected?: boolean };
+      if (failure.redirected) {
+        location.reload();
+        return;
+      }
+      if (failure.status === 401 && source) {
+        returnToLocalSource();
+        return;
+      }
+      throw error;
     }
-    const result = await r.json();
-    if (r.status === 401 && executionSourceId()) {
-      returnToLocalSource();
-      return;
-    }
-    if (!r.ok)
-      throw new Error(result.error || "Could not open your workspace.");
-    setSession(
-      result ? { ...result, mode: result.mode || "multi-user" } : null,
-    );
   }
   return check;
 }
@@ -103,7 +106,10 @@ export function useSessionLifecycle(
     setBootstrapOwner,
   } = props;
   useEffect(() => {
-    void check().catch((e) => setError(e.message));
+    const controller = new AbortController();
+    void check(controller.signal).catch((e) => {
+      if (!controller.signal.aborted) setError(e.message);
+    });
     const expire = () => {
       if (personalWorkspace.current) {
         location.reload();
@@ -143,7 +149,10 @@ export function useSessionLifecycle(
       setSheet("");
     };
     window.addEventListener("loop-auth-expired", expire);
-    return () => window.removeEventListener("loop-auth-expired", expire);
+    return () => {
+      controller.abort();
+      window.removeEventListener("loop-auth-expired", expire);
+    };
   }, []);
 }
 

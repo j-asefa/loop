@@ -482,10 +482,12 @@ it("generates a schema with resolvable references and the runtime read/managemen
   }
   expect(spec.paths["/api/v1/cards"].get.responses[400].$ref).toBeUndefined();
   for (const [key, contract] of Object.entries(workspaceApi)) {
-    const path = "/api" + contract.path.replace(/:([^/]+)/g, "{$1}");
-    expect(spec.paths[path][contract.method.toLowerCase()].operationId).toBe(
-      key,
-    );
+    const path = "/api" + contract.path.replace(/[:*]([^/]+)/g, "{$1}");
+    const method =
+      contract.method === "ALL" ? "post" : contract.method.toLowerCase();
+    expect(spec.paths[path][method].operationId).toBe(key);
+    if (contract.method === "ALL")
+      expect(spec.paths[path][method]["x-loop-method"]).toBe("ALL");
   }
   expect(spec.paths["/api/bootstrap"].get.security).toEqual([
     { OwnerSession: [] },
@@ -510,13 +512,43 @@ it("generates a schema with resolvable references and the runtime read/managemen
   expect(spec.components.schemas.submitBody.required).not.toContain(
     "attachmentIds",
   );
+  const optionalAccountSession = new Set([
+    "authSession",
+    "authSignInEmail",
+    "authSignUpEmail",
+    "authSignInSocial",
+    "authSignOut",
+    "authTransport",
+  ]);
   for (const path of Object.values(spec.paths) as any[])
     for (const operation of Object.values(path) as any[])
       expect(
-        operation.security.every(
-          (requirement: object) => Object.keys(requirement).length > 0,
+        operation.security.filter(
+          (requirement: object) => Object.keys(requirement).length === 0,
         ),
-      ).toBe(true);
+        operation.operationId,
+      ).toHaveLength(optionalAccountSession.has(operation.operationId) ? 1 : 0);
+  for (const path of ["/capabilities", "/health", "/auth-options"])
+    expect(spec.paths["/api" + path].get.security).toEqual([]);
+  for (const path of ["/mcp/federation", "/mcp/reverse"]) {
+    const operation = spec.paths["/api" + path].post;
+    expect(operation["x-loop-method"]).toBe("ALL");
+    expect(operation["x-loop-transport"]).toBe("mcp");
+    expect(operation.security).toEqual([{ FederationBearer: [] }]);
+    expect(operation.responses.default).toBeDefined();
+    expect(operation.responses[400]).toBeUndefined();
+  }
+  const authProtocol = spec.paths["/api/auth/{splat}"].post;
+  expect(authProtocol.parameters).toContainEqual({
+    name: "splat",
+    in: "path",
+    required: true,
+    schema: { type: "string" },
+    description: "Protocol-owned path, including slash-separated segments.",
+  });
+  expect(spec.paths["/api/mcp/federation/enroll"].post.security).toEqual([
+    { LocalSourceSetup: [] },
+  ]);
   expect(
     spec.paths["/api/v1/cards"].get.parameters.map((p: any) => p.name),
   ).toEqual(

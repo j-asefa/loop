@@ -593,7 +593,11 @@ export function renderApp(props: AppViewProps) {
                       attachmentsRef.current,
                       previous.owner,
                     );
-                  await api("/auth/sign-out", {});
+                  await callRoute(
+                    workspaceApi.authSignOut,
+                    { body: {} },
+                    executionSourceId(),
+                  );
                   draftLoadedFor.current = null;
                   sessionStorage.clear();
                   setTeamSelection([]);
