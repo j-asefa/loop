@@ -170,6 +170,15 @@ const sharedErrorGroups = new Set([
   "share",
   "routing",
   "notifications",
+  "agents",
+  "artifacts",
+  "mcp-sharing",
+  "agent-sources",
+  "workspace",
+  "runtime-hosts",
+  "conversations",
+  "runs",
+  "connections",
 ]);
 for (const [name, route] of Object.entries(workspaceApi)) {
   const path = "/api" + route.path.replace(/[:*]([^/]+)/g, "{$1}");

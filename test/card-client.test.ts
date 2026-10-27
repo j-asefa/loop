@@ -463,8 +463,10 @@ it("generates a schema with resolvable references and the runtime read/managemen
   // A consumer follows Response Object references before interpreting the
   // status, content and rate-limit headers. Both reads and writes keep the
   // same error contract; the previously published Cards objects stay inline.
-  for (const method of ["get", "post"]) {
-    const operation = spec.paths["/api/teams"][method];
+  for (const operation of Object.values(spec.paths).flatMap((path) =>
+    Object.values(path as Record<string, any>),
+  )) {
+    if (!operation.responses[400]?.$ref) continue;
     for (const status of [400, 401, 403, 429, 500]) {
       const reference = operation.responses[status].$ref;
       expect(reference).toMatch(/^#\/components\/responses\//);
