@@ -4,12 +4,16 @@ Read `docs/development.md` and inspect `package.json` before choosing commands. 
 
 ## Baseline for every PR
 
+Updated 2026-10-26: `npm run check` is the convention gate (Prettier check, typecheck, `openapi:check`, source boundaries, formatting policy, the legacy route inventory, the workspace event contract and every `test/*-contracts.test.ts`). Run it on the exact commit you submit and paste its `check:` lines into the PR; repeat after every revision. Then the full baseline:
+
 ```sh
-npm run typecheck
-npm test -- --maxWorkers=1
-npm run test:native
+npm run check
+TMPDIR=/var/tmp npm test -- --maxWorkers=1
+TMPDIR=/var/tmp npm run test:native
 npm run build
 ```
+
+Linux host admission (`docs/development.md`, "Shared host admission") serializes typecheck, build, test and smoke phases across agents through one per-user slot. A phase that reports waiting and exits 75 was not run: re-run it, do not report it as passed or skipped. Use `TMPDIR=/var/tmp` for test and smoke commands so fixture databases do not land on the small default tmpfs.
 
 Run focused Vitest files directly while iterating, for example `npx vitest run test/event-sockets.test.ts --maxWorkers=1`. Do not pass file paths to `npm test --`.
 
@@ -17,7 +21,7 @@ Run focused Vitest files directly while iterating, for example `npx vitest run t
 
 | PR category | Also run | What it must show |
 | --- | --- | --- |
-| Every PR in this bundle | `npm run openapi:check` | The generated document matches the executable contracts; the legacy list matches the mounted routes |
+| Every PR in this bundle | `npm run check` | The generated document matches the executable contracts; the legacy list matches the mounted routes |
 | Routes the browser shell loads (PR 3a, 3b, 4, 5, 9) | `npm run smoke:design`, `npm run smoke:history` | Bootstrap, Feed, thread open, Results and Files render with no console errors and no changed network shape |
 | Feed, Later, saved, scheduled sends (PR 4) | `npm run smoke:feed-events` | Working to Done transitions, saves and dismissals, scheduled-send status reads, the linked Docker source path |
 | Companion, runtimes, native decisions (PR 6) | `npm run smoke:companion`, then `LOOP_BROWSER=webkit npm run smoke:companion` | Pairing, runtime auth and upgrade flows, native decision answers |

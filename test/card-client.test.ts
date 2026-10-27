@@ -446,7 +446,7 @@ it("generates a schema with resolvable references and the runtime read/managemen
   const walk = (value: any) => {
     if (!value || typeof value !== "object") return;
     if (value.$ref) {
-      expect(value.$ref.startsWith("#/components/schemas/")).toBe(true);
+      expect(value.$ref).toMatch(/^#\/components\/(schemas|responses)\//);
       const target = value.$ref
         .slice(2)
         .split("/")
@@ -460,6 +460,27 @@ it("generates a schema with resolvable references and the runtime read/managemen
     for (const child of Object.values(value)) walk(child);
   };
   walk(spec);
+  // A consumer follows Response Object references before interpreting the
+  // status, content and rate-limit headers. Both reads and writes keep the
+  // same error contract; the previously published Cards objects stay inline.
+  for (const method of ["get", "post"]) {
+    const operation = spec.paths["/api/teams"][method];
+    for (const status of [400, 401, 403, 429, 500]) {
+      const reference = operation.responses[status].$ref;
+      expect(reference).toMatch(/^#\/components\/responses\//);
+      const response = spec.components.responses[reference.split("/").at(-1)];
+      expect(response.description).toBeTruthy();
+      expect(response.content["application/json"].schema).toEqual({
+        $ref: "#/components/schemas/Error",
+      });
+      if (status === 429)
+        expect(response.headers["Retry-After"].schema).toEqual({
+          type: "integer",
+          minimum: 1,
+        });
+    }
+  }
+  expect(spec.paths["/api/v1/cards"].get.responses[400].$ref).toBeUndefined();
   for (const [key, contract] of Object.entries(workspaceApi)) {
     const path = "/api" + contract.path.replace(/:([^/]+)/g, "{$1}");
     expect(spec.paths[path][contract.method.toLowerCase()].operationId).toBe(

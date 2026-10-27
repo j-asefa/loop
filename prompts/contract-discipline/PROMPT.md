@@ -29,12 +29,15 @@ The owner has rejected counting tests ("ratchets") and line-count ceilings as br
    - [PR 5: folders, artifacts, search, preferences, imports](pr-05-workspace-routes.md)
    - [PR 6: companion, runtimes, native history, subscriptions, activities](pr-06-companion-runtime.md)
    - [PR 7: teams, agent mail, definitions, sharing, notifications](pr-07-teams-mail-definitions.md)
-   - [PR 8: social, watches, digests and GitHub pull requests](pr-08-social-github.md)
-   - [PR 9: application-level routes and memory](pr-09-app-level-memory.md)
+   - PR 8a: social, watches and digests (merged 2026-10-26, #214)
+   - [PR 8b: PR watches and GitHub pull requests](pr-08b-github.md)
+   - [PR 9a: application-level routes and authentication transports](pr-09a-app-level.md)
+   - [PR 9b: MCP management, agent tools and MCP app artifacts](pr-09b-mcp-management.md)
+   - [PR 9c: memory and workflows](pr-09c-memory-workflows.md)
    - [PR 10: events in the registry](pr-10-events-in-registry.md)
    - [PR 11: remove the legacy path](pr-11-remove-legacy.md)
 
-The linked files are parts of this assignment, not optional references. Load each when its stage begins. File references, counts and line numbers were verified at `9cd36102` (origin/main, 2026-10-25); verify them again before relying on them.
+The linked files are parts of this assignment, not optional references. Load each when its stage begins. File references, counts and line numbers were verified at `9cd36102` (origin/main, 2026-10-25) and re-verified at `ef3b8f5c` (origin/main, 2026-10-26) when PRs 8b, 9a, 9b and 9c were rewritten; verify them again before relying on them. The ledger in `prompts/contract-discipline/STATUS.md` on `origin/main` is canonical; apply the row amendments in [CHANGES-2026-10-26.md](CHANGES-2026-10-26.md) to it before starting PR 8b.
 
 ## Working agreement
 

@@ -1,10 +1,10 @@
 # PR 10: events in the registry
 
-Depends on PR 9.
+Depends on PR 9c.
 
 ## Goal
 
-The event stream is a typed contract already (`src/shared/workspace-events.ts`: `WorkspaceEvent`, `WorkspaceFrameV3`, `WorkspaceCapabilities`, `WorkspaceClock`) but it lives outside the registry, so the generated document does not describe it. After this PR the document describes the socket endpoint, its query (`v=3`), its frames and the HTTP fallback page from PR 9 against the same schemas, and the client's frame parser imports the registry entry rather than the schemas directly.
+The event stream is a typed contract already (`src/shared/workspace-events.ts`: `WorkspaceEvent`, `WorkspaceFrameV3`, `WorkspaceCapabilities`, `WorkspaceClock`) but it lives outside the registry, so the generated document does not describe it. After this PR the document describes the socket endpoint, its query (`v=3`), its frames and the HTTP fallback page from PR 9a against the same schemas, and the client's frame parser imports the registry entry rather than the schemas directly.
 
 ## Work
 

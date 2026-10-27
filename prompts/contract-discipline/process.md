@@ -81,8 +81,9 @@ Every row in the ledger is `merged`, or `blocked` with a concrete external reaso
 
 ## Coordination with the reactive bundle
 
-The reactive re-architecture bundle is still landing its final PR (PR 12, pure moves of `src/server/native-sessions.ts` and `src/client/App.tsx`, split as 12a server and 12b client). Rules while it is open:
+Updated 2026-10-26. Reactive 12a (#186), 12b1 (#189) and 12b2 (#201) are merged. 12b3 (#211, client shell and page composition) is open, and 12c (remaining `mobile-return.ts` moves) is still to come. Rules while either is open:
 
-- Do not edit `src/client/App.tsx` or `src/server/native-sessions.ts`. If a client call site in `App.tsx` needs a change, record it in the ledger under "Deferred to after reactive 12b" and continue; the client call-site work for that router is finished in a follow-up commit on the same PR after 12b merges, or in the next PR if the review gate has already passed.
-- Before starting any PR, `git fetch origin main` and check whether reactive PR 12a or 12b merged. If `native-sessions.ts` was split, route handlers that import from it keep importing the facade; nothing else changes.
+- Do not edit `src/client/App.tsx`, anything under `src/client/app/`, or `src/server/native-sessions.ts`. While 12c is open or pending, do not edit `src/server/mobile-return.ts` either. Record a needed client call-site change under "Deferred to after reactive 12b" in the ledger and continue. PR 11 finishes every deferred entry once 12b3 has merged; if 12c is still open when PR 11 starts, PR 11 is blocked on it and the ledger says so.
+- Before starting any PR, `git fetch origin main` and check whether 12b3 or 12c merged. Extracted client modules keep their exported names; typed migration of a call site that moved into `src/client/app/` waits with the rest.
 - Never touch `prompts/reactive-rearchitecture/`. That ledger belongs to the other assignment.
+- Formatting: `npm run check` runs Prettier's check with a shrink-only ignore list (`.prettierignore`, `test/format-policy.test.ts`). A route file you convert may still be on that list because another branch edits it; leave the entry unless your PR is the one that lands the last in-flight edit to that file, and never add an entry.

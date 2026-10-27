@@ -145,6 +145,30 @@ const schemas = {
   ...registeredSchemas(inputs, "input", "RequestShared"),
 };
 const paths = {};
+const responses = {};
+// Share errors by complete route family so later contract additions do not
+// push the document over the review capture's per-file limit. Cards retain
+// their published operation objects, including route-specific errors.
+const sharedErrorGroups = new Set([
+  "capabilities",
+  "health",
+  "build",
+  "diagnostic",
+  "events",
+  "auth-options",
+  "auth",
+  "mcp",
+  "pr-watches",
+  "github",
+  "social",
+  "teams",
+  "team-presets",
+  "reviews",
+  "agent-definitions",
+  "share",
+  "routing",
+  "notifications",
+]);
 for (const [name, route] of Object.entries(workspaceApi)) {
   const path = "/api" + route.path.replace(/:([^/]+)/g, "{$1}");
   const method = route.method.toLowerCase();
@@ -236,6 +260,16 @@ for (const [name, route] of Object.entries(workspaceApi)) {
         },
       ]),
   );
+  const documentedErrors =
+    !cardNames[name] && sharedErrorGroups.has(route.path.split("/")[1])
+      ? Object.fromEntries(
+          Object.entries(errors).map(([status, response]) => {
+            const key = "WorkspaceError" + status;
+            responses[key] = response;
+            return [status, { $ref: "#/components/responses/" + key }];
+          }),
+        )
+      : errors;
   const operation = {
     operationId: name,
     parameters,
@@ -271,7 +305,7 @@ for (const [name, route] of Object.entries(workspaceApi)) {
           (status) => [status, response],
         ),
       ),
-      ...errors,
+      ...documentedErrors,
     },
   };
   paths[path] ||= {};
@@ -301,6 +335,7 @@ const document = {
   paths,
   components: {
     schemas,
+    responses,
     securitySchemes: {
       CardBearer: {
         type: "http",

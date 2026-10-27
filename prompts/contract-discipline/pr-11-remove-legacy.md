@@ -1,6 +1,6 @@
 # PR 11: remove the legacy path
 
-Depends on PR 10 and on both legacy lists being empty. If either list still has entries, this PR is blocked; finish the owning router first and record it.
+Depends on PR 10, on both legacy lists being empty apart from the deferred protected-file entries, and on reactive 12b3 (#211) having merged. The ledger's "Deferred to after reactive 12b" table is long (artifact reads, result hide, profile, scheduled sends, routing and share previews, the three Cards readers, the raw session read); this PR finishes every row, deletes the client patterns they kept alive, and only then removes the legacy path. If 12c is still open and a deferred call site lives in a file it protects, this PR is blocked on 12c; record it.
 
 ## Work
 
