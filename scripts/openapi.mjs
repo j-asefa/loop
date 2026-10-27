@@ -502,3 +502,5 @@ if (process.argv.includes("--check")) {
     throw new Error("OpenAPI is stale. Run npm run openapi");
   console.log("OpenAPI matches runtime schemas and routes");
 } else await writeFile(target, output);
+
+await import("./fleet-openapi.mjs");

@@ -64,6 +64,8 @@ export class Host {
     /** Experimental workspaces never discover or proxy the everyday Docker sources. */
     isolated?: boolean;
     http: (req: IncomingMessage, res: ServerResponse) => void;
+    /** Dedicated machine protocol; never forwards to the browser workspace API. */
+    peerHttp?: (req: IncomingMessage, res: ServerResponse) => void;
     authorizeCards?: (req: IncomingMessage) => CardAuthorization;
     status: () => unknown;
     admin: (action: string, input: any) => Promise<unknown>;
@@ -449,6 +451,14 @@ export class Host {
     if (!this.validHost(req))
       return this.json(res, 403, { error: "Unrecognized host." });
     try {
+      if (req.url?.startsWith("/api/fleet/peer/")) {
+        if (this.workspace?.isolated || !this.workspace?.peerHttp)
+          return this.json(res, 404, {
+            error: "Fleet enrollment unavailable.",
+          });
+        this.workspace.peerHttp(req, res);
+        return;
+      }
       // Select bearer authentication before cookies or URL normalization. This
       // exception can only forward the three implemented card read routes.
       if (this.workspace && req.headers.authorization !== undefined) {

@@ -75,8 +75,8 @@ to its response. Client acceptance subtracts round-trip latency and returns loca
 monotonic expiry and renewal deadlines, with renewal due two minutes before
 expiry. Versioned pairing link parsers project the device and enrollment
 capabilities separately. The companion gateway's transactional device pairing is
-described in [pairing](pairing.md). Peer enrollment and renewal routes are not yet
-exposed.
+described in [pairing](pairing.md), together with the dedicated peer enrollment
+protocol. Credential renewal routes are not yet exposed.
 
 Destination enrollment preparation proves the controller key and consumes a
 local ceremony with a pending grant in the same database transaction. Only the
@@ -84,8 +84,21 @@ bound signed directory revision activates that consent. Signed receipt queries
 reconcile a lost response without replaying an effect. Cancellation leaves the
 capability spent, and a newly redeemed local ceremony supersedes older pending
 consent. Address repair retains the identity and grant; explicit recovery needs
-fresh destination consent. These state-machine entry points remain inaccessible
-from peer HTTP until the dedicated transport and admission layer is installed.
+fresh destination consent. The dedicated peer protocol exposes these operations
+without browser credentials or local administration access.
+
+Controller enrollment jobs record their exact confirmed input and dispatch
+identity before sending a capability or commit. Destination identity proof
+precedes capability release. An uncertain prepare or commit is reconciled by a
+signed receipt query; restarting or retrying the job does not resend that effect.
+The pending operation reserves directory administration until publication or
+cancellation. Publication releases that reservation so an unavailable destination
+cannot block a later removal. A replacement instance fences older in-flight
+callbacks, and the first commit dispatch rechecks membership and authority.
+Receipt reconciliation can use a repaired canonical origin for the same key
+while preserving the original operation, intent and signed query. Controller
+jobs have no browser or peer administration route yet. The dedicated enrollment
+HTTP protocol and its admission limits are described in [pairing](pairing.md).
 
 ## Saved rows
 

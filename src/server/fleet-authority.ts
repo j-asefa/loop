@@ -308,6 +308,22 @@ export class FleetAuthority {
             );
           return JSON.parse(prior.result) as T;
         }
+        const reservation = this.db
+          .prepare(
+            "SELECT operation_id,revision_digest FROM fleet_admin_reservations WHERE owner_id=?",
+          )
+          .get(owner) as
+          { operation_id: string; revision_digest: string | null } | undefined;
+        if (
+          reservation &&
+          (action !== "revise" ||
+            reservation.operation_id !== mutationId ||
+            reservation.revision_digest !== digest)
+        )
+          throw new Problem(
+            409,
+            "Resolve the pending enrollment before editing the directory.",
+          );
         const result = apply();
         this.db
           .prepare("INSERT INTO fleet_admin_receipts VALUES(?,?,?,?,?)")
@@ -651,6 +667,15 @@ export class FleetAuthority {
             throw new Problem(403, "Conflicting fleet signature.");
           return known;
         }
+        if (
+          this.db
+            .prepare("SELECT 1 FROM fleet_admin_reservations WHERE owner_id=?")
+            .get(owner)
+        )
+          throw new Problem(
+            409,
+            "Resolve the pending enrollment before accepting another directory.",
+          );
         if (binding.state === "removed")
           throw new Problem(
             403,

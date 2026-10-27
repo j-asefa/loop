@@ -154,7 +154,7 @@ export type RouteContract = {
   contentType?: string;
   // Documentation of existing middleware; never an authorization bypass.
   security?: "public" | "local-setup" | "optional-session";
-  access: "session" | "card:results" | "card:cards";
+  access: "session" | "card:results" | "card:cards" | "peer:enrollment";
 } & ({ method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; kind?: "stream"; protocol?: never }
   | { method: "POST" | "ALL"; kind: "transport"; protocol: "mcp" | "authentication" });
 export type ClientRouteContract = RouteContract & { method: Exclude<RouteContract["method"], "ALL"> };

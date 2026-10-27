@@ -25,6 +25,8 @@ import { observedBuild } from "./server/build-runtime.js";
 import { authenticateCardToken } from "./server/card-tokens.js";
 import { FleetAuthority } from "./server/fleet-authority.js";
 import { FleetPairing } from "./server/fleet-pairing.js";
+import { FleetEnrollmentDestination } from "./server/fleet-enrollment.js";
+import { createFleetEnrollmentHttp } from "./server/fleet-peer-http.js";
 import { seal, unseal } from "./server/secrets.js";
 
 // Identifies the browser assets this launch serves. A reconnecting page
@@ -43,6 +45,7 @@ export class WorkspaceHost {
   gateway: Host;
   readonly fleet?: FleetAuthority;
   readonly pairing?: FleetPairing;
+  readonly enrollment?: FleetEnrollmentDestination;
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
@@ -62,7 +65,8 @@ export class WorkspaceHost {
         "WorkspaceHost requires LOOP_PROFILE=companion before loading the application",
       );
     // Identity survives URL changes and application restarts. This does not
-    // create fleet membership, grant peer access, or expose a peer endpoint.
+    // create fleet membership or grant peer access. The separate enrollment
+    // protocol below verifies destination consent before installing a binding.
     if (!preview) this.fleet = new FleetAuthority(db, { seal, unseal });
     if (this.fleet) this.pairing = new FleetPairing(db, this.fleet, OWNER, dir);
     this.gateway = new Host(
@@ -82,9 +86,21 @@ export class WorkspaceHost {
       },
       this.pairing,
     );
+    if (this.fleet && this.pairing)
+      this.enrollment = new FleetEnrollmentDestination(
+        db,
+        this.fleet,
+        this.pairing,
+        OWNER,
+        { seal, unseal },
+        () => this.gateway.origin,
+      );
     this.gateway.workspace = {
       isolated: !!preview,
       http: app,
+      peerHttp: this.enrollment
+        ? createFleetEnrollmentHttp(this.enrollment, () => this.gateway.origin)
+        : undefined,
       authorizeCards: authenticateCardToken,
       status: () => ({
         workspace: true,
