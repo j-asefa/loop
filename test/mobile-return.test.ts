@@ -140,7 +140,7 @@ function subscribe(owner: string) {
   return sid;
 }
 
-it("persists team result visibility without hiding attention, history or unrelated agent work", async () => {
+it("persists team result and thread visibility without hiding attention, explicit history or unrelated agent work", async () => {
   const w = workspaceFor(), manager = w.agent(), worker = w.agent();
   const create = async (name: string) => {
     const response = await api(w.owner, "/teams", "POST", {
@@ -180,7 +180,12 @@ it("persists team result visibility without hiding attention, history or unrelat
   expect(ids(await cards(`filter=done&expand=results&folder=${folder}`)).sort()).toEqual([council.conversation_id, solo].sort());
   expect(ids(await cards(`filter=done&expand=results&teams=${review.id}`)).sort()).toEqual([review.conversation_id, delegated].sort());
   expect(ids(await cards(`filter=done&expand=results&agent=${worker.id}`)).sort()).toEqual([delegated, solo].sort());
-  expect(ids(await cards("filter=all"))).toContain(review.conversation_id);
+  expect(ids(await cards("filter=all")).sort()).toEqual([council.conversation_id, solo].sort());
+  expect(ids(await cards(`filter=all&folder=${folder}`)).sort()).toEqual([council.conversation_id, solo].sort());
+  expect(ids(await cards(`filter=all&teams=${review.id}`)).sort()).toEqual([review.conversation_id, delegated].sort());
+  expect(ids(await cards(`filter=all&agent=${worker.id}`)).sort()).toEqual([delegated, solo].sort());
+  expect((await api("intruder", `/feed?filter=all&teams=${review.id}`)).status).toBe(404);
+  expect(ids((await api("intruder", "/feed?filter=all")).data)).toEqual([]);
   expect((await api(w.owner, "/saved")).data.items.some((item: any) => item.message?.message_id === reviewMessage)).toBe(true);
   expect((await api(w.owner, `/conversations/${review.conversation_id}`)).status).toBe(200);
 
@@ -194,19 +199,23 @@ it("persists team result visibility without hiding attention, history or unrelat
   run(w.owner, manager.id, council.conversation_id, "queued");
   const before = (await cards()).summary;
   expect(before).toMatchObject({ needs: 1, working: 1, queued: 1 });
+  expect(ids(await cards("filter=all"))).toEqual([solo]);
+  expect((await cards("filter=all")).summary).toEqual(before);
   expect(ids(await cards("filter=needs"))).toEqual([review.conversation_id]);
   expect(ids(await cards("filter=working"))).toEqual([delegated]);
   expect(ids(await cards("filter=queued"))).toEqual([council.conversation_id]);
   await setHidden(review.id, false);
   expect((await cards()).summary).toEqual(before);
   expect(ids(await cards()).sort()).toEqual([review.conversation_id, review.conversation_id, delegated, solo].sort());
+  expect(ids(await cards("filter=all")).sort()).toEqual([review.conversation_id, delegated, solo].sort());
 
   await api(w.owner, `/teams/${council.id}`, "DELETE");
   expect((await setHidden(council.id, false)).status).toBe(404);
   expect(ids(await cards())).toContain(council.conversation_id);
+  expect(ids(await cards("filter=all"))).toContain(council.conversation_id);
 });
 
-it("filters hidden teams before paging through completed feed cards", async () => {
+it.each(["filter=done&expand=results", "filter=all"])("filters hidden teams before paging through %s", async (query) => {
   const w = workspaceFor(), manager = w.agent(), worker = w.agent();
   const team = (await api(w.owner, "/teams", "POST", {
     name: "Review", managerId: manager.id, members: [worker.id],
@@ -220,10 +229,10 @@ it("filters hidden teams before paging through completed feed cards", async () =
     if (i < 45) visible.unshift(cid);
     else db.prepare("UPDATE conversations SET team_id=? WHERE id=?").run(team.id, cid);
   }
-  const first = (await api(w.owner, "/feed?filter=done&expand=results")).data;
+  const first = (await api(w.owner, `/feed?${query}`)).data;
   expect(first.items.map((item: any) => item.conversation_id)).toEqual(visible.slice(0, 40));
   expect(first.next).toBeTruthy();
-  const second = (await api(w.owner, `/feed?filter=done&expand=results&before=${encodeURIComponent(first.next)}`)).data;
+  const second = (await api(w.owner, `/feed?${query}&before=${encodeURIComponent(first.next)}`)).data;
   expect(second.items.map((item: any) => item.conversation_id)).toEqual(visible.slice(40));
   expect(second.next).toBeNull();
 });
@@ -2116,6 +2125,14 @@ it("pages your explicit approvals through the profile API without mixing owners 
   expect(items.map((item: any) => item.choice).filter((choice: string) => choice === "reject")).toHaveLength(1);
   expect(items.every((item: any) => item.agent_name === a.name && item.conversation_id === cid && item.conversation_title === "Release review")).toBe(true);
   expect(items.some((item: any) => [auto.id, expired.id].some((id) => item.id.endsWith(id)))).toBe(false);
+  const detailPath = `/me/approvals/approval:${approvals[0]}`;
+  expect((await api(w.owner, detailPath)).data).toEqual({
+    source: "approval",
+    request: { type: "mcp_tool", tool: "merge_pull_request", arguments: { pullNumber: 0 } },
+  });
+  expect((await api("other-owner", detailPath)).status).toBe(404);
+  for (const approvalId of [auto.id, expired.id])
+    expect((await api(w.owner, `/me/approvals/approval:${approvalId}`)).status).toBe(404);
   expect((await api("other-owner", `/me/decisions?kind=approval&owner=${w.owner}`)).data.items).toEqual([]);
   expect((await api(w.owner, "/me/decisions?kind=answer")).data.items).toEqual([]);
   for (const query of ["kind=invalid", "kind=answer&before=not-a-cursor", "kind=answer&before=" + Buffer.from('[null,"id"]').toString("base64url")])
@@ -2123,6 +2140,35 @@ it("pages your explicit approvals through the profile API without mixing owners 
   // A malformed legacy cross-owner reference must not expose its history.
   db.prepare("UPDATE conversations SET owner_id='other-owner' WHERE id=?").run(cid);
   expect((await api(w.owner, "/me/decisions?kind=approval")).data.items).toEqual([]);
+  expect((await api(w.owner, detailPath)).status).toBe(404);
+});
+
+it("reopens full recorded approval requests without exposing installation config or native session context", async () => {
+  const w = workspaceFor(), agent = w.agent();
+  const cid = conversation(w.owner, agent.id);
+  const rid = run(w.owner, agent.id, cid, "awaiting_approval");
+  const content = "Original request " + "detail ".repeat(2000) + "request ending";
+  const approval = requestApproval(ownedRun(rid, w.owner), {
+    type: "mcp_install", message: "Install workspace tools", content,
+    config: { token: "private-install-token" },
+  });
+  expect((await api(w.owner, `/approvals/${approval.id}`, "POST", { decision: "reject" })).status).toBe(200);
+  expect((await api(w.owner, `/me/approvals/approval:${approval.id}`)).data).toEqual({
+    source: "approval", request: { type: "mcp_install", message: "Install workspace tools", content },
+  });
+  const native = id();
+  db.prepare(`INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,command_id,created_at)
+    VALUES(?,?,?,'private-generation','private-native-id',?,'resolved','private-command-id',?)`).run(native, rid, cid,
+      JSON.stringify({ kind: "approval", title: "Publish release", detail: content, choices: ["allow", "deny"], nativeContext: "private-context" }), now());
+  db.prepare(`INSERT INTO personal_decisions(id,owner_id,run_id,native_decision_id,kind,response,created_at)
+    VALUES(?,?,?,?,'approval','{"choice":"deny"}',?)`).run("native:" + native, w.owner, rid, native, now());
+  const nativePath = `/me/approvals/native:${native}`;
+  expect((await api(w.owner, nativePath)).data).toEqual({
+    source: "native", request: { title: "Publish release", detail: content },
+  });
+  expect((await api("other-owner", nativePath)).status).toBe(404);
+  db.prepare("UPDATE personal_decisions SET kind='answer' WHERE id=?").run("native:" + native);
+  expect((await api(w.owner, nativePath)).status).toBe(404);
 });
 
 it("bounds large workflow and tool request previews and resumes from any visible decision", async () => {

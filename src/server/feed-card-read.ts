@@ -147,7 +147,7 @@ export function projectionFeed(
     FROM feed_cards p ${results ? "JOIN feed_cards t ON t.owner_id=p.owner_id AND t.conversation_id=p.conversation_id AND t.kind='thread'" : ""}
     WHERE ${scope("p", params)} AND ${results ? "p.kind IN ('result','idle') AND (p.kind='result' OR (p.kind='idle' AND NOT EXISTS(SELECT 1 FROM feed_cards r WHERE r.owner_id=p.owner_id AND r.conversation_id=p.conversation_id AND r.kind='result')))" : "p.kind='thread'"}
       AND (${where})
-      ${filter === "done" || filter === "outcomes" ? "AND (@teams IS NOT NULL OR @agent IS NOT NULL OR NOT t.hide_results)" : ""}
+      ${filter === "all" || filter === "done" || filter === "outcomes" ? "AND (@teams IS NOT NULL OR @agent IS NOT NULL OR NOT t.hide_results)" : ""}
       AND (@at IS NULL OR ${sort}<@at OR (${sort}=@at AND (p.conversation_id<@after OR
         (p.conversation_id=@after AND ${results ? "(@afterCard IS NULL OR p.card_key<@afterCard)" : "p.card_key<@afterCard"}))))
     ORDER BY ${sort} DESC,p.conversation_id DESC,p.card_key DESC LIMIT 41`;

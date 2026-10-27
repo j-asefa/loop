@@ -72,6 +72,24 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
     feed.getByRole("tab", { name: "Replies 2", exact: true }),
   ).toBeVisible();
   const filters = feed.getByRole("tablist", { name: "Show", exact: true });
+  await expect(filters.getByRole("tab")).toHaveText([
+    "Done",
+    /^Working\s*\d+$/,
+    /^Queued\s*\d+$/,
+    "Threads",
+    /^Replies\s*2$/,
+  ]);
+  const workingBadge = filters.locator('[data-filter="working"] .chip-count');
+  const repliesBadge = filters.locator('[data-filter="replies"] .chip-count');
+  const badgeColor = await workingBadge.evaluate(
+    (node) => getComputedStyle(node).backgroundColor,
+  );
+  assert.notEqual(badgeColor, "rgba(0, 0, 0, 0)");
+  await expect(repliesBadge).toHaveCSS("background-color", badgeColor);
+  await expect(filters.locator('[data-filter="queued"] .chip-count')).toHaveCSS(
+    "background-color",
+    badgeColor,
+  );
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     assert(

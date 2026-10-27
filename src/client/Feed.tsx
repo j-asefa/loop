@@ -203,10 +203,10 @@ export const feedFilters: { id: FeedFilter; label: string }[] = [
   // Done keeps each completed result; open work has its own chip.
   // What needs you has no chip: it stacks above the row (NeedsStack).
   { id: "done", label: "Done" },
-  { id: "replies", label: "Replies" },
-  { id: "threads", label: "Threads" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
+  { id: "threads", label: "Threads" },
+  { id: "replies", label: "Replies" },
 ];
 
 // A thread can have several Done cards; source and result identity must both

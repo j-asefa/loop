@@ -3,13 +3,12 @@ import { workspaceApi, type NativeDecision as Decision, type RouteInput } from "
 import { useSourceId, useSourceCapabilities, useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { parse, clearAuthorization } from "./api";
-import { RichText } from "./components";
 import type { Request } from "../protocol";
 import { Check, X } from "lucide-react";
 import { SessionActivityControls } from "./SessionActivityControls";
 import { Tools } from "./Tools";
 import { ConnectionNotice, setConnection } from "./ConnectionNotice";
-import { codexToolApproval } from "../shared/codex-approval";
+import { NativeRequestDetails } from "./NativeRequestDetails";
 import { watchWorkspaceEvents } from "./workspace-events";
 import { publishProjectionFrame, forgetProjectionSource, surfaceFallback } from "./workspace-projections";
 import { WorkspaceChangeQueue, listenWorkspaceChanges } from "./workspace-changes";
@@ -190,15 +189,6 @@ function DecisionCard({
 }) {
   const call = useSourceRoute();
   const request = parse<Request>(item.request, {} as Request);
-  const structured = parse<any>(request.detail, null);
-  const toolApproval = codexToolApproval(structured);
-  // Claude nests the shell command in its tool input.
-  const command = structured?.command ?? structured?.input?.command;
-  const detail = command
-    ? typeof command === "string"
-      ? command
-      : JSON.stringify(command)
-    : request.detail;
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -259,40 +249,7 @@ function DecisionCard({
           Open owning conversation
         </button>
       )}
-      <div
-        className="native-decision-detail"
-        role="region"
-        aria-label="Request details"
-        tabIndex={0}
-      >
-        {toolApproval ? (
-          <>
-            <p>
-              {toolApproval.server}
-              {toolApproval.tool ? ` · ${toolApproval.tool}` : ""}
-            </p>
-            <RichText content={toolApproval.message} />
-            {toolApproval.arguments !== undefined && (
-              <>
-                <h4>Tool arguments</h4>
-                <pre>{JSON.stringify(toolApproval.arguments, null, 2)}</pre>
-              </>
-            )}
-          </>
-        ) : structured && !command ? (
-          // Structured requests are data, not Markdown: indented JSON would
-          // otherwise become unwrapped code blocks.
-          <pre>{JSON.stringify(structured, null, 2)}</pre>
-        ) : (
-          <RichText content={detail || ""} />
-        )}
-      </div>
-      {(command || toolApproval) && (
-        <details>
-          <summary>Native request details</summary>
-          <pre>{JSON.stringify(structured, null, 2)}</pre>
-        </details>
-      )}
+      <NativeRequestDetails request={request} />
       {item.state !== "pending" ? (
         <p className="note">
           Decision delivery is {item.state}. It will not be sent again

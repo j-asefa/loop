@@ -251,7 +251,8 @@ for (const [name, route] of Object.entries(workspaceApi)) {
   if (cardRead) errorStatuses.push(404);
   if (name === "cardChanges" || name === "cardTokenCreate")
     errorStatuses.push(409);
-  if (name === "cardTokenRevoke") errorStatuses.push(404);
+  if (name === "cardTokenRevoke" || name === "personalApproval")
+    errorStatuses.push(404);
   const errors = Object.fromEntries(
     errorStatuses
       .sort((a, b) => a - b)
@@ -265,7 +266,9 @@ for (const [name, route] of Object.entries(workspaceApi)) {
             404:
               name === "cardTokenRevoke"
                 ? "Token not found for this owner"
-                : "Card or selected object not available",
+                : name === "personalApproval"
+                  ? "Approval history not found for this owner"
+                  : "Card or selected object not available",
             409:
               name === "cardTokenCreate"
                 ? "Creation conflict, revoked identity or secret, or active-token limit"

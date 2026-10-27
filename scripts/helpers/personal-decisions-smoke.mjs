@@ -148,6 +148,43 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
     await summary.evaluate((node) => node.blur());
     await history.evaluate((node) => node.scrollIntoView({ block: "start" }));
     await capture(`personal-approvals-${width}`);
+    // History reopens the saved request even after it left pending approvals.
+    await approvalCard.getByRole("button", { name: /^Open approval:/ }).focus();
+    await page.keyboard.press("Enter");
+    const original = page.getByRole("dialog", {
+      name: "Original approval",
+      exact: true,
+    });
+    await expect(original.locator(".approval-target")).toHaveText(
+      "sample/loop #42",
+    );
+    await expect(original.locator(".approval-arguments")).toContainText(
+      "Two issues need attention before this change is ready.",
+    );
+    await expect(original).toContainText("Your choice: Approved");
+    await expect(
+      original.getByRole("button", { name: /Approve and continue|Reject/ }),
+    ).toHaveCount(0);
+    await capture(`original-approval-${width}`);
+    await closeSheets(page);
+    await expect(history.locator("article")).toHaveCount(2);
+    // The card body and the keyboard-accessible title both open the request.
+    await deniedCard.locator(".personal-decision-outcome").click();
+    await expect(
+      original.getByRole("heading", {
+        name: "Publish release notes",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      original.getByRole("region", { name: "Request details" }),
+    ).toContainText(
+      "Publish the release notes before the canary review is complete.",
+    );
+    await expect(
+      original.getByRole("group", { name: "Approval decision" }),
+    ).toHaveCount(0);
+    await closeSheets(page);
     await page.getByRole("tab", { name: "Answers", exact: true }).click();
     await expect(history.locator("article")).toHaveCount(50);
     const newest = history.locator("article").first();
@@ -348,6 +385,63 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
   await expect(
     page.getByRole("button", { name: "Load more answers", exact: true }),
   ).toBeVisible();
+
+  // A workspace can support history without the newer full-request endpoint.
+  // Missing and explicitly disabled capabilities must both avoid that read.
+  for (const supported of [undefined, false]) {
+    await page.goto("about:blank");
+    await page.route("**/api/capabilities", async (route) => {
+      const response = await route.fetch();
+      const capabilities = await response.json();
+      if (supported === undefined) delete capabilities.personalApprovalDetails;
+      else capabilities.personalApprovalDetails = supported;
+      await route.fulfill({ response, json: capabilities });
+    });
+    let detailReads = 0;
+    const countDetails = (request) => {
+      if (new URL(request.url()).pathname.includes("/me/approvals/"))
+        detailReads++;
+    };
+    page.on("request", countDetails);
+    await page.goto(fixture.base + "/?page=profile&profileTab=approvals");
+    const history = page.locator(".personal-decisions");
+    await expect(history.locator("article")).toHaveCount(2);
+    await history
+      .locator("article")
+      .filter({ hasText: "Your choice: Approved" })
+      .getByRole("button", { name: /^Open approval:/ })
+      .click();
+    const original = page.getByRole("dialog", {
+      name: "Original approval",
+      exact: true,
+    });
+    await expect(
+      original.getByLabel("Original approval unavailable"),
+    ).toContainText("Update Loop on that workspace");
+    await expect(original).toContainText("Your choice: Approved");
+    await expect(
+      original.getByRole("button", { name: "Retry", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      original.getByText("Loading approval…", { exact: true }),
+    ).toHaveCount(0);
+    await original
+      .getByRole("button", { name: "Open conversation", exact: true })
+      .click();
+    await expect(page.locator("dialog[open] .message").first()).toBeVisible();
+    assert.equal(
+      new URL(page.url()).searchParams.get("conversation"),
+      run.conversation_id,
+    );
+    assert.equal(
+      detailReads,
+      0,
+      "Older workspaces must not receive approval detail requests",
+    );
+    await closeSheets(page);
+    page.off("request", countDetails);
+    await page.unroute("**/api/capabilities");
+  }
 
   // Older sources omit the capability. Their profile stays usable and never
   // asks them for the endpoint they do not implement.

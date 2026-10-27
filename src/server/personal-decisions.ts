@@ -5,13 +5,39 @@ import type { Request } from "../protocol.js";
 import {
   PersonalDecisionsPageSchema,
   PersonalDecisionsQuery,
+  PersonalApprovalSchema,
   PERSONAL_DECISION_DETAIL_LIMIT,
   PERSONAL_DECISION_RESPONSE_LIMIT,
   type PersonalDecision,
   type PersonalDecisionsPage,
+  type PersonalApproval,
 } from "../shared/personal-decisions.js";
 
 const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+
+export function personalApproval(owner: string, id: string): PersonalApproval {
+  const row = db
+    .prepare(
+      `SELECT
+      CASE WHEN a.id IS NOT NULL THEN 'approval' ELSE 'native' END source,
+      COALESCE(a.request,d.request) request
+    FROM personal_decisions h
+    JOIN runs r ON r.id=h.run_id AND r.owner_id=h.owner_id
+    LEFT JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=h.owner_id
+    LEFT JOIN approvals a ON a.id=h.approval_id AND a.owner_id=h.owner_id AND a.run_id=r.id
+    LEFT JOIN native_decisions d ON d.id=h.native_decision_id AND d.run_id=r.id AND d.conversation_id=r.conversation_id
+    WHERE h.id=? AND h.owner_id=? AND h.kind='approval'
+      AND (a.id IS NOT NULL OR d.id IS NOT NULL)
+      AND (r.conversation_id IS NULL OR c.id IS NOT NULL)`,
+    )
+    .get(id, owner) as
+    { source: "approval" | "native"; request: string } | undefined;
+  if (!row) throw new Problem(404, "Approval history not found");
+  return PersonalApprovalSchema.parse({
+    source: row.source,
+    request: JSON.parse(row.request),
+  });
+}
 
 // Budgets count serialized UTF-8 bytes, including JSON escaping. Truncating by
 // characters alone does not bound a page of Unicode or control-character text.

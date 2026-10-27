@@ -14,7 +14,7 @@ import { PublicMailThreads, PublicMailResume } from "./agent-mail.js";
 import * as companion from "./companion-contract-schemas.js";
 import { ProviderSchema as Provider } from "./provider-schema.js";
 import { PersonalFilesQuery, PersonalFilesPage } from "./personal-files.js";
-import { PersonalDecisionsQuery, PersonalDecisionsPageSchema } from "./personal-decisions.js";
+import { PersonalDecisionsQuery, PersonalDecisionsPageSchema, PersonalApprovalSchema } from "./personal-decisions.js";
 import { ProfileInput, PublicProfile, PersonalPromptsQuery, PersonalPromptsPage } from "./personal-schemas.js";
 import { AgentCreateInput, AgentUpdateInput, ConnectionCreateInput, ConnectionReconnectInput, PublicModels, PublicConnectionRefresh, PublicHarnessCatalog, PublicPiConfiguration, PublicPiMutation, PublicPiInspection, PiTrustInput, PiFiltersInput, PiPreviewInput, PiInspectInput, PiRollbackInput, PiActionInput, PublicAgentMessages, PublicAgentTraces } from "./agent-contract-schemas.js";
 import { DoneDisplaySchema } from "./done-card.js";
@@ -348,6 +348,7 @@ export const workspaceApi = {
   artifactDownload: endpoint({ ...base, method: "GET", path: "/artifacts/:id/download", params: Id, kind: "stream", response: z.custom<Blob>(), status: 303 }),
   personalFiles: endpoint({ ...base, method: "GET", path: "/me/files", query: PersonalFilesQuery, response: PersonalFilesPage }),
   personalDecisions: endpoint({ ...base, method: "GET", path: "/me/decisions", query: PersonalDecisionsQuery, response: PersonalDecisionsPageSchema }),
+  personalApproval: endpoint({ ...base, method: "GET", path: "/me/approvals/:id", params: z.object({ id: Text.min(1).max(200) }), response: PersonalApprovalSchema }),
   personalProfile: endpoint({ ...base, method: "GET", path: "/me/profile", response: PublicProfile }),
   personalProfileUpdate: endpoint({ ...base, method: "PUT", path: "/me/profile", body: ProfileInput, response: PublicProfile }),
   personalPrompts: endpoint({ ...base, method: "GET", path: "/me/prompts", query: PersonalPromptsQuery, response: PersonalPromptsPage }),

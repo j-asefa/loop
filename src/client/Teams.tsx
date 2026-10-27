@@ -39,8 +39,8 @@ function TeamFeedVisibility({
   return (
     <div>
       <SettingsToggle
-        title="Show results in feed"
-        description="Turn off to hide completed cards from All teams. Select this team to see them; requests and active work stay visible."
+        title="Show results and threads in feed"
+        description="Turn off to hide this team's Done and Threads cards from All teams. Select this team to see them; Needs you, Working and Queued stay visible."
         checked={!team.hide_results_from_feed}
         disabled={busy}
         onChange={async (show) => {
@@ -518,9 +518,7 @@ export function TeamFilter({
               <Users size={20} />
               <span>
                 <strong>All teams</strong>
-                <small>
-                  Your agents and teams, with hidden results excluded
-                </small>
+                <small>Your agents and teams, with hidden cards excluded</small>
               </span>
               {!selected.length && <Check size={20} />}
             </button>
@@ -547,7 +545,7 @@ export function TeamFilter({
                     <small>
                       {t.members.length + 1} agents · manager and workers
                       {!!t.hide_results_from_feed &&
-                        " · Results hidden from All teams"}
+                        " · Results and threads hidden from All teams"}
                     </small>
                   </span>
                 </label>

@@ -26,7 +26,7 @@ import {
 import { agentTraces, runTraceExport } from "./traces.js";
 import { personalHistory } from "./personal-history.js";
 import { personalFiles } from "./personal-files.js";
-import { personalDecisions } from "./personal-decisions.js";
+import { personalDecisions, personalApproval } from "./personal-decisions.js";
 import { readProfile, saveProfile } from "./user-profile.js";
 import { agentMessages } from "./agent-messages.js";
 import { conversationMessages, latestAgentMessage } from "./conversation-messages.js";
@@ -379,6 +379,9 @@ routes.on(workspaceApi.personalFiles, (req, res) => {
 });
 routes.on(workspaceApi.personalDecisions, (req, res) => {
   res.json(personalDecisions(res.locals.owner, req.query));
+});
+routes.on(workspaceApi.personalApproval, (req, res) => {
+  res.json(personalApproval(res.locals.owner, req.params.id));
 });
 routes.on(workspaceApi.personalProfile, (_req, res) => {
   res.json(readProfile(res.locals.owner));

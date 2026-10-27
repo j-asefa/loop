@@ -8,6 +8,9 @@ import {
   X,
 } from "lucide-react";
 import { Avatar } from "./Avatar";
+import { Sheet } from "./components";
+import { ApprovalRequestDetails } from "./ApprovalRequest";
+import { NativeRequestDetails } from "./NativeRequestDetails";
 import {
   useSourceRoute,
   useSourceCapabilities,
@@ -18,6 +21,7 @@ import { viewGeneration } from "./viewCache";
 import type {
   PersonalDecision,
   PersonalDecisionsPage,
+  PersonalApproval,
 } from "../shared/personal-decisions";
 
 const empty: PersonalDecisionsPage = { items: [], next: null };
@@ -26,6 +30,100 @@ const choiceLabel = (choice: string) => {
   if (choice === "reject") return "Denied";
   return choice.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
 };
+
+function PersonalApprovalSheet({
+  item,
+  onClose,
+  onConversation,
+}: {
+  item: PersonalDecision;
+  onClose: () => void;
+  onConversation: (id: string) => void;
+}) {
+  const call = useSourceRoute();
+  const supported = useSourceCapabilities().personalApprovalDetails === true;
+  const generation = viewGeneration();
+  const [approval, setApproval] = useState<PersonalApproval | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    setApproval(null);
+    setError("");
+    if (!supported) return;
+    const controller = new AbortController();
+    void call(
+      workspaceApi.personalApproval,
+      { params: { id: item.id } },
+      controller.signal,
+    )
+      .then((value) => {
+        if (!controller.signal.aborted && generation === viewGeneration())
+          setApproval(value);
+      })
+      .catch((e) => {
+        if (!controller.signal.aborted && generation === viewGeneration())
+          setError((e as Error).message);
+      });
+    return () => controller.abort();
+  }, [call, item.id, generation, retry, supported]);
+  return (
+    <Sheet title="Original approval" onClose={onClose}>
+      <div className="approval-detail">
+        <div className="approval-identity">
+          <Avatar name={item.agent_name || "Workflow"} />
+          <span>{item.agent_name || "Workflow"}</span>
+          {approval?.source === "approval" && approval.request.server && (
+            <span>{approval.request.server}</span>
+          )}
+          <DecisionOutcome item={item} />
+        </div>
+        {approval?.source === "approval" && (
+          <ApprovalRequestDetails
+            request={JSON.stringify(approval.request)}
+            heading
+          />
+        )}
+        {approval?.source === "native" && (
+          <>
+            <h3>{approval.request.title}</h3>
+            <NativeRequestDetails request={approval.request} />
+          </>
+        )}
+        {!supported && (
+          <div role="status" aria-label="Original approval unavailable">
+            <h3>{item.title}</h3>
+            <p>
+              Full approval details are not available on this workspace yet.
+              Update Loop on that workspace to reopen the full request here.
+            </p>
+          </div>
+        )}
+        {supported && !approval && !error && (
+          <p role="status">Loading approval…</p>
+        )}
+        {error && (
+          <div role="alert">
+            <p>{error}</p>
+            <button onClick={() => setRetry((value) => value + 1)}>
+              Retry
+            </button>
+          </div>
+        )}
+        {item.conversation_id && (
+          <button
+            className="text-button"
+            onClick={() => {
+              onClose();
+              onConversation(item.conversation_id!);
+            }}
+          >
+            Open conversation <ArrowUpRight size={14} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+    </Sheet>
+  );
+}
 
 function DecisionOutcome({ item }: { item: PersonalDecision }) {
   const approved = ["approve", "allow", "accept", "once", "confirm"].includes(
@@ -76,6 +174,13 @@ export function PersonalDecisions({
   const [page, setPage] = useState(empty);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selected, setSelected] = useState<{
+    item: PersonalDecision;
+    source: string;
+    generation: number;
+  } | null>(null);
+  const openApproval = (item: PersonalDecision) =>
+    setSelected({ item, source, generation });
   const actions = useRef({ more: () => {}, retry: () => {} });
   useEffect(() => {
     if (!supported) return;
@@ -243,7 +348,24 @@ export function PersonalDecisions({
           : "Questions you answered, newest first."}
       </p>
       {page.items.map((item) => (
-        <article className="feed-card personal-decision" key={item.id}>
+        <article
+          className="feed-card personal-decision"
+          key={item.id}
+          data-openable={item.kind === "approval" || undefined}
+          onClick={
+            item.kind === "approval"
+              ? (event) => {
+                  if (
+                    !(event.target as HTMLElement).closest(
+                      "button, a, details, input, select, textarea",
+                    ) &&
+                    !window.getSelection()?.toString()
+                  )
+                    openApproval(item);
+                }
+              : undefined
+          }
+        >
           <div className="card-byline">
             <div className="identity">
               <Avatar name={item.agent_name || "Workflow"} />
@@ -273,7 +395,19 @@ export function PersonalDecisions({
               </span>
               <DecisionOutcome item={item} />
             </div>
-            <h2>{item.title}</h2>
+            <h2>
+              {item.kind === "approval" ? (
+                <button
+                  className="personal-decision-open"
+                  onClick={() => openApproval(item)}
+                  aria-label={`Open approval: ${item.title}`}
+                >
+                  {item.title}
+                </button>
+              ) : (
+                item.title
+              )}
+            </h2>
             {!!item.answers.length && (
               <dl className="personal-decision-answers">
                 {item.answers.map((answer, index) => {
@@ -406,6 +540,17 @@ export function PersonalDecisions({
           Load more {kind === "approval" ? "approvals" : "answers"}
         </button>
       )}
+      {selected &&
+        selected.source === source &&
+        selected.generation === generation &&
+        selected.item.kind === kind && (
+          <PersonalApprovalSheet
+            key={selected.item.id}
+            item={selected.item}
+            onClose={() => setSelected(null)}
+            onConversation={onConversation}
+          />
+        )}
     </section>
   );
 }

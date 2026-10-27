@@ -561,7 +561,9 @@ a:focus-visible {
   padding-inline: 2px;
   box-shadow: none;
 }
-.inbox-filters [data-filter="working"] .chip-count {
+.inbox-filters [data-filter="working"] .chip-count,
+.inbox-filters [data-filter="queued"] .chip-count,
+.inbox-filters [data-filter="replies"] .chip-count {
   background: var(--brass);
   color: #1a1a1c;
   font-weight: 700;
@@ -956,6 +958,19 @@ a:focus-visible {
 }
 .personal-decision {
   overflow-wrap: anywhere;
+}
+.personal-decision[data-openable] {
+  cursor: pointer;
+}
+.personal-decision-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 .personal-decision-meta {
   display: flex;

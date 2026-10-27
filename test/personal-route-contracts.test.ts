@@ -1,5 +1,5 @@
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -318,6 +318,28 @@ it("personalDecisions projects a production approval receipt and rejects malform
   expect(
     await request("/me/decisions?kind=approval&before=invalid"),
   ).toMatchObject(bad);
+});
+it("personalApproval reopens the original recorded request through the companion API", async () => {
+  expect((await request("/capabilities")).data.personalApprovalDetails).toBe(
+    true,
+  );
+  const result = await request(`/me/approvals/approval:${approval.id}`);
+  valid(workspaceApi.personalApproval, result);
+  expect(result.data).toEqual({
+    source: "approval",
+    request: { tool: "fixture", arguments: { label: "Visible decision" } },
+  });
+  const missing = await request("/me/approvals/approval:missing");
+  expect(missing).toEqual({
+    status: 404,
+    data: { error: "Approval history not found" },
+  });
+  const spec = JSON.parse(readFileSync("docs/openapi.json", "utf8"));
+  expect(
+    spec.paths["/api/me/approvals/{id}"].get.responses[missing.status].content[
+      "application/json"
+    ].schema,
+  ).toEqual({ $ref: "#/components/schemas/Error" });
 });
 it("personalProfile returns only the authenticated owner's profile and live counts", async () => {
   const result = await request("/me/profile?owner=other-owner");

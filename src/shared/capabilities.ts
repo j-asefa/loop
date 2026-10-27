@@ -9,6 +9,8 @@ export const Capabilities = z.object({
   cardTokens: z.boolean().optional(),
   /** Absent on sources that predate personal decision history. */
   personalDecisions: z.boolean().optional(),
+  /** Absent on sources without full recorded approval details. */
+  personalApprovalDetails: z.boolean().optional(),
   /** Absent on sources without the idempotent continuation-start endpoint. */
   continuationStart: z.boolean().optional(),
 });
@@ -24,6 +26,7 @@ export function profileCapabilities(profile: DeploymentProfile): Capabilities {
     localProjects: companion,
     cardTokens: true,
     personalDecisions: true,
+    personalApprovalDetails: true,
     continuationStart: true,
   };
 }

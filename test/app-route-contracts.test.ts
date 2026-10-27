@@ -118,6 +118,9 @@ it("projects public discovery, local identity, health, build and actual diagnost
     valid(contract, await request(contract.path));
     await invalid(contract.path, {}, "GET");
   }
+  expect((await request("/capabilities")).data.personalApprovalDetails).toBe(
+    true,
+  );
   expect((await request("/auth/get-session")).data).toEqual({
     mode: "single-user",
     user: { id: owner, name: "Your workspace" },
