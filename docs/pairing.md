@@ -133,6 +133,8 @@ The companion prepares Codex, Claude Code, OpenCode and Pi using native executio
 
 After an unclean host reboot, a container restart, or moving workspace data, startup can report that the retained execution owner belongs to another PID namespace lifetime. Linux identity includes the host boot and namespace init process, so reusing the same namespace inode does not make old PIDs safe to signal. macOS uses its kernel boot-session UUID to distinguish a reboot or another Mac; an unavailable boot identity blocks startup. Acquiring the worker lock proves that its holder is gone, but does not prove that native children outside this host or container have stopped.
 
+On a companion cold start, this refusal happens before the HTTP gateway listens, so the companion cannot serve Settings or its workspace status response. Use the CLI procedure below to inspect the retained generation and recover after confirming that the previous host and all its processes stopped.
+
 For a local installation after a confirmed reboot, first confirm that the previous host and all its processes stopped. If the workspace was moved or shared, also confirm the original host stopped using it. Inspect the retained generation, then substitute it in the recovery command:
 
 ```sh
