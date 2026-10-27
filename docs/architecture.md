@@ -78,6 +78,15 @@ capabilities separately. The companion gateway's transactional device pairing is
 described in [pairing](pairing.md). Peer enrollment and renewal routes are not yet
 exposed.
 
+Destination enrollment preparation proves the controller key and consumes a
+local ceremony with a pending grant in the same database transaction. Only the
+bound signed directory revision activates that consent. Signed receipt queries
+reconcile a lost response without replaying an effect. Cancellation leaves the
+capability spent, and a newly redeemed local ceremony supersedes older pending
+consent. Address repair retains the identity and grant; explicit recovery needs
+fresh destination consent. These state-machine entry points remain inaccessible
+from peer HTTP until the dedicated transport and admission layer is installed.
+
 ## Saved rows
 
 [Typed readers](../src/server/row-schemas.ts) validate persisted execution payloads and JSON metadata once, preserving owner predicates. Team setup, saved agent definitions, workspace content and continuation routes, artifact filing and PR-watch registration use the [owner-scoped readers](../src/server/domain.ts) before changing configuration or organization. The generic ownership guard returns `unknown`; execution uses one parsed `Run` and the [legal state map](../src/shared/run-state.ts). New records and update patches are strict; subscription status refresh preserves existing validated metadata while validating its new status fields. Reads retain unknown top-level run-payload and metadata fields but reject malformed present identity, routing, permission and credential fields. Model catalog entries are strict; only an absent model display name defaults to its ID. Execution projects known fields into new output, leaving the saved historical payload intact. Invalid records fail closed with their row ID; malformed team configuration also remains unavailable for deletion and filtering. Artifact responses retain serialized metadata; continuation copies validate selected messages before creating a conversation and preserve historical extras inside their original metadata. Folder ancestry is validated when changing the parent; renames do not depend on unrelated ancestor display fields. Import cancellation checks ownership and scalar run identities without interpreting execution payloads or damaged import display fields; starting an import still validates its record.
