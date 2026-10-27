@@ -195,6 +195,124 @@ sys.exit(module.main())
   assert.equal(checked.status, 7, checked.stderr);
 });
 
+test(
+  "supervision tolerates disappearing proc tasks while preserving command exit status",
+  { skip: !linux },
+  () => {
+    const source = fileURLToPath(
+      new URL("../scripts/heavy-supervisor.py", import.meta.url),
+    );
+    const checked = spawnSync(
+      "python3",
+      [
+        "-B",
+        "-c",
+        `
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("supervisor", ${JSON.stringify(source)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+original = module.Path
+for exception in (FileNotFoundError, ProcessLookupError):
+    for location in ("glob", "read"):
+        remaining = [1]
+        class VanishingTask:
+            def read_text(self):
+                raise exception("fixture: process exited before children read")
+        class ProcPath:
+            def __init__(self, path):
+                self.path = original(path)
+            def glob(self, pattern):
+                # Fail during iteration, as pathlib does when a process exits
+                # after its PID was collected but before its tasks are scanned.
+                if remaining[0]:
+                    remaining[0] -= 1
+                    if location == "glob":
+                        raise exception("fixture: process exited during glob")
+                    yield VanishingTask()
+                yield from self.path.glob(pattern)
+        module.Path = ProcPath
+        config = {"label": "proc exit race", "parentPid": os.getppid()}
+        import json
+        sys.argv = ["supervisor", json.dumps(config), ${JSON.stringify(process.execPath)}, "-e", "process.exit(7)"]
+        assert module.main() == 7, (exception, location)
+        assert remaining[0] == 0, "race fixture was not exercised"
+`,
+      ],
+      { encoding: "utf8", timeout: 15000 },
+    );
+    assert.equal(checked.status, 0, checked.stderr);
+  },
+);
+
+test(
+  "an incomplete scan after command exit cannot bypass orphan cleanup",
+  { skip: !linux },
+  () => {
+    const source = fileURLToPath(
+      new URL("../scripts/heavy-supervisor.py", import.meta.url),
+    );
+    const marker = join(directory, "scan-race-orphan");
+    const code = `
+    const {spawn}=require('node:child_process');
+    const {writeFileSync}=require('node:fs');
+    const orphan=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{detached:true,stdio:'ignore'});
+    writeFileSync(${JSON.stringify(marker)},String(orphan.pid));
+    orphan.unref();
+    process.exit(7);
+  `;
+    const checked = spawnSync(
+      "python3",
+      [
+        "-B",
+        "-c",
+        `
+import importlib.util, json, os, signal, sys
+spec = importlib.util.spec_from_file_location("supervisor", ${JSON.stringify(source)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+original_path, original_wait = module.Path, module.os.waitpid
+reaped, injected = [False], [False]
+def waitpid(*args):
+    result = original_wait(*args)
+    if result[0]: reaped[0] = True
+    return result
+class ProcPath:
+    def __init__(self, path):
+        self.path = original_path(path)
+    def glob(self, pattern):
+        if reaped[0] and not injected[0]:
+            injected[0] = True
+            raise ProcessLookupError("fixture: incomplete scan after command exit")
+        yield from self.path.glob(pattern)
+module.Path, module.os.waitpid = ProcPath, waitpid
+sys.argv = ["supervisor", json.dumps({"label":"orphan scan race","parentPid":os.getppid()}), ${JSON.stringify(process.execPath)}, "-e", ${JSON.stringify(code)}]
+try:
+    assert module.main() == 7
+    assert injected[0], "race fixture was not exercised"
+    orphan = int(original_path(${JSON.stringify(marker)}).read_text())
+    try:
+        os.kill(orphan, 0)
+    except ProcessLookupError:
+        pass
+    else:
+        raise AssertionError("supervisor returned while its orphan remained alive")
+finally:
+    # Keep a failing regression from leaking its own fixture process.
+    if original_path(${JSON.stringify(marker)}).exists():
+        orphan = int(original_path(${JSON.stringify(marker)}).read_text())
+        try: os.kill(orphan, signal.SIGKILL)
+        except ProcessLookupError: pass
+        try: original_wait(orphan, 0)
+        except ChildProcessError: pass
+`,
+      ],
+      { encoding: "utf8", timeout: 15000 },
+    );
+    assert.equal(checked.status, 0, checked.stderr);
+  },
+);
+
 async function waitFor(
   condition: () => boolean,
   message: string,

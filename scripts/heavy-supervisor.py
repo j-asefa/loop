@@ -17,19 +17,26 @@ GRACE = 5
 
 def descendants():
     found = set()
+    complete = True
     pending = [os.getpid()]
     while pending:
         pid = pending.pop()
-        for task in Path(f"/proc/{pid}/task").glob("*/children"):
-            try:
-                children = [int(value) for value in task.read_text().split()]
-            except FileNotFoundError:
-                continue
-            for child in children:
-                if child not in found:
-                    found.add(child)
-                    pending.append(child)
-    return found
+        try:
+            for task in Path(f"/proc/{pid}/task").glob("*/children"):
+                try:
+                    children = [int(value) for value in task.read_text().split()]
+                except (FileNotFoundError, ProcessLookupError):
+                    complete = False
+                    continue
+                for child in children:
+                    if child not in found:
+                        found.add(child)
+                        pending.append(child)
+        except (FileNotFoundError, ProcessLookupError):
+            # A PID may exit between collecting it and iterating its tasks.
+            # Reaping and the next scan still find any adopted descendants.
+            complete = False
+    return found, complete
 
 
 def send(pid, sig):
@@ -86,8 +93,8 @@ def main():
             if pid == child.pid:
                 child.returncode = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -os.WTERMSIG(status)
                 result = child.returncode if child.returncode >= 0 else 128 - child.returncode
-        remaining = descendants()
-        if result is not None and not remaining:
+        remaining, complete = descendants()
+        if result is not None and not remaining and complete:
             return 128 + interrupted() if interrupted() else result
         if interrupted() or result is not None:
             if deadline is None:
