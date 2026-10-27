@@ -179,6 +179,28 @@ const sharedErrorGroups = new Set([
   "conversations",
   "runs",
   "connections",
+  "me",
+  "native",
+  "later",
+  "scheduled-sends",
+  "messages",
+  "imports",
+  "results",
+  "feed",
+  "folders",
+  "subscriptions",
+  "saved",
+  "projects",
+  "search",
+  "preferences",
+  "approvals",
+  "ui",
+  "replies",
+  "snippets",
+  "uploads",
+  "operations",
+  "objects",
+  "bootstrap",
 ]);
 for (const [name, route] of Object.entries(workspaceApi)) {
   const path = "/api" + route.path.replace(/[:*]([^/]+)/g, "{$1}");
@@ -298,6 +320,8 @@ for (const [name, route] of Object.entries(workspaceApi)) {
     !cardNames[name] && sharedErrorGroups.has(route.path.split("/")[1])
       ? Object.fromEntries(
           Object.entries(errors).map(([status, response]) => {
+            // These descriptions depend on the operation, unlike standard errors.
+            if (status === "404" || status === "409") return [status, response];
             const key = "WorkspaceError" + status;
             responses[key] = response;
             return [status, { $ref: "#/components/responses/" + key }];
