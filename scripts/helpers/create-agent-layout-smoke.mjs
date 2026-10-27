@@ -30,6 +30,14 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
     name: "New chat",
     exact: true,
   });
+  // These attributes opt prose fields into the iPhone keyboard's writing aids.
+  // Desktop browser fixtures cannot exercise the native keyboard itself.
+  for (const name of ["First message", "Agent instructions"]) {
+    const field = sheet.getByRole("textbox", { name, exact: true });
+    await expect(field).toHaveAttribute("autocorrect", "on");
+    await expect(field).toHaveAttribute("autocapitalize", "sentences");
+    await expect(field).toHaveAttribute("spellcheck", "true");
+  }
   const body = sheet.locator(".sheet-body");
   for (const width of [390, 320, 430]) {
     await page.setViewportSize({ width, height: 844 });

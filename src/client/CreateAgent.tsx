@@ -345,6 +345,9 @@ export function CreateAgent({
           </span>
           <textarea
             name="initialPrompt"
+            autoCorrect="on"
+            autoCapitalize="sentences"
+            spellCheck={true}
             aria-label="First message"
             rows={3}
             maxLength={30000}
@@ -502,6 +505,9 @@ export function CreateAgent({
               Agent instructions
               <textarea
                 name="instructions"
+                autoCorrect="on"
+                autoCapitalize="sentences"
+                spellCheck={true}
                 value={instructions}
                 onChange={(event) => setInstructions(event.target.value)}
                 aria-label="Agent instructions"
