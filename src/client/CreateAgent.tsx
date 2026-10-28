@@ -338,13 +338,14 @@ export function CreateAgent({
           <p>Ask a question, explore an idea, or get things done.</p>
         </div>
       </div>
-      <form id={formId} onSubmit={create}>
+      <form id={formId} onSubmit={create} autoComplete="off">
         <label className="create-agent-message">
           <span>
             First message <span className="muted">(optional)</span>
           </span>
           <textarea
             name="initialPrompt"
+            autoComplete="off"
             autoCorrect="on"
             autoCapitalize="sentences"
             spellCheck={true}
@@ -478,7 +479,8 @@ export function CreateAgent({
               <div className="input-prefix">
                 <span>@</span>
                 <input
-                  name="name"
+                  name="agentHandle"
+                  autoComplete="off"
                   aria-label="Unique name"
                   required
                   value={name}
@@ -505,6 +507,7 @@ export function CreateAgent({
               Agent instructions
               <textarea
                 name="instructions"
+                autoComplete="off"
                 autoCorrect="on"
                 autoCapitalize="sentences"
                 spellCheck={true}

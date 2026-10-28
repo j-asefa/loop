@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { gitProject } from "./git-project.js";
+import { agentModelName, runModelName } from "../src/client/modelChoices.js";
+import type { Connection } from "../src/shared/types.js";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-codex-schema-"));
 process.env.LOOP_PROFILE = "companion";
@@ -81,8 +83,26 @@ test(
       enabled,
     );
     await api("/connections/native-codex/refresh", {});
-    assert(
-      Array.isArray((await api("/connections/native-codex/models")).models),
+    const { models } = await api("/connections/native-codex/models");
+    assert.equal(
+      models.find((model: { id: string }) => model.id === "native-default")
+        ?.resolvedModel,
+      "fixture-default-model",
+    );
+    const connections = (await api("/bootstrap")).connections as Connection[];
+    assert.equal(
+      agentModelName(
+        { connection_id: "native-codex", model: "native-default" },
+        connections,
+      ),
+      "fixture-default-model",
+    );
+    assert.equal(
+      runModelName(
+        { connectionId: "native-codex", model: "native-default" },
+        connections,
+      ),
+      "fixture-default-model",
     );
     const receipts = db
       .prepare("SELECT method,state FROM execution_commands ORDER BY method")

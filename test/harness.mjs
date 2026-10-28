@@ -224,7 +224,12 @@ if (kind !== "opencode") {
               ]
             : [],
       });
-    if (type === "model/list") return result({ data: [] });
+    if (type === "model/list")
+      return result({
+        data: process.env.LOOP_TEST_CODEX_NULL_MODEL
+          ? [{ model: "fixture-default-model", isDefault: true }]
+          : [],
+      });
     if (type === "get_available_thinking_levels")
       return result({ levels: ["off", "low", "medium", "high"] });
     if (type === "get_available_models")

@@ -32,8 +32,13 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
   });
   // These attributes opt prose fields into the iPhone keyboard's writing aids.
   // Desktop browser fixtures cannot exercise the native keyboard itself.
+  await expect(sheet.locator("form")).toHaveAttribute("autocomplete", "off");
+  await expect(
+    sheet.getByLabel("Unique name", { exact: true }),
+  ).toHaveAttribute("autocomplete", "off");
   for (const name of ["First message", "Agent instructions"]) {
     const field = sheet.getByRole("textbox", { name, exact: true });
+    await expect(field).toHaveAttribute("autocomplete", "off");
     await expect(field).toHaveAttribute("autocorrect", "on");
     await expect(field).toHaveAttribute("autocapitalize", "sentences");
     await expect(field).toHaveAttribute("spellcheck", "true");

@@ -75,6 +75,13 @@ export class Codex implements Adapter {
   private asyncQuestions = new Map<string, Request>();
   private seenAsyncQuestions = new Set<string>();
   private defaultModel: string | undefined;
+  get defaultModelOption() {
+    return {
+      id: "native-default",
+      name: "Use native default",
+      resolvedModel: this.defaultModel,
+    };
+  }
   constructor(
     private options: Options,
     private emit: Emit,
