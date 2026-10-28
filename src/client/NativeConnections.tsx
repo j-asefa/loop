@@ -26,6 +26,53 @@ export function NativeConnections({
       title="Provider connections"
       onClose={onClose}
     >
+      {connections.some((c) => c.status !== "connected") && (
+        <section aria-label="Connections needing attention">
+          <h3>Needs attention</h3>
+          <p className="note">
+            These saved connections are not marked connected. Refresh to check
+            their current status, then open the relevant tab to reconnect.
+          </p>
+          {connections
+            .filter((c) => c.status !== "connected")
+            .map((connection) => {
+              const harness = parse<any>(connection.metadata, {}).loopHarness;
+              return (
+                <section key={connection.id} className="native-decision">
+                  <h4>{connection.label}</h4>
+                  <p>{connection.status.replaceAll("_", " ")}</p>
+                  <button
+                    type="button"
+                    onClick={() => setTab(harness ? "harnesses" : "api")}
+                  >
+                    {harness ? "Open Harnesses" : "Open Loop runtime API"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setError("");
+                      try {
+                        await route(workspaceApi.connectionRefresh, {
+                          params: { id: connection.id },
+                          body: {},
+                        });
+                        await onChange();
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Refresh {connection.label}
+                  </button>
+                </section>
+              );
+            })}
+        </section>
+      )}
       <div
         className="drawer-segmented"
         role="group"

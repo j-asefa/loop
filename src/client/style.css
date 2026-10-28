@@ -9630,9 +9630,9 @@ label.catalog-filter-chip {
 .sheet form + .field-hint {
   margin-top: 16px;
 }
-/* At the narrowest supported width a state label would squeeze the title into
-   a mid-word break, so it moves under the description instead. */
-@media (max-width: 380px) {
+/* On phone widths a state label would squeeze the title inside the settings
+   sheet, so it moves under the description instead. */
+@media (max-width: 600px) {
   .settings-row.has-state {
     grid-template-columns: 36px minmax(0, 1fr) 18px;
   }
