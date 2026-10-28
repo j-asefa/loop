@@ -1,9 +1,12 @@
+import { workspaceApi } from "../shared/workspace-api.js";
 import type { Server, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import { allowedOrigin, workspaceSession } from "./access.js";
 import { connectWorkspaceEvents } from "./workspace-events.js";
+
+export const eventSocketContract = workspaceApi.channels.events;
 
 /** Session-only, read-only event transport. Never accepts Cards credentials. */
 export function installEventSockets(server: Server) {
@@ -25,7 +28,8 @@ export function installEventSockets(server: Server) {
     const timeout = setTimeout(failed, 10_000);
     try {
       const url = new URL(req.url || "", "http://loop");
-      if (url.pathname !== "/api/events/ws") return reject(socket, 404);
+      if (url.pathname !== "/api" + eventSocketContract.path)
+        return reject(socket, 404);
       if (
         req.headers.authorization !== undefined ||
         !allowedOrigin(req) ||
@@ -41,7 +45,14 @@ export function installEventSockets(server: Server) {
       sockets.handleUpgrade(req, socket, head, (ws) => {
         owners.set(ws, owner);
         ws.on("error", () => {});
-        const stop = connectWorkspaceEvents(ws, url, owner, epoch);
+        const stop = connectWorkspaceEvents(
+          ws,
+          url,
+          owner,
+          epoch,
+          undefined,
+          eventSocketContract,
+        );
         let alive = true,
           checking = false;
         ws.on("pong", () => {

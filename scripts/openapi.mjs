@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import {
-  workspaceApi,
+  workspaceRoutes,
   CardErrorSchema,
   PublicAgent,
   PublicConnection,
@@ -105,7 +105,7 @@ for (const [id, schema] of Object.entries({
   RuntimeUpgrade: PublicUpgradeView,
 }))
   registry.add(schema, { id });
-for (const [name, route] of Object.entries(workspaceApi)) {
+for (const [name, route] of Object.entries(workspaceRoutes)) {
   const prefix = schemaName(name);
   // Clones give shared Empty/NoBody and repeated responses distinct IDs.
   // Cards response identities retain their existing inter-component references.
@@ -220,7 +220,7 @@ const sharedErrorGroups = new Set([
   "objects",
   "bootstrap",
 ]);
-for (const [name, route] of Object.entries(workspaceApi)) {
+for (const [name, route] of Object.entries(workspaceRoutes)) {
   const path = "/api" + route.path.replace(/[:*]([^/]+)/g, "{$1}");
   // OpenAPI has no ALL verb. Document the protocol's POST entrypoint and mark
   // its delegated method dispatch explicitly, without inventing registry keys.
@@ -538,3 +538,5 @@ if (process.argv.includes("--check")) {
 
 await import("./fleet-openapi.mjs");
 await import("./fleet-admin-openapi.mjs");
+
+await import("./openapi-channels.mjs");

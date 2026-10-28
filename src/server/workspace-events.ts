@@ -1,3 +1,4 @@
+import { workspaceApi } from "../shared/workspace-api.js";
 import { WebSocket } from "ws";
 import { db, changes, ensureWorkspaceOwner, workspaceClock } from "./db.js";
 import { publicBuild } from "../shared/build.js";
@@ -19,8 +20,10 @@ export function connectWorkspaceEvents(
   owner: string,
   epoch: string,
   build?: string,
+  contract = workspaceApi.channels.events,
 ) {
-  const v3 = url.searchParams.get("v") === "3";
+  // Use the first v value as before; absent/other versions retain v2 replay.
+  const v3 = contract.query.safeParse({ v: url.searchParams.get("v") }).success;
   // Already-loaded v3 clients strictly reject new reset keys. Advertise the
   // clock extension only when this client (and any proxy) negotiates it.
   const clockV3 = v3 && url.searchParams.get("clock") === "1";
@@ -148,7 +151,12 @@ export function connectWorkspaceEvents(
     }
     try {
       const { frame, more } = read();
-      if (frame) socket.send(JSON.stringify(frame));
+      if (frame) {
+        // Check the canonical contract, but serialize the original object:
+        // parsing must not change property order or the established wire bytes.
+        if (v3) contract.frames.parse(frame);
+        socket.send(JSON.stringify(frame));
+      }
       if (more) schedule();
     } catch {
       // A failed read must never establish a cursor. Reconnect and reconcile.

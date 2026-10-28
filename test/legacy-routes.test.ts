@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { LEGACY_ROUTES } from "../src/shared/legacy-routes";
-import { workspaceApi } from "../src/shared/workspace-api";
+import { workspaceRoutes } from "../src/shared/workspace-api";
 
 it("accounts for every production API registration and every named exception across both profiles", () => {
   const declared = new Set([
     ...Object.keys(LEGACY_ROUTES),
-    ...Object.values(workspaceApi).map(
+    ...Object.values(workspaceRoutes).map(
       (route) => `${route.method} ${route.path}`,
     ),
   ]);

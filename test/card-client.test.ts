@@ -8,7 +8,7 @@ import { createCardClient } from "../src/shared/card-client";
 import { CardCollection } from "../src/shared/card-sync";
 import type { CardSelection } from "../src/shared/cards";
 import { cardTokenRequest } from "../src/shared/card-access";
-import { workspaceApi } from "../src/shared/workspace-api";
+import { workspaceApi, workspaceRoutes } from "../src/shared/workspace-api";
 
 it.each(["server", "companion", "multi-user"] as const)(
   "runs the example and reconciles complete collections through %s",
@@ -483,7 +483,7 @@ it("generates a schema with resolvable references and the runtime read/managemen
     }
   }
   expect(spec.paths["/api/v1/cards"].get.responses[400].$ref).toBeUndefined();
-  for (const [key, contract] of Object.entries(workspaceApi)) {
+  for (const [key, contract] of Object.entries(workspaceRoutes)) {
     const path = "/api" + contract.path.replace(/[:*]([^/]+)/g, "{$1}");
     const method =
       contract.method === "ALL" ? "post" : contract.method.toLowerCase();

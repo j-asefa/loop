@@ -5,7 +5,11 @@ import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
-import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
+import {
+  workspaceApi,
+  workspaceRoutes,
+  type RouteContract,
+} from "../src/shared/workspace-api";
 import { readRoute } from "../src/client/workspace-api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-github-contracts-"));
@@ -201,7 +205,7 @@ afterAll(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
-type Case = [keyof typeof workspaceApi, string, unknown?, unknown?];
+type Case = [keyof typeof workspaceRoutes, string, unknown?, unknown?];
 it.each([64, "64"])(
   "typed GitHub reader sends a validated numeric path parameter (%s) over HTTP",
   async (number) => {

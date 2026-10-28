@@ -20,8 +20,8 @@ Update after every meaningful step. A fresh session must be able to resume from 
 | 9b1a further shared OpenAPI errors | merged | contracts/09b1a-openapi-errors | https://github.com/j-asefa/loop/pull/234 | 1 | 110da7ddc228a88b20636f1c949e0e6675e9942f | Merged2026-10-27 as6f72d775db427a2ebeae5b31e93da3c74e61e3d4 after one complete clean review. No accepted P2. Restores capture space for9b2. |
 | 9b2 MCP management, agent tools, MCP app artifacts | merged | contracts/09b2-mcp-management | https://github.com/j-asefa/loop/pull/223 | 4 complete | f82bad464d733c6c2262f1289367abffc23d28d2 | Merged2026-10-28 as129a98ef887e4029ac0cddfd58d8d05758c28caf after four complete review passes. No accepted P2. |
 | 9c1 shared OpenAPI projections | merged | contracts/09c1-openapi-projections | https://github.com/j-asefa/loop/pull/240 | 1 complete | 46e90c5f71203a703bd84f3a08dd8ba37b622ebd | Merged2026-10-28 as6e55cdb212f8dd337e0817b5811abc893070d194 after one complete clean review. No accepted P2. |
-| 9c2 memory and workflows | ready to merge | contracts/09c2-memory-workflows | https://github.com/j-asefa/loop/pull/242 | 1 complete | 4ef6e42af6f765688cf0fa61eec25ad4165c0274 | Nine phases passed; complete clean review1, no accepted P2. GitHub MERGEABLE/CLEAN; record ledger and squash merge with expected head. |
-| 10 events in the registry | todo | | | 0 | | After PR 9c merges |
+| 9c2 memory and workflows | merged | contracts/09c2-memory-workflows | https://github.com/j-asefa/loop/pull/242 | 1 complete | 4ef6e42af6f765688cf0fa61eec25ad4165c0274 | Merged2026-10-28 as7b64770e617d5d95414ac69552088fad22f8bc4e after one complete clean review. No accepted P2. Server legacy0/client24. |
+| 10 events in the registry | ready to merge | contracts/10-events-registry | https://github.com/j-asefa/loop/pull/243 | 1 complete | 2f7d4302416513a79e8ca5677e4a1ab864ec1705 | Complete review, no P0/P1/security findings; one accepted P2 query-documentation limitation. Required evidence and user baseline-rerun waiver recorded. Merge with expected head after ledger-only update. |
 | 11 remove the legacy path | todo | | | 0 | | After PR 10 merges, both legacy lists empty apart from deferred protected-file entries, and reactive 12b3 merged. Reactive 12c must also have merged before editing protected mobile-return.ts. |
 
 States: todo, in progress, checks green, review requested, fixing findings, ready to merge, merged, blocked.
@@ -90,6 +90,8 @@ PR 5 (base 9ab01b59): defer App.tsx artifact reads/updates at lines 547, 783, 16
 PR 7 (base2468314c): defer app/Composer.tsx:385 routing preview and :413 share preview while remaining reactive12b extraction continues. Keep `/routing/preview` and `/share/preview` client patterns. No App/native/reactive-ledger edits. No open GitHub PRs at branch start; 12a and 12b2 #201 are merged.
 
 ## Found, not fixed
+
+- PR10 accepted P2 documentation limitation: the socket query schema declares only v=3, as required by the spec; epoch/cursor/clock/projection are documented in the channel description. The generated input schema permits additional properties, the current browser explicitly sets all resume/capability parameters, and the server reads them directly with unchanged first-value semantics. No captured generated socket consumer loses them; the lead did not confirm the reported reconnect regression. Accept the machine-readable query-completeness limitation for this bundle, retaining current-client and linked-replay coverage. Downstream generators remain unvalidated.
 
 2026-10-28 PR9b2 pagination observation: WebKit feed-threads on source85f9b255 displayed97 loaded cards but retained Load more after the final GET /feed response returned next:null and a bounded refresh followed. The captured responses replay correctly through the unchanged reducer/refresh helper, and three unchanged focused browser runs passed. Cause remains unproven; no pagination behavior change is included. Failed trace/log and full retry are recorded in verification history.
 
@@ -1431,3 +1433,89 @@ PR9c2 review1 requested-head record before tool call,2026-10-28: head4ef6e42af6f
 PR9c2 review1 request returned a7c50138-3d39-4102-a8c5-d4928fe20cdb queued. Poll only this exact id; do not issue a new request to retrieve progress.
 
 PR9c2 review1 completed2026-10-28: review a7c50138-3d39-4102-a8c5-d4928fe20cdb; head4ef6e42af6f765688cf0fa61eec25ad4165c0274; base6e55cdb212f8dd337e0817b5811abc893070d194; fingerprinte307a9f8df44f7b6f37fac04f93b6371532a8481ce5eb53c8bdbe49f1f5ba4a7. Lead conversationb13b7012-ceb9-4c41-896c-e92bbce9cc56/run fcb4e1d0-7db3-4b57-862c-fc5a3b60eac1 and reviewer runs456ae151-43d9-4bcd-8e1c-ef0c80a53df2,4c4e9bbf-e91a-4ebb-9a93-1714c2daaee2,072d2008-7ec4-433f-b377-9aef5f71ad6b all completed with null errors. All full reports read; lead confirms no missing/truncated coverage. Zero confirmed P0/P1/P2/security findings, no accepted P2 or requested revision. Static coverage includes input limits, ownership, version conflicts, request-key behavior, response projections, client routing and registry/OpenAPI. Lead supplemented bodyless GET/proxy evidence; reviewers did not run tests or independently verify ledger execution claims. Residual gaps: switching sources while Memory/Workflow sheets stay mounted, MemoryUsed retry/error behavior, unusual historical rows, completed/failed workflow children, baseline receipt-source parsing, external GET clients, downstream generators, live index/providers/devices/tunnels, browser timing and omitted credential internals. Double projection showed no concrete failure. Reports /tmp/contracts-09c2-review1.json. All nine gate phases pass. Final fetch leaves main6e55cdb2 and GitHub MERGEABLE/CLEAN for4ef6e42a; only STATUS.md differs. Gate holds for ledger-only commit and expected-head-pinned squash merge.
+
+PR9c2 merged2026-10-28 as7b64770e617d5d95414ac69552088fad22f8bc4e through expected-head-pinned squash of2e9a2ac96fc446f7202e764bd9b0aaa0e958bfb7. All nine gate phases passed; one complete clean review, no accepted P2. Only ledger differed from reviewed head4ef6e42a. Server legacy inventory0; client24. PR10 starts from freshly fetched main7b64770e; reactive12b3#211 and12c#218 remain merged.
+
+PR10 implementation decisions2026-10-28: preserve the stable workspaceApi.events HTTP operation and add workspaceApi.channels.events; workspaceRoutes is the same HTTP object view for inventories/generation. Preserve first-v-value negotiation and V2 fallback. The existing producer did not parse frames; V3 validation uses the registry schema while serializing the original object, retaining field order. Separate openapi-channels.json keeps the Cards local-reference validator and 509388-byte HTTP document unchanged. Register WorkspaceEvent once; the existing tolerant decoder transform references its canonical output. Companion fallback references existing raw HTTP event-page components. Spec reconciled with these observed checkout details; byte/depth refinements remain runtime constraints. No reactive bundle edits.
+
+PR10 initial focused iteration2026-10-28: typecheck exited0; five existing focused files passed unchanged, while the three new compiled-socket cases failed on their seed INSERT because a non-run event requires an explicit collection subject. Correct the fixture row to subject_kind=collection/subject_id=all, preserving the production schema and transport. First run63 passed/3 failed across6files in94.05s; preserve /tmp/contracts-10-iteration-focused-first.log and rerun the new file. No production change for this correction.
+
+PR10 focused correction passed2026-10-28: all5 new event-channel tests exited0 in10.21s. The prior focused run passed61 existing tests and2 new schema/document checks; only the3 new seed INSERTs failed before correction. New real sockets cover server /api/events/ws, paired /api/events/ws and /ws, exact JSON reset/replay/synthetic-tip envelopes, V2 fallback and first duplicate-v negotiation. Generated JSON Schema validates production frames and the existing raw HTTP page. Existing compiled linked-proxy/clock/replay and event-sockets suites remained unchanged and passed in the first focused run. Typecheck passed. Full required gate follows on the implementation commit.
+
+PR10 full gate starts on 5a7429fd9664e938cbba25d427b899dbe1e2f18e/base7b64770e: eight sequential phases check, build, HTTP-document compatibility, feed-events (both engines), reconnect Chromium, reconnect WebKit, full unit and native suites. TMPDIR=/var/tmp, sanitized LOOP runtime variables, NODE_OPTIONS=--max-old-space-size=512, one browser worker and >=2048MiB manual pre-phase estimated headroom. Browser phases reuse /tmp/contracts-webkit-fixed/runtime with the documented private libsoup3.6.6 substitution for WebKit2359; repository pins/shared cache unchanged. These scripts do not write screenshots. Fixture validation only, including the local TLS/tunnel simulator; no live providers/devices/Docker or real tunnel validation. Logs/results /tmp/contracts-10-.
+
+PR10 pre-gate actual capture5a7429fd/base7b64770e fits: fingerprint47cdc58174d4c4af5ed8d30fdaa1974da93aaea8128c2cf43ea48bbeb73f8236;18 changed paths,1264files,162423diff bytes,13031833context/before bytes,largest509388,no omitted changed paths. Final reviewed-head capture still required.
+
+PR10 check PASS 2026-10-28T09:13:47.214601+00:00 on 5a7429fd9664e938cbba25d427b899dbe1e2f18e: npm run check exit0; log /tmp/contracts-10-check.log; capacity wait 0s.
+check: format check: format passed in 19.5 s check: typecheck check: typecheck passed in 10.0 s check: openapi check: openapi passed in 0.6 s check: contracts check: contracts passed in 32.7 s check: all passed
+
+PR10 build PASS 2026-10-28T09:13:58.595940+00:00 on 5a7429fd9664e938cbba25d427b899dbe1e2f18e: npm run build exit0; log /tmp/contracts-10-build.log; capacity wait 0s.
+
+PR10 compat PASS 2026-10-28T09:13:58.658888+00:00 on 5a7429fd9664e938cbba25d427b899dbe1e2f18e: python3 /tmp/contracts-10-openapi-compat.py exit0; log /tmp/contracts-10-compat.log; capacity wait 0s.
+
+PR10 feed PASS 2026-10-28T09:20:33.995585+00:00 on 5a7429fd9664e938cbba25d427b899dbe1e2f18e: npm run smoke:feed-events exit0; log /tmp/contracts-10-feed.log; capacity wait 0s.
+
+PR10 reconnect-chromium PASS 2026-10-28T09:21:18.461189+00:00 on 5a7429fd9664e938cbba25d427b899dbe1e2f18e: npm run smoke:reconnect exit0; log /tmp/contracts-10-reconnect-chromium.log; capacity wait 0s.
+
+PR10 reconnect-webkit PASS 2026-10-28T09:21:46.300807+00:00 on 5a7429fd9664e938cbba25d427b899dbe1e2f18e: npm run smoke:reconnect exit0; log /tmp/contracts-10-reconnect-webkit.log; capacity wait 0s.
+
+PR10 full unit run in progress2026-10-28: existing change-log-routes case "reads a new owner's snapshot clock under a writer lock before its first mutation" hit its unchanged10s test deadline (10023ms). The surrounding file reports14other passes; no final unit exit yet. Test, DB clock implementation and HTTP clock paths are unchanged. The code change does add V3 frame validation later in this journey, so causality is not assumed. Preserve the failure and investigate after remaining tests finish; do not call the unit gate passed. Browser/check/build/compatibility phases already passed.
+
+PR10 full unit attempt1 completed2026-10-28T09:38:49.679050UTC on5a7429fd, exit1:248files passed/1failed;2175tests passed/1failed,1022.44s. Only failure is the existing new-owner clock/mutation case hitting its10s deadline; the companion socket parameter case and all new channel tests passed. Complete log /tmp/contracts-10-first-failure-vitest.log and phase results /tmp/contracts-10-first-failure-gates.json retained. Native phase has not run. Run both existing clock parameters alone with unchanged source/assertions/deadlines, then resume the required gate. No claim that the timeout is fixed or caused by resource contention.
+
+PR10 isolated clock retry2026-10-28 passed both existing mutation/socket cases (2passed,13unselected) in5.27s with unchanged source/assertions/deadlines; /tmp/contracts-10-clock-retry-focused.log. This did not reproduce or establish the cause of the earlier timeout. Resume the full unit command with --reporter=verbose for per-case progress, then the not-yet-run native suite. Other six successful phases remain valid on the same5a7429fd source and are not repeated.
+
+PR10 full-unit retry clock cases both passed2026-10-28 on unchanged5a7429fd: ✓ test/change-log-routes.test.ts > reads a new owner's snapshot clock under a writer lock before its first mutation 1660ms; ✓ test/change-log-routes.test.ts > reads a new owner's snapshot clock under a writer lock before its first socket 1664ms. Remaining full-suite cases are still running; this is not a final gate result.
+
+PR10 vitest PASS 2026-10-28T09:57:02.341868+00:00 on 5a7429fd9664e938cbba25d427b899dbe1e2f18e: npm test -- --maxWorkers=1 --reporter=verbose exit0; log /tmp/contracts-10-vitest.log; capacity wait 0s.
+
+PR10 native PASS 2026-10-28T10:05:06.572732+00:00 on 5a7429fd9664e938cbba25d427b899dbe1e2f18e: npm run test:native exit0; log /tmp/contracts-10-native.log; capacity wait 0s.
+
+PR10 full gate completed on 5a7429fd9664e938cbba25d427b899dbe1e2f18e at 2026-10-28T10:05:06.572732+00:00. All eight phases have latest exit0. The earlier10s clock-test timeout remains recorded; both unchanged cases passed in isolation and the complete unit retry passed. No cause or code fix is claimed. Common settings: TMPDIR=/var/tmp, NODE_OPTIONS=--max-old-space-size=512, LOOP_BROWSER_WORKERS=1, sanitized LOOP runtime variables and >=2048MiB manual pre-phase headroom. Browser phases use the documented private WebKit libsoup substitution. Full results:
+
+```text
+Test Files  249 passed (249)
+Tests  2176 passed (2176)
+Duration  986.04s (tests 84%, import 15%, transform 1%)
+ℹ tests 305
+ℹ pass 305
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 483867.93049
+```
+
+Feed/Files passed both engines and reconnect passed separately in Chromium and WebKit. These scripts do not produce screenshots. Fixture checks only; unmodified pinned WebKit, live providers, actual Docker, real tunnels and physical devices were not validated. Final capture and complete review remain required.
+
+PR10 pre-open fetch2026-10-28: main advanced from7b64770e todf1fdbe3df1da5e1dad22d2609790879b25ee9aa via merged Antigravity PR241. Its50-file diff changes provider discovery, native lifecycle, a connection migration, UI and generated HTTP provider enums; it does not edit this PR's registry/socket/client/parser files. docs/architecture.md overlaps in another paragraph. The PR241 body reports its own convention/build and focused native/projection checks, not a full baseline; these are upstream observations, not this branch's results. Apply the user's existing instruction "No you don't need to rerun the baseline" (steered message5ca68017-326b-4095-928c-168f57b92b9a) to this pre-open rebase. Keep the completed full baseline tied to5a7429fd/base7b64770e. Verify the rebased branch with npm run check/build, HTTP byte-identity comparison against its new base, and focused socket/event plus Antigravity/native-projection regressions. Record patch equivalence and any regenerated-schema change; do not claim the old full baseline ran on the new base.
+
+PR10 clean rebase2026-10-28: implementation5a7429fd→b31847f2 is patch-identical by git range-diff; ledger commit6442a370→873552378482039eb1a9917d4ccbb0cc6746f451. New base df1fdbe3df1da5e1dad22d2609790879b25ee9aa. No conflict resolution or schema regeneration. Main's provider enum change makes HTTP OpenAPI509850bytes; channel document remains111535bytes. Four rebased checks run on873552378482039eb1a9917d4ccbb0cc6746f451: convention gate, build, new-base HTTP/socket-test byte identity, and8 focused socket/event/Cards/Antigravity/native-projection files. This applies the existing user baseline-rerun waiver; original full-unit/native and browser passes stay attributed to5a7429fd/base7b64770e.
+
+PR10 rebased verification completed2026-10-28 on873552378482039eb1a9917d4ccbb0cc6746f451/base df1fdbe3df1da5e1dad22d2609790879b25ee9aa: all four commands exited0. Original full-unit/native/browser evidence remains on5a7429fd/base7b64770e under the user's existing baseline-rerun waiver. Rebased evidence:
+
+- npm run check — exit0 at 2026-10-28T10:09:48.335589+00:00; log /tmp/contracts-10-rebased-check.log; capacity wait 0s.
+- npm run build — exit0 at 2026-10-28T10:10:00.707030+00:00; log /tmp/contracts-10-rebased-build.log; capacity wait 0s.
+- python3 /tmp/contracts-10-openapi-compat.py — exit0 at 2026-10-28T10:10:00.764624+00:00; log /tmp/contracts-10-rebased-compat.log; capacity wait 0s.
+- npx vitest run test/event-channel-contracts.test.ts test/event-sockets.test.ts test/workspace-events.test.ts test/workspace-event-client.test.ts test/workspace-event-contract.test.ts test/card-client.test.ts test/antigravity-native.test.ts test/native-projection.test.ts --maxWorkers=1 --reporter=verbose — exit0 at 2026-10-28T10:11:45.502490+00:00; log /tmp/contracts-10-rebased-focused.log; capacity wait 0s.
+
+```text
+check: format
+check: format passed in 13.5 s
+check: typecheck
+check: typecheck passed in 8.7 s
+check: openapi
+check: openapi passed in 0.6 s
+check: contracts
+check: contracts passed in 33.6 s
+check: all passed
+Test Files  8 passed (8)
+Tests  77 passed (77)
+Duration  103.77s (tests 95%, import 4%, transform 2%)
+```
+
+PR10 review1 requested-head record before tool call,2026-10-28: PR243; head2f7d4302416513a79e8ca5677e4a1ab864ec1705; captured base df1fdbe3df1da5e1dad22d2609790879b25ee9aa; fingerprint f6a93d46d4c3802a7b5ea6e6634d375ee3c81c5aeb42a6dfad01e91580bc491d. Actual capture:18 changed paths,1273files,171719diff bytes,13105772context/before bytes,largest509850,no omitted changed paths. Original full gate passed on5a7429fd/base7b64770e; clean patch-identical rebase87355237 passed convention/build/compatibility and77 focused tests, with the existing user baseline-rerun waiver explicitly recorded in the PR. Only STATUS.md differs from87355237. Final pre-open fetch remained df1fdbe3. Request one branch review from team75e334bb-e16b-4d61-b16a-c6859d2337ad; do not confuse requested/running with completed review.
+
+PR10 review1 request returned5fd245ad-8b58-4d84-94fc-c2c3741ec9c1 queued. Poll only this exact id; do not submit another request to retrieve progress.
+
+PR10 review1 completed2026-10-28: review5fd245ad-8b58-4d84-94fc-c2c3741ec9c1; head2f7d4302416513a79e8ca5677e4a1ab864ec1705; basedf1fdbe3df1da5e1dad22d2609790879b25ee9aa; fingerprintf6a93d46d4c3802a7b5ea6e6634d375ee3c81c5aeb42a6dfad01e91580bc491d. Lead conversation51e4004b-bfed-4c67-a677-81f7f7897f3b/run ad853954-188d-47da-9b58-1bb363fbeb0b and all3 reviewer runs cfba4c8f-b5ab-430b-b824-2c975e3a5e3c,ec644562-be2c-4811-879e-13ccf0557db3,fea7ee37-f898-46c4-9a58-5a70255a75fd completed with null errors and full untruncated reports; every report read. Lead confirmed zero introduced bugs and no P0/P1/security findings; one reviewer reported a P2 query-completeness concern whose consumer impact the lead could not confirm. Record it conservatively as one accepted P2 documentation limitation, with the code/spec evidence above and in PR243. No code revision requested or made. Remaining static-review gaps: external registry enumerators/generators, extra frame-parse CPU cost, load/concurrency, live linked Docker/tunnels/devices, omitted credential files and unreviewed authentication/DB internals. Reviewers did not run checks or verify ledger claims. Reports /tmp/contracts-10-review1.json. Final fetch leaves main df1fdbe3; GitHub mergeable=true and remote head matches2f7d4302416513a79e8ca5677e4a1ab864ec1705. Only STATUS.md differs. Gate holds with the documented P2 disposition and baseline-rerun waiver for a ledger-only commit and expected-head-pinned squash merge.

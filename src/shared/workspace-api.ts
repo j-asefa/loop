@@ -21,7 +21,7 @@ import { PersonalDecisionsQuery, PersonalDecisionsPageSchema, PersonalApprovalSc
 import { ProfileInput, PublicProfile, PersonalPromptsQuery, PersonalPromptsPage } from "./personal-schemas.js";
 import { AgentCreateInput, AgentUpdateInput, ConnectionCreateInput, ConnectionReconnectInput, PublicModels, PublicConnectionRefresh, PublicHarnessCatalog, PublicPiConfiguration, PublicPiMutation, PublicPiInspection, PiTrustInput, PiFiltersInput, PiPreviewInput, PiInspectInput, PiRollbackInput, PiActionInput, PublicAgentMessages, PublicAgentTraces } from "./agent-contract-schemas.js";
 import { DoneDisplaySchema } from "./done-card.js";
-import { WorkspaceClock } from "./workspace-events.js";
+import { WorkspaceClock, WorkspaceFrameV3, WorkspaceEvent, WorkspaceCapabilities } from "./workspace-events.js";
 import { ProjectedMessage } from "./transcript-projection.js";
 import { SessionControls } from "./session-controls.js";
 import { AttachmentIds } from "./uploads.js";
@@ -166,7 +166,7 @@ export type RouteContract = {
 export type ClientRouteContract = RouteContract & { method: Exclude<RouteContract["method"], "ALL"> };
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
-export const workspaceApi = {
+export const workspaceRoutes = {
   conversationMemory: endpoint({ ...base, method: "GET", path: "/conversations/:id/memory", params: Id, response: z.object({ memoryIncluded: z.boolean() }) }),
   memoryStatus: endpoint({ ...base, method: "GET", path: "/memory", response: memory.PublicMemoryStatus }),
   memoryPolicy: endpoint({ ...base, method: "PUT", path: "/memory/policy", body: memory.MemoryPolicyInput, response: Ok }),
@@ -467,6 +467,25 @@ export const workspaceApi = {
   nativeAnswer: endpoint({ ...base, method: "POST", path: "/native/decisions/:id", params: Id, body: z.strictObject({ commandId: Text.uuid(), answer: z.record(Text, z.json()) }), response: z.object({ state: Text }) }),
   session: endpoint({ ...base, method: "GET", path: "/conversations/:id/settings", params: z.object({ id: Text.uuid() }), response: SessionControls }),
   setting: endpoint({ ...base, method: "PATCH", path: "/conversations/:id/settings/:setting", params: z.object({ id: Text.uuid(), setting: Text }), body: z.strictObject({ value: z.union([Text.max(1000), z.boolean(), z.number()]), revision: z.number().int().nonnegative(), generation: Text.min(1).max(200), commandId: Text.uuid().optional() }), response: SessionControls }),
+} as const;
+
+// HTTP keys remain stable operation IDs. Channels share the registry without
+// being mounted as Express routes or widening the typed HTTP helpers.
+export const workspaceApi = {
+  ...workspaceRoutes,
+  channels: {
+    events: {
+      kind: "socket",
+      path: "/events/ws",
+      pairedPath: "/ws",
+      query: z.object({ v: z.literal("3") }),
+      frames: WorkspaceFrameV3,
+      event: WorkspaceEvent,
+      capabilities: WorkspaceCapabilities,
+      clock: WorkspaceClock,
+      fallback: workspaceRoutes.events,
+    },
+  },
 } as const;
 
 type Field<K extends string, S extends z.ZodType> = undefined extends z.input<S> ? { [P in K]?: z.input<S> } : {} extends z.input<S> ? { [P in K]?: z.input<S> } : { [P in K]: z.input<S> };

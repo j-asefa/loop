@@ -1,5 +1,6 @@
+import { workspaceApi } from "../shared/workspace-api";
 import {
-  WorkspaceFrameV3,
+  type WorkspaceFrameV3,
   WorkspaceClock,
   invalidate,
   PARTIAL_WORKSPACE_CAPABILITIES,
@@ -161,7 +162,10 @@ export function watchWorkspaceEvents(options: {
     const url = new URL(options.url);
     url.searchParams.set("epoch", epoch);
     url.searchParams.set("cursor", String(cursor));
-    url.searchParams.set("v", "3");
+    url.searchParams.set(
+      "v",
+      workspaceApi.channels.events.query.parse({ v: "3" }).v,
+    );
     url.searchParams.set("clock", "1");
     url.searchParams.set("projection", "1");
     let firstFrame = true;
@@ -172,7 +176,9 @@ export function watchWorkspaceEvents(options: {
       try {
         const value = JSON.parse(event.data);
         const m: WorkspaceFrame =
-          value?.v === 3 ? WorkspaceFrameV3.parse(value) : value;
+          value?.v === 3
+            ? workspaceApi.channels.events.frames.parse(value)
+            : value;
         // A resumed connection may not reset its cursor. Older servers do
         // not announce capabilities on replay, so conservatively restore
         // fallback instead of retaining a previous deployment's promises.

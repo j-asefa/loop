@@ -234,8 +234,9 @@ export class Host {
         url.pathname,
       );
       const local =
-        url.pathname === "/ws" ||
-        (!!this.workspace && url.pathname === "/api/events/ws");
+        url.pathname === workspaceApi.channels.events.pairedPath ||
+        (!!this.workspace &&
+          url.pathname === "/api" + workspaceApi.channels.events.path);
       if (!local && !(source && this.workspace && !this.workspace.isolated)) {
         socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         return;

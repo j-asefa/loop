@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
-import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
+import {
+  workspaceApi,
+  workspaceRoutes,
+  type RouteContract,
+} from "../src/shared/workspace-api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-social-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
@@ -159,7 +163,7 @@ afterAll(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
-type Case = [keyof typeof workspaceApi, string, unknown?, unknown?];
+type Case = [keyof typeof workspaceRoutes, string, unknown?, unknown?];
 const cases: Case[] = [
   ["socialUnread", "/social/unread"],
   ["socialList", "/social?wait=1"],

@@ -453,6 +453,8 @@ export const WorkspaceClock = z.strictObject({
   serverNow: Count, nextDeadline: Count.nullable(), cursor: Count,
 });
 export type WorkspaceClock = z.infer<typeof WorkspaceClock>;
+// The tolerant decoder has the same canonical output union as stored events.
+export const WorkspaceEventDecoder = z.unknown().transform(parseWorkspaceEvent);
 export const WorkspaceFrameV3 = z.discriminatedUnion("type", [
   z.strictObject({
     v: z.literal(3),
@@ -476,7 +478,7 @@ export const WorkspaceFrameV3 = z.discriminatedUnion("type", [
       .array(
         z.strictObject({
           id: Count,
-          event: z.unknown().transform(parseWorkspaceEvent),
+          event: WorkspaceEventDecoder,
         }),
       )
       .min(1)

@@ -1,0 +1,3681 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Loop workspace event channels",
+    "version": "3",
+    "description": "Companion to openapi.json. Event variants describe canonical decoded output; unknown or malformed events decode to invalidate. Serialized byte/depth bounds remain runtime constraints. No client writes are accepted on this socket."
+  },
+  "paths": {},
+  "x-channels": {
+    "events": {
+      "kind": "socket",
+      "path": "/api/events/ws",
+      "pairedPath": "/ws",
+      "description": "Owner session on the server; paired device session on the host. Cards tokens are not accepted. v=3 negotiates these frames; other or absent versions retain legacy v2. epoch and cursor resume replay; clock=1 and projection=1 negotiate clock and capability additions. The first value of each query key is used.",
+      "query": {
+        "$ref": "#/components/schemas/WorkspaceEventsQuery"
+      },
+      "frames": {
+        "$ref": "#/components/schemas/WorkspaceFrameV3"
+      },
+      "clock": {
+        "$ref": "#/components/schemas/WorkspaceClock"
+      },
+      "httpFallback": {
+        "operationId": "events",
+        "method": "GET",
+        "path": "/api/events",
+        "query": {
+          "$ref": "./openapi.json#/components/schemas/eventsQuery"
+        },
+        "response": {
+          "$ref": "./openapi.json#/components/schemas/eventsResponse"
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "WorkspaceFrameV3": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "number",
+                "const": 3
+              },
+              "type": {
+                "type": "string",
+                "const": "reset"
+              },
+              "epoch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "cursor": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "build": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "buildIdentity": {},
+              "capabilities": {
+                "$ref": "#/components/schemas/WorkspaceCapabilities"
+              },
+              "serverNow": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "nextDeadline": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "v",
+              "type",
+              "epoch",
+              "cursor",
+              "build",
+              "buildIdentity",
+              "capabilities"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "number",
+                "const": 3
+              },
+              "type": {
+                "type": "string",
+                "const": "events"
+              },
+              "capabilities": {
+                "$ref": "#/components/schemas/WorkspaceCapabilities"
+              },
+              "epoch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "cursor": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "events": {
+                "minItems": 1,
+                "maxItems": 110,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "event": {
+                      "$ref": "#/components/schemas/WorkspaceEvent"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "event"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "v",
+              "type",
+              "epoch",
+              "cursor",
+              "events"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "WorkspaceEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "connection.status"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "reverse.settled"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "callId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "callId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "queued"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maintenance": {
+                    "type": "boolean"
+                  },
+                  "resumed": {
+                    "type": "boolean"
+                  },
+                  "native": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "running"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maintenance": {
+                    "type": "boolean"
+                  },
+                  "resumed": {
+                    "type": "boolean"
+                  },
+                  "native": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "pausing"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maintenance": {
+                    "type": "boolean"
+                  },
+                  "resumed": {
+                    "type": "boolean"
+                  },
+                  "native": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "paused"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maintenance": {
+                    "type": "boolean"
+                  },
+                  "resumed": {
+                    "type": "boolean"
+                  },
+                  "native": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "awaiting_approval"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maintenance": {
+                    "type": "boolean"
+                  },
+                  "resumed": {
+                    "type": "boolean"
+                  },
+                  "native": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "completed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maintenance": {
+                    "type": "boolean"
+                  },
+                  "resumed": {
+                    "type": "boolean"
+                  },
+                  "native": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "failed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maintenance": {
+                    "type": "boolean"
+                  },
+                  "resumed": {
+                    "type": "boolean"
+                  },
+                  "native": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "cancelled"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maintenance": {
+                    "type": "boolean"
+                  },
+                  "resumed": {
+                    "type": "boolean"
+                  },
+                  "native": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "interrupted"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maintenance": {
+                    "type": "boolean"
+                  },
+                  "resumed": {
+                    "type": "boolean"
+                  },
+                  "native": {
+                    "type": "boolean"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "waiting_children"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "progress"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  }
+                },
+                "required": [
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "run.failed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  },
+                  "phase": {
+                    "type": "string",
+                    "maxLength": 300
+                  }
+                },
+                "required": [
+                  "message",
+                  "phase"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "agent_mail.sent"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "mailId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "threadId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "delivery": {
+                    "type": "string",
+                    "enum": [
+                      "new_turn",
+                      "queued",
+                      "steered"
+                    ]
+                  }
+                },
+                "required": [
+                  "mailId",
+                  "threadId",
+                  "delivery"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "agent_mail.held"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "mailId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "threadId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "mailId",
+                  "threadId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "import.progress"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "completed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "completed",
+                  "total"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "workflow.step.completed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "childRunId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "conversationId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "stepId",
+                  "childRunId",
+                  "conversationId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "workflow.step.started"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "stepId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "childRunId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "agent": {
+                    "type": "string",
+                    "maxLength": 8388608
+                  }
+                },
+                "required": [
+                  "stepId",
+                  "childRunId",
+                  "conversationId",
+                  "agent"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "workflow.completed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "outputs": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "maxLength": 1000
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 8388608
+                    }
+                  }
+                },
+                "required": [
+                  "outputs"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "feed.changed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "artifactId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "hidden": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "artifactId",
+                  "hidden"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "feed.card"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "conversationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "cardKey": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "thread",
+                      "result",
+                      "idle"
+                    ]
+                  },
+                  "removed": {
+                    "type": "boolean"
+                  },
+                  "card": {
+                    "anyOf": [
+                      {},
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "conversationId",
+                  "cardKey",
+                  "kind",
+                  "removed",
+                  "card"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "approval.auto_approved"
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "approvalId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      },
+                      "request": {}
+                    },
+                    "required": [
+                      "approvalId"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "decisionId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      },
+                      "title": {
+                        "type": "string",
+                        "maxLength": 8388608
+                      }
+                    },
+                    "required": [
+                      "decisionId",
+                      "title"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "approval.requested"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "request": {}
+                },
+                "required": [
+                  "approvalId",
+                  "request"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "approval.decided"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "approvalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "reject"
+                    ]
+                  },
+                  "origin": {
+                    "type": "string",
+                    "const": "loop"
+                  }
+                },
+                "required": [
+                  "approvalId",
+                  "decision",
+                  "origin"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "tool.failed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "artifactId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      },
+                      {
+                        "type": "string",
+                        "const": ""
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "artifactId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "tool.completed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "artifactId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      },
+                      {
+                        "type": "string",
+                        "const": ""
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "artifactId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "artifact.published"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "artifactId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "artifactId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "activity.updated"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "plan",
+                      "tool",
+                      "file_change",
+                      "output",
+                      "settings",
+                      "commands",
+                      "capabilities"
+                    ]
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "key",
+                  "kind",
+                  "sequence"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "steering.pending"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "steeringId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "messageId",
+                  "steeringId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "steering.delivered"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "messageId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "steering.failed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "messageId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "message.started"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "round": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "snapshot": {}
+                },
+                "required": [
+                  "messageId",
+                  "round",
+                  "snapshot"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "message.delta"
+              },
+              "payload": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "messageId": {
+                        "type": "string"
+                      },
+                      "conversationId": {
+                        "type": "string"
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "baseRevision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "chunkIndex": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "messageId",
+                      "conversationId",
+                      "revision",
+                      "baseRevision",
+                      "offset",
+                      "chunkIndex",
+                      "text"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "messageId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      },
+                      "text": {
+                        "type": "string",
+                        "maxLength": 8388608
+                      }
+                    },
+                    "required": [
+                      "messageId",
+                      "text"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "messageId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                      },
+                      "native": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "messageId",
+                      "native"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "message.upsert"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "owner_id": {
+                        "type": "string"
+                      },
+                      "conversation_id": {
+                        "type": "string"
+                      },
+                      "run_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "user",
+                          "assistant",
+                          "system",
+                          "tool"
+                        ]
+                      },
+                      "content": {
+                        "type": "string"
+                      },
+                      "metadata": {
+                        "type": "string"
+                      },
+                      "created_at": {
+                        "type": "number"
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "cursor": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "run_state": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "run_error": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "run_checkout": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "run_verification": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "owner_id",
+                      "conversation_id",
+                      "run_id",
+                      "role",
+                      "content",
+                      "metadata",
+                      "created_at",
+                      "revision",
+                      "cursor"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "message.remove"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "messageId": {
+                    "type": "string"
+                  },
+                  "conversationId": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "messageId",
+                  "conversationId",
+                  "revision"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "decision.pending"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "decisionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "runId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "nativeId": {
+                    "type": "string",
+                    "maxLength": 256000
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "request": {}
+                },
+                "required": [
+                  "decisionId",
+                  "conversationId",
+                  "runId",
+                  "generation",
+                  "nativeId",
+                  "state",
+                  "request"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "decision.deciding"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "decisionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "runId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "nativeId": {
+                    "type": "string",
+                    "maxLength": 256000
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "request": {}
+                },
+                "required": [
+                  "decisionId",
+                  "conversationId",
+                  "runId",
+                  "generation",
+                  "nativeId",
+                  "state",
+                  "request"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "decision.resolved"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "decisionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "runId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "nativeId": {
+                    "type": "string",
+                    "maxLength": 256000
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "request": {}
+                },
+                "required": [
+                  "decisionId",
+                  "conversationId",
+                  "runId",
+                  "generation",
+                  "nativeId",
+                  "state",
+                  "request"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "decision.expired"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "decisionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "runId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "nativeId": {
+                    "type": "string",
+                    "maxLength": 256000
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "request": {}
+                },
+                "required": [
+                  "decisionId",
+                  "conversationId",
+                  "runId",
+                  "generation",
+                  "nativeId",
+                  "state",
+                  "request"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "decision.unknown"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "decisionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "runId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "nativeId": {
+                    "type": "string",
+                    "maxLength": 256000
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "request": {}
+                },
+                "required": [
+                  "decisionId",
+                  "conversationId",
+                  "runId",
+                  "generation",
+                  "nativeId",
+                  "state",
+                  "request"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "decision.remove"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "decisionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "runId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "nativeId": {
+                    "type": "string",
+                    "maxLength": 256000
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "request": {}
+                },
+                "required": [
+                  "decisionId",
+                  "conversationId",
+                  "runId",
+                  "generation",
+                  "nativeId",
+                  "state",
+                  "request"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "message.completed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "messageId"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "trace.updated"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "round": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "round"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "provider.receipt"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "usage": {},
+                  "externalId": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                },
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "attention.dismissed"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "queue.reordered"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "up",
+                      "down"
+                    ]
+                  }
+                },
+                "required": [
+                  "direction"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "queue.edited"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "native.usage"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "usage": {
+                    "type": "object",
+                    "properties": {
+                      "input_tokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "output_tokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "input_tokens",
+                      "output_tokens"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "usage"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "native.event"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "conversationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "event": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "status"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "starting",
+                              "ready",
+                              "running",
+                              "awaiting-input",
+                              "completed",
+                              "interrupted",
+                              "failed",
+                              "stopped"
+                            ]
+                          },
+                          "detail": {
+                            "type": "string",
+                            "maxLength": 8388608
+                          },
+                          "recoverable": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "metadata"
+                          },
+                          "nativeSession": {
+                            "type": "string",
+                            "maxLength": 256000
+                          },
+                          "billing": {
+                            "type": "object",
+                            "properties": {
+                              "mode": {
+                                "type": "string",
+                                "enum": [
+                                  "subscription",
+                                  "existing"
+                                ]
+                              },
+                              "description": {
+                                "type": "string",
+                                "maxLength": 8388608
+                              },
+                              "provider": {
+                                "type": "string",
+                                "maxLength": 8388608
+                              },
+                              "model": {
+                                "type": "string",
+                                "maxLength": 8388608
+                              }
+                            },
+                            "required": [
+                              "mode",
+                              "description"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "nativeSession"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "item"
+                          },
+                          "item": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 256000
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "user",
+                                  "assistant",
+                                  "tool",
+                                  "notice"
+                                ]
+                              },
+                              "text": {
+                                "type": "string",
+                                "maxLength": 8388608
+                              },
+                              "title": {
+                                "type": "string",
+                                "maxLength": 8388608
+                              },
+                              "status": {
+                                "type": "string",
+                                "maxLength": 8388608
+                              },
+                              "phase": {
+                                "type": "string",
+                                "enum": [
+                                  "commentary",
+                                  "final_answer"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "kind",
+                              "text"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "item"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "delta"
+                          },
+                          "id": {
+                            "type": "string",
+                            "maxLength": 256000
+                          },
+                          "text": {
+                            "type": "string",
+                            "maxLength": 8388608
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "id",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "request"
+                          },
+                          "request": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 256000
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "approval",
+                                  "question"
+                                ]
+                              },
+                              "title": {
+                                "type": "string",
+                                "maxLength": 8388608
+                              },
+                              "detail": {
+                                "type": "string",
+                                "maxLength": 8388608
+                              },
+                              "choices": {
+                                "maxItems": 64000,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "maxLength": 8388608
+                                }
+                              },
+                              "allow": {
+                                "type": "string",
+                                "maxLength": 8388608
+                              },
+                              "questions": {
+                                "maxItems": 64000,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "maxLength": 256000
+                                    },
+                                    "title": {
+                                      "type": "string",
+                                      "maxLength": 8388608
+                                    },
+                                    "options": {
+                                      "maxItems": 64000,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "maxLength": 8388608
+                                      }
+                                    },
+                                    "multiple": {
+                                      "type": "boolean"
+                                    },
+                                    "secret": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "title"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "kind",
+                              "title",
+                              "detail"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "request"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "resolved"
+                          },
+                          "id": {
+                            "type": "string",
+                            "maxLength": 256000
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "error"
+                          },
+                          "message": {
+                            "type": "string",
+                            "maxLength": 8388608
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "conversationId",
+                  "generation",
+                  "event"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "payload",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "invalidate"
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "scope"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "tombstone"
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "scopes": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkspaceScope"
+                }
+              },
+              "removed": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              }
+            },
+            "required": [
+              "type",
+              "scope",
+              "subject",
+              "removed"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "deadline"
+              },
+              "scope": {
+                "$ref": "#/components/schemas/WorkspaceScope"
+              },
+              "subject": {
+                "$ref": "#/components/schemas/WorkspaceSubject"
+              },
+              "serverNow": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "nextDeadline": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "scope",
+              "subject",
+              "serverNow",
+              "nextDeadline"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "WorkspaceCapabilities": {
+        "type": "object",
+        "properties": {
+          "invalidations": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete"
+            ]
+          },
+          "deadlines": {
+            "type": "boolean"
+          },
+          "transcript": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "delta"
+            ]
+          },
+          "feed": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "delta"
+            ]
+          },
+          "results": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "delta"
+            ]
+          }
+        },
+        "required": [
+          "invalidations",
+          "deadlines",
+          "transcript",
+          "feed",
+          "results"
+        ],
+        "additionalProperties": false
+      },
+      "WorkspaceClock": {
+        "type": "object",
+        "properties": {
+          "epoch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "serverNow": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "nextDeadline": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "epoch",
+          "serverNow",
+          "nextDeadline",
+          "cursor"
+        ],
+        "additionalProperties": false
+      },
+      "WorkspaceScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "run"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "conversation"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "connection"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "collection"
+              },
+              "id": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "feed",
+                  "results",
+                  "runs",
+                  "approvals",
+                  "decisions",
+                  "activities",
+                  "usage",
+                  "saved",
+                  "later",
+                  "scheduled",
+                  "metadata",
+                  "mail",
+                  "social",
+                  "pulls"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "WorkspaceSubject": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "run",
+              "conversation",
+              "message",
+              "artifact",
+              "approval",
+              "decision",
+              "later",
+              "scheduled_send",
+              "mail_thread",
+              "connection",
+              "agent",
+              "folder",
+              "team",
+              "social",
+              "collection"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "WorkspaceEventsQuery": {
+        "type": "object",
+        "properties": {
+          "v": {
+            "type": "string",
+            "const": "3"
+          }
+        },
+        "required": [
+          "v"
+        ]
+      }
+    }
+  }
+}

@@ -171,5 +171,5 @@ TypeScript and JavaScript (`ts`, `tsx`, `js`, `jsx`, `mjs`, `cjs`) in `src/`, `t
 
 Documentation-only changes need valid relative links/anchors, real package commands and consistency with current CLI/configuration. Keep dated results in the PR. Real account inference, permission round trips, tunnel behavior and physical-phone installation remain separate live checks requiring the corresponding environment.
 
-`npm run openapi:check` checks the generated OpenAPI document against the unified workspace and Cards contracts.
+`npm run openapi:check` checks the generated HTTP document and [event-channel companion](openapi-channels.json) against the unified workspace and Cards contracts. `npm run openapi` regenerates both documents.
 `npm run cards:example` runs the source-bound full-collection sync example; see [Cards API](cards-api.md#typed-readers-and-the-example) for its environment.
