@@ -9,6 +9,7 @@
 | [Harnesses](harnesses.md)                    | Native discovery, sign-in, models, team handoffs and services |
 | [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels and workspace recovery        |
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |
+| [Contract rules](contracts.md)               | API contract authoring, public projections and boundary evidence |
 | [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and workflows              |
 | [Cards API](cards-api.md)                    | Shared result/message contract, selections and synchronization |
 | [Development](development.md)                | Tests, builds, packaging and manual verification                  |
