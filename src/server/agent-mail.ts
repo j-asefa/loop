@@ -83,7 +83,7 @@ type Thread = {
   created_at: number;
   updated_at: number;
 };
-type Mail = {
+export type Mail = {
   id: string;
   owner_id: string;
   team_id: string | null;
@@ -1445,6 +1445,33 @@ export function teamMessages(owner: string, teamId: string) {
   return describeThreads(threads);
 }
 
+export function publicMailMessage(mail: Mail) {
+  return {
+    id: mail.id,
+    kind: mail.kind,
+    from: mail.sender_agent_id,
+    to: mail.recipient_agent_id,
+    preview: mail.body.slice(0, 600),
+    created_at: mail.created_at,
+    status: statusOf(mail),
+    error: mail.error,
+    files: JSON.parse(mail.file_ids).length as number,
+    conversation_id:
+      mail.recipient_conversation_id &&
+      db
+        .prepare(
+          "SELECT 1 FROM conversations WHERE id=? AND owner_id=? AND agent_id=?",
+        )
+        .get(
+          mail.recipient_conversation_id,
+          mail.owner_id,
+          mail.recipient_agent_id,
+        )
+        ? mail.recipient_conversation_id
+        : null,
+  };
+}
+
 function describeThreads(threads: Thread[]): z.infer<typeof PublicMailThreads> {
   return {
     threads: threads.map((thread) => ({
@@ -1467,30 +1494,7 @@ function describeThreads(threads: Thread[]): z.infer<typeof PublicMailThreads> {
             "SELECT * FROM (SELECT *,rowid r FROM agent_mail WHERE thread_id=? ORDER BY created_at DESC,rowid DESC LIMIT 30) ORDER BY created_at,r",
           )
           .all(thread.id) as Mail[]
-      ).map((mail) => ({
-        id: mail.id,
-        kind: mail.kind,
-        from: mail.sender_agent_id,
-        to: mail.recipient_agent_id,
-        preview: mail.body.slice(0, 600),
-        created_at: mail.created_at,
-        status: statusOf(mail),
-        error: mail.error,
-        files: JSON.parse(mail.file_ids).length,
-        conversation_id:
-          mail.recipient_conversation_id &&
-          db
-            .prepare(
-              "SELECT 1 FROM conversations WHERE id=? AND owner_id=? AND agent_id=?",
-            )
-            .get(
-              mail.recipient_conversation_id,
-              mail.owner_id,
-              mail.recipient_agent_id,
-            )
-            ? mail.recipient_conversation_id
-            : null,
-      })),
+      ).map(publicMailMessage),
     })),
   };
 }

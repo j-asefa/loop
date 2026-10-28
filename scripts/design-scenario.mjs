@@ -1,5 +1,6 @@
 import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-smoke.mjs";
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
+import { agentThreadFeedSmoke } from "./helpers/agent-thread-feed-smoke.mjs";
 import { geminiSmoke } from "./helpers/gemini-smoke.mjs";
 import { antigravitySmoke } from "./helpers/antigravity-smoke.mjs";
 import { harnessProvidersSmoke } from "./helpers/harness-providers-smoke.mjs";
@@ -44,6 +45,7 @@ import { personalDecisionsSmoke } from "./helpers/personal-decisions-smoke.mjs";
 import { modelLabelsSmoke } from "./helpers/model-labels-smoke.mjs";
 import { swipeBackSmoke } from "./helpers/swipe-back-smoke.mjs";
 import { doneCardDismissalSmoke } from "./helpers/done-card-dismissal-smoke.mjs";
+import { doneCardActionsSmoke } from "./helpers/done-card-actions-smoke.mjs";
 import { steeringRepliesSmoke } from "./helpers/steering-replies-smoke.mjs";
 import { resultFilesSmoke } from "./helpers/result-files-smoke.mjs";
 import { replyKeyboardSmoke } from "./helpers/reply-keyboard-smoke.mjs";
@@ -114,6 +116,7 @@ const scenarios = {
     await expect(page.locator(".search-result")).toHaveCount(0);
   },
   "agent-mail": agentMailSmoke,
+  "agent-thread-feed": agentThreadFeedSmoke,
   "main-composer-keyboard": (p, f, e, c) => mainComposerKeyboardSmoke(p, f, c),
   "composer-typing": composerTypingSmoke,
   "feed-reply-keyboard": (p, f, e, c) => feedReplyKeyboardSmoke(p, f, c),
@@ -156,6 +159,7 @@ const scenarios = {
   models: (p, f, e, c) => modelLabelsSmoke(p, f, c),
   swipe: swipeBackSmoke,
   "done-card-dismissal": doneCardDismissalSmoke,
+  "done-card-actions": doneCardActionsSmoke,
   "steering-replies": steeringRepliesSmoke,
   messages: (p, f) => messageNavigationSmoke(p, f),
   files: (p, f, e, c) => resultFilesSmoke(p, f, c),

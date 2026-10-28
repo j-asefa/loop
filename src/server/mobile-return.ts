@@ -179,6 +179,7 @@ export function feed(owner: string, options: Parameters<typeof readFeed>[1]) {
 export function doneCardRows(owner: string, options: {
   folders: (string | null)[] | null; teamIds: string[]; agent?: string;
   before?: [number, string] | null; ids?: string[]; limit: number; detail?: boolean; atTime?: number;
+  includeDismissed?: boolean;
 }) {
   if (options.ids && !options.ids.length) return [];
   return db.transaction(() => {
@@ -187,7 +188,8 @@ export function doneCardRows(owner: string, options: {
       teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
       folders: options.folders ? JSON.stringify(options.folders) : null, agent: options.agent ?? null,
       ids: options.ids ? JSON.stringify(options.ids) : null, at: options.before?.[0] ?? null,
-      key: options.before?.[1] ?? null, limit: options.limit, detail: !!options.detail });
+      key: options.before?.[1] ?? null, limit: options.limit, detail: !!options.detail,
+      includeDismissed: !!options.ids && !!options.includeDismissed });
   })();
 }
 

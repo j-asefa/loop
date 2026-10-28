@@ -3,6 +3,11 @@ import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/wor
 import { callRoute, readRoute } from "./workspace-api";
 import { CollectionReadNotice } from "./CollectionRead";
 import { DoneCardsReader } from "./feed-cards";
+import { useDoneThreads, OrganizeCards, DoneThreadReader, type SourcedDoneThread, type ThreadSelection } from "./DoneThreads";
+import { DoneCardMenu, DoneCardPicker } from "./DoneCardMenu";
+import { useAgentThreadFeed, type SourcedAgentThread } from "./useAgentThreadFeed";
+import { AgentThreadCard, AgentThreadReader } from "./AgentThreadCard";
+import { useDoneCardGestures, type CardDragSession } from "./useDoneCardGestures";
 import type { CardWindow } from "./card-pager";
 import { compareCardOrder, type Card, type CardEntry } from "../shared/cards";
 import { CardBody } from "./ContentCard";
@@ -20,6 +25,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { automationLabel } from "../shared/agent-mail";
 import {
@@ -33,6 +39,9 @@ import {
   MoreHorizontal,
   ArrowUp,
   FileText,
+  Layers,
+  ListChecks,
+  FolderInput,
   Container,
   Laptop,
   MessageCircleQuestion,
@@ -73,8 +82,6 @@ import {
   Chip,
   LaterSheet,
   undoReminder,
-  useLongPress,
-  useSwipe,
   type Action,
 } from "./ThreadTools";
 import { shareLink } from "./Handoff";
@@ -238,6 +245,12 @@ function FeedCard({
   dismissLabel = "Remove from Done",
   onLater,
   readAsCard,
+  aggregationId,
+  dragSession,
+  onAggregate,
+  groupCount,
+  selected,
+  onSelect,
 }: {
   item: FeedItem;
   agent?: EnvironmentAgent;
@@ -255,6 +268,12 @@ function FeedCard({
   dismissLabel?: string;
   onLater: () => void;
   readAsCard: boolean;
+  aggregationId?: string;
+  dragSession: RefObject<CardDragSession | null>;
+  onAggregate: (source: string, target: string) => void;
+  groupCount?: number;
+  selected?: boolean;
+  onSelect?: () => void;
 }) {
   const scopedSource = useSourceId();
   const capabilities = useSourceCapabilities();
@@ -264,14 +283,9 @@ function FeedCard({
     content: string;
   } | null>(null);
   const [readError, setReadError] = useState("");
-  const swipe = useSwipe({ onLeft: onDismiss });
-  const press = useLongPress(onMenu);
+  const swipe = useDoneCardGestures({ id: aggregationId, session: dragSession, onMenu, onAggregate, onDismiss });
   const taskStatus = runStatus(item.run?.state, item.pending_approvals);
   const status = item.reply ? { label: "Reply", tone: "done" } : taskStatus;
-  const merged = (name: string) => (e: any) => {
-    (swipe.handlers as any)[name]?.(e);
-    (press as any)[name]?.(e);
-  };
   const draft = threadDraft(
     sourceDraftId(item.conversation_id, item.sourceId ?? scopedSource),
   ).text;
@@ -325,6 +339,7 @@ function FeedCard({
         ? (message?.content ?? "")
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
   const openReading = () => {
+    if (onSelect) { onSelect(); return; }
     onRead?.();
     if (readAsCard) setReading(true);
     else onOpen();
@@ -347,21 +362,16 @@ function FeedCard({
         </span>
       )}
       <article
-        className="feed-card inbox-card"
+        className={"feed-card inbox-card" + (aggregationId ? " done-card-interactive" : "") + (selected ? " card-selected" : "") + (swipe.lifted || swipe.dragging ? " card-dragging" : "")}
         style={
           swipe.offset
             ? { transform: `translateX(${swipe.offset}px)` }
             : undefined
         }
-        onPointerDown={merged("onPointerDown")}
-        onPointerMove={merged("onPointerMove")}
-        onPointerUp={merged("onPointerUp")}
-        onPointerCancel={merged("onPointerCancel")}
-        onPointerLeave={(press as any).onPointerLeave}
-        onContextMenu={(press as any).onContextMenu}
-        onClickCapture={merged("onClickCapture")}
+        {...swipe.handlers}
       >
         <div className="card-byline">
+          {onSelect && <input type="checkbox" aria-label={`Select ${item.title}`} checked={!!selected} onChange={onSelect} />}
           <button className="identity" disabled={!onAgent} onClick={onAgent}>
             <span className="inbox-avatar">
               <Avatar
@@ -409,6 +419,7 @@ function FeedCard({
           role="button"
           tabIndex={0}
           aria-label={`${item.title}${status.label ? `, ${status.label}` : ""}`}
+          aria-pressed={onSelect ? !!selected : undefined}
           onClick={(e) => {
             if (!(e.target as HTMLElement).closest("a,button,summary,input"))
               openReading();
@@ -426,7 +437,7 @@ function FeedCard({
           }}
         >
           <span className="eyebrow inbox-eyebrow">
-            {item.reply ? (
+            {groupCount ? <><Layers size={14} /> Thread · {groupCount} cards</> : item.reply ? (
               <>Reply{item.reply.read_at === null && <Chip tone="working">Unread</Chip>}</>
             ) : status.label && status.tone !== "done" ? (
               <Chip tone={status.tone}>{status.label}</Chip>
@@ -485,7 +496,7 @@ function FeedCard({
               </div>
             )
           )}
-          {!!(item.last_message || item.run) && (
+          {!!(item.last_message || item.run) && !onSelect && (
             <button className="text-button preview-open" onClick={openReading}>
               {readAsCard ? item.reply ? "Read reply" : "Read update" : "Open thread"}{" "}
               <ArrowUpRight size={14} />
@@ -498,6 +509,7 @@ function FeedCard({
           )}
         </div>
         <div className="card-actions">
+          {onSelect ? <button onClick={onSelect}>{selected ? "Deselect card" : "Select card"}</button> : <>
           {next && (
             <button
               className="next-action"
@@ -515,15 +527,21 @@ function FeedCard({
           {next?.kind !== "draft" && (
             <button onClick={onReply}>
               <MessageSquare size={16} />
-              Reply
+              {groupCount ? "Reply to latest" : "Reply"}
             </button>
           )}
-          <button onClick={onLater}>
+          {!groupCount && <button onClick={onLater}>
             <AlarmClock size={16} />
             Remind me
-          </button>
+          </button>}
+          </>}
         </div>
       </article>
+      {swipe.lifted && createPortal(
+        <div className="card-drag-hint" role="status">
+          {swipe.dragging ? "Drop onto another Done card to combine" : "Release for options · Drag onto another card to combine"}
+        </div>, document.body,
+      )}
       {/* Keep sheet gestures outside the feed card's swipe-to-dismiss region. */}
       {reading &&
         createPortal(
@@ -1131,6 +1149,82 @@ export function Feed({
   const [notice, setNotice] = useState("");
   const [unsupportedReplySources, setUnsupportedReplySources] = useState(shown?.unsupportedReplySources || []);
   const [menu, setMenu] = useState<FeedItem | null>(null);
+  const dragSession = useRef<CardDragSession | null>(null);
+  const grouping = useDoneThreads(activeSources.map(source => source.id), filter === "done" || filter === "threads", {
+    project: project || undefined, agent: agent || undefined, teams: teams || undefined,
+  });
+  const mailThreads = useAgentThreadFeed(activeSources.map(source => source.id), filter === "done" || filter === "threads", {
+    view: filter === "done" ? "done" : "threads",
+    project: project || undefined, agent: agent || undefined, teams: teams || undefined,
+  });
+  const [readingMail, setReadingMail] = useState<(SourcedAgentThread & { generation: number }) | null>(null);
+  const [menuThread, setMenuThread] = useState<SourcedDoneThread | null>(null);
+  const [readingThread, setReadingThread] = useState<(SourcedDoneThread & { generation: number }) | null>(null);
+  const [aggregate, setAggregate] = useState<ThreadSelection | null>(null);
+  const [combineFrom, setCombineFrom] = useState<string | null>(null);
+  const [selectedCards, setSelectedCards] = useState<string[] | null>(null);
+  const aggregatable = (item: FeedItem) => filter === "done" && grouping.supported.includes(item.sourceId ?? scopedSource) && !!item.done_card_key && item.last_message?.role === "assistant";
+  const doneId = (item: FeedItem) => item.card?.id ?? "d:" + item.done_card_key;
+  type VisibleCard = { item: FeedItem; thread?: SourcedDoneThread; key: string };
+  const visibleCards: VisibleCard[] = items.flatMap(item => {
+    const source = item.sourceId ?? scopedSource;
+    const thread = filter === "done" ? grouping.threads.find(thread => thread.source === source && thread.cardIds.includes(doneId(item))) : undefined;
+    return thread ? [] : [{ item, key: feedItemKey(item, source) }];
+  });
+  if (filter === "threads" || filter === "done") {
+    // Card threads have their own identity and preview. They remain visible even
+    // when members are dismissed, have newer work or are beyond the loaded page.
+    for (const thread of grouping.threads) {
+      if (!thread.preview) continue;
+      const card = thread.preview;
+      visibleCards.push({
+        thread, key: JSON.stringify([thread.source, "thread", thread.id]),
+        item: { ...card.display, done_card_key: card.display.done_card_key ?? undefined,
+          sourceId: thread.source, pending_approvals: 0, position_message_id: null, card },
+      });
+    }
+    visibleCards.sort((a, b) => feedItemOrder(a.item, b.item) || a.key.localeCompare(b.key));
+  }
+  const feedRows: ({ kind: "card"; card: VisibleCard; key: string; time: number } | { kind: "mail"; thread: SourcedAgentThread; key: string; time: number })[] = [
+    ...visibleCards.map(row => ({ kind: "card" as const, card: row, key: row.key, time: row.item.last_activity_at })),
+    ...mailThreads.items.map(thread => ({ kind: "mail" as const, thread, key: JSON.stringify([thread.source, "mail", thread.id]), time: thread.updated_at })),
+  ];
+  if (mailThreads.items.length) feedRows.sort((a, b) => b.time - a.time ||
+    (a.kind === "card" && b.kind === "card" ? feedItemOrder(a.card.item, b.card.item) : a.key.localeCompare(b.key)));
+  const selectionFor = (rows: VisibleCard[]): ThreadSelection | null => {
+    if (!rows.length) return null;
+    const source = rows[0].item.sourceId ?? scopedSource;
+    if (rows.some(row => (row.item.sourceId ?? scopedSource) !== source)) {
+      setError("Choose cards from the same workspace to make a thread."); return null;
+    }
+    const latest = [...rows].sort((a,b) => b.item.last_activity_at - a.item.last_activity_at)[0];
+    return { source, cardIds: [...new Set(rows.flatMap(row => row.thread?.cardIds ?? [doneId(row.item)]))], title: latest.thread?.title ?? latest.item.title,
+      previews: rows.map(row => ({ title: row.thread?.title ?? row.item.title, author: row.item.agent_name ?? undefined })) };
+  };
+  const combineCards = (source: string, target: string) => {
+    const from = visibleCards.find(row => row.key === source), to = visibleCards.find(row => row.key === target);
+    if (!from || !to || from === to || !aggregatable(from.item) || !aggregatable(to.item)) return;
+    const selection = selectionFor([from, to]);
+    if (selection) { setCombineFrom(null); setAggregate({ ...selection, target: to.thread?.id }); }
+  };
+  const toggleSelection = (key: string) => setSelectedCards(previous => previous?.includes(key) ? previous.filter(id => id !== key) : [...previous ?? [], key]);
+  const organizeSelection = (keys: string[]) => {
+    const selection = selectionFor(visibleCards.filter(row => keys.includes(row.key)));
+    if (selection) setAggregate(selection);
+  };
+  const ungroup = async (thread: SourcedDoneThread) => {
+    try {
+      await callRoute(workspaceApi.doneThreadRemove, { params: { id: thread.id } }, thread.source);
+      if (generation !== viewGeneration()) return;
+      grouping.refresh();
+      notify({ text: "Cards ungrouped." });
+    } catch (error) { if (generation === viewGeneration()) setError((error as Error).message); }
+  };
+  useEffect(() => {
+    setMenu(null); setMenuThread(null); setReadingThread(null);
+    setReadingMail(null);
+    setAggregate(null); setCombineFrom(null); setSelectedCards(null);
+  }, [filter, project, agent, teams, sourceKey, generation]);
   const [later, setLater] = useState<FeedItem | null>(null);
   // Finished cards have their own message; work in progress keeps thread reminders.
   const reminderMessage = later && (
@@ -1962,7 +2056,21 @@ export function Feed({
       if (current()) setError((e as Error).message);
     }
   }
-  function actionsFor(item: FeedItem): Action[] {
+  function actionsFor(item: FeedItem, thread?: SourcedDoneThread | null): Action[] {
+    const key = thread ? JSON.stringify([thread.source, "thread", thread.id]) : feedItemKey(item, item.sourceId ?? scopedSource);
+    const organize: Action[] = aggregatable(item) ? [
+      { id: "select-cards", label: "Select cards", icon: <ListChecks size={20} />, onSelect: () => setSelectedCards([key]) },
+      { id: "move-to", label: "Move to…", icon: <FolderInput size={20} />, onSelect: () => organizeSelection([key]) },
+      { id: "combine", label: "Combine with another card", icon: <Layers size={20} />,
+        hint: "One thread. The whole conversation.",
+        disabled: !visibleCards.some(row => row.key !== key && aggregatable(row.item)),
+        onSelect: () => setCombineFrom(key) },
+    ] : [];
+    if (thread) return [
+      { id: "open-thread", label: "Open thread", icon: <MessageSquare size={20} />, onSelect: () => setReadingThread({ ...thread, generation }) },
+      ...organize,
+      { id: "ungroup", label: "Ungroup cards", hint: "Return each card to Done", icon: <Layers size={20} />, onSelect: () => void ungroup(thread) },
+    ];
     const agent = agents.find(
       (a) =>
         a.id === item.agent_id &&
@@ -1971,6 +2079,12 @@ export function Feed({
     const source = item.sourceId ?? scopedSource;
     const state = item.run?.state || "";
     const actions: Action[] = [
+      ...(filter === "done" ? [{
+        id: "reply", label: "Reply", icon: <MessageSquare size={20} />,
+        onSelect: () => onReply
+          ? onReply(item.conversation_id, source, feedReplyQuote(item) ?? undefined)
+          : onOpen(item.conversation_id, item.last_message?.id, source),
+      }] : []),
       ...(item.reply ? [{
         id: "archive-reply", label: "Archive reply", icon: <Archive size={20} />,
         onSelect: () => void dismissFeedCard(item),
@@ -2000,6 +2114,11 @@ export function Feed({
         onSelect: () => setLater(item),
       },
     ];
+    actions.push(...organize);
+    if (filter === "done" && item.done_card_key) actions.push({
+      id: "remove-done", label: "Remove from Done", icon: <Archive size={20} />,
+      onSelect: () => void dismissFeedCard(item),
+    });
     // Queued follow-ups have their own controls, separate from the thread's
     // current run; a thread can hold a running task and queued messages.
     const queued = item.queued_runs || [];
@@ -2108,7 +2227,8 @@ export function Feed({
     });
     return actions;
   }
-  function card(item: FeedItem, inNeeds = false) {
+  function card(item: FeedItem, inNeeds = false, thread?: SourcedDoneThread) {
+    const displayKey = thread ? JSON.stringify([thread.source, "thread", thread.id]) : feedItemKey(item, item.sourceId ?? scopedSource);
     const source = item.sourceId ?? scopedSource;
     // The reading sheet identifies agent output. A thread whose latest
     // content is a prompt opens the conversation with its original author.
@@ -2148,9 +2268,15 @@ export function Feed({
           : undefined;
     return (
       <FeedCard
-        key={feedItemKey(item, source)}
-        item={item}
-        readAsCard={!inNeeds && (
+        key={displayKey}
+        item={thread ? { ...item, title: thread.title, next_action: undefined } : item}
+        groupCount={thread?.cardIds.length}
+        selected={!inNeeds && selectedCards ? selectedCards.includes(displayKey) : undefined}
+        onSelect={!inNeeds && selectedCards && aggregatable(item) ? () => toggleSelection(displayKey) : undefined}
+        aggregationId={!inNeeds && aggregatable(item) ? displayKey : undefined}
+        dragSession={dragSession}
+        onAggregate={combineCards}
+        readAsCard={!inNeeds && !thread && (
           ["done", "replies", "working", "queued"].includes(filter) ||
           (filter === "threads" && threadOutput)
         )}
@@ -2165,7 +2291,7 @@ export function Feed({
         )}
         onRead={item.reply ? () => void markReplyRead(item) : undefined}
         onQuestion={item.reply ? () => onOpen(item.conversation_id, item.reply!.message_id, source) : undefined}
-        onOpen={() => onOpen(item.conversation_id, item.reply ? item.last_message?.id : undefined, source)}
+        onOpen={() => thread ? setReadingThread({ ...thread, generation }) : onOpen(item.conversation_id, item.reply ? item.last_message?.id : undefined, source)}
         onReply={() =>
           onReply
             ? onReply(
@@ -2187,8 +2313,8 @@ export function Feed({
               )
         }
         onAgent={agent ? () => onAgent(agent) : undefined}
-        onMenu={() => setMenu(item)}
-        onDismiss={
+        onMenu={() => { setMenu(item); setMenuThread(thread ?? null); }}
+        onDismiss={thread || selectedCards ? undefined :
           dismissFailure
             ? () => void runAction(item.run!.id, "dismiss", source)
             : (filter === "done" && item.done_card_key) || (filter === "replies" && item.reply_card_key)
@@ -2313,10 +2439,17 @@ export function Feed({
           ).join(", ")} to show replies from there.
         </p>
       )}
+      {grouping.error && <p className="error" role="alert">{grouping.error}<button onClick={grouping.refresh}>Retry</button></p>}
+      {mailThreads.error && <p className="error" role="alert">{mailThreads.error}<button onClick={mailThreads.refresh}>Retry agent threads</button></p>}
+      {selectedCards && <div className="done-selection-bar" role="region" aria-label="Selected cards">
+        <strong>{selectedCards.length} selected</strong>
+        <button className="primary" disabled={!selectedCards.length} onClick={() => organizeSelection(selectedCards)}>Move to…</button>
+        <button onClick={() => setSelectedCards(null)}>Cancel</button>
+      </div>}
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
       <div className="inbox-results" hidden={needsOpen}>
         <>
-          {(loading || (combined && sourcesLoading)) && !items.length ? (
+          {(loading || mailThreads.loading || (combined && sourcesLoading)) && !feedRows.length ? (
             <div
               className="feed-loading"
               role="status"
@@ -2326,9 +2459,11 @@ export function Feed({
               <span />
               <span />
             </div>
-          ) : items.length ? (
+          ) : feedRows.length ? (
             <ul className="inbox-list feed">
-              {items.map((item) => card(item))}
+              {feedRows.map(row => row.kind === "card" ? card(row.card.item, false, row.card.thread) : <AgentThreadCard
+                key={row.key} thread={row.thread} environment={row.thread.source ? activeSources.find(source => source.id === row.thread.source)?.name : undefined}
+                onOpen={() => setReadingMail({ ...row.thread, generation })} />)}
             </ul>
           ) : (
             !error && !readError && (
@@ -2356,30 +2491,48 @@ export function Feed({
               </div>
             )
           )}
-          {next && (
+          {(next || mailThreads.hasMore) && (
             <button
               className="secondary load-more"
-              onClick={() => void load(true)}
+              onClick={() => { if (next) void load(true); if (mailThreads.hasMore) mailThreads.loadMore(); }}
             >
               Load more
             </button>
           )}
         </>
       </div>
-      {menu && (
+      {menu && (menuThread || (filter === "done" && menu.done_card_key) ? <DoneCardMenu
+        title={menuThread?.title ?? menu.title}
+        subtitle={[menu.agent_name && `@${menu.agent_name}`, menu.project_name].filter(Boolean).join(" · ")}
+        threadCount={menuThread?.cardIds.length}
+        actions={actionsFor(menu, menuThread)} onClose={() => setMenu(null)} /> : (
         <ActionSheet
           title={menu.title}
           onClose={() => setMenu(null)}
-          actions={actionsFor(menu)}
+          actions={actionsFor(menu, menuThread)}
         >
-          {menu.run && (
+          {!menuThread && menu.run && (
             <p className="field-hint">
               {runStatus(menu.run.state, menu.pending_approvals).label} ·{" "}
               {runTiming(menu.run)}
             </p>
           )}
         </ActionSheet>
+      ))}
+      {combineFrom && (
+        <DoneCardPicker onClose={() => setCombineFrom(null)}
+          actions={visibleCards.filter(row => row.key !== combineFrom && aggregatable(row.item)).map(row => ({
+            id: row.key, label: row.thread?.title ?? row.item.title,
+            hint: row.thread ? `${row.thread.cardIds.length} cards` : row.item.agent_name ?? undefined,
+            icon: <Layers size={20} />, onSelect: () => combineCards(combineFrom, row.key),
+          }))} />
       )}
+      {aggregate && <OrganizeCards selection={aggregate} threads={grouping.threads}
+        onClose={() => setAggregate(null)} onDone={() => { grouping.refresh(); setSelectedCards(null); }} />}
+      {readingThread?.generation === generation && <DoneThreadReader key={JSON.stringify([generation, readingThread.source, readingThread.id])}
+        thread={readingThread} onClose={() => setReadingThread(null)} onOpen={onOpen} onChanged={grouping.refresh} />}
+      {readingMail?.generation === generation && <AgentThreadReader key={JSON.stringify([generation, readingMail.source, readingMail.id])} thread={readingMail}
+        onClose={() => setReadingMail(null)} onOpen={onOpen} />}
       {later && (
         <LaterSheet
           kind={reminderMessage ? "message" : "conversation"}

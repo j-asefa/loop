@@ -20,6 +20,7 @@ const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
 const { sendMail, sweepAgentMail, agentMail, MAIL_LIMITS, resumeThread } =
   await import("../src/server/agent-mail");
+const { readAgentThread } = await import("../src/server/agent-thread-feed");
 const { feed } = await import("../src/server/mobile-return");
 const { claim, transition } = await import("../src/server/queue");
 const { core } = await import("../src/server/core-routes");
@@ -2058,6 +2059,16 @@ it("interrupts the current conversation from an existing direct thread without m
     threadId: first.threadId,
   });
   expect(mail(followUp.messageId).recipient_conversation_id).toBe(original);
+  const exchange = readAgentThread(owner, first.threadId, { limit: 40 });
+  expect(exchange.messages.map(message => [message.id, message.content])).toEqual([
+    [first.messageId, "Hold merges"],
+    [urgent.messageId, "Hold merges now"],
+    [followUp.messageId, "When you are done"],
+  ]);
+  expect(exchange.messages[1].message_id).toBe(
+    (db.prepare("SELECT message_id FROM run_steering WHERE id=?")
+      .get(mail(urgent.messageId).steering_id) as { message_id: string }).message_id,
+  );
   expect(
     db
       .prepare(

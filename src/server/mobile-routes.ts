@@ -7,6 +7,8 @@ import { feedProjection } from "./feed-projection.js";
 import { setReplyState } from "./steering-replies.js";
 import type { z } from "zod";
 import { teamFilter } from "./teams.js";
+import { listDoneThreads, readDoneThread, createDoneThread, moveDoneThreadCards, removeDoneThread } from "./done-threads.js";
+import { listAgentThreads, readAgentThread } from "./agent-thread-feed.js";
 import {
   awaySummary,
   cancelScheduledSend,
@@ -42,6 +44,14 @@ import {
 // core's generic /runs/:id/:action handler.
 const routes = registrar("mobile");
 export const mobile = routes.mount;
+routes.on(workspaceApi.doneThreadList, (req, res) => res.json(listDoneThreads(res.locals.owner, req.query)));
+routes.on(workspaceApi.agentThreadFeed, (req, res) => res.json(listAgentThreads(res.locals.owner, req.query)));
+routes.on(workspaceApi.agentThreadDetail, (req, res) => res.json(readAgentThread(res.locals.owner, req.params.id, req.query)));
+routes.on(workspaceApi.doneThreadDetail, (req, res) => res.json(readDoneThread(res.locals.owner, req.params.id)));
+routes.on(workspaceApi.doneThreadCreate, (req, res) => res.json(createDoneThread(res.locals.owner, req.body)));
+routes.on(workspaceApi.doneThreadMove, (req, res) => res.json(moveDoneThreadCards(res.locals.owner, req.params.id, req.body.cardIds)));
+routes.on(workspaceApi.doneThreadRemove, (req, res) => res.json(removeDoneThread(res.locals.owner, req.params.id)));
+routes.on(workspaceApi.doneThreadRemoveCard, (req, res) => res.json(removeDoneThread(res.locals.owner, req.params.id, req.params.card)));
 routes.on(workspaceApi.conversationPosition, (req, res) =>
   res.json(savePosition(res.locals.owner, req.params.id, req.body)),
 );

@@ -68,7 +68,12 @@ export function sourceApiPathAt(path: string, id: string) {
 // It is not a workspace-wide choice in the UI.
 export function sourceUrl(
   id: string,
-  target: { conversation?: string; message?: string; agent?: string } = {},
+  target: {
+    conversation?: string;
+    message?: string;
+    agent?: string;
+    artifact?: string;
+  } = {},
 ) {
   const url = new URL(location.href);
   url.search = "";
@@ -77,6 +82,7 @@ export function sourceUrl(
     url.searchParams.set("conversation", target.conversation);
   if (target.message) url.searchParams.set("message", target.message);
   if (target.agent) url.searchParams.set("agent", target.agent);
+  if (target.artifact) url.searchParams.set("artifact", target.artifact);
   return url.pathname + url.search;
 }
 
