@@ -133,6 +133,21 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       });
       continue;
     }
+    if (mode === "billing-error") {
+      // The shape Grok Build 1.0.70 returns when the account has no credits.
+      send({
+        id: request.id,
+        error: {
+          code: -32603,
+          message: "Internal error",
+          data: {
+            message: "API error (status 402): secret-billing-detail",
+            http_status: 402,
+          },
+        },
+      });
+      continue;
+    }
     if (mode === "crash") process.exit(23);
     if (mode === "oversized-frame") {
       update(request.params.sessionId, {

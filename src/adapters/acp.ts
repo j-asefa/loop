@@ -34,6 +34,23 @@ const LIMIT = 8 * 1024 * 1024;
 const STARTUP_MS = 15_000;
 const PROMPT_FAILURE =
   "ACP turn failed. Check the agent's local login and logs, then retry the conversation.";
+// Agents such as Grok Build attach the provider's HTTP status to a failed
+// prompt. Only that number is read; the provider's message is never shown.
+const PROMPT_STATUS_FAILURES: Record<number, string> = {
+  401: "The agent's provider rejected its sign-in. Sign in to the agent again, then retry the conversation.",
+  402: "The agent's provider account is out of credits or over its spending limit. Add credits or upgrade the plan, then retry the conversation.",
+  429: "The agent's provider is rate limiting requests. Wait a moment, then retry the conversation.",
+};
+function promptFailure(error: unknown) {
+  const status =
+    error && typeof error === "object" && "data" in error
+      ? (error.data as { http_status?: unknown } | null)?.http_status
+      : undefined;
+  return (
+    (typeof status === "number" && PROMPT_STATUS_FAILURES[status]) ||
+    PROMPT_FAILURE
+  );
+}
 const SETTING_FAILURE =
   "ACP agent rejected the setting. Check the agent's local login and logs, then refresh settings and retry.";
 class SafeAcpError extends Error {}
@@ -389,13 +406,13 @@ export class Acp implements Adapter {
           recoverable: true,
         });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (this.closed || this.terminalReported) return;
         this.terminalReported = true;
         this.emit({
           type: "status",
           status: "failed",
-          detail: PROMPT_FAILURE,
+          detail: promptFailure(error),
           recoverable: false,
         });
       })

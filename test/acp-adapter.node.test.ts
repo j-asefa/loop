@@ -202,6 +202,35 @@ test("ACP SDK failures expose fixed guidance in events and setting records", asy
   }
 });
 
+test("ACP prompt failures name a provider billing status without its message", async () => {
+  const events: AdapterEvent[] = [];
+  const adapter = new Acp(
+    {
+      harness: "acp",
+      executable: process.execPath,
+      args: [fixture, "billing-error"],
+      project: process.cwd(),
+      billing: "existing",
+      version: "fake",
+    },
+    (event) => events.push(event),
+  );
+  try {
+    await adapter.start();
+    await adapter.prompt("hello");
+    await wait(events, "failed");
+    const failure = events.find(
+      (event) => event.type === "status" && event.status === "failed",
+    );
+    assert(failure?.type === "status");
+    assert.match(failure.detail || "", /out of credits/);
+    assert.doesNotMatch(failure.detail || "", /local login/);
+    assert(!JSON.stringify(events).includes("secret-"));
+  } finally {
+    await adapter.dispose();
+  }
+});
+
 test("ACP rejects an oversized JSONL frame before parsing", async () => {
   const events: AdapterEvent[] = [];
   const adapter = new Acp(
