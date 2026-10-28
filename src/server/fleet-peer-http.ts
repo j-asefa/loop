@@ -4,11 +4,13 @@ import { FleetOrigin } from "../shared/fleet.js";
 import { fleetPeerApi } from "../shared/fleet-peer-api.js";
 import { fleetHandoffApi } from "../shared/fleet-handoff-api.js";
 import { fleetDirectoryApi } from "../shared/fleet-directory-api.js";
+import { fleetPendingDirectoryApi } from "../shared/fleet-pending-directory-api.js";
 import { Problem } from "../shared/problem.js";
 import { registrar } from "./registrar.js";
 import type { FleetEnrollmentDestination } from "./fleet-enrollment.js";
 import type { FleetHandoffDestination } from "./fleet-handoff.js";
 import type { FleetDirectorySync } from "./fleet-directory-sync.js";
+import type { FleetPendingDirectory } from "./fleet-pending-directory.js";
 
 /** This application has only fixed fleet protocol handlers. It cannot fall through
  * to the workspace API, native providers, browser sessions or local admin. */
@@ -18,6 +20,7 @@ export function createFleetPeerHttp(
   options: {
     handoff?: FleetHandoffDestination;
     directory?: FleetDirectorySync;
+    pendingDirectory?: FleetPendingDirectory;
   } = {},
 ) {
   const paths = new Set(
@@ -25,6 +28,9 @@ export function createFleetPeerHttp(
       ...Object.values(fleetPeerApi),
       ...(options.handoff ? Object.values(fleetHandoffApi) : []),
       ...(options.directory ? Object.values(fleetDirectoryApi) : []),
+      ...(options.pendingDirectory
+        ? Object.values(fleetPendingDirectoryApi)
+        : []),
     ].map((route) => "/api" + route.path),
   );
   const app = express();
@@ -130,6 +136,15 @@ export function createFleetPeerHttp(
     );
     routes.on(fleetDirectoryApi.directoryPush, ({ body }, res) =>
       res.json(directory.receive(body)),
+    );
+  }
+  if (options.pendingDirectory) {
+    const pending = options.pendingDirectory;
+    routes.on(fleetPendingDirectoryApi.pendingDirectoryHead, ({ body }, res) =>
+      res.json(pending.history(body)),
+    );
+    routes.on(fleetPendingDirectoryApi.pendingDirectoryPush, ({ body }, res) =>
+      res.json(pending.receive(body)),
     );
   }
   app.use(routes.mount);

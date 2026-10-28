@@ -1,7 +1,7 @@
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations.js";
@@ -21,16 +21,22 @@ process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = root;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
+// Migration setup is shared; each peer uses an independent durable database.
+const template = new Database(":memory:");
+applyMigrations(template);
+const migratedSchema = template.serialize();
+template.close();
 const databases: Database.Database[] = [];
 afterAll(() => {
   for (const db of databases) if (db.open) db.close();
   rmSync(root, { recursive: true, force: true });
 });
 function machine() {
-  const owner = randomUUID(),
-    db = new Database(join(root, `${owner}.db`));
+  const owner = randomUUID();
+  const path = join(root, `${owner}.db`);
+  writeFileSync(path, migratedSchema);
+  const db = new Database(path);
   databases.push(db);
-  applyMigrations(db);
   db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const authority = new FleetAuthority(db, secrets);
   return {

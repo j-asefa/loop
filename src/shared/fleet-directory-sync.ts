@@ -15,8 +15,19 @@ const Exchange = z
     destination: MachineIdentity,
   })
   .strict();
+export const FleetAdmission = z
+  .array(SignedFleetDirectory)
+  .min(1)
+  .max(1024)
+  .refine(
+    (entries) =>
+      new TextEncoder().encode(JSON.stringify(entries)).length <= 768 * 1024,
+  );
 export const FleetHistoryQuery = Exchange.extend({
   cursor: FleetDigest.nullable(),
+  // A recently admitted replica can prove its membership to an older replica
+  // using a successor chain from that replica's current trusted head.
+  admission: FleetAdmission.optional(),
 }).strict();
 export const SignedFleetHistoryQuery = z
   .object({ query: FleetHistoryQuery, signature: FleetSignature })
@@ -42,7 +53,18 @@ export type SignedFleetHistoryPage = z.infer<typeof SignedFleetHistoryPage>;
 export const FleetDirectoryPush = Exchange.extend({
   anchor: FleetDigest,
   entries: z.array(SignedFleetDirectory).min(1).max(32),
-}).strict();
+  // An optional continuation proves the sender's admission beyond this update
+  // page. It authenticates the relay without installing that continuation.
+  admission: FleetAdmission.optional(),
+})
+  .strict()
+  .refine((push) => {
+    const entries = [...push.entries, ...(push.admission ?? [])];
+    return (
+      entries.length <= 1024 &&
+      new TextEncoder().encode(JSON.stringify(entries)).length <= 768 * 1024
+    );
+  });
 export const SignedFleetDirectoryPush = z
   .object({ push: FleetDirectoryPush, signature: FleetSignature })
   .strict();

@@ -22,6 +22,37 @@ const same = (a: unknown, b: unknown) =>
 const refused = () =>
   new Problem(403, "The directory exchange is outside an enrolled grant.");
 
+/** Prove a sender's admission from current trust without installing the proof. */
+export function fleetDirectoryIntroduces(
+  local: SignedFleetDirectory,
+  sender: MachineIdentity,
+  admission: SignedFleetDirectory[] | undefined,
+) {
+  if (!admission || local.document.tombstones.includes(sender.machineId))
+    return false;
+  const head = directoryDigest(local.document);
+  let last = local,
+    connected = false;
+  for (const entry of admission) {
+    if (!connected) {
+      if (directoryDigest(entry.document) === head) {
+        connected = true;
+        continue;
+      }
+      if (entry.document.parent !== head) continue;
+      connected = true;
+    }
+    last = verifyDirectorySuccessor(entry, last.document);
+  }
+  return (
+    connected &&
+    last.document.members.some(
+      (m) =>
+        m.machineId === sender.machineId && m.publicKey === sender.publicKey,
+    )
+  );
+}
+
 /** Authenticate a page against the caller's exact request. This does not make
  * an unanchored page authoritative; install only a chain reaching local trust. */
 export function verifyFleetHistoryResponse(
@@ -167,7 +198,9 @@ export class FleetDirectorySync {
       !verifyFleetProof(query.sender, "directory-query", query, value.signature)
     )
       throw refused();
-    const enrolled = this.member(local.directory, query.sender);
+    const enrolled =
+      this.member(local.directory, query.sender) ||
+      fleetDirectoryIntroduces(local.directory, query.sender, query.admission);
     const head = enrolled
       ? local.head!
       : this.removalHead(local.directory, query.sender);
@@ -239,7 +272,11 @@ export class FleetDirectorySync {
     // authority. Membership in a retained, pre-recovery roster is insufficient.
     if (
       !this.member(local.directory, push.sender) &&
-      (!connects || !this.member(predecessor, push.sender))
+      !(connects && this.member(predecessor, push.sender)) &&
+      !fleetDirectoryIntroduces(local.directory, push.sender, [
+        ...push.entries,
+        ...(push.admission ?? []),
+      ])
     )
       throw refused();
     return predecessor;

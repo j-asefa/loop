@@ -26,17 +26,34 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
       "-e",
       `
       const { db } = await import('./src/server/db.ts');
-      let refused = false;
+      let refused = false, lifecycle;
       if (process.env.LOOP_TEST_FLEET_IDENTITY_ONLY === '1') {
         const { initializeFleetIdentity } = await import('./src/server/fleet-identity.ts');
         const { seal, unseal } = await import('./src/server/secrets.ts');
         initializeFleetIdentity(db, { seal, unseal });
       } else try {
         const { WorkspaceHost } = await import('./src/workspace-host.ts');
-        new WorkspaceHost(process.env.LOOP_DATA_DIR, {
+        const options = {
           harness: 'codex', executable: process.execPath,
           project: process.env.LOOP_DATA_DIR, version: 'fixture', billing: 'existing'
-        });
+        };
+        const host = new WorkspaceHost(process.env.LOOP_DATA_DIR, options,
+          process.env.LOOP_TEST_FLEET_WORKER === '1' ? { open: async () => {}, schedule: async () => {}, close: async () => {} } : undefined);
+        if (process.env.LOOP_TEST_FLEET_WORKER === '1') {
+          if (!host.fleetDistribution) throw new Error('Missing directory worker');
+          // Stub unrelated Docker discovery; exercise the actual gateway start,
+          // worker scheduler, empty outbox read and gateway shutdown.
+          host.mcpSharing.start = () => {};
+          let ticks = 0;
+          const flush = host.fleetDistribution.flush.bind(host.fleetDistribution);
+          host.fleetDistribution.flush = async () => { ticks++; await flush(); };
+          await host.start(options, undefined, undefined, true);
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          await host.close();
+          const stoppedAt = ticks;
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          lifecycle = { started: stoppedAt > 0, stopped: stoppedAt === ticks };
+        }
       } catch (error) {
         if (process.env.LOOP_PROFILE !== 'server') throw error;
         refused = /requires LOOP_PROFILE=companion/.test(error.message);
@@ -46,6 +63,8 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
         refused,
         identities: db.prepare('SELECT machine_id,public_key FROM fleet_machine_identity').all(),
         integrity: db.pragma('integrity_check'),
+        workers: db.prepare('SELECT count(*) n FROM fleet_distribution_instances').get().n,
+        lifecycle,
       }));
       db.close();
       process.exit(0);
@@ -89,6 +108,7 @@ test("companion gateway startup keeps machine identity across process and origin
       0o600,
     );
     assert.equal(first.identities.length, 1);
+    assert.equal(first.workers, 1);
     assert.match(first.identities[0].machine_id, /^m_[a-f0-9]{64}$/);
     assert.deepEqual(
       await startup(directory, {
@@ -114,6 +134,7 @@ test("server profile and isolated preview startup never create fleet signing ide
       LOOP_PROFILE: "server",
     });
     assert.equal(server.refused, true);
+    assert.equal(server.workers, 0);
     assert.deepEqual(server.identities, []);
     for (const mode of ["design", "working"]) {
       const home = join(directory, "preview-" + mode),
@@ -149,6 +170,17 @@ test("server profile and isolated preview startup never create fleet signing ide
       );
       assert.equal(existsSync(join(data, "encryption-key")), false);
     }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("companion gateway starts and stops its directory worker with the runtime lifecycle", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "loop-fleet-lifecycle-"));
+  try {
+    const result = await startup(directory, { LOOP_TEST_FLEET_WORKER: "1" });
+    assert.deepEqual(result.lifecycle, { started: true, stopped: true });
+    assert.equal(result.workers, 1);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

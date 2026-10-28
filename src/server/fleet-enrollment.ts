@@ -89,6 +89,25 @@ export class FleetEnrollmentDestination {
     return { record, request, prepared };
   }
 
+  /** Internal lookup for removal delivery to a spent, inactive local consent.
+   * The protocol caller must prove its machine identity before using this. */
+  pendingGrant(grantId: string, operationId?: string) {
+    z.string().uuid().parse(grantId);
+    if (operationId) {
+      z.string().uuid().parse(operationId);
+      const result = this.record(operationId);
+      if (result.prepared.prepared.member.grantId !== grantId) throw refused();
+      return result;
+    }
+    const row = this.db
+      .prepare(
+        "SELECT operation_id FROM fleet_enrollments WHERE owner_id=? AND role='destination' AND json_extract(prepared,'$.prepared.member.grantId')=? ORDER BY rowid DESC LIMIT 1",
+      )
+      .get(this.owner, grantId) as { operation_id: string } | undefined;
+    if (!row) throw refused();
+    return this.record(row.operation_id);
+  }
+
   /** Prove this origin's identity before the controller sends a capability.
    * The caller supplies a fresh nonce and verifies the exact signed response. */
   probe(input: FleetEnrollmentProbe): SignedFleetEnrollmentProbe {

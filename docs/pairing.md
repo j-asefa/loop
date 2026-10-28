@@ -67,8 +67,17 @@ receipt reconciliation does not repeat an uncertain transition. A replica's
 device session cannot perform controller edits. A changed origin requires fresh
 local browser pairing; the surviving controller key can then authorize its
 own address repair. Explicit recovery reports unconfirmed former members
-without restoring their grants. Browser fleet screens and automatic directory
-distribution remain subsequent integration.
+without restoring their grants. Browser fleet screens remain subsequent integration.
+
+Signed directory distribution runs
+independently of a browser and retains pending acknowledgements across restarts.
+Its exact signed directory packets are safe to retry; this does not permit
+repeating an uncertain agent action or enrollment/handoff dispatch.
+
+Pending-directory delivery can cancel a spent enrollment ceremony that has not
+committed when its approved controller removes the machine. It records verified
+history without activating grants. A late commit is then refused. Checkpoint
+reads and acknowledgements describe that consent only, not global fleet freshness.
 
 HTTPS pairing links carry independent device and fleet-enrollment capabilities.
 The local pairing page retains and submits only the device capability, removes

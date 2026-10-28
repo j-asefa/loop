@@ -102,6 +102,7 @@ function push(
   destination: Machine,
   anchor: SignedFleetDirectory,
   entries: SignedFleetDirectory[],
+  admission?: SignedFleetDirectory[],
 ): SignedFleetDirectoryPush {
   const push = {
     version: 1 as const,
@@ -110,6 +111,7 @@ function push(
     destination: destination.authority.identity,
     anchor: directoryDigest(anchor.document),
     entries,
+    ...(admission ? { admission } : {}),
   };
   return { push, signature: sender.proof.sign("directory-sync", push) };
 }
@@ -117,6 +119,7 @@ function history(
   sender: Machine,
   destination: Machine,
   cursor: string | null = null,
+  admission?: SignedFleetDirectory[],
 ) {
   const query = {
     version: 1 as const,
@@ -124,9 +127,137 @@ function history(
     sender: sender.authority.identity,
     destination: destination.authority.identity,
     cursor,
+    ...(admission ? { admission } : {}),
   };
   return { query, signature: sender.proof.sign("directory-query", query) };
 }
+
+it("permits history discovery through an anchored admission proof without activating the new peer's grant", () => {
+  const { a, b, c, first, second } = fixture(),
+    outsider = machine();
+  const before = b.db
+    .prepare("SELECT * FROM fleet_peer_grants ORDER BY peer_id")
+    .all();
+  expect(() => b.sync.history(history(c, b))).toThrow("outside");
+  const query = history(c, b, null, [second]);
+  const response = b.sync.history(query);
+  expect(verifyFleetHistoryResponse(query, response).page.head).toBe(
+    directoryDigest(first.document),
+  );
+  expect(b.authority.status(b.owner).head).toBe(
+    directoryDigest(first.document),
+  );
+  expect(
+    b.db.prepare("SELECT * FROM fleet_peer_grants ORDER BY peer_id").all(),
+  ).toEqual(before);
+  expect(() => b.sync.history(history(outsider, b, null, [second]))).toThrow(
+    "outside",
+  );
+  expect(() =>
+    b.sync.history(
+      history(c, b, null, [{ ...second, signature: first.signature }]),
+    ),
+  ).toThrow();
+  const foreign = new FleetDirectorySync(b.db, b.authority, a.owner, secrets);
+  expect(() => foreign.history(query)).toThrow();
+  b.authority.recover(b.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(first.document),
+    name: "Reset",
+    origin: b.origin,
+    scope: [...scope],
+  });
+  expect(() => b.sync.history(query)).toThrow("outside");
+});
+
+it("authenticates a paged update by its admission continuation without installing that continuation", () => {
+  const a = machine(),
+    b = machine(),
+    c = machine();
+  a.authority.create(a.owner, {
+    mutationId: randomUUID(),
+    name: "A",
+    origin: a.origin,
+    scope: [...scope],
+  });
+  const first = enroll(a, b),
+    prefix = revise(a, first.document.members);
+  const admitted = enroll(a, c);
+  const outsider = machine();
+  const invalid = push(
+    c,
+    b,
+    first,
+    [prefix],
+    [{ ...admitted, signature: first.signature }],
+  );
+  expect(() => b.sync.receive(invalid)).toThrow();
+  expect(() =>
+    b.sync.receive(push(outsider, b, first, [prefix], [admitted])),
+  ).toThrow("outside");
+  const request = push(c, b, first, [prefix], [admitted]);
+  const response = b.sync.receive(request);
+  expect(verifyFleetDirectoryAck(request, first, response).ack.accepted).toBe(
+    directoryDigest(prefix.document),
+  );
+  expect(b.authority.status(b.owner).head).toBe(
+    directoryDigest(prefix.document),
+  );
+  expect(
+    b.authority.directory(b.owner, directoryDigest(admitted.document)),
+  ).toBeUndefined();
+  expect(
+    b.db
+      .prepare(
+        "SELECT count(*) n FROM fleet_peer_grants WHERE peer_id=? AND active=1",
+      )
+      .get(c.authority.identity.machineId),
+  ).toEqual({ n: 0 });
+  expect(b.sync.receive(request)).toEqual(response);
+  b.authority.recover(b.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(prefix.document),
+    name: "Reset",
+    origin: b.origin,
+    scope: [...scope],
+  });
+  expect(() => b.sync.receive(request)).toThrow();
+});
+
+it("retains verified predecessors atomically without moving authority or restoring grants", () => {
+  const { a, c, first, second } = fixture();
+  const genesis = a.authority.directory(a.owner, first.document.parent!)!;
+  const original = c.authority.status(c.owner);
+  const grants = c.db
+    .prepare("SELECT * FROM fleet_peer_grants ORDER BY peer_id")
+    .all();
+  expect(
+    c.authority.directory(c.owner, directoryDigest(first.document)),
+  ).toBeUndefined();
+  expect(() =>
+    c.authority.retainAncestors(c.owner, [
+      first,
+      { ...genesis, signature: first.signature },
+    ]),
+  ).toThrow();
+  expect(
+    c.authority.directory(c.owner, directoryDigest(first.document)),
+  ).toBeUndefined();
+  expect(c.authority.retainAncestors(c.owner, [first, genesis])).toBe(true);
+  expect(c.authority.status(c.owner)).toEqual(original);
+  expect(
+    c.db.prepare("SELECT * FROM fleet_peer_grants ORDER BY peer_id").all(),
+  ).toEqual(grants);
+  expect(() => c.authority.retainAncestors(a.owner, [first])).toThrow();
+  c.authority.recover(c.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(second.document),
+    name: "Reset",
+    origin: c.origin,
+    scope: [...scope],
+  });
+  expect(c.authority.retainAncestors(c.owner, [first])).toBe(false);
+});
 
 it("accepts a new peer's signed admission relay and derives grants only within the local owner's consent", () => {
   const { a, b, c, first, second } = fixture();

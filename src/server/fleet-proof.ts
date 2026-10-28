@@ -20,6 +20,10 @@ type Purpose =
   | "directory-ack"
   | "directory-query"
   | "directory-history"
+  | "pending-directory-query"
+  | "pending-directory-head"
+  | "pending-directory-push"
+  | "pending-directory-ack"
   | "handoff-query"
   | "handoff-receipt";
 function bytes(purpose: Purpose, parsed: unknown) {

@@ -36,7 +36,11 @@ export class FleetDirectoryReconcile {
     this.proof = new FleetProof(db, authority.identity, secrets);
   }
 
-  async from(peerId: string, signal?: AbortSignal): Promise<boolean> {
+  async from(
+    peerId: string,
+    signal?: AbortSignal,
+    assertCurrent: () => void = () => {},
+  ): Promise<boolean> {
     if (this.active >= 2)
       throw new Problem(503, "Directory synchronization is already busy.");
     this.lifetime.signal.throwIfAborted();
@@ -49,6 +53,7 @@ export class FleetDirectoryReconcile {
           AbortSignal.timeout(45_000),
           ...(signal ? [signal] : []),
         ]),
+        assertCurrent,
       );
     } finally {
       this.active--;
@@ -78,7 +83,11 @@ export class FleetDirectoryReconcile {
     }
   }
 
-  private async read(peerId: string, signal: AbortSignal): Promise<boolean> {
+  private async read(
+    peerId: string,
+    signal: AbortSignal,
+    assertCurrent: () => void,
+  ): Promise<boolean> {
     MachineId.parse(peerId);
     const initial = this.authority.status(this.owner),
       peer = initial.directory?.document.members.find(
@@ -93,10 +102,11 @@ export class FleetDirectoryReconcile {
       throw new Problem(403, "Choose a currently enrolled directory replica.");
     const live = () => {
       signal.throwIfAborted();
+      assertCurrent();
       const current = this.authority.status(this.owner);
       if (current.head !== initial.head || current.state !== initial.state)
         throw new Problem(
-          409,
+          503,
           "Local directory authority changed during synchronization.",
         );
     };

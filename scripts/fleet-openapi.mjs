@@ -3,6 +3,7 @@ import { z } from "zod";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.ts";
 import { fleetHandoffApi } from "../src/shared/fleet-handoff-api.ts";
 import { fleetDirectoryApi } from "../src/shared/fleet-directory-api.ts";
+import { fleetPendingDirectoryApi } from "../src/shared/fleet-pending-directory-api.ts";
 
 // A separate document describes this machine protocol: its body proofs and
 // rejected browser credentials are different from workspace session security.
@@ -12,6 +13,10 @@ const schemas = {
 };
 const paths = {};
 const proof = {
+  pendingDirectoryHead:
+    "Requires a nonce-bound machine proof for a member of this pending consent's verified checkpoint. Reports only that destination-issued grant and checkpoint, without activating workspace access. Completed grants also require current local membership.",
+  pendingDirectoryPush:
+    "Relays a complete signed successor chain from this exact inactive enrollment operation's trusted checkpoint. Every edge must be authorized by the locally approved controller or its signed handoff. A relay need not occur in the earlier roster; it cannot install membership or grants. A verified removal cancels only the named operation durably, even if another ceremony reuses its grant. Exact packet receipts survive restart; completed enrollment is reported separately for ordinary synchronization.",
   enrollmentProbe:
     "Returns a signature over the supplied fresh nonce, confirmed origin and exact destination identity. No enrollment capability is needed.",
   enrollmentPrepare:
@@ -25,7 +30,7 @@ const proof = {
   handoffReceipt:
     "Requires the old controller's nonce-bound query signature and its locally known predecessor. A signed missing receipt is an observation, never permission to reactivate the old writer or replay the proposal.",
   directoryHistory:
-    "Requires a nonce-bound machine signature. Current members may retrieve signed history from an enrolled replica without an access credential or controller connection. Removed members may retrieve only the chain ending at their recorded removal after proving their former key; later revisions and unrelated cursors are refused. Unanchored pages do not create trust.",
+    "Requires a nonce-bound machine signature. Current members may retrieve signed history from an enrolled replica without an access credential or controller connection. A new member may prove its admission with at most 1,024 signed entries and 768 KiB, connected to the receiver's current head; this read changes no grant. Removed members may retrieve only the chain ending at their recorded removal after proving their former key; later revisions and unrelated cursors are refused. Unanchored pages do not create trust.",
   directoryPush:
     "Requires an enrolled sender's nonce-bound signature and a complete signed successor chain from a known local anchor. Updates only existing locally approved grants. Unknown enrollments, forks and automatic recovery resets are refused; a signed acknowledgement reports the exact accepted chain.",
 };
@@ -33,6 +38,7 @@ for (const [name, route] of Object.entries({
   ...fleetPeerApi,
   ...fleetHandoffApi,
   ...fleetDirectoryApi,
+  ...fleetPendingDirectoryApi,
 })) {
   schemas[name + "Request"] = z.toJSONSchema(route.body, {
     ...options,

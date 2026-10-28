@@ -70,8 +70,51 @@ grants in one transaction. Known revisions are read-only, forks and automatic
 recovery resets are refused, and a known tombstone cannot be overwritten by an
 older map. A removed destination stops at its own removal and acknowledges the
 exact accepted prefix. These routes require completed local enrollment; they
-cannot activate pending consent. Pending dissemination is recorded, but there is
-no automatic distribution worker yet.
+cannot activate pending consent.
+
+A newly admitted replica may include a bounded signed admission chain in its
+history query. A paged update can carry the remaining admission chain beyond
+the page being applied. The receiving replica verifies that chain from its current head
+and checks the sender's final membership before returning history; the query
+does not change its grants. An update installs only its page, leaving the proof's
+continuation unapplied. Admission proofs allow up to 1,024 entries and
+768 KiB, including the update page when sent together. A controller that pinned its own enrollment without older history can
+retain verified missing predecessors by checking every edge backward from its
+current trusted lineage. This fills history only; it never changes authority or
+crosses a recovery reset. Admission selects the newest suffix within its byte
+budget. A peer older than that suffix remains unsynchronized; retained older
+history cannot block the single-entry acknowledgement of a known removal.
+
+The companion's durable directory outbox sends to at most two peers at a time,
+using bounded pages and retry backoff. A signed destination acknowledgement is
+distinct from enrollment completion. It stores the exact outgoing packet before
+transmission and can repeat only that digest-idempotent directory operation
+after a lost reply or restart. A replacement worker fences old callbacks,
+including the transaction that installs a reconciliation result;
+shutdown aborts outstanding requests. Removed recipients retain delivery to
+their last signed address. An unavailable peer stays pending, and incompatible
+history requires explicit reconciliation rather than automatic grant restoration.
+A concurrent local synchronization is retryable, not permanent incompatibility.
+Before transmitting a signed roster or retransmitting a stored packet, the
+worker verifies a fresh nonce-bound machine proof at the enrolled address. An
+unsigned refusal alone cannot make it disclose historical rosters to a reused
+origin. The CLI acquires its exclusive workspace lock before constructing the
+host and worker; a losing concurrent start cannot replace the active instance.
+
+A separate pending-directory protocol follows the signed lineage pinned by a
+spent enrollment ceremony, using durable destination-signed checkpoints. It
+never installs a binding or peer grants. A verified removal cancels that pending
+operation before any delayed enrollment commit can activate it. Discovery names
+only operation IDs already published in the sender's signed lineage; it cannot
+adopt a newer local ceremony merely because its inactive grant matches. Every push and
+acknowledgement binds the exact enrollment operation, even when a newer ceremony
+reuses the same inactive grant and checkpoint. Checkpoint reads
+require membership in the checkpoint or an anchored admission proof; relaying a valid controller-signed prefix
+can advance or cancel inactive consent without making the relay an enrolled
+peer. Recovery checkpoints affect only the new pending consent, preserving any
+unrelated existing local grant. Removal delivery checks this consent even when
+ordinary history succeeds through an older, incompatible binding. If enrollment completes between pages, delivery
+switches to ordinary synchronization.
 
 The companion's `/api/fleet/admin/` routes require its authenticated local device
 session, current Origin/CSRF checks and a live device authorization before
@@ -92,7 +135,8 @@ grants unchanged. Reads have two concurrent slots, a 45-second overall deadline,
 and a 1,024-entry/16 MiB assembly limit; unavailable history remains unsynchronized.
 A shared refresh rotates among replicas within its deadline, so an unreachable
 controller does not permanently prevent another replica from supplying history.
-This primitive is not yet connected to an automatic distribution/renewal worker.
+The directory outbox uses this primitive when a recipient reports a newer
+unknown head. Credential-renewal integration remains separate.
 
 Destination fleet command receipts retain their original identity across retries,
 gateway changes and restarts. They project responses through the owning public
@@ -143,8 +187,10 @@ cannot block a later removal. A replacement instance fences older in-flight
 callbacks, and the first commit dispatch rechecks membership and authority.
 Receipt reconciliation can use a repaired canonical origin for the same key
 while preserving the original operation, intent and signed query. Controller
-jobs have no browser or peer administration route yet. The dedicated fleet
-HTTP protocol and its admission limits are described in [pairing](pairing.md).
+jobs use the authenticated local-device administration API described above;
+peers cannot administer them. Browser fleet screens remain separate integration.
+The dedicated fleet HTTP protocol and its admission limits are described in
+[pairing](pairing.md).
 
 ## Saved rows
 

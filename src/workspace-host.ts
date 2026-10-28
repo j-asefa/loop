@@ -32,6 +32,9 @@ import {
 } from "./server/fleet-handoff.js";
 import { FleetHandoffHttpTransport } from "./server/fleet-handoff-http.js";
 import { FleetDirectorySync } from "./server/fleet-directory-sync.js";
+import { FleetPendingDirectory } from "./server/fleet-pending-directory.js";
+import { FleetDistribution } from "./server/fleet-distribution.js";
+import { FleetDirectoryHttpTransport } from "./server/fleet-directory-http.js";
 import { createFleetPeerHttp } from "./server/fleet-peer-http.js";
 import { FleetEnrollmentSource } from "./server/fleet-enrollment-source.js";
 import { FleetEnrollmentHttpTransport } from "./server/fleet-enrollment-http.js";
@@ -57,6 +60,7 @@ export class WorkspaceHost {
   readonly pairing?: FleetPairing;
   readonly enrollment?: FleetEnrollmentDestination;
   readonly fleetAdmin?: FleetLocalAdmin;
+  readonly fleetDistribution?: FleetDistribution;
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
@@ -131,6 +135,14 @@ export class WorkspaceHost {
         () => this.gateway.origin,
       );
     }
+    if (this.fleet)
+      this.fleetDistribution = new FleetDistribution(
+        db,
+        this.fleet,
+        OWNER,
+        { seal, unseal },
+        new FleetDirectoryHttpTransport(),
+      );
     this.gateway.workspace = {
       isolated: !!preview,
       http: app,
@@ -139,6 +151,13 @@ export class WorkspaceHost {
         : undefined,
       peerHttp: this.enrollment
         ? createFleetPeerHttp(this.enrollment, () => this.gateway.origin, {
+            pendingDirectory: new FleetPendingDirectory(
+              db,
+              this.fleet!,
+              this.enrollment,
+              OWNER,
+              { seal, unseal },
+            ),
             directory: new FleetDirectorySync(db, this.fleet!, OWNER, {
               seal,
               unseal,
@@ -248,7 +267,10 @@ export class WorkspaceHost {
       throw new Error("Workspace is stopping");
     }
     this.stopObservation = observeProcess("api");
-    if (!preview) this.mcpSharing.start();
+    if (!preview) {
+      this.mcpSharing.start();
+      this.fleetDistribution?.start();
+    }
     // Pairing and the public gateway can be made available before runner startup.
     // Register the project first so a paired client can inspect its workspace.
     nativeSessions.addProject(options.project);
@@ -282,6 +304,7 @@ export class WorkspaceHost {
   }
   async close() {
     this.closing = true;
+    this.fleetDistribution?.close();
     this.stopObservation?.();
     this.mcpSharing.close();
     try {

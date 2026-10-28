@@ -676,6 +676,42 @@ export class FleetAuthority {
       .immediate();
   }
 
+  /** Retain missing predecessors of an explicitly approved head. Each edge is
+   * verified backward from current local trust; this never changes a binding,
+   * active grant, controller or recovery lineage. Input is newest first. */
+  retainAncestors(owner: string, input: SignedFleetDirectory[]): boolean {
+    const entries = z.array(SignedFleetDirectory).min(1).max(32).parse(input);
+    return this.db
+      .transaction(() => {
+        const binding = this.binding(owner);
+        if (!binding || binding.state === "removed") return false;
+        let child = this.saved(owner, binding.head)!;
+        for (let count = 0; count < 1024; count++) {
+          if (!child.document.parent || child.document.kind === "recovery")
+            return false;
+          const parent = this.saved(owner, child.document.parent);
+          if (!parent) break;
+          child = parent;
+        }
+        if (
+          child.document.kind === "recovery" ||
+          child.document.parent !== directoryDigest(entries[0].document)
+        )
+          return false;
+        const successor = child;
+        for (const parent of entries) {
+          verifyApprovedDirectory(parent);
+          verifyDirectorySuccessor(child, parent.document);
+          child = parent;
+        }
+        for (const entry of [...entries].reverse()) this.remember(owner, entry);
+        // A retained predecessor may complete the existing removal index edge.
+        this.remember(owner, successor);
+        return true;
+      })
+      .immediate();
+  }
+
   /** Relay of a signed successor never creates a binding or expands its scope. */
   accept(owner: string, input: SignedFleetDirectory): SignedFleetDirectory {
     const value = SignedFleetDirectory.parse(input);

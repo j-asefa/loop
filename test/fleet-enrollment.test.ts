@@ -9,6 +9,10 @@ import { applyMigrations } from "../src/server/migrations.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetPairing } from "../src/server/fleet-pairing.js";
 import { FleetEnrollmentDestination } from "../src/server/fleet-enrollment.js";
+import { FleetPendingDirectory } from "../src/server/fleet-pending-directory.js";
+import { FleetDirectorySync } from "../src/server/fleet-directory-sync.js";
+import { FleetDistribution } from "../src/server/fleet-distribution.js";
+import { Problem } from "../src/shared/problem.js";
 import { FleetProof, verifyFleetProof } from "../src/server/fleet-proof.js";
 import {
   directoryDigest,
@@ -156,6 +160,503 @@ function enroll(a: Machine, b: Machine) {
   b.destination.commit(committed);
   return { input, prepared, committed };
 }
+
+function pending(b: Machine) {
+  return new FleetPendingDirectory(
+    b.db,
+    b.authority,
+    b.destination,
+    b.owner,
+    secrets,
+  );
+}
+async function distributeRemoval(
+  a: Machine,
+  b: Machine,
+  removed: SignedFleetDirectory,
+  failPending = false,
+) {
+  a.db
+    .prepare(
+      "INSERT INTO fleet_distribution(owner_id,peer_id,directory_digest,state) VALUES(?,?,?,'pending')",
+    )
+    .run(
+      a.owner,
+      b.authority.identity.machineId,
+      directoryDigest(removed.document),
+    );
+  const sync = new FleetDirectorySync(b.db, b.authority, b.owner, secrets);
+  const destination = pending(b);
+  let now = 0;
+  const worker = new FleetDistribution(
+    a.db,
+    a.authority,
+    a.owner,
+    secrets,
+    {
+      async probe(_origin, request) {
+        return b.destination.probe(request);
+      },
+      async history(_origin, request) {
+        return sync.history(request);
+      },
+      async push(_origin, request) {
+        return sync.receive(request);
+      },
+      async pendingHistory(_origin, request) {
+        if (failPending) {
+          failPending = false;
+          throw new Problem(503, "Fixture pending discovery unavailable");
+        }
+        return destination.history(request);
+      },
+      async pendingPush(_origin, request) {
+        return destination.receive(request);
+      },
+    },
+    () => {},
+    { monotonic: () => now, random: () => 0.5 },
+  );
+  try {
+    for (let i = 0; i < 4; i++) {
+      await worker.flush();
+      now += 60_000;
+    }
+  } finally {
+    worker.close();
+  }
+}
+function pendingPush(
+  a: Machine,
+  b: Machine,
+  grantId: string,
+  anchor: SignedFleetDirectory,
+  entries: SignedFleetDirectory[],
+) {
+  const push = {
+    version: 1 as const,
+    nonce: randomBytes(32).toString("base64url"),
+    sender: a.authority.identity,
+    destination: b.authority.identity,
+    grantId,
+    operationId: b.destination.pendingGrant(grantId).record.operation_id,
+    anchor: directoryDigest(anchor.document),
+    entries,
+  };
+  return { push, signature: a.proof.sign("pending-directory-push", push) };
+}
+function pendingQuery(a: Machine, b: Machine, grantId: string) {
+  const known = b.db
+    .prepare(
+      "SELECT operation_id FROM fleet_enrollments WHERE owner_id=? AND role='destination' AND json_extract(prepared,'$.prepared.member.grantId')=? ORDER BY rowid DESC LIMIT 1",
+    )
+    .get(b.owner, grantId) as { operation_id: string } | undefined;
+  const query = {
+    version: 1 as const,
+    nonce: randomBytes(32).toString("base64url"),
+    sender: a.authority.identity,
+    destination: b.authority.identity,
+    grantId,
+    operationIds: [known?.operation_id ?? randomUUID()],
+  };
+  return { query, signature: a.proof.sign("pending-directory-query", query) };
+}
+
+it("pages verified removal history into an unbound pending consent without activating a grant", () => {
+  const a = machine(),
+    b = machine(),
+    input = request(a, b);
+  const prepared = b.destination.prepare(wire(input)),
+    committed = commit(a, input, prepared);
+  const grant = prepared.prepared.member.grantId;
+  const entries = [committed.commit.directory];
+  a.db.transaction(() => {
+    for (let i = 0; i < 65; i++) {
+      const current = a.authority.directory(a.owner)!;
+      entries.push(
+        a.authority.revise(a.owner, {
+          mutationId: randomUUID(),
+          expected: directoryDigest(current.document),
+          members: current.document.members,
+        }),
+      );
+    }
+  })();
+  const current = entries.at(-1)!;
+  const removed = a.authority.revise(a.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(current.document),
+    members: current.document.members.filter(
+      (m) => m.machineId !== b.authority.identity.machineId,
+    ),
+  });
+  entries.push(removed);
+  let anchor = input.intent.directory;
+  for (let offset = 0; offset < entries.length; offset += 32) {
+    const batch = entries.slice(offset, offset + 32),
+      request = pendingPush(a, b, grant, anchor, batch);
+    const response = pending(b).receive(request);
+    expect(
+      verifyFleetProof(
+        b.authority.identity,
+        "pending-directory-ack",
+        response.ack,
+        response.signature,
+      ),
+    ).toBe(true);
+    expect(response.ack.requestDigest).toBe(fleetPayloadDigest(request.push));
+    expect(response.ack.state).toBe(
+      offset + 32 >= entries.length ? "cancelled" : "prepared",
+    );
+    expect(pending(b).receive(request)).toEqual(response);
+    expect(b.authority.status(b.owner).state).toBe("standalone");
+    expect(
+      b.db.prepare("SELECT count(*) n FROM fleet_peer_grants").get(),
+    ).toEqual({ n: 0 });
+    anchor = batch.at(-1)!;
+  }
+  expect(() => b.destination.commit(committed)).toThrow("cancelled");
+  const head = pending(b).history(pendingQuery(a, b, grant));
+  expect(head.head.state).toBe("cancelled");
+  expect(head.head.directory).toEqual(removed);
+  expect(JSON.stringify(head)).not.toContain(b.owner);
+}, 20_000);
+
+it("does not let an old pending removal packet cancel a freshly approved local ceremony", () => {
+  const a = machine(),
+    b = machine(),
+    input = request(a, b);
+  const prepared = b.destination.prepare(wire(input)),
+    committed = commit(a, input, prepared);
+  const old = pendingPush(
+    a,
+    b,
+    prepared.prepared.member.grantId,
+    input.intent.directory,
+    [committed.commit.directory],
+  );
+  b.destination.cancel(input.intent.operationId);
+  expect(() => pending(b).receive(old)).toThrow("outside");
+  const fresh = request(a, b, "enroll", ["read"]);
+  const renewed = b.destination.prepare(wire(fresh));
+  expect(renewed.prepared.member.grantId).toBe(
+    prepared.prepared.member.grantId,
+  );
+  expect(() => pending(b).receive(old)).toThrow("outside");
+  expect(b.destination.receipt(query(a, fresh)).receipt.state).toBe("prepared");
+  expect(b.authority.status(b.owner).state).toBe("standalone");
+});
+
+it("binds a delayed removal to its exact ceremony even when fresh consent reuses the checkpoint and grant", () => {
+  const a = machine(),
+    b = machine(),
+    input = request(a, b);
+  const prepared = b.destination.prepare(wire(input));
+  const committed = commit(a, input, prepared);
+  const grant = prepared.prepared.member.grantId;
+  pending(b).receive(
+    pendingPush(a, b, grant, input.intent.directory, [
+      committed.commit.directory,
+    ]),
+  );
+  b.destination.cancel(input.intent.operationId);
+  const fresh = request(a, b, "enroll", ["read"]);
+  const removed = a.authority.revise(a.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(committed.commit.directory.document),
+    members: committed.commit.directory.document.members.filter(
+      (m) => m.machineId !== b.authority.identity.machineId,
+    ),
+  });
+  const delayed = pendingPush(a, b, grant, committed.commit.directory, [
+    removed,
+  ]);
+  const next = b.destination.prepare(wire(fresh));
+  expect(next.prepared.member.grantId).toBe(grant);
+  expect(() => pending(b).receive(delayed)).toThrow();
+  expect(b.destination.receipt(query(a, fresh)).receipt.state).toBe("prepared");
+  expect(b.authority.status(b.owner).state).toBe("standalone");
+});
+
+it("does not let delayed outbox discovery adopt a newer ceremony using the same inactive grant", async () => {
+  const a = machine(),
+    b = machine(),
+    input = request(a, b);
+  const prepared = b.destination.prepare(wire(input)),
+    committed = commit(a, input, prepared);
+  const grant = prepared.prepared.member.grantId;
+  pending(b).receive(
+    pendingPush(a, b, grant, input.intent.directory, [
+      committed.commit.directory,
+    ]),
+  );
+  b.destination.cancel(input.intent.operationId);
+  // The fresh request was authorized against the same checkpoint, but has not
+  // been published in the controller's directory. Old outbox work cannot name it.
+  const fresh = request(a, b, "enroll", ["read"]);
+  const removed = a.authority.revise(a.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(committed.commit.directory.document),
+    members: committed.commit.directory.document.members.filter(
+      (m) => m.machineId !== b.authority.identity.machineId,
+    ),
+  });
+  const next = b.destination.prepare(wire(fresh));
+  expect(next.prepared.member.grantId).toBe(grant);
+  await distributeRemoval(a, b, removed);
+  expect(() =>
+    pending(b).receive(
+      pendingPush(a, b, grant, committed.commit.directory, [removed]),
+    ),
+  ).toThrow("outside");
+  expect(b.destination.receipt(query(a, fresh)).receipt.state).toBe("prepared");
+  expect(b.authority.status(b.owner).state).toBe("standalone");
+  expect(
+    b.db.prepare("SELECT count(*) n FROM fleet_peer_grants").get(),
+  ).toEqual({ n: 0 });
+});
+
+it("cancels a freshly reused grant once that exact new ceremony is canonically published", async () => {
+  const a = machine(),
+    b = machine(),
+    input = request(a, b);
+  const prepared = b.destination.prepare(wire(input));
+  commit(a, input, prepared);
+  b.destination.cancel(input.intent.operationId);
+  const fresh = request(a, b, "enroll", ["read"]);
+  const next = b.destination.prepare(wire(fresh));
+  expect(next.prepared.member.grantId).toBe(prepared.prepared.member.grantId);
+  const committed = commit(a, fresh, next);
+  const removed = a.authority.revise(a.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(committed.commit.directory.document),
+    members: committed.commit.directory.document.members.filter(
+      (m) => m.machineId !== b.authority.identity.machineId,
+    ),
+  });
+  await distributeRemoval(a, b, removed);
+  expect(b.destination.receipt(query(a, fresh)).receipt.state).toBe(
+    "cancelled",
+  );
+  expect(() => b.destination.commit(committed)).toThrow("cancelled");
+  expect(b.authority.status(b.owner).state).toBe("standalone");
+});
+
+it("lets a successor controller discover only published pending operations through signed admission", async () => {
+  const a = machine(),
+    b = machine(),
+    c = machine(),
+    input = request(a, b);
+  const prepared = b.destination.prepare(wire(input)),
+    committed = commit(a, input, prepared);
+  const { committed: admitted } = enroll(a, c);
+  c.authority.retainAncestors(c.owner, [
+    committed.commit.directory,
+    input.intent.directory,
+  ]);
+  const proposal = a.authority.prepareHandoff(a.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(admitted.commit.directory.document),
+    destination: c.authority.identity,
+  });
+  const handoff = c.authority.acceptHandoff(c.owner, proposal);
+  const removed = c.authority.revise(c.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(handoff.document),
+    members: handoff.document.members.filter(
+      (m) => m.machineId !== b.authority.identity.machineId,
+    ),
+  });
+  await distributeRemoval(c, b, removed);
+  expect(b.destination.receipt(query(a, input)).receipt.state).toBe(
+    "cancelled",
+  );
+  expect(() => b.destination.commit(committed)).toThrow("cancelled");
+  expect(b.authority.status(b.owner).state).toBe("standalone");
+  expect(
+    b.db.prepare("SELECT count(*) n FROM fleet_peer_grants").get(),
+  ).toEqual({ n: 0 });
+});
+
+it.each([false, true])(
+  "delivers pending recovery removal when ordinary discovery succeeds on the old binding (temporary failure: %s)",
+  async (failPending) => {
+    const a = machine(),
+      b = machine(),
+      c = machine();
+    enroll(a, b);
+    const { committed: joined } = enroll(a, c);
+    b.authority.accept(b.owner, joined.commit.directory);
+    c.authority.recover(c.owner, {
+      mutationId: randomUUID(),
+      expected: directoryDigest(joined.commit.directory.document),
+      name: "Recovery",
+      origin: c.state.origin,
+      scope,
+    });
+    const oldHead = b.authority.status(b.owner).head;
+    const grants = b.db
+      .prepare("SELECT * FROM fleet_peer_grants ORDER BY peer_id")
+      .all();
+    const input = request(c, b, "recover", ["read"]);
+    const prepared = b.destination.prepare(wire(input)),
+      committed = commit(c, input, prepared);
+    const removed = c.authority.revise(c.owner, {
+      mutationId: randomUUID(),
+      expected: directoryDigest(committed.commit.directory.document),
+      members: committed.commit.directory.document.members.filter(
+        (m) => m.machineId !== b.authority.identity.machineId,
+      ),
+    });
+    await distributeRemoval(c, b, removed, failPending);
+    expect(b.destination.receipt(query(c, input)).receipt.state).toBe(
+      "cancelled",
+    );
+    expect(() => b.destination.commit(committed)).toThrow("cancelled");
+    expect(b.authority.status(b.owner).head).toBe(oldHead);
+    expect(
+      b.db.prepare("SELECT * FROM fleet_peer_grants ORDER BY peer_id").all(),
+    ).toEqual(grants);
+    expect(c.db.prepare("SELECT state FROM fleet_distribution").get()).toEqual({
+      state: "acked",
+    });
+  },
+);
+
+it("accepts a controller-authorized pending prefix from a new relay without granting it workspace access", () => {
+  const a = machine(),
+    b = machine(),
+    relay = machine(),
+    input = request(a, b);
+  const prepared = b.destination.prepare(wire(input)),
+    committed = commit(a, input, prepared);
+  const grant = prepared.prepared.member.grantId;
+  expect(() => pending(b).history(pendingQuery(relay, b, grant))).toThrow(
+    "outside",
+  );
+  const packet = pendingPush(relay, b, grant, input.intent.directory, [
+    committed.commit.directory,
+  ]);
+  const receipt = pending(b).receive(packet);
+  expect(receipt.ack.state).toBe("prepared");
+  expect(receipt.ack.accepted).toBe(
+    directoryDigest(committed.commit.directory.document),
+  );
+  expect(b.authority.status(b.owner).state).toBe("standalone");
+  expect(
+    b.db.prepare("SELECT count(*) n FROM fleet_peer_grants").get(),
+  ).toEqual({ n: 0 });
+  expect(() => pending(b).history(pendingQuery(relay, b, grant))).toThrow(
+    "outside",
+  );
+});
+
+it("cancels pending recovery removal without changing an unrelated existing local grant", () => {
+  const a = machine(),
+    b = machine(),
+    c = machine();
+  enroll(a, b);
+  const { committed: joined } = enroll(a, c);
+  b.authority.accept(b.owner, joined.commit.directory);
+  c.authority.recover(c.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(joined.commit.directory.document),
+    name: "Recovery",
+    origin: c.state.origin,
+    scope,
+  });
+  const oldHead = b.authority.status(b.owner).head;
+  const grants = b.db
+    .prepare("SELECT * FROM fleet_peer_grants ORDER BY peer_id")
+    .all();
+  const input = request(c, b, "recover", ["read"]),
+    prepared = b.destination.prepare(wire(input));
+  const committed = commit(c, input, prepared),
+    directory = committed.commit.directory;
+  const removed = c.authority.revise(c.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(directory.document),
+    members: directory.document.members.filter(
+      (m) => m.machineId !== b.authority.identity.machineId,
+    ),
+  });
+  const response = pending(b).receive(
+    pendingPush(
+      c,
+      b,
+      prepared.prepared.member.grantId,
+      input.intent.directory,
+      [directory, removed],
+    ),
+  );
+  expect(response.ack.state).toBe("cancelled");
+  expect(b.authority.status(b.owner).head).toBe(oldHead);
+  expect(
+    b.db.prepare("SELECT * FROM fleet_peer_grants ORDER BY peer_id").all(),
+  ).toEqual(grants);
+  expect(() => b.destination.commit(committed)).toThrow("cancelled");
+});
+
+it("authenticates pending directory authority before writer contention and refuses another owner's or grant's checkpoint", () => {
+  const a = machine(),
+    b = machine(),
+    outsider = machine(),
+    input = request(a, b);
+  const prepared = b.destination.prepare(wire(input)),
+    committed = commit(a, input, prepared);
+  const packet = pendingPush(
+    outsider,
+    b,
+    prepared.prepared.member.grantId,
+    input.intent.directory,
+    [
+      {
+        ...committed.commit.directory,
+        signature: input.intent.directory.signature,
+      },
+    ],
+  );
+  const writer = new Database(b.db.name);
+  b.db.pragma("busy_timeout=25");
+  writer.exec("BEGIN IMMEDIATE");
+  try {
+    expect(() => pending(b).receive(packet)).toThrow("outside");
+  } finally {
+    writer.exec("ROLLBACK");
+    writer.close();
+    b.db.pragma("busy_timeout=5000");
+  }
+  expect(() =>
+    pending(b).history(
+      pendingQuery(outsider, b, prepared.prepared.member.grantId),
+    ),
+  ).toThrow("outside");
+  expect(() => pending(b).history(pendingQuery(a, b, randomUUID()))).toThrow();
+  const foreign = new FleetPendingDirectory(
+    b.db,
+    b.authority,
+    b.destination,
+    a.owner,
+    secrets,
+  );
+  expect(() =>
+    foreign.history(pendingQuery(a, b, prepared.prepared.member.grantId)),
+  ).toThrow("outside");
+  expect(() =>
+    foreign.receive(
+      pendingPush(
+        a,
+        b,
+        prepared.prepared.member.grantId,
+        input.intent.directory,
+        [committed.commit.directory],
+      ),
+    ),
+  ).toThrow();
+  expect(
+    b.db.prepare("SELECT count(*) n FROM fleet_pending_directory").get(),
+  ).toEqual({ n: 0 });
+});
 
 it("proves the exact destination origin and fresh nonce without a capability or local owner", () => {
   const b = machine(),

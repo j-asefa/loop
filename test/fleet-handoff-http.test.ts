@@ -16,7 +16,10 @@ import {
   FleetHandoffSource,
 } from "../src/server/fleet-handoff.js";
 import { applyMigrations } from "../src/server/migrations.js";
-import { directoryDigest } from "../src/server/fleet-crypto.js";
+import {
+  directoryDigest,
+  fleetPayloadDigest,
+} from "../src/server/fleet-crypto.js";
 import { FleetProof } from "../src/server/fleet-proof.js";
 import {
   FleetDirectorySync,
@@ -25,6 +28,11 @@ import {
 } from "../src/server/fleet-directory-sync.js";
 import { fleetDirectoryApi } from "../src/shared/fleet-directory-api.js";
 import { FleetDirectoryReconcile } from "../src/server/fleet-directory-reconcile.js";
+import { FleetDistribution } from "../src/server/fleet-distribution.js";
+import { FleetPendingDirectory } from "../src/server/fleet-pending-directory.js";
+import { fleetEnrollmentFromLink } from "../src/shared/fleet-pairing.js";
+import { FleetEnrollmentIntent } from "../src/shared/fleet-enrollment.js";
+import { createHash } from "node:crypto";
 import { fleetHandoffApi } from "../src/shared/fleet-handoff-api.js";
 import type {
   FleetHandoffProposal,
@@ -73,7 +81,7 @@ function machine() {
     origin: `https://${randomUUID()}.example`,
   };
 }
-async function fixture() {
+async function fixture(pendingEnrollment = false) {
   const a = machine(),
     b = machine(),
     host = new Host(
@@ -109,6 +117,13 @@ async function fixture() {
       res.writeHead(404).end();
     },
     peerHttp: createFleetPeerHttp(enrollment, () => host.origin, {
+      pendingDirectory: new FleetPendingDirectory(
+        b.db,
+        b.authority,
+        enrollment,
+        b.owner,
+        secrets,
+      ),
       handoff: new FleetHandoffDestination(b.db, b.authority, b.owner, secrets),
       directory: new FleetDirectorySync(b.db, b.authority, b.owner, secrets),
     }),
@@ -125,24 +140,59 @@ async function fixture() {
     origin: a.origin,
     scope,
   });
-  const grantId = randomUUID(),
-    directory = a.authority.revise(a.owner, {
-      mutationId: randomUUID(),
-      expected: directoryDigest(genesis.document),
-      members: [
-        ...genesis.document.members,
-        { ...b.authority.identity, grantId, name: "B", origin: b.origin },
-      ],
+  const proof = new FleetProof(a.db, a.authority.identity, secrets);
+  let pendingIntent: FleetEnrollmentIntent | undefined;
+  let grantId: string = randomUUID();
+  if (pendingEnrollment) {
+    const link = fleetEnrollmentFromLink(
+      b.pairing.enrollment(b.origin, scope, false).url,
+    );
+    pendingIntent = FleetEnrollmentIntent.parse({
+      version: 1,
+      operationId: randomUUID(),
+      ceremonyId: link.ceremonyId,
+      capabilityHash: createHash("sha256")
+        .update(link.enrollment)
+        .digest("hex"),
+      destination: b.authority.identity,
+      origin: b.origin,
+      name: "B",
+      mode: "enroll",
+      scope,
+      directory: genesis,
     });
-  b.authority.approve(b.owner, {
-    mutationId: randomUUID(),
-    expected: null,
-    kind: "enroll",
-    grantId,
-    scope,
-    controller: a.authority.identity,
-    directory,
+    const prepared = enrollment.prepare({
+      intent: pendingIntent,
+      capability: link.enrollment,
+      signature: proof.sign("enrollment-prepare", pendingIntent),
+    });
+    grantId = prepared.prepared.member.grantId;
+  }
+  const directory = a.authority.revise(a.owner, {
+    mutationId: pendingIntent?.operationId ?? randomUUID(),
+    expected: directoryDigest(genesis.document),
+    members: [
+      ...genesis.document.members,
+      { ...b.authority.identity, grantId, name: "B", origin: b.origin },
+    ],
   });
+  if (!pendingEnrollment)
+    b.authority.approve(b.owner, {
+      mutationId: randomUUID(),
+      expected: null,
+      kind: "enroll",
+      grantId,
+      scope,
+      controller: a.authority.identity,
+      directory,
+    });
+  const pendingCommit = pendingIntent && {
+    version: 1 as const,
+    operationId: pendingIntent.operationId,
+    intentDigest: fleetPayloadDigest(pendingIntent),
+    directory,
+    ancestors: [],
+  };
   const send = (
     path: string,
     body: unknown,
@@ -225,6 +275,10 @@ async function fixture() {
     input,
     send,
     paths,
+    pendingCommit: pendingCommit && {
+      commit: pendingCommit,
+      signature: proof.sign("enrollment-commit", pendingCommit),
+    },
     get privateCalls() {
       return privateCalls;
     },
@@ -264,6 +318,192 @@ function wireDirectory(host: Host) {
     },
   };
 }
+
+function queuePendingRemoval(f: Awaited<ReturnType<typeof fixture>>) {
+  f.a.db.transaction(() => {
+    for (let i = 0; i < 70; i++) {
+      const current = f.a.authority.directory(f.a.owner)!;
+      f.a.authority.revise(f.a.owner, {
+        mutationId: randomUUID(),
+        expected: directoryDigest(current.document),
+        members: current.document.members,
+      });
+    }
+  })();
+  const current = f.a.authority.directory(f.a.owner)!;
+  const removed = f.a.authority.revise(f.a.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(current.document),
+    members: current.document.members.filter(
+      (member) => member.machineId !== f.b.authority.identity.machineId,
+    ),
+  });
+  f.a.db
+    .prepare(
+      "INSERT INTO fleet_distribution(owner_id,peer_id,directory_digest,state) VALUES(?,?,?,'pending')",
+    )
+    .run(
+      f.a.owner,
+      f.b.authority.identity.machineId,
+      directoryDigest(removed.document),
+    );
+  return removed;
+}
+
+it("restarts exact pending-removal delivery over HTTP and prevents a delayed enrollment commit", async ({
+  onTestFinished,
+}) => {
+  const f = await fixture(true),
+    wire = wireDirectory(f.host),
+    removed = queuePendingRemoval(f);
+  onTestFinished(() => wire.close());
+  const packets: string[] = [];
+  let lose = true;
+  const transport = {
+    probe: wire.transport.probe.bind(wire.transport),
+    history: wire.transport.history.bind(wire.transport),
+    push: wire.transport.push.bind(wire.transport),
+    pendingHistory: wire.transport.pendingHistory.bind(wire.transport),
+    pendingPush: async (
+      ...args: Parameters<typeof wire.transport.pendingPush>
+    ) => {
+      packets.push(JSON.stringify(args[1]));
+      const receipt = await wire.transport.pendingPush(...args);
+      if (lose) {
+        lose = false;
+        throw new Error("Lost pending acknowledgement");
+      }
+      return receipt;
+    },
+  };
+  const first = new FleetDistribution(
+    f.a.db,
+    f.a.authority,
+    f.a.owner,
+    secrets,
+    transport,
+  );
+  onTestFinished(() => first.close());
+  await first.flush();
+  expect(f.b.authority.status(f.b.owner).state).toBe("standalone");
+  expect(f.a.db.prepare("SELECT state FROM fleet_distribution").get()).toEqual({
+    state: "pending",
+  });
+  expect(
+    f.a.db.prepare("SELECT protocol FROM fleet_distribution_work").get(),
+  ).toEqual({ protocol: "pending" });
+  const restarted = new FleetDistribution(
+    f.a.db,
+    f.a.authority,
+    f.a.owner,
+    secrets,
+    transport,
+  );
+  onTestFinished(() => restarted.close());
+  for (let i = 0; i < 3; i++) await restarted.flush();
+  expect(packets[1]).toBe(packets[0]);
+  expect(packets).toHaveLength(4);
+  expect(f.a.db.prepare("SELECT state FROM fleet_distribution").get()).toEqual({
+    state: "acked",
+  });
+  expect(f.b.authority.status(f.b.owner).state).toBe("standalone");
+  expect(
+    f.b.db.prepare("SELECT count(*) n FROM fleet_peer_grants").get(),
+  ).toEqual({ n: 0 });
+  expect(
+    f.b.db.prepare("SELECT head FROM fleet_pending_directory").get(),
+  ).toEqual({ head: directoryDigest(removed.document) });
+  expect(() => f.enrollment.commit(f.pendingCommit!)).toThrow("cancelled");
+  expect(f.privateCalls).toBe(0);
+}, 20_000);
+
+it("switches pending-removal delivery to ordinary synchronization if enrollment commits between pages", async ({
+  onTestFinished,
+}) => {
+  const f = await fixture(true),
+    wire = wireDirectory(f.host),
+    removed = queuePendingRemoval(f);
+  onTestFinished(() => wire.close());
+  const worker = new FleetDistribution(
+    f.a.db,
+    f.a.authority,
+    f.a.owner,
+    secrets,
+    wire.transport,
+  );
+  onTestFinished(() => worker.close());
+  await worker.flush();
+  expect(f.b.authority.status(f.b.owner).state).toBe("standalone");
+  f.enrollment.commit(f.pendingCommit!);
+  expect(f.b.authority.status(f.b.owner).state).toBe("replica");
+  for (let i = 0; i < 5; i++) await worker.flush();
+  expect(f.b.authority.status(f.b.owner)).toMatchObject({
+    state: "removed",
+    head: directoryDigest(removed.document),
+  });
+  expect(f.a.db.prepare("SELECT state FROM fleet_distribution").get()).toEqual({
+    state: "acked",
+  });
+  expect(
+    f.b.db
+      .prepare("SELECT count(*) n FROM fleet_peer_grants WHERE active=1")
+      .get(),
+  ).toEqual({ n: 0 });
+  expect(f.privateCalls).toBe(0);
+}, 20_000);
+
+it("distributes the durable outbox through default HTTP transport and acknowledges a removal learned elsewhere", async ({
+  onTestFinished,
+}) => {
+  const f = await fixture(),
+    wire = wireDirectory(f.host);
+  onTestFinished(() => wire.close());
+  const previous = f.a.authority.directory(f.a.owner)!;
+  const next = f.a.authority.revise(f.a.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(previous.document),
+    members: previous.document.members,
+  });
+  const enqueue = (digest: string) =>
+    f.a.db
+      .prepare(
+        "INSERT INTO fleet_distribution(owner_id,peer_id,directory_digest,state) VALUES(?,?,?,'pending')",
+      )
+      .run(f.a.owner, f.b.authority.identity.machineId, digest);
+  enqueue(directoryDigest(next.document));
+  const worker = new FleetDistribution(
+    f.a.db,
+    f.a.authority,
+    f.a.owner,
+    secrets,
+    wire.transport,
+  );
+  onTestFinished(() => worker.close());
+  await worker.flush();
+  expect(f.b.authority.status(f.b.owner).head).toBe(
+    directoryDigest(next.document),
+  );
+  expect(f.a.db.prepare("SELECT state FROM fleet_distribution").get()).toEqual({
+    state: "acked",
+  });
+  const removed = f.a.authority.revise(f.a.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(next.document),
+    members: next.document.members.filter(
+      (member) => member.machineId !== f.b.authority.identity.machineId,
+    ),
+  });
+  f.b.authority.accept(f.b.owner, removed);
+  enqueue(directoryDigest(removed.document));
+  await worker.flush();
+  expect(
+    f.a.db
+      .prepare("SELECT state FROM fleet_distribution WHERE directory_digest=?")
+      .get(directoryDigest(removed.document)),
+  ).toEqual({ state: "acked" });
+  expect(f.b.authority.status(f.b.owner).state).toBe("removed");
+  expect(f.privateCalls).toBe(0);
+});
 
 it("lets a removed former controller pull only its removal proof through production HTTP", async ({
   onTestFinished,
