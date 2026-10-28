@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
+import { until } from "./helpers";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-antigravity-native-"));
 process.env.LOOP_DATA_DIR = dir;
@@ -214,5 +215,72 @@ it.each(["disconnect", "WAITING"])(
       before + 1,
     );
     delete process.env.LOOP_TEST_AGY_MODE;
+  },
+);
+
+it.each(["cancel", "CANCELED", "INTERRUPTED"])(
+  "an immediate explicit follow-up after %s resumes a new process without replaying the interrupted task",
+  async (mode) => {
+    process.env.LOOP_TEST_AGY_MODE = mode === "cancel" ? "hang" : mode;
+    const { run } = task("agy-after-" + mode.toLowerCase());
+    const claimed = claim(
+      "antigravity-fixture",
+      (candidate) => candidate.id === run.id,
+    )!;
+    const before = requests().filter((r) => r.event === "user").length;
+    const execution = sessions.execute(claimed);
+    await until(
+      () => requests().filter((r) => r.event === "user").length === before + 1,
+    );
+    if (mode === "cancel") await sessions.interrupt(run.id);
+    expect(await execution).toBe(false);
+    expect(ownedRun(run.id, OWNER).state).toBe("interrupted");
+    const original = db
+      .prepare(
+        "SELECT generation,native_id FROM companion_sessions WHERE conversation_id=?",
+      )
+      .get(run.conversation_id) as { generation: string; native_id: string };
+    const receipt = db
+      .prepare("SELECT * FROM native_dispatch WHERE run_id=?")
+      .get(run.id);
+    expect(() =>
+      sessions.current(run.conversation_id!, original.generation, false),
+    ).toThrow(/not active/);
+    delete process.env.LOOP_TEST_AGY_MODE;
+    const next = enqueue(OWNER, "Explicit follow-up", run.id + "-follow-up", {
+      conversation: run.conversation_id!,
+      agent: run.agent_id!,
+      payload: run.payload,
+    });
+    expect(
+      await sessions.execute(
+        claim("antigravity-fixture", (candidate) => candidate.id === next.id)!,
+      ),
+    ).toBe(true);
+    const resumed = db
+      .prepare(
+        "SELECT generation,native_id FROM companion_sessions WHERE conversation_id=?",
+      )
+      .get(run.conversation_id) as { generation: string; native_id: string };
+    expect(resumed.native_id).toBe(original.native_id);
+    expect(resumed.generation).not.toBe(original.generation);
+    expect(
+      requests()
+        .filter((r) => r.event === "user")
+        .slice(before)
+        .map((r) => r.message.content),
+    ).toEqual([
+      "Saved fixture instructions\n\nExplicit task",
+      "Saved fixture instructions\n\nExplicit follow-up",
+    ]);
+    expect(
+      db.prepare("SELECT * FROM native_dispatch WHERE run_id=?").get(run.id),
+    ).toEqual(receipt);
+    await expect(sessions.execute(run)).rejects.toThrow(
+      /already dispatched|uncertain outcome/,
+    );
+    await sessions.dispose(
+      sessions.current(run.conversation_id!, resumed.generation, false),
+    );
   },
 );

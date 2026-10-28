@@ -40,6 +40,10 @@ export class Antigravity implements Adapter {
   private ready?: { resolve(): void; reject(error: Error): void };
   private billing: Billing;
 
+  get reusable() {
+    return !this.stopped;
+  }
+
   constructor(
     private options: Options,
     private emit: Emit,

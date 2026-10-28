@@ -163,7 +163,8 @@ export class NativeProjector {
     if (!run) {
       if (
         event.type === "status" &&
-        ["failed", "stopped"].includes(event.status)
+        (["failed", "stopped"].includes(event.status) ||
+          live.adapter.reusable === false)
       )
         void this.context.dispose(live);
       return;
@@ -243,18 +244,18 @@ export class NativeProjector {
         event.status,
         run.id,
       );
+      const unavailable =
+        (event.status === "failed" && !event.recoverable) ||
+        live.adapter.reusable === false;
       db.prepare(
         "UPDATE companion_sessions SET state=?,updated_at=? WHERE conversation_id=?",
       ).run(
-        event.status === "failed" && !event.recoverable
-          ? "unavailable"
-          : "idle",
+        unavailable ? "unavailable" : "idle",
         now(),
         live.binding.conversation_id,
       );
       live.finish?.(event.status);
-      if (event.status === "failed" && !event.recoverable)
-        void this.context.dispose(live);
+      if (unavailable) void this.context.dispose(live);
     }
     if (event.type === "error")
       db.prepare("UPDATE runs SET error=? WHERE id=?").run(

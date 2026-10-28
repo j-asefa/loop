@@ -49,6 +49,8 @@ export type Emit = (event: AdapterEvent) => void;
 export class NotDelivered extends Error {}
 export interface Adapter {
   capabilities: Capabilities;
+  /** False when the native process cannot accept another explicit turn. */
+  readonly reusable?: boolean;
   models?: ModelOption[];
   defaultModelOption?: ModelOption;
   commands?: NativeCommand[];
