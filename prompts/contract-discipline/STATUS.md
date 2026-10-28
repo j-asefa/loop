@@ -22,7 +22,7 @@ Update after every meaningful step. A fresh session must be able to resume from 
 | 9c1 shared OpenAPI projections | merged | contracts/09c1-openapi-projections | https://github.com/j-asefa/loop/pull/240 | 1 complete | 46e90c5f71203a703bd84f3a08dd8ba37b622ebd | Merged2026-10-28 as6e55cdb212f8dd337e0817b5811abc893070d194 after one complete clean review. No accepted P2. |
 | 9c2 memory and workflows | merged | contracts/09c2-memory-workflows | https://github.com/j-asefa/loop/pull/242 | 1 complete | 4ef6e42af6f765688cf0fa61eec25ad4165c0274 | Merged2026-10-28 as7b64770e617d5d95414ac69552088fad22f8bc4e after one complete clean review. No accepted P2. Server legacy0/client24. |
 | 10 events in the registry | merged | contracts/10-events-registry | https://github.com/j-asefa/loop/pull/243 | 1 complete | 2f7d4302416513a79e8ca5677e4a1ab864ec1705 | Merged2026-10-28 as19640a18480062f15a30e91d832f76eee16a5fed after one complete review. One accepted P2 query-documentation limitation; lead found no confirmed runtime bug. |
-| 11 remove the legacy path | ready to merge | contracts/11-remove-legacy | https://github.com/j-asefa/loop/pull/244 | 1 complete | 3e5615a18d3b871dae5073b8b4eb2f387ecc3952 | Complete clean review; no accepted P2. Confirm mergeability, squash merge with expected head, then record the merge and finish the ledger closeout. |
+| 11 remove the legacy path | merged | contracts/11-remove-legacy | https://github.com/j-asefa/loop/pull/244 | 1 complete | 3e5615a18d3b871dae5073b8b4eb2f387ecc3952 | Merged 2026-10-28 as d1a6677f4d1b8a88b9db44c097c95e931f78ee16 after one complete clean review. No accepted P2. Both legacy inventories removed; every deferred migration finished. |
 
 States: todo, in progress, checks green, review requested, fixing findings, ready to merge, merged, blocked.
 
@@ -1674,3 +1674,63 @@ Review `6357f057-1182-43e7-bb6e-babb80f932cd`; head `3e5615a18d3b871dae5073b8b4e
 Reviewers traced source binding, abort/retry modes, late Undo destinations, Cards lifecycle, device authentication, Origin/CSRF, safe response projection and host-local revocation. The malformed scalar/array root tightening is retained as the explicit compatibility decision above; no affected valid caller was found, and the null-root HTTP assertion does not verify the scalar/array distinction. Static review does not validate tests or all ledger claims. Coverage gaps remain: self-revocation’s client session transition, every linked-source UI action after navigation, older linked servers, trust-store internals, omitted credential files, live providers/devices/tunnels/Docker and concurrency/load. No claim that these gaps were tested or fixed. Full reports: `/tmp/contracts-11-review1.json`.
 
 Only STATUS.md commits follow the reviewed head, as allowed by the gate. Check/build/92 focused tests passed on the clean pre-open rebase; original full baseline/browser results remain attributed to their actual heads under the user’s baseline-rerun waiver. Fetch main, confirm definite mergeability and expected remote head, then squash merge pinned to the ledger-only head.
+
+### PR11 merged and bundle closeout started (2026-10-28)
+
+PR11 #244 squash-merged as `d1a6677f4d1b8a88b9db44c097c95e931f78ee16`, pinned to `68ff560ccfcbc8d29711e187032aae1dc8c9a01a`. The complete review covers `3e5615a18d3b871dae5073b8b4eb2f387ecc3952`; only STATUS.md commits followed. All 19 implementation rows are merged. No protected reactive bundle file changed. Server and client legacy lists are deleted and all deferred client entries are finished.
+
+The closeout branch `contracts/11-ledger-closeout` starts from fresh origin/main at that merge. Only STATUS.md will change. A tree comparison to checked rebased source `8eb212dfc0013274e82ff70d1a429611434f4ea7` differs only in this ledger. Final main build and the process end-state `npm run test:all` run against this merged source; pre-open baseline comparisons and browser reruns remain waived as already recorded.
+
+### Bundle final verification and closeout (2026-10-28)
+
+All 19 implementation PRs are merged. Their PR links, full merge SHAs, review counts and reviewed heads are in the table at the top of this ledger. Both legacy inventories have been removed, all deferred client migrations are finished, and no bundle row is blocked. The closeout changes only this ledger.
+
+Final verification used merged main `d1a6677f4d1b8a88b9db44c097c95e931f78ee16`. All production and test files match the rebased PR11 source; only this ledger differs. Commands ran sequentially with `TMPDIR=/var/tmp` and `NODE_OPTIONS=--max-old-space-size=512`, sanitized application `LOOP_*` settings, and at least 2048 MiB estimated headroom before each phase. The literal test:all command used the repository defaults (two Vitest workers, native file concurrency one).
+
+| Command | Completed UTC | Exit |
+| --- | --- | --- |
+| `npm run build` | 2026-10-28T12:46:23.377677+00:00 | 0 |
+| `npm run test:all` | 2026-10-28T13:04:00.263404+00:00 | 0 |
+
+Observed final test output:
+
+```text
+Test Files  254 passed (254)
+Tests  2231 passed (2231)
+Duration  570.52s (tests 84%, import 15%, transform 1%)
+ℹ tests 317
+ℹ pass 317
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 485206.46209
+```
+
+Logs `/tmp/contracts-final-main-build.log`, `/tmp/contracts-final-main-test-all.log`; command/head/timestamp/exit metadata `/tmp/contracts-final-main-gates.json`. This final integrated run is separate from the pre-open baseline-rerun waiver and the already completed browser evidence. No live-provider, real tunnel, Docker or physical-device validation is claimed.
+
+The only accepted P2 in the bundle is PR10’s machine-readable socket query completeness limitation, documented under Found, not fixed. That section also preserves the unexplained WebKit pagination observation and source-discovery scheduling/coalescing observations for owner triage. PR2’s zero-byte JSON P3 limitation remains recorded. User-directed Cards operationId changes, public OAuth user_code handling, malformed paired-host input tightening, review-capture splits and the three explicitly reviewed PR9b2 one-line fixes are recorded under Decisions and their PRs. No unresolved P0, P1 or security finding remains in the completed review gates.
+
+Closeout convention gate (2026-10-28): `npm run check` on `bdcf180f308394cd50d86fa8df4ccc488f1f4315` exited 0 at `2026-10-28T13:08:00.036789+00:00`. Only this ledger differs from the fully verified merged main, so full suites and browser smokes are not repeated for the documentation change. Observed output:
+
+```text
+check: format
+check: format passed in 22.9 s
+check: typecheck
+check: typecheck passed in 12.6 s
+check: openapi
+check: openapi passed in 0.8 s
+check: contracts
+check: contracts passed in 55.0 s
+check: all passed
+```
+
+Ledger-only closeout #245 review 1 requested-head record before tool call, 2026-10-28: head `b7551d160d2e8f06eb4d53537b3479eaa83cbb3d`, captured base `d1a6677f4d1b8a88b9db44c097c95e931f78ee16`, preflight fingerprint `f9114c2fa7c1beb3101aa9687669a93277c13188fdc10473784f5d2c4f858e78`. Capture: one changed path (STATUS.md), 1278 files, 7085 diff bytes, 13064264 context/before bytes, largest blob 510577 bytes, no changed-file omissions. Convention check passed on bdcf180f; full main build/test:all passed on d1a6677f; only ledger commits follow. Review is not yet complete.
+
+Closeout #245 review 1 returned `55ad2007-7720-4cf8-9310-11fa20e658f9`, queued. Poll this exact review ID without requesting duplicates.
+
+### Ledger closeout #245 review complete (2026-10-28)
+
+Review `55ad2007-7720-4cf8-9310-11fa20e658f9`; head `b7551d160d2e8f06eb4d53537b3479eaa83cbb3d`; captured base `d1a6677f4d1b8a88b9db44c097c95e931f78ee16`; fingerprint `f9114c2fa7c1beb3101aa9687669a93277c13188fdc10473784f5d2c4f858e78`. Lead conversation `49eb290b-2864-4b19-a65c-d09afb3815f9` / run `adfd1fbc-786a-4f80-8eb1-262a7020c1c3` and all three reviewer runs `4d1b4bea-8068-4acb-a65e-e3fc05a624a8`, `64aea5a2-2f13-406f-8fc7-b61919502bf5`, `b97e1984-db12-4347-b001-96c78340d459` completed with null errors and untruncated reports. All reports were read. No confirmed P0/P1/P2 or security findings; no additional accepted P2. Only STATUS.md changes, and only ledger records follow the reviewed head.
+
+The reviewers inspected the changed ledger content; the security reviewer read the changed hunks and opening context, not the unchanged middle. Their static snapshots do not independently verify remote history, prior reviews, local logs, tree comparisons or command results. Those observations are recorded by the implementation agent with their source hashes and retained artifact paths; no independent test execution by the review team is claimed. Full reports: `/tmp/contracts-closeout-review1.json`. The complete review gate holds for the ledger-only closeout, with all implementation rows already merged and the final main build/test:all plus closeout convention check passed.
