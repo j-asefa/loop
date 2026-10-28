@@ -106,12 +106,35 @@ test("native provider settings save independent keys, preserve billing, refresh 
         .status,
       404,
     );
-    // An active run blocks a native credential mutation before dispatch.
-    db.prepare(
-      "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('provider-active','local-workspace','','running','provider-active',0,0)",
-    ).run();
-    assert.equal((await request(base("pi") + "/key", key("pi"))).status, 409);
+    // An active run on the same harness blocks a native credential mutation
+    // before dispatch. Runs on other harnesses stay active throughout the
+    // credential changes below without blocking them.
+    for (const harness of ["pi", "codex"])
+      db.prepare(
+        "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'local-workspace',?,?,'','connected','[]',?,0)",
+      ).run(
+        "provider-run-" + harness,
+        harness,
+        harness,
+        JSON.stringify({ loopHarness: harness }),
+      );
+    const activeRun = db.prepare(
+      "INSERT INTO runs(id,owner_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,'local-workspace','','running',?,?,0,0)",
+    );
+    activeRun.run(
+      "provider-active",
+      "provider-active",
+      JSON.stringify({ connectionId: "provider-run-pi" }),
+    );
+    const refused = await request(base("pi") + "/key", key("pi"));
+    assert.equal(refused.status, 409);
+    assert.match(JSON.stringify(await refused.json()), /active Pi runs/);
     db.prepare("DELETE FROM runs WHERE id='provider-active'").run();
+    activeRun.run(
+      "provider-other-harness",
+      "provider-other-harness",
+      JSON.stringify({ connectionId: "provider-run-codex" }),
+    );
     assert.equal(
       (
         await request(base("pi") + "/key", {
@@ -136,7 +159,10 @@ test("native provider settings save independent keys, preserve billing, refresh 
     );
     for (const name of ["pi", "opencode"]) {
       const view = await api(base(name) + "?projectId=" + projectId);
-      assert.equal(view.providers.length, 3);
+      assert.deepEqual(
+        view.providers.map((p: { name: string }) => p.name),
+        ["Anthropic", "OpenAI", "OpenRouter"],
+      );
       assert.equal(view.enabled, false);
       assert.deepEqual(view.models, []);
     }
@@ -472,6 +498,7 @@ test("native provider settings save independent keys, preserve billing, refresh 
       await readFile(join(dir, "provider-audit"), "utf8"),
       /UNEXPECTED/,
     );
+    db.prepare("DELETE FROM runs WHERE id='provider-other-harness'").run();
     for (const table of [
       "connections",
       "harnesses",

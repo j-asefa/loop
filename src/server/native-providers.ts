@@ -52,13 +52,18 @@ export function requireProviderIdle(name: string) {
   if (
     db
       .prepare(
-        "SELECT 1 FROM runs WHERE owner_id=? AND state IN ('running','pausing','awaiting_approval') LIMIT 1",
+        // Runs on other harnesses do not use these credentials, and dispatch
+        // is already held per harness by the provider-change reservation.
+        `SELECT 1 FROM runs r JOIN connections c
+          ON c.id=json_extract(r.payload,'$.connectionId') AND c.owner_id=r.owner_id
+          WHERE r.owner_id=? AND r.state IN ('running','pausing','awaiting_approval')
+          AND json_extract(c.metadata,'$.loopHarness')=? LIMIT 1`,
       )
-      .get(OWNER)
+      .get(OWNER, name)
   )
     throw new ExecutionRefused(
       409,
-      "Finish or cancel active runs before changing provider credentials.",
+      `Finish or cancel active ${name === "pi" ? "Pi" : "OpenCode"} runs before changing provider credentials.`,
     );
 }
 export function invalidateProviderConnection(name: string) {
@@ -103,7 +108,10 @@ export async function providerCatalog(
       const providers = z
         .array(NativeProvider)
         .max(512)
-        .parse(await driver.providers());
+        .parse(await driver.providers())
+        .sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+        );
       let models = NativeProviderView.shape.models.parse(
         (await driver.models?.()) || [],
       );
