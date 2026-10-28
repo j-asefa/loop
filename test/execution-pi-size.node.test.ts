@@ -210,6 +210,25 @@ test(
         );
       },
     );
+    await t.test(
+      "the new-chat model catalog returns every native model",
+      async () => {
+        process.env.LOOP_TEST_PI_MODEL_COUNT = "354";
+        try {
+          const { models } = await api("/connections/native-pi/models");
+          assert.equal(models.length, 357);
+          assert(
+            models.some(
+              (model: { id: string }) =>
+                model.id === "openai-codex/custom-" + "x".repeat(250),
+            ),
+          );
+        } finally {
+          process.env.LOOP_TEST_PI_MODEL_COUNT = "150";
+          await api("/connections/native-pi/models");
+        }
+      },
+    );
     const run = await api("/runs", {
       agentId: agent.id,
       input: "fixture",

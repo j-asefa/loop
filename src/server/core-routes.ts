@@ -151,12 +151,16 @@ routes.on(workspaceApi.connectionModels, async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner);
   if (c.status !== "connected")
     throw new Problem(409, "Reconnect this provider first");
-  let models;
   if (isNativeConnection(c)) {
-    const harness = c.metadata.loopHarness;
+    // The refresh stores the harness's complete validated catalog; native
+    // providers such as Pi with OpenRouter report more models and longer ids
+    // than the API-key bounds below allow.
     await executionRequest("runtime.refresh", { connectionId: c.id }, { owner: res.locals.owner });
-    models = ownedConnection(c.id, res.locals.owner).models;
-  } else if (isSubscription(c)) {
+    res.json({ models: ownedConnection(c.id, res.locals.owner).models });
+    return;
+  }
+  let models;
+  if (isSubscription(c)) {
     const result = await runtimeAction(c, "status");
     if (!result.authenticated)
       throw new Problem(409, "Reconnect this provider first");
