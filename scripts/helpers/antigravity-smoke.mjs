@@ -5,6 +5,8 @@ import { openSettings } from "./browser-ui.mjs";
 export async function antigravitySmoke(page, fixture, _engine, capture) {
   let enabled = false;
   let enableRequest;
+  let failEnable = true;
+  const enableCommands = [];
   const signIns = [];
   await page.route("**/api/capabilities", async (route) => {
     const response = await route.fetch();
@@ -70,6 +72,15 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
   );
   await page.route("**/api/workspace/runtimes/antigravity/enable", (route) => {
     enableRequest = route.request().postDataJSON();
+    enableCommands.push(enableRequest.commandId);
+    if (failEnable)
+      return route.fulfill({
+        status: 422,
+        json: {
+          error:
+            "Antigravity is not signed in on the execution computer. Run agy there to sign in with Google, then enable Antigravity again. No prompt was sent.",
+        },
+      });
     enabled = true;
     return route.fulfill({
       json: {
@@ -111,6 +122,24 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
   await sheet
     .getByRole("button", { name: "Enable Antigravity", exact: true })
     .click();
+  await expect(sheet.getByRole("alert")).toContainText(
+    "Antigravity is not signed in",
+  );
+  await expect(
+    sheet.getByText("Your sign-in is saved.", { exact: false }),
+  ).toHaveCount(0);
+  await capture("antigravity-sign-in-required");
+  await sheet
+    .getByRole("button", { name: "Check runtime status", exact: true })
+    .click();
+  await expect(
+    sheet.getByRole("button", { name: "Start new verification", exact: true }),
+  ).toBeEnabled();
+  expect(enableCommands).toHaveLength(1);
+  failEnable = false;
+  await sheet
+    .getByRole("button", { name: "Start new verification", exact: true })
+    .click();
   await expect(
     sheet.getByRole("button", { name: "Refresh Antigravity", exact: true }),
   ).toBeEnabled();
@@ -119,6 +148,8 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
     billing: "existing",
   });
   expect(enableRequest.commandId).toMatch(/^[a-f0-9-]{36}$/);
+  expect(enableCommands).toHaveLength(2);
+  expect(enableCommands[1]).not.toBe(enableCommands[0]);
   expect(signIns).toEqual([]);
   await capture("antigravity-enabled");
 }

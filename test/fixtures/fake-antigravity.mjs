@@ -14,7 +14,11 @@ if (args[0] === "--version") {
   process.exit(0);
 }
 if (args[0] === "models") {
-  if (mode === "auth-failure") {
+  if (mode === "auth-failure" || mode === "signed-out") {
+    if (mode === "signed-out")
+      console.error(
+        "Error: Please sign in to view available models. Launch the CLI without arguments to sign in.",
+      );
     console.error("private-credential-fixture");
     process.exit(1);
   }

@@ -392,7 +392,7 @@ export function RuntimeSetup({
                   <p>
                     {enableError.inspected
                       ? "Runtime status is up to date. Start a new verification if needed."
-                      : "Your sign-in is saved. Check runtime status before starting a new verification."}
+                      : "Check runtime status before starting a new verification."}
                   </p>
                   <button
                     type="button"

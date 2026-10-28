@@ -37,6 +37,41 @@ const requests = () =>
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
+
+it.each([
+  ["signed-out", "native_auth_missing", "Antigravity is not signed in"],
+  ["auth-failure", "antigravity_setup_failed", "Run agy"],
+])(
+  "returns safe, actionable %s guidance from runtime enable without registering or sending a prompt",
+  async (mode, code, message) => {
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    try {
+      await expect(
+        sessions.enable({
+          harness: "antigravity",
+          executable: resolve("test/fixtures/fake-antigravity.mjs"),
+          version: "1.4.9",
+          project: dir,
+          billing: "existing",
+        }),
+      ).rejects.toMatchObject({
+        status: 422,
+        message: expect.stringContaining(message),
+        diagnostic: {
+          phase: "native startup",
+          code,
+          promptSent: false,
+        },
+      });
+      expect(() => ownedConnection("native-antigravity", OWNER)).toThrow();
+      expect(
+        requests().every((request) => request.args?.[0] === "models"),
+      ).toBe(true);
+    } finally {
+      delete process.env.LOOP_TEST_AGY_MODE;
+    }
+  },
+);
 function task(key: string) {
   process.env.LOOP_TEST_AGY_SESSION_ID = key;
   const agent = createAgent(OWNER, {

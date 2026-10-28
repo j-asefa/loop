@@ -6,6 +6,7 @@ import type { Billing } from "../protocol.js";
 import type { Adapter, Emit, Options, NativeCommand } from "./types.js";
 import { directActivityEmitter } from "./direct-activities.js";
 import { tokenCount } from "./usage.js";
+import { NativeSetupError } from "./setup-error.js";
 
 const exec = promisify(execFile);
 const SETUP =
@@ -67,6 +68,27 @@ export class Antigravity implements Adapter {
         cwd: this.options.project,
         timeout: 20000,
         maxBuffer: 256000,
+      }).catch((error: unknown) => {
+        // Recognize the CLI's explicit sign-in rejection without exposing
+        // native stderr, account details or credentials to the browser.
+        if (
+          error &&
+          typeof error === "object" &&
+          "stderr" in error &&
+          typeof error.stderr === "string" &&
+          error.stderr
+            .split(/\r?\n/)
+            .some((line) =>
+              /^Error: Please sign in to view available models\. Launch the CLI without arguments to sign in\.$/.test(
+                line.trim(),
+              ),
+            )
+        )
+          throw new NativeSetupError(
+            "native_auth_missing",
+            "Antigravity is not signed in on the execution computer. Run agy there to sign in with Google, then enable Antigravity again. No prompt was sent.",
+          );
+        throw error;
       });
       if (this.stopped) throw new Error(SETUP);
       // agy models documents a slug followed by its display name. Never
@@ -115,9 +137,13 @@ export class Antigravity implements Adapter {
       }
       if (this.stopped) throw new Error(SETUP);
       return this.billing;
-    } catch {
+    } catch (error) {
       await this.dispose();
-      throw new Error(SETUP);
+      if (error instanceof NativeSetupError) throw error;
+      throw new NativeSetupError(
+        "antigravity_setup_failed",
+        `${SETUP} No prompt was sent.`,
+      );
     }
   }
 
