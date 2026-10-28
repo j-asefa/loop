@@ -38,6 +38,8 @@ export type Live = {
   flush?: NodeJS.Timeout;
   idle?: NodeJS.Timeout;
   closed: boolean;
+  /** Replacement must wait until the previous native process has exited. */
+  disposal?: Promise<void>;
   cancelling: boolean;
   waiting: boolean;
   bridgeWaiting: number;

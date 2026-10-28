@@ -7,7 +7,7 @@ const log = (value) => {
   if (process.env.LOOP_TEST_AGY_LOG)
     appendFileSync(process.env.LOOP_TEST_AGY_LOG, JSON.stringify(value) + "\n");
 };
-log({ args });
+log({ args, pid: process.pid });
 const mode = process.env.LOOP_TEST_AGY_MODE;
 if (args[0] === "--version") {
   console.log("1.4.9");
@@ -35,6 +35,18 @@ const conversation =
   resume >= 0
     ? args[resume + 1]
     : process.env.LOOP_TEST_AGY_SESSION_ID || "agy-fixture-session";
+if (process.env.LOOP_TEST_AGY_SLOW_STOP) {
+  setInterval(() => {}, 1000);
+  let stopping = false;
+  process.on("SIGTERM", () => {
+    if (stopping) return;
+    stopping = true;
+    setTimeout(() => {
+      log({ event: "fixture-exit", pid: process.pid });
+      process.exit(0);
+    }, 1500);
+  });
+}
 send({
   event: "init",
   conversation_id: mode === "wrong-resume" ? "other-session" : conversation,

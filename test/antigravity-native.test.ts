@@ -27,6 +27,7 @@ afterAll(async () => {
     "LOOP_TEST_AGY_LOG",
     "LOOP_TEST_AGY_MODE",
     "LOOP_TEST_AGY_SESSION_ID",
+    "LOOP_TEST_AGY_SLOW_STOP",
   ])
     delete process.env[name];
   rmSync(dir, { recursive: true, force: true });
@@ -218,10 +219,11 @@ it.each(["disconnect", "WAITING"])(
   },
 );
 
-it.each(["cancel", "CANCELED", "INTERRUPTED"])(
-  "an immediate explicit follow-up after %s resumes a new process without replaying the interrupted task",
+it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
+  "an immediate explicit follow-up after %s waits for shutdown and resumes without replaying the task",
   async (mode) => {
     process.env.LOOP_TEST_AGY_MODE = mode === "cancel" ? "hang" : mode;
+    process.env.LOOP_TEST_AGY_SLOW_STOP = "1";
     const { run } = task("agy-after-" + mode.toLowerCase());
     const claimed = claim(
       "antigravity-fixture",
@@ -234,7 +236,12 @@ it.each(["cancel", "CANCELED", "INTERRUPTED"])(
     );
     if (mode === "cancel") await sessions.interrupt(run.id);
     expect(await execution).toBe(false);
-    expect(ownedRun(run.id, OWNER).state).toBe("interrupted");
+    expect(ownedRun(run.id, OWNER).state).toBe(
+      mode === "WAITING" ? "failed" : "interrupted",
+    );
+    const originalPid = requests()
+      .filter((r) => r.args?.includes("stream-json"))
+      .at(-1).pid;
     const original = db
       .prepare(
         "SELECT generation,native_id FROM companion_sessions WHERE conversation_id=?",
@@ -247,6 +254,7 @@ it.each(["cancel", "CANCELED", "INTERRUPTED"])(
       sessions.current(run.conversation_id!, original.generation, false),
     ).toThrow(/not active/);
     delete process.env.LOOP_TEST_AGY_MODE;
+    delete process.env.LOOP_TEST_AGY_SLOW_STOP;
     const next = enqueue(OWNER, "Explicit follow-up", run.id + "-follow-up", {
       conversation: run.conversation_id!,
       agent: run.agent_id!,
@@ -257,6 +265,14 @@ it.each(["cancel", "CANCELED", "INTERRUPTED"])(
         claim("antigravity-fixture", (candidate) => candidate.id === next.id)!,
       ),
     ).toBe(true);
+    const log = requests();
+    const exited = log.findIndex(
+      (r) => r.event === "fixture-exit" && r.pid === originalPid,
+    );
+    const started = log.findIndex((r) => r.args?.includes(run.conversation_id));
+    expect(exited).toBeGreaterThan(-1);
+    expect(started).toBeGreaterThan(exited);
+    expect(() => process.kill(originalPid, 0)).toThrow();
     const resumed = db
       .prepare(
         "SELECT generation,native_id FROM companion_sessions WHERE conversation_id=?",

@@ -51,9 +51,8 @@ import { NativeDecisions, finishDecisions } from "./decisions.js";
 
 /**
  * The terminal transition captured the checkout at once, but a cancelled or
- * failed harness process may keep writing until it is gone: disposal sends
- * SIGTERM and SIGKILL two seconds later without waiting. Observe the
- * checkout again once that deadline has passed.
+ * failed harness process may keep writing during shutdown. Observe the
+ * checkout again after the usual termination deadline has passed.
  */
 const STOP_DEADLINE_MS = 5000;
 function recaptureAfterStop(run: Run) {
@@ -345,6 +344,12 @@ export class NativeSessions {
     const connection = ownedConnection(snapshot.connectionId, run.owner_id);
     const harness = connection.metadata.loopHarness as Harness;
     const registration = this.registration(harness);
+    if (current?.closed) {
+      await this.dispose(current);
+      // Re-read the live session and binding after teardown; another caller
+      // may already have started the next generation while we were waiting.
+      return this.session(run);
+    }
     let binding = db
       .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
       .get(conversation) as Binding | undefined;
@@ -789,8 +794,8 @@ export class NativeSessions {
       throw new Problem(409, "Native tool session is not active.");
     return live;
   }
-  async dispose(live: Live) {
-    if (live.closed) return;
+  dispose(live: Live): Promise<void> {
+    if (live.disposal) return live.disposal;
     this.projectOutput(live, true);
     live.closed = true;
     clearTimeout(live.flush);
@@ -801,10 +806,13 @@ export class NativeSessions {
       "conversation_id=? AND generation=? AND state='pending'",
       [live.binding.conversation_id, live.generation],
     );
-    await this.revokeTools?.(live.binding.conversation_id, live.generation);
-    await live.adapter.dispose();
-    if (this.live.get(live.binding.conversation_id) === live)
-      this.live.delete(live.binding.conversation_id);
+    live.disposal = (async () => {
+      await this.revokeTools?.(live.binding.conversation_id, live.generation);
+      await live.adapter.dispose();
+      if (this.live.get(live.binding.conversation_id) === live)
+        this.live.delete(live.binding.conversation_id);
+    })();
+    return live.disposal;
   }
   recover() {
     db.transaction(() => {
