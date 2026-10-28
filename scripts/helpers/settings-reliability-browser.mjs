@@ -84,6 +84,60 @@ export async function settingsReliabilityBrowser(
         drawer.getByRole("button", { name: /Runtime machines/ }),
       ).toHaveCount(0);
     await capture("settings-home");
+    // Exercise memory contracts through the real app and database. No response
+    // fixture substitutes for the note, its revision or the policy writes.
+    await drawer.getByRole("button", { name: /Shared memory/ }).click();
+    const memory = page.getByRole("dialog", {
+      name: "Shared memory",
+      exact: true,
+    });
+    const recall = memory.getByRole("checkbox", {
+      name: /Enable shared recall/,
+    });
+    await expect(recall).toBeChecked();
+    await recall.click();
+    await expect(recall).not.toBeChecked();
+    await recall.click();
+    await expect(recall).toBeChecked();
+    await memory
+      .getByRole("button", { name: "Pin a note", exact: true })
+      .click();
+    const title = "Contract memory " + Date.now();
+    await memory.getByLabel("Title", { exact: true }).fill(title);
+    await memory
+      .getByLabel("Note", { exact: true })
+      .fill("Historical contract evidence");
+    await memory.getByRole("button", { name: "Pin note", exact: true }).click();
+    const source = memory.getByRole("button", { name: title, exact: true });
+    await expect(source).toContainText("Revision 1");
+    await source.click();
+    await expect(
+      memory.getByLabel("Note content", { exact: true }),
+    ).toHaveValue("Historical contract evidence");
+    await memory
+      .getByLabel("Note content", { exact: true })
+      .fill("Revised historical evidence");
+    await memory
+      .getByRole("button", { name: "Save note revision", exact: true })
+      .click();
+    await expect(source).toContainText("Revision 2");
+    await source.click();
+    await expect(
+      memory.getByLabel("Note content", { exact: true }),
+    ).toHaveValue("Revised historical evidence");
+    await memory
+      .getByRole("button", { name: "Close source", exact: true })
+      .click();
+    await capture("settings-memory-revision");
+    const row = memory.locator(".memory-source", { hasText: title });
+    await row
+      .getByRole("button", { name: "Remove from shared memory", exact: true })
+      .click();
+    await expect(source).toBeDisabled();
+    await expect(row).toContainText("Removed");
+    await expect(memory.getByRole("alert")).toHaveCount(0);
+    await closeSheets(page);
+    await openSettings(page);
     await drawer.getByRole("button", { name: /Tools & integrations/ }).click();
     const sheet = page.getByRole("dialog", {
       name: "Tools & integrations",

@@ -1,8 +1,8 @@
-import { registrar } from "./registrar.js";
+import { registrar, projectResponse } from "./registrar.js";
+import { workspaceApi } from "../shared/workspace-api.js";
 import type { QueryRow } from "./query-records.js";
 
 import { READABLE_MAIL_SQL } from "./mail-context.js";
-import { z } from "zod";
 import { db, id, now } from "./db.js";
 import {
   ownedArtifact,
@@ -383,7 +383,7 @@ export async function recallForRun(run: Run) {
 }
 const routes = registrar("memoryRoutes");
 export const memoryRoutes = routes.mount;
-routes.legacy("GET /conversations/:id/memory", (req, res) => {
+routes.on(workspaceApi.conversationMemory, (req, res) => {
   const conversation = ownedConversation(req.params.id, res.locals.owner);
   res.json({
     memoryIncluded: enabled(
@@ -393,35 +393,35 @@ routes.legacy("GET /conversations/:id/memory", (req, res) => {
     ),
   });
 });
-routes.legacy("GET /memory", async (_req, res) => {
+routes.on(workspaceApi.memoryStatus, async (_req, res) => {
   const owner = res.locals.owner;
-  let readiness: any = { ready: false, mode: "lexical-degraded" };
+  let readiness: unknown = { ready: false, mode: "lexical-degraded" };
   try {
     readiness = await memoryIndex.request("/health");
   } catch {}
-  res.json({
-    readiness,
-    backlog: (
-      db
+  res.json(
+    projectResponse(workspaceApi.memoryStatus, {
+      readiness,
+      backlog: (
+        db
+          .prepare(
+            "SELECT count(*) n FROM memory_outbox o JOIN memory_sources s ON s.id=o.source_id WHERE s.owner_id=?",
+          )
+          .get(owner) as { n: number }
+      ).n,
+      policies: db
+        .prepare("SELECT scope,enabled FROM memory_policy WHERE owner_id=?")
+        .all(owner),
+      sources: db
         .prepare(
-          "SELECT count(*) n FROM memory_outbox o JOIN memory_sources s ON s.id=o.source_id WHERE s.owner_id=?",
+          "SELECT id,title,kind,project_id,revision,eligible,tombstone,indexed_revision FROM memory_sources WHERE owner_id=? ORDER BY updated_at DESC LIMIT 100",
         )
-        .get(owner) as { n: number }
-    ).n,
-    policies: db
-      .prepare("SELECT scope,enabled FROM memory_policy WHERE owner_id=?")
-      .all(owner),
-    sources: db
-      .prepare(
-        "SELECT id,title,kind,project_id,revision,eligible,tombstone,indexed_revision FROM memory_sources WHERE owner_id=? ORDER BY updated_at DESC LIMIT 100",
-      )
-      .all(owner),
-  });
+        .all(owner),
+    }),
+  );
 });
-routes.legacy("PUT /memory/policy", (req, res) => {
-  const { scope, enabled: value } = z
-      .object({ scope: z.string().max(160), enabled: z.boolean() })
-      .parse(req.body),
+routes.on(workspaceApi.memoryPolicy, (req, res) => {
+  const { scope, enabled: value } = req.body,
     owner = res.locals.owner;
   const [kind, key] = scope.split(":");
   if (kind === "project") ownedFolder(key, owner);
@@ -454,13 +454,20 @@ routes.legacy("PUT /memory/policy", (req, res) => {
   }).immediate();
   res.json({ ok: true });
 });
-routes.legacy("GET /memory/sources/:id", (req, res) => {
+routes.on(workspaceApi.memorySource, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   if (s.kind === "note" && !s.tombstone)
-    return res.json({ ...s, truncated: false });
-  res.json(readMemory(res.locals.owner, req.params.id));
+    return res.json(
+      projectResponse(workspaceApi.memorySource, { ...s, truncated: false }),
+    );
+  res.json(
+    projectResponse(
+      workspaceApi.memorySource,
+      readMemory(res.locals.owner, req.params.id),
+    ),
+  );
 });
-routes.legacy("DELETE /memory/sources/:id", (req, res) => {
+routes.on(workspaceApi.memorySourceDelete, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   db.transaction(() => {
     db.prepare(
@@ -472,14 +479,8 @@ routes.legacy("DELETE /memory/sources/:id", (req, res) => {
   }).immediate();
   res.json({ ok: true, originalHistoryRetained: true });
 });
-routes.legacy("POST /memory/notes", (req, res) => {
-  const d = z
-    .object({
-      title: z.string().min(1).max(180),
-      content: z.string().min(1).max(20000),
-      projectId: z.string().nullable().default(null),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.memoryNoteCreate, (req, res) => {
+  const d = req.body;
   if (d.projectId) ownedFolder(d.projectId, res.locals.owner);
   const source = id();
   db.transaction(() =>
@@ -498,26 +499,23 @@ routes.legacy("POST /memory/notes", (req, res) => {
   ).immediate();
   res.json({ id: digest(res.locals.owner + ":note:" + source) });
 });
-routes.legacy("GET /runs/:id/memory", (req, res) => {
+routes.on(workspaceApi.runMemory, (req, res) => {
   ownedRun(req.params.id, res.locals.owner);
   res.json(
-    db
-      .prepare("SELECT * FROM memory_receipts WHERE run_id=?")
-      // Only runtimes that recall memory record a receipt; no receipt means
-      // nothing was looked up or added, not an empty search.
-      .get(req.params.id) || { mode: "not-used", sources: "[]", tokens: 0 },
+    projectResponse(
+      workspaceApi.runMemory,
+      db
+        .prepare("SELECT * FROM memory_receipts WHERE run_id=?")
+        // Only runtimes that recall memory record a receipt; no receipt means
+        // nothing was looked up or added, not an empty search.
+        .get(req.params.id) || { mode: "not-used", sources: "[]", tokens: 0 },
+    ),
   );
 });
 
-routes.legacy("PATCH /memory/notes/:id", (req, res) => {
+routes.on(workspaceApi.memoryNoteUpdate, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
-  const d = z
-    .object({
-      revision: z.number().int(),
-      title: z.string().min(1).max(180),
-      content: z.string().min(1).max(20000),
-    })
-    .parse(req.body);
+  const d = req.body;
   if (s.kind !== "note" || s.tombstone || s.revision !== d.revision)
     throw new Problem(409, "Note changed or is unavailable");
   db.transaction(() =>
@@ -525,15 +523,18 @@ routes.legacy("PATCH /memory/notes/:id", (req, res) => {
   ).immediate();
   res.json({ ok: true });
 });
-routes.legacy("GET /memory/notes/:id/versions", (req, res) => {
+routes.on(workspaceApi.memoryNoteVersions, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   if (s.kind !== "note" || s.tombstone)
     throw new Problem(404, "Note unavailable");
   res.json(
-    db
-      .prepare(
-        "SELECT revision,title,content,created_at FROM memory_note_versions WHERE source_id=? ORDER BY revision DESC",
-      )
-      .all(s.id),
+    projectResponse(
+      workspaceApi.memoryNoteVersions,
+      db
+        .prepare(
+          "SELECT revision,title,content,created_at FROM memory_note_versions WHERE source_id=? ORDER BY revision DESC",
+        )
+        .all(s.id),
+    ),
   );
 });

@@ -168,6 +168,8 @@ const paths = {};
 // push the document over the review capture's per-file limit. Cards retain
 // their published operation objects, including route-specific errors.
 const sharedErrorGroups = new Set([
+  "memory",
+  "workflows",
   "capabilities",
   "health",
   "build",

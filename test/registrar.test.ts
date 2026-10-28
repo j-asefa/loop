@@ -78,17 +78,10 @@ it("validates and projects through the registered HTTP handler", async () => {
   }
 });
 
-it("rejects duplicate legacy keys, including registrations in another registrar", () => {
-  const workspace = registrar("memoryRoutes");
-  workspace.legacy("POST /memory/notes", (_req, res) => res.json({ ok: true }));
-  expect(() => workspace.legacy("POST /memory/notes", () => {})).toThrow(
-    "already registered",
-  );
+it("rejects former legacy entries after their contracts migrate", () => {
+  const routes = registrar("memoryRoutes");
   expect(() =>
-    registrar("memoryRoutes").legacy("POST /memory/notes", () => {}),
-  ).toThrow("already registered");
-  expect(() =>
-    registrar("wrong-owner").legacy("GET /memory", () => {}),
+    Reflect.apply(routes.legacy, routes, ["GET /memory", () => {}]),
   ).toThrow("does not belong");
 });
 

@@ -1,7 +1,7 @@
 import { callRoute, readRoute } from "../src/client/workspace-api";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { apiInWorkspace, readInWorkspace, retryAfter } from "../src/client/api";
+import { readInWorkspace, retryAfter } from "../src/client/api";
 import { setViewOwner } from "../src/client/viewCache";
 
 const fetcher = vi.fn<typeof fetch>();
@@ -11,16 +11,33 @@ beforeEach(() => {
   setViewOwner(undefined);
   setViewOwner("alice");
   vi.stubGlobal("fetch", fetcher);
-  fetcher.mockReset().mockImplementation(async () => new Response("{}"));
+  fetcher
+    .mockReset()
+    .mockImplementation(async (path) =>
+      Response.json(
+        String(path).endsWith("/memory") ? { memoryIncluded: true } : {},
+      ),
+    );
 });
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-const read = (
-  source = "",
-  path: import("../src/client/legacy-paths").LegacyClientPath = "/conversations/thread/memory",
-) => apiInWorkspace(path, source);
+const read = (source = "") =>
+  callRoute(
+    workspaceApi.conversationMemory,
+    { params: { id: "thread" } },
+    source,
+  );
+const write = () =>
+  callRoute(
+    workspaceApi.workflowRun,
+    {
+      params: { id: "workflow" },
+      body: { version: 1, inputs: {}, idempotencyKey: "fixture-request" },
+    },
+    "",
+  );
 const limited = (header = "8") =>
   new Response("busy", { status: 429, headers: { "Retry-After": header } });
 
@@ -40,9 +57,7 @@ it("surfaces Retry-After and backs off every read for only the rate-limited sour
     status: 429,
     retryAfterMs: 5000,
   });
-  await expect(
-    read("docker:one", "/conversations/thread/memory"),
-  ).rejects.toMatchObject({ status: 429 });
+  await expect(read("docker:one")).rejects.toMatchObject({ status: 429 });
   expect(fetcher).toHaveBeenCalledTimes(1);
   await read("docker:two");
   await read();
@@ -58,9 +73,7 @@ it("accepts HTTP dates and never replays a rejected mutation", async () => {
   fetcher.mockResolvedValueOnce(
     limited(new Date(Date.now() + 60_000).toUTCString()),
   );
-  const error = await apiInWorkspace("/workflows", "", { input: "once" }).catch(
-    (error) => error,
-  );
+  const error = await write().catch((error) => error);
   expect(error).toMatchObject({ status: 429, retryAfterMs: 60_000 });
   expect(error.message).not.toMatch(/retrying automatically/i);
   await vi.advanceTimersByTimeAsync(59_999);
@@ -119,19 +132,16 @@ it("preserves actionable domain 429 messages without imposing a destination cool
         { status: 429, headers: { "content-type": "application/json" } },
       ),
     );
-    const error = await apiInWorkspace(
-      "/workflows",
-      "",
-      method === "POST" ? { input: "once" } : undefined,
-      method,
-    ).catch((error) => error);
+    const error = await (method === "POST" ? write() : read()).catch(
+      (error) => error,
+    );
     expect(error).toMatchObject({
       status: 429,
       message: "This workspace has 100 pending runs. Cancel some first.",
     });
     expect(error.retryAt).toBeUndefined();
     expect(retryAfter(error)).toBe(0);
-    await expect(read()).resolves.toEqual({});
+    await expect(read()).resolves.toEqual({ memoryIncluded: true });
   }
   expect(fetcher).toHaveBeenCalledTimes(4);
 });
@@ -195,7 +205,7 @@ it("delivers snapshot clocks for the actual source and drops responses from a pr
   target.addEventListener("loop-workspace-clock", (event) =>
     received.push((event as CustomEvent).detail),
   );
-  const response = (epoch: string, body: unknown = []) =>
+  const response = (epoch: string, body: unknown = { memoryIncluded: true }) =>
     Response.json(body, {
       headers: {
         "x-loop-change-epoch": epoch,
@@ -264,19 +274,18 @@ it.each(["<html>Gateway unavailable</html>", ""])(
   "retries non-JSON 503 reads (%s) without replaying a write",
   async (body) => {
     fetcher.mockResolvedValueOnce(new Response(body, { status: 503 }));
-    const pending = readInWorkspace(
-      "/conversations/completed/memory",
+    const pending = readRoute(
+      workspaceApi.conversationMemory,
+      { params: { id: "completed" } },
       "",
       new AbortController().signal,
     );
     const outcome = pending.catch((error) => error);
     await vi.advanceTimersByTimeAsync(2000);
-    expect(await outcome).toEqual({});
+    expect(await outcome).toEqual({ memoryIncluded: true });
     expect(fetcher).toHaveBeenCalledTimes(2);
     fetcher.mockResolvedValueOnce(new Response(body, { status: 503 }));
-    await expect(
-      apiInWorkspace("/workflows", "", { input: "once" }),
-    ).rejects.toMatchObject({ status: 503 });
+    await expect(write()).rejects.toMatchObject({ status: 503 });
     await vi.advanceTimersByTimeAsync(6000);
     expect(fetcher).toHaveBeenCalledTimes(3);
   },

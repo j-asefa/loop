@@ -3,18 +3,10 @@ type Path =
   | `/agents/${string}`
   | `/artifacts/${string}`
   | `/artifacts/${string}/move`
-  | `/conversations/${string}/memory`
   | `/me/profile`
-  | `/memory`
-  | `/memory/notes`
-  | `/memory/notes/${string}`
-  | `/memory/policy`
-  | `/memory/sources/${string}`
   | `/results/${string}`
   | `/routing/preview`
   | `/runs/${string}/activities`
-  | `/runs/${string}/memory`
-  | `/runs/${string}/steps`
   | `/runs/${string}/withdraw`
   | `/scheduled-sends`
   | `/scheduled-sends/${string}`
@@ -30,10 +22,6 @@ type Path =
   | `/v1/cards`
   | `/v1/cards/${string}`
   | `/v1/cards/changes`
-  | `/workflows`
-  | `/workflows/${string}`
-  | `/workflows/${string}/run`
-  | `/workflows/validate`
   | `/workspace/devices`
   | `/workspace/revoke`;
 export type LegacyClientPath = Path | `${Path}?${string}`;
