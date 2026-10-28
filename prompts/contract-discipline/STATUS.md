@@ -18,8 +18,9 @@ Update after every meaningful step. A fresh session must be able to resume from 
 | 9a2 application-level routes and auth transports | merged | contracts/09a2-app-level | https://github.com/j-asefa/loop/pull/217 | 1 | db4000f5436f8948a507b3b79476329503353b49 | Merged2026-10-27 as3613a0f1e2c3f82944cffd258cbca0bbf5676547 after one complete review pass. No accepted P2; excluded diagnostic claim and follow-up evidence below. |
 | 9b1 shared OpenAPI errors | merged | contracts/09b1-openapi | https://github.com/j-asefa/loop/pull/220 | 1 | 3d0336754e2bc0c118173e178b9961455b253ac3 | Merged2026-10-27 as8ac4aaba65233b7d7d4363925ac686554a83da94 after one complete clean review; no accepted P2. Required300KB capture split; MCP work continues in9b2. |
 | 9b1a further shared OpenAPI errors | merged | contracts/09b1a-openapi-errors | https://github.com/j-asefa/loop/pull/234 | 1 | 110da7ddc228a88b20636f1c949e0e6675e9942f | Merged2026-10-27 as6f72d775db427a2ebeae5b31e93da3c74e61e3d4 after one complete clean review. No accepted P2. Restores capture space for9b2. |
-| 9b2 MCP management, agent tools, MCP app artifacts | ready to merge | contracts/09b2-mcp-management | https://github.com/j-asefa/loop/pull/223 | 4 complete | f82bad464d733c6c2262f1289367abffc23d28d2 | Review4 complete, all three reviewers/lead and14 required checks passed. No confirmed findings or accepted P2. GitHub MERGEABLE/CLEAN on f82bad46; final ledger-only commit and pinned squash merge next. |
-| 9c memory and workflows | todo | | | 0 | | After PR 9b2 merges; read pr-09c-memory-workflows.md. Reconcile preserved memory work with that spec; server legacy list reaches zero. |
+| 9b2 MCP management, agent tools, MCP app artifacts | merged | contracts/09b2-mcp-management | https://github.com/j-asefa/loop/pull/223 | 4 complete | f82bad464d733c6c2262f1289367abffc23d28d2 | Merged2026-10-28 as129a98ef887e4029ac0cddfd58d8d05758c28caf after four complete review passes. No accepted P2. |
+| 9c1 shared OpenAPI projections | ready to merge | contracts/09c1-openapi-projections | https://github.com/j-asefa/loop/pull/240 | 1 complete | 46e90c5f71203a703bd84f3a08dd8ba37b622ebd | Complete clean review1; baseline carried forward under explicit user instruction after patch-identical rebase. GitHub MERGEABLE/CLEAN; commit ledger and squash merge with expected head. |
+| 9c2 memory and workflows | todo | contracts/09c-memory-workflows (preserved work) | | 0 | | After9c1 merges; resume pr-09c-memory-workflows.md. Reconcile /tmp/contracts-09c-route-wip with fresh main; remaining workflow regressions and full checks required. |
 | 10 events in the registry | todo | | | 0 | | After PR 9c merges |
 | 11 remove the legacy path | todo | | | 0 | | After PR 10 merges, both legacy lists empty apart from deferred protected-file entries, and reactive 12b3 merged. Reactive 12c must also have merged before editing protected mobile-return.ts. |
 
@@ -1322,3 +1323,45 @@ PR9b2 review4 requested-head record before tool call,2026-10-28: headf82bad464d7
 PR9b2 review4 tool request returned7694e0f8-4fb8-4c00-a229-66c85e973073 queued. Poll only this id; do not request again for progress.
 
 PR9b2 review4 completed2026-10-28: review7694e0f8-4fb8-4c00-a229-66c85e973073; headf82bad464d733c6c2262f1289367abffc23d28d2; basee254b33c2f9265b77515f793c35cc8fb9cb7af68; fingerprint72922f41199e5e0eac0432b9a7c53917e9d5e738bcd485688bbfa79747f5ae84. Lead conversationa978f02e-5613-4ca4-9d3a-b703e103c38a/run4bbfac91-dad8-430e-9a5f-b95ceafd7f51 and reviewer runs7a627b72-c644-4819-815b-a0b19ca37c70,05551c0c-ebad-4daf-b822-9fd186f17636,3c5408e4-3209-4d2d-a00d-6b1fd10182f2 all completed with null errors. All full reports read; lead confirms no missing/truncated coverage. No confirmed P0/P1/P2/security finding; no accepted P2 or requested revision. Correctness, regression and lead explicitly support all three one-line exceptions. Static review only; no reviewer tests. Limits remain for intermittent pagination/discovery coalescing, omitted credential internals, linked-source MCP flows, multi-user native import, live OAuth/cookies/Docker/tunnels/devices and unmodified pinned WebKit. Lead supplemented middleware and source-routing inspection. Full reports /tmp/contracts-09b2-review4.json. All14 required phases pass. Final fetch:maine254b33c; GitHub MERGEABLE/CLEAN for reviewed headf82bad46. Only STATUS.md differs; gate holds for ledger-only commit and expected-head-pinned squash merge.
+
+PR9b2 merged2026-10-28 as129a98ef887e4029ac0cddfd58d8d05758c28caf through expected-head-pinned squash of7df060c9b3fac342cb70708fb903760bf23bcdad. Final code matches reviewed headf82bad46 except STATUS.md. All14 required phases passed; four complete review passes, no accepted P2. Remaining inventories15 server/36 client. Reactive12b3#211 and12c#218 confirmed merged at next branch start.
+
+PR9c capture split2026-10-28: the15-route draft produces524196-byte docs/openapi.json from497867-byte base129a98ef, exceeding the512000-byte review cap. Preserve19 draft files in /tmp/contracts-09c-route-wip (verified SHA256 manifest) and the named stash contract-discipline9c routes before OpenAPI capture prerequisite. Draft server schemas/routes/client migrations are not yet checked; workflow HTTP regressions remain. PR9c1 factors existing runtime-provider and Pi public response projections in the generator; no runtime change. PR9c2 resumes all15 routes and reaches zero server legacy entries. Use the current collection-recovery UI, not the obsolete preserved client wholesale.
+
+PR9c1 implementation2026-10-28: generator registers seven existing public projections (NativeProviderView, PublicModel, PublicPiConfiguration, PublicPiMutation, PublicPiPackage, PublicScheduledSend, SessionControls). Existing per-operation component aliases remain; no registry/runtime/client change. Document497867→483059 bytes. Reference-resolving comparison confirms245 existing operations and985 public schemas unchanged;10 Cards operation lines byte-identical and all12 transitively referenced Cards components unchanged. Internal ResponseShared/RequestShared definition labels are generated, so comparison follows reference graphs rather than comparing their numeric labels. The first temporary comparison exited1 because equivalent recursive JSON definitions changed schema0→schema1; corrected graph comparison passes without changing source. Validation script /tmp/contracts-09c1-openapi-compat.py. Full baseline and review remain required.
+
+PR9c1 check PASS 2026-10-28T06:47:39.539654+00:00 on 8bf555bc99d9aef15d40c4055bd10434d861a208: npm run check exit0; log /tmp/contracts-09c1-check.log; capacity wait 0s.
+check: format check: format passed in 22.2 s check: typecheck check: typecheck passed in 11.5 s check: openapi check: openapi passed in 0.8 s check: contracts check: contracts passed in 32.0 s check: all passed
+
+PR9c1 build PASS 2026-10-28T06:47:52.826501+00:00 on 8bf555bc99d9aef15d40c4055bd10434d861a208: npm run build exit0; log /tmp/contracts-09c1-build.log; capacity wait 0s.
+
+PR9c1 compat PASS 2026-10-28T06:47:52.985618+00:00 on 8bf555bc99d9aef15d40c4055bd10434d861a208: python3 /tmp/contracts-09c1-openapi-compat.py exit0; log /tmp/contracts-09c1-compat.log; capacity wait 0s.
+
+PR9c1 vitest PASS 2026-10-28T07:03:48.833335+00:00 on 8bf555bc99d9aef15d40c4055bd10434d861a208: npm test -- --maxWorkers=1 exit0; log /tmp/contracts-09c1-vitest.log; capacity wait 0s.
+
+PR9c1 native PASS 2026-10-28T07:11:57.323328+00:00 on 8bf555bc99d9aef15d40c4055bd10434d861a208: npm run test:native exit0; log /tmp/contracts-09c1-native.log; capacity wait 0s.
+
+PR9c1 full baseline completed on 8bf555bc99d9aef15d40c4055bd10434d861a208 at 2026-10-28T07:11:57.323328+00:00. All five phases exit0. Common settings: TMPDIR=/var/tmp, NODE_OPTIONS=--max-old-space-size=512, LOOP_BROWSER_WORKERS=1, sanitized LOOP runtime variables and >=2048MiB manual pre-phase headroom. Full results:
+
+```text
+Test Files  246 passed (246)
+Tests  2165 passed (2165)
+Duration  955.11s (tests 85%, import 14%, transform 1%)
+ℹ tests 305
+ℹ pass 305
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 488202.455397
+```
+
+Representation-only generator/document/ledger change; browser journeys not selected. Live provider, actual Docker, tunnels and devices not run. Final capture and full review remain required.
+
+PR9c1 pre-open fetch2026-10-28: all five phases passed on8bf555bc (246files/2165 unit tests,305 native tests), ledger-only heada33b4617. Main advanced to8d1de61b375ae7a98fb424b13aecdbfb04014546 with Codex model labels and agent-form autofill changes. The PR is not open, so the authorized process requires rebase before opening and fresh baseline on that base. No OpenAPI, dependencies or development-guide changes in the new main commit. Prior results remain historical; fresh checks required.
+
+PR9c1 user clarification2026-10-28 supersedes the preceding rebase-check requirement: "No you don’t need to rerun the baseline" and "Just open the PR if it’s ready". Rebase onto8d1de61b completed at26db424318cbba5aa358b242faca5eff82e123d5 without conflicts; range-diff confirms all three commits patch-identical. Carry forward the five completed checks from8bf555bc; they were not rerun on the new base. Current head still requires actual capture and complete review before merge. No repeated baseline started.
+
+PR9c1 review1 requested-head record before tool call,2026-10-28: head46e90c5f71203a703bd84f3a08dd8ba37b622ebd; base8d1de61b375ae7a98fb424b13aecdbfb04014546; fingerprint684f801145839d08f99d0811fbae141090e256a87f46edabb93fd4b69b8a98af. Actual capture:3 changed paths,1256 files,84901 diff bytes,13039858 context/before bytes,largest497867,no omitted changed paths. Five completed checks on8bf555bc carried forward under explicit user instruction after the patch-identical rebase. PR240 is open. Request exactly one branch review from team75e334bb-e16b-4d61-b16a-c6859d2337ad; record exact review id and complete coverage.
+
+PR9c1 review1 completed2026-10-28: request bdafa857-1585-4a98-ab2d-9abc928532cb; head46e90c5f71203a703bd84f3a08dd8ba37b622ebd; base8d1de61b375ae7a98fb424b13aecdbfb04014546; fingerprint684f801145839d08f99d0811fbae141090e256a87f46edabb93fd4b69b8a98af. Lead conversation979a67f9-1e8f-48b7-98f3-8462b839bb8a/run d7039350-76e7-4694-a3b8-7562bc952e57 and reviewer runs edc5cb1c-317e-4c89-b9c1-e68319015210,9f1dd5ed-7ea6-4472-a2dc-d2e9976801f0,dbacf97d-f04a-4f10-b6ed-6da6710b2afc all completed with null errors. All full reports read; lead confirms no missing or truncated reviewer coverage. No confirmed P0/P1/P2/security finding, no accepted P2 or requested revision. Static review found all245 operations and985 public schemas equivalent and1677 references resolved. Reviewers did not run tests, regenerate OpenAPI or independently verify historical ledger checks. Downstream OpenAPI generators and live endpoints/providers/devices/browser consumers remain untested; omitted credential internals are outside captured coverage. Full reports /tmp/contracts-09c1-review1.json. Five checks on8bf555bc are carried forward under the explicit user waiver after a patch-identical rebase. Final fetch keeps main8d1de61b; GitHub MERGEABLE/CLEAN for reviewed head46e90c5f. Only STATUS.md differs; gate holds for ledger-only commit and expected-head-pinned squash merge.

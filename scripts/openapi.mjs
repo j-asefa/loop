@@ -30,6 +30,15 @@ import {
   PublicWatch,
   PublicDigest,
 } from "../src/shared/social-contract-schemas.ts";
+import { SessionControls } from "../src/shared/session-controls.ts";
+import { PublicScheduledSend } from "../src/shared/mobile-contract-schemas.ts";
+import { NativeProviderView } from "../src/shared/native-providers.ts";
+import {
+  PublicPiConfiguration,
+  PublicPiMutation,
+  PublicPiPackage,
+  PublicModel,
+} from "../src/shared/agent-contract-schemas.ts";
 // Request schemas describe accepted input (including transforms); responses
 // describe projected output. Both are populated only from workspaceApi.
 const registry = z.registry(),
@@ -56,6 +65,13 @@ const jsonOptions = {
 // Reuse the actual public projections instead of copying them into every
 // endpoint. Stable per-route response names remain references to these schemas.
 const publicProjections = {
+  SessionControls,
+  PublicScheduledSend,
+  NativeProviderView,
+  PublicPiConfiguration,
+  PublicPiMutation,
+  PublicPiPackage,
+  PublicModel,
   PublicAgent,
   PublicConnection,
   PublicFolder,
