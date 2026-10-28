@@ -1,3 +1,4 @@
+import { MCP_TOOL_BUDGET } from "./tool-budget.js";
 import { watchRun } from "../run-signal.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -44,7 +45,7 @@ export async function installReverseCatalog(
   if (!source) throw new Problem(403, "Execution source is not enrolled");
   if (
     !Array.isArray(tools) ||
-    tools.length > 120 ||
+    tools.length > MCP_TOOL_BUDGET.count ||
     !tools.every(
       (tool: any) =>
         tool &&
@@ -54,7 +55,7 @@ export async function installReverseCatalog(
         tool.inputSchema &&
         typeof tool.inputSchema === "object",
     ) ||
-    Buffer.byteLength(JSON.stringify(tools)) > 400_000
+    Buffer.byteLength(JSON.stringify(tools)) > MCP_TOOL_BUDGET.bytes
   )
     throw new Problem(400, "Invalid shared tool catalog");
   db.prepare(

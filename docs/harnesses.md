@@ -41,6 +41,8 @@ Each result shows its recorded input/output token counts at the bottom. Direct C
 
 Codex async questions appear in **Needs you** with their answer choices while the agent continues working. If native work finishes first, Loop keeps the run waiting for your answer and continues in the same native thread when you submit it. Cancelled or replaced sessions expire these decisions; resuming native history does not reopen old questions.
 
+Codex MCP URL requests show **Open completion page** and **Completed**. Open the page, finish the requested reconnect or browser flow, then select **Completed** to notify Codex. These requests always require an explicit response, including with **Never ask**. Forms requiring field input remain unsupported.
+
 Codex resumes request thread metadata without copying all saved turns into the startup response. Codex retains the full model context and attachments; Loop keeps its persisted conversation display. Reconnecting therefore does not require transferring the entire file-heavy transcript through one protocol message.
 
 Native display output uses a bounded recent window. Loop saves pending progress before rotating that window and shortens oversized text previews; reaching the display limit does not interrupt native work. Saved progress and tool traces remain available, and a final reply is published only after the harness confirms completion.

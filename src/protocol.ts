@@ -75,6 +75,8 @@ export type Request = {
   title: string;
   detail: string;
   choices?: string[];
+  /** Explicit browser completion; never a standing tool permission. */
+  completionUrl?: string;
   /** The choice that permits only this tool call, when the request is one. */
   allow?: string;
   questions?: {
@@ -169,6 +171,7 @@ const RequestSchema = z.object({
   title: z.string(),
   detail: z.string(),
   choices: z.array(z.string()).optional(),
+  completionUrl: z.string().url().startsWith("https://").optional(),
   allow: z.string().optional(),
   questions: z
     .array(

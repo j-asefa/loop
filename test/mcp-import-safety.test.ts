@@ -535,11 +535,15 @@ it("enforces the aggregate tool count at install and re-enable without affecting
     other = id();
   insert(
     other,
-    Array.from({ length: 120 }, (_, i) => smallTool("other_" + i)),
+    Array.from({ length: MCP_TOOL_BUDGET.count }, (_, i) =>
+      smallTool("other_" + i),
+    ),
   );
   const original = insert(
     owner,
-    Array.from({ length: 119 }, (_, i) => smallTool("tool_" + i)),
+    Array.from({ length: MCP_TOOL_BUDGET.count - 1 }, (_, i) =>
+      smallTool("tool_" + i),
+    ),
   );
   const restore = fixture([smallTool("new_one"), smallTool("new_two")]);
   try {
@@ -553,7 +557,9 @@ it("enforces the aggregate tool count at install and re-enable without affecting
       error: expect.stringContaining("Disable unused integrations"),
     });
     expect(record(installed.id).status).toBe("disabled");
-    expect(workspaceToolBindings(owner)).toHaveLength(119);
+    expect(workspaceToolBindings(owner)).toHaveLength(
+      MCP_TOOL_BUDGET.count - 1,
+    );
     const enabled = await api(
       owner,
       `/mcp/${installed.id}`,
@@ -577,10 +583,16 @@ it("enforces the aggregate tool count at install and re-enable without affecting
 
 it("bounds serialized catalog bytes across connections, including Unicode, and guards legacy oversized workspaces", async () => {
   const owner = id();
-  const large = Array.from({ length: 8 }, (_, i) => ({
-    name: "large_" + i,
-    inputSchema: { type: "object", description: "界".repeat(9000) },
-  }));
+  const large = Array.from(
+    { length: Math.floor(MCP_TOOL_BUDGET.bytes / 40_000) },
+    (_, i) => ({
+      name: "large_" + i,
+      inputSchema: {
+        type: "object",
+        description: "界".repeat(9000),
+      },
+    }),
+  );
   insert(owner, large);
   const candidate = insert(owner, [], "disabled");
   const restore = fixture(large);
@@ -589,7 +601,7 @@ it("bounds serialized catalog bytes across connections, including Unicode, and g
       ToolBudgetError,
     );
     expect(record(candidate).status).toBe("disabled");
-    expect(workspaceToolBindings(owner)).toHaveLength(8);
+    expect(workspaceToolBindings(owner)).toHaveLength(large.length);
     // Records accepted by older versions fail before reaching a provider.
     db.prepare(
       "UPDATE mcp_connections SET tools=?,status='connected' WHERE id=?",
@@ -604,7 +616,9 @@ it("serializes competing discoveries so only a catalog fitting the workspace can
   const owner = id();
   insert(
     owner,
-    Array.from({ length: 119 }, (_, i) => smallTool("old_" + i)),
+    Array.from({ length: MCP_TOOL_BUDGET.count - 1 }, (_, i) =>
+      smallTool("old_" + i),
+    ),
   );
   const candidates = [
     insert(owner, [], "disabled"),
@@ -620,7 +634,7 @@ it("serializes competing discoveries so only a catalog fitting the workspace can
       "connected",
       "disabled",
     ]);
-    expect(workspaceToolBindings(owner)).toHaveLength(120);
+    expect(workspaceToolBindings(owner)).toHaveLength(MCP_TOOL_BUDGET.count);
   } finally {
     restore();
   }
@@ -630,7 +644,9 @@ it("keeps a refreshed shared catalog connected when Docker's tools would exceed 
   const owner = id();
   insert(
     owner,
-    Array.from({ length: 119 }, (_, i) => smallTool("local_" + i)),
+    Array.from({ length: MCP_TOOL_BUDGET.count - 1 }, (_, i) =>
+      smallTool("local_" + i),
+    ),
   );
   const shared = insert(owner, [smallTool("shared_one")]);
   const restore = fixture(

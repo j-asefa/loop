@@ -12,12 +12,12 @@ export type ToolBinding = {
 // Leave room for Loop's internal tools and message history in provider/host
 // requests. These limits apply only to Loop's attached MCP catalog, never to
 // the native Codex/Claude tools on a remote host.
-export const MCP_TOOL_BUDGET = { count: 120, bytes: 400_000 };
+export const MCP_TOOL_BUDGET = { count: 512, bytes: 2_000_000 };
 export class ToolBudgetError extends Problem {
   constructor() {
     super(
       422,
-      "Workspace tools exceed the per-request catalog budget (120 tools / 400 KB). Disable unused integrations in Settings → Tools & integrations, or configure a smaller toolset, then reconnect.",
+      `Workspace tools exceed the per-request catalog budget (${MCP_TOOL_BUDGET.count} tools / ${MCP_TOOL_BUDGET.bytes / 1_000_000} MB). Disable unused integrations in Settings → Tools & integrations, or configure a smaller toolset, then reconnect.`,
     );
   }
 }

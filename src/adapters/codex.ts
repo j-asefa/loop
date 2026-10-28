@@ -19,6 +19,21 @@ import {
   type Options,
 } from "./types.js";
 
+function elicitationUrl(params: any): string | undefined {
+  if (
+    params.mode !== "url" ||
+    typeof params.elicitationId !== "string" ||
+    !params.elicitationId ||
+    typeof params.url !== "string"
+  )
+    return;
+  try {
+    const url = new URL(params.url);
+    if (url.protocol === "https:" && !url.username && !url.password)
+      return url.href;
+  } catch {}
+}
+
 export class Codex implements Adapter {
   private controlState?: DirectControls;
   private get displayControls() {
@@ -418,16 +433,18 @@ export class Codex implements Adapter {
     else if (m.method === "mcpServer/elicitation/request") {
       const approval = codexToolApproval(m.params);
       if (
-        !["decline", "cancel", ...(approval ? ["accept"] : [])].includes(
-          answer.choice as string,
-        )
+        ![
+          "decline",
+          "cancel",
+          ...(approval || elicitationUrl(m.params) ? ["accept"] : []),
+        ].includes(answer.choice as string)
       )
         throw new Error("Unsupported MCP elicitation decision.");
       // Empty form content approves this call only. Do not send persistence
       // metadata or invent values for a form that needs user input.
       result = {
         action: answer.choice,
-        content: answer.choice === "accept" ? {} : null,
+        content: answer.choice === "accept" && approval ? {} : null,
       };
     } else result = { decision: answer.choice };
     this.requests.delete(id);
@@ -577,11 +594,19 @@ export class Codex implements Adapter {
           m.method === "mcpServer/elicitation/request"
             ? codexToolApproval(p)
             : undefined;
+        const completionUrl =
+          m.method === "mcpServer/elicitation/request"
+            ? elicitationUrl(p)
+            : undefined;
         const choices =
           m.method === "item/permissions/requestApproval"
             ? ["allow", "deny"]
             : m.method === "mcpServer/elicitation/request"
-              ? [...(toolApproval ? ["accept"] : []), "decline", "cancel"]
+              ? [
+                  ...(toolApproval || completionUrl ? ["accept"] : []),
+                  "decline",
+                  "cancel",
+                ]
               : (
                   p.availableDecisions ?? ["accept", "decline", "cancel"]
                 ).filter(
@@ -599,11 +624,16 @@ export class Codex implements Adapter {
               m.method === "mcpServer/elicitation/request"
                 ? toolApproval
                   ? `Allow ${toolApproval.tool || "tool call"}?`
-                  : "MCP elicitation (form/URL completion unavailable)"
+                  : completionUrl
+                    ? "Complete MCP request in your browser"
+                    : "MCP elicitation (form completion unavailable)"
                 : "Codex permission",
-            detail: toolApproval
-              ? codexApprovalDetail(p)
-              : JSON.stringify(p, null, 2),
+            completionUrl,
+            detail: completionUrl
+              ? `${typeof p.message === "string" ? p.message : "Open the link to complete this request."}\nAfter completing the browser flow, select Completed.`
+              : toolApproval
+                ? codexApprovalDetail(p)
+                : JSON.stringify(p, null, 2),
             choices,
             allow:
               m.method === "mcpServer/elicitation/request" && !toolApproval

@@ -8,6 +8,7 @@ const kind = process.env.LOOP_TEST_HARNESS ?? "codex";
 let threadId = randomUUID();
 let thinkingLevel = "medium";
 let elicitationChoice;
+let elicitationUrlMode;
 let mailBridge;
 const out = (x) => process.stdout.write(JSON.stringify(x) + "\n");
 let count = 0,
@@ -479,7 +480,8 @@ if (kind !== "opencode") {
       if (kind === "codex" && m.id === 102) {
         const expected = {
           action: elicitationChoice,
-          content: elicitationChoice === "accept" ? {} : null,
+          content:
+            elicitationChoice === "accept" && !elicitationUrlMode ? {} : null,
         };
         if (JSON.stringify(m.result) !== JSON.stringify(expected))
           throw new Error(
@@ -693,6 +695,7 @@ if (kind !== "opencode") {
         held = true;
         const [choice, params] = text.slice(4).split("\n");
         elicitationChoice = choice;
+        elicitationUrlMode = JSON.parse(params).mode === "url";
         out({
           id: 102,
           method: "mcpServer/elicitation/request",

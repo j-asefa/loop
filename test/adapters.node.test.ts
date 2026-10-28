@@ -95,12 +95,39 @@ test("Codex MCP confirmations support one-call acceptance, decline and cancel", 
         /expired/,
       );
     }
+    for (const choice of ["accept", "decline", "cancel"]) {
+      events.length = 0;
+      await adapter.prompt(
+        "mcp-" +
+          choice +
+          "\n" +
+          JSON.stringify({
+            mode: "url",
+            url: "https://chatgpt.com/apps/linear/example",
+            elicitationId: "reconnect",
+            message: "Reconnect Linear to restore access.",
+          }),
+      );
+      await until(() => events.some((e) => e.type === "request"));
+      const event = events.find((e) => e.type === "request")!;
+      assert.equal(event.type, "request");
+      assert.equal(
+        event.request.completionUrl,
+        "https://chatgpt.com/apps/linear/example",
+      );
+      assert.equal(event.request.allow, undefined);
+      assert.deepEqual(event.request.choices, ["accept", "decline", "cancel"]);
+      await adapter.answer(event.request.id, { choice });
+      await until(() =>
+        events.some((e) => e.type === "status" && e.status === "completed"),
+      );
+    }
     for (const params of [
       { ...codexToolApproval, _meta: {} },
       {
         ...codexToolApproval,
         mode: "url",
-        url: "https://example.com",
+        url: "http://example.com",
         elicitationId: "url",
       },
       {

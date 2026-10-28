@@ -250,6 +250,9 @@ function DecisionCard({
         </button>
       )}
       <NativeRequestDetails request={request} />
+      {request.completionUrl?.startsWith("https://") && (
+        <p><a href={request.completionUrl} target="_blank" rel="noopener noreferrer">Open completion page</a></p>
+      )}
       {item.state !== "pending" ? (
         <p className="note">
           Decision delivery is {item.state}. It will not be sent again
@@ -282,7 +285,7 @@ function DecisionCard({
                   ) : deny ? (
                     <X size={20} aria-hidden="true" />
                   ) : null}
-                  {choice.charAt(0).toUpperCase() + choice.slice(1)}
+                  {request.completionUrl && choice === "accept" ? "Completed" : choice.charAt(0).toUpperCase() + choice.slice(1)}
                 </button>
               );
             })}
