@@ -1476,7 +1476,7 @@ export function Feed({
             );
             if (!isCurrent()) return { source, page: incoming };
             const page = { ...incoming, items: pendingUnsaves(incoming.items, source.id) };
-            if (!pages.get(source.id)!.append && !cached && completedView.current !== shownKey()) {
+            if (!pages.get(source.id)!.append && (cached ? !cached.sourceSummaries?.[source.id] : completedView.current !== shownKey())) {
               // Publish the initial sources immediately. A refresh keeps
               // its rows and cursors together until the whole pass settles,
               // so Load more can safely supersede it while another source waits.
@@ -2298,7 +2298,7 @@ export function Feed({
       {error && (
         <div className="error" role="alert">
           {error}
-          <button className="text-button" onClick={() => void load()}>
+          <button className="text-button" onClick={() => { setError(""); void load(); }}>
             Try again
           </button>
         </div>

@@ -2,6 +2,7 @@ import { app } from "../../src/server/index.js";
 import { db } from "../../src/server/db.js";
 import { closeExecution } from "../../src/server/execution-client.js";
 import { deferredOptionsMarker } from "../../src/server/registrar.js";
+import { pairedHostRoutes } from "../../src/host.js";
 
 type Layer = {
   method?: string;
@@ -31,6 +32,10 @@ function walk(stack: Layer[], nested = false) {
   }
 }
 walk(app.router.stack as Layer[]);
+if (process.env.LOOP_PROFILE === "companion")
+  keys.push(
+    ...pairedHostRoutes.map((route) => `${route.method} ${route.path}`),
+  );
 await closeExecution();
 db.close();
 console.log("ROUTE_INVENTORY=" + JSON.stringify(keys));

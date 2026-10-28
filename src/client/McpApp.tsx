@@ -1,5 +1,6 @@
+import { routeUrl } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
-import { useSourceApi, useSourcePath, useSourceRoute } from "./SourceContext";
+import { useSourceId, useSourceRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import {
   AppBridge,
@@ -12,9 +13,8 @@ export function McpApp({
   artifactId: string;
   metadata?: any;
 }) {
-  const api = useSourceApi();
   const call = useSourceRoute();
-  const sourceApiPath = useSourcePath();
+  const sourceId = useSourceId();
   const frame = useRef<HTMLIFrameElement>(null),
     [status, setStatus] = useState("Loading isolated app…");
   useEffect(() => {
@@ -27,10 +27,13 @@ export function McpApp({
     let ready = false;
     bridge.oncalltool = async (params) => {
       try {
-        const r = await api(`/artifacts/${artifactId}/tool-call`, {
-          tool: params.name,
-          arguments: params.arguments || {},
-          idempotencyKey: crypto.randomUUID(),
+        const r = await call(workspaceApi.artifactToolCall, {
+          params: { id: artifactId },
+          body: {
+            tool: params.name,
+            arguments: params.arguments || {},
+            idempotencyKey: crypto.randomUUID(),
+          },
         });
         setStatus("Tool request queued. Review it in Running.");
         return {
@@ -75,7 +78,11 @@ export function McpApp({
     void bridge
       .connect(new PostMessageTransport(f.contentWindow!, f.contentWindow!))
       .then(() => {
-        f.src = sourceApiPath("/api/artifacts/" + artifactId + "/app");
+        f.src = routeUrl(
+          workspaceApi.artifactApp,
+          { params: { id: artifactId } },
+          sourceId,
+        );
       })
       .catch(() => setStatus("App unavailable. Use the saved snapshot below."));
     const timeout = setTimeout(() => {

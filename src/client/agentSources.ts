@@ -4,12 +4,13 @@ import { reactiveSource } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState } from "react";
 import type { Agent, Connection, Folder, RunView as Run } from "../shared/types";
-import { apiInWorkspace, retryAfter, parse } from "./api";
+import { retryAfter, parse } from "./api";
 import { capabilities } from "./capabilities";
 import { executionSourceId } from "./sourceRouting";
 import { connectionLocation } from "./modelChoices";
 
-export type AgentSource = { id: string; name: string; kind?: string };
+// Local and not-yet-discovered view entries have no transport kind. Wire discovery requires it.
+export type AgentSource = Omit<RouteResponse<typeof workspaceApi.agentSources>[number], "kind"> & { kind?: string };
 export type EnvironmentAgent = Agent & {
   sourceId?: string;
   executionEnvironment?: string;
@@ -159,15 +160,6 @@ export function useAgentSources(
           runs: state.runs.filter((item) => item.sourceId === source.id),
         });
     const requests = new Map<AbortController, ReturnType<typeof setTimeout>>();
-    // Deadline and teardown cancellation also work on older mobile WebKit.
-    const signal = () => {
-      const controller = new AbortController();
-      requests.set(
-        controller,
-        setTimeout(() => controller.abort(), 20_000),
-      );
-      return controller.signal;
-    };
     const clearRequests = () => {
       for (const [controller, timer] of requests) {
         clearTimeout(timer);
@@ -209,13 +201,7 @@ export function useAgentSources(
       let linked = known;
       let error = "";
       try {
-        linked = options.changes ? known : await apiInWorkspace<AgentSource[]>(
-          "/agent-sources",
-          "",
-          undefined,
-          undefined,
-          signal(),
-        );
+        linked = options.changes ? known : await readProjection(workspaceApi.agentSources, {}, "");
         known = linked;
         confirmed = true;
       } catch (failure) {

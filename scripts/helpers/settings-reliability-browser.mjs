@@ -13,8 +13,10 @@ export async function settingsReliabilityBrowser(
     if (new URL(request.url()).pathname === "/api/runtime-hosts") hostReads++;
   };
   page.on("request", requests);
-  let failed = true;
+  let failed = true,
+    preferenceReads = 0;
   const preferences = async (route) => {
+    preferenceReads++;
     if (!failed) return route.fallback();
     return route.fulfill({
       status: 503,
@@ -22,22 +24,34 @@ export async function settingsReliabilityBrowser(
       body: JSON.stringify({ error: "Permission check interrupted" }),
     });
   };
-  const connections = (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify([
-        {
-          id: "settings-fixture",
-          name: "Fixture tools",
-          status: "connected",
-          url: "https://example.test/mcp",
-          metadata: "{}",
-          tools: "[]",
-          authType: "none",
-        },
-      ]),
-    });
+  const origin = new URL(base).origin;
+  const headers = { origin };
+  if (companion) {
+    const session = await page.request.get(origin + "/session");
+    assert.equal(session.status(), 200);
+    headers["x-loop-csrf"] = (await session.json()).csrf;
+  }
+  const created = await page.request.post(origin + "/api/mcp", {
+    headers,
+    data: {
+      name: "Fixture tools",
+      url: "https://example.test/mcp",
+      auth: { type: "none" },
+    },
+  });
+  assert.equal(created.status(), 201);
+  const connection = await created.json();
+  const connections = (route) => route.fulfill({ json: [connection] });
+  const catalogResponse = await page.request.get(origin + "/api/mcp/catalog");
+  assert.equal(catalogResponse.status(), 200);
+  const catalog = await catalogResponse.json();
+  // Start with production responses, then remove optional display fields.
+  for (const entry of catalog.entries) {
+    delete entry.note;
+    delete entry.serverUrl;
+  }
+  const catalogWithoutOptionalFields = (route) =>
+    route.fulfill({ json: catalog });
   const machines = (route) =>
     route.fulfill({
       status: 200,
@@ -53,6 +67,7 @@ export async function settingsReliabilityBrowser(
     });
   await page.route("**/api/mcp/preferences", preferences);
   await page.route("**/api/mcp", connections);
+  await page.route("**/api/mcp/catalog", catalogWithoutOptionalFields);
   await page.route("**/api/runtime-hosts", machines);
   try {
     await page.goto(base);
@@ -74,6 +89,16 @@ export async function settingsReliabilityBrowser(
       name: "Tools & integrations",
       exact: true,
     });
+    const catalogRegion = sheet.getByRole("region", { name: "MCP catalog" });
+    await expect(catalogRegion.getByRole("article").first()).toBeVisible();
+    for (const transport of ["http", "stdio"]) {
+      const entry = catalog.entries.find(
+        (entry) => entry.transport === transport,
+      );
+      await expect(
+        catalogRegion.getByRole("article", { name: entry.name, exact: true }),
+      ).toBeVisible();
+    }
     await sheet.getByRole("button", { name: /Installed \(1\)/ }).click();
     await expect(
       sheet.getByRole("heading", { name: /Fixture tools/ }),
@@ -87,7 +112,12 @@ export async function settingsReliabilityBrowser(
     await expect(
       sheet.getByLabel("Agent tool calls", { exact: true }),
     ).toBeDisabled();
-    await expect(sheet.getByText("Permission check interrupted")).toBeVisible();
+    // Typed projection reads allow two transient retries (2s, then 4s) before
+    // exposing the existing manual recovery control.
+    await expect(sheet.getByText("Permission check interrupted")).toBeVisible({
+      timeout: 10_000,
+    });
+    assert.equal(preferenceReads, 3, "Permission recovery is bounded");
     failed = false;
     await sheet
       .getByRole("button", { name: "Retry permissions", exact: true })
@@ -95,6 +125,7 @@ export async function settingsReliabilityBrowser(
     await expect(
       sheet.getByLabel("Agent tool calls", { exact: true }),
     ).toBeEnabled();
+    assert.equal(preferenceReads, 4, "Manual retry recovers the failed read");
     await expect(sheet.getByText("Permission check interrupted")).toHaveCount(
       0,
     );
@@ -175,7 +206,13 @@ export async function settingsReliabilityBrowser(
     page.off("request", requests);
     await page.unroute("**/api/mcp/preferences", preferences);
     await page.unroute("**/api/mcp", connections);
+    await page.unroute("**/api/mcp/catalog", catalogWithoutOptionalFields);
     await page.unroute("**/api/runtime-hosts", machines);
     await page.setViewportSize({ width: 390, height: 844 });
+    const disconnected = await page.request.patch(
+      origin + "/api/mcp/" + connection.id,
+      { headers, data: { action: "disconnect" } },
+    );
+    assert.equal(disconnected.status(), 200);
   }
 }

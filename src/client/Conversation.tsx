@@ -814,7 +814,7 @@ function ConversationView({
           messages.scrollHeight - messages.clientHeight - messages.scrollTop >= 48,
         );
         // Only a link or a jump focuses (and outlines) its message.
-        if (!focused && highlight) message.focus({ preventScroll: true });
+        if (!focused && highlight && document.activeElement?.id !== "composer") message.focus({ preventScroll: true });
         focused = true;
       });
     };

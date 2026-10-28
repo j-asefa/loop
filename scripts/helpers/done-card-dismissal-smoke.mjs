@@ -357,7 +357,9 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     });
     await page.route("**/api/agent-sources", (route) =>
       route.fulfill({
-        json: [{ id: "docker:feed-fixture", name: "Fixture remote" }],
+        json: [
+          { id: "docker:feed-fixture", name: "Fixture remote", kind: "docker" },
+        ],
       }),
     );
     let remoteWorking = 0;
@@ -634,6 +636,19 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     );
     await page.waitForLoadState("networkidle");
     await expect(history).toHaveCount(125);
+    // Retained rows stay visible during upgrade catch-up. Wait for the final
+    // Cards page and its pagination state before starting the outage.
+    const reconciled = page.waitForResponse(async (response) => {
+      const url = new URL(response.url());
+      return (
+        url.origin === fixture.base &&
+        url.pathname === "/api/v1/cards" &&
+        url.searchParams.get("view") === "done" &&
+        url.searchParams.has("before") &&
+        response.status() === 200 &&
+        (await response.json()).next === null
+      );
+    });
     localLegacy = false;
     for (let i = 0; i < 4; i++) {
       await page.evaluate(() =>
@@ -642,6 +657,10 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       await page.waitForLoadState("networkidle");
       await expect(history).toHaveCount(125);
     }
+    await reconciled;
+    await expect(
+      page.getByRole("button", { name: "Load more", exact: true }),
+    ).toHaveCount(0);
     localUnavailable = true;
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop-source-refresh")),

@@ -3,12 +3,7 @@ import { workspaceApi } from "../shared/workspace-api";
 import type { ResultCard } from "../shared/cards";
 import type { CardArtifact } from "./card-actions";
 import { CardBody } from "./ContentCard";
-import {
-  useSourceApi,
-  useSourcePath,
-  useSourceRoute,
-  useSourceId,
-} from "./SourceContext";
+import { useSourcePath, useSourceRoute, useSourceId } from "./SourceContext";
 import { viewOwner } from "./viewCache";
 import { SourceCard } from "./Sharing";
 import { Chart } from "./Chart";
@@ -154,8 +149,7 @@ export function ArtifactViewer({
 }) {
   const call = useSourceRoute();
   const sourceId = useSourceId();
-  const api = useSourceApi(),
-    sourceApiPath = useSourcePath();
+  const sourceApiPath = useSourcePath();
   const owner = useRef(viewOwner()),
     alive = useRef(true);
   useEffect(() => {
@@ -255,8 +249,11 @@ export function ArtifactViewer({
                 <button
                   onClick={async () => {
                     try {
-                      await api(`/artifacts/${item.id}/refresh`, {
-                        idempotencyKey: crypto.randomUUID(),
+                      await call(workspaceApi.artifactRefresh, {
+                        params: { id: item.id },
+                        body: {
+                          idempotencyKey: crypto.randomUUID(),
+                        },
                       });
                       if (!current()) return;
                       setError(

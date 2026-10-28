@@ -85,6 +85,15 @@ export async function needsStackSmoke(page, fixture, capture) {
   // Actions on Needs you cards still surface failures while the other feed
   // is hidden, and retrying does not reveal its cards.
   const dismissUrl = `**/api/runs/${failed.run}/dismiss`;
+  let dismissals = 0;
+  const recordDismissal = (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === `/api/runs/${failed.run}/dismiss`
+    )
+      dismissals++;
+  };
+  page.on("request", recordDismissal);
   await page.route(dismissUrl, (route) =>
     route.fulfill({
       status: 503,
@@ -103,8 +112,21 @@ export async function needsStackSmoke(page, fixture, capture) {
     "Could not dismiss this card",
   );
   await page.unroute(dismissUrl);
+  const refreshed = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      response.request().method() === "GET" &&
+      url.pathname === "/api/feed" &&
+      url.searchParams.get("filter") === "working" &&
+      response.status() === 200
+    );
+  });
   await feed.getByRole("button", { name: "Try again", exact: true }).click();
+  await refreshed;
   await expect(feed.getByRole("alert")).toHaveCount(0);
+  // The explicit refresh clears the notice without replaying the failed write.
+  expect(dismissals).toBe(1);
+  page.off("request", recordDismissal);
   await onlyNeedsCards();
   await fixture.api(`/runs/${failed.run}/dismiss`, {});
   fixture.db

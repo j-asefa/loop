@@ -139,6 +139,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     discoveryMissing = false,
     discoveryHung = false,
     sourceFailed = false;
+  let failedDiscoveryReads = 0;
   const hung = [];
   const unavailable = (route) =>
     route.fulfill({
@@ -150,7 +151,11 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     // A black-holed tunnel: the request stays open until the fixture ends.
     if (discoveryHung) return new Promise((resolve) => hung.push(resolve));
     if (discoveryMissing) return route.fulfill({ status: 404, body: "{}" });
-    return discoveryFailed ? unavailable(route) : fulfill(route, sources);
+    if (discoveryFailed) {
+      failedDiscoveryReads++;
+      return unavailable(route);
+    }
+    return fulfill(route, sources);
   };
   const visible = (route, thread) =>
     ["needs", "queued"].includes(
@@ -318,11 +323,14 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       window.dispatchEvent(new Event("loop-source-refresh"));
       window.dispatchEvent(new Event("loop-later-change"));
     });
+    // Discovery and then source metadata each exhaust the existing 2s/4s
+    // transient retries before the combined projection publishes its warning.
     await expect(
       page.getByText(
         "Connection check unavailable. Showing your last connected environments.",
       ),
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: 20_000 });
+    assert.equal(failedDiscoveryReads, 3);
     await expect(page.locator('.inbox-row[data-retained="yes"]')).toBeVisible();
     await expect(
       strip.getByRole("button", { name: /@remote-0/ }),

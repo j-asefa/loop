@@ -3,6 +3,18 @@ import { mockViewportCoordinates } from "./mock-viewport.mjs";
 import { expect } from "@playwright/test";
 
 export async function feedReplyKeyboardSmoke(page, fixture, capture) {
+  // Install before application code reads the native getter. Replacing it
+  // later left WebKit readers disagreeing about the mocked scroll position.
+  await page.addInitScript(() => {
+    const nativeScrollY = Object.getOwnPropertyDescriptor(
+      window,
+      "scrollY",
+    ).get;
+    Object.defineProperty(window, "scrollY", {
+      configurable: true,
+      get: () => window.__feedReplyScrollY ?? nativeScrollY.call(window),
+    });
+  });
   await mockViewportCoordinates(page);
   const diagnostics = [];
   page.on("response", (r) => {
@@ -18,10 +30,28 @@ export async function feedReplyKeyboardSmoke(page, fixture, capture) {
   await expect(card).toBeVisible();
   // This is the Feed card's Reply control, not a result on an agent profile
   // and not an already-open conversation. Let the app perform delayed focus.
-  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  // Deliver the transcript after the Reply focus request. Its message anchor
+  // must not steal focus back from the composer when the response arrives.
+  await page.route(/\/api\/conversations\/[^/?]+\?message=/, async (route) => {
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await route.fulfill({ response });
+  });
   const thread = page.locator("dialog.conversation-sheet[open]");
   const input = thread.getByRole("textbox", { name: "Reply to agent" });
-  await expect(input).toBeFocused();
+  try {
+    await card.getByRole("button", { name: "Reply", exact: true }).click();
+    await expect(thread.locator(".message.anchored")).toBeVisible();
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)),
+        ),
+    );
+    await expect(input).toBeFocused();
+  } finally {
+    await page.unrouteAll({ behavior: "wait" });
+  }
   for (const offsetTop of [0, 320]) {
     await page.evaluate((offsetTop) => {
       Object.defineProperty(visualViewport, "height", {
@@ -35,6 +65,9 @@ export async function feedReplyKeyboardSmoke(page, fixture, capture) {
       visualViewport.dispatchEvent(new Event("resize"));
     }, offsetTop);
     await input.pressSequentially("My reply from the feed. ");
+    await expect(input).toHaveValue(
+      "My reply from the feed. ".repeat(offsetTop === 0 ? 1 : 2),
+    );
     await expect
       .poll(() =>
         thread.evaluate((el) => {
@@ -69,12 +102,8 @@ export async function feedReplyKeyboardSmoke(page, fixture, capture) {
   // are both 337, but offsetTop incorrectly repeats 337. The visible browser
   // is only 362px tall. Model the modal origin shift with real CSS geometry.
   await page.setViewportSize({ width: 390, height: 362 });
-  await page.evaluate(() => {
-    window.__savedScrollY = Object.getOwnPropertyDescriptor(window, "scrollY");
-    Object.defineProperty(window, "scrollY", {
-      configurable: true,
-      value: 337,
-    });
+  const scrollReads = await page.evaluate(() => {
+    window.__feedReplyScrollY = 337;
     Object.defineProperty(document.documentElement, "clientHeight", {
       configurable: true,
       value: 699,
@@ -94,7 +123,9 @@ export async function feedReplyKeyboardSmoke(page, fixture, capture) {
     document.querySelector("dialog.conversation-sheet").style.marginTop =
       "-337px";
     visualViewport.dispatchEvent(new Event("resize"));
+    return [window.scrollY, scrollY, Reflect.get(window, "scrollY")];
   });
+  assert.deepEqual(scrollReads, [337, 337, 337]);
   await expect
     .poll(
       () =>
@@ -122,8 +153,7 @@ export async function feedReplyKeyboardSmoke(page, fixture, capture) {
     .toBe(true);
   await capture("feed-reply-physical-safari");
   await page.evaluate(() => {
-    Object.defineProperty(window, "scrollY", window.__savedScrollY);
-    delete window.__savedScrollY;
+    delete window.__feedReplyScrollY;
     delete document.documentElement.clientHeight;
     delete visualViewport.pageTop;
     document

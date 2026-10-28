@@ -12,35 +12,43 @@ export async function feedLoadingSmoke(page, fixture, engine, capture) {
   // These fixture-only companion and linked sources have no real socket
   // servers. Negotiate a quiet complete stream so HTTP fallback invalidations
   // cannot replace the append operation during its retry assertions.
+  const streamResets = new Map();
   await page.routeWebSocket(
     (url) =>
       url.pathname === "/ws" ||
       /^\/api\/agent-sources\/[^/]+\/events\/ws$/.test(url.pathname),
     (route) => {
-      route.send(
-        JSON.stringify({
-          v: 3,
-          type: "reset",
-          epoch: "feed-loading",
-          cursor: 0,
-          build: "fixture",
-          buildIdentity: null,
-          serverNow: Date.now(),
-          nextDeadline: null,
-          capabilities: {
-            invalidations: "complete",
-            deadlines: true,
-            transcript: "delta",
-            feed: "delta",
-            results: "delta",
-          },
-        }),
-      );
+      const reset = () =>
+        route.send(
+          JSON.stringify({
+            v: 3,
+            type: "reset",
+            epoch: "feed-loading",
+            cursor: 0,
+            build: "fixture",
+            buildIdentity: null,
+            serverNow: Date.now(),
+            nextDeadline: null,
+            capabilities: {
+              invalidations: "complete",
+              deadlines: true,
+              transcript: "delta",
+              feed: "delta",
+              results: "delta",
+            },
+          }),
+        );
+      streamResets.set(new URL(route.url()).pathname, reset);
+      reset();
     },
   );
   for (const legacy of [false, true])
-    await feedLoadingCase(page, fixture, legacy, (name) =>
-      capture((legacy ? "legacy-" : "cards-") + name),
+    await feedLoadingCase(
+      page,
+      fixture,
+      legacy,
+      (name) => capture((legacy ? "legacy-" : "cards-") + name),
+      streamResets,
     );
   await openConnectedFeed(page, fixture.base);
   await page.getByRole("tab", { name: /^Working/ }).click();
@@ -348,10 +356,10 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
   }
 }
 
-async function feedLoadingCase(page, fixture, legacy, capture) {
+async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
   const sources = [
-    { id: "cloud:first", name: "First environment" },
-    { id: "cloud:second", name: "Second environment" },
+    { id: "cloud:first", name: "First environment", kind: "cloud" },
+    { id: "cloud:second", name: "Second environment", kind: "cloud" },
   ];
   const bootstrap = await fixture.api("/bootstrap");
   const feed = await fixture.api("/feed?filter=done");
@@ -384,6 +392,8 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
   let pauseReads = 0;
   let queuedHold = null;
   let slowFeed = Promise.withResolvers();
+  let firstFeed = null;
+  const doneReads = new Map();
   const savedBySource = new Map(sources.map((source) => [source.id, true]));
   const savedWrites = [];
   let refresh = null;
@@ -505,6 +515,8 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
       }
       if (!typed && (url.searchParams.get("filter") !== "done" || !legacy))
         return fulfill(route, empty);
+      doneReads.set(source.id, (doneReads.get(source.id) || 0) + 1);
+      if (source === sources[0]) await firstFeed?.promise;
       if (source === sources[1]) await slowFeed.promise;
       if (refresh) {
         refreshReads++;
@@ -612,14 +624,15 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     // An empty local read cannot establish that the combined feed is empty.
     await expect(loading).toBeVisible();
     await expect(noResults).toHaveCount(0);
-    // A failed initial lookup does not establish an empty source list.
+    // A failed initial lookup does not establish an empty source list, even
+    // after the typed reader's two bounded transient retries (2s, then 4s).
     discovery.resolve();
     await expect(
       page.getByText(
         "Couldn’t connect to your execution environments. Check your connection and retry.",
         { exact: false },
       ),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
     await expect(noResults).toHaveCount(0);
     discoveryFails = false;
     discovery = Promise.withResolvers();
@@ -668,6 +681,15 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     await creation.getByRole("button", { name: "Close", exact: true }).click();
     await capture("first-result-before-other-reads");
     metadata.resolve();
+    // Finish the metadata pass before asking discovery for another topology.
+    // The first Feed result is intentionally visible before these agents load.
+    await expect(
+      page
+        .getByRole("region", { name: "Your agents", exact: true })
+        .getByRole("button")
+        .filter({ hasText: sources[0].name })
+        .first(),
+    ).toBeVisible();
     // The first source has been displayed, but the held second source means
     // no combined cache exists yet. Discovery churn must retain that page.
     discoveredSources = [sources[1]];
@@ -675,6 +697,14 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(first).toHaveCount(0);
+    // Destination discovery publishes before metadata. Finish removal from
+    // both views before requesting the next discovery pass.
+    await expect(
+      page
+        .getByRole("region", { name: "Your agents", exact: true })
+        .getByRole("button")
+        .filter({ hasText: sources[0].name }),
+    ).toHaveCount(0);
     unavailableFeeds.add(sources[0].id);
     discoveredSources = sources;
     await page.evaluate(() =>
@@ -767,6 +797,12 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(second).toHaveCount(0);
+    await expect(
+      page
+        .getByRole("region", { name: "Your agents", exact: true })
+        .getByRole("button")
+        .filter({ hasText: sources[1].name }),
+    ).toHaveCount(0);
     await expect(page.getByRole("tab", { name: /^Working/ })).toHaveText(
       new RegExp(`^Working\\s*${feed.summary.working * 2}$`),
     );
@@ -1042,9 +1078,41 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     // Unsaving an early card must not postpone other sources until the Undo
     // window ends. Refreshes keep the pending unsave scoped to its source.
     slowFeed = Promise.withResolvers();
+    if (legacy) {
+      firstFeed = Promise.withResolvers();
+      doneReads.clear();
+      streamResets.clear();
+    }
     await page.goto(fixture.base);
+    if (legacy) {
+      // Reset both linked streams after their first reads start. The empty
+      // local page may complete, but cannot suppress either source's first
+      // successful page on retry while the other source is still held.
+      const streamPath = (source) =>
+        `/api/agent-sources/${encodeURIComponent(source.id)}/events/ws`;
+      await expect
+        .poll(() =>
+          sources.every(
+            (source) =>
+              doneReads.get(source.id) > 0 &&
+              streamResets.has(streamPath(source)),
+          ),
+        )
+        .toBe(true);
+      const before = new Map(doneReads);
+      for (const source of sources) streamResets.get(streamPath(source))();
+      await expect
+        .poll(() =>
+          sources.every(
+            (source) => doneReads.get(source.id) > before.get(source.id),
+          ),
+        )
+        .toBe(true);
+      firstFeed.resolve();
+    }
     await expect(first).toBeVisible();
     await expect(second).toHaveCount(0);
+    await expect(loadMore).toHaveCount(0);
     const firstCard = page
       .locator(".inbox-card")
       .filter({ hasText: "First environment result" });
@@ -1109,6 +1177,7 @@ async function feedLoadingCase(page, fixture, legacy, capture) {
     discovery.resolve();
     metadata.resolve();
     slowFeed.resolve();
+    firstFeed?.resolve();
     refresh?.resolve();
     workingHold?.resolve();
     pause?.resolve();

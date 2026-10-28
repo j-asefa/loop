@@ -514,6 +514,19 @@ it("generates a schema with resolvable references and the runtime read/managemen
   expect(spec.components.schemas.submitBody.required).not.toContain(
     "attachmentIds",
   );
+  expect(spec.paths["/api/agent-sources"].get.security).toEqual([
+    { PairedDevice: [] },
+  ]);
+  expect(spec.paths["/api/mcp-sharing"].post.security).toEqual([
+    { PairedDevice: [], PairedCsrf: [] },
+  ]);
+  expect(
+    spec.paths["/api/mcp/oauth/callback"].get.responses[302].headers.Location,
+  ).toBeDefined();
+  expect(
+    spec.paths["/api/mcp/oauth/callback"].get.responses[302].content,
+  ).toBeUndefined();
+  expect(spec.paths["/api/agents/{id}/tools"].put.responses[410]).toBeDefined();
   const optionalAccountSession = new Set([
     "authSession",
     "authSignInEmail",

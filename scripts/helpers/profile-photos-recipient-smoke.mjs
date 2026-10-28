@@ -44,9 +44,10 @@ export async function profilePhotosRecipientSmoke(page, fixture) {
   await page
     .getByRole("button", { name: "Compose a message", exact: true })
     .click();
-  await expect(page.getByLabel("Agent recipient")).toHaveValue(second.id);
-  // Selecting another agent for an unsent draft must keep that draft's destination.
-  await page.getByLabel("Agent recipient").selectOption(first.id);
+  // A fresh composer on a profile addresses that agent, ahead of the last send.
+  await expect(page.getByLabel("Agent recipient")).toHaveValue(first.id);
+  // An unsent draft keeps its chosen destination when reopened on that profile.
+  await page.getByLabel("Agent recipient").selectOption(second.id);
   await page
     .getByLabel("Message your agent", { exact: true })
     .fill("Unsent draft");
@@ -56,8 +57,14 @@ export async function profilePhotosRecipientSmoke(page, fixture) {
   await page
     .getByRole("button", { name: "Compose a message", exact: true })
     .click();
-  await expect(page.getByLabel("Agent recipient")).toHaveValue(first.id);
+  await expect(page.getByLabel("Agent recipient")).toHaveValue(second.id);
+  // Changing an unsent selection must not replace the last sent recipient.
+  await page.getByLabel("Agent recipient").selectOption(first.id);
   await page.getByLabel("Message your agent", { exact: true }).fill("");
+  await page
+    .getByRole("button", { name: "Collapse composer", exact: true })
+    .click();
+  await openTab(page, "Feed");
   await page.reload({ waitUntil: "networkidle" });
   await page
     .getByRole("button", { name: "Compose a message", exact: true })

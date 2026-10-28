@@ -1,5 +1,6 @@
+import { callRoute } from "./workspace-api";
 import {
-  useSourceApi,
+  useSourceRoute,
   useSourceCapabilities,
   useSourceId,
   useProjectionRoute,
@@ -7,7 +8,7 @@ import {
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
-import { apiInWorkspace, parse } from "./api";
+import { parse } from "./api";
 import { Sheet } from "./components";
 import { SettingsNote } from "./SettingsUI";
 import { McpCatalog } from "./McpCatalog";
@@ -22,11 +23,13 @@ export function Tools({
   onClose: () => void;
   initialView?: "catalog" | "permissions";
 }) {
-  const api = useSourceApi(),
+  const call = useSourceRoute(),
     readRoute = useProjectionRoute();
   const capabilities = useSourceCapabilities();
   const sourceId = useSourceId();
-  const [connections, setConnections] = useState<any[]>([]),
+  const [connections, setConnections] = useState<
+      RouteResponse<typeof workspaceApi.mcpList>
+    >([]),
     [view, setView] = useState<string>(initialView),
     [query, setQuery] = useState(""),
     [catalog, setCatalog] = useState("datadog"),
@@ -47,10 +50,10 @@ export function Tools({
     >([]),
     [host, setHost] = useState("");
   const [sharingSources, setSharingSources] = useState<
-    { id: string; name: string; shared: boolean }[]
+    RouteResponse<typeof workspaceApi.mcpSharing>
   >([]);
   const [nativeCandidates, setNativeCandidates] = useState<
-    { id: string; provider: string; name: string; kind: string }[]
+    RouteResponse<typeof workspaceApi.mcpNativeCandidates>
   >([]);
   const [readErrors, setReadErrors] = useState<Record<string, string>>({});
   const [connectionsReady, setConnectionsReady] = useState(false);
@@ -65,7 +68,7 @@ export function Tools({
   async function loadSharing() {
     if (!capabilities.pairedDevices && !sourceId) return;
     await read("sharing", async () => {
-      setSharingSources(await apiInWorkspace("/mcp-sharing", ""));
+      setSharingSources(await readRoute(workspaceApi.mcpSharing, {}, ""));
     });
   }
   async function loadHosts() {
@@ -77,16 +80,13 @@ export function Tools({
   }
   async function loadConnections() {
     await read("tools", async () => {
-      setConnections(await api<any[]>("/mcp"));
+      setConnections(await readRoute(workspaceApi.mcpList, {}));
       setConnectionsReady(true);
     });
   }
   async function loadPreferences() {
     await read("permissions", async () => {
-      const preferences = await api<{
-        approvalMode: "ask" | "allow";
-        agentPermissionMode: PermissionMode;
-      }>("/mcp/preferences");
+      const preferences = await readRoute(workspaceApi.mcpPreferences, {});
       setApprovalMode(preferences.approvalMode);
       setAgentMode(preferences.agentPermissionMode);
     });
@@ -94,7 +94,7 @@ export function Tools({
   async function loadCandidates() {
     await read("imports", async () => {
       setNativeCandidates(
-        await api<typeof nativeCandidates>("/mcp/native-candidates"),
+        await readRoute(workspaceApi.mcpNativeCandidates, {}),
       );
     });
   }
@@ -121,8 +121,12 @@ export function Tools({
     }
   }
   async function test(id: string) {
-    const result = await api(`/mcp/${id}/test`, {});
-    if (result.authorizationUrl) location.assign(result.authorizationUrl);
+    const result = await call(workspaceApi.mcpTest, {
+      params: { id },
+      body: {},
+    });
+    if ("authorizationUrl" in result && result.authorizationUrl)
+      location.assign(result.authorizationUrl);
     else setNotice("Connected. Available to all agents in your workspace.");
   }
   return (
@@ -221,11 +225,9 @@ export function Tools({
               onChange={(e) => {
                 const mode = e.target.value as PermissionMode;
                 void action(async () => {
-                  const result = await api(
-                    "/mcp/preferences",
-                    { agentPermissionMode: mode },
-                    "PUT",
-                  );
+                  const result = await call(workspaceApi.mcpPreferencesUpdate, {
+                    body: { agentPermissionMode: mode },
+                  });
                   setAgentMode(result.agentPermissionMode);
                   setNotice(
                     "Agents use this from their next turn. Requests already waiting still need a decision.",
@@ -257,11 +259,9 @@ export function Tools({
               onChange={(e) => {
                 const mode = e.target.value as "ask" | "allow";
                 void action(async () => {
-                  const result = await api(
-                    "/mcp/preferences",
-                    { approvalMode: mode },
-                    "PUT",
-                  );
+                  const result = await call(workspaceApi.mcpPreferencesUpdate, {
+                    body: { approvalMode: mode },
+                  });
                   setApprovalMode(result.approvalMode);
                   setNotice(
                     mode === "allow"
@@ -296,14 +296,15 @@ export function Tools({
                     ].filter((id) => id !== sourceId);
                     const results = await Promise.allSettled(
                       targets.map((id) =>
-                        apiInWorkspace(
-                          "/mcp/preferences",
-                          id,
+                        callRoute(
+                          workspaceApi.mcpPreferencesUpdate,
                           {
-                            approvalMode,
-                            agentPermissionMode: agentMode,
+                            body: {
+                              approvalMode: approvalMode!,
+                              agentPermissionMode: agentMode!,
+                            },
                           },
-                          "PUT",
+                          id,
                         ),
                       ),
                     );
@@ -378,10 +379,16 @@ export function Tools({
                 disabled={busy}
                 onClick={() =>
                   void action(async () => {
-                    await apiInWorkspace("/mcp-sharing", "", {
-                      sourceId: source.id,
-                      action: "connect",
-                    });
+                    await callRoute(
+                      workspaceApi.mcpSharingUpdate,
+                      {
+                        body: {
+                          sourceId: source.id,
+                          action: "connect",
+                        },
+                      },
+                      "",
+                    );
                     await loadSharing();
                     setNotice(`Tools are shared with ${source.name}.`);
                   })
@@ -394,10 +401,16 @@ export function Tools({
                   disabled={busy}
                   onClick={() =>
                     void action(async () => {
-                      await apiInWorkspace("/mcp-sharing", "", {
-                        sourceId: source.id,
-                        action: "disconnect",
-                      });
+                      await callRoute(
+                        workspaceApi.mcpSharingUpdate,
+                        {
+                          body: {
+                            sourceId: source.id,
+                            action: "disconnect",
+                          },
+                        },
+                        "",
+                      );
                       await loadSharing();
                       setNotice(`Tool sharing with ${source.name} stopped.`);
                     })
@@ -427,10 +440,10 @@ export function Tools({
                 disabled={busy}
                 onClick={() =>
                   void action(async () => {
-                    const result = await api<any[]>(
-                      `/mcp/native-candidates/${candidate.id}/import`,
-                      {},
-                    );
+                    const result = await call(workspaceApi.mcpNativeImport, {
+                      params: { id: candidate.id },
+                      body: {},
+                    });
                     setNotice(
                       result[0]?.status === "connected"
                         ? `${candidate.name} is available to Loop agents.`
@@ -452,9 +465,11 @@ export function Tools({
             onSubmit={(e) => {
               e.preventDefault();
               void action(async () => {
-                const result = await api<any[]>("/mcp/install", {
-                  config: configJson,
-                  runtimeHostId: host || undefined,
+                const result = await call(workspaceApi.mcpInstall, {
+                  body: {
+                    config: configJson,
+                    runtimeHostId: host || undefined,
+                  },
                 });
                 setNotice(
                   result
@@ -462,7 +477,9 @@ export function Tools({
                       (r) =>
                         r.name +
                         ": " +
-                        (r.error || "connected · " + r.tools + " tools"),
+                        ("error" in r
+                          ? r.error
+                          : "connected · " + r.tools + " tools"),
                     )
                     .join("\n"),
                 );
@@ -558,16 +575,15 @@ export function Tools({
                         disabled={busy}
                         onClick={() =>
                           action(async () => {
-                            await api(
-                              `/mcp/${c.id}`,
-                              {
+                            await call(workspaceApi.mcpUpdate, {
+                              params: { id: c.id },
+                              body: {
                                 action:
                                   c.status === "disabled"
                                     ? "enable"
                                     : "disable",
                               },
-                              "PATCH",
-                            );
+                            });
                           })
                         }
                       >
@@ -601,11 +617,10 @@ export function Tools({
                         disabled={busy}
                         onClick={() =>
                           action(async () => {
-                            await api(
-                              `/mcp/${c.id}`,
-                              { action: "disconnect" },
-                              "PATCH",
-                            );
+                            await call(workspaceApi.mcpUpdate, {
+                              params: { id: c.id },
+                              body: { action: "disconnect" },
+                            });
                           })
                         }
                       >
@@ -623,11 +638,17 @@ export function Tools({
                           disabled={busy}
                           onClick={() =>
                             action(async () => {
-                              await apiInWorkspace("/mcp-sharing", "", {
-                                sourceId: parse<any>(c.metadata, {})
-                                  .federatedPeer,
-                                action: "disconnect",
-                              });
+                              await callRoute(
+                                workspaceApi.mcpSharingUpdate,
+                                {
+                                  body: {
+                                    sourceId: parse<any>(c.metadata, {})
+                                      .federatedPeer,
+                                    action: "disconnect",
+                                  },
+                                },
+                                "",
+                              );
                               await loadSharing();
                             })
                           }
@@ -695,7 +716,7 @@ export function Tools({
               e.preventDefault();
               const f = new FormData(e.currentTarget);
               void action(async () => {
-                const auth =
+                const auth = workspaceApi.mcpCreate.body.shape.auth.parse(
                   authType === "bearer"
                     ? { type: "bearer", token: f.get("token") }
                     : authType === "datadog"
@@ -711,15 +732,18 @@ export function Tools({
                             type: "headers",
                             headers: JSON.parse(String(f.get("headers"))),
                           }
-                        : { type: authType };
+                        : { type: authType },
+                );
                 let c;
                 if (editing) {
-                  c = await api(
-                    `/mcp/${editing}`,
-                    { action: "credentials", auth },
-                    "PATCH",
-                  );
-                } else c = await api("/mcp", { name, url, auth });
+                  c = await call(workspaceApi.mcpUpdate, {
+                    params: { id: editing },
+                    body: { action: "credentials", auth },
+                  });
+                } else
+                  c = await call(workspaceApi.mcpCreate, {
+                    body: { name, url, auth },
+                  });
                 setEditing(null);
                 await test(c.id);
                 setView("installed");

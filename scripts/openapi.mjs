@@ -256,8 +256,21 @@ for (const [name, route] of Object.entries(workspaceApi)) {
       description: "Protocol-owned path, including slash-separated segments.",
     });
   const response = {
-    description: "Successful response",
-    ...(route.status === 204
+    description:
+      route.status === 302
+        ? "Browser redirect to the Location header"
+        : "Successful response",
+    ...(route.status === 302
+      ? {
+          headers: {
+            Location: {
+              description: "Browser redirect destination",
+              schema: { type: "string" },
+            },
+          },
+        }
+      : {}),
+    ...(route.status === 204 || route.status === 302
       ? {}
       : {
           content: {
@@ -347,14 +360,16 @@ for (const [name, route] of Object.entries(workspaceApi)) {
         : [{ OwnerSession: [] }, {}]
       : route.security === "public"
         ? []
-        : route.security === "local-setup"
-          ? [{ LocalSourceSetup: [] }]
-          : [
-              ...(route.security === "optional-session" ? [{}] : []),
-              ...(cardRead ? [{ CardBearer: [] }] : []),
-              { OwnerSession: [] },
-              { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
-            ],
+        : route.security === "paired-device"
+          ? [{ PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) }]
+          : route.security === "local-setup"
+            ? [{ LocalSourceSetup: [] }]
+            : [
+                ...(route.security === "optional-session" ? [{}] : []),
+                ...(cardRead ? [{ CardBearer: [] }] : []),
+                { OwnerSession: [] },
+                { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
+              ],
     ...(cardRead
       ? {
           "x-card-grants":

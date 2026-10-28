@@ -169,7 +169,7 @@ it("retries one-shot GETs after a cooldown, but cancels retries with the view an
     new Response('{"error":"Capacity reached"}', { status: 429 }),
   );
   await expect(
-    readInWorkspace("/mcp/catalog", "", new AbortController().signal),
+    readRoute(workspaceApi.mcpCatalog, {}, "", new AbortController().signal),
   ).rejects.toThrow("Capacity reached");
   expect(fetcher).toHaveBeenCalledTimes(4);
 });

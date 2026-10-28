@@ -476,7 +476,9 @@ export async function continuitySmoke(page, fixture, capture) {
       await expect(scheduled).toContainText("Waiting to send");
       await expect(later.getByRole("alert")).toHaveCount(0);
     } finally {
-      await page.unroute(excerptPattern, withoutExcerpt);
+      // Each compatibility phase owns the page's only route. Let in-flight
+      // fetch/fulfill handlers finish before removing their interception.
+      await page.unrouteAll({ behavior: "wait" });
     }
     await scheduled
       .getByRole("button", { name: "Edit scheduled message" })
@@ -566,7 +568,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(page.locator("#composer")).toHaveValue(
       "Post the release notes",
     );
-    await page.unroute(scheduledPattern, olderScheduled);
+    await page.unrouteAll({ behavior: "wait" });
     await page.locator("#composer").fill("");
     await page.getByRole("button", { name: "Collapse composer" }).click();
     await nav("Your profile").click();
@@ -769,7 +771,7 @@ export async function continuitySmoke(page, fixture, capture) {
       historicalSearch,
       "Search renders the production response without older-source optional fields",
     );
-    await page.unroute("**/api/search?**", searchWithoutLaterFields);
+    await page.unrouteAll({ behavior: "wait" });
     await capture("continuity-project-search");
     await projectHit.locator(".search-hit").first().click();
     await expect(messageIn(longIds[30])).toBeInViewport();
@@ -953,7 +955,7 @@ export async function continuitySmoke(page, fixture, capture) {
       await expect.poll(() => resent.length).toBe(1);
       await expect(page.locator("#composer")).toHaveValue("");
     } finally {
-      await page.unroute("**/api/runs", capture200);
+      await page.unrouteAll({ behavior: "wait" });
     }
     assert.deepEqual(resent[0].attachmentIds, [attached.id]);
     assert.equal(resent[0].input, "Also check the mobile layout");
@@ -1046,7 +1048,7 @@ export async function continuitySmoke(page, fixture, capture) {
       historicalCheckout,
       "Checkout renders the production response without older-source optional fields",
     );
-    await page.unroute("**/api/runs/*/checkout", checkoutWithoutLaterFields);
+    await page.unrouteAll({ behavior: "wait" });
     await expect(dialog()).not.toContainText("theme.css");
     await capture("continuity-change-review");
     await expect(

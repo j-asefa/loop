@@ -619,13 +619,15 @@ for (const engine of selectedEngines()) {
         legacyShares++;
         await route.fulfill({ response, json: body });
       };
-      await page.route(shareEndpoint, withoutEffort);
       try {
         await page.goto(
           fixture.base +
             "/?share=1&question=" +
             encodeURIComponent(`@${fixture.agents[0].name} Review this source`),
         );
+        // Register on the loaded page: WebKit intermittently bypassed the
+        // same handler when it was installed before this navigation.
+        await page.route(shareEndpoint, withoutEffort);
         const share = page.getByRole("dialog", {
           name: "Bring it into Loop",
           exact: true,

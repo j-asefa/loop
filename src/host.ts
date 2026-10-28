@@ -36,6 +36,15 @@ import {
   fleetDeviceAuthorization,
   type FleetDeviceRequest,
 } from "./fleet-device-authorization.js";
+import { workspaceApi } from "./shared/workspace-api.js";
+
+// The paired Node HTTP host consumes the same contracts as the Express app.
+// This exact dispatch table is also included in the production route inventory.
+export const pairedHostRoutes = [
+  workspaceApi.agentSources,
+  workspaceApi.mcpSharing,
+  workspaceApi.mcpSharingUpdate,
+] as const;
 
 type Device = TrustedDevice;
 const cleanDevice = ({ id, name, expires }: Device) => ({ id, name, expires });
@@ -649,19 +658,12 @@ export class Host {
           return;
         }
         if (this.workspace.isolated) {
-          if (
-            [
-              "/api/linked-workspaces",
-              "/api/agent-sources",
-              "/api/mcp-sharing",
-            ].includes(path) &&
-            req.method === "GET"
-          )
+          if (path === "/api/linked-workspaces" && req.method === "GET")
             return this.json(res, 200, []);
           if (
             path.startsWith("/api/agent-sources/") ||
             path.startsWith("/api/linked/") ||
-            path === "/api/mcp-sharing"
+            (path === "/api/mcp-sharing" && req.method !== "GET")
           )
             return this.json(res, 403, {
               error: "Previews do not connect to other Loop workspaces.",
@@ -675,27 +677,50 @@ export class Host {
             workspaces.map(({ id, name }) => ({ id, name })),
           );
         }
-        if (path === "/api/agent-sources" && req.method === "GET")
-          return this.json(res, 200, await agentSources());
-        if (path === "/api/mcp-sharing" && req.method === "GET") {
-          if (!this.workspace.shareTools)
-            return this.json(res, 404, { error: "Tool sharing unavailable" });
-          return this.json(res, 200, await this.workspace.shareTools());
-        }
-        if (path === "/api/mcp-sharing" && req.method === "POST") {
-          if (!this.workspace.shareTools)
-            return this.json(res, 404, { error: "Tool sharing unavailable" });
-          const input = await body(req);
+        const contract = pairedHostRoutes.find(
+          (route) =>
+            req.method === route.method && path === "/api" + route.path,
+        );
+        if (contract) {
           if (
-            typeof input.sourceId !== "string" ||
-            !["connect", "disconnect"].includes(input.action)
+            !this.workspace.isolated &&
+            contract !== workspaceApi.agentSources &&
+            !this.workspace.shareTools
           )
-            return this.json(res, 400, { error: "Choose an execution source" });
-          return this.json(
-            res,
-            200,
-            await this.workspace.shareTools(input.sourceId, input.action),
+            return this.json(res, 404, { error: "Tool sharing unavailable" });
+          contract.params.parse({});
+          contract.query.parse(
+            Object.fromEntries(new URL(req.url!, this.origin).searchParams),
           );
+          let output: unknown;
+          if (contract.method === "POST") {
+            const input = contract.body.safeParse(await body(req));
+            if (!input.success)
+              return this.json(res, 400, {
+                error: "Choose an execution source",
+              });
+            output = await this.workspace.shareTools!(
+              input.data.sourceId,
+              input.data.action,
+            );
+          } else {
+            // GET bodies are forbidden by NoBody, including on isolated hosts.
+            const hasBody =
+              Number(req.headers["content-length"] ?? 0) > 0 ||
+              req.headers["transfer-encoding"] !== undefined;
+            contract.body.parse(hasBody ? {} : undefined);
+            output = this.workspace.isolated
+              ? []
+              : contract === workspaceApi.agentSources
+                ? await agentSources()
+                : await this.workspace.shareTools!();
+          }
+          const projected = contract.response.safeParse(output);
+          if (!projected.success)
+            return this.json(res, 500, {
+              error: "The workspace response is unavailable. Please try again.",
+            });
+          return this.json(res, 200, projected.data);
         }
         if (path.startsWith("/api/agent-sources/")) {
           const match = /^\/api\/agent-sources\/([^/]+)\/(.+)$/.exec(path);

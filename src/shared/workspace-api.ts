@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ManagedHarness, NativeProviderView, ProviderKey, ProviderRemove, ProviderRefresh } from "./native-providers.js";
 import { Capabilities } from "./capabilities.js";
 import * as app from "./app-contract-schemas.js";
+import * as mcp from "./mcp-contract-schemas.js";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
 import * as teams from "./team-contract-schemas.js";
@@ -153,7 +154,7 @@ export type RouteContract = {
   multipart?: true;
   contentType?: string;
   // Documentation of existing middleware; never an authorization bypass.
-  security?: "public" | "local-setup" | "optional-session";
+  security?: "public" | "local-setup" | "optional-session" | "paired-device";
   access: "session" | "card:results" | "card:cards" | "peer:enrollment" | "peer:handoff" | "peer:directory" | "device:fleet";
 } & ({ method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; kind?: "stream"; protocol?: never }
   | { method: "POST" | "ALL"; kind: "transport"; protocol: "mcp" | "authentication" });
@@ -161,6 +162,26 @@ export type ClientRouteContract = RouteContract & { method: Exclude<RouteContrac
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
 export const workspaceApi = {
+  agentSources: endpoint({ ...base, method: "GET", path: "/agent-sources", security: "paired-device", response: mcp.PublicAgentSources }),
+  mcpSharing: endpoint({ ...base, method: "GET", path: "/mcp-sharing", security: "paired-device", response: mcp.PublicMcpSharing }),
+  mcpSharingUpdate: endpoint({ ...base, method: "POST", path: "/mcp-sharing", security: "paired-device", body: mcp.McpSharingInput, response: mcp.PublicMcpSharingUpdate }),
+  mcpPreferences: endpoint({ ...base, method: "GET", path: "/mcp/preferences", response: mcp.PublicMcpPreferences }),
+  mcpPreferencesUpdate: endpoint({ ...base, method: "PUT", path: "/mcp/preferences", body: mcp.McpPreferencesInput, response: mcp.PublicMcpPreferences.extend({ resumed: z.number() }) }),
+  mcpCatalog: endpoint({ ...base, method: "GET", path: "/mcp/catalog", response: mcp.PublicMcpCatalog }),
+  mcpNativeCandidates: endpoint({ ...base, method: "GET", path: "/mcp/native-candidates", response: mcp.PublicMcpCandidates }),
+  mcpNativeImport: endpoint({ ...base, method: "POST", path: "/mcp/native-candidates/:id/import", params: Id, body: z.unknown(), response: mcp.PublicMcpInstall, status: 201 }),
+  mcpCatalogInstall: endpoint({ ...base, method: "POST", path: "/mcp/catalog/:id/install", params: Id, body: mcp.McpCatalogInput, response: mcp.PublicMcpCatalogInstall }),
+  mcpInstall: endpoint({ ...base, method: "POST", path: "/mcp/install", body: mcp.McpInstallInput, response: mcp.PublicMcpInstall, status: 201 }),
+  mcpList: endpoint({ ...base, method: "GET", path: "/mcp", response: z.array(mcp.PublicMcpConnection) }),
+  mcpCreate: endpoint({ ...base, method: "POST", path: "/mcp", body: mcp.McpCreateInput, response: mcp.PublicMcpConnection, status: 201 }),
+  mcpTest: endpoint({ ...base, method: "POST", path: "/mcp/:id/test", params: Id, body: z.unknown(), response: mcp.PublicMcpTest }),
+  mcpUpdate: endpoint({ ...base, method: "PATCH", path: "/mcp/:id", params: Id, body: mcp.McpUpdateInput, response: mcp.PublicMcpConnection }),
+  mcpOauthCallback: endpoint({ ...base, method: "GET", path: "/mcp/oauth/callback", query: z.object({ state: z.unknown().optional(), code: z.unknown().optional() }), kind: "stream", response: z.custom<Blob>(), status: 302 }),
+  agentTools: endpoint({ ...base, method: "GET", path: "/agents/:id/tools", params: Id, response: z.array(z.object({ connection_id: Text, tool: Text })) }),
+  agentToolsUpdate: endpoint({ ...base, method: "PUT", path: "/agents/:id/tools", params: Id, body: z.unknown(), response: CardErrorSchema, status: 410 }),
+  artifactToolCall: endpoint({ ...base, method: "POST", path: "/artifacts/:id/tool-call", params: Id, body: mcp.McpToolCallInput, response: PublicRun }),
+  artifactRefresh: endpoint({ ...base, method: "POST", path: "/artifacts/:id/refresh", params: Id, body: mcp.McpToolCallInput.pick({ idempotencyKey: true }), response: PublicRun }),
+  artifactApp: endpoint({ ...base, method: "GET", path: "/artifacts/:id/app", params: Id, kind: "stream", contentType: "text/html", response: z.custom<Blob>() }),
   capabilities: endpoint({ ...base, security: "public", method: "GET", path: "/capabilities", response: Capabilities }),
   health: endpoint({ ...base, security: "public", method: "GET", path: "/health", response: app.PublicHealth, additionalStatuses: [503] }),
   build: endpoint({ ...base, method: "GET", path: "/build", response: app.PublicBuild }),

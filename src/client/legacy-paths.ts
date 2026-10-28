@@ -1,23 +1,9 @@
 /** Named browser migration exceptions; no arbitrary string path is accepted. */
 type Path =
-  | `/agent-sources`
   | `/agents/${string}`
   | `/artifacts/${string}`
-  | `/artifacts/${string}/app`
   | `/artifacts/${string}/move`
-  | `/artifacts/${string}/refresh`
-  | `/artifacts/${string}/tool-call`
   | `/conversations/${string}/memory`
-  | `/mcp`
-  | `/mcp-sharing`
-  | `/mcp/${string}`
-  | `/mcp/${string}/test`
-  | `/mcp/catalog`
-  | `/mcp/catalog/${string}/install`
-  | `/mcp/install`
-  | `/mcp/native-candidates`
-  | `/mcp/native-candidates/${string}/import`
-  | `/mcp/preferences`
   | `/me/profile`
   | `/memory`
   | `/memory/notes`

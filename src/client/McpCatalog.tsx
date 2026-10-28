@@ -1,13 +1,12 @@
-import { useSourceApi } from "./SourceContext";
+import { useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { parse } from "./api";
 import { catalogResults } from "./catalogSearch";
-import type {
-  CatalogEntry,
-  CatalogInstallResult,
-  CatalogResponse,
-} from "../shared/mcp-catalog";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+type CatalogEntry = RouteResponse<
+  typeof workspaceApi.mcpCatalog
+>["entries"][number];
 
 const setupLabels = {
   none: "No credentials listed",
@@ -22,12 +21,14 @@ export function McpCatalog({
   hosts,
   onInstalled,
 }: {
-  connections: any[];
+  connections: RouteResponse<typeof workspaceApi.mcpList>;
   hosts: { id: string; name: string }[];
   onInstalled: () => Promise<void>;
 }) {
-  const api = useSourceApi();
-  const [catalog, setCatalog] = useState<CatalogResponse>(),
+  const call = useSourceRoute(),
+    read = useProjectionRoute();
+  const [catalog, setCatalog] =
+      useState<RouteResponse<typeof workspaceApi.mcpCatalog>>(),
     [query, setQuery] = useState(""),
     [category, setCategory] = useState("All"),
     [noAccount, setNoAccount] = useState(false),
@@ -42,7 +43,7 @@ export function McpCatalog({
   async function load() {
     setLoadError("");
     try {
-      setCatalog(await api<CatalogResponse>("/mcp/catalog"));
+      setCatalog(await read(workspaceApi.mcpCatalog, {}));
     } catch (e) {
       setLoadError((e as Error).message);
     }
@@ -72,17 +73,17 @@ export function McpCatalog({
     setBusy(entry.id);
     setFeedback((f) => ({ ...f, [entry.id]: { message: "", error: false } }));
     try {
-      const result = await api<CatalogInstallResult>(
-        `/mcp/catalog/${entry.id}/install`,
-        {
+      const result = await call(workspaceApi.mcpCatalogInstall, {
+        params: { id: entry.id },
+        body: {
           values,
           runtimeHostId:
             entry.transport === "stdio" ? host || undefined : undefined,
         },
-      );
+      });
       setExpanded(undefined);
       await onInstalled();
-      if (result.authorizationUrl) {
+      if ("authorizationUrl" in result && result.authorizationUrl) {
         location.assign(result.authorizationUrl);
         return;
       }
@@ -90,8 +91,9 @@ export function McpCatalog({
         ...f,
         [entry.id]: {
           message:
-            result.error ||
-            `Installed · ${result.tools} tools available to all agents.`,
+            "error" in result
+              ? result.error
+              : `Installed · ${result.tools} tools available to all agents.`,
           error: result.status !== "connected",
         },
       }));

@@ -200,8 +200,8 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
 
 async function replyCompatibilitySmoke(page, fixture, capture) {
   const sources = [
-    { id: "cloud:old", name: "Older environment" },
-    { id: "cloud:updated", name: "Updated environment" },
+    { id: "cloud:old", name: "Older environment", kind: "cloud" },
+    { id: "cloud:updated", name: "Updated environment", kind: "cloud" },
   ];
   const replies = await fixture.api("/feed?filter=replies");
   const operational = await fixture.api("/feed?filter=needs");
