@@ -4,6 +4,7 @@ import type { Setting, SettingValue } from "../agent-activities.js";
 import { codexActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.ts";
 import { Native } from "../native.js";
+import { nativeFailureDetail } from "../native-memory.js";
 import { NativeSetupError } from "./setup-error.js";
 import { codexToolApproval } from "../shared/codex-approval.js";
 import { codexApprovalDetail } from "./codex-approval-display.js";
@@ -173,11 +174,14 @@ export class Codex implements Adapter {
       Number.POSITIVE_INFINITY,
     );
     this.native.on("message", (m) => this.message(m));
-    this.native.on("failure", () =>
+    this.native.on("failure", (error) =>
       this.emit({
         type: "status",
         status: "failed",
-        detail: "Codex exited. Use loop doctor, then resume the native thread.",
+        detail: nativeFailureDetail(
+          error,
+          "Codex exited. Use loop doctor, then resume the native thread.",
+        ),
       }),
     );
     await this.native.request("initialize", {

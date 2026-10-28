@@ -5,6 +5,7 @@ import { piActivities, directUpdates } from "./direct-activities.js";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
+import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
 import {
   capabilities,
   NotDelivered,
@@ -264,22 +265,27 @@ export class Pi implements Adapter {
       }
     });
     this.native.on("message", (m) => this.message(m));
-    this.native.on("failure", () => {
+    this.native.on("failure", (error) => {
       this.turnActive = false;
       if (this.infoWait) {
         clearTimeout(this.infoWait.timer);
         this.infoWait.reject(
-          new NativeSetupError(
-            "native_start_failed",
-            "Pi could not start. Check its executable, version and extension loading. No prompt was sent.",
-          ),
+          error instanceof NativeMemoryError
+            ? error
+            : new NativeSetupError(
+                "native_start_failed",
+                "Pi could not start. Check its executable, version and extension loading. No prompt was sent.",
+              ),
         );
         this.infoWait = undefined;
       }
       this.emit({
         type: "status",
         status: "failed",
-        detail: "Pi exited. Check native login, project trust and extensions.",
+        detail: nativeFailureDetail(
+          error,
+          "Pi exited. Check native login, project trust and extensions.",
+        ),
       });
     });
     await firstInfo;

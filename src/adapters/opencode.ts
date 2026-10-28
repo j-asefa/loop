@@ -4,6 +4,7 @@ import type { Setting, SettingValue } from "../agent-activities.js";
 import { openCodeActivities, directUpdates } from "./direct-activities.js";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnNative } from "../native-spawn.js";
+import { nativeFailureDetail, nativeMemoryFailure } from "../native-memory.js";
 import { secret } from "../state.js";
 import { killOwned, own } from "../processes.js";
 import {
@@ -192,12 +193,13 @@ export class OpenCode implements Adapter {
       });
       this.child!.on("exit", () => {
         clearTimeout(timer);
-        reject(new Error("OpenCode server exited during startup."));
+        const memory = nativeMemoryFailure(this.child!);
+        reject(memory || new Error("OpenCode server exited during startup."));
         if (!this.abort.signal.aborted)
           this.emit({
             type: "status",
             status: "failed",
-            detail: "OpenCode server exited.",
+            detail: nativeFailureDetail(memory, "OpenCode server exited."),
           });
       });
       this.child!.stdout.on("data", (b) => {

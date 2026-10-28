@@ -4,6 +4,7 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { isAbsolute } from "node:path";
+import { observeNativeMemory } from "./native-memory.js";
 
 /** Optional host-owned resource launcher. It must exec the command with its
  * pipes, PID and process group intact; the browser cannot select this path. */
@@ -22,9 +23,15 @@ export function spawnNative(
   // Descendants already inherit the resource group. A nested fixture workspace
   // must not take over the host's service or create a second resource scope.
   delete env.LOOP_NATIVE_LAUNCHER;
-  return spawn(launcher || command, launcher ? [command, ...args] : args, {
-    ...options,
-    env,
-    shell: false,
-  }) as ChildProcessWithoutNullStreams;
+  const child = spawn(
+    launcher || command,
+    launcher ? [command, ...args] : args,
+    {
+      ...options,
+      env,
+      shell: false,
+    },
+  ) as ChildProcessWithoutNullStreams;
+  if (launcher) observeNativeMemory(child);
+  return child;
 }

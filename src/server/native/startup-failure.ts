@@ -1,6 +1,7 @@
 import { NativeRpcError, NativeTransportError } from "../../native.js";
 import { NativeSetupError } from "../../adapters/setup-error.js";
 import { Problem } from "../../shared/problem.js";
+import { NativeMemoryError } from "../../native-memory.js";
 
 const steps: Record<string, string> = {
   initialize: "starting its native process",
@@ -22,6 +23,18 @@ export function nativeStartupFailure(
   resuming = false,
 ): Problem {
   if (error instanceof Problem) return error;
+  if (error instanceof NativeMemoryError)
+    return new Problem(503, `${error.message} No prompt was sent.`, {
+      phase: "native startup",
+      code: error.code,
+      promptSent: false,
+      ...(Number.isSafeInteger(error.limitBytes) && error.limitBytes! > 0
+        ? {
+            memoryLimitBytes: error.limitBytes,
+            sharedMemoryLimit: error.shared,
+          }
+        : {}),
+    });
   if (error instanceof NativeSetupError)
     return new Problem(422, error.message, {
       phase: "native startup",

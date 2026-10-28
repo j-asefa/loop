@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
+import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
 import type { Billing } from "../protocol.js";
 import type { Adapter, Emit, Options, NativeCommand } from "./types.js";
 import { directActivityEmitter } from "./direct-activities.js";
@@ -124,7 +125,7 @@ export class Antigravity implements Adapter {
         this.ready = { resolve, reject };
       });
       this.native.on("message", (message) => this.message(message));
-      this.native.on("failure", () => this.fail());
+      this.native.on("failure", (error) => this.fail(error));
       const timeout = setTimeout(
         () => this.ready?.reject(new Error(SETUP)),
         20000,
@@ -139,7 +140,11 @@ export class Antigravity implements Adapter {
       return this.billing;
     } catch (error) {
       await this.dispose();
-      if (error instanceof NativeSetupError) throw error;
+      if (
+        error instanceof NativeSetupError ||
+        error instanceof NativeMemoryError
+      )
+        throw error;
       throw new NativeSetupError(
         "antigravity_setup_failed",
         `${SETUP} No prompt was sent.`,
@@ -147,16 +152,20 @@ export class Antigravity implements Adapter {
     }
   }
 
-  private fail() {
-    this.ready?.reject(new Error(SETUP));
+  private fail(error?: unknown) {
+    this.ready?.reject(
+      error instanceof NativeMemoryError ? error : new Error(SETUP),
+    );
     if (this.stopped) return;
     this.stopped = true;
     this.active = false;
     this.emit({
       type: "status",
       status: "failed",
-      detail:
+      detail: nativeFailureDetail(
+        error,
         "Antigravity stopped before the session could continue. The native outcome may be incomplete. Review saved progress and send an explicit follow-up; no prompt was replayed.",
+      ),
     });
   }
 

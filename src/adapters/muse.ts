@@ -3,6 +3,7 @@ import { directActivityEmitter } from "./direct-activities.js";
 import { DirectControls } from "./direct-controls.js";
 import type { Setting, SettingValue } from "../agent-activities.js";
 import { Native, NativeRpcError } from "../native.js";
+import { nativeFailureDetail } from "../native-memory.js";
 import { NativeSetupError } from "./setup-error.js";
 import type { Billing, Request } from "../protocol.js";
 import {
@@ -185,12 +186,14 @@ export class Muse implements Adapter {
     const host = await museHost(this.options.executable, this.options.project);
     this.native = host.native;
     this.native.on("message", (m) => this.message(m));
-    this.native.on("failure", () =>
+    this.native.on("failure", (error) =>
       this.emit({
         type: "status",
         status: "failed",
-        detail:
+        detail: nativeFailureDetail(
+          error,
           "Muse Code exited. Check its sign-in in Provider connections, then resume the native session.",
+        ),
       }),
     );
     // Prompt-free account check: a signed-out host would only fail at the

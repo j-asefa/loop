@@ -1,6 +1,7 @@
 import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 import { Native, NativeRpcError, NativeTransportError } from "../src/native";
+import { NativeMemoryError } from "../src/native-memory";
 import {
   chmodSync,
   existsSync,
@@ -46,6 +47,12 @@ afterEach(() => {
 });
 
 it.each([
+  [
+    "memory",
+    new NativeMemoryError(5 * 1024 ** 3, true),
+    "Out of memory.",
+    "native_memory_limit",
+  ],
   [
     "timeout",
     new NativeTransportError(
@@ -157,6 +164,53 @@ it.each([
     expect(existsSync(audit)).toBe(false);
   },
 );
+it("persists a running agent's confirmed memory failure for cards without replaying the turn", async () => {
+  process.env.LOOP_TEST_HARNESS = "codex";
+  const conversation = "running-memory";
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'local-workspace','Memory test',0)",
+  ).run(conversation);
+  const request = Native.prototype.request;
+  let prompts = 0;
+  vi.spyOn(Native.prototype, "request").mockImplementation(function (
+    this: Native,
+    method,
+    params,
+    rpc,
+  ) {
+    if (method !== "turn/start") return request.call(this, method, params, rpc);
+    prompts++;
+    setImmediate(() =>
+      this.emit("failure", new NativeMemoryError(5 * 1024 ** 3, true)),
+    );
+    return Promise.resolve({ turn: { id: "memory-turn" } });
+  });
+  const run = enqueue("local-workspace", "wait", conversation, {
+    conversation,
+    agent: "worktree-fixture",
+    payload: {
+      agentId: "worktree-fixture",
+      name: "Fixture",
+      provider: "codex",
+      connectionId: "native-codex",
+      model: "fixture",
+      instructions: "",
+      folderId: null,
+    },
+  });
+  expect(await tick(execute)).toBe(true);
+  expect(
+    db.prepare("SELECT state,error FROM runs WHERE id=?").get(run.id),
+  ).toEqual({
+    state: "failed",
+    error: new NativeMemoryError(5 * 1024 ** 3, true).message,
+  });
+  expect(
+    db.prepare("SELECT state FROM native_dispatch WHERE run_id=?").get(run.id),
+  ).toEqual({ state: "failed" });
+  expect(prompts).toBe(1);
+});
+
 afterAll(async () => {
   await nativeSessions.close();
   db.close();

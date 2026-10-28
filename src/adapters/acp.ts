@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnNative } from "../native-spawn.js";
+import { nativeFailureDetail, nativeMemoryFailure } from "../native-memory.js";
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { commandInput } from "../../native/command-results.js";
@@ -178,7 +179,8 @@ export class Acp implements Adapter {
     });
     child.stderr.resume();
     child.once("exit", () => {
-      this.modeConfirmation?.reject(new Error("ACP agent exited"));
+      const memory = nativeMemoryFailure(child);
+      this.modeConfirmation?.reject(memory || new Error("ACP agent exited"));
       this.modeConfirmation = undefined;
       this.cancelPermissions();
       if (!this.closed && !this.terminalReported) {
@@ -186,7 +188,10 @@ export class Acp implements Adapter {
         this.emit({
           type: "status",
           status: "failed",
-          detail: "ACP agent exited. Check local agent login and logs.",
+          detail: nativeFailureDetail(
+            memory,
+            "ACP agent exited. Check local agent login and logs.",
+          ),
           recoverable: false,
         });
       }
@@ -332,6 +337,8 @@ export class Acp implements Adapter {
       return this.billing();
     } catch (error) {
       await this.dispose();
+      const memory = nativeMemoryFailure(child);
+      if (memory) throw memory;
       throw new Error(
         `ACP setup failed: ${error instanceof SafeAcpError ? error.message : "The agent did not complete setup."} Check the agent executable, local sign-in, and ACP compatibility.`,
       );
@@ -412,7 +419,10 @@ export class Acp implements Adapter {
         this.emit({
           type: "status",
           status: "failed",
-          detail: promptFailure(error),
+          detail: nativeFailureDetail(
+            this.child && nativeMemoryFailure(this.child),
+            promptFailure(error),
+          ),
           recoverable: false,
         });
       })

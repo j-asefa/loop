@@ -1,4 +1,5 @@
 import { Acp } from "./acp.js";
+import { NativeMemoryError } from "../native-memory.js";
 import type { Emit, Options } from "./types.js";
 import type { Billing } from "../protocol.js";
 
@@ -44,7 +45,8 @@ export class Grok extends Acp {
       // session/new verifies credentials and reports models without a prompt.
       // Never call authenticate: sign-in belongs to grok login.
       return await super.start();
-    } catch {
+    } catch (error) {
+      if (error instanceof NativeMemoryError) throw error;
       throw new Error(
         "Grok Build setup failed. Sign in to Grok Build in Provider connections, then enable Grok Build again. Check the installed version and project configuration if sign-in is already complete.",
       );

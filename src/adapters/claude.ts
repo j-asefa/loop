@@ -9,6 +9,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
+import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
 import {
   capabilities,
   conflict,
@@ -220,17 +221,23 @@ export class Claude implements Adapter {
       this.options.project,
     );
     this.native.on("message", (m) => this.message(m));
-    this.native.on("failure", () => {
+    this.native.on("failure", (error) => {
       for (const c of this.controls.values()) {
         clearTimeout(c.timer);
-        c.reject(new Error("Claude exited"));
+        c.reject(
+          error instanceof NativeMemoryError
+            ? error
+            : new Error("Claude exited"),
+        );
       }
       this.controls.clear();
       this.emit({
         type: "status",
         status: "failed",
-        detail:
+        detail: nativeFailureDetail(
+          error,
           "Claude Code exited. Inspect native login/configuration and resume its session.",
+        ),
       });
     });
     const init = await this.control({ subtype: "initialize" });

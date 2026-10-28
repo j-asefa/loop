@@ -1,5 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnNative } from "./native-spawn.js";
+import { nativeMemoryFailure } from "./native-memory.js";
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import { killOwned, own } from "./processes.js";
@@ -193,6 +194,11 @@ export class Native extends EventEmitter {
   }
   private fail(error: Error) {
     if (this.closed) return;
+    if (
+      error instanceof NativeTransportError &&
+      ["native_process_exit", "native_connection_closed"].includes(error.code)
+    )
+      error = nativeMemoryFailure(this.child) || error;
     this.closed = true;
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);

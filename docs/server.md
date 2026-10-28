@@ -98,6 +98,16 @@ isolation, not a security boundary for an OS user with authority to change its
 own units. Docker containers and external execution services need their own
 resource limits because their processes are created by another service.
 
+Loop observes out-of-memory kills in each native launch's dedicated resource
+scope. When a kill precedes the native process exiting, its failure card reports
+the memory limit, when available, and suggests reviewing saved progress before
+retrying with fewer builds or tests running. Startup failures also say when no
+prompt was sent. This diagnosis requires per-launch Linux cgroup evidence;
+another agent's memory kill, a startup timeout, or `SIGKILL` alone does not prove
+that this run ran out of memory. Raw process output and credentials are never
+used to compose this message. Monitoring does not change resource limits or
+automatically retry work.
+
 Database liveness heartbeats use a nonblocking write. If another process owns
 SQLite's write lock, the timestamp remains unchanged and the next timer tries
 again; stale observations still expire. Contention cannot terminate the server

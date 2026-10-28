@@ -1,4 +1,5 @@
 import { Acp } from "./acp.js";
+import { NativeMemoryError } from "../native-memory.js";
 import type { Emit, Options } from "./types.js";
 import type { Billing } from "../protocol.js";
 
@@ -32,7 +33,8 @@ export class Gemini extends Acp {
       // session/new verifies credentials and reports models without a prompt.
       // Never call authenticate: that can change the CLI's saved auth method.
       return await super.start();
-    } catch {
+    } catch (error) {
+      if (error instanceof NativeMemoryError) throw error;
       throw new Error(
         "Gemini CLI setup failed. Sign in to Gemini CLI in Provider connections, then enable Gemini again. Check the installed version and project configuration if sign-in is already complete.",
       );
