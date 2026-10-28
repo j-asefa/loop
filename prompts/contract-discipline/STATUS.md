@@ -21,8 +21,8 @@ Update after every meaningful step. A fresh session must be able to resume from 
 | 9b2 MCP management, agent tools, MCP app artifacts | merged | contracts/09b2-mcp-management | https://github.com/j-asefa/loop/pull/223 | 4 complete | f82bad464d733c6c2262f1289367abffc23d28d2 | Merged2026-10-28 as129a98ef887e4029ac0cddfd58d8d05758c28caf after four complete review passes. No accepted P2. |
 | 9c1 shared OpenAPI projections | merged | contracts/09c1-openapi-projections | https://github.com/j-asefa/loop/pull/240 | 1 complete | 46e90c5f71203a703bd84f3a08dd8ba37b622ebd | Merged2026-10-28 as6e55cdb212f8dd337e0817b5811abc893070d194 after one complete clean review. No accepted P2. |
 | 9c2 memory and workflows | merged | contracts/09c2-memory-workflows | https://github.com/j-asefa/loop/pull/242 | 1 complete | 4ef6e42af6f765688cf0fa61eec25ad4165c0274 | Merged2026-10-28 as7b64770e617d5d95414ac69552088fad22f8bc4e after one complete clean review. No accepted P2. Server legacy0/client24. |
-| 10 events in the registry | ready to merge | contracts/10-events-registry | https://github.com/j-asefa/loop/pull/243 | 1 complete | 2f7d4302416513a79e8ca5677e4a1ab864ec1705 | Complete review, no P0/P1/security findings; one accepted P2 query-documentation limitation. Required evidence and user baseline-rerun waiver recorded. Merge with expected head after ledger-only update. |
-| 11 remove the legacy path | todo | | | 0 | | After PR 10 merges, both legacy lists empty apart from deferred protected-file entries, and reactive 12b3 merged. Reactive 12c must also have merged before editing protected mobile-return.ts. |
+| 10 events in the registry | merged | contracts/10-events-registry | https://github.com/j-asefa/loop/pull/243 | 1 complete | 2f7d4302416513a79e8ca5677e4a1ab864ec1705 | Merged2026-10-28 as19640a18480062f15a30e91d832f76eee16a5fed after one complete review. One accepted P2 query-documentation limitation; lead found no confirmed runtime bug. |
+| 11 remove the legacy path | ready to merge | contracts/11-remove-legacy | https://github.com/j-asefa/loop/pull/244 | 1 complete | 3e5615a18d3b871dae5073b8b4eb2f387ecc3952 | Complete clean review; no accepted P2. Confirm mergeability, squash merge with expected head, then record the merge and finish the ledger closeout. |
 
 States: todo, in progress, checks green, review requested, fixing findings, ready to merge, merged, blocked.
 
@@ -52,6 +52,8 @@ PR8b merged2026-10-26:49 server entries and59 client patterns remain; prWatches/
 
 PR9a2 merged2026-10-27:32 server legacy entries and50 client patterns remain; application registrars have no legacy registrations.
 
+PR11 implementation2026-10-28: server legacy0/client legacy0; both inventory files deleted after all deferred calls migrated. The production route inventory now covers the two previously omitted paired-host device routes as contracts.
+
 ## Blocked
 
 (none)
@@ -62,18 +64,18 @@ PR9a2 merged2026-10-27:32 server legacy entries and50 client patterns remain; ap
 
 | App.tsx line at 9cd36102 | Legacy path expression | State |
 | --- | --- | --- |
-| 565 | `/artifacts/${artifact}` | Narrowing done in PR 1; typed migration pending |
-| 792 | `/artifacts/${item.id}` | Narrowing done in PR 1; typed migration pending |
-| 851 | `/results/${id}` | Narrowing done in PR 1; typed migration pending |
-| 1619 | `/artifacts/${contextArtifact.id}/move` | Narrowing done in PR 1; typed migration pending |
-| 1807 | `/scheduled-sends/${row.id}` | Narrowing done in PR 1; typed migration pending |
-| 1955 | `/artifacts/${item.id}` | Narrowing done in PR 1; typed migration pending |
-| 1976 | `/artifacts/${artifact}` | Narrowing done in PR 1; typed migration pending |
-| 2578 | `/artifacts/${item.id}` | Narrowing done in PR 1; typed migration pending |
-| 2617 | `/artifacts/${item.id}` | Narrowing done in PR 1; typed migration pending |
-| 3235 | `/artifacts/${id}` | Narrowing done in PR 1; typed migration pending |
-| 3375 | `/artifacts/${artifact}` | Narrowing done in PR 1; typed migration pending |
-| 4212 | `/agents/${profile.id}` | Narrowing done in PR 1; typed migration pending |
+| 565 | `/artifacts/${artifact}` | Narrowing done in PR 1; completed in PR11: AppController.openLink → artifactDetail |
+| 792 | `/artifacts/${item.id}` | Narrowing done in PR 1; completed in PR11: AppController.replyToArtifact → artifactDetail |
+| 851 | `/results/${id}` | Narrowing done in PR 1; completed in PR11: AppController.archiveCard → resultUpdate |
+| 1619 | `/artifacts/${contextArtifact.id}/move` | Narrowing done in PR 1; completed in PR11: app/Composer.useComposerSend → artifactMove |
+| 1807 | `/scheduled-sends/${row.id}` | Narrowing done in PR 1; completed in PR11: app/Composer.useComposerSend Undo → scheduledSendCancel |
+| 1955 | `/artifacts/${item.id}` | Narrowing done in PR 1; completed in PR11: AppController.open fallback → artifactDetail |
+| 1976 | `/artifacts/${artifact}` | Narrowing done in PR 1; completed in PR11: AppController artifact cold-open effect → artifactDetail |
+| 2578 | `/artifacts/${item.id}` | Narrowing done in PR 1; completed in PR11: app/Results result-card save → artifactUpdate |
+| 2617 | `/artifacts/${item.id}` | Narrowing done in PR 1; completed in PR11: app/Results file pin → artifactUpdate |
+| 3235 | `/artifacts/${id}` | Narrowing done in PR 1; completed in PR11: AppPages Later artifact callback → artifactDetail |
+| 3375 | `/artifacts/${artifact}` | Narrowing done in PR 1; completed in PR11: AppPages project-search artifact callback → artifactDetail |
+| 4212 | `/agents/${profile.id}` | Narrowing done in PR 1; completed in PR11: AppView agent edit submit → agentUpdate |
 
 The existing raw session read at `App.tsx:1225` (`fetch(sourceApiPath("/api/auth/get-session"))`) is also deferred: it does not require string narrowing and is outside the user-authorized App.tsx edits. Its path is named in the client list; moving it to the typed helper remains for PR 9 after 12b.
 
@@ -89,6 +91,17 @@ PR 5 (base 9ab01b59): defer App.tsx artifact reads/updates at lines 547, 783, 16
 
 PR 7 (base2468314c): defer app/Composer.tsx:385 routing preview and :413 share preview while remaining reactive12b extraction continues. Keep `/routing/preview` and `/share/preview` client patterns. No App/native/reactive-ledger edits. No open GitHub PRs at branch start; 12a and 12b2 #201 are merged.
 
+### PR11 deferred-entry completion (2026-10-28)
+
+Reactive 12b3 #211 (9446d53662ca7816440fa70f0138c2e1d7786b0c) and 12c #218 (59773e93080b855bc29e6971617f47e30b9cc298) are merged; their moved call sites are no longer protected. The table records the original string-narrowing work and each current migration. The historical notes above describe the earlier deferrals; none remains outstanding in the PR11 implementation:
+
+- The three Cards readers in `app/AppController.tsx` (reply/open) and `app/Results.tsx` now use `contractCardReader`, preserving source, owner/ticket checks, projection lifetime and manual retry mode. The compatibility factory is removed.
+- `app/AppPages.tsx` folder assignment and `app/AppView.tsx` profile editing use `agentUpdate`.
+- `AppController.archiveCard` uses `resultUpdate`; its profile effect uses one-shot `personalProfile` with the existing abort signal.
+- `AppController.withdrawToComposer` uses `runWithdraw`; the source-bound composer callback uses `scheduledSendCreate` and its late Undo uses `scheduledSendCancel`. The same immutable action source is captured.
+- All artifact reads/updates and Composer filing use `artifactDetail`, `artifactUpdate` and `artifactMove`; routing/share previews use `routingPreview` and `sharePreview`.
+- The session read was already migrated in PR9a2 and is now in `app/Session.tsx:createSessionCheck`, using `readRoute(workspaceApi.authSession, ...)`. This PR audits that completion without replacing its lifecycle logic.
+
 ## Found, not fixed
 
 - PR10 accepted P2 documentation limitation: the socket query schema declares only v=3, as required by the spec; epoch/cursor/clock/projection are documented in the channel description. The generated input schema permits additional properties, the current browser explicitly sets all resume/capability parameters, and the server reads them directly with unchanged first-value semantics. No captured generated socket consumer loses them; the lead did not confirm the reported reconnect regression. Accept the machine-readable query-completeness limitation for this bundle, retaining current-client and linked-replay coverage. Downstream generators remain unvalidated.
@@ -97,13 +110,17 @@ PR 7 (base2468314c): defer app/Composer.tsx:385 routing preview and :413 share p
 
 2026-10-27 PR9b2 discovery scheduling observation: a loop-source-refresh received while useAgentSources is busy only sets pending. When queuedChanges is nonempty, schedule subsequently selects a changes-only pass and skips discovery. Current5272c885 trace shows no discovery after the re-add signal43834ms; existing source scheduling code is unchanged by this bundle. This is separate from the proposed one-line Feed publication fix. The fixture now waits for the prior source removal to reach Your agents before requesting another topology, preserving its intended sequential setup; scheduler behavior itself is left unchanged.
 
-2026-10-27 PR9b2 linked `GET /feed` observation: exact base6f72d775 and current1e8ad795 failed at the fresh progressive-unsave reload. Deterministic isolated WebSocket-reset reproduction now shows an empty local page cached after linked read cancellation; the global completed/cache guard then suppresses the first linked page while another source waits. A proposed one-line per-source cached-summary guard retains the whole-cache-eviction protection and passes the isolated forced regression in both browsers. It remains subject to full verification and explicit reviewer agreement under the PROMPT exception; it is not yet a merged fix. See the appended diagnosis and retained first/retry failure logs.
-
 2026-10-27 PR9b2 observation for GET `/agent-sources`: the failing4655d3bd Feed fixture trace records metadata responses and another metadata pass but no discovery request after a refresh fired before the first metadata projection settled. The unchanged busy/pending/queuedChanges logic can coalesce that request into metadata work; attribution is a code-supported timing inference, not a demonstrated new contract regression. Main6f72d775 Chromium passes that scenario; its WebKit run fails a different later outage-recovery assertion. Preserve both traces/logs described in verification history. The fixture now waits for a visible source agent before asking for another topology, as it already does later in the same scenario. Production refresh scheduling is left unchanged under the bundle scope rule; no claim that the scheduling observation or separate baseline failure is fixed.
 
 (behaviour defects exposed by typing, with route, evidence and why the fix is out of scope here)
 
 ## Decisions made during implementation
+
+- PR11: Remove both legacy inventories, registrar `legacy`, all four raw client helper exports, their raw source hooks and the Cards compatibility factory. Retain private transport/retry/CSRF behavior and the existing typed `routeUrl`/`fetchStream` for file hrefs/bytes; the spec now makes that necessary stream distinction explicit.
+- PR11: Two live Node paired-host routes (`workspaceDevices`, `workspaceRevoke`) were absent from the original Express inventory. Add them to the existing contract dispatch table and registry, preserving pairing, CSRF, string coercion and same-host revocation. The response exposes only id/name/expires. No Express migration or new service endpoint is introduced. The focused HTTP fixture uses real paired device storage on two isolated host instances.
+- PR11: Remove unreachable subscription-auth/upgrade target branches. Both RuntimeSignIn callers and the only HarnessUpgrade caller supply a runtime; no server route serves their old subscription paths. Keep runtime auth and upgrade polling, command identities and recovery unchanged.
+- PR11: The two additional contracts initially made OpenAPI512119bytes, 119 over the512000-byte review cap. Reuse the canonical existing `Ok` response schema under a shared component; generated document510577bytes. Existing operations/public schemas must remain equivalent after reference resolution, and Cards operations/components remain identical.
+- PR11 ledger reconciliation: 2026-10-27 PR9b2 linked `GET /feed` observation: exact base6f72d775 and current1e8ad795 failed at the fresh progressive-unsave reload. Deterministic isolated WebSocket-reset reproduction now shows an empty local page cached after linked read cancellation; the global completed/cache guard then suppresses the first linked page while another source waits. The one-line per-source cached-summary guard retains the whole-cache-eviction protection and passes the isolated forced regression in both browsers. Resolved in merged PR9b2 #223 (129a98ef887e4029ac0cddfd58d8d05758c28caf), after full verification and explicit reviewer agreement under the PROMPT exception. This is separate from the outstanding pagination and discovery-scheduling observations. See the appended diagnosis and retained first/retry failure logs.
 
 - PR 3b inventory: ten remaining core routes, matching the spec. Result updates require boolean `hidden`; the existing handler does not accept an empty partial body. Personal prompt attachments remain already-parsed opaque JSON, including older partial attachment objects; message/file metadata remains text. Preserve existing coercions, profile normalization, unknown-field stripping and file/redirect writers. No consumer exists for message search, personal prompts or the download redirect; other consumers migrate outside protected App.tsx.
 
@@ -1519,3 +1536,141 @@ PR10 review1 requested-head record before tool call,2026-10-28: PR243; head2f7d4
 PR10 review1 request returned5fd245ad-8b58-4d84-94fc-c2c3741ec9c1 queued. Poll only this exact id; do not submit another request to retrieve progress.
 
 PR10 review1 completed2026-10-28: review5fd245ad-8b58-4d84-94fc-c2c3741ec9c1; head2f7d4302416513a79e8ca5677e4a1ab864ec1705; basedf1fdbe3df1da5e1dad22d2609790879b25ee9aa; fingerprintf6a93d46d4c3802a7b5ea6e6634d375ee3c81c5aeb42a6dfad01e91580bc491d. Lead conversation51e4004b-bfed-4c67-a677-81f7f7897f3b/run ad853954-188d-47da-9b58-1bb363fbeb0b and all3 reviewer runs cfba4c8f-b5ab-430b-b824-2c975e3a5e3c,ec644562-be2c-4811-879e-13ccf0557db3,fea7ee37-f898-46c4-9a58-5a70255a75fd completed with null errors and full untruncated reports; every report read. Lead confirmed zero introduced bugs and no P0/P1/security findings; one reviewer reported a P2 query-completeness concern whose consumer impact the lead could not confirm. Record it conservatively as one accepted P2 documentation limitation, with the code/spec evidence above and in PR243. No code revision requested or made. Remaining static-review gaps: external registry enumerators/generators, extra frame-parse CPU cost, load/concurrency, live linked Docker/tunnels/devices, omitted credential files and unreviewed authentication/DB internals. Reviewers did not run checks or verify ledger claims. Reports /tmp/contracts-10-review1.json. Final fetch leaves main df1fdbe3; GitHub mergeable=true and remote head matches2f7d4302416513a79e8ca5677e4a1ab864ec1705. Only STATUS.md differs. Gate holds with the documented P2 disposition and baseline-rerun waiver for a ledger-only commit and expected-head-pinned squash merge.
+
+PR10 merged2026-10-28 as19640a18480062f15a30e91d832f76eee16a5fed through expected-head-pinned squash of00ad7456ba56fa30300e47020fe8ce4ce4ecbcff. Complete review1; no P0/P1/security findings; one accepted P2 documentation limitation, with unconfirmed runtime impact. Only ledger differed from reviewed2f7d4302. Full gate on original base plus rebased check/build/77 focused tests and existing user baseline-rerun waiver documented. PR11 starts from fresh origin/main19640a18. Reactive12b3#211 merged9446d53662ca7816440fa70f0138c2e1d7786b0c and12c#218 merged59773e93080b855bc29e6971617f47e30b9cc298 reconfirmed through GitHub; prior protected-file deferrals may now be completed. Never edit reactive prompt bundle.
+
+### PR11 implementation evidence (2026-10-28)
+
+- First iterative typecheck reported the new native-host union was not narrowed by contract object identity before the existing MCP-sharing POST. Changed only the device branch discriminants to their contract path literals. Second typecheck exited0.
+- Focused run: `TMPDIR=/var/tmp NODE_OPTIONS=--max-old-space-size=512 node node_modules/vitest/vitest.mjs run test/paired-device-contracts.test.ts test/legacy-routes.test.ts test/registrar.test.ts test/client-api.test.ts test/api-backoff.test.ts test/card-client.test.ts --maxWorkers=1` exited0: six files,38 tests,15.94s, finished2026-10-28T10:45:36Z. Includes real paired-host HTTP checks, actual mounted-route inventory, registrar surface, client export/type boundary, cooldown/retry/cancellation and Cards transport. The inventory fixture logged a Better Auth missing-table diagnostic while its assertions passed; no live authentication/provider acceptance is claimed. Logs `/tmp/contracts-11-iteration-typecheck.log`, `-iteration-typecheck-2.log`, `-iteration-focused.log` retained.
+
+### PR11 verification started (2026-10-28)
+
+Implementation head7ede492d116096aca6a37480fc52d5612b34395c, base19640a18480062f15a30e91d832f76eee16a5fed. `npm run check` exited0 at10:50:09Z (format13.4s, typecheck6.4s, OpenAPI0.6s, contracts44.0s); build exited0 at10:50:25Z; literal `npm run openapi:check` and semantic compatibility check exited0 at10:50:26Z. Initial actual review-capture preflight:33 changed paths,1272 captured files,171514 diffbytes,14000991 contextbytes,max510577bytes,no changed-file omission; fingerprint a628e0a41af5ccad972ea7ffa2fdc0431a42b38d395a99e720540a2b7dec2cd2 (not a review).
+
+First `npm run smoke:history` exited1 at10:52:09Z: Chromium passed local refusal, snapshot/settings recovery, HTTP epoch replacement and anchored-live-tail cases, then the long journey timed out at conversation-history-smoke.mjs:586 waiting for its delayed-response hook (`lateStarted`). The diagnostic log contains preceding successful transcript responses and the deliberate429/503 recovery injections; it does not establish a product regression or a root cause. Retained `/tmp/contracts-11-history-first-failure.log` and `-history-first-gates.json`; unchanged current-commit retry started10:52:56Z. No baseline rerun and no production/test change for this observation.
+
+PR11 history retry passed in Chromium and WebKit at2026-10-28T10:56:49Z on unchanged7ede492d; Feed/Files events passed in both profiles/engines at11:03:14Z. The first Cards smoke passed token settings in both profiles at phone/desktop widths, then failed at cards-content-browser.mjs:132 waiting for the obsolete `Try again` label. The retained screenshot shows the expected persistent error with `Retry connection`; the unchanged base already uses `CollectionReadNotice` and one-shot manual retry. Correct only the fixture label and restore its simulated source before clicking (instead of racing the one-shot read). No production behavior change or baseline rerun. Preserve `/tmp/contracts-11-cards-first-failure.log`, `-cards-first-gates.json`, and `-cards-first-failure-server-390.png`. Re-run check and the affected smoke on the fixture revision; prior history/feed evidence belongs to the same production code at7ede492d.
+
+PR11 fixture-revision head d592fffa00aef9c360b0b4ade2327433b66d71a6 changes only the Cards browser fixture and this ledger relative to7ede492d; the gate runner asserts that path set before carrying forward the passed history/Feed results. `npm run check` on d592fffa exited1 at2026-10-28T11:08:08Z: format/typecheck/OpenAPI passed;232 contract assertions passed and the unchanged card-access-contracts test “validates detail output before persisting a bearer read receipt” exceeded its5000ms deadline (5009ms). That test passed in the initial check on identical production code. Keep `/tmp/contracts-11-check-d592-first-failure.log` and `-check-d592-first-gates.json`; run its unchanged file in isolation, then repeat check. No timeout increase, skipped assertion, or root-cause claim.
+
+The isolated card-access retry passed all5 assertions (8.75s; prior timed-out case1925ms), and the unchanged d592fffa convention-check retry passed at2026-10-28T11:10:00Z. Build, explicit openapi:check and semantic compatibility passed at11:10:14–15Z. The Cards smoke then reached `Retry connection`, but it was disabled while an overlapping automatic read remained active; restoring the source let that read succeed and remove the button before the click. Preserve `-cards-d592-failure.log`, `-cards-d592-gates.json`, and `-cards-d592-failure-server-390.png`. The fixture now waits for the retry button to be enabled before removing its outage route. Focused `node --import tsx scripts/cards-content-browser.mjs` exited0 on2026-10-28: server and companion, each390px and1280px. No assertion is skipped and no product/retry policy changes. Log `/tmp/contracts-11-cards-content-iteration.log`; complete smoke and check follow on the committed fixture revision.
+
+PR11 final fixture revision4752de905aa1de7b26b83d316510da303882a592: `npm run check` exited0 at2026-10-28T11:16:51Z; build, openapi:check and compatibility exited0 at11:17:04–05Z. Complete Cards smoke passed11:19:23Z; companion Chromium11:21:26Z and WebKit11:23:54Z; workspace11:25:19Z; Social11:25:40Z; Pull requests11:26:13Z; reconnect Chromium11:26:52Z and WebKit11:27:17Z. Full `npm test -- --maxWorkers=1 --reporter=verbose` exited0 at11:44:24Z:2191 tests,1025.95s. Native suite is running; comprehensive design remains. Exact invocation/environment/head/start/end/exit rows are retained in `/tmp/contracts-11-gates.json`, with per-phase logs and screenshot manifest. No baseline comparison run was added.
+
+PR11 native suite exited0 at2026-10-28T11:52:21Z:316 tests,316 pass,0 fail/cancelled/skipped/todo,476959.220445ms. Comprehensive `npm run smoke:design` started immediately afterwards on4752de90.
+
+PR11 paired-host validation compatibility decision for review: `GET /workspace/devices` now rejects a supplied body under the bundle's required `NoBody` rule, where the old handler ignored it. `POST /workspace/revoke` now requires a JSON object; non-null scalar/array roots previously reached `String(input.id)` as an unknown-ID no-op and now return400. Object-field coercion is unchanged, including numeric IDs and missing IDs; unknown-ID revocation remains idempotent. Existing browser calls always send `{ id }`, and the only change for those malformed root values is refusal of a no-op. Record this input tightening explicitly under contracts.md; no successful device revocation, credential boundary or valid browser request changes. The real HTTP regression covers body refusal, null root, numeric ID coercion and successful/foreign-host revocation; the additional scalar-root distinction is source/schema evidence, not a separately claimed HTTP run.
+
+### PR11 required verification complete (2026-10-28)
+
+Production implementation7ede492d116096aca6a37480fc52d5612b34395c; fixture-only final revision4752de905aa1de7b26b83d316510da303882a592. Passed history/Feed results remain attributed to7ede492d; all other final gates ran on4752de90. The path-set assertion confirms that only the Cards smoke and this ledger differ. No base comparison was rerun.
+
+| Phase | Tested head | Completed UTC | Exit |
+| --- | --- | --- | --- |
+| check | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:16:51.961051+00:00 | 0 |
+| build | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:17:04.293254+00:00 | 0 |
+| openapi | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:17:05.003430+00:00 | 0 |
+| compat | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:17:05.150788+00:00 | 0 |
+| history | 7ede492d116096aca6a37480fc52d5612b34395c | 2026-10-28T10:56:49.431876+00:00 | 0 |
+| feed | 7ede492d116096aca6a37480fc52d5612b34395c | 2026-10-28T11:03:14.577822+00:00 | 0 |
+| cards | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:19:23.175471+00:00 | 0 |
+| companion-chromium | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:21:26.821194+00:00 | 0 |
+| companion-webkit | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:23:54.317651+00:00 | 0 |
+| workspace | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:25:19.559519+00:00 | 0 |
+| social | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:25:40.167614+00:00 | 0 |
+| pulls | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:26:13.204663+00:00 | 0 |
+| reconnect-chromium | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:26:52.156436+00:00 | 0 |
+| reconnect-webkit | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:27:17.875286+00:00 | 0 |
+| vitest | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:44:24.478475+00:00 | 0 |
+| native | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T11:52:21.786128+00:00 | 0 |
+| design | 4752de905aa1de7b26b83d316510da303882a592 | 2026-10-28T12:31:07.101189+00:00 | 0 |
+
+`npm run check` output:
+
+```text
+check: format
+check: format passed in 13.5 s
+check: typecheck
+check: typecheck passed in 8.4 s
+check: openapi
+check: openapi passed in 0.5 s
+check: contracts
+check: contracts passed in 34.9 s
+check: all passed
+```
+
+vitest: Test Files  253 passed (253); Tests  2191 passed (2191); Duration  1025.95s (tests 84%, import 15%, transform 1%)
+
+native: ℹ tests 316; ℹ pass 316; ℹ fail 0; ℹ cancelled 0; ℹ skipped 0; ℹ todo 0; ℹ duration_ms 476959.220445
+
+Design output: 104 named engine/case passes. Final output:
+
+```text
+webkit: design/profile-work passed (12.7s)
+Live conversation updates, scrolling, final deduplication and tool exclusion passed
+chromium: design/conversation-live passed (10.1s)
+Live conversation updates, scrolling, final deduplication and tool exclusion passed
+webkit: design/conversation-live passed (10.4s)
+Thread search bounds, failure recovery, plural counts and reading controls passed in both themes at 320/390/768px
+chromium: design/thread-layout passed (22.1s)
+Thread search bounds, failure recovery, plural counts and reading controls passed in both themes at 320/390/768px
+webkit: design/thread-layout passed (25.5s)
+Design suite: 2296.9s, workers=1
+chromium: approval actions, native question responses and Pi composer layout passed
+webkit: approval actions, native question responses and Pi composer layout passed
+```
+
+Screenshot manifests (exact files in `/tmp/contracts-11-screenshot-manifest.json`):
+
+- `/tmp/contracts-11-cards-screenshots/`: 4 PNG files.
+- `/tmp/contracts-11-companion-chromium-screenshots/`: 1 PNG files.
+- `/tmp/contracts-11-companion-webkit-screenshots/`: 1 PNG files.
+- `/tmp/contracts-11-design-screenshots/`: 659 PNG files.
+- `/tmp/contracts-11-pulls-screenshots/`: 34 PNG files.
+- `/tmp/contracts-11-social-screenshots/`: 18 PNG files.
+- `/tmp/contracts-11-workspace-screenshots/`: 20 PNG files.
+
+The dedicated Cards scripts run Chromium; history, Feed/Files, workspace, Social, Pull requests and design select both engines. Companion and reconnect ran explicit Chromium and WebKit commands. Browser runtime uses the already documented WebKit-only libsoup3.6.6 override, not a global preload. These are fixture results, not live provider, Docker/tunnel or physical-device validation. Exact commands/environment/heads/times/exits, including failures, are `/tmp/contracts-11-gates.json`; retained failures are described above. No review has been requested yet.
+
+### PR11 pre-open synchronization (2026-10-28)
+
+Fetched main and cleanly rebased onto 398a2b6ba25fccbb0f8e2fdbc2b70dfe7a534293, which adds fleet distribution PR #239. Submitted source 8eb212dfc0013274e82ff70d1a429611434f4ea7. `git range-diff` reports all four commits patch-identical. Under the user’s instruction “No you don’t need to rerun the baseline,” retain the completed full baseline and browser evidence on its original source hashes; do not describe it as rerun on the new base. Convention check, build, OpenAPI compatibility and the focused client/paired-host/new-base fleet regressions ran again on this exact rebased head. No dependency or package pin changed.
+
+| Command | Completed UTC | Exit |
+| --- | --- | --- |
+| `npm run check` | 2026-10-28T12:37:10.855347+00:00 | 0 |
+| `npm run build` | 2026-10-28T12:37:24.085013+00:00 | 0 |
+| `python3 /tmp/contracts-11-openapi-compat.py` | 2026-10-28T12:37:24.236771+00:00 | 0 |
+| `npx vitest run test/paired-device-contracts.test.ts test/registrar.test.ts test/client-api.test.ts test/api-backoff.test.ts test/card-client.test.ts test/fleet-directory-sync.test.ts test/fleet-directory-reconcile.test.ts test/fleet-distribution.test.ts test/fleet-handoff-http.test.ts --maxWorkers=1` | 2026-10-28T12:38:47.371185+00:00 | 0 |
+
+Observed output:
+
+```text
+check: format
+check: format passed in 13.8 s
+check: typecheck
+check: typecheck passed in 9.0 s
+check: openapi
+check: openapi passed in 0.6 s
+check: contracts
+check: contracts passed in 35.6 s
+check: all passed
+Test Files  9 passed (9)
+Tests  92 passed (92)
+Duration  82.31s (tests 95%, import 4%, transform 1%)
+```
+
+Logs `/tmp/contracts-11-preopen-{check,build,compat,focused}.log`; exact command/head/timestamps/exit metadata `/tmp/contracts-11-preopen-gates.json`. These are fixture results, not live fleet/device/provider validation. Only STATUS.md evidence commits follow this checked source before review.
+
+PR11 / #244 review 1 requested-head record before tool call, 2026-10-28: head 3e5615a18d3b871dae5073b8b4eb2f387ecc3952; captured base 398a2b6ba25fccbb0f8e2fdbc2b70dfe7a534293; preflight fingerprint 37b0553e928f90766b58d1383c1e1ba0ab82d9c610d9078ab9d4a9a990bb14d8. Actual capture: 34 changed paths, 1278 files, 184971 diff bytes, 14214933 context/before bytes, largest blob 510577 bytes, no changed-file omissions. Required full gate and rebased convention/build/92 focused tests are recorded above; only STATUS.md differs from checked 8eb212df. Request one branch review from team75e334bb-e16b-4d61-b16a-c6859d2337ad; requested or running is not completed coverage.
+
+PR11 review 1 request returned `6357f057-1182-43e7-bb6e-babb80f932cd`, queued. Poll only this exact ID; do not submit another request to retrieve progress.
+
+### PR11 review 1 complete (2026-10-28)
+
+Review `6357f057-1182-43e7-bb6e-babb80f932cd`; head `3e5615a18d3b871dae5073b8b4eb2f387ecc3952`; captured base `398a2b6ba25fccbb0f8e2fdbc2b70dfe7a534293`; fingerprint `37b0553e928f90766b58d1383c1e1ba0ab82d9c610d9078ab9d4a9a990bb14d8`. Lead conversation `ffd829d9-c762-443a-a835-e75c710c1865` / run `f3e3f20f-afd5-454b-b297-70ff24a1f2c7` and all three reviewer runs `4581c1f9-198e-4db2-852a-a5daee262d97`, `56059916-0a63-490d-95ed-7c9cebafcc37`, `6982abc2-0e5f-4a27-bf76-21415b7c91d2` completed, with null errors and full untruncated reports. Every report was read. No confirmed P0, P1, P2 or security findings; no accepted P2 for this PR. No code revision was requested or made.
+
+Reviewers traced source binding, abort/retry modes, late Undo destinations, Cards lifecycle, device authentication, Origin/CSRF, safe response projection and host-local revocation. The malformed scalar/array root tightening is retained as the explicit compatibility decision above; no affected valid caller was found, and the null-root HTTP assertion does not verify the scalar/array distinction. Static review does not validate tests or all ledger claims. Coverage gaps remain: self-revocation’s client session transition, every linked-source UI action after navigation, older linked servers, trust-store internals, omitted credential files, live providers/devices/tunnels/Docker and concurrency/load. No claim that these gaps were tested or fixed. Full reports: `/tmp/contracts-11-review1.json`.
+
+Only STATUS.md commits follow the reviewed head, as allowed by the gate. Check/build/92 focused tests passed on the clean pre-open rebase; original full baseline/browser results remain attributed to their actual heads under the user’s baseline-rerun waiver. Fetch main, confirm definite mergeability and expected remote head, then squash merge pinned to the ledger-only head.

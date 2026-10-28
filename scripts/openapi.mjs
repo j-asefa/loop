@@ -65,6 +65,7 @@ const jsonOptions = {
 // Reuse the actual public projections instead of copying them into every
 // endpoint. Stable per-route response names remain references to these schemas.
 const publicProjections = {
+  Ok: workspaceRoutes.workspaceRevoke.response,
   SessionControls,
   PublicScheduledSend,
   NativeProviderView,

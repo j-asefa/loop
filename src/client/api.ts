@@ -1,7 +1,6 @@
 import { routePath } from "../shared/route-path";
 export { routePath } from "../shared/route-path";
 import type { RouteContract, ClientRouteContract, RouteInput, RouteResponse } from "../shared/workspace-api";
-import type { LegacyClientPath, LegacyFetchPath } from "./legacy-paths";
 import { WorkspaceClock } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
@@ -77,9 +76,6 @@ export async function authorize() {
 export function clearAuthorization() {
   csrf = "";
 }
-export function authorizedFetch(path: LegacyFetchPath, init: RequestInit = {}) {
-  return sendRequest(path, init);
-}
 async function sendRequest(path: string, init: RequestInit = {}) {
   const method = init.method || "GET";
   const headers = new Headers(init.headers);
@@ -111,24 +107,6 @@ function sameWorkspaceRedirect(response: Response, requested: string) {
     return response.ok && target.origin === start.origin && target.pathname.startsWith("/api/") &&
       source(target.pathname) === source(start.pathname);
   } catch { return false; }
-}
-export async function api<T = any>(
-  path: LegacyClientPath,
-  body?: unknown,
-  method?: string,
-  signal?: AbortSignal,
-): Promise<T> {
-  return apiInWorkspace(path, executionSourceId(), body, method, signal);
-}
-
-export async function apiInWorkspace<T = any>(
-  path: LegacyClientPath,
-  sourceId: string,
-  body?: unknown,
-  method?: string,
-  signal?: AbortSignal,
-): Promise<T> {
-  return requestInWorkspace<T>(path, sourceId, body, method, signal);
 }
 async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal, kind?: "stream", multipart = false, empty = false): Promise<T> {
   const generation = viewGeneration();
@@ -221,9 +199,6 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
 /** One-shot projections recover from cooldowns and at most two transient
  * server failures. Only GETs retry; view cancellation stops IO and waits. */
 export type ReadMode = "automatic" | "manual";
-export function readInWorkspace<T = any>(path: LegacyClientPath, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void, mode: ReadMode = "automatic"): Promise<T> {
-  return readRequest<T>(path, sourceId, signal, onRetry, undefined, mode);
-}
 async function readRequest<T>(path: string, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void, kind?: "stream", mode: ReadMode = "automatic"): Promise<T> {
   let failures = 0;
   for (;;) {

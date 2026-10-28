@@ -4,7 +4,6 @@ import {
   type RequestHandler,
   type Response,
 } from "express";
-import { LEGACY_ROUTES } from "../shared/legacy-routes.js";
 import type { z } from "zod";
 import { Problem } from "../shared/problem.js";
 import type { RouteContract } from "../shared/workspace-api.js";
@@ -82,10 +81,9 @@ type Options = RouterOptions & {
   // Former app registrations must reach the parent admission/fallback chain.
   automaticOptions?: boolean;
 };
-const registeredLegacy = new Set<keyof typeof LEGACY_ROUTES>();
 
 /** The Express router stays private; importers receive only a mount handler. */
-export function registrar(name: string, options: Options = {}) {
+export function registrar(_name: string, options: Options = {}) {
   const {
     middleware = [],
     prefix = "",
@@ -125,24 +123,6 @@ export function registrar(name: string, options: Options = {}) {
       );
       if (!automaticOptions && method !== "all")
         registration.options(deferOptions);
-    },
-    legacy(
-      key: keyof typeof LEGACY_ROUTES,
-      ...handlers: [Handler, ...Handler[]]
-    ) {
-      if (LEGACY_ROUTES[key] !== name)
-        throw new Error(`Legacy route ${key} does not belong to ${name}`);
-      if (registeredLegacy.has(key))
-        throw new Error(`Legacy route already registered: ${key}`);
-      const path: string = key;
-      const space = path.indexOf(" ");
-      const method = path.slice(0, space).toLowerCase() as
-        "get" | "post" | "put" | "patch" | "delete" | "all";
-      const registration = router.route(prefix + path.slice(space + 1));
-      registration[method](...handlers);
-      if (!automaticOptions && method !== "all")
-        registration.options(deferOptions);
-      registeredLegacy.add(key);
     },
   };
 }

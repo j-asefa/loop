@@ -27,7 +27,7 @@ import { runModelName } from "./modelChoices";
 import { PublishedFile, CardFile, RunFiles } from "./PublishedFiles";
 import { FileLink } from "./FilePreview";
 import { Diagram } from "./Diagram";
-import { api, parse } from "./api";
+import { parse } from "./api";
 import type { Agent, Artifact, Connection } from "../shared/types";
 export function ArtifactContent({ item }: { item: Artifact }) {
   if (parse<any>(item.metadata, {}).uploaded)

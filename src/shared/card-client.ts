@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { workspaceApi, type RouteInput } from "./workspace-api.js";
-import { routePath, type RoutePath } from "./route-path.js";
+import { routePath } from "./route-path.js";
 
 export type CardListInput = Partial<
   z.output<typeof workspaceApi.cardList.query>
@@ -48,18 +48,6 @@ export function contractCardReader(request: CardReadTransport) {
       );
     },
   };
-}
-/** Compatibility for the protected App.tsx callers until reactive PR 12b.
- * Paths still come from the same contracts; new browser callers use contracts. */
-export function cardReader(
-  request: (
-    path: RoutePath<CardReadContract["path"]>,
-    signal?: AbortSignal,
-  ) => Promise<unknown>,
-) {
-  return contractCardReader((contract, input, signal) =>
-    request(routePath(contract, input), signal),
-  );
 }
 export type CardReader = ReturnType<typeof contractCardReader>;
 

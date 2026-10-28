@@ -1,7 +1,7 @@
 import { callRoute, readRoute } from "../src/client/workspace-api";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readInWorkspace, retryAfter } from "../src/client/api";
+import { retryAfter } from "../src/client/api";
 import { setViewOwner } from "../src/client/viewCache";
 
 const fetcher = vi.fn<typeof fetch>();
@@ -15,7 +15,9 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(async (path) =>
       Response.json(
-        String(path).endsWith("/memory") ? { memoryIncluded: true } : {},
+        String(path).endsWith("/memory")
+          ? { memoryIncluded: true }
+          : { items: [], failed_next: null },
       ),
     );
 });
@@ -151,8 +153,9 @@ it("retries one-shot GETs after a cooldown, but cancels retries with the view an
   await read().catch(() => {});
   const controller = new AbortController();
   const onRetry = vi.fn();
-  const pending = readInWorkspace(
-    "/scheduled-sends",
+  const pending = readRoute(
+    workspaceApi.scheduledSendList,
+    {},
     "",
     controller.signal,
     onRetry,
@@ -161,7 +164,7 @@ it("retries one-shot GETs after a cooldown, but cancels retries with the view an
   expect(fetcher).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(1);
   expect(onRetry).toHaveBeenCalled();
-  await expect(pending).resolves.toEqual({});
+  await expect(pending).resolves.toEqual({ items: [], failed_next: null });
   expect(fetcher).toHaveBeenCalledTimes(2);
   fetcher.mockResolvedValueOnce(limited("60"));
   const cancelled = readRoute(
@@ -245,8 +248,9 @@ it("recovers a signal-driven snapshot from a transient server error without retr
   );
   const retry = vi.fn(),
     controller = new AbortController();
-  const pending = readInWorkspace(
-    "/scheduled-sends",
+  const pending = readRoute(
+    workspaceApi.scheduledSendList,
+    {},
     "",
     controller.signal,
     retry,
@@ -254,12 +258,13 @@ it("recovers a signal-driven snapshot from a transient server error without retr
   await vi.advanceTimersByTimeAsync(0);
   expect(retry).toHaveBeenCalledWith(expect.objectContaining({ status: 503 }));
   await vi.advanceTimersByTimeAsync(2000);
-  await expect(pending).resolves.toEqual({});
+  await expect(pending).resolves.toEqual({ items: [], failed_next: null });
   fetcher.mockImplementation(
     async () => new Response('{"error":"Still unavailable"}', { status: 503 }),
   );
-  const failed = readInWorkspace(
-    "/scheduled-sends",
+  const failed = readRoute(
+    workspaceApi.scheduledSendList,
+    {},
     "",
     controller.signal,
   ).catch((error) => error);
@@ -296,8 +301,9 @@ it("makes one manual retry after exhaustion and still honors Retry-After", async
     async () => new Response("unavailable", { status: 503 }),
   );
   const controller = new AbortController();
-  const automatic = readInWorkspace(
-    "/scheduled-sends",
+  const automatic = readRoute(
+    workspaceApi.scheduledSendList,
+    {},
     "",
     controller.signal,
   ).catch((error) => error);
@@ -305,8 +311,9 @@ it("makes one manual retry after exhaustion and still honors Retry-After", async
   expect((await automatic).status).toBe(503);
   expect(fetcher).toHaveBeenCalledTimes(3);
   await expect(
-    readInWorkspace(
-      "/scheduled-sends",
+    readRoute(
+      workspaceApi.scheduledSendList,
+      {},
       "",
       controller.signal,
       undefined,

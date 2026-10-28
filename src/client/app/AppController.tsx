@@ -1,13 +1,18 @@
 import { useComposerDraft, useComposerSend } from "./Composer";
-import { type ResultItem } from "../../shared/workspace-api";
+import {
+  workspaceApi,
+  type ClientRouteContract,
+  type RouteInput,
+  type ResultItem,
+} from "../../shared/workspace-api";
 import { type WorkspaceCollection } from "../../shared/workspace-events";
 import { cardArtifact, type CardArtifact } from "../card-actions";
 import { CardPager } from "../card-pager";
-import { cardReader } from "../../shared/card-client";
+import { contractCardReader } from "../../shared/card-client";
 
 import { type MyProfileData } from "../MyProfile";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
-import { useProjectionRead, useProjectionRoute } from "../SourceContext";
+import { useProjectionRoute } from "../SourceContext";
 import { useThreadSource } from "../useThreadSource";
 import { executionSourceId, routeSourceId, sourceUrl } from "../sourceRouting";
 import { useAgentSources, type EnvironmentAgent } from "../agentSources";
@@ -47,7 +52,8 @@ import {
   Folder,
   GitPullRequest,
 } from "lucide-react";
-import { api, apiInWorkspace, parse } from "../api";
+import { parse } from "../api";
+import { callRoute } from "../workspace-api";
 import { type ThreadWork } from "../Conversation";
 import type { Agent, Artifact, RunView as Run, Team } from "../../shared/types";
 
@@ -270,8 +276,12 @@ export function useAppController() {
   const actionSource = conversation ? conversationSource : executionSourceId();
   const threadApi = useMemo(
     () =>
-      ((path, body, method, signal) =>
-        apiInWorkspace(path, actionSource, body, method, signal)) as typeof api,
+      <C extends ClientRouteContract>(
+        contract: C,
+        input: RouteInput<C>,
+        signal?: AbortSignal,
+      ) =>
+        callRoute(contract, input, actionSource, signal),
     [actionSource],
   );
   const threadSource = useThreadSource(
@@ -486,7 +496,11 @@ export function useAppController() {
         routeSourceId(url.search),
       );
     } else if (artifact)
-      void api<Artifact>(`/artifacts/${artifact}`)
+      void callRoute(
+        workspaceApi.artifactDetail,
+        { params: { id: artifact } },
+        executionSourceId(),
+      )
         .then((item) => void open(item))
         .catch((e) => setError(e.message));
     else location.assign(url.href);
@@ -589,11 +603,11 @@ export function useAppController() {
     const identity = threadIdentity;
     const owner = session?.user?.id;
     const key = draftKey;
-    const held = await threadApi<{
-      input: string;
-      attachments: UploadedFile[];
-    }>(`/runs/${runId}/withdraw`, {
-      draftAttachmentIds: attachmentsRef.current.map((file) => file.id),
+    const held = await threadApi(workspaceApi.runWithdraw, {
+      params: { id: runId },
+      body: {
+        draftAttachmentIds: attachmentsRef.current.map((file) => file.id),
+      },
     });
     const visible =
       owner === ownerRef.current && identity === composerIdentityRef.current;
@@ -717,12 +731,18 @@ export function useAppController() {
       source === executionSourceId() &&
       ticket === replyRequest.current;
     try {
-      const reader = cardReader((path) => apiInWorkspace(path, source));
+      const reader = contractCardReader((contract, input, signal) =>
+        callRoute(contract, input, source, signal),
+      );
       const card = item.card ? await reader.detail(item.card.id) : null;
       const original =
         card?.type === "result"
           ? cardArtifact(card, source, owner)
-          : await apiInWorkspace<Artifact>(`/artifacts/${item.id}`, source);
+          : await callRoute(
+              workspaceApi.artifactDetail,
+              { params: { id: item.id } },
+              source,
+            );
       if (!current()) return;
       if (
         !original.agent_id ||
@@ -781,7 +801,11 @@ export function useAppController() {
   ) {
     const owner = ownerRef.current;
     try {
-      await apiInWorkspace(`/results/${id}`, source, { hidden }, "PATCH");
+      await callRoute(
+        workspaceApi.resultUpdate,
+        { params: { id }, body: { hidden } },
+        source,
+      );
       if (source !== executionSourceId() || owner !== ownerRef.current) return;
       setItems((old) => old.filter((item) => item.id !== id));
       setArchivedCard(hidden ? { id, source, owner } : null);
@@ -964,7 +988,12 @@ export function useAppController() {
   useEffect(() => {
     if (!signedIn) return setMyProfile(null);
     const controller = new AbortController();
-    api<MyProfileData>("/me/profile", undefined, undefined, controller.signal)
+    callRoute(
+      workspaceApi.personalProfile,
+      {},
+      executionSourceId(),
+      controller.signal,
+    )
       .then(setMyProfile)
       .catch(() => {});
     return () => controller.abort();
@@ -1004,7 +1033,6 @@ export function useAppController() {
   // Drafts are read and written only for the signed-in owner.
   setDraftOwner(session?.user?.id);
   setViewOwner(session?.user?.id);
-  const readSnapshot = useProjectionRead();
   const readContract = useProjectionRoute();
   const personalWorkspace = useRef(false);
   const stopWorkspaceEvents = useRef<() => void>(() => {});
@@ -1133,7 +1161,6 @@ export function useAppController() {
     setNext,
     setResultsLoading,
     setResultsError,
-    readSnapshot,
     readContract,
     setRevision,
   });
@@ -1290,8 +1317,8 @@ export function useAppController() {
       owner === ownerRef.current &&
       source === executionSourceId() &&
       ticket === openRequest.current;
-    const reader = cardReader((path, signal) =>
-      apiInWorkspace(path, source, undefined, undefined, signal),
+    const reader = contractCardReader((contract, input, signal) =>
+      callRoute(contract, input, source, signal),
     );
     try {
       try {
@@ -1303,7 +1330,11 @@ export function useAppController() {
         // public selections. A card itself must always use its typed detail.
         if (item.card || (error as { status?: number }).status !== 404)
           throw error;
-        item = await apiInWorkspace<Artifact>(`/artifacts/${item.id}`, source);
+        item = await callRoute(
+          workspaceApi.artifactDetail,
+          { params: { id: item.id } },
+          source,
+        );
       }
     } catch (e) {
       if (current()) setError((e as Error).message);
@@ -1324,7 +1355,11 @@ export function useAppController() {
   useEffect(() => {
     const artifact = new URLSearchParams(location.search).get("artifact");
     if (session?.user && artifact)
-      void api<Artifact>(`/artifacts/${artifact}`)
+      void callRoute(
+        workspaceApi.artifactDetail,
+        { params: { id: artifact } },
+        executionSourceId(),
+      )
         .then((item) => void open(item))
         .catch((e) => setError(e.message));
   }, [session?.user?.id]);

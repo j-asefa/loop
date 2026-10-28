@@ -1,4 +1,3 @@
-import type { LegacyClientPath } from "./legacy-paths";
 import {
   createContext,
   useContext,
@@ -6,12 +5,7 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
-import {
-  apiInWorkspace,
-  readInWorkspace,
-  type api,
-  type ReadMode,
-} from "./api";
+import type { ReadMode } from "./api";
 import { capabilities as shellCapabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
@@ -50,17 +44,6 @@ export function useSourceId() {
 export function useSourceCapabilities() {
   return useContext(SourceContext)?.capabilities ?? shellCapabilities;
 }
-// Each render's callback captures an immutable destination, including after
-// awaits and in Undo callbacks that outlive the originating conversation.
-export function useSourceApi() {
-  const source = useSourceId();
-  return useMemo(
-    () =>
-      ((path, body, method, signal) =>
-        apiInWorkspace(path, source, body, method, signal)) as typeof api,
-    [source],
-  );
-}
 export function useSourcePath() {
   const source = useSourceId();
   return useMemo(
@@ -71,20 +54,7 @@ export function useSourcePath() {
   );
 }
 
-export function useSourceRead() {
-  const source = useSourceId();
-  return useMemo(
-    () =>
-      <T = any,>(
-        path: LegacyClientPath,
-        signal: AbortSignal,
-        onRetry?: (error: unknown) => void,
-      ) =>
-        readInWorkspace<T>(path, source, signal, onRetry),
-    [source],
-  );
-}
-
+// Each callback captures an immutable source, including in late Undo actions.
 export function useSourceRoute() {
   const source = useSourceId();
   return useMemo(
@@ -129,25 +99,6 @@ function useProjectionScope(sourceId?: string) {
     return () => handle.controller.abort();
   }, [handle]);
   return handle;
-}
-export function useProjectionRead(sourceId?: string) {
-  const handle = useProjectionScope(sourceId);
-  return useMemo(
-    () =>
-      <T = any,>(
-        path: LegacyClientPath,
-        source = handle.source,
-        mode: ReadMode = "automatic",
-      ) =>
-        readInWorkspace<T>(
-          path,
-          source,
-          handle.controller.signal,
-          undefined,
-          mode,
-        ),
-    [handle],
-  );
 }
 export function useProjectionRoute(sourceId?: string) {
   const handle = useProjectionScope(sourceId);

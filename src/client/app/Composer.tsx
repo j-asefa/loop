@@ -23,8 +23,9 @@ import {
 } from "../../shared/workspace-api";
 import type { Agent, Artifact, RunView as Run } from "../../shared/types";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
-import { api, parse } from "../api";
+import { parse } from "../api";
 import { callRoute } from "../workspace-api";
+import type { useSourceRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
 import type { CardArtifact } from "../card-actions";
 import type { ComposerContext } from "../composerContext";
@@ -116,7 +117,7 @@ type ComposerProps = {
   request: { current: SendReceipt };
   receiptStorageKey: string;
   draftKey: string;
-  threadApi: typeof api;
+  threadApi: ReturnType<typeof useSourceRoute>;
   setDraft: Dispatch<SetStateAction<string>>;
   setAttachments: Dispatch<SetStateAction<UploadedFile[]>>;
   setRuns: Dispatch<SetStateAction<Run[]>>;
@@ -441,12 +442,10 @@ export function useComposerSend({
         return;
       }
       try {
-        const result = await threadApi(
-          `/artifacts/${contextArtifact.id}/move`,
-          {
-            command: draft,
-          },
-        );
+        const result = await threadApi(workspaceApi.artifactMove, {
+          params: { id: contextArtifact.id },
+          body: { command: draft },
+        });
         setFilingResult(result);
         setFiling(contextArtifact);
         setDraft("");
@@ -462,9 +461,8 @@ export function useComposerSend({
     ) {
       setBusy(true);
       try {
-        const result = await threadApi("/routing/preview", {
-          input: draft,
-          folderId: folder || undefined,
+        const result = await threadApi(workspaceApi.routingPreview, {
+          body: { input: draft, folderId: folder || undefined },
         });
         setRoutePreview({
           ...result,
@@ -490,7 +488,9 @@ export function useComposerSend({
     try {
       let recipient = activeAgent;
       if (draft.trim().startsWith("@")) {
-        const route = await threadApi("/share/preview", { question: draft });
+        const route = await threadApi(workspaceApi.sharePreview, {
+          body: { question: draft },
+        });
         recipient = composerData.agents.find((a) => a.id === route.agent?.id)!;
         if (!recipient) throw new Error("Choose an accessible @agent.");
       }
@@ -632,9 +632,8 @@ export function useComposerSend({
         window.dispatchEvent(new Event("loop-later-change"));
       };
       if (options.sendAt) {
-        const row = await threadApi<{ id: string }>("/scheduled-sends", {
-          ...body,
-          sendAt: options.sendAt,
+        const row = await threadApi(workspaceApi.scheduledSendCreate, {
+          body: { ...body, sendAt: options.sendAt },
         });
         settleAccepted();
         if (owner !== ownerRef.current) return;
@@ -649,7 +648,9 @@ export function useComposerSend({
             onSelect: () => openSourceLater("scheduled", row.id, actionSource),
           },
           undo: async () => {
-            await threadApi(`/scheduled-sends/${row.id}`, undefined, "DELETE");
+            await threadApi(workspaceApi.scheduledSendCancel, {
+              params: { id: row.id },
+            });
             window.dispatchEvent(new Event("loop-scheduled-change"));
             if (currentView())
               setDraft((current) => (current.trim() ? current : text));

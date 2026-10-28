@@ -37,10 +37,10 @@ import {
   MoreHorizontal,
   X,
 } from "lucide-react";
-import { api } from "../api";
+import { callRoute } from "../workspace-api";
+import { workspaceApi } from "../../shared/workspace-api";
 import { SearchWorkspace } from "../Workspace";
 import { Avatar, Badge } from "../components";
-import type { Artifact } from "../../shared/types";
 
 import type { ReactNode } from "react";
 import { tabs, type AppModel } from "./AppController";
@@ -678,7 +678,11 @@ export function renderAppPages(
                 )}
                 onOpen={(c, m) => setConversation(c, m)}
                 onArtifact={(id) =>
-                  void api<Artifact>(`/artifacts/${id}`)
+                  void callRoute(
+                    workspaceApi.artifactDetail,
+                    { params: { id } },
+                    executionSourceId(),
+                  )
                     .then((item) => void open(item))
                     .catch((e) => setError(e.message))
                 }
@@ -741,7 +745,11 @@ export function renderAppPages(
           }}
           onAgent={setProfile}
           onAssign={async (a, id) => {
-            await api(`/agents/${a.id}`, { folderId: id }, "PATCH");
+            await callRoute(
+              workspaceApi.agentUpdate,
+              { params: { id: a.id }, body: { folderId: id } },
+              executionSourceId(),
+            );
             await bootstrap();
           }}
           renderActivity={(id) => (
@@ -818,7 +826,11 @@ export function renderAppPages(
                 query={text}
                 onConversation={(c, m) => setConversation(c, m)}
                 onArtifact={(artifact) =>
-                  void api<Artifact>(`/artifacts/${artifact}`)
+                  void callRoute(
+                    workspaceApi.artifactDetail,
+                    { params: { id: artifact } },
+                    executionSourceId(),
+                  )
                     .then((item) => void open(item))
                     .catch((e) => setError(e.message))
                 }

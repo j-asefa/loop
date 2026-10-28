@@ -44,6 +44,8 @@ export const pairedHostRoutes = [
   workspaceApi.agentSources,
   workspaceApi.mcpSharing,
   workspaceApi.mcpSharingUpdate,
+  workspaceApi.workspaceDevices,
+  workspaceApi.workspaceRevoke,
 ] as const;
 
 type Device = TrustedDevice;
@@ -684,6 +686,34 @@ export class Host {
         );
         if (contract) {
           if (
+            contract.path === workspaceApi.workspaceDevices.path ||
+            contract.path === workspaceApi.workspaceRevoke.path
+          ) {
+            contract.params.parse({});
+            contract.query.parse(
+              Object.fromEntries(new URL(req.url!, this.origin).searchParams),
+            );
+            let output: unknown;
+            if (contract.path === workspaceApi.workspaceRevoke.path) {
+              const input = contract.body.parse(await body(req));
+              this.revoke(input.id);
+              output = { ok: true };
+            } else {
+              const hasBody =
+                Number(req.headers["content-length"] ?? 0) > 0 ||
+                req.headers["transfer-encoding"] !== undefined;
+              contract.body.parse(hasBody ? {} : undefined);
+              output = this.deviceList().map(cleanDevice);
+            }
+            const projected = contract.response.safeParse(output);
+            if (!projected.success)
+              return this.json(res, 500, {
+                error:
+                  "The workspace response is unavailable. Please try again.",
+              });
+            return this.json(res, 200, projected.data);
+          }
+          if (
             !this.workspace.isolated &&
             contract !== workspaceApi.agentSources &&
             !this.workspace.shareTools
@@ -741,13 +771,6 @@ export class Host {
           const query = new URL(req.url!, this.origin).search;
           await proxyLinkedDocker(req, res, match[1], match[2] + query);
           return;
-        }
-        if (path === "/api/workspace/devices" && req.method === "GET")
-          return this.json(res, 200, this.deviceList().map(cleanDevice));
-        if (path === "/api/workspace/revoke" && req.method === "POST") {
-          const input = await body(req);
-          this.revoke(String(input.id));
-          return this.json(res, 200, { ok: true });
         }
         this.workspace.http(req, res);
         return;

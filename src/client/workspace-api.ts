@@ -1,4 +1,4 @@
-// Keep transport private: contract and legacy entry points share the same IO.
+// Browser API entry points accept contracts; raw transport stays private.
 export {
   callRoute,
   readRoute,

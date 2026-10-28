@@ -19,7 +19,7 @@ import {
   Sparkles,
   Unplug,
 } from "lucide-react";
-import { api, parse } from "./api";
+import { parse } from "./api";
 import { Sheet } from "./components";
 import type { Connection } from "../shared/types";
 

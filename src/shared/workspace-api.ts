@@ -183,6 +183,8 @@ export const workspaceRoutes = {
   workflowRun: endpoint({ ...base, method: "POST", path: "/workflows/:id/run", params: Id, body: workflows.WorkflowRunInput, response: PublicRun, status: 202 }),
   workflowSteps: endpoint({ ...base, method: "GET", path: "/runs/:id/steps", params: Id, response: z.array(PublicWorkflowStep) }),
   agentSources: endpoint({ ...base, method: "GET", path: "/agent-sources", security: "paired-device", response: mcp.PublicAgentSources }),
+  workspaceDevices: endpoint({ ...base, method: "GET", path: "/workspace/devices", security: "paired-device", response: z.array(app.PublicPairedDevice) }),
+  workspaceRevoke: endpoint({ ...base, method: "POST", path: "/workspace/revoke", security: "paired-device", body: app.PairedDeviceRevokeInput, response: Ok }),
   mcpSharing: endpoint({ ...base, method: "GET", path: "/mcp-sharing", security: "paired-device", response: mcp.PublicMcpSharing }),
   mcpSharingUpdate: endpoint({ ...base, method: "POST", path: "/mcp-sharing", security: "paired-device", body: mcp.McpSharingInput, response: mcp.PublicMcpSharingUpdate }),
   mcpPreferences: endpoint({ ...base, method: "GET", path: "/mcp/preferences", response: mcp.PublicMcpPreferences }),

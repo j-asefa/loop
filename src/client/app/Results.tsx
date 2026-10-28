@@ -3,14 +3,15 @@ import { ContentCard } from "../ContentCard";
 import { cardArtifact, type CardArtifact } from "../card-actions";
 import { CardPager, type CardWindow } from "../card-pager";
 import { CollectionReadNotice } from "../CollectionRead";
-import { cardReader } from "../../shared/card-client";
-import { useProjectionRead, useProjectionRoute } from "../SourceContext";
+import { contractCardReader } from "../../shared/card-client";
+import { useProjectionRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
 import { cacheView, cachedView } from "../viewCache";
 import { ResultsPager } from "../results";
 import { type SavedMessage } from "../Later";
 
-import { api, apiInWorkspace, parse } from "../api";
+import { parse } from "../api";
+import { callRoute } from "../workspace-api";
 import { Empty, ArtifactCard } from "../components";
 import type { Agent } from "../../shared/types";
 
@@ -35,7 +36,6 @@ type ResultsProps = {
   setNext(value: string | number | null): void;
   setResultsLoading(value: boolean): void;
   setResultsError(value: string): void;
-  readSnapshot: ReturnType<typeof useProjectionRead>;
   readContract: ReturnType<typeof useProjectionRoute>;
   setRevision: Dispatch<SetStateAction<number>>;
 };
@@ -55,7 +55,6 @@ export function createResultsLoader(props: ResultsProps) {
     setNext,
     setResultsLoading,
     setResultsError,
-    readSnapshot,
     readContract,
     setRevision,
   } = props;
@@ -124,8 +123,8 @@ export function createResultsLoader(props: ResultsProps) {
         return q;
       };
       const mode = manual ? "manual" : "automatic";
-      const reader = cardReader((path, signal) =>
-        readSnapshot(path, source, mode),
+      const reader = contractCardReader((contract, input) =>
+        readContract(contract, input, source, mode),
       );
       const selection = {
         view: "results" as const,
@@ -329,11 +328,13 @@ export function renderResults(
             owner = ownerRef.current;
           if (item.cardOwner && item.cardOwner !== owner) return;
           try {
-            await apiInWorkspace(
-              `/artifacts/${item.id}`,
+            await callRoute(
+              workspaceApi.artifactUpdate,
+              {
+                params: { id: item.id },
+                body: { pinned: !item.pinned, version: item.version },
+              },
               source,
-              { pinned: !item.pinned, version: item.version },
-              "PATCH",
             );
             if (source === executionSourceId() && owner === ownerRef.current)
               await changed();
@@ -368,10 +369,13 @@ export function renderResults(
           // In Saved, unsaving waits for its Undo (see SavedList).
           if (onUnsave && item.pinned) return onUnsave();
           try {
-            await api(
-              `/artifacts/${item.id}`,
-              { pinned: !item.pinned, version: item.version },
-              "PATCH",
+            await callRoute(
+              workspaceApi.artifactUpdate,
+              {
+                params: { id: item.id },
+                body: { pinned: !item.pinned, version: item.version },
+              },
+              executionSourceId(),
             );
             await changed();
             window.dispatchEvent(new Event("loop-later-change"));

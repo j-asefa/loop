@@ -8,6 +8,8 @@ Use an authenticated Loop browser/paired-device session, or a local integration
 token in `Authorization: Bearer …`. Reads do not save, acknowledge, mark read,
 resolve decisions or dispatch work.
 
+The Cards routes and browser readers follow the shared [API boundary](architecture.md#dependencies-and-boundaries).
+
 ## Integration tokens
 
 Open **Settings → Card API tokens**, name the token and choose its read access.

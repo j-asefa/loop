@@ -45,7 +45,7 @@ import {
   LogOut,
   X,
 } from "lucide-react";
-import { api, parse } from "../api";
+import { parse } from "../api";
 import { Connections } from "../Connections";
 import { CreateAgent } from "../CreateAgent";
 import {
@@ -1187,14 +1187,17 @@ export function renderApp(props: AppViewProps) {
               setEditError("");
               const f = new FormData(e.currentTarget);
               try {
-                const a = await api<Agent>(
-                  `/agents/${profile.id}`,
+                const a = await callRoute(
+                  workspaceApi.agentUpdate,
                   {
-                    name: f.get("name"),
-                    instructions: f.get("instructions"),
-                    folderId: f.get("folder") || null,
+                    params: { id: profile.id },
+                    body: {
+                      name: String(f.get("name") ?? ""),
+                      instructions: String(f.get("instructions") ?? ""),
+                      folderId: String(f.get("folder") || "") || null,
+                    },
                   },
-                  "PATCH",
+                  executionSourceId(),
                 );
                 setProfile(a);
                 await bootstrap();

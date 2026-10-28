@@ -1,12 +1,12 @@
 import { executionSourceId } from "../src/client/sourceRouting";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import * as transport from "../src/client/api";
 import {
-  api,
-  apiInWorkspace,
-  authorizedFetch,
-  readInWorkspace,
-} from "../src/client/api";
-import { callRoute, fetchStream } from "../src/client/workspace-api";
+  callRoute,
+  readRoute,
+  routeUrl,
+  fetchStream,
+} from "../src/client/workspace-api";
 import { workspaceApi } from "../src/shared/workspace-api";
 beforeEach(() => vi.stubGlobal("location", { search: "" }));
 afterEach(() => vi.unstubAllGlobals());
@@ -56,21 +56,34 @@ it.each([
 
 // The compiler enforces the transport boundary; these calls are never run.
 function pathTypes(path: string, signal: AbortSignal) {
-  // @ts-expect-error Raw strings require a contract or a named legacy path.
-  api(path);
-  // @ts-expect-error Source routing cannot widen the legacy path boundary.
-  apiInWorkspace(path, "");
-  // @ts-expect-error Retrying reads use the same named paths.
-  readInWorkspace(path, "", signal);
-  // @ts-expect-error Authenticated fetch cannot bypass the named list.
-  authorizedFetch(path);
-  // @ts-expect-error Already-typed routes must use callRoute/readRoute.
-  api("/bootstrap");
+  // @ts-expect-error Raw string transport is private.
+  transport.api(path);
+  // @ts-expect-error Source-bound raw transport is private.
+  transport.apiInWorkspace(path, "");
+  // @ts-expect-error Raw retrying reads are private.
+  transport.readInWorkspace(path, "", signal);
+  // @ts-expect-error Authenticated fetch cannot bypass contracts.
+  transport.authorizedFetch(path);
+  // @ts-expect-error Calls require a contract, never a path string.
+  callRoute(path, {}, "");
+  // @ts-expect-error Retrying reads also require a contract.
+  readRoute(path, {}, "", signal);
+  // @ts-expect-error Download addresses require a contract.
+  routeUrl(path, {}, "");
   // @ts-expect-error JSON contracts cannot bypass response validation.
   fetchStream(workspaceApi.personalProfile, {}, "");
   // @ts-expect-error Protocol dispatch is server-only; callers select a concrete operation.
   callRoute(workspaceApi.authTransport, { body: {} }, "");
 }
+it("does not export a raw path transport", () => {
+  for (const name of [
+    "api",
+    "apiInWorkspace",
+    "readInWorkspace",
+    "authorizedFetch",
+  ])
+    expect(transport).not.toHaveProperty(name);
+});
 it("returns server proxy redirects to the auth screen", async () => {
   const dispatchEvent = vi.fn();
   vi.stubGlobal("window", { dispatchEvent });

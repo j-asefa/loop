@@ -127,10 +127,16 @@ try {
             "Temporary Cards read failure",
             { timeout: 10000 },
           );
-          await page
-            .getByRole("button", { name: "Try again", exact: true })
-            .click();
+          const retryCards = page.getByRole("button", {
+            name: "Retry connection",
+            exact: true,
+          });
+          // An overlapping automatic read may still be exhausting its retry
+          // budget. Wait until manual recovery is available before restoring
+          // the source, so it cannot recover and remove the button first.
+          await expect(retryCards).toBeEnabled({ timeout: 20000 });
           await page.unroute("**/api/v1/cards?*");
+          await retryCards.click();
           await expect(cards).toHaveCount(40, { timeout: 20000 });
           await page
             .getByRole("button", { name: "Earlier results", exact: true })

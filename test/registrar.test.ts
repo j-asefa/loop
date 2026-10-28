@@ -78,16 +78,16 @@ it("validates and projects through the registered HTTP handler", async () => {
   }
 });
 
-it("rejects former legacy entries after their contracts migrate", () => {
-  const routes = registrar("memoryRoutes");
-  expect(() =>
-    Reflect.apply(routes.legacy, routes, ["GET /memory", () => {}]),
-  ).toThrow("does not belong");
+it("exposes only contract registration and mounting", () => {
+  expect(Object.keys(registrar("memoryRoutes")).sort()).toEqual([
+    "mount",
+    "on",
+  ]);
 });
 
 // These assertions are checked by the repository typecheck, never executed.
 function registrationTypes() {
-  // @ts-expect-error An unlisted route needs an explicit legacy-list change.
+  // @ts-expect-error String registration is no longer part of the registrar.
   routes.legacy("POST /unlisted", () => {});
   // @ts-expect-error Importers can mount but cannot register on the raw router.
   routes.mount.get("/unlisted", () => {});

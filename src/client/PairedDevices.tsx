@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "./api";
+import { callRoute } from "./workspace-api";
+import { executionSourceId } from "./sourceRouting";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useProjectionRoute } from "./SourceContext";
 import { Sheet } from "./components";
@@ -8,12 +9,14 @@ export function PairedDevices({ onClose }: { onClose: () => void }) {
   const read = useProjectionRoute();
   const [workspace, setWorkspace] =
       useState<RouteResponse<typeof workspaceApi.workspace>>(),
-    [devices, setDevices] = useState<any[]>([]),
+    [devices, setDevices] = useState<
+      RouteResponse<typeof workspaceApi.workspaceDevices>
+    >([]),
     [error, setError] = useState("");
   async function load() {
     const [w, d] = await Promise.all([
       read(workspaceApi.workspace, {}),
-      api("/workspace/devices"),
+      callRoute(workspaceApi.workspaceDevices, {}, executionSourceId()),
     ]);
     setWorkspace(w);
     setDevices(d);
@@ -44,7 +47,11 @@ export function PairedDevices({ onClose }: { onClose: () => void }) {
           <button
             onClick={async () => {
               try {
-                await api("/workspace/revoke", { id: d.id });
+                await callRoute(
+                  workspaceApi.workspaceRevoke,
+                  { body: { id: d.id } },
+                  executionSourceId(),
+                );
                 await load();
               } catch (e) {
                 setError((e as Error).message);

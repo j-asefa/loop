@@ -8,7 +8,6 @@ import { compareCardOrder, type Card, type CardEntry } from "../shared/cards";
 import { CardBody } from "./ContentCard";
 import {
   SourceProvider,
-  useSourceApi,
   useSourceCapabilities,
   useSourceId,
 } from "./SourceContext";
@@ -1045,7 +1044,6 @@ export function Feed({
   /** Initial discovery has not established the combined Feed's destinations. */
   sourcesLoading?: boolean;
 }) {
-  const api = useSourceApi();
   const scopedSource = useSourceId();
   // Browsable histories retain loaded pages while new activity arrives.
   const retainHistory = ["done", "replies", "threads"].includes(filter);

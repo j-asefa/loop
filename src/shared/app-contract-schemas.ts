@@ -3,6 +3,13 @@ import { BuildIdentity } from "./build.js";
 
 const Text = z.string(),
   Count = z.number();
+export const PublicPairedDevice = z.object({
+  id: Text,
+  name: Text,
+  expires: Count,
+});
+// The host has always stringified the supplied ID before attempting revocation.
+export const PairedDeviceRevokeInput = z.object({ id: z.coerce.string() });
 export const PublicHealth = z.object({
   ok: z.boolean(),
   database: z.literal(true),

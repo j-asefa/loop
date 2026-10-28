@@ -4,12 +4,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { LEGACY_ROUTES } from "../src/shared/legacy-routes";
 import { workspaceRoutes } from "../src/shared/workspace-api";
 
-it("accounts for every production API registration and every named exception across both profiles", () => {
+it("accounts for every production API registration through registry contracts across both profiles", () => {
   const declared = new Set([
-    ...Object.keys(LEGACY_ROUTES),
     ...Object.values(workspaceRoutes).map(
       (route) => `${route.method} ${route.path}`,
     ),
