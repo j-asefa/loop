@@ -6,6 +6,8 @@ import { ManagedHarness, NativeProviderView, ProviderKey, ProviderRemove, Provid
 import { Capabilities } from "./capabilities.js";
 import * as app from "./app-contract-schemas.js";
 import * as mcp from "./mcp-contract-schemas.js";
+import * as memory from "./memory-contract-schemas.js";
+import * as workflows from "./workflow-contract-schemas.js";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
 import * as teams from "./team-contract-schemas.js";
@@ -70,6 +72,9 @@ export const PublicRun = z.object({
   queue_rank: z.number().nullable().optional(), attention_dismissed_at: Time.nullable().optional(),
   queue_position: z.number().nullable().optional(), preview: MaybeText.optional(), stage: MaybeText.optional(),
   preview_artifact: PublicArtifact.nullable().optional(), steeringId: Text.optional(),
+});
+export const PublicWorkflowStep = PublicRun.pick({ state: true, conversation_id: true }).extend({
+  ...workflows.WorkflowStepFields, child_state: PublicRun.shape.state.nullable(),
 });
 const PublicConversation = z.object({
   id: Text, owner_id: Text, agent_id: MaybeText, title: Text, origin: Text, external_id: MaybeText, created_at: Time,
@@ -162,6 +167,21 @@ export type ClientRouteContract = RouteContract & { method: Exclude<RouteContrac
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
 export const workspaceApi = {
+  conversationMemory: endpoint({ ...base, method: "GET", path: "/conversations/:id/memory", params: Id, response: z.object({ memoryIncluded: z.boolean() }) }),
+  memoryStatus: endpoint({ ...base, method: "GET", path: "/memory", response: memory.PublicMemoryStatus }),
+  memoryPolicy: endpoint({ ...base, method: "PUT", path: "/memory/policy", body: memory.MemoryPolicyInput, response: Ok }),
+  memorySource: endpoint({ ...base, method: "GET", path: "/memory/sources/:id", params: Id, response: memory.PublicMemorySource }),
+  memorySourceDelete: endpoint({ ...base, method: "DELETE", path: "/memory/sources/:id", params: Id, body: z.unknown(), response: Ok.extend({ originalHistoryRetained: z.literal(true) }) }),
+  memoryNoteCreate: endpoint({ ...base, method: "POST", path: "/memory/notes", body: memory.MemoryNoteInput, response: z.object({ id: Text }) }),
+  memoryNoteUpdate: endpoint({ ...base, method: "PATCH", path: "/memory/notes/:id", params: Id, body: memory.MemoryNoteUpdateInput, response: Ok }),
+  memoryNoteVersions: endpoint({ ...base, method: "GET", path: "/memory/notes/:id/versions", params: Id, response: memory.PublicMemoryVersions }),
+  runMemory: endpoint({ ...base, method: "GET", path: "/runs/:id/memory", params: Id, response: memory.PublicMemoryReceipt }),
+  workflowList: endpoint({ ...base, method: "GET", path: "/workflows", response: z.array(workflows.PublicWorkflow) }),
+  workflowValidate: endpoint({ ...base, method: "POST", path: "/workflows/validate", body: workflows.WorkflowSourceInput, response: workflows.PublicWorkflowValidation }),
+  workflowSave: endpoint({ ...base, method: "POST", path: "/workflows", body: workflows.WorkflowSaveInput, response: workflows.PublicWorkflow }),
+  workflowDetail: endpoint({ ...base, method: "GET", path: "/workflows/:id", params: Id, response: workflows.PublicWorkflow.extend({ versions: z.array(workflows.PublicWorkflowVersion), runs: z.array(PublicRun) }) }),
+  workflowRun: endpoint({ ...base, method: "POST", path: "/workflows/:id/run", params: Id, body: workflows.WorkflowRunInput, response: PublicRun, status: 202 }),
+  workflowSteps: endpoint({ ...base, method: "GET", path: "/runs/:id/steps", params: Id, response: z.array(PublicWorkflowStep) }),
   agentSources: endpoint({ ...base, method: "GET", path: "/agent-sources", security: "paired-device", response: mcp.PublicAgentSources }),
   mcpSharing: endpoint({ ...base, method: "GET", path: "/mcp-sharing", security: "paired-device", response: mcp.PublicMcpSharing }),
   mcpSharingUpdate: endpoint({ ...base, method: "POST", path: "/mcp-sharing", security: "paired-device", body: mcp.McpSharingInput, response: mcp.PublicMcpSharingUpdate }),

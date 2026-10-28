@@ -134,10 +134,11 @@ export function registrar(name: string, options: Options = {}) {
         throw new Error(`Legacy route ${key} does not belong to ${name}`);
       if (registeredLegacy.has(key))
         throw new Error(`Legacy route already registered: ${key}`);
-      const space = key.indexOf(" ");
-      const method = key.slice(0, space).toLowerCase() as
+      const path: string = key;
+      const space = path.indexOf(" ");
+      const method = path.slice(0, space).toLowerCase() as
         "get" | "post" | "put" | "patch" | "delete" | "all";
-      const registration = router.route(prefix + key.slice(space + 1));
+      const registration = router.route(prefix + path.slice(space + 1));
       registration[method](...handlers);
       if (!automaticOptions && method !== "all")
         registration.options(deferOptions);

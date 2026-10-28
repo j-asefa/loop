@@ -1,11 +1,17 @@
-import { useSourceId } from "./SourceContext";
+import {
+  useSourceId,
+  useSourceRoute,
+  useProjectionRoute,
+} from "./SourceContext";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
+import { readRoute } from "./workspace-api";
 import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
 import { Play, Plus, Check, FileCode, MessageSquare } from "lucide-react";
 import { reorderSteps } from "./workflowOrder";
-import { api, parse, readInWorkspace } from "./api";
+import { parse } from "./api";
 import { Sheet, RichText } from "./components";
 import type { Agent, Folder } from "../shared/types";
 export function starter(agents: Agent[], folder: string) {
@@ -82,9 +88,15 @@ export function WorkflowEditor({
   onConversation: (id: string) => void;
   onCreateAgent: (source: string, id?: string) => void;
 }) {
-  const sourceId = useSourceId();
-  const [list, setList] = useState<any[]>([]),
-    [record, setRecord] = useState<any>(null),
+  const sourceId = useSourceId(),
+    call = useSourceRoute(),
+    readProjection = useProjectionRoute();
+  const [list, setList] = useState<
+      RouteResponse<typeof workspaceApi.workflowList>
+    >([]),
+    [record, setRecord] = useState<RouteResponse<
+      typeof workspaceApi.workflowDetail
+    > | null>(null),
     [source, setSource] = useState(initialSource || starter(agents, "")),
     [mode, setMode] = useState("preview"),
     [inputs, setInputs] = useState<Record<string, string>>({}),
@@ -92,15 +104,18 @@ export function WorkflowEditor({
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [selectedRun, setSelectedRun] = useState<string | null>(null),
-    [steps, setSteps] = useState<any[]>([]);
+    [steps, setSteps] = useState<
+      RouteResponse<typeof workspaceApi.workflowSteps>
+    >([]);
   const recovery = useCollectionRead(JSON.stringify([sourceId, selectedRun]));
   const read = recovery.load;
   const loadSteps = (manual = false, background = false) =>
     selectedRun &&
     read(
       (signal, mode) =>
-        readInWorkspace<any[]>(
-          `/runs/${selectedRun}/steps`,
+        readRoute(
+          workspaceApi.workflowSteps,
+          { params: { id: selectedRun } },
           sourceId,
           signal,
           undefined,
@@ -114,7 +129,9 @@ export function WorkflowEditor({
     spec = parse<any>(source, null);
   async function load(id: string, restoreDraft = false) {
     try {
-      const r = await api(`/workflows/${id}`);
+      const r = await readProjection(workspaceApi.workflowDetail, {
+        params: { id },
+      });
       setRecord(r);
       setSource(restoreDraft && initialSource ? initialSource : r.source);
       setInputs({});
@@ -124,7 +141,7 @@ export function WorkflowEditor({
     }
   }
   useEffect(() => {
-    void api("/workflows")
+    void readProjection(workspaceApi.workflowList, {})
       .then(setList)
       .catch((e) => setError(e.message));
     if (initialId) void load(initialId, true);
@@ -149,12 +166,18 @@ export function WorkflowEditor({
   async function save() {
     setBusy(true);
     try {
-      const r = await api("/workflows", {
-        source,
-        ...(record ? { id: record.id, expectedVersion: record.version } : {}),
+      const r = await call(workspaceApi.workflowSave, {
+        body: {
+          source,
+          ...(record ? { id: record.id, expectedVersion: record.version } : {}),
+        },
       });
-      setRecord(await api(`/workflows/${r.id}`));
-      setList(await api("/workflows"));
+      setRecord(
+        await readProjection(workspaceApi.workflowDetail, {
+          params: { id: r.id },
+        }),
+      );
+      setList(await readProjection(workspaceApi.workflowList, {}));
       setNotice(`Version ${r.version} saved.`);
       setError("");
       return r;
@@ -178,13 +201,20 @@ export function WorkflowEditor({
       const signature = JSON.stringify([record.id, record.version, resolved]);
       if (request.current.signature !== signature)
         request.current = { signature, key: crypto.randomUUID() };
-      const r = await api(`/workflows/${record.id}/run`, {
-        version: record.version,
-        inputs: resolved,
-        idempotencyKey: request.current.key,
+      const r = await call(workspaceApi.workflowRun, {
+        params: { id: record.id },
+        body: {
+          version: record.version,
+          inputs: resolved,
+          idempotencyKey: request.current.key,
+        },
       });
       setSelectedRun(r.id);
-      setRecord(await api(`/workflows/${record.id}`));
+      setRecord(
+        await readProjection(workspaceApi.workflowDetail, {
+          params: { id: record.id },
+        }),
+      );
       onStarted();
       setNotice(
         "Workflow queued. You can close Loop; the server will continue.",
@@ -452,7 +482,9 @@ export function WorkflowEditor({
           disabled={busy}
           onClick={async () => {
             try {
-              const r = await api("/workflows/validate", { source });
+              const r = await call(workspaceApi.workflowValidate, {
+                body: { source },
+              });
               setNotice(r.notice);
               setError("");
             } catch (e) {
@@ -492,7 +524,7 @@ export function WorkflowEditor({
             Go for it · v{record.version}
           </button>
           <h3 className="section-title">Run history</h3>
-          {record.runs?.map((r: any) => (
+          {record.runs.map((r) => (
             <button
               key={r.id}
               className="search-result"
@@ -526,7 +558,10 @@ export function WorkflowEditor({
                   {s.conversation_id && (
                     <button
                       className="text-button"
-                      onClick={() => onConversation(s.conversation_id)}
+                      onClick={() => {
+                        if (s.conversation_id)
+                          onConversation(s.conversation_id);
+                      }}
                     >
                       <MessageSquare size={16} />
                       Open agent conversation

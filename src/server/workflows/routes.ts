@@ -1,4 +1,4 @@
-import { registrar } from "../registrar.js";
+import { registrar, projectResponse } from "../registrar.js";
 import { workspaceApi } from "../../shared/workspace-api.js";
 
 import { runResponse } from "../row-schemas.js";
@@ -14,33 +14,32 @@ import { saveArtifact } from "../artifacts.js";
 import { decide } from "../approvals.js";
 const routes = registrar("workflows");
 export const workflows = routes.mount;
-routes.legacy("GET /workflows", (_req, res) =>
+routes.on(workspaceApi.workflowList, (_req, res) =>
   res.json(
-    db
-      .prepare(
-        "SELECT * FROM workflows WHERE owner_id=? ORDER BY created_at DESC",
-      )
-      .all(res.locals.owner),
+    projectResponse(
+      workspaceApi.workflowList,
+      db
+        .prepare(
+          "SELECT * FROM workflows WHERE owner_id=? ORDER BY created_at DESC",
+        )
+        .all(res.locals.owner),
+    ),
   ),
 );
-routes.legacy("POST /workflows/validate", (req, res) => {
-  const source = z.string().max(100000).parse(req.body.source);
+routes.on(workspaceApi.workflowValidate, (req, res) => {
+  const source = req.body.source;
   const spec = compile(source);
   const bindings = bind(res.locals.owner, spec);
-  res.json({
-    spec,
-    bindings,
-    notice: `Up to ${spec.limits.maxCalls} model calls, each capped at ${spec.limits.maxOutputTokens} output tokens. Provider pricing applies.`,
-  });
+  res.json(
+    projectResponse(workspaceApi.workflowValidate, {
+      spec,
+      bindings,
+      notice: `Up to ${spec.limits.maxCalls} model calls, each capped at ${spec.limits.maxOutputTokens} output tokens. Provider pricing applies.`,
+    }),
+  );
 });
-routes.legacy("POST /workflows", (req, res) => {
-  const d = z
-    .object({
-      source: z.string().max(100000),
-      id: z.string().optional(),
-      expectedVersion: z.number().int().optional(),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.workflowSave, (req, res) => {
+  const d = req.body;
   const spec = compile(d.source);
   bind(res.locals.owner, spec);
   const prior = d.id ? ownedWorkflow(d.id, res.locals.owner) : null;
@@ -78,32 +77,33 @@ routes.legacy("POST /workflows", (req, res) => {
       metadata: { workflowId, version, dsl: spec.dsl },
     });
   }).immediate();
-  res.json(ownedWorkflow(workflowId, res.locals.owner));
+  res.json(
+    projectResponse(
+      workspaceApi.workflowSave,
+      ownedWorkflow(workflowId, res.locals.owner),
+    ),
+  );
 });
-routes.legacy("GET /workflows/:id", (req, res) => {
+routes.on(workspaceApi.workflowDetail, (req, res) => {
   const w = ownedWorkflow(req.params.id, res.locals.owner);
-  res.json({
-    ...w,
-    versions: db
-      .prepare(
-        "SELECT version,source,created_at FROM workflow_versions WHERE workflow_id=? ORDER BY version DESC",
-      )
-      .all(w.id),
-    runs: db
-      .prepare(
-        "SELECT * FROM runs WHERE owner_id=? AND kind='workflow' AND json_extract(payload,'$.workflowId')=? ORDER BY created_at DESC LIMIT 100",
-      )
-      .all(res.locals.owner, w.id),
-  });
+  res.json(
+    projectResponse(workspaceApi.workflowDetail, {
+      ...w,
+      versions: db
+        .prepare(
+          "SELECT version,source,created_at FROM workflow_versions WHERE workflow_id=? ORDER BY version DESC",
+        )
+        .all(w.id),
+      runs: db
+        .prepare(
+          "SELECT * FROM runs WHERE owner_id=? AND kind='workflow' AND json_extract(payload,'$.workflowId')=? ORDER BY created_at DESC LIMIT 100",
+        )
+        .all(res.locals.owner, w.id),
+    }),
+  );
 });
-routes.legacy("POST /workflows/:id/run", (req, res) => {
-  const d = z
-    .object({
-      version: z.number().int().min(1),
-      inputs: z.record(z.string(), z.string()),
-      idempotencyKey: z.string().min(8).max(150),
-    })
-    .parse(req.body);
+routes.on(workspaceApi.workflowRun, (req, res) => {
+  const d = req.body;
   res
     .status(202)
     .json(
@@ -118,14 +118,17 @@ routes.legacy("POST /workflows/:id/run", (req, res) => {
       ),
     );
 });
-routes.legacy("GET /runs/:id/steps", (req, res) => {
+routes.on(workspaceApi.workflowSteps, (req, res) => {
   ownedRun(req.params.id, res.locals.owner);
   res.json(
-    db
-      .prepare(
-        "SELECT s.*,r.conversation_id,r.state child_state FROM workflow_steps s LEFT JOIN runs r ON r.id=s.child_run_id WHERE s.run_id=? ORDER BY position",
-      )
-      .all(req.params.id),
+    projectResponse(
+      workspaceApi.workflowSteps,
+      db
+        .prepare(
+          "SELECT s.*,r.conversation_id,r.state child_state FROM workflow_steps s LEFT JOIN runs r ON r.id=s.child_run_id WHERE s.run_id=? ORDER BY position",
+        )
+        .all(req.params.id),
+    ),
   );
 });
 routes.on(workspaceApi.approvals, (req, res) => {

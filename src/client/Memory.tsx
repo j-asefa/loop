@@ -1,10 +1,16 @@
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceApi, useSourceId } from "./SourceContext";
-import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
+import {
+  useSourceRoute,
+  useSourceId,
+  useProjectionRoute,
+} from "./SourceContext";
+import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState } from "react";
 import { Bookmark, Info, MessageSquare } from "lucide-react";
-import { parse, readInWorkspace } from "./api";
+import { parse } from "./api";
+import { readRoute } from "./workspace-api";
+import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { Sheet } from "./components";
 import {
   SettingsList,
@@ -21,37 +27,44 @@ export function Memory({
   folders: Folder[];
   onClose: () => void;
 }) {
-  const api = useSourceApi();
-  const [data, setData] = useState<any>(null),
+  const call = useSourceRoute(),
+    read = useProjectionRoute();
+  const [data, setData] = useState<RouteResponse<
+      typeof workspaceApi.memoryStatus
+    > | null>(null),
     [error, setError] = useState(""),
     [title, setTitle] = useState(""),
     [content, setContent] = useState(""),
     [project, setProject] = useState(""),
     [pinning, setPinning] = useState(false),
-    [source, setSource] = useState<any>(null);
+    [source, setSource] = useState<RouteResponse<
+      typeof workspaceApi.memorySource
+    > | null>(null);
   const load = () =>
-    api("/memory")
+    read(workspaceApi.memoryStatus, {})
       .then(setData)
       .catch((e) => setError(e.message));
   useEffect(() => {
     void load();
     const requested = new URLSearchParams(location.search).get("memory");
     if (requested)
-      void api(`/memory/sources/${requested}`)
+      void read(workspaceApi.memorySource, { params: { id: requested } })
         .then(setSource)
         .catch((e) => setError(e.message));
   }, []);
   const change = async (scope: string, enabled: boolean) => {
     try {
-      await api("/memory/policy", { scope, enabled }, "PUT");
+      await call(workspaceApi.memoryPolicy, { body: { scope, enabled } });
       await load();
     } catch (e) {
       setError((e as Error).message);
     }
   };
   const isOn = (scope: string) =>
-    data?.policies.find((p: any) => p.scope === scope)?.enabled !== 0;
-  const sourceState = (s: any) =>
+    data?.policies.find((p) => p.scope === scope)?.enabled !== 0;
+  const sourceState = (
+    s: RouteResponse<typeof workspaceApi.memoryStatus>["sources"][number],
+  ) =>
     s.tombstone
       ? { label: "Removed", tone: "muted" as const }
       : !s.eligible
@@ -161,10 +174,12 @@ export function Memory({
                     className="primary"
                     disabled={!title.trim() || !content.trim()}
                     onClick={() =>
-                      void api("/memory/notes", {
-                        title,
-                        content,
-                        projectId: project || null,
+                      void call(workspaceApi.memoryNoteCreate, {
+                        body: {
+                          title,
+                          content,
+                          projectId: project || null,
+                        },
                       })
                         .then(() => {
                           setTitle("");
@@ -180,7 +195,7 @@ export function Memory({
                 </div>
               )}
               <SettingsList>
-                {data.sources.map((s: any) => {
+                {data.sources.map((s) => {
                   const state = sourceState(s);
                   return (
                     <div className="memory-source" key={s.id}>
@@ -190,7 +205,9 @@ export function Memory({
                         aria-label={s.title}
                         disabled={!!s.tombstone || !s.eligible}
                         onClick={() =>
-                          void api(`/memory/sources/${s.id}`)
+                          void read(workspaceApi.memorySource, {
+                            params: { id: s.id },
+                          })
                             .then(setSource)
                             .catch((e) => setError(e.message))
                         }
@@ -218,7 +235,10 @@ export function Memory({
                           type="button"
                           className="text-button"
                           onClick={() =>
-                            void api(`/memory/sources/${s.id}`, {}, "DELETE")
+                            void call(workspaceApi.memorySourceDelete, {
+                              params: { id: s.id },
+                              body: {},
+                            })
                               .then(load)
                               .catch((e) => setError(e.message))
                           }
@@ -269,15 +289,14 @@ export function Memory({
                 <button
                   className="primary"
                   onClick={() =>
-                    void api(
-                      `/memory/notes/${source.id}`,
-                      {
+                    void call(workspaceApi.memoryNoteUpdate, {
+                      params: { id: source.id },
+                      body: {
                         revision: source.revision,
                         title: source.title,
                         content: source.content,
                       },
-                      "PATCH",
-                    )
+                    })
                       .then(() => {
                         setSource(null);
                         return load();
@@ -292,7 +311,7 @@ export function Memory({
               <pre className="memory-excerpt">{source.content}</pre>
             )}
             <div className="actions">
-              {source.conversation_id && (
+              {"link" in source && source.conversation_id && (
                 <a href={source.link}>Open original message</a>
               )}
               <button onClick={() => setSource(null)}>Close source</button>
@@ -303,7 +322,10 @@ export function Memory({
     </Sheet>
   );
 }
-export type MemoryReceipt = { mode: string; sources: string; tokens: number };
+export type MemoryReceipt = Pick<
+  RouteResponse<typeof workspaceApi.runMemory>,
+  "mode" | "sources" | "tokens"
+>;
 /**
  * What saved memory was added to a run's prompt. The token figure is only
  * the added memory text (about four characters a token), not the run's usage.
@@ -324,15 +346,31 @@ export function memoryReceiptText(receipt: MemoryReceipt) {
   );
 }
 export function MemoryUsed({ runId }: { runId: string }) {
-  const api = useSourceApi();
-  const [receipt, setReceipt] = useState<any>(null),
-    [opened, setOpened] = useState(false);
+  const read = useProjectionRoute();
+  const [receipt, setReceipt] = useState<RouteResponse<
+      typeof workspaceApi.runMemory
+    > | null>(null),
+    [opened, setOpened] = useState(false),
+    [error, setError] = useState("");
   useEffect(() => {
-    if (opened) void api(`/runs/${runId}/memory`).then(setReceipt);
-  }, [runId, opened]);
+    if (!opened) return;
+    let active = true;
+    setError("");
+    void read(workspaceApi.runMemory, { params: { id: runId } })
+      .then((value) => {
+        if (active) setReceipt(value);
+      })
+      .catch((error: Error) => {
+        if (active && error.name !== "AbortError") setError(error.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [runId, opened, read]);
   return (
     <details onToggle={(e) => setOpened(e.currentTarget.open)}>
       <summary>Memory used</summary>
+      {error && <p role="alert">{error}</p>}
       {receipt && (
         <>
           <p>{memoryReceiptText(receipt)}</p>
@@ -347,18 +385,21 @@ export function MemoryUsed({ runId }: { runId: string }) {
   );
 }
 export function NativeConversation({ id }: { id: string }) {
-  const api = useSourceApi(),
+  const call = useSourceRoute(),
     sourceId = useSourceId();
   const recovery = useCollectionRead(JSON.stringify([sourceId, id]));
   const read = recovery.load;
-  const [data, setData] = useState<any>(null),
+  const [data, setData] = useState<RouteResponse<
+      typeof workspaceApi.conversationMemory
+    > | null>(null),
     [error, setError] = useState(""),
     [include, setInclude] = useState(true);
   const load = (manual = false, background = false) =>
     read(
       (signal, mode) =>
-        readInWorkspace(
-          `/conversations/${id}/memory`,
+        readRoute(
+          workspaceApi.conversationMemory,
+          { params: { id } },
           sourceId,
           signal,
           undefined,
@@ -400,11 +441,9 @@ export function NativeConversation({ id }: { id: string }) {
           checked={include}
           onChange={(e) => {
             const value = e.target.checked;
-            void api(
-              "/memory/policy",
-              { scope: "conversation:" + id, enabled: value },
-              "PUT",
-            )
+            void call(workspaceApi.memoryPolicy, {
+              body: { scope: "conversation:" + id, enabled: value },
+            })
               .then(() => setInclude(value))
               .catch((e) => setError(e.message));
           }}
