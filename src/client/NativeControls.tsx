@@ -180,6 +180,55 @@ export function NativeDecisions({
     <>{cards}</>
   );
 }
+function QuestionResponse({
+  title,
+  secret,
+  onChange,
+}: {
+  title: string;
+  secret?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const resize = () => {
+      element.style.height = "auto";
+      element.style.height = element.scrollHeight + "px";
+    };
+    resize();
+    let width = element.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (element.clientWidth !== width) {
+        width = element.clientWidth;
+        resize();
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const props = {
+    "aria-label": title + " response",
+    autoComplete: "off",
+    placeholder: "Your response",
+  };
+  return secret ? (
+    <input {...props} type="password" onChange={(e) => onChange(e.target.value)} />
+  ) : (
+    <textarea
+      {...props}
+      ref={ref}
+      className="native-question-response"
+      rows={1}
+      onChange={(e) => {
+        e.target.style.height = "auto";
+        e.target.style.height = e.target.scrollHeight + "px";
+        onChange(e.target.value);
+      }}
+    />
+  );
+}
 function DecisionCard({
   item,
   onConversation,
@@ -348,13 +397,11 @@ function DecisionCard({
                   <span>{option}</span>
                 </label>
               ))}
-              <input
-                aria-label={q.title + " response"}
-                type={q.secret ? "password" : "text"}
-                autoComplete="off"
-                placeholder="Your response"
-                onChange={(e) =>
-                  setAnswers((old) => ({ ...old, [q.id]: [e.target.value] }))
+              <QuestionResponse
+                title={q.title}
+                secret={q.secret}
+                onChange={(value) =>
+                  setAnswers((old) => ({ ...old, [q.id]: [value] }))
                 }
               />
             </fieldset>

@@ -9889,3 +9889,21 @@ span.pull-state-chip { cursor: default; }
 .deployment-observation { padding: 12px 0; overflow-wrap: anywhere; }
 .deployment-observation + .deployment-observation { border-top: 1px solid var(--line); }
 .deployment-observation p { margin: 4px 0; }
+
+.native-decision textarea.native-question-response {
+  display: block;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--control-size);
+  line-height: 1.4;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  max-height: 40vh;
+  max-height: max(64px, calc(var(--visual-viewport-height, 100dvh) * 0.3));
+  resize: none;
+  overflow-y: auto;
+}

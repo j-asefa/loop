@@ -139,9 +139,31 @@ export async function nativeQuestionLayoutSmoke(page, fixture, capture) {
           exact: true,
         });
         await reachable(notes);
-        await notes.fill("Keep the Send button reachable.");
+        const initialHeight = await notes.evaluate(
+          (element) => element.clientHeight,
+        );
+        const response =
+          "Keep the Send button reachable. ".repeat(3) +
+          "\nInclude the full response on multiple lines.";
+        await notes.fill(response);
+        assert(
+          await notes.evaluate(
+            (element) =>
+              element.clientHeight > 70 &&
+              element.scrollWidth <= element.clientWidth &&
+              element.scrollHeight <= element.clientHeight + 2,
+          ),
+          "The response must grow and wrap as text is entered",
+        );
+        await notes.fill("Short answer");
+        assert(
+          (await notes.evaluate((element) => element.clientHeight)) <=
+            initialHeight,
+          "The response must shrink when text is removed",
+        );
+        await notes.fill(response);
         expected.checks = extraQuestions[0].options.slice(0, 2);
-        expected.notes = ["Keep the Send button reachable."];
+        expected.notes = [response];
         if (width < 700) {
           // A desktop runner cannot open the iPhone keyboard. Exercise the
           // production visual-viewport handling while the answer keeps focus.
