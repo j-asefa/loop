@@ -40,7 +40,7 @@ const requests = () =>
 
 it.each([
   ["signed-out", "native_auth_missing", "Antigravity is not signed in"],
-  ["auth-failure", "antigravity_setup_failed", "Run agy"],
+  ["auth-failure", "antigravity_setup_failed", "run agy"],
 ])(
   "returns safe, actionable %s guidance from runtime enable without registering or sending a prompt",
   async (mode, code, message) => {

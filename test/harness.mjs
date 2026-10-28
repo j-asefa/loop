@@ -182,6 +182,21 @@ if (kind === "pi")
       ],
     }) + "\n",
   );
+// Pi reads no RPC input until session_start handlers return, so an
+// extension's startup question blocks it.
+if (kind === "pi" && process.env.LOOP_TEST_PI_STARTUP_QUESTION) {
+  process.stdout.write(
+    JSON.stringify({
+      type: "extension_ui_request",
+      id: "startup-question",
+      method: "select",
+      title: "Use fixture integration?",
+      options: ["Yes", "No"],
+    }) + "\n",
+  );
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+}
 if (kind !== "opencode") {
   createInterface({ input: process.stdin }).on("line", (line) => {
     const m = JSON.parse(line),
@@ -373,14 +388,41 @@ if (kind !== "opencode") {
           ],
         },
       });
-    if (type === "get_state")
-      return result({
+    if (type === "get_state") {
+      const state = {
         sessionId: process.env.LOOP_TEST_PI_SESSION_ID || "pi-1",
         model: piModel,
         thinkingLevel,
         isStreaming: !!active && !piQueue.length,
         pendingMessageCount: piQueue.length,
-      });
+      };
+      // An extension question in the same chunk as Pi's first response.
+      if (
+        process.env.LOOP_TEST_PI_LATE_QUESTION &&
+        !process.env.LOOP_TEST_PI_LATE_ASKED
+      ) {
+        process.env.LOOP_TEST_PI_LATE_ASKED = "1";
+        return process.stdout.write(
+          JSON.stringify({
+            type: "response",
+            id: m.id,
+            command: type,
+            success: true,
+            data: state,
+          }) +
+            "\n" +
+            JSON.stringify({
+              type: "extension_ui_request",
+              id: "late-question",
+              method: "select",
+              title: "Pick a fixture option",
+              options: ["Yes", "No"],
+            }) +
+            "\n",
+        );
+      }
+      return result(state);
+    }
     if (type === "clear_queue") {
       const cleared = { steering: [], followUp: [] };
       for (const [queue, message] of piQueue) cleared[queue].push(message);

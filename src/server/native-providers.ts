@@ -201,9 +201,13 @@ async function syncModels(
       updatedAt: Date.now(),
       syncError: undefined,
     };
-  } catch {
+  } catch (error) {
+    // Specific setup guidance is Loop-authored (NativeSetupError), never
+    // provider output; other startup failures keep the refresh hint.
     const syncError =
-      "Loop could not refresh the harness models. Check its configuration and saved billing policy, then refresh models.";
+      error instanceof ExecutionRefused && error.status === 422
+        ? error.message
+        : "Loop could not refresh the harness models. Check its configuration and saved billing policy, then refresh models.";
     syncErrors.set(target.name, syncError);
     return {
       ...view,

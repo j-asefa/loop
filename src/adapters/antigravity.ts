@@ -10,7 +10,7 @@ import { NativeSetupError } from "./setup-error.js";
 
 const exec = promisify(execFile);
 const SETUP =
-  "Antigravity setup failed. Run agy on the execution computer to sign in, then enable Antigravity again. Check agy models and the project configuration if sign-in is already complete.";
+  "Antigravity setup failed. Choose Sign in to Antigravity in Settings → Provider connections, or run agy on the execution computer, then enable Antigravity again. Check agy models and the project configuration if sign-in is already complete.";
 
 /** The public agy stream protocol; credentials and context stay with agy.
  * https://antigravity.google/docs/cli/headless/
@@ -86,7 +86,7 @@ export class Antigravity implements Adapter {
         )
           throw new NativeSetupError(
             "native_auth_missing",
-            "Antigravity is not signed in on the execution computer. Run agy there to sign in with Google, then enable Antigravity again. No prompt was sent.",
+            "Antigravity is not signed in on the execution computer. Choose Sign in to Antigravity, or run agy there, then enable Antigravity again. No prompt was sent.",
           );
         throw error;
       });

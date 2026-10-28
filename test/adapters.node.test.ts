@@ -407,6 +407,65 @@ test("Pi's subscription catalog excludes API routes for the same model", async (
     delete process.env.LOOP_TEST_PI_AUTH;
   }
 });
+test("Pi reports an extension question asked during startup instead of waiting", async () => {
+  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP_TEST_PI_STARTUP_QUESTION = "1";
+  const events: any[] = [];
+  const adapter = new Pi(
+    {
+      harness: "pi",
+      project: process.cwd(),
+      executable,
+      billing: "existing",
+      version: "fixture",
+    },
+    (event) => events.push(event),
+  );
+  try {
+    const started = Date.now();
+    await assert.rejects(
+      adapter.start(),
+      (error) =>
+        error instanceof NativeSetupError &&
+        error.code === "native_startup_question" &&
+        !error.message.includes("fixture integration"),
+    );
+    assert(Date.now() - started < 10000);
+    assert(!events.some((event) => event.type === "request"));
+  } finally {
+    await adapter.dispose();
+    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP_TEST_PI_STARTUP_QUESTION;
+  }
+});
+test("Pi relays an extension question asked after it answers RPC requests", async () => {
+  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP_TEST_PI_LATE_QUESTION = "1";
+  const events: any[] = [];
+  const adapter = new Pi(
+    {
+      harness: "pi",
+      project: process.cwd(),
+      executable,
+      billing: "existing",
+      version: "fixture",
+    },
+    (event) => events.push(event),
+  );
+  try {
+    await adapter.start();
+    await until(() =>
+      events.some(
+        (event) =>
+          event.type === "request" && event.request.id === "late-question",
+      ),
+    );
+  } finally {
+    await adapter.dispose();
+    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP_TEST_PI_LATE_QUESTION;
+  }
+});
 test("Pi exposes model-specific effort and applies saved effort to new and resumed sessions", async () => {
   process.env.LOOP_TEST_HARNESS = "pi";
   try {

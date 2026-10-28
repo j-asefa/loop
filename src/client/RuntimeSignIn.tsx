@@ -529,6 +529,14 @@ function RuntimeSignInSession({
           </button>
         </div>
       )}
+      {complete && view && runtime === "antigravity" && (
+        // agy has no sign-out Loop can drive; signing in again while agy
+        // still has a credential keeps that Google account.
+        <p className="field-hint">
+          To use a different Google account, sign out in <code>agy</code> on{" "}
+          {location}, then choose Sign in again.
+        </p>
+      )}
       {complete && view && (
         <button
           type="button"
@@ -542,7 +550,7 @@ function RuntimeSignInSession({
             setError("");
           }}
         >
-          Change account
+          {runtime === "antigravity" ? "Sign in again" : "Change account"}
         </button>
       )}
       {attempt &&

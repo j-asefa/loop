@@ -203,7 +203,23 @@ export class Pi implements Adapter {
       return this.readSettings();
     });
   }
+  // Pi does not read RPC input until every session_start handler returns, so
+  // an extension question asked before its first response can never be
+  // answered and Pi exits.
+  private startup?: (error: Error) => void;
   async start(): Promise<Billing> {
+    const blocked = new Promise<never>((_, reject) => {
+      this.startup = reject;
+    });
+    const starting = this.starting();
+    starting.catch(() => {});
+    try {
+      return await Promise.race([starting, blocked]);
+    } finally {
+      this.startup = undefined;
+    }
+  }
+  private async starting(): Promise<Billing> {
     const extension = fileURLToPath(
       new URL("../pi-extension.mjs", import.meta.url),
     );
@@ -269,6 +285,8 @@ export class Pi implements Adapter {
     await firstInfo;
     this.checkBilling();
     const state = await this.native.request("get_state", {}, false);
+    // Pi answered, so it reads input: later questions follow the normal path.
+    this.startup = undefined;
     const available = await this.native.request(
       "get_available_models",
       {},
@@ -581,6 +599,24 @@ export class Pi implements Adapter {
         },
       });
     if (m.type === "extension_ui_request") {
+      if (
+        this.startup &&
+        ["confirm", "input", "editor", "select"].includes(m.method)
+      ) {
+        // A response in the same chunk resolves first; let its continuation
+        // clear the startup marker before deciding.
+        setImmediate(() => {
+          if (!this.startup) return this.message(m);
+          this.startup(
+            new NativeSetupError(
+              "native_startup_question",
+              "A Pi extension asked a question while Pi was starting, and Pi cannot receive an answer from Loop until startup finishes. Run pi once in a terminal on the execution computer to answer it, then refresh Pi. No prompt was sent.",
+            ),
+          );
+          void this.native.dispose();
+        });
+        return;
+      }
       if (["confirm", "input", "editor", "select"].includes(m.method)) {
         const timer = m.timeout
           ? setTimeout(

@@ -39,6 +39,56 @@ if (process.argv.includes("--version")) {
       grok: "grok 1.0.70 (f50904eaee6c)",
     }[kind],
   );
+} else if (kind === "antigravity" && process.argv[2] === "models") {
+  audit("models");
+  appendFileSync(path + "/models-pids", process.pid + "\n");
+  // A slow account check after sign-in, for cancellation.
+  if (process.env.LOOP_TEST_AGY_SLOW_MODELS && existsSync(credential))
+    await new Promise((resolve) => setTimeout(resolve, 60000));
+  if (!existsSync(credential)) {
+    console.log("Fetching available models...");
+    console.error(
+      "Error: Please sign in to view available models. Launch the CLI without arguments to sign in.",
+    );
+    process.exit(1);
+  }
+  console.log("fixture-model  Fixture Model");
+} else if (kind === "antigravity" && process.argv.length === 2) {
+  // agy 1.4.9's terminal sign-in; it refuses to run without a terminal.
+  if (!process.stdin.isTTY || process.env.BROWSER !== "false") process.exit(2);
+  audit("login");
+  appendFileSync(path + "/login-pids", process.pid + "\n");
+  // A stalled agy that never shows its sign-in menu.
+  if (process.env.LOOP_TEST_AGY_STALL)
+    await new Promise((resolve) => setTimeout(resolve, 60000));
+  // The menu arrives in chunks, split inside the highlighted choice.
+  const menu =
+    "\x1b[2J Welcome to the Antigravity CLI. You are currently not signed in.\n\n" +
+    " Select login method:\n \x1b[1m> 1. Goo";
+  process.stdout.write(menu);
+  setTimeout(
+    () =>
+      process.stdout.write(
+        "gle OAuth\x1b[0m\n   2. Use a Google Cloud project\n",
+      ),
+    50,
+  );
+  let step = 0;
+  createInterface({ input: process.stdin }).on("line", (line) => {
+    if (step++ === 0)
+      return process.stdout.write(
+        " Signing in... Your browser should open automatically. If not:\n\n " +
+          `https://accounts.google.com/o/oauth2/auth?redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&state=fixture-${process.pid}` +
+          "\n\n If you aren't automatically redirected, paste the authorization code below:\n",
+      );
+    if (line.trim() !== "fixture-code")
+      return process.stdout.write(
+        ' Got an error: token exchange failed: oauth2: "invalid_grant" fixture-private-detail\n',
+      );
+    save("oauth");
+    process.stdout.write(" Signed in.\n");
+    if (process.env.LOOP_TEST_AGY_EXIT_AFTER_SIGN_IN) process.exit(0);
+  });
 } else if (kind === "codex" && process.argv[2] === "login") {
   audit("login");
   if (!process.argv.includes("--device-auth")) process.exit(1);

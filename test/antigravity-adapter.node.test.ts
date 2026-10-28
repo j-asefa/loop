@@ -198,7 +198,7 @@ test("Antigravity rejects subscription billing, failed authentication and a mism
     );
     try {
       await assert.rejects(adapter.start(), (error) => {
-        assert.match((error as Error).message, /Run agy/);
+        assert.match((error as Error).message, /run agy/);
         assert.doesNotMatch(
           (error as Error).message,
           /private-credential-fixture/,

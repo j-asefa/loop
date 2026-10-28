@@ -98,8 +98,6 @@ export function RuntimeSetup({
     // Read existing attempts without starting a harness or another sign-in.
     const states = await Promise.allSettled(
       host.runtimes.map(async (runtime) => {
-        if (runtime.name === "antigravity")
-          return [runtimeAuthScope(runtime), undefined, undefined] as const;
         const auth = await read(workspaceApi.runtimeAuthStatus, {
           params: { name: runtime.name },
         });
@@ -242,7 +240,6 @@ export function RuntimeSetup({
             ),
           )
           .map(async (runtime) => {
-            if (runtime.name === "antigravity") return;
             const view = await read(workspaceApi.runtimeAuthStatus, {
               params: { name: runtime.name },
             });
@@ -454,9 +451,7 @@ export function RuntimeSetup({
                 }
                 onClick={() => setSigningIn(runtime.name)}
                 aria-label={
-                  runtime.name === "antigravity" ||
-                  !runtime.available ||
-                  !discovery.online
+                  !runtime.available || !discovery.online
                     ? `${label} setup details`
                     : connectsModelProvider(runtime.name)
                       ? `Manage ${label} providers`
@@ -467,9 +462,7 @@ export function RuntimeSetup({
                           : `Sign in to ${label}`
                 }
               >
-                {runtime.name === "antigravity" ||
-                !runtime.available ||
-                !discovery.online
+                {!runtime.available || !discovery.online
                   ? "Setup details"
                   : connectsModelProvider(runtime.name)
                     ? "Manage providers"
@@ -535,27 +528,7 @@ export function RuntimeSetup({
                         await refresh();
                       }}
                     />
-                  ) : runtime.name === "antigravity" &&
-                    runtime.available &&
-                    discovery.online ? (
-                    <section className="settings-card">
-                      <p>
-                        Run <code>agy</code> on {discovery.computer} to sign in
-                        with your Google account or configure your preferred
-                        billing. Then enable Antigravity here.
-                      </p>
-                      <p>
-                        Antigravity uses its native permissions. Headless runs
-                        cannot ask for approvals in Loop; allow the tools you
-                        need in Antigravity settings. Loop workspace tools and
-                        team delegation are unavailable.
-                      </p>
-                      {!runtime.enabled && projectFields}
-                      {enableAction}
-                    </section>
-                  ) : runtime.name !== "antigravity" &&
-                    runtime.available &&
-                    discovery.online ? (
+                  ) : runtime.available && discovery.online ? (
                     <RuntimeSignIn
                       runtime={runtime.name}
                       backend="direct"
@@ -585,6 +558,15 @@ export function RuntimeSetup({
                               Saved billing policy: {runtime.billing}.{" "}
                               {runtime.billing === "existing" &&
                                 "Provider charges may apply."}
+                            </p>
+                          )}
+                          {runtime.name === "antigravity" && (
+                            <p className="field-hint">
+                              Antigravity uses its native permissions. Headless
+                              runs cannot ask for approvals in Loop; allow the
+                              tools you need in Antigravity settings. Loop
+                              workspace tools and team delegation are
+                              unavailable.
                             </p>
                           )}
                         </section>

@@ -91,6 +91,7 @@ export const AuthHarness = z.enum([
   "claude",
   "pi",
   "opencode",
+  "antigravity",
   "gemini",
   "muse",
   "grok",

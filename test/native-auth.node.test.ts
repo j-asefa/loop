@@ -12,8 +12,12 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_PROFILE = "companion";
 const { NativeSignIns } = await import("../src/server/native-auth.js");
 const { db } = await import("../src/server/db.js");
-const { createAuthDriver, setGeminiSignInScreenWait } =
-  await import("../src/native-auth/drivers.js");
+const {
+  createAuthDriver,
+  setAntigravityExchangeWait,
+  setAntigravityStartWait,
+  setGeminiSignInScreenWait,
+} = await import("../src/native-auth/drivers.js");
 after(async () => {
   db.close();
   await rm(dir, { recursive: true, force: true });
@@ -408,6 +412,177 @@ for (const failure of ["retired", "retired-stderr", "unknown"]) {
     }
   });
 }
+
+test("Antigravity signs in through agy's terminal sign-in and confirms with agy models", async () => {
+  const project = join(dir, "antigravity-sign-in");
+  await mkdir(project);
+  const executable = join(project, "agy");
+  await writeFile(
+    executable,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    { mode: 0o755 },
+  );
+  setAntigravityExchangeWait(5000);
+  const auth = new NativeSignIns(createAuthDriver);
+  const opts = { name: "antigravity", executable, project };
+  try {
+    await auth.start(opts, "google", "oauth", randomUUID());
+    await until(() => !!auth.status("antigravity").attempt?.prompt);
+    const attempt = auth.status("antigravity").attempt!;
+    const url = new URL(attempt.url!);
+    assert.equal(url.hostname, "accounts.google.com");
+    assert.equal(
+      url.searchParams.get("redirect_uri"),
+      "https://antigravity.google/oauth-callback",
+    );
+    assert.equal(attempt.prompt!.type, "manual_code");
+    auth.answer("antigravity", attempt.id, attempt.prompt!.id, "wrong-code");
+    await until(() => auth.status("antigravity").attempt?.state === "failed");
+    assert.ok(!existsSync(join(project, "antigravity-credential.json")));
+    assert.doesNotMatch(
+      JSON.stringify(auth.status("antigravity")),
+      /fixture-private|invalid_grant/,
+    );
+
+    await auth.start(opts, "google", "oauth", randomUUID());
+    await until(() => !!auth.status("antigravity").attempt?.prompt);
+    const retry = auth.status("antigravity").attempt!;
+    assert.notEqual(retry.url, attempt.url);
+    // Terminal controls are removed before the code reaches agy's input.
+    auth.answer(
+      "antigravity",
+      retry.id,
+      retry.prompt!.id,
+      "\u0007 fixture-code\u007f\u0003\n",
+    );
+    await until(
+      () => auth.status("antigravity").attempt?.state === "complete",
+      15000,
+    );
+    assert.ok(existsSync(join(project, "antigravity-credential.json")));
+
+    // Already signed in: agy models succeeds and no terminal sign-in starts.
+    await auth.start(opts, "google", "oauth", randomUUID());
+    await until(
+      () => auth.status("antigravity").attempt?.state === "complete",
+      15000,
+    );
+    const audit = await readFile(join(project, "auth-audit"), "utf8");
+    assert.equal(audit.match(/antigravity:login/g)?.length, 2);
+  } finally {
+    await auth.close();
+    setAntigravityExchangeWait(90000);
+  }
+});
+
+test("Antigravity completes when agy exits after saving its credential", async () => {
+  const project = join(dir, "antigravity-exit");
+  await mkdir(project);
+  const executable = join(project, "agy");
+  await writeFile(
+    executable,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_EXIT_AFTER_SIGN_IN=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    { mode: 0o755 },
+  );
+  const auth = new NativeSignIns(createAuthDriver);
+  const opts = { name: "antigravity", executable, project };
+  try {
+    await auth.start(opts, "google", "oauth", randomUUID());
+    await until(() => !!auth.status("antigravity").attempt?.prompt);
+    const attempt = auth.status("antigravity").attempt!;
+    auth.answer("antigravity", attempt.id, attempt.prompt!.id, "fixture-code");
+    await until(
+      () => auth.status("antigravity").attempt?.state === "complete",
+      15000,
+    );
+  } finally {
+    await auth.close();
+  }
+});
+
+test("Cancelling Antigravity during its account check stops every check", async () => {
+  const project = join(dir, "antigravity-cancel");
+  await mkdir(project);
+  const executable = join(project, "agy");
+  await writeFile(
+    executable,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_SLOW_MODELS=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    { mode: 0o755 },
+  );
+  const pids = async (file = "models-pids") =>
+    (await readFile(join(project, file), "utf8"))
+      .trim()
+      .split("\n")
+      .map(Number);
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const auth = new NativeSignIns(createAuthDriver);
+  const opts = { name: "antigravity", executable, project };
+  try {
+    await auth.start(opts, "google", "oauth", randomUUID());
+    await until(() => !!auth.status("antigravity").attempt?.prompt);
+    const attempt = auth.status("antigravity").attempt!;
+    auth.answer("antigravity", attempt.id, attempt.prompt!.id, "fixture-code");
+    // The pre-check plus the slow post-exchange check.
+    await until(async () => (await pids()).length >= 2);
+    await auth.cancel("antigravity", attempt.id);
+    assert.equal(auth.status("antigravity").attempt?.state, "cancelled");
+    await until(async () => !(await pids()).some(alive), 5000);
+    // The terminal sign-in ends with it.
+    await until(async () => !(await pids("login-pids")).some(alive), 5000);
+    const started = (await pids()).length;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    assert.equal((await pids()).length, started);
+  } finally {
+    await auth.close();
+  }
+});
+
+test("Antigravity ends a sign-in whose terminal never shows its link", async () => {
+  const project = join(dir, "antigravity-stall");
+  await mkdir(project);
+  const executable = join(project, "agy");
+  await writeFile(
+    executable,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_STALL=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    { mode: 0o755 },
+  );
+  setAntigravityStartWait(1000);
+  const auth = new NativeSignIns(createAuthDriver);
+  try {
+    await auth.start(
+      { name: "antigravity", executable, project },
+      "google",
+      "oauth",
+      randomUUID(),
+    );
+    await until(
+      () => auth.status("antigravity").attempt?.state === "failed",
+      10000,
+    );
+    const [pid] = (await readFile(join(project, "login-pids"), "utf8"))
+      .trim()
+      .split("\n")
+      .map(Number);
+    await until(() => {
+      try {
+        process.kill(pid, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    }, 5000);
+  } finally {
+    await auth.close();
+    setAntigravityStartWait(30000);
+  }
+});
 
 test("Muse stores an API key through its own account API and signs out", async () => {
   const project = join(dir, "muse-api");

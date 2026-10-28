@@ -198,6 +198,23 @@ test("native provider settings save independent keys, preserve billing, refresh 
     });
     assert.equal(piView.billing, "existing");
     assert(piView.models.some((m: any) => m.id === "openrouter/vendor/model"));
+    await writeFile(join(dir, "pi-startup-question"), "yes");
+    const blocked = await api(base("pi") + "/refresh", {
+      projectId,
+      commandId: randomUUID(),
+    });
+    assert.equal(blocked.enabled, false);
+    assert.match(blocked.syncError, /asked a question while Pi was starting/);
+    assert.doesNotMatch(blocked.syncError, /fixture integration/);
+    await rm(join(dir, "pi-startup-question"));
+    assert(
+      (
+        await api(base("pi") + "/refresh", {
+          projectId,
+          commandId: randomUUID(),
+        })
+      ).enabled,
+    );
     assert(piView.models.some((m: any) => m.id === "anthropic/model"));
     assert.equal(
       (
@@ -457,7 +474,11 @@ test("native provider settings save independent keys, preserve billing, refresh 
       await rm(join(dir, "fail-pi-version"), { force: true });
       const failedSync = await api(base("pi") + "?projectId=" + projectId);
       assert.equal(failedSync.enabled, false);
-      assert.match(failedSync.syncError, /could not refresh/);
+      // A process exit reports Loop's Pi setup guidance; discovery stays generic.
+      assert.match(
+        failedSync.syncError,
+        /could not refresh|Pi could not start/,
+      );
       const recovered = await api(base("pi") + "/refresh", {
         projectId,
         commandId: randomUUID(),

@@ -136,34 +136,47 @@ if (process.argv.includes("--version")) {
         subscription: credentials()[m.provider]?.type === "oauth",
       })),
     });
-    createInterface({ input: process.stdin }).on("line", (line) => {
-      const message = JSON.parse(line);
-      if (message.type === "prompt") {
-        audit("UNEXPECTED_PROMPT");
-        process.exit(2);
-      }
-      const data =
-        message.type === "get_state"
-          ? { model, thinkingLevel: "off", sessionId: "fixture" }
-          : message.type === "get_available_models"
-            ? { models: models() }
-            : message.type === "get_available_thinking_levels"
-              ? { levels: ["off"] }
-              : message.type === "get_commands"
-                ? { commands: [] }
-                : message.type === "get_messages"
-                  ? { messages: [] }
-                  : {};
+    // An extension's session_start question: Pi reads no input until it ends.
+    if (existsSync(join(dir, "pi-startup-question"))) {
       process.stdout.write(
         JSON.stringify({
-          type: "response",
-          id: message.id,
-          command: message.type,
-          success: true,
-          data,
+          type: "extension_ui_request",
+          id: "startup-question",
+          method: "select",
+          title: "Use fixture integration?",
+          options: ["Yes", "No"],
         }) + "\n",
       );
-    });
+      setInterval(() => {}, 1000);
+    } else
+      createInterface({ input: process.stdin }).on("line", (line) => {
+        const message = JSON.parse(line);
+        if (message.type === "prompt") {
+          audit("UNEXPECTED_PROMPT");
+          process.exit(2);
+        }
+        const data =
+          message.type === "get_state"
+            ? { model, thinkingLevel: "off", sessionId: "fixture" }
+            : message.type === "get_available_models"
+              ? { models: models() }
+              : message.type === "get_available_thinking_levels"
+                ? { levels: ["off"] }
+                : message.type === "get_commands"
+                  ? { commands: [] }
+                  : message.type === "get_messages"
+                    ? { messages: [] }
+                    : {};
+        process.stdout.write(
+          JSON.stringify({
+            type: "response",
+            id: message.id,
+            command: message.type,
+            success: true,
+            data,
+          }) + "\n",
+        );
+      });
   }
 } else {
   const authorization =
