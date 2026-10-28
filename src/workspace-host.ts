@@ -26,9 +26,17 @@ import { authenticateCardToken } from "./server/card-tokens.js";
 import { FleetAuthority } from "./server/fleet-authority.js";
 import { FleetPairing } from "./server/fleet-pairing.js";
 import { FleetEnrollmentDestination } from "./server/fleet-enrollment.js";
-import { FleetHandoffDestination } from "./server/fleet-handoff.js";
+import {
+  FleetHandoffDestination,
+  FleetHandoffSource,
+} from "./server/fleet-handoff.js";
+import { FleetHandoffHttpTransport } from "./server/fleet-handoff-http.js";
 import { FleetDirectorySync } from "./server/fleet-directory-sync.js";
 import { createFleetPeerHttp } from "./server/fleet-peer-http.js";
+import { FleetEnrollmentSource } from "./server/fleet-enrollment-source.js";
+import { FleetEnrollmentHttpTransport } from "./server/fleet-enrollment-http.js";
+import { FleetLocalAdmin } from "./server/fleet-local-admin.js";
+import { createFleetAdminHttp } from "./server/fleet-admin-http.js";
 import { seal, unseal } from "./server/secrets.js";
 
 // Identifies the browser assets this launch serves. A reconnecting page
@@ -48,6 +56,7 @@ export class WorkspaceHost {
   readonly fleet?: FleetAuthority;
   readonly pairing?: FleetPairing;
   readonly enrollment?: FleetEnrollmentDestination;
+  readonly fleetAdmin?: FleetLocalAdmin;
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
@@ -97,9 +106,37 @@ export class WorkspaceHost {
         { seal, unseal },
         () => this.gateway.origin,
       );
+    if (this.fleet && this.pairing && this.enrollment) {
+      const source = new FleetEnrollmentSource(
+        db,
+        this.fleet,
+        OWNER,
+        { seal, unseal },
+        new FleetEnrollmentHttpTransport(),
+      );
+      this.fleetAdmin = new FleetLocalAdmin(
+        db,
+        this.fleet,
+        this.pairing,
+        source,
+        this.enrollment,
+        new FleetHandoffSource(
+          db,
+          this.fleet,
+          OWNER,
+          { seal, unseal },
+          new FleetHandoffHttpTransport(),
+        ),
+        OWNER,
+        () => this.gateway.origin,
+      );
+    }
     this.gateway.workspace = {
       isolated: !!preview,
       http: app,
+      fleetAdminHttp: this.fleetAdmin
+        ? createFleetAdminHttp(this.fleetAdmin)
+        : undefined,
       peerHttp: this.enrollment
         ? createFleetPeerHttp(this.enrollment, () => this.gateway.origin, {
             directory: new FleetDirectorySync(db, this.fleet!, OWNER, {

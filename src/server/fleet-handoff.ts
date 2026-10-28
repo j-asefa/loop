@@ -264,9 +264,15 @@ export class FleetHandoffSource {
       .immediate();
     return this.status(value.operationId);
   }
-  private complete(operationId: string, response: unknown, attempt?: string) {
+  private complete(
+    operationId: string,
+    response: unknown,
+    attempt?: string,
+    assertAuthorized: () => void = () => {},
+  ) {
     this.db
       .transaction(() => {
+        assertAuthorized();
         if (!this.currentInstance()) return;
         const record = this.record(operationId);
         if (attempt && record.row.attempt_id !== attempt) return;
@@ -367,6 +373,7 @@ export class FleetHandoffSource {
         operationId,
         await this.transport.commit(record.row.origin, record.proposal),
         attempt,
+        assertAuthorized,
       );
     } catch {
       // Durable uncertainty and the writer fence survive every transport or
@@ -377,7 +384,9 @@ export class FleetHandoffSource {
   async reconcile(
     operationId: string,
     confirmedOrigin?: string,
+    assertAuthorized: () => void = () => {},
   ): Promise<FleetHandoffJob> {
+    assertAuthorized();
     if (!this.currentInstance()) return this.status(operationId);
     const record = this.record(operationId);
     if (["complete", "superseded"].includes(record.row.state))
@@ -421,8 +430,14 @@ export class FleetHandoffSource {
         )
       )
         throw refused();
+      assertAuthorized();
       if (value.receipt.state === "complete")
-        this.complete(operationId, value.receipt.directory);
+        this.complete(
+          operationId,
+          value.receipt.directory,
+          undefined,
+          assertAuthorized,
+        );
       // A concurrent missing receipt must not retire a live commit callback.
     } catch {
       // Missing/invalid/unavailable proof never revives old controller writes.

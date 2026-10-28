@@ -1,0 +1,5214 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Loop local fleet administration",
+    "version": "1",
+    "description": "Local paired-device operations. Enrollment-only links are sensitive and returned only by the explicit mint operation. Directory administration stays on its controller; fresh recovery consent chooses a new local lineage. Bodies are bounded to 256 KiB, with 16 active requests and a 60-second deadline."
+  },
+  "paths": {
+    "/api/fleet/admin/state": {
+      "get": {
+        "operationId": "fleetAdminState",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Reads explicit public fields for the local owner.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/stateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/create": {
+      "post": {
+        "operationId": "fleetAdminCreate",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/createRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/createResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/recover": {
+      "post": {
+        "operationId": "fleetAdminRecover",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/recoverRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/recoverResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/remove": {
+      "post": {
+        "operationId": "fleetAdminRemove",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/removeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/removeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/repair-self": {
+      "post": {
+        "operationId": "fleetAdminRepairSelf",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/repairSelfRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/repairSelfResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/enrollment-link": {
+      "post": {
+        "operationId": "fleetAdminMint",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/mintRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/mintResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/enrollment/begin": {
+      "post": {
+        "operationId": "fleetAdminBegin",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/beginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/beginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/enrollment/advance": {
+      "post": {
+        "operationId": "fleetAdminAdvance",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/advanceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/advanceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/enrollment/reconcile": {
+      "post": {
+        "operationId": "fleetAdminReconcile",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/reconcileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/reconcileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/enrollment/cancel": {
+      "post": {
+        "operationId": "fleetAdminCancel",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/cancelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/cancelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/enrollment/list": {
+      "post": {
+        "operationId": "fleetAdminList",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/listRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/listResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/pending": {
+      "post": {
+        "operationId": "fleetAdminPending",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/pendingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/pendingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/pending/cancel": {
+      "post": {
+        "operationId": "fleetAdminCancelPending",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/cancelPendingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/cancelPendingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/handoff/begin": {
+      "post": {
+        "operationId": "fleetAdminHandoffBegin",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/handoffBeginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/handoffBeginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/handoff/advance": {
+      "post": {
+        "operationId": "fleetAdminHandoffAdvance",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/handoffAdvanceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/handoffAdvanceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/handoff/reconcile": {
+      "post": {
+        "operationId": "fleetAdminHandoffReconcile",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/handoffReconcileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/handoffReconcileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/handoff/list": {
+      "post": {
+        "operationId": "fleetAdminHandoffList",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/handoffListRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/handoffListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "FleetAdminError": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "stateResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "identity": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "standalone",
+              "controller",
+              "handoff_pending",
+              "replica",
+              "removed",
+              "recovery_pending",
+              "incompatible"
+            ]
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "document": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "fleetId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "epoch": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "mutationId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "parent": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "genesis",
+                          "revision",
+                          "handoff",
+                          "recovery"
+                        ]
+                      },
+                      "controller": {
+                        "type": "object",
+                        "properties": {
+                          "machineId": {
+                            "type": "string",
+                            "pattern": "^m_[a-f0-9]{64}$"
+                          },
+                          "publicKey": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]{59}$"
+                          }
+                        },
+                        "required": [
+                          "machineId",
+                          "publicKey"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "members": {
+                        "minItems": 1,
+                        "maxItems": 128,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "machineId": {
+                              "type": "string",
+                              "pattern": "^m_[a-f0-9]{64}$"
+                            },
+                            "publicKey": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{59}$"
+                            },
+                            "grantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "origin": {
+                              "type": "string",
+                              "maxLength": 2048
+                            }
+                          },
+                          "required": [
+                            "machineId",
+                            "publicKey",
+                            "grantId",
+                            "name",
+                            "origin"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "tombstones": {
+                        "maxItems": 4096,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^m_[a-f0-9]{64}$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "fleetId",
+                      "epoch",
+                      "revision",
+                      "mutationId",
+                      "parent",
+                      "kind",
+                      "controller",
+                      "members",
+                      "tombstones"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "signature": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                  },
+                  "acceptance": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "document",
+                  "signature",
+                  "acceptance"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "act",
+                "events",
+                "mail",
+                "files"
+              ]
+            }
+          },
+          "pendingDistribution": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unconfirmed": {
+            "maxItems": 127,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "pattern": "^m_[a-f0-9]{64}$"
+                },
+                "publicKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{59}$"
+                },
+                "grantId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "origin": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "machineId",
+                "publicKey",
+                "grantId",
+                "name",
+                "origin"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "identity",
+          "origin",
+          "state",
+          "head",
+          "directory",
+          "scope",
+          "pendingDistribution",
+          "unconfirmed"
+        ],
+        "additionalProperties": false
+      },
+      "createResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "identity": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "standalone",
+              "controller",
+              "handoff_pending",
+              "replica",
+              "removed",
+              "recovery_pending",
+              "incompatible"
+            ]
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "document": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "fleetId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "epoch": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "mutationId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "parent": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "genesis",
+                          "revision",
+                          "handoff",
+                          "recovery"
+                        ]
+                      },
+                      "controller": {
+                        "type": "object",
+                        "properties": {
+                          "machineId": {
+                            "type": "string",
+                            "pattern": "^m_[a-f0-9]{64}$"
+                          },
+                          "publicKey": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]{59}$"
+                          }
+                        },
+                        "required": [
+                          "machineId",
+                          "publicKey"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "members": {
+                        "minItems": 1,
+                        "maxItems": 128,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "machineId": {
+                              "type": "string",
+                              "pattern": "^m_[a-f0-9]{64}$"
+                            },
+                            "publicKey": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{59}$"
+                            },
+                            "grantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "origin": {
+                              "type": "string",
+                              "maxLength": 2048
+                            }
+                          },
+                          "required": [
+                            "machineId",
+                            "publicKey",
+                            "grantId",
+                            "name",
+                            "origin"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "tombstones": {
+                        "maxItems": 4096,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^m_[a-f0-9]{64}$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "fleetId",
+                      "epoch",
+                      "revision",
+                      "mutationId",
+                      "parent",
+                      "kind",
+                      "controller",
+                      "members",
+                      "tombstones"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "signature": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                  },
+                  "acceptance": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "document",
+                  "signature",
+                  "acceptance"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "act",
+                "events",
+                "mail",
+                "files"
+              ]
+            }
+          },
+          "pendingDistribution": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unconfirmed": {
+            "maxItems": 127,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "pattern": "^m_[a-f0-9]{64}$"
+                },
+                "publicKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{59}$"
+                },
+                "grantId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "origin": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "machineId",
+                "publicKey",
+                "grantId",
+                "name",
+                "origin"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "identity",
+          "origin",
+          "state",
+          "head",
+          "directory",
+          "scope",
+          "pendingDistribution",
+          "unconfirmed"
+        ],
+        "additionalProperties": false
+      },
+      "createRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mutationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "scope": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "act",
+                "events",
+                "mail",
+                "files"
+              ]
+            }
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "mutationId",
+          "name",
+          "scope",
+          "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "recoverResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "identity": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "standalone",
+              "controller",
+              "handoff_pending",
+              "replica",
+              "removed",
+              "recovery_pending",
+              "incompatible"
+            ]
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "document": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "fleetId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "epoch": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "mutationId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "parent": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "genesis",
+                          "revision",
+                          "handoff",
+                          "recovery"
+                        ]
+                      },
+                      "controller": {
+                        "type": "object",
+                        "properties": {
+                          "machineId": {
+                            "type": "string",
+                            "pattern": "^m_[a-f0-9]{64}$"
+                          },
+                          "publicKey": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]{59}$"
+                          }
+                        },
+                        "required": [
+                          "machineId",
+                          "publicKey"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "members": {
+                        "minItems": 1,
+                        "maxItems": 128,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "machineId": {
+                              "type": "string",
+                              "pattern": "^m_[a-f0-9]{64}$"
+                            },
+                            "publicKey": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{59}$"
+                            },
+                            "grantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "origin": {
+                              "type": "string",
+                              "maxLength": 2048
+                            }
+                          },
+                          "required": [
+                            "machineId",
+                            "publicKey",
+                            "grantId",
+                            "name",
+                            "origin"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "tombstones": {
+                        "maxItems": 4096,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^m_[a-f0-9]{64}$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "fleetId",
+                      "epoch",
+                      "revision",
+                      "mutationId",
+                      "parent",
+                      "kind",
+                      "controller",
+                      "members",
+                      "tombstones"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "signature": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                  },
+                  "acceptance": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "document",
+                  "signature",
+                  "acceptance"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "act",
+                "events",
+                "mail",
+                "files"
+              ]
+            }
+          },
+          "pendingDistribution": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unconfirmed": {
+            "maxItems": 127,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "pattern": "^m_[a-f0-9]{64}$"
+                },
+                "publicKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{59}$"
+                },
+                "grantId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "origin": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "machineId",
+                "publicKey",
+                "grantId",
+                "name",
+                "origin"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "identity",
+          "origin",
+          "state",
+          "head",
+          "directory",
+          "scope",
+          "pendingDistribution",
+          "unconfirmed"
+        ],
+        "additionalProperties": false
+      },
+      "recoverRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mutationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "scope": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "act",
+                "events",
+                "mail",
+                "files"
+              ]
+            }
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          },
+          "expected": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "mutationId",
+          "name",
+          "scope",
+          "confirm",
+          "expected"
+        ],
+        "additionalProperties": false
+      },
+      "removeResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "identity": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "standalone",
+              "controller",
+              "handoff_pending",
+              "replica",
+              "removed",
+              "recovery_pending",
+              "incompatible"
+            ]
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "document": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "fleetId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "epoch": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "mutationId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "parent": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "genesis",
+                          "revision",
+                          "handoff",
+                          "recovery"
+                        ]
+                      },
+                      "controller": {
+                        "type": "object",
+                        "properties": {
+                          "machineId": {
+                            "type": "string",
+                            "pattern": "^m_[a-f0-9]{64}$"
+                          },
+                          "publicKey": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]{59}$"
+                          }
+                        },
+                        "required": [
+                          "machineId",
+                          "publicKey"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "members": {
+                        "minItems": 1,
+                        "maxItems": 128,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "machineId": {
+                              "type": "string",
+                              "pattern": "^m_[a-f0-9]{64}$"
+                            },
+                            "publicKey": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{59}$"
+                            },
+                            "grantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "origin": {
+                              "type": "string",
+                              "maxLength": 2048
+                            }
+                          },
+                          "required": [
+                            "machineId",
+                            "publicKey",
+                            "grantId",
+                            "name",
+                            "origin"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "tombstones": {
+                        "maxItems": 4096,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^m_[a-f0-9]{64}$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "fleetId",
+                      "epoch",
+                      "revision",
+                      "mutationId",
+                      "parent",
+                      "kind",
+                      "controller",
+                      "members",
+                      "tombstones"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "signature": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                  },
+                  "acceptance": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "document",
+                  "signature",
+                  "acceptance"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "act",
+                "events",
+                "mail",
+                "files"
+              ]
+            }
+          },
+          "pendingDistribution": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unconfirmed": {
+            "maxItems": 127,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "pattern": "^m_[a-f0-9]{64}$"
+                },
+                "publicKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{59}$"
+                },
+                "grantId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "origin": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "machineId",
+                "publicKey",
+                "grantId",
+                "name",
+                "origin"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "identity",
+          "origin",
+          "state",
+          "head",
+          "directory",
+          "scope",
+          "pendingDistribution",
+          "unconfirmed"
+        ],
+        "additionalProperties": false
+      },
+      "removeRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mutationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "expected": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          },
+          "machineId": {
+            "type": "string",
+            "pattern": "^m_[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "mutationId",
+          "expected",
+          "confirm",
+          "machineId"
+        ],
+        "additionalProperties": false
+      },
+      "repairSelfResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "identity": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "standalone",
+              "controller",
+              "handoff_pending",
+              "replica",
+              "removed",
+              "recovery_pending",
+              "incompatible"
+            ]
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "document": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "fleetId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "epoch": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "mutationId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "parent": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "genesis",
+                          "revision",
+                          "handoff",
+                          "recovery"
+                        ]
+                      },
+                      "controller": {
+                        "type": "object",
+                        "properties": {
+                          "machineId": {
+                            "type": "string",
+                            "pattern": "^m_[a-f0-9]{64}$"
+                          },
+                          "publicKey": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]{59}$"
+                          }
+                        },
+                        "required": [
+                          "machineId",
+                          "publicKey"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "members": {
+                        "minItems": 1,
+                        "maxItems": 128,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "machineId": {
+                              "type": "string",
+                              "pattern": "^m_[a-f0-9]{64}$"
+                            },
+                            "publicKey": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]{59}$"
+                            },
+                            "grantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "origin": {
+                              "type": "string",
+                              "maxLength": 2048
+                            }
+                          },
+                          "required": [
+                            "machineId",
+                            "publicKey",
+                            "grantId",
+                            "name",
+                            "origin"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "tombstones": {
+                        "maxItems": 4096,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^m_[a-f0-9]{64}$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "fleetId",
+                      "epoch",
+                      "revision",
+                      "mutationId",
+                      "parent",
+                      "kind",
+                      "controller",
+                      "members",
+                      "tombstones"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "signature": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                  },
+                  "acceptance": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "document",
+                  "signature",
+                  "acceptance"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "act",
+                "events",
+                "mail",
+                "files"
+              ]
+            }
+          },
+          "pendingDistribution": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unconfirmed": {
+            "maxItems": 127,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "machineId": {
+                  "type": "string",
+                  "pattern": "^m_[a-f0-9]{64}$"
+                },
+                "publicKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{59}$"
+                },
+                "grantId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "origin": {
+                  "type": "string",
+                  "maxLength": 2048
+                }
+              },
+              "required": [
+                "machineId",
+                "publicKey",
+                "grantId",
+                "name",
+                "origin"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "identity",
+          "origin",
+          "state",
+          "head",
+          "directory",
+          "scope",
+          "pendingDistribution",
+          "unconfirmed"
+        ],
+        "additionalProperties": false
+      },
+      "repairSelfRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mutationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "expected": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "mutationId",
+          "expected",
+          "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "mintResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "mintRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "act",
+                "events",
+                "mail",
+                "files"
+              ]
+            }
+          },
+          "recover": {
+            "type": "boolean"
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "scope",
+          "recover",
+          "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "beginResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "enroll",
+              "repair",
+              "recover"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "preparing",
+              "uncertain",
+              "prepared",
+              "published",
+              "complete",
+              "cancelled"
+            ]
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "prepare",
+              "commit"
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remoteState": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "prepared",
+                  "complete",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "destination",
+          "name",
+          "origin",
+          "mode",
+          "state",
+          "phase",
+          "directory",
+          "remoteState"
+        ],
+        "additionalProperties": false
+      },
+      "beginRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "expected": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "link": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "ceremonyId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "origin": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "machine": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "publicKey": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{59}$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "publicKey"
+                ],
+                "additionalProperties": false
+              },
+              "scope": {
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "read",
+                    "act",
+                    "events",
+                    "mail",
+                    "files"
+                  ]
+                }
+              },
+              "enrollment": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+              }
+            },
+            "required": [
+              "version",
+              "ceremonyId",
+              "origin",
+              "machine",
+              "scope",
+              "enrollment"
+            ],
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "enroll",
+              "repair",
+              "recover"
+            ]
+          },
+          "scope": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "act",
+                "events",
+                "mail",
+                "files"
+              ]
+            }
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "operationId",
+          "expected",
+          "link",
+          "name",
+          "mode",
+          "scope",
+          "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "advanceResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "enroll",
+              "repair",
+              "recover"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "preparing",
+              "uncertain",
+              "prepared",
+              "published",
+              "complete",
+              "cancelled"
+            ]
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "prepare",
+              "commit"
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remoteState": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "prepared",
+                  "complete",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "destination",
+          "name",
+          "origin",
+          "mode",
+          "state",
+          "phase",
+          "directory",
+          "remoteState"
+        ],
+        "additionalProperties": false
+      },
+      "advanceRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "operationId"
+        ],
+        "additionalProperties": false
+      },
+      "reconcileResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "enroll",
+              "repair",
+              "recover"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "preparing",
+              "uncertain",
+              "prepared",
+              "published",
+              "complete",
+              "cancelled"
+            ]
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "prepare",
+              "commit"
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remoteState": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "prepared",
+                  "complete",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "destination",
+          "name",
+          "origin",
+          "mode",
+          "state",
+          "phase",
+          "directory",
+          "remoteState"
+        ],
+        "additionalProperties": false
+      },
+      "reconcileRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "operationId"
+        ],
+        "additionalProperties": false
+      },
+      "cancelResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "enroll",
+              "repair",
+              "recover"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "preparing",
+              "uncertain",
+              "prepared",
+              "published",
+              "complete",
+              "cancelled"
+            ]
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "prepare",
+              "commit"
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remoteState": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "prepared",
+                  "complete",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "destination",
+          "name",
+          "origin",
+          "mode",
+          "state",
+          "phase",
+          "directory",
+          "remoteState"
+        ],
+        "additionalProperties": false
+      },
+      "cancelRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "operationId"
+        ],
+        "additionalProperties": false
+      },
+      "listResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "operationId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "destination": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "pattern": "^m_[a-f0-9]{64}$"
+                    },
+                    "publicKey": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{59}$"
+                    }
+                  },
+                  "required": [
+                    "machineId",
+                    "publicKey"
+                  ],
+                  "additionalProperties": false
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "origin": {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "enroll",
+                    "repair",
+                    "recover"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "preparing",
+                    "uncertain",
+                    "prepared",
+                    "published",
+                    "complete",
+                    "cancelled"
+                  ]
+                },
+                "phase": {
+                  "type": "string",
+                  "enum": [
+                    "prepare",
+                    "commit"
+                  ]
+                },
+                "directory": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "remoteState": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "prepared",
+                        "complete",
+                        "cancelled"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "operationId",
+                "destination",
+                "name",
+                "origin",
+                "mode",
+                "state",
+                "phase",
+                "directory",
+                "remoteState"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "createdAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "operationId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "createdAt",
+                  "operationId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ],
+        "additionalProperties": false
+      },
+      "listRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "createdAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "operationId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "createdAt",
+                  "operationId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cursor"
+        ],
+        "additionalProperties": false
+      },
+      "pendingResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "operationId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "controller": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "pattern": "^m_[a-f0-9]{64}$"
+                    },
+                    "publicKey": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{59}$"
+                    }
+                  },
+                  "required": [
+                    "machineId",
+                    "publicKey"
+                  ],
+                  "additionalProperties": false
+                },
+                "fleetId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "enroll",
+                    "repair",
+                    "recover"
+                  ]
+                },
+                "scope": {
+                  "maxItems": 5,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "read",
+                      "act",
+                      "events",
+                      "mail",
+                      "files"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "operationId",
+                "controller",
+                "fleetId",
+                "mode",
+                "scope"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ],
+        "additionalProperties": false
+      },
+      "pendingRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cursor"
+        ],
+        "additionalProperties": false
+      },
+      "cancelPendingResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      },
+      "cancelPendingRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "operationId"
+        ],
+        "additionalProperties": false
+      },
+      "handoffBeginResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "directory": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "uncertain",
+              "complete",
+              "superseded"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "destination",
+          "origin",
+          "directory",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "handoffBeginRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "expected": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "operationId",
+          "expected",
+          "destination",
+          "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "handoffAdvanceResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "directory": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "uncertain",
+              "complete",
+              "superseded"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "destination",
+          "origin",
+          "directory",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "handoffAdvanceRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "operationId"
+        ],
+        "additionalProperties": false
+      },
+      "handoffReconcileResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "publicKey": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{59}$"
+              }
+            },
+            "required": [
+              "machineId",
+              "publicKey"
+            ],
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "directory": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "uncertain",
+              "complete",
+              "superseded"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "destination",
+          "origin",
+          "directory",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "handoffReconcileRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "operationId",
+          "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "handoffListResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "operationId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "destination": {
+                  "type": "object",
+                  "properties": {
+                    "machineId": {
+                      "type": "string",
+                      "pattern": "^m_[a-f0-9]{64}$"
+                    },
+                    "publicKey": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{59}$"
+                    }
+                  },
+                  "required": [
+                    "machineId",
+                    "publicKey"
+                  ],
+                  "additionalProperties": false
+                },
+                "origin": {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "directory": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "uncertain",
+                    "complete",
+                    "superseded"
+                  ]
+                }
+              },
+              "required": [
+                "operationId",
+                "destination",
+                "origin",
+                "directory",
+                "state"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "createdAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "operationId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "createdAt",
+                  "operationId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ],
+        "additionalProperties": false
+      },
+      "handoffListRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "createdAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "operationId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "createdAt",
+                  "operationId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cursor"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "LocalDevice": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-loop"
+      },
+      "LocalCSRF": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Loop-CSRF"
+      }
+    }
+  }
+}

@@ -59,8 +59,16 @@ validation. They verify the confirmed machine identity before transmitting the
 enrollment capability and refuse redirects. Requests and responses are bounded
 to 4 MiB; peer transport has a 15-second deadline and does not retry
 uncertain effects. The companion admits at most 16 incomplete protocol
-requests at a time, separately from its browser routes. The interactive fleet
-administration workflow and automatic directory distribution are not yet exposed.
+requests at a time, separately from its browser routes. The companion's local
+`/api/fleet/admin/` API requires a paired device session and Origin/CSRF checks.
+It supports explicit create/recover, enrollment, removal, local address repair
+and controller handoff. Source jobs expose pending or uncertain outcomes;
+receipt reconciliation does not repeat an uncertain transition. A replica's
+device session cannot perform controller edits. A changed origin requires fresh
+local browser pairing; the surviving controller key can then authorize its
+own address repair. Explicit recovery reports unconfirmed former members
+without restoring their grants. Browser fleet screens and automatic directory
+distribution remain subsequent integration.
 
 HTTPS pairing links carry independent device and fleet-enrollment capabilities.
 The local pairing page retains and submits only the device capability, removes
@@ -69,8 +77,9 @@ transaction that creates the device record. A failed validation or full device
 list does not consume the code. Local HTTP links retain the legacy device-only
 format. Unused codes expire using both local wall and monotonic time and become
 invalid on application restart; run `loop pair` for a fresh code. Completed
-enrollment receipts and existing device trust survive restart. Enrollment
-transport is not yet exposed by this pairing foundation.
+enrollment receipts and existing device trust survive restart. The local
+administration API can mint an enrollment-only link for a machine whose browser
+has already consumed its combined link; it does not disclose a device capability.
 
 Existing Expo app installations must migrate to the browser: run `loop pair`, open the new link in your phone’s browser, and add Loop to the home screen again. The native app’s session hand-off is no longer supported.
 

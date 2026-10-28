@@ -419,9 +419,15 @@ export class FleetEnrollmentSource {
     } else if (receipt.directory !== null) throw refused();
     return value;
   }
-  private applyReceipt(operationId: string, input: unknown, attempt?: string) {
+  private applyReceipt(
+    operationId: string,
+    input: unknown,
+    attempt?: string,
+    assertAuthorized: () => void = () => {},
+  ) {
     this.db
       .transaction(() => {
+        assertAuthorized();
         if (!this.currentInstance()) return;
         const record = this.record(operationId);
         if (attempt && record.row.attempt_id !== attempt) return;
@@ -470,7 +476,11 @@ export class FleetEnrollmentSource {
       })
       .immediate();
   }
-  async advance(operationId: string): Promise<FleetEnrollmentJob> {
+  async advance(
+    operationId: string,
+    assertAuthorized: () => void = () => {},
+  ): Promise<FleetEnrollmentJob> {
+    assertAuthorized();
     if (!this.currentInstance()) return this.status(operationId);
     let record = this.record(operationId);
     if (record.row.state === "ready") {
@@ -501,6 +511,7 @@ export class FleetEnrollmentSource {
           "The destination could not prove its identity at the confirmed address.",
         );
       }
+      assertAuthorized();
       if (!this.currentInstance()) return this.status(operationId);
       const capability = this.secrets.unseal(
           record.row.capability!,
@@ -540,12 +551,16 @@ export class FleetEnrollmentSource {
       }
       record = this.record(operationId);
     }
-    if (record.row.state === "prepared") this.publish(operationId);
+    if (record.row.state === "prepared") {
+      assertAuthorized();
+      this.publish(operationId);
+    }
     record = this.record(operationId);
     if (record.row.state === "published") {
       const attempt = randomUUID();
       const claimed = this.db
         .transaction(() => {
+          assertAuthorized();
           if (!this.currentInstance()) return false;
           const current = this.authority.status(this.owner),
             intent = record.request.intent;
@@ -587,7 +602,7 @@ export class FleetEnrollmentSource {
           record.request.intent.origin,
           record.committed!,
         );
-        this.applyReceipt(operationId, receipt, attempt);
+        this.applyReceipt(operationId, receipt, attempt, assertAuthorized);
       } catch {
         // The dispatch identity, exact signed payload and uncertain outcome
         // were committed before the wire effect. Only a receipt can settle it.
@@ -600,7 +615,11 @@ export class FleetEnrollmentSource {
     }
     return this.status(operationId);
   }
-  async reconcile(operationId: string): Promise<FleetEnrollmentJob> {
+  async reconcile(
+    operationId: string,
+    assertAuthorized: () => void = () => {},
+  ): Promise<FleetEnrollmentJob> {
+    assertAuthorized();
     if (!this.currentInstance()) return this.status(operationId);
     const record = this.record(operationId);
     if (!["uncertain", "preparing", "published"].includes(record.row.state))
@@ -626,7 +645,8 @@ export class FleetEnrollmentSource {
         destination?.origin ?? record.request.intent.origin,
         { query, signature: this.proof.sign("enrollment-query", query) },
       );
-      this.applyReceipt(operationId, receipt);
+      assertAuthorized();
+      this.applyReceipt(operationId, receipt, undefined, assertAuthorized);
     } catch {
       // A missing receipt or failed read is not proof an effect was absent.
     }

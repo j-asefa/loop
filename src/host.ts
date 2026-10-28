@@ -32,6 +32,10 @@ import {
 } from "./shared/card-access.js";
 import { Problem } from "./shared/problem.js";
 import type { DeviceTrust, TrustedDevice } from "./device-trust.js";
+import {
+  fleetDeviceAuthorization,
+  type FleetDeviceRequest,
+} from "./fleet-device-authorization.js";
 
 type Device = TrustedDevice;
 const cleanDevice = ({ id, name, expires }: Device) => ({ id, name, expires });
@@ -64,6 +68,7 @@ export class Host {
     /** Experimental workspaces never discover or proxy the everyday Docker sources. */
     isolated?: boolean;
     http: (req: IncomingMessage, res: ServerResponse) => void;
+    fleetAdminHttp?: (req: IncomingMessage, res: ServerResponse) => void;
     /** Dedicated machine protocol; never forwards to the browser workspace API. */
     peerHttp?: (req: IncomingMessage, res: ServerResponse) => void;
     authorizeCards?: (req: IncomingMessage) => CardAuthorization;
@@ -87,7 +92,12 @@ export class Host {
   private decisions = new Set<string>();
   private promptPending = false;
   private stopped = false;
+  private originGeneration = 0;
   private active = 0;
+  private fleetRequests = new Map<
+    ServerResponse,
+    { req: IncomingMessage; deviceId: string }
+  >();
   private socketPath?: string;
   private probe?: (nonce: string) => string;
   private adminToken = secret();
@@ -328,6 +338,10 @@ export class Host {
       url.pathname !== "/"
     )
       throw new Error("Public origin must be a bare HTTPS origin.");
+    if (this.origin !== url.origin) {
+      this.originGeneration++;
+      this.closeFleetRequests();
+    }
     this.origin = url.origin;
     this.workspace?.originChanged(this.origin);
     // Device trust belongs to this workspace. Changing transport invalidates
@@ -371,7 +385,20 @@ export class Host {
     else this.devices.delete(id);
     for (const [s, d] of this.clients)
       if (d === id) s.close(4003, "Device revoked");
+    this.closeFleetRequests(id);
     if (!this.trust) this.saveDevices();
+  }
+  private closeFleetRequests(deviceId?: string) {
+    for (const [res, request] of this.fleetRequests) {
+      if (deviceId && request.deviceId !== deviceId) continue;
+      const authorization = (request.req as FleetDeviceRequest)[
+        fleetDeviceAuthorization
+      ];
+      if (authorization) authorization.active = false;
+      this.fleetRequests.delete(res);
+      res.destroy();
+      request.req.destroy();
+    }
   }
   private deviceList() {
     return this.trust ? this.trust.devices() : [...this.devices.values()];
@@ -588,6 +615,38 @@ export class Host {
         if (path === "/api/auth/sign-out" && req.method === "POST") {
           this.revoke(device.id);
           return this.json(res, 200, { ok: true });
+        }
+        if (path.startsWith("/api/fleet/admin/")) {
+          if (this.workspace.isolated || !this.workspace.fleetAdminHttp)
+            return this.json(res, 404, {
+              error: "Fleet administration unavailable.",
+            });
+          if (
+            (req.headers.origin && !this.validOrigin(req)) ||
+            req.headers["sec-fetch-site"] === "cross-site" ||
+            req.headers["x-http-method-override"] !== undefined ||
+            req.headers["x-method-override"] !== undefined
+          )
+            return this.json(res, 403, {
+              error: "Fleet administration authorization rejected.",
+            });
+          const generation = this.originGeneration;
+          const authorization = {
+            deviceId: device.id,
+            active: true,
+            current: () =>
+              !this.stopped && generation === this.originGeneration,
+          };
+          (req as FleetDeviceRequest)[fleetDeviceAuthorization] = authorization;
+          this.fleetRequests.set(res, { req, deviceId: device.id });
+          const done = () => {
+            authorization.active = false;
+            this.fleetRequests.delete(res);
+          };
+          res.once("finish", done);
+          res.once("close", done);
+          this.workspace.fleetAdminHttp(req, res);
+          return;
         }
         if (this.workspace.isolated) {
           if (
@@ -863,6 +922,7 @@ export class Host {
     if (this.stopped) return;
     this.emit({ type: "status", status: "stopped" });
     this.stopped = true;
+    this.closeFleetRequests();
     clearTimeout(this.flush);
     clearInterval(this.heartbeat);
     this.state.save();

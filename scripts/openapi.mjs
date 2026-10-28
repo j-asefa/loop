@@ -504,3 +504,4 @@ if (process.argv.includes("--check")) {
 } else await writeFile(target, output);
 
 await import("./fleet-openapi.mjs");
+await import("./fleet-admin-openapi.mjs");
