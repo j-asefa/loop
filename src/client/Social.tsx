@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { useProjectionRoute } from "./SourceContext";
 import {
   useCallback,
@@ -262,6 +263,7 @@ function AddByUrl({ onAdded }: { onAdded: () => void }) {
         Feed or site address
         <span className="add-feed-row">
           <input
+            {...literalEntry}
             type="url"
             inputMode="url"
             placeholder="https://jvns.ca or …/releases.atom"
@@ -416,6 +418,7 @@ function FeedCatalog({
       <label>
         Search feeds
         <input
+          {...literalEntry}
           type="search"
           placeholder="Hacker News, Reddit, science…"
           value={query}
@@ -534,6 +537,7 @@ function HideSheet({
         Hide stories containing
         <span className="add-feed-row">
           <input
+            {...literalEntry}
             type="search"
             placeholder='crypto, or "live blog"'
             value={phrase}
@@ -719,6 +723,7 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
         Word or phrase
         <span className="add-feed-row">
           <input
+            {...literalEntry}
             type="search"
             placeholder={'claude code, or "machine learning"'}
             value={query}
@@ -1433,6 +1438,7 @@ export function Social({
           <div className="search-box social-search">
             <Search size={16} aria-hidden="true" />
             <input
+              {...literalEntry}
               type="search"
               aria-label="Search your feeds"
               placeholder="Search your feeds"

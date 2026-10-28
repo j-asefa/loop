@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import { runErrorText } from "../shared/run-errors";
 import { useSourceRoute } from "./SourceContext";
@@ -54,6 +55,7 @@ export function Traces(props: Props) {
       <label className="directory-search">
         <Search size={18} aria-hidden="true" />
         <input
+          {...literalEntry}
           type="search"
           aria-label="Search traces"
           placeholder="Search commands and tools…"

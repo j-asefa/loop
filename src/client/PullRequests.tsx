@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
@@ -284,6 +285,7 @@ function PullRequestInbox({
       <form className="search-box" role="search" onSubmit={submit}>
         <Search size={18} aria-hidden="true" />
         <input
+          {...literalEntry}
           type="search"
           enterKeyHint="search"
           aria-label="Filter pull requests, or paste a pull request link"
@@ -1284,6 +1286,7 @@ function ReviewSheet({
         <label>
           {event === "approve" ? "Comment (optional)" : "Comment"}
           <textarea
+            {...proseEntry}
             rows={5}
             maxLength={MAX_REVIEW_BODY}
             value={body}
@@ -1349,6 +1352,7 @@ function CommentSheet({
         <label>
           Comment
           <textarea
+            {...proseEntry}
             rows={6}
             maxLength={MAX_REVIEW_BODY}
             value={body}

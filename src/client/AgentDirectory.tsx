@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { useState } from "react";
 import { ArrowUpRight, Plus, Search } from "lucide-react";
 import { Avatar, Badge, Empty, Sheet } from "./components";
@@ -66,6 +67,7 @@ export function AgentDirectory({
       <label className="directory-search">
         <Search size={18} />
         <input
+          {...literalEntry}
           type="search"
           aria-label="Search agents"
           placeholder="Find an agent…"

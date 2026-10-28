@@ -1,3 +1,4 @@
+import { proseEntry } from "./textEntry";
 import { workspaceApi, type ConversationPage, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { readRoute, UnavailableResponse } from "./workspace-api";
 import { CollectionReadNotice } from "./CollectionRead";
@@ -1820,6 +1821,7 @@ function ConversationView({
             <label>
               Message to new agent
               <textarea
+                {...proseEntry}
                 value={continuationPrompt}
                 onChange={(e) => setContinuationPrompt(e.target.value)}
                 disabled={busy || !!pendingContinuation}

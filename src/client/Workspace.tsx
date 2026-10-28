@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { matchingAgents } from "./agentSearch";
 import { SearchExcerpt } from "./SearchExcerpt";
 import { capabilities } from "./capabilities";
@@ -116,6 +117,7 @@ export function FolderForm({
         <label>
           Name
           <input
+            {...proseEntry}
             name="name"
             defaultValue={existing?.name}
             required
@@ -141,6 +143,7 @@ export function FolderForm({
             <label>
               Desktop directory
               <input
+                {...literalEntry}
                 name="path"
                 defaultValue={existing?.path ?? undefined}
                 placeholder="/Users/you/projects/my-project"
@@ -266,6 +269,7 @@ export function FileSheet({
           <label>
             Or tell Loop where
             <textarea
+              {...proseEntry}
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               placeholder="Put this in Research Radar / Workflows"
@@ -743,6 +747,7 @@ export function SearchWorkspace({
       >
         <Search size={20} aria-hidden="true" />
         <input
+          {...literalEntry}
           type="search"
           enterKeyHint="search"
           aria-label="Search everything"

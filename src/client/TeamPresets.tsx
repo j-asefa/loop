@@ -1,3 +1,4 @@
+import { proseEntry } from "./textEntry";
 import { useRef, useState } from "react";
 import { callRoute } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
@@ -178,6 +179,7 @@ export function PresetTeamForm({
       <label>
         Team name
         <input
+          {...proseEntry}
           required
           maxLength={80}
           value={name}

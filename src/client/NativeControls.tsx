@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { readRoute } from "./workspace-api";
 import { workspaceApi, type NativeDecision as Decision, type RouteInput } from "../shared/workspace-api";
 import { useSourceId, useSourceCapabilities, useSourceRoute, useProjectionRoute } from "./SourceContext";
@@ -210,13 +211,13 @@ function QuestionResponse({
   }, []);
   const props = {
     "aria-label": title + " response",
-    autoComplete: "off",
     placeholder: "Your response",
   };
   return secret ? (
-    <input {...props} type="password" onChange={(e) => onChange(e.target.value)} />
+    <input {...literalEntry} {...props} type="password" onChange={(e) => onChange(e.target.value)} />
   ) : (
     <textarea
+      {...proseEntry}
       {...props}
       ref={ref}
       className="native-question-response"

@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import type { SessionControls } from "../shared/session-controls";
 import { listenWorkspaceChanges } from "./workspace-changes";
@@ -272,6 +273,7 @@ export function SessionActivityControls({
                       />
                     ) : (
                       <input
+                        {...literalEntry}
                         key={`${data.generation}:${data.settings.revision}:${option.id}`}
                         defaultValue={String(
                           option.requested ?? option.confirmed ?? "",

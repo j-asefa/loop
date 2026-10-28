@@ -1,3 +1,4 @@
+import { proseEntry } from "./textEntry";
 import { useEffect, useId, useRef, useState } from "react";
 import { KeyRound } from "lucide-react";
 import { callRoute } from "./workspace-api";
@@ -176,13 +177,13 @@ export function CardTokens({
         >
           <label htmlFor={nameId}>Token name</label>
           <input
+            {...proseEntry}
             id={nameId}
             required
             disabled={busy || !!receipt.current}
             maxLength={80}
             value={name}
             onChange={(event) => setName(event.target.value)}
-            autoComplete="off"
             placeholder="Project dashboard"
           />
           <label htmlFor={scopeId}>Read access</label>

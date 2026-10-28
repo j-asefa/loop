@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
@@ -269,6 +270,7 @@ function EditProfile({
         <label>
           Name
           <input
+            {...proseEntry}
             value={displayName}
             maxLength={80}
             placeholder={accountName}
@@ -279,11 +281,9 @@ function EditProfile({
         <label>
           Handle
           <input
+            {...literalEntry}
             value={handle}
             maxLength={31}
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
             placeholder="@handle"
             onChange={(e) => setHandle(e.target.value)}
           />
@@ -292,6 +292,7 @@ function EditProfile({
         <label>
           Bio
           <textarea
+            {...proseEntry}
             value={bio}
             maxLength={200}
             rows={3}

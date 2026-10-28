@@ -1,3 +1,4 @@
+import { proseEntry } from "./textEntry";
 import type { CardReadTransport } from "../shared/card-client";
 import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
@@ -821,6 +822,7 @@ export function EditQueued({
         You can change a message until the agent starts it.
       </p>
       <textarea
+        {...proseEntry}
         aria-label="Queued message"
         value={text}
         rows={6}

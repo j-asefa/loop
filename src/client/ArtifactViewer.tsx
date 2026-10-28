@@ -1,3 +1,4 @@
+import { proseEntry } from "./textEntry";
 import { routeUrl } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
 import type { ResultCard } from "../shared/cards";
@@ -354,6 +355,7 @@ export function ArtifactViewer({
         <div className="artifact-body">
           {editing ? (
             <textarea
+              {...proseEntry}
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={16}

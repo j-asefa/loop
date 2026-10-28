@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
@@ -256,6 +257,7 @@ export function Projects({
             >
               <Search size={18} aria-hidden="true" />
               <input
+                {...literalEntry}
                 type="search"
                 enterKeyHint="search"
                 aria-label={`Search ${current.name}`}

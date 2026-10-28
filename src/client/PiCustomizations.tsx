@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useSourceRoute } from "./SourceContext";
 import { useEffect, useState } from "react";
@@ -452,6 +453,7 @@ export function PiCustomizations({
               <label>
                 Package source
                 <input
+                  {...literalEntry}
                   required
                   value={source}
                   onChange={(event) => {
@@ -655,6 +657,7 @@ export function PiCustomizations({
                     </label>
                     {filters[kind] !== undefined && filters[kind] !== "" && (
                       <textarea
+                        {...literalEntry}
                         aria-label={`${kind} path patterns`}
                         value={filters[kind]}
                         onChange={(event) =>
@@ -733,6 +736,7 @@ export function PiCustomizations({
               <span className="sr-only">Search Pi customizations</span>
               <Search size={17} aria-hidden="true" />
               <input
+                {...literalEntry}
                 type="search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
@@ -817,6 +821,7 @@ export function PiCustomizations({
               <label>
                 Arguments
                 <input
+                  {...literalEntry}
                   value={promptArgs}
                   onChange={(event) => {
                     setPromptArgs(event.target.value);

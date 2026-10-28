@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { useState, useRef } from "react";
 import { Check, Info, Share, WifiOff } from "lucide-react";
 import { callRoute } from "./workspace-api";
@@ -134,6 +135,7 @@ export function ShareSheet({
       <label>
         Source URL
         <input
+          {...literalEntry}
           type="url"
           value={draft.url}
           onChange={(e) => update({ url: e.target.value })}
@@ -143,6 +145,7 @@ export function ShareSheet({
       <label>
         Excerpt or shared text
         <textarea
+          {...proseEntry}
           value={draft.excerpt}
           onChange={(e) => update({ excerpt: e.target.value })}
           rows={3}
@@ -153,6 +156,7 @@ export function ShareSheet({
       <label>
         Your question
         <textarea
+          {...proseEntry}
           value={draft.question}
           onChange={(e) => update({ question: e.target.value })}
           rows={3}

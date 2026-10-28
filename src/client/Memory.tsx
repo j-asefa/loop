@@ -1,3 +1,4 @@
+import { proseEntry } from "./textEntry";
 import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import {
@@ -142,6 +143,7 @@ export function Memory({
                   <label>
                     Title
                     <input
+                      {...proseEntry}
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                     />
@@ -149,6 +151,7 @@ export function Memory({
                   <label>
                     Note
                     <textarea
+                      {...proseEntry}
                       value={content}
                       onChange={(e) => setContent(e.target.value)}
                       rows={5}
@@ -269,6 +272,7 @@ export function Memory({
                 <label>
                   Note title
                   <input
+                    {...proseEntry}
                     value={source.title}
                     onChange={(e) =>
                       setSource({ ...source, title: e.target.value })
@@ -278,6 +282,7 @@ export function Memory({
                 <label>
                   Note content
                   <textarea
+                    {...proseEntry}
                     aria-label="Note content"
                     value={source.content}
                     rows={6}

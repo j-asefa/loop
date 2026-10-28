@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { callRoute } from "./workspace-api";
 import {
   useSourceRoute,
@@ -491,6 +492,7 @@ export function Tools({
             <label>
               MCP configuration
               <textarea
+                {...literalEntry}
                 aria-label="MCP configuration"
                 rows={10}
                 value={configJson}
@@ -499,7 +501,6 @@ export function Tools({
                   '{ "mcpServers": { "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] } } }'
                 }
                 required
-                spellCheck={false}
               />
             </label>
             <label>
@@ -535,6 +536,7 @@ export function Tools({
           <label>
             Find connections
             <input
+              {...literalEntry}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Datadog or server name"
@@ -753,6 +755,7 @@ export function Tools({
             <label>
               Name
               <input
+                {...literalEntry}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
@@ -762,6 +765,7 @@ export function Tools({
             <label>
               Server address
               <input
+                {...literalEntry}
                 type="url"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
@@ -786,10 +790,10 @@ export function Tools({
               <label>
                 Token
                 <input
+                  {...literalEntry}
                   type="password"
                   name="token"
                   required
-                  autoComplete="off"
                 />
               </label>
             )}
@@ -798,19 +802,19 @@ export function Tools({
                 <label>
                   API key
                   <input
+                    {...literalEntry}
                     type="password"
                     name="apiKey"
                     required
-                    autoComplete="off"
                   />
                 </label>
                 <label>
                   Application key
                   <input
+                    {...literalEntry}
                     type="password"
                     name="appKey"
                     required
-                    autoComplete="off"
                   />
                 </label>
               </>
@@ -819,6 +823,7 @@ export function Tools({
               <label>
                 Headers JSON
                 <textarea
+                  {...literalEntry}
                   name="headers"
                   required
                   placeholder={'{"X-API-Key":"…"}'}

@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import { CircleCheck } from "lucide-react";
 import { workspaceApi } from "../shared/workspace-api";
@@ -462,10 +463,8 @@ export function HarnessProviders({
               <label>
                 API key
                 <input
+                  {...literalEntry}
                   type="password"
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
                   value={secret}
                   onChange={(e) => setSecret(e.target.value)}
                   disabled={busy}

@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { reactiveSource, surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
@@ -208,6 +209,7 @@ function LabelSheet({
         <label>
           Label
           <input
+            {...proseEntry}
             value={label}
             maxLength={40}
             autoFocus
@@ -376,6 +378,7 @@ function SavedCollection({
       >
         <Search size={18} aria-hidden="true" />
         <input
+          {...literalEntry}
           type="search"
           enterKeyHint="search"
           aria-label={searchLabel}

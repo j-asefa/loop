@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { useProjectionRoute } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
@@ -746,6 +747,7 @@ function ServerConnections({
                   <label htmlFor={secretId}>{choice.company} API key</label>
                   <div className="api-key-input">
                     <input
+                      {...literalEntry}
                       id={secretId}
                       name="secret"
                       type={showSecret ? "text" : "password"}
@@ -754,10 +756,6 @@ function ServerConnections({
                         setSecret(e.target.value);
                         setPasteMessage("");
                       }}
-                      autoComplete="off"
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      spellCheck={false}
                       required
                       minLength={8}
                       maxLength={4096}
@@ -802,6 +800,7 @@ function ServerConnections({
                   <label>
                     Account name
                     <input
+                      {...proseEntry}
                       name="label"
                       value={label}
                       onChange={(e) => setLabel(e.target.value)}
@@ -877,11 +876,8 @@ function ServerConnections({
                       <label>
                         One-time sign-in code
                         <input
+                          {...literalEntry}
                           name="code"
-                          autoComplete="off"
-                          autoCapitalize="off"
-                          autoCorrect="off"
-                          spellCheck={false}
                           required
                           maxLength={4096}
                           placeholder={`Paste the code from ${providers[signing.brand].name}`}

@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "../textEntry";
 import { renderComposer, renderComposerSendSheets } from "./Composer";
 import { workspaceApi } from "../../shared/workspace-api";
 import { callRoute } from "../workspace-api";
@@ -1212,11 +1213,16 @@ export function renderApp(props: AppViewProps) {
           >
             <label>
               Unique name
-              <input name="name" defaultValue={profile.name} />
+              <input
+                {...literalEntry}
+                name="name"
+                defaultValue={profile.name}
+              />
             </label>
             <label>
               Agent instructions
               <textarea
+                {...proseEntry}
                 name="instructions"
                 defaultValue={profile.instructions}
                 maxLength={12000}

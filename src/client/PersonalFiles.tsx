@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
@@ -173,6 +174,7 @@ export function PersonalFiles({
       <label>
         Search files
         <input
+          {...literalEntry}
           type="search"
           value={search}
           maxLength={200}

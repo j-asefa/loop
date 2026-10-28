@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
 import { useEffect, useRef, useState } from "react";
@@ -225,10 +226,10 @@ export function MarkdownDefinitions({
             <label>
               Markdown definition
               <textarea
+                {...literalEntry}
                 aria-label="Markdown definition"
                 rows={18}
                 value={editing.markdown}
-                spellCheck={false}
                 maxLength={MAX_DEFINITION_BYTES}
                 onChange={(event) =>
                   setEditing({ ...editing, markdown: event.target.value })
@@ -601,6 +602,7 @@ export function CreateFromDefinition({
             <label>
               Team name
               <input
+                {...proseEntry}
                 value={name}
                 maxLength={80}
                 required
@@ -653,6 +655,7 @@ export function CreateFromDefinition({
                 <label>
                   {label} name
                   <input
+                    {...literalEntry}
                     required
                     maxLength={32}
                     pattern="[a-zA-Z][a-zA-Z0-9-]{2,31}"

@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { capabilities } from "./capabilities";
 import { PairedDevices } from "./PairedDevices";
 import { useEffect, useState } from "react";
@@ -259,6 +260,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
         <label>
           Machine name
           <input
+            {...proseEntry}
             name="name"
             required
             maxLength={80}
@@ -268,6 +270,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
         <label>
           Runtime address
           <input
+            {...literalEntry}
             name="url"
             type="url"
             required
@@ -282,9 +285,9 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
         <label>
           Runtime access token
           <input
+            {...literalEntry}
             name="token"
             type="password"
-            autoComplete="off"
             key={kind}
             required
             minLength={32}

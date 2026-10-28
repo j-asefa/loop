@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
@@ -126,6 +127,7 @@ export function McpCatalog({
         <span className="sr-only">Search tools</span>
         <Search size={17} aria-hidden="true" />
         <input
+          {...literalEntry}
           type="search"
           placeholder="GitHub, search, databases…"
           value={query}
@@ -242,6 +244,7 @@ export function McpCatalog({
                     <label>
                       OAuth callback URL
                       <input
+                        {...literalEntry}
                         readOnly
                         value={catalog.oauthRedirectUrl}
                         onFocus={(e) => e.currentTarget.select()}
@@ -252,10 +255,9 @@ export function McpCatalog({
                     <label key={input.key}>
                       {input.label}
                       <input
+                        {...literalEntry}
                         name={input.key}
                         type={input.secret ? "password" : "text"}
-                        autoComplete="off"
-                        spellCheck={false}
                         autoFocus={i === 0}
                         required
                         maxLength={10000}

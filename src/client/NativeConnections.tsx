@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import { useSourceRoute } from "./SourceContext";
 import { ConnectionDetails } from "./ConnectionDetails";
@@ -178,15 +179,15 @@ export function NativeConnections({
               </label>
               <label>
                 Label
-                <input name="label" required maxLength={80} />
+                <input {...proseEntry} name="label" required maxLength={80} />
               </label>
               <label>
                 API key
                 <input
+                  {...literalEntry}
                   type="password"
                   name="secret"
                   required
-                  autoComplete="off"
                 />
               </label>
               <button className="primary" disabled={busy}>

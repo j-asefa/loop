@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useSourceId, useSourceRoute } from "./SourceContext";
@@ -153,6 +154,7 @@ export function HarnessPicker({
       {open && (
         <Sheet title="Commands & skills" onClose={close}>
           <input
+            {...literalEntry}
             className="picker-search"
             aria-label="Search commands and skills"
             value={query}

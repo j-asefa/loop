@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { useSourceRoute } from "./SourceContext";
 import { workspaceApi } from "../shared/workspace-api";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -213,6 +214,7 @@ export function AgentModelSettings({
         </p>
       )}
       <input
+        {...literalEntry}
         type="search"
         className="model-search"
         aria-label="Search models"

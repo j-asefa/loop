@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { useSourceRoute, useSourceId } from "./SourceContext";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -269,6 +270,7 @@ export function QuotePartSheet({
         Highlight the lines you mean. Only those are quoted to the agent.
       </p>
       <textarea
+        {...literalEntry}
         className="quote-part-text"
         aria-label="Message text"
         readOnly
@@ -588,6 +590,7 @@ export function OutlineSheet({
       >
         <Search size={18} aria-hidden="true" />
         <input
+          {...literalEntry}
           type="search"
           enterKeyHint="search"
           aria-label="Search this thread"
@@ -847,6 +850,7 @@ function EditScheduled({
       <label>
         Message
         <textarea
+          {...proseEntry}
           value={text}
           rows={6}
           onChange={(e) => setText(e.target.value)}

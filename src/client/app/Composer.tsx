@@ -1,3 +1,4 @@
+import { proseEntry } from "../textEntry";
 import {
   useEffect,
   useLayoutEffect,
@@ -1158,6 +1159,7 @@ export function renderComposer({
             )}
             <div className="composer-main">
               <textarea
+                {...proseEntry}
                 id="composer"
                 aria-label={
                   replyContext || conversation

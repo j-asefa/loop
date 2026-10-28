@@ -64,6 +64,12 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
           .click();
       }
       const input = composer().getByRole("textbox", { name: "Reply to agent" });
+      // Prose hints keep iOS from offering contact AutoFill over autocorrect.
+      // Desktop browser fixtures cannot exercise the native keyboard itself.
+      await expect(input).toHaveAttribute("autocomplete", "off");
+      await expect(input).toHaveAttribute("autocorrect", "on");
+      await expect(input).toHaveAttribute("autocapitalize", "sentences");
+      await expect(input).toHaveAttribute("spellcheck", "true");
       // Replying opens the thread with the original quoted in the composer.
       await expect(page.locator("dialog[open]")).toHaveCount(1);
       if (kind !== "conversation")

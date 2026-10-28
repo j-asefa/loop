@@ -1,3 +1,4 @@
+import { proseEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -279,6 +280,7 @@ export function OrganizeCards({
         <label className="done-thread-name">
           New thread name
           <input
+            {...proseEntry}
             maxLength={200}
             value={title}
             disabled={pending}

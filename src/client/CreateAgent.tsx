@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
 import { ConnectionPicker, ModelPicker } from "./ConnectionPicker";
@@ -344,11 +345,8 @@ export function CreateAgent({
             First message <span className="muted">(optional)</span>
           </span>
           <textarea
+            {...proseEntry}
             name="initialPrompt"
-            autoComplete="off"
-            autoCorrect="on"
-            autoCapitalize="sentences"
-            spellCheck={true}
             aria-label="First message"
             rows={3}
             maxLength={30000}
@@ -479,8 +477,8 @@ export function CreateAgent({
               <div className="input-prefix">
                 <span>@</span>
                 <input
+                  {...literalEntry}
                   name="agentHandle"
-                  autoComplete="off"
                   aria-label="Unique name"
                   required
                   value={name}
@@ -506,11 +504,8 @@ export function CreateAgent({
             <label>
               Agent instructions
               <textarea
+                {...proseEntry}
                 name="instructions"
-                autoComplete="off"
-                autoCorrect="on"
-                autoCapitalize="sentences"
-                spellCheck={true}
                 value={instructions}
                 onChange={(event) => setInstructions(event.target.value)}
                 aria-label="Agent instructions"

@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import {
   useEffect,
   useLayoutEffect,
@@ -508,11 +509,9 @@ function RuntimeSignInSession({
               </select>
             ) : (
               <input
+                {...literalEntry}
                 aria-label="Provider sign-in response"
                 type={attempt.prompt.type === "secret" ? "password" : "text"}
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
                 value={value}
                 disabled={busy}
                 onChange={(e) => setValue(e.target.value)}

@@ -1,3 +1,4 @@
+import { literalEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import { callRoute } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -142,6 +143,7 @@ export function StartCodeReview({
           <label>
             Base branch
             <input
+              {...literalEntry}
               required
               maxLength={200}
               value={base}

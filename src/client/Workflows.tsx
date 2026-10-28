@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import {
   useSourceId,
   useSourceRoute,
@@ -287,11 +288,11 @@ export function WorkflowEditor({
         <label>
           Loop DSL · loop.workflow/v1
           <textarea
+            {...literalEntry}
             className="workflow-source"
             rows={20}
             value={source}
             onChange={(e) => setSource(e.target.value)}
-            spellCheck={false}
           />
         </label>
       ) : spec ? (
@@ -299,6 +300,7 @@ export function WorkflowEditor({
           <label>
             Workflow name
             <input
+              {...proseEntry}
               value={spec.title || ""}
               onChange={(e) => {
                 spec.title = e.target.value;
@@ -368,6 +370,7 @@ export function WorkflowEditor({
                     <label>
                       {s.type === "agent" ? "Prompt" : "Review message"}
                       <textarea
+                        {...proseEntry}
                         rows={4}
                         value={
                           (s.type === "agent" ? s.prompt : s.message) || ""
@@ -385,6 +388,7 @@ export function WorkflowEditor({
                     <label>
                       Output title
                       <input
+                        {...proseEntry}
                         value={s.title || ""}
                         onChange={(e) => {
                           spec.steps[i].title = e.target.value;
@@ -507,6 +511,7 @@ export function WorkflowEditor({
             <label key={name}>
               {d.description || name}
               <textarea
+                {...proseEntry}
                 rows={2}
                 value={inputs[name] ?? d.default ?? ""}
                 onChange={(e) =>

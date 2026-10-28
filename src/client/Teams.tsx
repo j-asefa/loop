@@ -1,3 +1,4 @@
+import { literalEntry, proseEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import { callRoute } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
@@ -502,6 +503,7 @@ export function TeamFilter({
           <label className="team-search">
             <Search size={18} aria-hidden="true" />
             <input
+              {...literalEntry}
               aria-label="Search teams"
               type="search"
               placeholder="Find a team…"
@@ -794,6 +796,7 @@ export function CreateTeam({
             <label>
               Team name
               <input
+                {...proseEntry}
                 required
                 maxLength={80}
                 value={name}
