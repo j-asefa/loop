@@ -7,6 +7,7 @@ const names = [
   "visual-layout",
   "gemini",
   "antigravity",
+  "harness-providers",
   "agent-mail",
   "workspace-project",
   "execution-environments",

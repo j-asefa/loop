@@ -9297,6 +9297,46 @@ input.settings-switch:disabled {
   background: color-mix(in srgb, var(--green) 12%, var(--surface));
   border-color: color-mix(in srgb, var(--green) 40%, var(--line));
 }
+.harness-connection-status {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  margin-block: 12px;
+}
+.harness-connection-status.connected {
+  background: color-mix(in srgb, var(--green) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--green) 40%, var(--line));
+}
+.harness-connection-status h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+}
+.harness-connection-status.connected h3,
+.harness-refresh-confirmation {
+  color: var(--green);
+}
+.harness-connection-status svg {
+  flex-shrink: 0;
+}
+.harness-connection-status p {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+.harness-provider-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 16px;
+}
+.harness-provider-actions > button,
+.harness-providers > button {
+  min-height: 44px;
+  white-space: normal;
+}
 .provider-mark {
   width: 36px;
   height: 36px;

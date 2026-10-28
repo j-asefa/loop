@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { CircleCheck } from "lucide-react";
 import { workspaceApi } from "../shared/workspace-api";
 import type { NativeProviderView } from "../shared/native-providers";
 import { useSourceId, useProjectionRoute } from "./SourceContext";
@@ -35,11 +36,15 @@ export function HarnessProviders({
   const [removing, setRemoving] = useState<Provider>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [notice, setNotice] = useState("");
   const [results, setResults] = useState<string[]>([]);
   const [inspect, setInspect] = useState(false);
   const mounted = useRef(true);
   const selected = view?.providers.find((p) => p.id === provider);
   const selectedMethod = selected?.methods.find((m) => m.id === method);
+  const modelCount =
+    view?.models.filter((m) => m.id !== "native-default").length || 0;
   const affected = (id: string) =>
     view?.agents.filter(
       (a) => a.model === "native-default" || a.model.startsWith(id + "/"),
@@ -67,6 +72,7 @@ export function HarnessProviders({
   async function perform(action: () => Promise<void>) {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       await action();
     } catch (e) {
@@ -77,6 +83,7 @@ export function HarnessProviders({
   }
   async function refresh(useProviderBilling = false) {
     setLogin(undefined);
+    setRefreshing(true);
     await perform(async () => {
       const next = await callRoute(
         workspaceApi.runtimeProviderRefresh,
@@ -95,7 +102,10 @@ export function HarnessProviders({
         setInspect(false);
       }
       await onChange();
+      if (mounted.current && next.enabled && !next.syncError)
+        setNotice(`${labels[runtime]} refreshed successfully.`);
     });
+    if (mounted.current) setRefreshing(false);
   }
   function choose(p: Provider) {
     setProvider(p.id);
@@ -206,11 +216,10 @@ export function HarnessProviders({
       </>
     );
   return (
-    <section aria-label={`${labels[runtime]} providers`}>
-      <p>
-        {labels[runtime]} saves provider credentials on {location}. Provider
-        billing and account limits apply.
-      </p>
+    <section
+      className="harness-providers"
+      aria-label={`${labels[runtime]} providers`}
+    >
       {!view && !error && <p role="status">Loading providers and models…</p>}
       {view?.billing === "subscription" && (
         <div className="settings-card">
@@ -229,12 +238,33 @@ export function HarnessProviders({
       )}
       {view && (
         <>
+          <div
+            className={`harness-connection-status${view.enabled && !view.syncError ? " connected" : ""}`}
+            role="status"
+          >
+            <h3>
+              {view.enabled && !view.syncError && (
+                <CircleCheck size={22} aria-hidden="true" />
+              )}
+              {labels[runtime]} is {view.enabled ? "enabled" : "not enabled"} in
+              Loop
+            </h3>
+            <p>
+              {modelCount} {modelCount === 1 ? "model" : "models"} found.
+            </p>
+            {view.enabled && !view.syncError && (
+              <p>You can choose {labels[runtime]} when creating an agent.</p>
+            )}
+          </div>
           <p className="field-hint">
-            {view.enabled ? "Enabled in Loop" : "Not enabled in Loop"} · Catalog
-            checked {new Date(view.updatedAt).toLocaleTimeString()}. Model
-            discovery does not verify account entitlement.
+            Models checked {new Date(view.updatedAt).toLocaleTimeString()}.
+            Model access and billing depend on your provider account.
           </p>
-          {view.syncError && <p role="status">{view.syncError}</p>}
+          {view.syncError && (
+            <p className="settings-error" role="alert">
+              {view.syncError}
+            </p>
+          )}
           {view.providers
             .filter((p) => p.configured)
             .map((p) => {
@@ -247,7 +277,14 @@ export function HarnessProviders({
                   key={p.id}
                   aria-label={`${p.name} provider`}
                 >
-                  <h3>{p.name}</h3>
+                  <div className="settings-card-heading">
+                    <div>
+                      <h3>{p.name}</h3>
+                    </div>
+                    <span className="settings-status connected">
+                      Configured
+                    </span>
+                  </div>
                   <p>
                     Provider configured
                     {p.credentialType
@@ -265,25 +302,29 @@ export function HarnessProviders({
                       ))}
                     </ul>
                   </details>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => choose(p)}
-                  >
-                    Replace credential or reconnect
-                  </button>
-                  {p.removable && (
+                  <div className="harness-provider-actions">
                     <button
                       type="button"
+                      className="secondary"
                       disabled={busy}
-                      onClick={() => {
-                        setRemoving(p);
-                        setAdding(false);
-                      }}
+                      onClick={() => choose(p)}
                     >
-                      Remove saved credential
+                      Replace credential or reconnect
                     </button>
-                  )}
+                    {p.removable && (
+                      <button
+                        type="button"
+                        className="text-button"
+                        disabled={busy}
+                        onClick={() => {
+                          setRemoving(p);
+                          setAdding(false);
+                        }}
+                      >
+                        Remove saved credential
+                      </button>
+                    )}
+                  </div>
                   {(p.source === "environment" ||
                     p.source === "configuration") && (
                     <p className="field-hint">
@@ -299,6 +340,7 @@ export function HarnessProviders({
           )}
           <button
             type="button"
+            className="secondary"
             disabled={busy}
             onClick={() => {
               const first =
@@ -498,27 +540,38 @@ export function HarnessProviders({
           unconfirmed change is never submitted again automatically.
         </p>
       )}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() =>
-          void perform(async () => {
-            await load();
-            for (const t of targets.filter((t) => also.includes(t.name)))
-              await catalog(t.name, t.projectId);
-            if (mounted.current) setInspect(false);
-          })
-        }
-      >
-        Refresh provider status
-      </button>
-      <button
-        type="button"
-        disabled={busy || inspect || !view}
-        onClick={() => void refresh()}
-      >
-        Refresh models and enable {labels[runtime]}
-      </button>
+      <div className="harness-provider-actions">
+        <button
+          type="button"
+          className={view?.enabled ? "secondary" : "primary"}
+          disabled={busy || inspect || !view}
+          onClick={() => void refresh()}
+        >
+          {refreshing
+            ? "Refreshing…"
+            : `${view?.enabled ? "Refresh" : "Enable"} ${labels[runtime]}`}
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          disabled={busy}
+          onClick={() =>
+            void perform(async () => {
+              await load();
+              for (const t of targets.filter((t) => also.includes(t.name)))
+                await catalog(t.name, t.projectId);
+              if (mounted.current) setInspect(false);
+              if (mounted.current) setNotice("Provider status checked.");
+            })
+          }
+        >
+          Refresh provider status
+        </button>
+      </div>
+      <div className="harness-refresh-confirmation" role="status">
+        {notice && <p>{notice}</p>}
+      </div>
+      <p className="field-hint">Provider credentials stay on {location}.</p>
     </section>
   );
 }
