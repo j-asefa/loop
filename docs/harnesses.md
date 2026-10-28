@@ -130,7 +130,7 @@ Settings → Provider connections offers native account status, sign-in, model r
 
 ### OpenCode and Pi model providers
 
-OpenCode and Pi are harnesses; their model providers own the accounts, API keys and billing. In **Settings → Provider connections → Harnesses**, choose **Manage providers** for the installed harness on the selected execution computer. Loop discovers its native providers, authentication methods and configured models. Existing native sign-ins, environment keys and custom provider configuration remain usable.
+OpenCode and Pi are harnesses; their model providers own the accounts, API keys and billing. In **Settings → Provider connections → Harnesses**, choose **Manage providers** for the installed harness on the selected execution computer. Loop discovers its native providers, authentication methods and configured models. Existing native sign-ins, environment keys and custom provider configuration remain usable. Loop accepts up to 5,000 models from one harness; it refuses a larger catalog with the reported count and keeps the previous model choices.
 
 Choose **Add provider**, select OpenRouter, OpenAI or another native provider, and enter an API key. **Save key and refresh models** passes the key to that harness's authentication interface, then refreshes its connection and model choices without sending a model prompt. You can explicitly select the other installed harness to save the same key there too. Each store is independent; Loop reports success or an unconfirmed result separately for each. The **Loop runtime API** tab configures Loop's own API connections and does not configure either harness.
 

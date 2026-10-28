@@ -24,6 +24,10 @@ import { OWNER, type Live, type Binding } from "./state.js";
 import { classes, labels } from "./adapters.js";
 import { boundWorkspaceArgs, workspaceError } from "./workspace.js";
 
+// Aggregator providers report hundreds of models; this bounds what one
+// harness registration can store and send to every model picker.
+export const MAX_NATIVE_MODELS = 5000;
+
 type Context = {
   live: ReadonlyMap<string, Live>;
   isStopped(): boolean;
@@ -173,6 +177,11 @@ export class NativeProjects {
       },
       ...(native.models || []).filter((m) => m.id && m.id !== "native-default"),
     ];
+    if (models.length > MAX_NATIVE_MODELS)
+      throw new ExecutionRefused(
+        422,
+        `${labels[options.harness]} reported ${models.length} models; Loop accepts up to ${MAX_NATIVE_MODELS}. Remove a provider in ${labels[options.harness]} and refresh.`,
+      );
     const capabilities = {
       ...native.capabilities,
       concurrentConversations: true,

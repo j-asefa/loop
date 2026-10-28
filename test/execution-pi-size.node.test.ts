@@ -211,7 +211,7 @@ test(
       },
     );
     await t.test(
-      "the new-chat model catalog returns every native model",
+      "the new-chat model catalog returns every native model up to the registration bound",
       async () => {
         process.env.LOOP_TEST_PI_MODEL_COUNT = "354";
         try {
@@ -223,6 +223,20 @@ test(
                 model.id === "openai-codex/custom-" + "x".repeat(250),
             ),
           );
+          process.env.LOOP_TEST_PI_MODEL_COUNT = "5000";
+          const refused = await fetch(
+            origin + "/api/connections/native-pi/models",
+            { headers: { cookie, Origin: origin, "x-loop-csrf": csrf } },
+          );
+          assert.equal(refused.status, 422);
+          assert.match(
+            (await refused.json()).error,
+            /reported 5003 models; Loop accepts up to 5000/,
+          );
+          const stored = db
+            .prepare("SELECT models FROM connections WHERE id='native-pi'")
+            .get() as { models: string };
+          assert.equal(JSON.parse(stored.models).length, 357);
         } finally {
           process.env.LOOP_TEST_PI_MODEL_COUNT = "150";
           await api("/connections/native-pi/models");
