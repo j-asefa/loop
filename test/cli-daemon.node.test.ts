@@ -31,7 +31,7 @@ import {
 } from "../src/daemon.js";
 import { forceStop } from "../src/cli.js";
 import { identity } from "../src/lifecycle.js";
-import { until } from "./helpers.js";
+import { killFixtureProcess, until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 
 const exec = promisify(execFile);
@@ -92,7 +92,7 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   };
   const cleanup = async () => {
     await loop(["stop"]).catch(() => {});
-    for (const pid of pids) if (alive(pid)) process.kill(pid, "SIGKILL");
+    for (const pid of pids) if (alive(pid)) killFixtureProcess(pid);
     await rm(base, { recursive: true, force: true });
   };
   const dir = join(env.LOOP_HOME, "workspace");
@@ -454,7 +454,7 @@ test("crashed and hung workspaces: status, stop, relaunch and log rotation", asy
     }
   } finally {
     follower?.kill();
-    for (const pid of natives) if (alive(pid)) process.kill(-pid, "SIGKILL");
+    for (const pid of natives) if (alive(pid)) killFixtureProcess(-pid);
     await w.cleanup();
   }
 });
@@ -565,7 +565,7 @@ test("a forced stop kills group members that outlive their leader", async () => 
     assert(!alive(member), "the member that ignored SIGTERM got SIGKILL");
   } finally {
     for (const pid of [leader.pid!, member])
-      if (pid && alive(pid)) process.kill(pid, "SIGKILL");
+      if (pid && alive(pid)) killFixtureProcess(pid);
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -613,7 +613,7 @@ test("a later stop still kills group members an interrupted one left behind", as
     );
   } finally {
     for (const pid of [leader.pid!, member])
-      if (pid && alive(pid)) process.kill(pid, "SIGKILL");
+      if (pid && alive(pid)) killFixtureProcess(pid);
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -682,7 +682,7 @@ test("a retained native group and separate stop records survive registry replace
   } finally {
     host.kill("SIGKILL");
     for (const pid of [leader, member])
-      if (pid && alive(pid)) process.kill(pid, "SIGKILL");
+      if (pid && alive(pid)) killFixtureProcess(pid);
     await rm(dir, { recursive: true, force: true });
   }
 });

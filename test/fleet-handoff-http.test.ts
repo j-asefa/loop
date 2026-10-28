@@ -33,6 +33,10 @@ import { FleetPendingDirectory } from "../src/server/fleet-pending-directory.js"
 import { fleetEnrollmentFromLink } from "../src/shared/fleet-pairing.js";
 import { FleetEnrollmentIntent } from "../src/shared/fleet-enrollment.js";
 import { createHash } from "node:crypto";
+import { FleetCredentials } from "../src/server/fleet-credentials.js";
+import { FleetCredentialLeases } from "../src/server/fleet-credential-leases.js";
+import { FleetCredentialHttpTransport } from "../src/server/fleet-credential-http.js";
+import { fleetCredentialApi } from "../src/shared/fleet-credential-api.js";
 import { fleetHandoffApi } from "../src/shared/fleet-handoff-api.js";
 import type {
   FleetHandoffProposal,
@@ -102,6 +106,22 @@ async function fixture(pendingEnrollment = false) {
       b.pairing,
     );
   hosts.push(host);
+  let wall = Date.now(),
+    mono = 100;
+  const clock = { wall: () => wall, monotonic: () => mono };
+  const sourceCredentials = new FleetCredentials(
+    a.db,
+    a.authority,
+    secrets,
+    clock,
+  );
+  const destinationCredentials = new FleetCredentials(
+    b.db,
+    b.authority,
+    secrets,
+    clock,
+  );
+  let directoryChanges = 0;
   const enrollment = new FleetEnrollmentDestination(
     b.db,
     b.authority,
@@ -117,6 +137,7 @@ async function fixture(pendingEnrollment = false) {
       res.writeHead(404).end();
     },
     peerHttp: createFleetPeerHttp(enrollment, () => host.origin, {
+      credentials: destinationCredentials,
       pendingDirectory: new FleetPendingDirectory(
         b.db,
         b.authority,
@@ -193,6 +214,10 @@ async function fixture(pendingEnrollment = false) {
     directory,
     ancestors: [],
   };
+  b.authority.observe(b.owner, () => {
+    expect(b.db.inTransaction).toBe(false);
+    directoryChanges++;
+  });
   const send = (
     path: string,
     body: unknown,
@@ -275,6 +300,16 @@ async function fixture(pendingEnrollment = false) {
     input,
     send,
     paths,
+    sourceCredentials,
+    destinationCredentials,
+    monotonic: clock.monotonic,
+    advanceClock(ms: number) {
+      wall += ms;
+      mono += ms;
+    },
+    get directoryChanges() {
+      return directoryChanges;
+    },
     pendingCommit: pendingCommit && {
       commit: pendingCommit,
       signature: proof.sign("enrollment-commit", pendingCommit),
@@ -318,6 +353,121 @@ function wireDirectory(host: Host) {
     },
   };
 }
+
+it("issues and renews operation-scoped credentials through default HTTP transport without a browser", async ({
+  onTestFinished,
+}) => {
+  const f = await fixture(),
+    wire = wireDirectory(f.host);
+  onTestFinished(() => wire.close());
+  const transport = new FleetCredentialHttpTransport();
+  let issued = 0;
+  const leases = new FleetCredentialLeases(
+    f.a.authority,
+    f.sourceCredentials,
+    f.a.owner,
+    {
+      challenge: (...args) => transport.challenge(...args),
+      issue: async (...args) => {
+        issued++;
+        return transport.issue(...args);
+      },
+    },
+    () => {},
+    { monotonic: f.monotonic, random: () => 0 },
+  );
+  onTestFinished(() => leases.close());
+  const peer = f.b.authority.identity.machineId;
+  const first = await leases.get(peer, "read");
+  expect(f.destinationCredentials.authenticate(first.token)).toMatchObject({
+    owner: f.b.owner,
+    context: { operation: "read", peer: f.a.authority.identity.machineId },
+  });
+  expect(issued).toBe(1);
+  expect(JSON.stringify(leases.status(peer))).not.toContain(first.token);
+  f.advanceClock(480_001);
+  await leases.get(peer, "read");
+  await vi.waitFor(() => expect(issued).toBe(2));
+  let renewed = await leases.get(peer, "read");
+  await vi.waitFor(async () => {
+    renewed = await leases.get(peer, "read");
+    expect(renewed.token).not.toBe(first.token);
+  });
+  f.advanceClock(120_000);
+  expect(() => f.destinationCredentials.authenticate(first.token)).toThrow(
+    "expired",
+  );
+  expect(f.destinationCredentials.authenticate(renewed.token).owner).toBe(
+    f.b.owner,
+  );
+  const current = f.a.authority.directory(f.a.owner)!;
+  const removed = f.a.authority.revise(f.a.owner, {
+    mutationId: randomUUID(),
+    expected: directoryDigest(current.document),
+    members: current.document.members.filter((m) => m.machineId !== peer),
+  });
+  const proof = new FleetProof(f.a.db, f.a.authority.identity, secrets);
+  const push = {
+    version: 1 as const,
+    nonce: randomBytes(32).toString("base64url"),
+    sender: f.a.authority.identity,
+    destination: f.b.authority.identity,
+    anchor: directoryDigest(current.document),
+    entries: [removed],
+  };
+  await wire.transport.push(f.b.origin, {
+    push,
+    signature: proof.sign("directory-sync", push),
+  });
+  expect(f.directoryChanges).toBe(1);
+  expect(leases.status(peer)).toEqual([]);
+  expect(() => f.destinationCredentials.authenticate(renewed.token)).toThrow();
+  expect(() => leases.get(peer, "read")).toThrow("not available");
+  expect(f.privateCalls).toBe(0);
+});
+
+it("keeps credential HTTP separate from device sessions, Cards and arbitrary owners", async () => {
+  const f = await fixture(),
+    current = f.a.authority.directory(f.a.owner)!;
+  const member = current.document.members.find(
+    (m) => m.machineId === f.b.authority.identity.machineId,
+  )!;
+  const context = {
+    fleetId: current.document.fleetId,
+    grantId: member.grantId,
+    destination: member.machineId,
+    peer: f.a.authority.identity.machineId,
+    directory: directoryDigest(current.document),
+    operation: "read" as const,
+  };
+  const path = "/api" + fleetCredentialApi.credentialChallenge.path;
+  const forbidden: Record<string, string>[] = [
+    { cookie: "device=fixture" },
+    { authorization: "Bearer card" },
+    { origin: f.b.origin },
+  ];
+  for (const headers of forbidden)
+    expect((await f.send(path, context, headers)).status).toBe(403);
+  expect((await f.send(path, { ...context, owner: f.a.owner })).status).toBe(
+    400,
+  );
+  expect(
+    (
+      await f.send(path, {
+        ...context,
+        peer: machine().authority.identity.machineId,
+      })
+    ).status,
+  ).toBe(403);
+  const response = await f.send(path, context);
+  expect(response.status).toBe(200);
+  expect(response.cookie).toBeUndefined();
+  expect(JSON.stringify(response.body)).not.toContain(f.b.owner);
+  f.host.workspace!.isolated = true;
+  expect((await f.send(path, context)).status).toBe(404);
+  f.host.workspace!.isolated = false;
+  expect(f.privateCalls).toBe(0);
+});
 
 function queuePendingRemoval(f: Awaited<ReturnType<typeof fixture>>) {
   f.a.db.transaction(() => {

@@ -99,6 +99,69 @@ function pair(scope = all) {
   approve(b, signed, scope);
   return { a, b, signed };
 }
+
+it("observes only committed local-owner authority and coalesces nested writes through handoff fencing", async () => {
+  const { a, b, signed } = pair();
+  expect(() => a.authority.observe(b.owner, () => {})).toThrow(
+    "no fleet grant",
+  );
+  const seen: { head: string | null; state: string; transaction: boolean }[] =
+    [];
+  const stop = a.authority.observe(a.owner, () => {
+    const current = a.authority.status(a.owner);
+    seen.push({
+      head: current.head,
+      state: current.state,
+      transaction: a.db.inTransaction,
+    });
+  });
+  const stopThrowing = a.authority.observe(a.owner, () => {
+    throw new Error("Fixture observer failure");
+  });
+  expect(() =>
+    a.db.transaction(() => {
+      revise(a, signed.document.members);
+      throw new Error("Fixture rollback");
+    })(),
+  ).toThrow("Fixture rollback");
+  await Promise.resolve();
+  expect(seen).toEqual([]);
+  a.db.transaction(() => {
+    revise(a, signed.document.members);
+    revise(a, signed.document.members);
+  })();
+  expect(seen).toEqual([]);
+  await Promise.resolve();
+  expect(seen).toEqual([
+    {
+      head: a.authority.status(a.owner).head,
+      state: "controller",
+      transaction: false,
+    },
+  ]);
+  a.authority.prepareHandoff(a.owner, {
+    mutationId: randomUUID(),
+    expected: a.authority.status(a.owner).head!,
+    destination: b.authority.identity,
+  });
+  await Promise.resolve();
+  expect(seen.at(-1)).toMatchObject({
+    state: "handoff_pending",
+    transaction: false,
+  });
+  stop();
+  stopThrowing();
+  a.authority.recover(a.owner, {
+    mutationId: randomUUID(),
+    expected: a.authority.status(a.owner).head!,
+    name: "Recovered",
+    origin: "https://recovered.example",
+    scope: all,
+  });
+  await Promise.resolve();
+  expect(seen).toHaveLength(2);
+});
+
 function context(
   destination: Machine,
   peer: Machine,

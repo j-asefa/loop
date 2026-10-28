@@ -4,12 +4,14 @@ import { FleetOrigin } from "../shared/fleet.js";
 import { fleetPeerApi } from "../shared/fleet-peer-api.js";
 import { fleetHandoffApi } from "../shared/fleet-handoff-api.js";
 import { fleetDirectoryApi } from "../shared/fleet-directory-api.js";
+import { fleetCredentialApi } from "../shared/fleet-credential-api.js";
 import { fleetPendingDirectoryApi } from "../shared/fleet-pending-directory-api.js";
 import { Problem } from "../shared/problem.js";
 import { registrar } from "./registrar.js";
 import type { FleetEnrollmentDestination } from "./fleet-enrollment.js";
 import type { FleetHandoffDestination } from "./fleet-handoff.js";
 import type { FleetDirectorySync } from "./fleet-directory-sync.js";
+import type { FleetCredentials } from "./fleet-credentials.js";
 import type { FleetPendingDirectory } from "./fleet-pending-directory.js";
 
 /** This application has only fixed fleet protocol handlers. It cannot fall through
@@ -20,6 +22,7 @@ export function createFleetPeerHttp(
   options: {
     handoff?: FleetHandoffDestination;
     directory?: FleetDirectorySync;
+    credentials?: FleetCredentials;
     pendingDirectory?: FleetPendingDirectory;
   } = {},
 ) {
@@ -28,6 +31,7 @@ export function createFleetPeerHttp(
       ...Object.values(fleetPeerApi),
       ...(options.handoff ? Object.values(fleetHandoffApi) : []),
       ...(options.directory ? Object.values(fleetDirectoryApi) : []),
+      ...(options.credentials ? Object.values(fleetCredentialApi) : []),
       ...(options.pendingDirectory
         ? Object.values(fleetPendingDirectoryApi)
         : []),
@@ -136,6 +140,15 @@ export function createFleetPeerHttp(
     );
     routes.on(fleetDirectoryApi.directoryPush, ({ body }, res) =>
       res.json(directory.receive(body)),
+    );
+  }
+  if (options.credentials) {
+    const credentials = options.credentials;
+    routes.on(fleetCredentialApi.credentialChallenge, ({ body }, res) =>
+      res.json(credentials.challenge(body)),
+    );
+    routes.on(fleetCredentialApi.credentialIssue, ({ body }, res) =>
+      res.json(credentials.issue(body)),
     );
   }
   if (options.pendingDirectory) {

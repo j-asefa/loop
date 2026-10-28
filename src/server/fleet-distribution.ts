@@ -71,6 +71,7 @@ export class FleetDistribution {
   private readonly instance = randomUUID();
   private readonly proof: FleetProof;
   private readonly reconcile: FleetDirectoryReconcile;
+  private readonly ownsReconcile: boolean;
   private readonly lifetime = new AbortController();
   private pending?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
@@ -85,18 +86,19 @@ export class FleetDistribution {
     secrets: Parameters<typeof initializeFleetIdentity>[1],
     private readonly transport: FleetDistributionTransport,
     private readonly changed: () => void = () => {},
-    options: { monotonic?: () => number; random?: () => number } = {},
+    options: {
+      monotonic?: () => number;
+      random?: () => number;
+      reconcile?: FleetDirectoryReconcile;
+    } = {},
   ) {
     this.clock = options.monotonic ?? (() => performance.now());
     this.random = options.random ?? Math.random;
     this.proof = new FleetProof(db, authority.identity, secrets);
-    this.reconcile = new FleetDirectoryReconcile(
-      db,
-      authority,
-      owner,
-      secrets,
-      transport,
-    );
+    this.reconcile =
+      options.reconcile ??
+      new FleetDirectoryReconcile(db, authority, owner, secrets, transport);
+    this.ownsReconcile = !options.reconcile;
     db.transaction(() => {
       db.prepare(
         "INSERT INTO fleet_distribution_instances VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET instance_id=excluded.instance_id",
@@ -901,7 +903,7 @@ export class FleetDistribution {
   close() {
     this.running = false;
     this.lifetime.abort();
-    this.reconcile.close();
+    if (this.ownsReconcile) this.reconcile.close();
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
   }

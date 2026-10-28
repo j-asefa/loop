@@ -12,7 +12,7 @@
         "description": "Returns a signature over the supplied fresh nonce, confirmed origin and exact destination identity. No enrollment capability is needed. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
         "x-loop-access": "peer:enrollment",
-        "x-loop-authentication": "public identity challenge",
+        "x-loop-authentication": "public challenge; credential challenges require an active grant context",
         "parameters": [
           {
             "name": "X-Loop-Fleet-Version",
@@ -965,6 +965,270 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/directoryPushResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/credentials/challenge": {
+      "post": {
+        "operationId": "credentialChallenge",
+        "description": "Returns a signed, short-lived challenge only for a currently authorized destination grant, peer, directory and operation. A challenge grants no access and allocates no per-request nonce state. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:credentials",
+        "x-loop-authentication": "public challenge; credential challenges require an active grant context",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/credentialChallengeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/credentialChallengeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/credentials/issue": {
+      "post": {
+        "operationId": "credentialIssue",
+        "description": "Requires the enrolled peer's signature over this issuer instance's unexpired challenge and the client's request nonce. Consumes the challenge durably before returning a ten-minute operation-scoped credential. A lost response requires a new challenge; it never authorizes replay of an agent effect. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:credentials",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/credentialIssueRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/credentialIssueResponse"
                 }
               }
             }
@@ -4149,6 +4413,376 @@
         },
         "required": [
           "ack",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "credentialChallengeRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "fleetId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "grantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "destination": {
+            "type": "string",
+            "pattern": "^m_[a-f0-9]{64}$"
+          },
+          "peer": {
+            "type": "string",
+            "pattern": "^m_[a-f0-9]{64}$"
+          },
+          "directory": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "read",
+              "act",
+              "events",
+              "mail",
+              "files"
+            ]
+          }
+        },
+        "required": [
+          "fleetId",
+          "grantId",
+          "destination",
+          "peer",
+          "directory",
+          "operation"
+        ],
+        "additionalProperties": false
+      },
+      "credentialChallengeResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "context": {
+                "type": "object",
+                "properties": {
+                  "fleetId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "grantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "destination": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "peer": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "directory": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "read",
+                      "act",
+                      "events",
+                      "mail",
+                      "files"
+                    ]
+                  }
+                },
+                "required": [
+                  "fleetId",
+                  "grantId",
+                  "destination",
+                  "peer",
+                  "directory",
+                  "operation"
+                ],
+                "additionalProperties": false
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+              },
+              "issuerSession": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expiresAtMonotonic": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "issuedAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "expiresAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "version",
+              "context",
+              "nonce",
+              "issuerSession",
+              "expiresAtMonotonic",
+              "issuedAt",
+              "expiresAt"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "challenge",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "credentialIssueRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "object",
+            "properties": {
+              "challenge": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "number",
+                    "const": 1
+                  },
+                  "context": {
+                    "type": "object",
+                    "properties": {
+                      "fleetId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "grantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "destination": {
+                        "type": "string",
+                        "pattern": "^m_[a-f0-9]{64}$"
+                      },
+                      "peer": {
+                        "type": "string",
+                        "pattern": "^m_[a-f0-9]{64}$"
+                      },
+                      "directory": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "operation": {
+                        "type": "string",
+                        "enum": [
+                          "read",
+                          "act",
+                          "events",
+                          "mail",
+                          "files"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "fleetId",
+                      "grantId",
+                      "destination",
+                      "peer",
+                      "directory",
+                      "operation"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "nonce": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+                  },
+                  "issuerSession": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "expiresAtMonotonic": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "issuedAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "expiresAt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "version",
+                  "context",
+                  "nonce",
+                  "issuerSession",
+                  "expiresAtMonotonic",
+                  "issuedAt",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+              }
+            },
+            "required": [
+              "challenge",
+              "signature"
+            ],
+            "additionalProperties": false
+          },
+          "requestNonce": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "challenge",
+          "requestNonce",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "credentialIssueResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "credential": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "context": {
+                "type": "object",
+                "properties": {
+                  "fleetId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "grantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "destination": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "peer": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "directory": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "read",
+                      "act",
+                      "events",
+                      "mail",
+                      "files"
+                    ]
+                  }
+                },
+                "required": [
+                  "fleetId",
+                  "grantId",
+                  "destination",
+                  "peer",
+                  "directory",
+                  "operation"
+                ],
+                "additionalProperties": false
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+              },
+              "requestNonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+              },
+              "token": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+              },
+              "remainingMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 600000
+              }
+            },
+            "required": [
+              "version",
+              "context",
+              "nonce",
+              "requestNonce",
+              "token",
+              "remainingMs"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "credential",
           "signature"
         ],
         "additionalProperties": false

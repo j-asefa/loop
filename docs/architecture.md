@@ -136,7 +136,8 @@ and a 1,024-entry/16 MiB assembly limit; unavailable history remains unsynchroni
 A shared refresh rotates among replicas within its deadline, so an unreachable
 controller does not permanently prevent another replica from supplying history.
 The directory outbox uses this primitive when a recipient reports a newer
-unknown head. Credential-renewal integration remains separate.
+unknown head. Credential refusal can also trigger this shared refresh, with one
+pending refresh and a thirty-second cooldown across all operation leases.
 
 Destination fleet command receipts retain their original identity across retries,
 gateway changes and restarts. They project responses through the owning public
@@ -166,7 +167,27 @@ monotonic expiry and renewal deadlines, with renewal due two minutes before
 expiry. Versioned pairing link parsers project the device and enrollment
 capabilities separately. The companion gateway's transactional device pairing is
 described in [pairing](pairing.md), together with the dedicated peer enrollment
-protocol. Credential renewal routes are not yet exposed.
+protocol. Dedicated credential challenge/issue routes reject browser credentials
+and expose no workspace administration. The companion owns one demand-created
+lease per enrolled peer and operation. Leases renew from two minutes before
+expiry with jitter and bounded retry backoff, independently of the browser.
+An uncertain issuance obtains a fresh challenge; an agent action is never retried
+by the credential worker. A valid credential retains its original expiry during
+failed renewal. Status exposes availability and remaining lifetime, never tokens.
+
+A partitioned replica may continue honoring and renewing a previously approved
+grant until it receives the signed removal. Ten-minute credentials bound reuse
+without successful renewal; they are not a global revocation deadline. The
+directory outbox retains unacknowledged removals. Each destination enforces its
+latest accepted directory, and a tombstone already known locally cannot be
+overridden by an older admission proof or credential.
+
+Committed local authority changes notify lease owners after the outer synchronous
+transaction completes. Rolled-back changes produce no notification. Removal closes
+affected leases; repair invalidates old-address callbacks and obtains credentials
+for the new signed context. Dispatch also rechecks the current head directly, so
+it does not depend on notification timing. These notifications cover writes through
+the gateway's authority instance; they are not a cross-process event transport.
 
 Destination enrollment preparation proves the controller key and consumes a
 local ceremony with a pending grant in the same database transaction. Only the

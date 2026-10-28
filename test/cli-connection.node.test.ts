@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { alive } from "../src/daemon.js";
 import { identity, pidNamespace } from "../src/lifecycle.js";
 import { ensureRunDir } from "../src/connection.js";
-import { until } from "./helpers.js";
+import { killFixtureProcess, until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 import { fleetDeviceFromLink } from "../src/shared/fleet-pairing.js";
 
@@ -74,7 +74,7 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   const cleanup = async () => {
     await loop(["stop"]).catch(() => {});
     for (const pid of [...pids, ...tunnelPids()])
-      if (alive(pid)) process.kill(pid, "SIGKILL");
+      if (alive(pid)) killFixtureProcess(pid);
     await rm(base, { recursive: true, force: true });
   };
   return {

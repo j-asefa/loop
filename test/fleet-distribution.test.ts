@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetDirectorySync } from "../src/server/fleet-directory-sync.js";
+import { FleetDirectoryReconcile } from "../src/server/fleet-directory-reconcile.js";
 import {
   FleetDistribution,
   type FleetDistributionTransport,
@@ -840,6 +841,37 @@ it("keeps a temporary peer conflict retryable instead of permanently retiring it
   f.time(1100);
   await worker.flush();
   expect(state(f.a, f.b, target).state).toBe("acked");
+});
+
+it("leaves an injected reconciler available after its distribution worker closes", async () => {
+  const f = fixture(),
+    target = revise(f.a);
+  const reconcile = new FleetDirectoryReconcile(
+    f.b.db,
+    f.b.authority,
+    f.b.owner,
+    secrets,
+    f.transport,
+  );
+  const worker = new FleetDistribution(
+    f.b.db,
+    f.b.authority,
+    f.b.owner,
+    secrets,
+    f.transport,
+    undefined,
+    { reconcile },
+  );
+  workers.push(worker);
+  worker.close();
+  try {
+    expect(await reconcile.from(f.a.authority.identity.machineId)).toBe(true);
+    expect(f.b.authority.status(f.b.owner).head).toBe(
+      directoryDigest(target.document),
+    );
+  } finally {
+    reconcile.close();
+  }
 });
 
 it("closes on monotonic rollback before consuming a returned acknowledgement", async () => {

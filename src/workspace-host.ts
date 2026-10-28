@@ -35,6 +35,10 @@ import { FleetDirectorySync } from "./server/fleet-directory-sync.js";
 import { FleetPendingDirectory } from "./server/fleet-pending-directory.js";
 import { FleetDistribution } from "./server/fleet-distribution.js";
 import { FleetDirectoryHttpTransport } from "./server/fleet-directory-http.js";
+import { FleetDirectoryReconcile } from "./server/fleet-directory-reconcile.js";
+import { FleetCredentials } from "./server/fleet-credentials.js";
+import { FleetCredentialLeases } from "./server/fleet-credential-leases.js";
+import { FleetCredentialHttpTransport } from "./server/fleet-credential-http.js";
 import { createFleetPeerHttp } from "./server/fleet-peer-http.js";
 import { FleetEnrollmentSource } from "./server/fleet-enrollment-source.js";
 import { FleetEnrollmentHttpTransport } from "./server/fleet-enrollment-http.js";
@@ -61,6 +65,9 @@ export class WorkspaceHost {
   readonly enrollment?: FleetEnrollmentDestination;
   readonly fleetAdmin?: FleetLocalAdmin;
   readonly fleetDistribution?: FleetDistribution;
+  readonly fleetReconcile?: FleetDirectoryReconcile;
+  readonly fleetCredentials?: FleetCredentials;
+  readonly fleetLeases?: FleetCredentialLeases;
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
@@ -84,6 +91,27 @@ export class WorkspaceHost {
     // protocol below verifies destination consent before installing a binding.
     if (!preview) this.fleet = new FleetAuthority(db, { seal, unseal });
     if (this.fleet) this.pairing = new FleetPairing(db, this.fleet, OWNER, dir);
+    if (this.fleet) {
+      this.fleetReconcile = new FleetDirectoryReconcile(
+        db,
+        this.fleet,
+        OWNER,
+        { seal, unseal },
+        new FleetDirectoryHttpTransport(),
+      );
+      this.fleetCredentials = new FleetCredentials(db, this.fleet, {
+        seal,
+        unseal,
+      });
+      this.fleetLeases = new FleetCredentialLeases(
+        this.fleet,
+        this.fleetCredentials,
+        OWNER,
+        new FleetCredentialHttpTransport(),
+        undefined,
+        { reconcile: () => this.fleetReconcile!.any() },
+      );
+    }
     this.gateway = new Host(
       dir,
       {
@@ -142,6 +170,8 @@ export class WorkspaceHost {
         OWNER,
         { seal, unseal },
         new FleetDirectoryHttpTransport(),
+        undefined,
+        { reconcile: this.fleetReconcile },
       );
     this.gateway.workspace = {
       isolated: !!preview,
@@ -151,6 +181,7 @@ export class WorkspaceHost {
         : undefined,
       peerHttp: this.enrollment
         ? createFleetPeerHttp(this.enrollment, () => this.gateway.origin, {
+            credentials: this.fleetCredentials,
             pendingDirectory: new FleetPendingDirectory(
               db,
               this.fleet!,
@@ -305,6 +336,8 @@ export class WorkspaceHost {
   async close() {
     this.closing = true;
     this.fleetDistribution?.close();
+    this.fleetLeases?.close();
+    this.fleetReconcile?.close();
     this.stopObservation?.();
     this.mcpSharing.close();
     try {

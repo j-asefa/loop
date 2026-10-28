@@ -3,6 +3,7 @@ import { z } from "zod";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.ts";
 import { fleetHandoffApi } from "../src/shared/fleet-handoff-api.ts";
 import { fleetDirectoryApi } from "../src/shared/fleet-directory-api.ts";
+import { fleetCredentialApi } from "../src/shared/fleet-credential-api.ts";
 import { fleetPendingDirectoryApi } from "../src/shared/fleet-pending-directory-api.ts";
 
 // A separate document describes this machine protocol: its body proofs and
@@ -13,6 +14,10 @@ const schemas = {
 };
 const paths = {};
 const proof = {
+  credentialChallenge:
+    "Returns a signed, short-lived challenge only for a currently authorized destination grant, peer, directory and operation. A challenge grants no access and allocates no per-request nonce state.",
+  credentialIssue:
+    "Requires the enrolled peer's signature over this issuer instance's unexpired challenge and the client's request nonce. Consumes the challenge durably before returning a ten-minute operation-scoped credential. A lost response requires a new challenge; it never authorizes replay of an agent effect.",
   pendingDirectoryHead:
     "Requires a nonce-bound machine proof for a member of this pending consent's verified checkpoint. Reports only that destination-issued grant and checkpoint, without activating workspace access. Completed grants also require current local membership.",
   pendingDirectoryPush:
@@ -38,6 +43,7 @@ for (const [name, route] of Object.entries({
   ...fleetPeerApi,
   ...fleetHandoffApi,
   ...fleetDirectoryApi,
+  ...fleetCredentialApi,
   ...fleetPendingDirectoryApi,
 })) {
   schemas[name + "Request"] = z.toJSONSchema(route.body, {
@@ -66,8 +72,8 @@ for (const [name, route] of Object.entries({
       security: [],
       "x-loop-access": route.access,
       "x-loop-authentication":
-        name === "enrollmentProbe"
-          ? "public identity challenge"
+        name === "enrollmentProbe" || name === "credentialChallenge"
+          ? "public challenge; credential challenges require an active grant context"
           : "signed request body; prepare also requires a one-time capability",
       parameters: [
         {

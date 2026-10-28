@@ -67,10 +67,11 @@ receipt reconciliation does not repeat an uncertain transition. A replica's
 device session cannot perform controller edits. A changed origin requires fresh
 local browser pairing; the surviving controller key can then authorize its
 own address repair. Explicit recovery reports unconfirmed former members
-without restoring their grants. Browser fleet screens remain subsequent integration.
+without restoring their grants. Browser fleet screens remain subsequent
+integration.
 
-Signed directory distribution runs
-independently of a browser and retains pending acknowledgements across restarts.
+Signed directory distribution runs independently of a browser and retains pending
+acknowledgements across restarts.
 Its exact signed directory packets are safe to retry; this does not permit
 repeating an uncertain agent action or enrollment/handoff dispatch.
 

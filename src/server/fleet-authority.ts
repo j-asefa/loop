@@ -85,6 +85,11 @@ type ActiveGrant = {
  * Peer callers may relay successors; neither signatures nor URLs create consent. */
 export class FleetAuthority {
   readonly identity: MachineIdentity;
+  private readonly observers = new Map<
+    string,
+    Set<{ state: string; notify: () => void }>
+  >();
+  private readonly notifications = new Set<string>();
   constructor(
     private readonly db: Database.Database,
     private readonly secrets: Secrets,
@@ -168,6 +173,56 @@ export class FleetAuthority {
           directory: this.saved(owner, binding.head)!,
         }
       : { state: "standalone" as const, head: null, directory: null };
+  }
+
+  private observation(owner: string) {
+    const binding = this.binding(owner);
+    return JSON.stringify(
+      binding
+        ? [binding.head, binding.state, binding.grant_id, binding.scope]
+        : null,
+    );
+  }
+
+  /** Observes this process's committed authority changes. SQLite transactions
+   * are synchronous, including callers' outer transactions; the microtask reads
+   * their final state, so a rolled-back install cannot invalidate a live lease.
+   * Dispatch must still recheck current authority at its own boundary. */
+  observe(owner: string, notify: () => void) {
+    const observer = { state: this.observation(owner), notify };
+    let group = this.observers.get(owner);
+    if (!group) this.observers.set(owner, (group = new Set()));
+    group.add(observer);
+    return () => {
+      group.delete(observer);
+      if (!group.size) this.observers.delete(owner);
+    };
+  }
+
+  private changed(owner: string) {
+    if (!this.observers.has(owner) || this.notifications.has(owner)) return;
+    this.notifications.add(owner);
+    queueMicrotask(() => {
+      this.notifications.delete(owner);
+      const group = this.observers.get(owner);
+      if (!group) return;
+      let state: string;
+      try {
+        state = this.observation(owner);
+      } catch {
+        // Consumers must fail closed if the committed binding is unreadable.
+        state = "unavailable";
+      }
+      for (const observer of [...group]) {
+        if (observer.state === state) continue;
+        observer.state = state;
+        try {
+          observer.notify();
+        } catch {
+          // Observer failures cannot alter a committed mutation or its receipt.
+        }
+      }
+    });
   }
 
   private sign(
@@ -302,6 +357,7 @@ export class FleetAuthority {
             JSON.stringify(scope),
           );
     }
+    this.changed(owner);
     return signed;
   }
 
@@ -620,6 +676,7 @@ export class FleetAuthority {
           "UPDATE fleet_binding SET state='handoff_pending' WHERE singleton=1",
         )
         .run();
+      this.changed(owner);
       return proposal;
     });
   }
