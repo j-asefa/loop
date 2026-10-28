@@ -1,6 +1,7 @@
 import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-smoke.mjs";
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
 import { geminiSmoke } from "./helpers/gemini-smoke.mjs";
+import { antigravitySmoke } from "./helpers/antigravity-smoke.mjs";
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
 import { beginnerChatSmoke } from "./helpers/beginner-chat-smoke.mjs";
 import { workspaceProjectSmoke } from "./helpers/workspace-project-smoke.mjs";
@@ -68,6 +69,7 @@ const scenarios = {
   "profile-photos-recipient": profilePhotosRecipientSmoke,
   "visual-layout": visualLayoutSmoke,
   gemini: geminiSmoke,
+  antigravity: antigravitySmoke,
   "workspace-project": workspaceProjectSmoke,
   "execution-environments": executionEnvironmentsSmoke,
   "clear-search": async (page, fixture) => {

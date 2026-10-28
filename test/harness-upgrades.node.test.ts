@@ -588,6 +588,7 @@ test("self-updating harnesses keep their own update command in Settings", (t) =>
     async () => "",
   );
   for (const [name, command] of [
+    ["antigravity", "agy update"],
     ["grok", "grok update"],
     ["muse", "muse"],
   ] as const) {

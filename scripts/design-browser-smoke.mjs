@@ -6,6 +6,7 @@ const names = [
   "profile-photos-recipient",
   "visual-layout",
   "gemini",
+  "antigravity",
   "agent-mail",
   "workspace-project",
   "execution-environments",

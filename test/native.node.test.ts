@@ -8,6 +8,36 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 test(
+  "native disposal waits for the exit of a process that ignores SIGTERM",
+  { skip: process.platform === "win32", timeout: 10000 },
+  async () => {
+    const native = new Native(
+      process.execPath,
+      [
+        "-e",
+        `process.on('SIGTERM', () => {});
+       setInterval(() => {}, 1000);
+       console.log(JSON.stringify({ready:true}));`,
+      ],
+      process.cwd(),
+    );
+    try {
+      await once(native, "message");
+      let exited = false;
+      native.child.once("exit", () => {
+        exited = true;
+      });
+      await Promise.all([native.dispose(), native.dispose()]);
+      assert.equal(exited, true);
+      assert.equal(native.child.signalCode, "SIGKILL");
+      assert.throws(() => process.kill(native.child.pid!, 0));
+    } finally {
+      await native.dispose();
+    }
+  },
+);
+
+test(
   "a host resource launcher preserves native RPC, metadata, PID, arguments and environment",
   { skip: process.platform === "win32" },
   async () => {

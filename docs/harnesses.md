@@ -1,6 +1,6 @@
 # Native harnesses
 
-Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi, OpenCode, Gemini CLI, Muse Code and Grok Build on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing.
+Run `loop` or `loop start` in a project directory. One workspace discovers Codex, Claude Code, Pi, OpenCode, Antigravity (`agy`), Muse Code and Grok Build on PATH, checks each installation and verifies its account independently. Missing or broken harnesses do not block the others or phone pairing.
 
 ```sh
 loop
@@ -22,7 +22,7 @@ Worktrees live under the repository’s Git common directory in `loop-agent-work
 
 ## Native behavior and billing
 
-Harnesses own their context, tools, configuration and credential homes. Loop invokes their native protocols and adds pairing, durable work, approvals, files and team communication. It does not take over a live terminal session. Project selection is not shell confinement: native processes have their OS user's access.
+Harnesses own their context, tools, configuration and credential homes. Available integrations depend on the native interface; see each harness below. Loop invokes their native protocols and adds pairing, durable work, approvals, files and team communication. It does not take over a live terminal session. Project selection is not shell confinement: native processes have their OS user's access.
 
 | Harness | Default automatic setup | Mid-turn messages |
 | --- | --- | --- |
@@ -30,14 +30,14 @@ Harnesses own their context, tools, configuration and credential homes. Loop inv
 | Claude Code | Verified native subscription | Live steering |
 | Pi | Existing native configuration; provider charges may apply | Live steering |
 | OpenCode | Existing native configuration; provider charges may apply | Next-turn queue |
-| Gemini CLI | Existing native sign-in and billing configuration | Next-turn queue |
+| Antigravity | Existing native sign-in and billing configuration | Next-turn queue |
 | Muse Code | Existing native sign-in and billing configuration | Live steering |
 | Grok Build | Existing native sign-in and billing configuration | Next-turn queue |
 | Custom ACP | Explicit desktop registration | Next-turn queue |
 
 There is no billing fallback after an authentication failure. Model catalogs and effort choices come from native discovery; `native-default` follows the harness default. Account verification and catalog discovery do not submit a model prompt. Installation is not proof of authentication.
 
-Each result shows its recorded input/output token counts at the bottom. Direct Codex reports during a turn; direct Claude Code reports with its turn result, including cached input tokens; Muse Code reports with its turn result. Counts are omitted when no usage was reported; older native turns are not backfilled. These counts measure recorded turn usage, not the subscription's remaining allowance or reset time. Other native harnesses do not yet supply token counts to this display.
+Each result shows its recorded input/output token counts at the bottom. Direct Codex reports during a turn; direct Claude Code reports with its turn result, including cached input tokens; Muse Code reports with its turn result. Antigravity reports the completed steps in the current turn. Counts are omitted when no usage was reported; older native turns are not backfilled. These counts measure recorded turn usage, not the subscription's remaining allowance or reset time. Other native harnesses do not yet supply token counts to this display.
 
 Codex async questions appear in **Needs you** with their answer choices while the agent continues working. If native work finishes first, Loop keeps the run waiting for your answer and continues in the same native thread when you submit it. Cancelled or replaced sessions expire these decisions; resuming native history does not reopen old questions.
 
@@ -56,7 +56,7 @@ loop codex --billing existing
 loop claude --project /absolute/path/to/project
 loop pi
 loop opencode
-loop gemini
+loop antigravity
 loop muse
 loop grok
 loop acp --executable /absolute/path/to/agent --acp-arg serve
@@ -64,7 +64,17 @@ loop acp --executable /absolute/path/to/agent --acp-arg serve
 
 These commands enable the harness in the same running workspace. Executable paths are chosen on the computer, never supplied by browser input. See `loop --help` for options. Native history discovery and explicit forks are available in the app; a fork does not silently transfer native context between harnesses.
 
-## Gemini CLI
+## Antigravity
+
+Install [Antigravity CLI](https://antigravity.google/docs/getting-started?tab=cli) **1.4.9 or newer**. Run `agy` on the execution computer to sign in, then run `loop antigravity`, or enable Antigravity in **Settings → Provider connections → Harnesses**. `loop start --providers antigravity` selects it explicitly. Loop discovers the `agy` executable; it does not install it or offer npm upgrades. Use `agy update` on the computer.
+
+Loop uses the documented [streaming CLI](https://antigravity.google/docs/cli/headless/) for sequential turns, tool progress and exact conversation resume. Model discovery and session initialization send no model prompt. Saved instructions accompany explicit prompts, and interrupted tasks are never automatically replayed. Slash commands are disabled in Loop prompts to keep text from changing the native session. Token counts use this turn's completed steps, not the conversation's cumulative usage.
+
+Antigravity requires `--billing existing`. Its native account, model and permission settings apply; Loop does not change them or verify a subscription entitlement. Sign-in remains in `agy`. Headless mode cannot relay approvals or questions to Loop. Configure needed tool permissions in Antigravity; tools needing interactive approval can be denied by the CLI. The adapter does not inject Loop workspace tools, so Agent mail, team delegation and Loop tool integrations are unavailable. Antigravity is not bundled in the Docker images.
+
+To migrate an existing Gemini agent, enable Antigravity, select its connection and a model in the agent's settings, then send an explicit follow-up. Agents on active teams must retain a harness with Loop workspace tools. Loop starts a new Antigravity conversation in the agent's existing workspace and carries the displayed conversation as quoted context. Gemini's native session ID and credential store cannot be reused by Antigravity. Existing Gemini connections, sessions and explicit provider selections are preserved; default `installed` discovery now selects Antigravity instead. Legacy Gemini remains an explicit opt-in for supported enterprise/API configurations.
+
+## Gemini CLI (legacy)
 
 Install [Gemini CLI](https://geminicli.com/docs/get-started/installation/) **0.64.0 or newer** and configure a supported account or API credential in the CLI. Google [retired personal-account sign-in](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals), including Google AI Pro and Ultra, and directs those users to Antigravity. Updating Gemini CLI or repeating Google sign-in does not restore that access. API credentials use their own billing. Loop reports this known provider rejection with migration guidance and never switches billing automatically.
 

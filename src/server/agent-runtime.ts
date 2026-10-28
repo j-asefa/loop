@@ -47,6 +47,7 @@ import { nativeSessions } from "./native-sessions.js";
 import { nativeSignIns } from "./native-auth.js";
 import { providerChangeInProgress } from "./native-provider-locks.js";
 import { assertReviewIdentity, reviewContext } from "./review-access.js";
+import { assertTeamConnection } from "./team-eligibility.js";
 
 export type Snapshot = import("./row-schemas.js").AgentSnapshot;
 // The connection a conversation's next turn runs on: the agent's current one.
@@ -258,6 +259,7 @@ export function submit(
           "Use Review changes to capture a snapshot for this review team first",
         );
       if (reviewId) assertReviewIdentity(owner, reviewId, teamId, agent.id);
+      if (teamId || reviewId) assertTeamConnection(connection);
       const snapshot: Snapshot = {
         agentId: agent.id,
         name: agent.name,
@@ -497,6 +499,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
     );
   }
   const connection = ownedConnection(snapshot.connectionId, run.owner_id);
+  if (snapshot.teamId || snapshot.reviewId) assertTeamConnection(connection);
   const harness = connection.metadata.loopHarness;
   if (harness &&
     (providerChangeInProgress(harness) || nativeSignIns.inProgress(harness)) &&

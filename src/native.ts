@@ -51,6 +51,7 @@ export class Native extends EventEmitter {
   >();
   private seq = 0;
   private closed = false;
+  private disposal?: Promise<void>;
   /** Strict JSON-RPC peers (Muse Code's MSP) reject frames without `jsonrpc`. */
   jsonrpc = false;
   constructor(
@@ -251,25 +252,33 @@ export class Native extends EventEmitter {
       });
     });
   }
-  async dispose() {
-    if (this.child.exitCode !== null) return;
+  dispose(): Promise<void> {
+    if (this.disposal) return this.disposal;
     this.closed = true;
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
       p.reject(new Error("Stopped"));
     }
     this.pending.clear();
-    this.child.stdin.end();
-    killOwned(this.child, "SIGTERM");
-    await new Promise<void>((resolve) => {
+    this.disposal = new Promise<void>((resolve) => {
+      if (
+        !this.child.pid ||
+        this.child.exitCode !== null ||
+        this.child.signalCode !== null
+      ) {
+        resolve();
+        return;
+      }
       const timer = setTimeout(() => {
         killOwned(this.child, "SIGKILL");
-        resolve();
       }, 2500);
       this.child.once("exit", () => {
         clearTimeout(timer);
         resolve();
       });
+      this.child.stdin.end();
+      killOwned(this.child, "SIGTERM");
     });
+    return this.disposal;
   }
 }

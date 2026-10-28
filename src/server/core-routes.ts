@@ -52,6 +52,7 @@ import { activeRun } from "./steering.js";
 import { transition } from "./queue.js";
 
 import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
+import { assertTeamConnectionChange } from "./team-eligibility.js";
 import { viewportDiagnostics } from "./viewport-diagnostics.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
 import { publicPreview } from "../preview-context.js";
@@ -263,6 +264,7 @@ routes.on(workspaceApi.agentUpdate, (req, res) => {
         const c = ownedConnection(z.string().parse(req.body.connectionId ?? agent.connection_id ?? ""), owner);
         if (c.status !== "connected")
           throw new Problem(409, "Reconnect this provider first");
+        assertTeamConnectionChange(owner, agent.id, c);
         const model = z
           .string()
           .min(1)

@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import { suggestAgentName } from "./agent-names.js";
 import { TEAM_PRESETS } from "../shared/team-presets.js";
 import { startCodeReview, reviewStatus } from "./code-reviews.js";
+import { assertTeamConnection } from "./team-eligibility.js";
 
 export function listTeams(owner: string) {
   return (
@@ -71,6 +72,7 @@ export function createTeam(owner: string, input: unknown) {
       : undefined;
     if (connection?.status !== "connected")
       throw new Problem(409, "Every team member needs a connected provider");
+    assertTeamConnection(connection);
   }
   return db
     .transaction(() => {
@@ -209,6 +211,7 @@ export function addTeamMember(owner: string, teamId: string, input: unknown) {
         ownedConnection(agent.connection_id, owner).status !== "connected"
       )
         throw new Problem(409, "This agent needs a connected provider");
+      assertTeamConnection(ownedConnection(agent.connection_id, owner));
       const existing = db
         .prepare("SELECT 1 FROM team_members WHERE team_id=? AND agent_id=?")
         .get(teamId, agentId);

@@ -17,7 +17,7 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
   const bin = join(dir, "bin");
   await mkdir(bin);
   const originalPath = process.env.PATH;
-  const names = ["codex", "claude", "pi", "opencode", "gemini"] as const;
+  const names = ["codex", "claude", "pi", "opencode", "antigravity"] as const;
   // Stable releases from the registry at the time of this regression. Discovery
   // must accept updates, then still perform normal adapter/authentication setup.
   const versions = {
@@ -25,13 +25,13 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
     claude: "2.1.284",
     pi: "0.87.1",
     opencode: "1.18.33",
-    gemini: "0.64.0",
+    antigravity: "1.4.9",
   };
   for (const name of names) {
-    if (name === "gemini") {
+    if (name === "antigravity") {
       await writeFile(
-        join(bin, name),
-        `#!/bin/sh\nexport LOOP_TEST_GEMINI_AUTO=1\nexec '${process.execPath}' '${resolve("test/fixtures/fake-gemini.mjs")}' "$@"\n`,
+        join(bin, "agy"),
+        `#!/bin/sh\nexec '${process.execPath}' '${resolve("test/fixtures/fake-antigravity.mjs")}' "$@"\n`,
         { mode: 0o755 },
       );
       continue;
@@ -165,7 +165,12 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
         const result = (await api(path)).items.find(
           (item: any) => item.run_id === created.initialRun.id,
         );
-        assert.equal(result?.content, "Fixture done");
+        assert.equal(
+          result?.content,
+          name === "antigravity"
+            ? "Antigravity fixture answer"
+            : "Fixture done",
+        );
       }
       const updates = await api(
         `/results/updates?agent=${created.id}&after=0&through=0`,
@@ -174,7 +179,10 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
         updates.items.some(
           (item: any) =>
             item.run_id === created.initialRun.id &&
-            item.content === "Fixture done",
+            item.content ===
+              (name === "antigravity"
+                ? "Antigravity fixture answer"
+                : "Fixture done"),
         ),
       );
       assert.equal(

@@ -50,6 +50,11 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       "This agent needs a provider connection before it can receive mail.",
     );
   const meta = connection.metadata;
+  if (meta.loopHarness === "antigravity")
+    throw new MailRefusal(
+      409,
+      "Antigravity does not expose Loop workspace tools. Agent mail and team delegation require another harness.",
+    );
   if (meta.backend === "hapi")
     throw new MailRefusal(
       409,

@@ -578,6 +578,7 @@ export function CreateAgent({
                     "anthropic",
                     "pi",
                     "opencode",
+                    "antigravity",
                     "gemini",
                     "muse",
                     "grok",
