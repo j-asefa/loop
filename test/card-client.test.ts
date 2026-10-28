@@ -492,6 +492,7 @@ it("generates a schema with resolvable references and the runtime read/managemen
       expect(spec.paths[path][method]["x-loop-method"]).toBe("ALL");
   }
   expect(spec.paths["/api/bootstrap"].get.security).toEqual([
+    { IntegrationBearer: [] },
     { OwnerSession: [] },
     { PairedDevice: [] },
   ]);

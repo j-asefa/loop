@@ -7,38 +7,77 @@ import { companionMode } from "./profile.js";
 import { OWNER } from "./native-sessions.js";
 import { Problem } from "./domain.js";
 import {
-  CardGrantSchema,
   CreateCardTokenSchema,
   cardAuthorization,
   type CardAuthorization,
   type CardToken,
-  type CardGrant,
 } from "../shared/card-access.js";
+
+import {
+  TokenAdmissions,
+  TokenScope,
+  type TokenAdmission,
+} from "../shared/token-scopes.js";
+
+type TokenRow = {
+  id: string;
+  name: string;
+  scope: string;
+  created_at: number;
+  revoked_at: number | null;
+  last_used_at: number | null;
+};
+function storedAdmission(value: string): TokenAdmission[] | undefined {
+  try {
+    const parsed = TokenAdmissions.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function publicToken(row: TokenRow): CardToken {
+  const admission = storedAdmission(row.scope);
+  if (!admission) throw new Problem(500, "Token metadata unavailable");
+  const { id, name, created_at, revoked_at, last_used_at } = row;
+  const fields = { id, name, created_at, revoked_at, last_used_at };
+  if (
+    admission.length === 1 &&
+    (admission[0] === "results:read" || admission[0] === "cards:read")
+  )
+    return { ...fields, scope: admission[0] };
+  const scopes = TokenScope.array().safeParse(admission);
+  if (!scopes.success) throw new Problem(500, "Token metadata unavailable");
+  return { ...fields, scopes: scopes.data };
+}
 
 const columns = "id,name,scope,created_at,revoked_at,last_used_at";
 const digest = (secret: string) =>
   createHash("sha256").update(secret).digest("hex");
 export function listCardTokens(owner: string): CardToken[] {
-  return db
+  const rows = db
     .prepare(
       `SELECT ${columns} FROM card_tokens WHERE owner_id=? ORDER BY created_at DESC,id DESC`,
     )
-    .all(owner) as CardToken[];
+    .all(owner) as TokenRow[];
+  return rows.map(publicToken);
 }
 export function createCardToken(owner: string, input: unknown) {
   const options = CreateCardTokenSchema.parse(input);
+  const admission =
+    "scopes" in options ? [...new Set(options.scopes)].sort() : [options.scope];
+  const stored = JSON.stringify(admission);
   return db
     .transaction(() => {
       const existing = db
         .prepare("SELECT * FROM card_tokens WHERE id=?")
         .get(options.request_id) as
-        (CardToken & { owner_id: string; digest: string }) | undefined;
+        (TokenRow & { owner_id: string; digest: string }) | undefined;
       if (existing) {
         if (
           existing.owner_id !== owner ||
           existing.digest !== digest(options.secret) ||
           existing.name !== options.name ||
-          existing.scope !== options.scope ||
+          existing.scope !== stored ||
           existing.revoked_at !== null
         )
           throw new Problem(
@@ -47,8 +86,8 @@ export function createCardToken(owner: string, input: unknown) {
           );
         const token = db
           .prepare(`SELECT ${columns} FROM card_tokens WHERE id=?`)
-          .get(existing.id) as CardToken;
-        return { token, secret: options.secret };
+          .get(existing.id) as TokenRow;
+        return { token: publicToken(token), secret: options.secret };
       }
       if (
         db
@@ -87,10 +126,10 @@ export function createCardToken(owner: string, input: unknown) {
         digest(options.secret),
       );
       const secret = options.secret;
-      const token: CardToken = {
+      const token: TokenRow = {
         id: options.request_id,
         name: options.name,
-        scope: options.scope,
+        scope: stored,
         created_at: Date.now(),
         revoked_at: null,
         last_used_at: null,
@@ -105,7 +144,7 @@ export function createCardToken(owner: string, input: unknown) {
         token.scope,
         token.created_at,
       );
-      return { token, secret };
+      return { token: publicToken(token), secret };
     })
     .immediate();
 }
@@ -133,10 +172,44 @@ export function recordCardRead(owner: string, tokenId: string, ids: string[]) {
     for (const id of ids) insert.run(tokenId, owner, id, tokenId, owner);
   }).immediate();
 }
+
+/** Legacy Results pages use bare IDs; disclosure identities remain qualified
+ * exactly like Cards so removals never reveal a record this token did not read. */
+export function tokenResultPage<
+  T extends { items: { id: string }[]; removed?: string[] },
+>(
+  owner: string,
+  tokenId: string | undefined,
+  page: T,
+  removedPrefix: "a:" | "m:" = "a:",
+  disclose = true,
+): T {
+  if (!tokenId) return page;
+  return db
+    .transaction(() => {
+      if (page.removed) {
+        const known = db.prepare(
+          "SELECT 1 FROM card_token_reads WHERE token_id=? AND owner_id=? AND card_id=?",
+        );
+        page.removed = page.removed.filter((value) =>
+          known.get(tokenId, owner, removedPrefix + value),
+        );
+      }
+      if (disclose)
+        recordCardRead(
+          owner,
+          tokenId,
+          page.items.map((item) => ("role" in item ? "m:" : "a:") + item.id),
+        );
+      return page;
+    })
+    .immediate();
+}
 export function tokenCardPage<T extends CardChanges | CardPage>(
   owner: string,
   tokenId: string | undefined,
   page: T,
+  disclose = true,
 ): T {
   if (!tokenId) return page;
   return db
@@ -155,11 +228,12 @@ export function tokenCardPage<T extends CardChanges | CardPage>(
         );
         page.removed = page.removed.filter((id) => known.has(id));
       }
-      recordCardRead(
-        owner,
-        tokenId,
-        page.items.map((item) => item.card.id),
-      );
+      if (disclose)
+        recordCardRead(
+          owner,
+          tokenId,
+          page.items.map((item) => item.card.id),
+        );
       return page;
     })
     .immediate();
@@ -173,8 +247,8 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
   const header = req.headers.authorization;
   const match =
     typeof header === "string" &&
-    /^Bearer (loop_card_[A-Za-z0-9_-]{43})$/i.exec(header);
-  if (!match) throw new Problem(401, "Invalid card credential");
+    /^Bearer (loop_(?:card|token)_[A-Za-z0-9_-]{43})$/i.exec(header);
+  if (!match) throw new Problem(401, "Invalid integration credential");
   // This query is deliberately performed for every request, including HEAD.
   // Last-use throttling must never become a revocation cache.
   return db
@@ -200,13 +274,14 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
                 .get() as { owner_id: string } | undefined
             )?.owner_id
           : token?.owner_id;
+      const admission = token && storedAdmission(token.scope);
       if (
         !token ||
         token.revoked_at !== null ||
         token.owner_id !== owner ||
-        !CardGrantSchema.safeParse(token.scope).success
+        !admission
       )
-        throw new Problem(401, "Invalid card credential");
+        throw new Problem(401, "Invalid integration credential");
       const now = Date.now(),
         window = Math.floor(now / 60000);
       const perToken = db
@@ -222,14 +297,14 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
       if (perToken.n > 120 || perOwner.n > 600)
         throw new Problem(
           429,
-          "Too many card requests. Try again in a minute.",
+          "Too many integration requests. Try again in a minute.",
         );
       db.prepare(
         "UPDATE card_tokens SET last_used_at=? WHERE id=? AND (last_used_at IS NULL OR last_used_at<=?)",
       ).run(now, token.id, now - 60000);
       return {
         owner: token.owner_id,
-        scope: token.scope as CardGrant,
+        admission,
         tokenId: token.id,
       };
     })

@@ -9,7 +9,7 @@ import { request as httpRequest } from "node:http";
 import { z } from "zod";
 import { workspaceApi, PublicConnection } from "../src/shared/workspace-api";
 import { Problem, ExecutionProblem } from "../src/shared/problem";
-import { registrar } from "../src/server/registrar";
+import { registrar, mountedRoute } from "../src/server/registrar";
 import { cardTokenRequest } from "../src/shared/card-access";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-route-contracts-"));
@@ -30,6 +30,19 @@ const owner = "local-workspace";
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 const origin = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
+it("resolves nested production registrars without invoking native history or diagnostic handlers", () => {
+  expect(mountedRoute(app, "POST", "/api/ui/viewport-diagnostics")).toBe(
+    workspaceApi.viewportDiagnostics,
+  );
+  for (const method of ["GET", "HEAD"]) {
+    expect(mountedRoute(app, method, "/api/native/history?discover=1")).toBe(
+      workspaceApi.nativeHistoryList,
+    );
+    expect(mountedRoute(app, method, "/api/native/history/fixture")).toBe(
+      workspaceApi.nativeHistoryDetail,
+    );
+  }
+});
 async function request(
   path: string,
   body?: unknown,

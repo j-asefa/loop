@@ -5,7 +5,7 @@ import {
   SignedFleetChallenge,
   SignedFleetCredential,
 } from "./fleet-credentials.js";
-import type { RouteContract } from "./workspace-api.js";
+import type { FleetRouteContract } from "./workspace-api.js";
 
 const base = {
   method: "POST" as const,
@@ -26,4 +26,4 @@ export const fleetCredentialApi = {
     body: FleetCredentialProof,
     response: SignedFleetCredential,
   },
-} as const satisfies Record<string, RouteContract>;
+} as const satisfies Record<string, FleetRouteContract>;

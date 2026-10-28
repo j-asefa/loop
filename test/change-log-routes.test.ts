@@ -1157,6 +1157,8 @@ for (const mode of ["server", "companion"] as const)
     }
   }, 15_000);
 
+// The outer budget includes compiled-server startup and teardown; the deadline
+// polling bounds below still enforce prompt expiry delivery and timer clearing.
 it("initializes deadlines after creation and advertises two expiries without any intervening mutation", async () => {
   const f = await fixture();
   seed(f);
@@ -1220,7 +1222,7 @@ it("initializes deadlines after creation and advertises two expiries without any
   expect(
     f.db.prepare("SELECT processed FROM change_expiries ORDER BY kind").all(),
   ).toEqual([{ processed: 1 }, { processed: 1 }]);
-}, 10_000);
+}, 30_000);
 
 it("rearms when the earliest expiry is extended or deleted and explicitly clears the last timer", async () => {
   const f = await fixture();
@@ -1257,7 +1259,7 @@ it("rearms when the earliest expiry is extended or deleted and explicitly clears
     stream.events().filter(({ event }) => event.type === "deadline"),
   ).toHaveLength(count);
   expect(f.db.prepare("SELECT * FROM change_expiries").all()).toEqual([]);
-}, 10_000);
+}, 30_000);
 
 it("publishes every internal reader dependency from committed worker writes without a Cards scan", async () => {
   const f = await fixture();

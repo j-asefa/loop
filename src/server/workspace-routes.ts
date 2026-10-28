@@ -1,4 +1,5 @@
-import { registrar } from "./registrar.js";
+import { recordCardRead, tokenResultPage } from "./card-tokens.js";
+import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { artifactResponse, runResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
@@ -195,7 +196,18 @@ routes.on(workspaceApi.artifactList, (req, res) => {
     .all(...args) as z.input<
     typeof workspaceApi.artifactList.response
   >["items"];
-  res.json({ items, next: items.length === 60 ? items.at(-1)!.cursor : null });
+  res.json(
+    tokenResultPage(
+      res.locals.owner,
+      res.locals.bearer?.tokenId,
+      projectResponse(workspaceApi.artifactList, {
+        items,
+        next: items.length === 60 ? items.at(-1)!.cursor : null,
+      }),
+      "a:",
+      res.req.method !== "HEAD",
+    ),
+  );
 });
 // The checkout Loop observed for a run: branch, commits, files and the patch
 // stored at capture time. Read-only; there is nothing to apply from here.
@@ -230,7 +242,15 @@ routes.on(workspaceApi.artifactDetail, (req, res) => {
         .prepare("SELECT name,provider FROM agents WHERE id=? AND owner_id=?")
         .get(a.agent_id, res.locals.owner) as object)
     : undefined;
-  res.json({ ...artifactResponse(a), ...agent });
+  const projected = projectResponse(workspaceApi.artifactDetail, {
+    ...artifactResponse(a),
+    ...agent,
+  });
+  if (res.locals.bearer && res.req.method !== "HEAD")
+    recordCardRead(res.locals.owner, res.locals.bearer.tokenId, [
+      "a:" + projected.id,
+    ]);
+  res.json(projected);
 });
 routes.on(workspaceApi.artifactCreate, (req, res) => {
   const d = req.body;

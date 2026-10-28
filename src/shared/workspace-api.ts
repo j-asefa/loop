@@ -1,3 +1,4 @@
+import type { TokenAdmission } from "./token-scopes.js";
 import { FeedEntities } from "./feed-projection.js";
 import { ConversationPulls } from "./conversation-pulls.js";
 import { ReplyContext, ReplyState } from "./steering-replies.js";
@@ -152,6 +153,8 @@ const Teams = Text.max(2000).optional();
 const Ok = z.object({ ok: z.boolean() });
 const ResultSelection = { agent: Text.optional(), folder: Text.optional(), teams: Teams, view: z.enum(["all", "prompts", "files"]).default("all"), saved: z.enum(["1", "0"]).optional() };
 const NumberCursor = z.coerce.number<string>().int().min(0).max(Number.MAX_SAFE_INTEGER);
+export type PeerAccess = "peer:enrollment" | "peer:handoff" | "peer:directory" | "peer:credentials";
+type SessionAccess = "session" | PeerAccess | "device:fleet";
 export type RouteContract = {
   path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;
   status?: number;
@@ -162,9 +165,9 @@ export type RouteContract = {
   contentType?: string;
   // Documentation of existing middleware; never an authorization bypass.
   security?: "public" | "local-setup" | "optional-session" | "paired-device";
-  access: "session" | "card:results" | "card:cards" | "peer:enrollment" | "peer:handoff" | "peer:directory" | "device:fleet" | "peer:credentials";
-} & ({ method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; kind?: "stream"; protocol?: never }
-  | { method: "POST" | "ALL"; kind: "transport"; protocol: "mcp" | "authentication" });
+} & ({ method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; kind?: "stream"; protocol?: never; access: SessionAccess | { admits: readonly TokenAdmission[] } }
+  | { method: "POST" | "ALL"; kind: "transport"; protocol: "mcp" | "authentication"; access: SessionAccess });
+export type FleetRouteContract = RouteContract & { access: PeerAccess | "device:fleet" };
 export type ClientRouteContract = RouteContract & { method: Exclude<RouteContract["method"], "ALL"> };
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
@@ -357,11 +360,11 @@ export const workspaceRoutes = {
   runtimeHostCreate: endpoint({ ...base, method: "POST", path: "/runtime-hosts", body: companion.RuntimeHostCreateInput, response: companion.PublicRuntimeHost, status: 201 }),
   runtimeHostDelete: endpoint({ ...base, method: "DELETE", path: "/runtime-hosts/:id", params: Id, body: z.unknown(), response: Ok }),
   conversationActivities: endpoint({ ...base, method: "GET", path: "/conversations/:id/activities", params: Id, query: companion.ActivityQuery, response: companion.PublicActivityPage }),
-  // All three reads admit either grant; card:results names the minimum grant.
+  // All three reads admit read and both legacy grants; selection stays scoped.
   // The admission boundary still limits each grant's selections and excludes Done.
-  cardList: endpoint({ ...base, method: "GET", path: "/v1/cards", query: CardListQuerySchema, response: CardPageSchema, access: "card:results" }),
-  cardChanges: endpoint({ ...base, method: "GET", path: "/v1/cards/changes", query: CardChangesQuerySchema, response: CardChangesSchema, access: "card:results" }),
-  cardDetail: endpoint({ ...base, method: "GET", path: "/v1/cards/:id", params: z.object({ id: CardIdSchema }), query: z.strictObject({}, { error: "Card detail does not accept query parameters" }), response: CardSchema, access: "card:results" }),
+  cardList: endpoint({ ...base, method: "GET", path: "/v1/cards", query: CardListQuerySchema, response: CardPageSchema, access: { admits: ["read", "results:read", "cards:read"] } }),
+  cardChanges: endpoint({ ...base, method: "GET", path: "/v1/cards/changes", query: CardChangesQuerySchema, response: CardChangesSchema, access: { admits: ["read", "results:read", "cards:read"] } }),
+  cardDetail: endpoint({ ...base, method: "GET", path: "/v1/cards/:id", params: z.object({ id: CardIdSchema }), query: z.strictObject({}, { error: "Card detail does not accept query parameters" }), response: CardSchema, access: { admits: ["read", "results:read", "cards:read"] } }),
   // Management handlers historically ignore query parameters.
   cardTokens: endpoint({ ...base, method: "GET", path: "/card-tokens", response: z.array(CardTokenSchema) }),
   cardTokenCreate: endpoint({ ...base, method: "POST", path: "/card-tokens", body: CreateCardTokenSchema, response: CreatedCardTokenSchema, status: 201 }),
@@ -374,11 +377,11 @@ export const workspaceRoutes = {
   agentSuggestName: endpoint({ ...base, method: "GET", path: "/agents/suggest-name", response: z.object({ name: Text }) }),
   agentCreate: endpoint({ ...base, method: "POST", path: "/agents", body: AgentCreateInput, response: PublicAgent.extend({ initialRun: z.object({ id: Text, conversation_id: MaybeText }).optional() }), status: 201 }),
   agentUpdate: endpoint({ ...base, method: "PATCH", path: "/agents/:id", params: Id, body: AgentUpdateInput, response: PublicAgent }),
-  agentDetail: endpoint({ ...base, method: "GET", path: "/agents/:id", params: Id, response: z.object({ agent: PublicAgent, runs: z.array(PublicRun), conversations: z.array(PublicConversation) }) }),
+  agentDetail: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/agents/:id", params: Id, response: z.object({ agent: PublicAgent, runs: z.array(PublicRun), conversations: z.array(PublicConversation) }) }),
   agentHarness: endpoint({ ...base, method: "GET", path: "/agents/:id/harness", params: Id, query: z.object({ conversation: Text.uuid().optional() }), response: PublicHarnessCatalog }),
-  agentMessages: endpoint({ ...base, method: "GET", path: "/agents/:id/messages", params: Id, query: z.object({ before: Text.min(1).max(512).optional() }), response: PublicAgentMessages }),
-  agentTraces: endpoint({ ...base, method: "GET", path: "/agents/:id/traces", params: Id, query: z.object({ before: z.coerce.number<string>().int().positive().max(Number.MAX_SAFE_INTEGER).optional(), run: Text.min(1).max(100).optional(), q: Text.max(500).optional() }), response: PublicAgentTraces }),
-  agentTracesExport: endpoint({ ...base, method: "GET", path: "/agents/:id/traces/export", params: Id, query: z.object({ run: Text.min(1).max(100) }), kind: "stream", contentType: "application/json", response: z.custom<Blob>() }),
+  agentMessages: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/agents/:id/messages", params: Id, query: z.object({ before: Text.min(1).max(512).optional() }), response: PublicAgentMessages }),
+  agentTraces: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/agents/:id/traces", params: Id, query: z.object({ before: z.coerce.number<string>().int().positive().max(Number.MAX_SAFE_INTEGER).optional(), run: Text.min(1).max(100).optional(), q: Text.max(500).optional() }), response: PublicAgentTraces }),
+  agentTracesExport: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/agents/:id/traces/export", params: Id, query: z.object({ run: Text.min(1).max(100) }), kind: "stream", contentType: "application/json", response: z.custom<Blob>() }),
   agentPiPackages: endpoint({ ...base, method: "GET", path: "/agents/:id/pi-packages", params: Id, response: PublicPiConfiguration }),
   agentPiTrust: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-trust", params: Id, body: PiTrustInput, response: PublicPiConfiguration }),
   agentPiFilters: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-package-filters", params: Id, body: PiFiltersInput, response: PublicPiMutation }),
@@ -386,11 +389,11 @@ export const workspaceRoutes = {
   agentPiInspect: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-package-inspect", params: Id, body: PiInspectInput, response: PublicPiInspection }),
   agentPiRollback: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-package-rollback", params: Id, body: PiRollbackInput, response: PublicPiMutation }),
   agentPiAction: endpoint({ ...base, method: "POST", path: "/agents/:id/pi-packages", params: Id, body: PiActionInput, response: PublicPiMutation }),
-  messageSearch: endpoint({ ...base, method: "GET", path: "/messages", query: z.object({ q: Text.max(500).default("") }), response: z.array(PublicMessage) }),
-  messageDetail: endpoint({ ...base, method: "GET", path: "/messages/:id", params: Id, response: PublicMessage }),
+  messageSearch: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/messages", query: z.object({ q: Text.max(500).default("") }), response: z.array(PublicMessage) }),
+  messageDetail: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/messages/:id", params: Id, response: PublicMessage }),
   resultUpdate: endpoint({ ...base, method: "PATCH", path: "/results/:id", params: Id, body: z.object({ hidden: z.boolean() }), response: Ok }),
-  artifactFile: endpoint({ ...base, method: "GET", path: "/artifacts/:id/file", params: Id, query: z.object({ preview: z.unknown().optional() }), kind: "stream", response: z.custom<Blob>() }),
-  artifactDownload: endpoint({ ...base, method: "GET", path: "/artifacts/:id/download", params: Id, kind: "stream", response: z.custom<Blob>(), status: 303 }),
+  artifactFile: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/artifacts/:id/file", params: Id, query: z.object({ preview: z.unknown().optional() }), kind: "stream", response: z.custom<Blob>() }),
+  artifactDownload: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/artifacts/:id/download", params: Id, kind: "stream", response: z.custom<Blob>(), status: 303 }),
   personalFiles: endpoint({ ...base, method: "GET", path: "/me/files", query: PersonalFilesQuery, response: PersonalFilesPage }),
   personalDecisions: endpoint({ ...base, method: "GET", path: "/me/decisions", query: PersonalDecisionsQuery, response: PersonalDecisionsPageSchema }),
   personalApproval: endpoint({ ...base, method: "GET", path: "/me/approvals/:id", params: z.object({ id: Text.min(1).max(200) }), response: PersonalApprovalSchema }),
@@ -408,7 +411,7 @@ export const workspaceRoutes = {
   doneThreadRemove: endpoint({ ...base, method: "DELETE", path: "/feed/threads/:id", params: Id, response: Ok }),
   doneThreadRemoveCard: endpoint({ ...base, method: "DELETE", path: "/feed/threads/:id/cards/:card", params: Id.extend({ card: DoneThreadCardId }), response: Ok }),
   replyState: endpoint({ ...base, method: "PATCH", path: "/replies/:id", params: Id, body: ReplyState, response: Ok }),
-  feedAway: endpoint({ ...base, method: "GET", path: "/feed/away", query: z.object({ since: NumberCursor.default(0) }), response: mobile.PublicAway }),
+  feedAway: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/feed/away", query: z.object({ since: NumberCursor.default(0) }), response: mobile.PublicAway }),
   messageSave: endpoint({ ...base, method: "POST", path: "/messages/:id/saved", params: Id, body: z.unknown(), response: Ok.extend({ saved: z.boolean() }) }),
   messageUnsave: endpoint({ ...base, method: "DELETE", path: "/messages/:id/saved", params: Id, body: z.unknown(), response: Ok.extend({ saved: z.boolean() }) }),
   savedList: endpoint({ ...base, method: "GET", path: "/saved", query: z.object({ before: Text.max(500).optional(), folder: Text.max(150).optional(), teams: Teams, q: Text.max(200).optional() }), response: z.object({ items: z.array(z.discriminatedUnion("kind", [
@@ -441,8 +444,8 @@ export const workspaceRoutes = {
   folderList: endpoint({ ...base, method: "GET", path: "/folders", response: z.array(PublicFolder) }),
   folderCreate: endpoint({ ...base, method: "POST", path: "/folders", body: library.FolderCreateInput, response: PublicFolder, status: 201 }),
   folderUpdate: endpoint({ ...base, method: "PATCH", path: "/folders/:id", params: Id, body: library.FolderUpdateInput, response: Ok }),
-  artifactList: endpoint({ ...base, method: "GET", path: "/artifacts", query: library.ArtifactListQuery, response: z.object({ items: z.array(PublicArtifact.extend({ cursor: z.number(), name: MaybeText, provider: Provider.nullable() })), next: z.number().nullable() }) }),
-  artifactDetail: endpoint({ ...base, method: "GET", path: "/artifacts/:id", params: Id, response: PublicArtifact }),
+  artifactList: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/artifacts", query: library.ArtifactListQuery, response: z.object({ items: z.array(PublicArtifact.extend({ cursor: z.number(), name: MaybeText, provider: Provider.nullable() })), next: z.number().nullable() }) }),
+  artifactDetail: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/artifacts/:id", params: Id, response: PublicArtifact }),
   artifactCreate: endpoint({ ...base, method: "POST", path: "/artifacts", body: library.ArtifactCreateInput, response: z.object({ id: Text }), status: 201 }),
   artifactUpdate: endpoint({ ...base, method: "PATCH", path: "/artifacts/:id", params: Id, body: library.ArtifactUpdateInput, response: PublicArtifact }),
   artifactMove: endpoint({ ...base, method: "POST", path: "/artifacts/:id/move", params: Id, body: library.ArtifactMoveInput, response: z.object({ operation: Text, folderId: MaybeText, message: Text }) }),
@@ -450,7 +453,7 @@ export const workspaceRoutes = {
   runVerifications: endpoint({ ...base, method: "GET", path: "/runs/:id/verifications", params: Id, response: z.array(library.PublicVerification) }),
   runFiles: endpoint({ ...base, method: "GET", path: "/runs/:id/files", params: Id, response: z.array(z.object({ id: Text, title: Text, metadata: Text })) }),
   operationUndo: endpoint({ ...base, method: "POST", path: "/operations/:id/undo", params: Id, body: z.unknown(), response: Ok.extend({ folderId: MaybeText }) }),
-  objectFile: endpoint({ ...base, method: "GET", path: "/objects/:id", params: Id, query: z.object({ preview: z.unknown().optional() }), kind: "stream", response: z.custom<Blob>() }),
+  objectFile: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/objects/:id", params: Id, query: z.object({ preview: z.unknown().optional() }), kind: "stream", response: z.custom<Blob>() }),
   search: endpoint({ ...base, method: "GET", path: "/search", query: library.SearchQuery, response: library.PublicSearch }),
   searchStatus: endpoint({ ...base, method: "GET", path: "/search/status", response: library.PublicSearchStatus }),
   preferences: endpoint({ ...base, method: "GET", path: "/preferences", response: library.PublicPreferences }),
@@ -461,21 +464,21 @@ export const workspaceRoutes = {
   importCancel: endpoint({ ...base, method: "POST", path: "/imports/:id/cancel", params: Id, body: z.unknown(), response: Ok }),
   conversationContinue: endpoint({ ...base, method: "POST", path: "/conversations/:id/continue", params: Id, body: library.ContinueInput, response: z.object({ id: Text, agentId: Text, runId: Text.optional(), unavailable: z.literal(true).optional() }) }),
   conversationContinueStart: endpoint({ ...base, method: "POST", path: "/conversations/:id/continue/start", params: Id, body: library.ContinueInput.required({ start: true }), response: z.object({ id: Text, agentId: Text, runId: Text, unavailable: z.literal(true).optional() }) }),
-  bootstrap: endpoint({ ...base, method: "GET", path: "/bootstrap", response: Bootstrap }),
-  feed: endpoint({ ...base, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams, known: Text.optional() }), response: FeedPage }),
-  conversation: endpoint({ ...base, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),
+  bootstrap: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/bootstrap", response: Bootstrap }),
+  feed: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/feed", query: z.object({ filter: z.enum(FEED_FILTERS).default("all"), expand: z.literal("results").optional(), folder: Text.min(1).max(150).optional(), agent: Text.min(1).max(150).optional(), before: Text.min(1).max(512).optional(), teams: Teams, known: Text.optional() }), response: FeedPage }),
+  conversation: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),
   conversationPulls: endpoint({ ...base, method: "GET", path: "/conversations/:id/pulls", params: Id, query: z.object({ refresh: z.enum(["1"]).optional() }), response: ConversationPulls }),
-  runs: endpoint({ ...base, method: "GET", path: "/runs", query: z.object({ teams: Teams, active: Text.optional() }), response: z.array(PublicRun) }),
+  runs: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/runs", query: z.object({ teams: Teams, active: Text.optional() }), response: z.array(PublicRun) }),
   submit: endpoint({ ...base, method: "POST", path: "/runs", body: z.object({
     agentId: Text, conversationId: Text.optional(), replyToMessageId: Text.min(1).max(150).optional(), replyExcerpt: Text.trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
     input: Text.trim().min(1).max(30000), attachmentIds: AttachmentIds, idempotencyKey: Text.min(8).max(150), folderId: Text.min(1).nullable().optional(), queue: z.boolean().optional(),
   }).refine(d => !d.replyExcerpt || d.replyToMessageId, { message: "Choose the message the excerpt comes from", path: ["replyExcerpt"] }), response: PublicRun, status: 202 }),
   runAction: endpoint({ ...base, method: "POST", path: "/runs/:id/:action", params: Id.extend({ action: Text }), body: z.object({ idempotencyKey: Text.min(8).max(150).optional() }).optional(), response: z.union([PublicRun, Ok]) }),
-  results: endpoint({ ...base, method: "GET", path: "/results", query: z.object({ ...ResultSelection, view: Text.optional(), saved: Text.optional(), before: z.coerce.number<string>().min(0).catch(0).default(0) }), response: ResultsPage }),
-  resultUpdates: endpoint({ ...base, method: "GET", path: "/results/updates", query: z.object({ ...ResultSelection, after: NumberCursor, through: NumberCursor }), response: ResultsUpdates }),
-  approvals: endpoint({ ...base, method: "GET", path: "/approvals", query: z.object({ teams: Teams }), response: z.array(Approval) }),
+  results: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/results", query: z.object({ ...ResultSelection, view: Text.optional(), saved: Text.optional(), before: z.coerce.number<string>().min(0).catch(0).default(0) }), response: ResultsPage }),
+  resultUpdates: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/results/updates", query: z.object({ ...ResultSelection, after: NumberCursor, through: NumberCursor }), response: ResultsUpdates }),
+  approvals: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/approvals", query: z.object({ teams: Teams }), response: z.array(Approval) }),
   approval: endpoint({ ...base, method: "POST", path: "/approvals/:id", params: Id, body: z.object({ decision: z.enum(["approve", "reject"]) }), response: Ok }),
-  nativeDecisions: endpoint({ ...base, method: "GET", path: "/native/decisions", query: z.object({ conversation: Text.uuid().optional() }), response: z.array(NativeDecision) }),
+  nativeDecisions: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/native/decisions", query: z.object({ conversation: Text.uuid().optional() }), response: z.array(NativeDecision) }),
   nativeAnswer: endpoint({ ...base, method: "POST", path: "/native/decisions/:id", params: Id, body: z.strictObject({ commandId: Text.uuid(), answer: z.record(Text, z.json()) }), response: z.object({ state: Text }) }),
   session: endpoint({ ...base, method: "GET", path: "/conversations/:id/settings", params: z.object({ id: Text.uuid() }), response: SessionControls }),
   setting: endpoint({ ...base, method: "PATCH", path: "/conversations/:id/settings/:setting", params: z.object({ id: Text.uuid(), setting: Text }), body: z.strictObject({ value: z.union([Text.max(1000), z.boolean(), z.number()]), revision: z.number().int().nonnegative(), generation: Text.min(1).max(200), commandId: Text.uuid().optional() }), response: SessionControls }),

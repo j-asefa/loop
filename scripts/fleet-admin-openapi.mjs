@@ -10,7 +10,11 @@ const schemas = {
   ),
 };
 const paths = {};
+// Fleet uses only its dedicated peer/device credentials.
+
 for (const [name, route] of Object.entries(fleetAdminApi)) {
+  if (typeof route.access !== "string")
+    throw new Error("Fleet routes cannot admit integration tokens");
   schemas[name + "Response"] = z.toJSONSchema(route.response, options);
   const mutation = route.method !== "GET";
   if (mutation)

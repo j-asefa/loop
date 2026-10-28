@@ -27,7 +27,6 @@ import type { Adapter } from "./adapters/types.js";
 import { State, secret, hash, atomic } from "./state.js";
 import {
   cardAuthorization,
-  cardReadRoute,
   type CardAuthorization,
 } from "./shared/card-access.js";
 import { Problem } from "./shared/problem.js";
@@ -82,7 +81,7 @@ export class Host {
     fleetAdminHttp?: (req: IncomingMessage, res: ServerResponse) => void;
     /** Dedicated machine protocol; never forwards to the browser workspace API. */
     peerHttp?: (req: IncomingMessage, res: ServerResponse) => void;
-    authorizeCards?: (req: IncomingMessage) => CardAuthorization;
+    authorizeToken?: (req: IncomingMessage) => CardAuthorization;
     status: () => unknown;
     admin: (action: string, input: any) => Promise<unknown>;
     shareTools?: (
@@ -490,25 +489,16 @@ export class Host {
     if (!this.validHost(req))
       return this.json(res, 403, { error: "Unrecognized host." });
     try {
-      if (req.url?.startsWith("/api/fleet/peer/")) {
-        if (this.workspace?.isolated || !this.workspace?.peerHttp)
-          return this.json(res, 404, {
-            error: "Fleet enrollment unavailable.",
-          });
-        this.workspace.peerHttp(req, res);
-        return;
-      }
       // Select bearer authentication before cookies or URL normalization. This
-      // exception can only forward the three implemented card read routes.
+      // application callback resolves the actual mounted contract before forwarding.
       if (this.workspace && req.headers.authorization !== undefined) {
         if (
-          !cardReadRoute(req.method, req.url) ||
-          !this.workspace.authorizeCards ||
+          !this.workspace.authorizeToken ||
           req.headers["x-http-method-override"] !== undefined ||
           req.headers["x-method-override"] !== undefined
         )
           return this.json(res, 403, {
-            error: "Card credentials permit card reads only.",
+            error: "Integration credentials permit declared token routes only.",
           });
         if (
           (req.headers.origin && !this.validOrigin(req)) ||
@@ -518,7 +508,7 @@ export class Host {
         try {
           (
             req as IncomingMessage & { [cardAuthorization]?: CardAuthorization }
-          )[cardAuthorization] = this.workspace.authorizeCards(req);
+          )[cardAuthorization] = this.workspace.authorizeToken(req);
         } catch (error) {
           const status = error instanceof Problem ? error.status : 500;
           if (status === 429) res.setHeader("Retry-After", "60");
@@ -526,10 +516,18 @@ export class Host {
             error:
               error instanceof Problem
                 ? error.message
-                : "Card authorization unavailable.",
+                : "Integration authorization unavailable.",
           });
         }
         this.workspace.http(req, res);
+        return;
+      }
+      if (req.url?.startsWith("/api/fleet/peer/")) {
+        if (this.workspace?.isolated || !this.workspace?.peerHttp)
+          return this.json(res, 404, {
+            error: "Fleet enrollment unavailable.",
+          });
+        this.workspace.peerHttp(req, res);
         return;
       }
       const path = new URL(req.url!, this.origin).pathname;

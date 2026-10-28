@@ -4,7 +4,7 @@ import {
   SignedFleetHandoffQuery,
   SignedFleetHandoffReceipt,
 } from "./fleet-handoff.js";
-import type { RouteContract } from "./workspace-api.js";
+import type { FleetRouteContract } from "./workspace-api.js";
 
 const base = {
   method: "POST" as const,
@@ -25,4 +25,4 @@ export const fleetHandoffApi = {
     body: SignedFleetHandoffQuery,
     response: SignedFleetHandoffReceipt,
   },
-} as const satisfies Record<string, RouteContract>;
+} as const satisfies Record<string, FleetRouteContract>;

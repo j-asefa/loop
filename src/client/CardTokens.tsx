@@ -12,16 +12,16 @@ import {
   SettingsSection,
 } from "./SettingsUI";
 import {
-  cardTokenRequest,
-  type CardTokenRequest,
-  type CardGrant,
+  integrationTokenRequest,
+  type IntegrationTokenRequest,
   type CardToken,
 } from "../shared/card-access";
+import { SCOPE_CATALOG, type TokenScope } from "../shared/token-scopes";
 import { viewOwner } from "./viewCache";
 
 // Pending creation survives closing Settings, scoped to its initiating owner/source.
 // This ephemeral receipt never goes to URL, localStorage or sessionStorage.
-const pending = new Map<string, CardTokenRequest>();
+const pending = new Map<string, IntegrationTokenRequest>();
 
 /** The parent keys this surface by owner and source. Secrets live only in this
  * creation workflow; stale responses cannot reveal them to another owner/source. */
@@ -40,8 +40,8 @@ export function CardTokens({
   const [loaded, setLoaded] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [name, setName] = useState(receipt.current?.name || "");
-  const [scope, setScope] = useState<CardGrant>(
-    receipt.current?.scope || "results:read",
+  const [scope, setScope] = useState<TokenScope>(
+    receipt.current?.scopes[0] || "read",
   );
   const [created, setCreated] = useState<{
     token: CardToken;
@@ -68,7 +68,8 @@ export function CardTokens({
             (token) =>
               token.id === draft.request_id &&
               token.name === draft.name &&
-              token.scope === draft.scope &&
+              "scopes" in token &&
+              JSON.stringify(token.scopes) === JSON.stringify(draft.scopes) &&
               !token.revoked_at,
           );
         if (draft && committed) {
@@ -101,8 +102,8 @@ export function CardTokens({
   if (unavailable)
     return (
       <SettingsNote tone="attention">
-        Card API tokens are unavailable on this source. Update that workspace to
-        enable them, or retry when it reconnects.{" "}
+        Integration tokens are unavailable on this source. Update that workspace
+        to enable them, or retry when it reconnects.{" "}
         <button type="button" onClick={() => void load()}>
           Retry list
         </button>
@@ -111,8 +112,8 @@ export function CardTokens({
   return (
     <>
       <p className="settings-intro">
-        Let a script read cards from this workspace. Each token belongs to this
-        source and your account.
+        Let a script read this workspace. Each token belongs to this source and
+        your account.
       </p>
       {error && (
         <SettingsNote role="alert" tone="attention">
@@ -127,7 +128,8 @@ export function CardTokens({
           onSubmit={async (event) => {
             event.preventDefault();
             if (busy || !current()) return;
-            const draft = receipt.current || cardTokenRequest(name, scope);
+            const draft =
+              receipt.current || integrationTokenRequest(name, [scope]);
             receipt.current = draft;
             pending.set(key, draft);
             setBusy(true);
@@ -191,16 +193,11 @@ export function CardTokens({
             id={scopeId}
             disabled={busy || !!receipt.current}
             value={scope}
-            onChange={(event) => setScope(event.target.value as CardGrant)}
+            onChange={(event) => setScope(event.target.value as TokenScope)}
           >
-            <option value="results:read">Published results only</option>
-            <option value="cards:read">Results, Saved and Sent</option>
+            <option value="read">{SCOPE_CATALOG.read.label}</option>
           </select>
-          <p className="field-hint">
-            {scope === "cards:read"
-              ? "Includes saved messages, saved files and your personally sent prompts across projects."
-              : "Visible published result cards across projects."}
-          </p>
+          <p className="field-hint">{SCOPE_CATALOG.read.description}</p>
           <button type="submit" disabled={busy || !name.trim()}>
             {busy
               ? "Creating…"
@@ -242,9 +239,11 @@ export function CardTokens({
                 title={token.name}
                 description={
                   <>
-                    {token.scope === "cards:read"
-                      ? "Results, Saved and Sent"
-                      : "Published results"}{" "}
+                    {"scopes" in token
+                      ? token.scopes
+                          .map((value) => SCOPE_CATALOG[value].label)
+                          .join(", ")
+                      : `${token.scope} (legacy)`}{" "}
                     · Created {new Date(token.created_at).toLocaleDateString()}
                     <br />
                     {token.last_used_at

@@ -5,7 +5,7 @@ import {
   SignedFleetPendingPush,
   SignedFleetPendingAck,
 } from "./fleet-pending-directory.js";
-import type { RouteContract } from "./workspace-api.js";
+import type { FleetRouteContract } from "./workspace-api.js";
 
 const base = {
   method: "POST" as const,
@@ -26,4 +26,4 @@ export const fleetPendingDirectoryApi = {
     body: SignedFleetPendingPush,
     response: SignedFleetPendingAck,
   },
-} as const satisfies Record<string, RouteContract>;
+} as const satisfies Record<string, FleetRouteContract>;

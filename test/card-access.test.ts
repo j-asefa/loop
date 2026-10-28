@@ -274,7 +274,7 @@ it.each(["server", "companion"] as const)(
       ).toBe(403);
       const wrong = "loop_card_" + randomBytes(32).toString("base64url");
       db.prepare(
-        "INSERT INTO card_tokens(id,owner_id,name,digest,scope,created_at) VALUES('wrong','foreign','Wrong owner',?,'cards:read',1)",
+        "INSERT INTO card_tokens(id,owner_id,name,digest,scope,created_at) VALUES('wrong','foreign','Wrong owner',?,json_array('cards:read'),1)",
       ).run(createHash("sha256").update(wrong).digest("hex"));
       expect(
         (await request("/api/v1/cards", { headers: headers(wrong) })).status,
@@ -287,9 +287,9 @@ it.each(["server", "companion"] as const)(
         (await request("/api/v1/cards", { headers: headers(all.secret) }))
           .status,
       ).toBe(401);
-      db.prepare("UPDATE card_tokens SET scope='cards:read' WHERE id=?").run(
-        all.token.id,
-      );
+      db.prepare(
+        "UPDATE card_tokens SET scope=json_array('cards:read') WHERE id=?",
+      ).run(all.token.id);
       db.pragma("ignore_check_constraints = OFF");
 
       const forbidden = [

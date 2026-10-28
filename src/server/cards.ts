@@ -1,3 +1,4 @@
+import { fullCardRead, type TokenAdmission } from "../shared/token-scopes.js";
 import { cardAttachments } from "./card-attachments.js";
 import { doneCards } from "./done-cards.js";
 import { createHash } from "node:crypto";
@@ -448,12 +449,12 @@ export function listCards(owner: string, input: unknown) {
 export function cardDetail(
   owner: string,
   id: string,
-  scope?: "results:read" | "cards:read",
+  admission?: readonly TokenAdmission[],
 ): Card {
   if (!CardIdSchema.safeParse(id).success)
     throw new Problem(404, "Card not found");
   if (id.startsWith("d:")) {
-    if (scope) throw new Problem(404, "Card not found");
+    if (admission) throw new Problem(404, "Card not found");
     const found = doneCards(owner, {
       folders: null,
       teamIds: [],
@@ -466,7 +467,9 @@ export function cardDetail(
   }
   const type = id.startsWith("a:") ? "artifact" : "message";
   const views: CardView[] =
-    scope === "results:read" ? ["results"] : ["results", "saved", "sent"];
+    admission && !fullCardRead(admission)
+      ? ["results"]
+      : ["results", "saved", "sent"];
   for (const view of views) {
     const found = query(owner, selection(owner, { view }), type, {
       ids: [id.slice(2)],

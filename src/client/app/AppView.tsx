@@ -736,7 +736,7 @@ export function renderApp(props: AppViewProps) {
         </Sheet>
       )}
       {sheet === "card-tokens" && capabilities.cardTokens === true && (
-        <Sheet title="Card API tokens" onClose={closeSheet}>
+        <Sheet title="Integration tokens" onClose={closeSheet}>
           <CardTokens
             key={session.user.id + ":" + executionSourceId()}
             owner={session.user.id}

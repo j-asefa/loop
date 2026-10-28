@@ -2,11 +2,65 @@ import {
   Router,
   type RouterOptions,
   type RequestHandler,
+  type Request,
   type Response,
+  type Express,
 } from "express";
 import type { z } from "zod";
 import { Problem } from "../shared/problem.js";
 import type { RouteContract } from "../shared/workspace-api.js";
+import { admitsToken } from "../shared/token-scopes.js";
+
+type MatchedRoute = { contract: RouteContract; params: unknown };
+const probes = new WeakMap<
+  object,
+  { router: ReturnType<typeof Router>; options: RouterOptions }
+>();
+const mounted = new WeakMap<Express, ReturnType<typeof Router>[]>();
+
+/** Record exactly the mounts used by the application, in dispatch order. The
+ * probe routers use Express itself, including each registrar's matching options,
+ * but contain only capture callbacks: they never run application middleware. */
+export function mountRoutes(app: Express, mount: RequestHandler, path = "/") {
+  const probe = probes.get(mount);
+  if (!probe) throw new Error("Mount API routes through a registrar");
+  // A strict/case-sensitive registry keeps that boundary on the mount spelling
+  // too; legacy Cards credentials never accepted an alternate /API prefix.
+  const wrapper = Router({ caseSensitive: probe.options.caseSensitive });
+  wrapper.use(path, probe.router);
+  const entries = mounted.get(app) ?? [];
+  entries.push(wrapper);
+  mounted.set(app, entries);
+  app.use(path, mount);
+}
+
+export function mountedRoute(
+  app: Express,
+  method: string | undefined,
+  target: string | undefined,
+): RouteContract | undefined {
+  if (
+    !method ||
+    !["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(method) ||
+    !target?.startsWith("/") ||
+    target.startsWith("//") ||
+    /[#\r\n\u2028\u2029]/.test(target)
+  )
+    return;
+  for (const probe of mounted.get(app) ?? []) {
+    const response = { locals: {} as { matched?: MatchedRoute } };
+    probe(
+      { method, url: target, headers: {} } as Request,
+      response as Response,
+      () => {},
+    );
+    const match = response.locals.matched;
+    if (match)
+      return match.contract.params.safeParse(match.params).success
+        ? match.contract
+        : undefined;
+  }
+}
 
 type ResponseBody<C extends RouteContract> = C extends { kind: "stream" }
   ? unknown
@@ -91,11 +145,20 @@ export function registrar(_name: string, options: Options = {}) {
     ...routerOptions
   } = options;
   const router = Router(routerOptions);
+  const probe = Router(routerOptions);
   for (const entry of middleware) {
     if (entry.length === 1) router.use(entry[0]);
     else router.use(entry[0], entry[1]);
+    // Some registrars mount another registrar as middleware (native history,
+    // viewport diagnostics). Include its declarations in the same order.
+    const nested = probes.get(entry.length === 1 ? entry[0] : entry[1]);
+    if (nested) {
+      if (entry.length === 1) probe.use(nested.router);
+      else probe.use(entry[0], nested.router);
+    }
   }
   const mount: RequestHandler = router;
+  probes.set(mount, { router: probe, options: routerOptions });
   return {
     mount,
     on<C extends RouteContract>(
@@ -118,9 +181,20 @@ export function registrar(_name: string, options: Options = {}) {
         "get" | "post" | "put" | "patch" | "delete" | "all";
       const registration = router.route(prefix + contract.path);
       registration[method](
+        (_req, res, next) => {
+          if (
+            res.locals.bearer &&
+            !admitsToken(contract, res.locals.bearer.admission)
+          )
+            throw new Problem(403, "This token does not permit this route");
+          next();
+        },
         ...(options.middleware ?? []),
         options.wrap ? options.wrap(wrapped) : wrapped,
       );
+      probe.route(prefix + contract.path)[method]((req, res) => {
+        res.locals.matched = { contract, params: req.params };
+      });
       if (!automaticOptions && method !== "all")
         registration.options(deferOptions);
     },

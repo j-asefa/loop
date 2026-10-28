@@ -51,7 +51,53 @@ process.send?.({
   fixtureSecret: owner ? seal("fixture-api-key", owner) : undefined,
 });
 // IPC-only fixture observation; no production route or browser-visible state.
+let finishResultWrite:
+  (() => { attempted: boolean; committed: boolean }) | undefined;
 process.on("message", (message) => {
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
+    message.type === "interleave-result-write" &&
+    "artifact" in message &&
+    typeof message.artifact === "string"
+  ) {
+    void import("./integration-records.js")
+      .then(({ interleaveResultWrite }) => {
+        finishResultWrite = interleaveResultWrite(message.artifact as string);
+        process.send?.({ armed: true });
+      })
+      .catch((error) => process.send?.({ error: String(error) }));
+  }
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
+    message.type === "finish-result-write"
+  ) {
+    try {
+      process.send?.(finishResultWrite?.());
+    } catch (error) {
+      process.send?.({ error: String(error) });
+    }
+    finishResultWrite = undefined;
+  }
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
+    message.type === "integration-records" &&
+    "owner" in message &&
+    typeof message.owner === "string"
+  ) {
+    void import("./integration-records.js")
+      .then(({ integrationRecords }) => {
+        process.send?.({
+          records: integrationRecords(message.owner as string),
+        });
+      })
+      .catch((error) => process.send?.({ error: String(error) }));
+  }
   if (
     message &&
     typeof message === "object" &&

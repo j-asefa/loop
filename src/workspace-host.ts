@@ -22,7 +22,7 @@ import { preview, designPreview } from "./preview-context.js";
 import { publicBuild } from "./shared/build.js";
 import { observeProcess } from "./server/deployments.js";
 import { observedBuild } from "./server/build-runtime.js";
-import { authenticateCardToken } from "./server/card-tokens.js";
+import { authorizeIntegrationToken } from "./server/index.js";
 import { FleetAuthority } from "./server/fleet-authority.js";
 import { FleetPairing } from "./server/fleet-pairing.js";
 import { FleetEnrollmentDestination } from "./server/fleet-enrollment.js";
@@ -199,7 +199,7 @@ export class WorkspaceHost {
             }),
           })
         : undefined,
-      authorizeCards: authenticateCardToken,
+      authorizeToken: authorizeIntegrationToken,
       status: () => ({
         workspace: true,
         state: "ready",

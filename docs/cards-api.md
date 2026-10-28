@@ -1,44 +1,61 @@
-# Cards API
+# Integration API
 
-The versioned card service exposes individual results, saved items and personally
-sent prompts. The session-only `done` collection preserves independent completed answers and idle-thread fallbacks. Conversation Feed summaries remain separate.
-The Files tab continues to use `/api/results?view=files`.
-
-Use an authenticated Loop browser/paired-device session, or a local integration
-token in `Authorization: Bearer …`. Reads do not save, acknowledge, mark read,
-resolve decisions or dispatch work.
-
-The Cards routes and browser readers follow the shared [API boundary](architecture.md#dependencies-and-boundaries).
+Loop's Integration API admits scoped bearer credentials through the mounted
+[workspace contracts](contracts.md). Each admitted route declares `{ admits }`;
+a token may use it when at least one stored admission value matches. Session
+access keeps its existing rules. GET and HEAD share authorization; HEAD has no
+body. Token reads do not save, acknowledge, mark read, resolve decisions or
+dispatch work. Responses omit owner-session clock headers and the JSON
+`projection` clock; collection cursors remain available for pagination.
 
 ## Integration tokens
 
-Open **Settings → Card API tokens**, name the token and choose its read access.
-Copy the secret when it appears; Loop only stores its SHA-256 digest and cannot
-display it again. Keep it in a script's environment or secret store. The same
-Settings page lists nonsecret metadata and revokes tokens immediately.
+Open **Settings → Integration tokens**, name the token and select **Read**.
+Copy the secret when it appears; Loop stores its SHA-256 digest and cannot
+display it again. Keep it in a script's environment or secret store and send
+`Authorization: Bearer loop_token_…`. The same Settings page lists nonsecret
+metadata and revokes tokens immediately.
 
-| Scope          | Access                                                                                 |
-| -------------- | -------------------------------------------------------------------------------------- |
-| `results:read` | Eligible visible published Results, their details and changes                          |
-| `cards:read`   | Results, Saved (including messages and files), Sent prompts and their eligible details |
+| Selectable scope | Current admission |
+| --- | --- |
+| `read` | Bootstrap; agent details, messages and traces; Feed pages; conversation and message reads; run and approval lists; companion native-decision lists; Results, artifacts and file downloads; Cards Results, Saved and Sent |
+| `write` | Reserved; no routes admit it in this release and Settings does not offer it yet |
+| `approvals:decide` | Reserved; no routes admit it in this release and Settings does not offer it yet |
 
-Both grants cover the owner's projects. Query filters narrow a selection, not
+The generated [OpenAPI document](openapi.json) lists the exact admission values
+on each operation as `x-scopes`. An omitted admission means session-only access.
+Transport, peer and fleet routes never admit integration credentials. The
+bootstrap projection includes public connection labels, models and status;
+connection management and credentials remain unavailable to tokens. Native
+decisions are available only where the companion profile mounts that route.
+
+Existing `loop_card_…` credentials remain valid with their distinct legacy grants:
+
+| Legacy grant | Access |
+| --- | --- |
+| `results:read` | Eligible visible published Results through the three Cards routes |
+| `cards:read` | Cards Results, Saved (including messages and file descriptors), Sent and eligible details |
+
+Settings labels these grants **legacy**. They cannot be edited or selected for a
+new integration token. Neither legacy grant expands to workspace or file reads.
+The session-only Cards Done collection remains unavailable to every bearer,
+including `read`. Replace a legacy credential with a new token when broader
+read access is needed.
+
+Tokens cover the owner's projects. Query filters narrow a selection, not
 the grant. A token belongs to one source and owner; it cannot reach linked
 sources or proxy requests. Changing a single-user installation's selected owner
-invalidates the previous owner's tokens for that installation. Broader future
-collections require an explicit grant change.
+invalidates the previous owner's tokens for that installation. Additional routes require explicit contract admission.
 
 An Authorization header selects token authentication before any browser cookie.
 Malformed schemes (including Basic), invalid/revoked tokens and insufficient
 grants never inherit the session's permissions. Gateways must consume their own
-Authorization credentials before forwarding browser traffic. The integration
-exception admits only the implemented card GET/HEAD routes. Other API paths,
-methods, source proxies, file downloads and token management are unavailable to
-card credentials. Ordinary paired sessions retain their origin/CSRF rules.
+Authorization credentials before forwarding browser traffic. The integration path admits only declared GET/HEAD reads. Writes, source
+proxies, token management and session-only routes refuse every token. Ordinary paired sessions retain their origin/CSRF rules.
 No third-party browser CORS or OAuth flow is provided.
 
 Owner sessions manage tokens with `GET /api/card-tokens`,
-`POST /api/card-tokens` (`{ request_id, secret, name, scope }`) and
+`POST /api/card-tokens` (`{ request_id, secret, name, scopes }`) and
 `DELETE /api/card-tokens/:id`. Creation returns `{ token, secret }`; list returns
 only token metadata. At most 50 tokens may be active; recent revoked metadata is
 retained in a bounded history. Nonsecret creation identities and secret digests
@@ -46,8 +63,10 @@ are retained to prevent reviving a pruned revoked credential, including under a
 new creation identity. Secrets are never put in URLs or browser storage. The Settings client generates a
 32-byte random secret and a UUID creation identity before sending the request.
 Retrying the exact request returns the same token; changing its fields or retrying
-a revoked identity returns 409. `cardTokenRequest(name, scope)` supplies this
-request shape for session-authenticated tools. Keep the creation receipt only
+a revoked identity returns 409. `integrationTokenRequest(name, scopes)` supplies this request shape for
+session-authenticated tools. As a compatibility exception, the old singular
+`scope: "results:read" | "cards:read"` creation shape and `cardTokenRequest` helper
+remain supported; these create a legacy-grant credential, not a `read` token. Keep the creation receipt only
 in memory. If a response is lost, Settings reconciles the metadata list and can
 finish the same creation; closing and reopening Settings retains a pending
 receipt for that owner/source. Reloading the page discards secrets: revoke any
@@ -57,19 +76,20 @@ Requests are limited to 120 per token and 600 per owner per minute. A 429 respon
 includes `Retry-After: 60`. The approximate `last_used_at` updates at most once a
 minute; each request still checks revocation. These bookkeeping tables are the
 only state changed by token reads, along with source/owner-bound identifiers of
-cards previously returned to that token. Removal responses expose only those
+cards, Results and artifacts previously returned to that token. Removal responses expose only those
 previously disclosed IDs; they never reveal IDs of private uploads or other
 ineligible records. This read bookkeeping is discarded on revocation. After
 changing credentials, backfill the selection again before consuming changes;
 revision reuse across different tokens is not a substitute for that backfill.
-GET and HEAD have identical permissions.
+GET and HEAD have identical permissions. HEAD does not record item disclosures,
+because it returns no body; use GET before consuming removal notifications.
 
 Read-disclosure storage grows with distinct cards returned per active token;
 repeated reads do not add duplicate rows. Keep only the integration tokens you
 need and revoke unused ones. These short, indexed bookkeeping writes share the
 database write lock with the worker; the rate limits bound their frequency.
 
-## Collections and detail
+## Cards collections and detail
 
 ```http
 GET /api/v1/cards?view=results&limit=40
@@ -112,7 +132,7 @@ database, owner and normalized selection. Detail has no query parameters and
 only exposes a card currently eligible for at least one supported collection.
 Knowing an artifact/message ID does not grant arbitrary transcript or file access.
 
-Done requires an owner browser/paired session; neither existing token scope grants
+Done requires an owner browser/paired session; no token admission grants
 Done list, changes or detail access. It returns `type: "done"` and opaque `d:`
 identities, independent of published artifact identities. Its display fields carry
 exact dismissal keys and existing Feed navigation and footer data. Each completed
@@ -157,8 +177,8 @@ for replies; it does not attribute a system or unknown message to that agent.
 
 Attachment name, MIME type and size describe the stored attachment snapshot.
 Descriptors appear only for artifacts owned by the same owner. `href` opens
-Loop; nullable `download` is an existing session-protected file URL. Descriptors
-do not grant access to file bytes. Renaming a file does not rewrite the historical
+Loop; nullable `download` is a protected file URL. File bytes require an owner session or a
+`read` integration token; a legacy Cards grant only admits the descriptor. Renaming a file does not rewrite the historical
 attachment description; deleting its target removes the descriptor through
 synchronization.
 
@@ -237,7 +257,9 @@ and route definitions as the runtime. Regenerate it with `npm run openapi`;
 `npm run openapi:check` fails when the checked-in document differs. GET and HEAD,
 query parameters, result/message variants, token management and authentication
 alternatives are included. The session cookies and trusted standalone access
-boundary vary by deployment; a Cards bearer token always uses the same header.
+boundary vary by deployment; an integration bearer always uses the same header.
+`IntegrationBearer` is the generated bearer security scheme; `CardBearer` remains
+as a compatibility alias for one release.
 The general OpenAPI contract requires authentication. A trusted single-user
 standalone installation can additionally rely on its configured access boundary;
 this deployment exception is not declared as globally optional authentication.

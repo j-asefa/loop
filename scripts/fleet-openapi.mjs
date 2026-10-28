@@ -13,6 +13,8 @@ const schemas = {
   FleetError: z.toJSONSchema(z.object({ error: z.string() }).strict(), options),
 };
 const paths = {};
+// Fleet uses only its dedicated peer/device credentials.
+
 const proof = {
   credentialChallenge:
     "Returns a signed, short-lived challenge only for a currently authorized destination grant, peer, directory and operation. A challenge grants no access and allocates no per-request nonce state.",
@@ -46,6 +48,8 @@ for (const [name, route] of Object.entries({
   ...fleetCredentialApi,
   ...fleetPendingDirectoryApi,
 })) {
+  if (typeof route.access !== "string")
+    throw new Error("Fleet routes cannot admit integration tokens");
   schemas[name + "Request"] = z.toJSONSchema(route.body, {
     ...options,
     io: "input",

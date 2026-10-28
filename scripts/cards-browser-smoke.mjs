@@ -39,16 +39,16 @@ try {
           .getByRole("button", { name: "Open settings", exact: true })
           .click();
         await page
-          .getByRole("button", { name: "Card API tokens", exact: true })
+          .getByRole("button", { name: "Integration tokens", exact: true })
           .click();
         const title = mode + " " + width;
         await page.getByLabel("Token name", { exact: true }).fill(title);
         await page
           .getByLabel("Read access", { exact: true })
-          .selectOption("cards:read");
+          .selectOption("read");
         await expect(
           page.getByText(
-            "Includes saved messages, saved files and your personally sent prompts across projects.",
+            "Read agents, conversations, results, files and pending decisions across your projects.",
             { exact: false },
           ),
         ).toBeVisible();
@@ -58,7 +58,7 @@ try {
         const secretBox = page.locator(".settings-command pre");
         await expect(secretBox).toBeVisible();
         const secret = await secretBox.textContent();
-        assert.match(secret, /^loop_card_[\w-]{43}$/);
+        assert.match(secret, /^loop_token_[\w-]{43}$/);
         await page
           .getByRole("button", { name: "Copy token", exact: true })
           .click();
@@ -90,7 +90,7 @@ try {
           .getByRole("button", { name: "Open settings", exact: true })
           .click();
         await page
-          .getByRole("button", { name: "Card API tokens", exact: true })
+          .getByRole("button", { name: "Integration tokens", exact: true })
           .click();
         await expect(
           page.getByRole("button", { name: "Revoke " + title, exact: true }),
@@ -198,11 +198,11 @@ try {
           .click();
         await reached;
         await page
-          .getByRole("dialog", { name: "Card API tokens", exact: true })
+          .getByRole("dialog", { name: "Integration tokens", exact: true })
           .getByRole("button", { name: "Close", exact: true })
           .click();
         await page
-          .getByRole("button", { name: "Card API tokens", exact: true })
+          .getByRole("button", { name: "Integration tokens", exact: true })
           .click();
         await expect(secretBox).toBeVisible();
         assert.equal(await secretBox.textContent(), pendingRequest.secret);
@@ -223,7 +223,7 @@ try {
         );
         // A linked source can return a transient 404 while reconnecting.
         await page
-          .getByRole("dialog", { name: "Card API tokens", exact: true })
+          .getByRole("dialog", { name: "Integration tokens", exact: true })
           .getByRole("button", { name: "Close", exact: true })
           .click();
         let unavailableStatus = 404;
@@ -239,10 +239,12 @@ try {
           }),
         );
         await page
-          .getByRole("button", { name: "Card API tokens", exact: true })
+          .getByRole("button", { name: "Integration tokens", exact: true })
           .click();
         await expect(
-          page.getByText("Card API tokens are unavailable", { exact: false }),
+          page.getByText("Integration tokens are unavailable", {
+            exact: false,
+          }),
         ).toBeVisible();
         for (const status of [500, 404, 403]) {
           unavailableStatus = status;
@@ -251,7 +253,7 @@ try {
             .click();
           if (status === 404) {
             await expect(
-              page.getByText("Card API tokens are unavailable", {
+              page.getByText("Integration tokens are unavailable", {
                 exact: false,
               }),
             ).toBeVisible();
@@ -260,7 +262,7 @@ try {
               "Token list failure " + status,
             );
             await expect(
-              page.getByText("Card API tokens are unavailable", {
+              page.getByText("Integration tokens are unavailable", {
                 exact: false,
               }),
             ).toHaveCount(0);
@@ -287,7 +289,10 @@ try {
             .getByRole("button", { name: "Open settings", exact: true })
             .click();
           await expect(
-            page.getByRole("button", { name: "Card API tokens", exact: true }),
+            page.getByRole("button", {
+              name: "Integration tokens",
+              exact: true,
+            }),
           ).toHaveCount(0);
           await page.unroute("**/api/capabilities");
         }

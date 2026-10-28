@@ -11,7 +11,7 @@
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |
 | [Contract rules](contracts.md)               | API contract authoring, public projections and boundary evidence |
 | [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and workflows              |
-| [Cards API](cards-api.md)                    | Shared result/message contract, selections and synchronization |
+| [Integration API](cards-api.md)                    | Scoped tokens, workspace reads and Cards synchronization |
 | [Development](development.md)                | Tests, builds, packaging and manual verification                  |
 | [Experiment previews](previews.md)            | Try design and runtime branches with separate builds, state and pairing |
 

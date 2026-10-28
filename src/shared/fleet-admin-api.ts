@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { RouteContract } from "./workspace-api.js";
+import type { FleetRouteContract } from "./workspace-api.js";
 import {
   FleetAuthorityState,
   FleetCapabilities,
@@ -216,4 +216,4 @@ export const fleetAdminApi = {
     body: page,
     response: FleetHandoffPage,
   },
-} as const satisfies Record<string, RouteContract>;
+} as const satisfies Record<string, FleetRouteContract>;

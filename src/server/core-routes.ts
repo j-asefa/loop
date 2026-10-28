@@ -1,4 +1,5 @@
-import { registrar } from "./registrar.js";
+import { recordCardRead, tokenResultPage } from "./card-tokens.js";
+import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi, PublicAgent, PublicConnection, PublicFolder, PublicMessage, ResultItem } from "../shared/workspace-api.js";
 
 import { InvalidRow, parseConnectionControl, ConnectionModels, ConnectionMetadata, runResponse, messageResponse } from "./row-schemas.js";
@@ -60,7 +61,7 @@ const routes = registrar("core", { middleware: [[viewportDiagnostics]] });
 export const core = routes.mount;
 
 routes.on(workspaceApi.bootstrap, (_req, res) => {
-  ensureWorkspaceProject(res.locals.owner);
+  if (!res.locals.bearer) ensureWorkspaceProject(res.locals.owner);
   res.json({
     ...(publicPreview ? { preview: publicPreview } : {}),
     environmentName: hostEnvironmentName(),
@@ -500,8 +501,10 @@ routes.on(workspaceApi.resultUpdates, (req, res) => {
   if (options.agent) owned("agents", options.agent, res.locals.owner);
   if (options.folder) owned("folders", options.folder, res.locals.owner);
   const teams = teamFilter(req.query.teams, res.locals.owner);
-  res.json(resultsUpdates(res.locals.owner, { ...options, teams }));
-}, { wrap: projectionSnapshot });
+  res.json(tokenResultPage(res.locals.owner, res.locals.bearer?.tokenId,
+    projectResponse(workspaceApi.resultUpdates, resultsUpdates(res.locals.owner, { ...options, teams })),
+    !options.saved && options.view === "prompts" ? "m:" : "a:", res.req.method !== "HEAD"));
+}, { wrap: handler => projectionSnapshot(handler, { bearerWrites: true }) });
 routes.on(workspaceApi.results, (req, res) => {
   const saved = req.query.saved === "1";
   const revision = resultsRevision(res.locals.owner);
@@ -566,11 +569,10 @@ routes.on(workspaceApi.results, (req, res) => {
         `SELECT m.*,r.state run_state,r.error run_error,m.rowid cursor,c.agent_id,c.team_id,a.name,a.provider FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents a ON a.id=c.agent_id WHERE ${filter} ORDER BY m.rowid DESC LIMIT 40`,
       )
       .all(...values) as z.input<typeof ResultItem>[];
-    res.json({
-      revision,
-      items: rows,
-      next: rows.length === 40 ? rows.at(-1)!.cursor : null,
-    });
+    res.json(tokenResultPage(res.locals.owner, res.locals.bearer?.tokenId,
+      projectResponse(workspaceApi.results, {
+        revision, items: rows, next: rows.length === 40 ? rows.at(-1)!.cursor : null,
+      }), "a:", res.req.method !== "HEAD"));
     return;
   }
   if (saved) where += ` AND ${fileArtifactSql}`;
@@ -582,12 +584,11 @@ routes.on(workspaceApi.results, (req, res) => {
       `SELECT a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,p.sequence AS cursor,g.name,g.provider,(SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id FROM artifacts a JOIN ${saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=a.id LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY p.sequence DESC LIMIT ?`,
     )
     .all(...params, limit) as z.input<typeof ResultItem>[];
-  res.json({
-    revision,
-    items,
-    next: items.length === limit ? items.at(-1)!.cursor : null,
-  });
-}, { wrap: projectionSnapshot });
+  res.json(tokenResultPage(res.locals.owner, res.locals.bearer?.tokenId,
+    projectResponse(workspaceApi.results, {
+      revision, items, next: items.length === limit ? items.at(-1)!.cursor : null,
+    }), "a:", res.req.method !== "HEAD"));
+}, { wrap: handler => projectionSnapshot(handler, { bearerWrites: true }) });
 routes.on(workspaceApi.resultUpdate, (req, res) => {
   const item = ownedArtifact(req.params.id, res.locals.owner);
   const { hidden } = req.body;
@@ -660,6 +661,7 @@ routes.on(workspaceApi.messageSearch, (req, res) => {
 routes.on(workspaceApi.artifactFile, (req, res) => {
   const file = localArtifact(res.locals.owner, req.params.id);
   const artifact = ownedArtifact(req.params.id, res.locals.owner);
+  if (res.locals.bearer && res.req.method !== "HEAD") recordCardRead(res.locals.owner, res.locals.bearer.tokenId, ["a:" + artifact.id]);
   const name = artifact.metadata.name || artifact.title;
   if (sendHtmlPreview(res, req.query.preview, { ...file, name })) return;
   const inline =
@@ -682,5 +684,6 @@ routes.on(workspaceApi.artifactFile, (req, res) => {
 
 routes.on(workspaceApi.artifactDownload, (req, res) => {
   owned("artifacts", req.params.id, res.locals.owner);
+  if (res.locals.bearer && res.req.method !== "HEAD") recordCardRead(res.locals.owner, res.locals.bearer.tokenId, ["a:" + req.params.id]);
   res.redirect(303, "/api/artifacts/" + req.params.id + "/file");
 });

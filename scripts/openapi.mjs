@@ -1,3 +1,4 @@
+import { SCOPE_CATALOG } from "../src/shared/token-scopes.ts";
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import {
@@ -165,9 +166,8 @@ const schemas = {
 };
 const responses = {};
 const paths = {};
-// Share errors by complete route family so later contract additions do not
-// push the document over the review capture's per-file limit. Cards retain
-// their published operation objects, including route-specific errors.
+// Share standard errors by route family. Cards reads retain their
+// published operation objects, including route-specific errors.
 const sharedErrorGroups = new Set([
   "memory",
   "workflows",
@@ -220,6 +220,7 @@ const sharedErrorGroups = new Set([
   "operations",
   "objects",
   "bootstrap",
+  "card-tokens",
 ]);
 for (const [name, route] of Object.entries(workspaceRoutes)) {
   const path = "/api" + route.path.replace(/[:*]([^/]+)/g, "{$1}");
@@ -228,7 +229,10 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   const method = route.method === "ALL" ? "post" : route.method.toLowerCase();
   const transport = route.kind === "transport";
   const writes = method !== "get";
-  const cardRead = route.access.startsWith("card:");
+  const admission =
+    typeof route.access === "object" ? route.access.admits : undefined;
+  const cardRead =
+    admission?.includes("results:read") || admission?.includes("cards:read");
   const prefix = schemaName(name);
   const parameters = [];
   if (writes && !transport)
@@ -349,7 +353,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
       ]),
   );
   const documentedErrors =
-    !cardNames[name] && sharedErrorGroups.has(route.path.split("/")[1])
+    !cardRead && sharedErrorGroups.has(route.path.split("/")[1])
       ? Object.fromEntries(
           Object.entries(errors).map(([status, response]) => {
             // These descriptions depend on the operation, unlike standard errors.
@@ -385,16 +389,16 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
             ? [{ LocalSourceSetup: [] }]
             : [
                 ...(route.security === "optional-session" ? [{}] : []),
-                ...(cardRead ? [{ CardBearer: [] }] : []),
+                ...(admission ? [{ IntegrationBearer: [] }] : []),
                 { OwnerSession: [] },
                 { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
               ],
+    ...(admission ? { "x-scopes": admission } : {}),
     ...(cardRead
       ? {
-          "x-card-grants":
-            route.access === "card:results"
-              ? ["results:read", "cards:read"]
-              : ["cards:read"],
+          "x-card-grants": admission.filter(
+            (value) => value === "results:read" || value === "cards:read",
+          ),
         }
       : {}),
     ...(!noBody(route.body)
@@ -453,7 +457,7 @@ const document = {
     title: "Loop API",
     version: "1",
     description:
-      "Workspace HTTP contracts and complete stored Cards content. Collection cursors bind owner, database and normalized selection. This general document describes authenticated requests. Trusted single-user standalone installations may additionally accept requests inside their configured access boundary; that deployment exception is not a global anonymous security alternative. See cards-api.md for synchronization, scope and deployment semantics.",
+      "Workspace HTTP contracts, integration-token admission and complete stored Cards content. See cards-api.md for scopes, deployment authentication and synchronization.",
   },
   paths,
   components: {
@@ -473,12 +477,20 @@ const document = {
         description:
           "Service credential issued by local execution-source enrollment. The protocol handler authenticates it independently and refuses browser origins.",
       },
+      IntegrationBearer: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "loop_token_… (legacy loop_card_… accepted)",
+        description:
+          "Owner/source-bound integration credential. Only contracts whose x-scopes intersect its grants admit it. Never send tokens in URLs.",
+        "x-scope-catalog": SCOPE_CATALOG,
+      },
       CardBearer: {
         type: "http",
         scheme: "bearer",
         bearerFormat: "loop_card_…",
         description:
-          "Read routes only. results:read permits Results; cards:read permits Results, Saved and Sent. Never send tokens in URLs.",
+          "Compatibility alias for IntegrationBearer for one release. Legacy results:read and cards:read retain their existing Cards-only permissions.",
       },
       OwnerSession: {
         type: "apiKey",

@@ -97,7 +97,7 @@ export function SettingsHome({
             {capabilities.cardTokens === true &&
               row(
                 "card-tokens",
-                "Card API tokens",
+                "Integration tokens",
                 "Read-only access for scripts",
                 KeyRound,
               )}

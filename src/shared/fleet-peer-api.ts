@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { RouteContract } from "./workspace-api.js";
+import type { FleetRouteContract } from "./workspace-api.js";
 import {
   FleetEnrollmentProbe,
   FleetPrepareEnrollment,
@@ -44,4 +44,4 @@ export const fleetPeerApi = {
     body: SignedFleetEnrollmentQuery,
     response: SignedFleetEnrollmentReceipt,
   },
-} as const satisfies Record<string, RouteContract>;
+} as const satisfies Record<string, FleetRouteContract>;

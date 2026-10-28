@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { RouteContract } from "./workspace-api.js";
+import type { FleetRouteContract } from "./workspace-api.js";
 import {
   SignedFleetDirectoryAck,
   SignedFleetDirectoryPush,
@@ -26,4 +26,4 @@ export const fleetDirectoryApi = {
     body: SignedFleetDirectoryPush,
     response: SignedFleetDirectoryAck,
   },
-} as const satisfies Record<string, RouteContract>;
+} as const satisfies Record<string, FleetRouteContract>;

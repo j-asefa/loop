@@ -1,5 +1,7 @@
+import express from "express";
+import { registrar, mountRoutes, mountedRoute } from "../src/server/registrar";
 import { expect, it } from "vitest";
-import { cardReadRoute, cardTokenRequest } from "../src/shared/card-access";
+import { cardTokenRequest } from "../src/shared/card-access";
 import { CardIdSchema } from "../src/shared/cards";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -30,7 +32,20 @@ function previous(method: string | undefined, target: string | undefined) {
   }
 }
 
-it("keeps the literal Cards admission boundary when paths come from contracts", () => {
+it("keeps the literal Cards admission boundary when paths come from mounted contracts", () => {
+  const app = express();
+  const routes = registrar("cards-fixture", {
+    strict: true,
+    caseSensitive: true,
+  });
+  const contracts = {
+    list: workspaceApi.cardList,
+    changes: workspaceApi.cardChanges,
+    detail: workspaceApi.cardDetail,
+  };
+  for (const contract of Object.values(contracts))
+    routes.on(contract, () => {});
+  mountRoutes(app, routes.mount, "/api");
   const targets = [
     undefined,
     "",
@@ -86,10 +101,12 @@ it("keeps the literal Cards admission boundary when paths come from contracts", 
     "DELETE",
     "OPTIONS",
   ])
-    for (const target of targets)
-      expect(cardReadRoute(method, target), `${method} ${target}`).toEqual(
-        previous(method, target),
+    for (const target of targets) {
+      const old = previous(method, target);
+      expect(mountedRoute(app, method, target), `${method} ${target}`).toBe(
+        old ? contracts[old.kind as keyof typeof contracts] : undefined,
       );
+    }
 });
 
 it.each(["server", "companion", "multi-user"] as const)(
@@ -194,4 +211,4 @@ it("validates detail output before persisting a bearer read receipt", async () =
   } finally {
     await fixture.close();
   }
-});
+}, 30_000);

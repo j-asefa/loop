@@ -59,7 +59,7 @@ routes.on(workspaceApi.feed, (req, res) => {
   const { known, ...query } = req.query;
   const selection = { ...query, teams: teamFilter(query.teams, res.locals.owner) };
   const page = feed(res.locals.owner, selection);
-  res.json(feedProjection(res.locals.owner, selection, page, known));
+  res.json(res.locals.bearer ? page : feedProjection(res.locals.owner, selection, page, known));
 }, { wrap: projectionSnapshot });
 routes.on(workspaceApi.feedUpdate, (req, res) =>
   res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),

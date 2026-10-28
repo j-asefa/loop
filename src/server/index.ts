@@ -1,6 +1,7 @@
+import type { IncomingMessage } from "node:http";
 import type { z } from "zod";
 import { workspaceApi } from "../shared/workspace-api.js";
-import { registrar, projectResponse } from "./registrar.js";
+import { registrar, projectResponse, mountRoutes, mountedRoute } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
@@ -50,7 +51,8 @@ import { mobile } from "./mobile-routes.js";
 import { cards } from "./card-routes.js";
 import { cardTokens } from "./card-token-routes.js";
 import { authenticateCardToken, type CardRequest } from "./card-tokens.js";
-import { cardAuthorization, cardReadRoute, CardGrantSchema } from "../shared/card-access.js";
+import { cardAuthorization, type CardAuthorization } from "../shared/card-access.js";
+import { admitsToken, TokenAdmissions } from "../shared/token-scopes.js";
 import { prWatches } from "./pr-watches.js";
 import { agentMail } from "./agent-mail.js";
 import { githubPulls } from "./github-pulls.js";
@@ -75,9 +77,9 @@ app.use("/api", (req, res, next) => {
   if (req.method === "GET") {
     const json = res.json.bind(res);
     res.json = (body) => {
-      // Cards grants authorize only their projection, not private workspace
+      // Integration grants authorize their projections, not private workspace
       // activity or approval/watch expiry metadata, even with an owner cookie.
-      if (res.locals.owner && res.locals.cardScope === undefined && res.statusCode < 400) {
+      if (res.locals.owner && res.locals.bearer === undefined && res.statusCode < 400) {
         const clock = res.locals.workspaceClock ?? workspaceClock(res.locals.owner);
         res.setHeader("X-Loop-Change-Epoch", clock.epoch);
         res.setHeader("X-Loop-Change-Cursor", String(clock.cursor));
@@ -115,10 +117,15 @@ app.use((req, _res, next) => {
       : req.socket.remoteAddress;
   next();
 });
+app.use((req, _res, next) => {
+  if (/^Bearer loop_(?:card|token)_/i.test(req.headers.authorization ?? ""))
+    integrationRoute(req);
+  next();
+});
 const appTransport = registrar("app", { prefix: "/api", automaticOptions: false });
-app.use(appTransport.mount);
+mountRoutes(app, appTransport.mount);
 // Keep the existing federation routes and their independent credential checks
-// ahead of the Cards selector. Express owns their case/trailing-slash matching.
+// ahead of workspace bearer admission. Express owns their case/trailing-slash matching.
 if (!companionMode) {
   appTransport.on(workspaceApi.mcpFederationTransport, (req, res, next) => {
     void handleFederationMcp(req, res, req.body).catch(next);
@@ -127,37 +134,58 @@ if (!companionMode) {
     void handleReverseMcp(req, res, req.body).catch(next);
   }, { middleware: [express.json({ limit: "12mb" })] });
 }
-// Card bearer identities never enter the general session-authorized API.
+function integrationRoute(req: IncomingMessage) {
+  const contract = mountedRoute(app, req.method, req.url);
+  if (contract?.kind === "transport" && contract.protocol === "mcp")
+    throw new Problem(403, "Execution source credential required");
+  if (!contract || contract.kind === "transport" || typeof contract.access !== "object" ||
+      req.headers["x-http-method-override"] !== undefined || req.headers["x-method-override"] !== undefined)
+    throw new Problem(403, "Integration credentials permit declared token routes only");
+  return contract;
+}
+function authorizeAdmission(req: IncomingMessage, context: CardAuthorization | undefined) {
+  const contract = integrationRoute(req);
+  if (!context || !TokenAdmissions.safeParse(context.admission).success || (companionMode && context.owner !== OWNER))
+    throw new Problem(401, "Invalid integration credential");
+  if (!admitsToken(contract, context.admission))
+    throw new Problem(403, "This token does not permit this route");
+  return context;
+}
+/** The paired host checks the very same mounted contracts before forwarding.
+ * Authentication is performed once there; its capability stays on the request. */
+export function authorizeIntegrationToken(req: IncomingMessage): CardAuthorization {
+  integrationRoute(req);
+  return authorizeAdmission(req, authenticateCardToken(req));
+}
+// Bearer identities stay separate from owner/device sessions throughout dispatch.
 app.use("/api", (req, res, next) => {
   if (req.headers.authorization === undefined) return next();
-  if (!cardReadRoute(req.method, req.originalUrl) || req.headers["x-http-method-override"] !== undefined || req.headers["x-method-override"] !== undefined)
-    throw new Problem(403, "Card credentials permit card reads only");
+  // The /api mount trims req.url. Match the raw target the host also receives.
+  const target = { method: req.method, url: req.originalUrl, headers: req.headers } as IncomingMessage;
+  integrationRoute(target);
   if (!companionMode && ((req.headers.origin && !access!.allowedOrigin(req)) || req.headers["sec-fetch-site"] === "cross-site"))
     throw new Problem(403, "Origin not allowed");
   try {
-    const context = companionMode ? (req as CardRequest)[cardAuthorization] : authenticateCardToken(req);
-    if (!context || !CardGrantSchema.safeParse(context.scope).success || (companionMode && context.owner !== OWNER))
-      throw new Problem(401, "Invalid card credential");
+    const context = authorizeAdmission(target, companionMode ? (req as CardRequest)[cardAuthorization] : authenticateCardToken(req));
     res.locals.owner = context.owner;
-    res.locals.cardScope = context.scope;
-    res.locals.cardToken = context.tokenId;
-    cards(req, res, next);
+    res.locals.bearer = { tokenId: context.tokenId, admission: context.admission };
+    next();
   } catch (error) {
     if (error instanceof Problem && error.status === 429) res.setHeader("Retry-After", "60");
     next(error);
   }
 });
 const appCapabilities = registrar("app", { prefix: "/api", automaticOptions: false });
-app.use(appCapabilities.mount);
+mountRoutes(app, appCapabilities.mount);
 appCapabilities.on(workspaceApi.capabilities, (_req, res) => res.json({ ...capabilities, cardTokens: !designPreview }), { middleware: [express.json({ limit: "12mb" })] });
 const appAuth = registrar("app", { prefix: "/api", automaticOptions: false });
 if (companionMode) {
   // Host authorizes devices, origins and CSRF before forwarding to this app.
   app.use((_req, res, next) => {
-    res.locals.owner = OWNER;
+    if (!res.locals.bearer) res.locals.owner = OWNER;
     next();
   });
-  app.use(appAuth.mount);
+  mountRoutes(app, appAuth.mount);
   appAuth.on(workspaceApi.authSession, (_req, res) =>
     res.json({ user: { id: OWNER, name: "Your workspace" }, mode: "paired" }),
     { middleware: [express.json({ limit: "12mb" })] },
@@ -167,7 +195,7 @@ if (companionMode) {
     { middleware: [express.json({ limit: "12mb" })] },
   );
 } else {
-  app.use(appAuth.mount);
+  mountRoutes(app, appAuth.mount);
   appAuth.on(workspaceApi.authSession, async (_input, res) => {
     const request: express.Request = res.locals.authSessionRequest;
     if (config.authMode !== "multi-user")
@@ -215,7 +243,7 @@ if (companionMode) {
 }
 app.use(express.json({ limit: "12mb" }));
 const appHealth = registrar("app", { prefix: "/api", automaticOptions: false });
-app.use(appHealth.mount);
+mountRoutes(app, appHealth.mount);
 appHealth.on(workspaceApi.health, (_req, res) => {
   const worker = db
     .prepare("SELECT max(heartbeat) last FROM worker_health")
@@ -228,7 +256,7 @@ appHealth.on(workspaceApi.health, (_req, res) => {
   });
 });
 app.use("/api", async (req, res, next) => {
-  if (companionMode) return next();
+  if (companionMode || res.locals.bearer) return next();
   if (
     !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
     !access!.allowedOrigin(req)
@@ -259,7 +287,7 @@ app.use("/api", async (req, res, next) => {
 });
 if (designPreview) app.use("/api", designPreviewBoundary);
 const appSession = registrar("app", { prefix: "/api", automaticOptions: false });
-app.use(appSession.mount);
+mountRoutes(app, appSession.mount);
 appSession.on(workspaceApi.build, (_req, res) => res.json({ serving: publicBuild(observedBuild()), processes: currentBuilds(), eventLoop: eventLoopHealth() }));
 if (!companionMode) {
   // Setup returns private service credentials. Besides arriving locally, it
@@ -308,28 +336,28 @@ appSession.on(workspaceApi.runs, (req, res) => {
   const selectedTeams = teamFilter(req.query.teams, res.locals.owner);
   res.json(listRuns(res.locals.owner, selectedTeams, req.query.active === "1") as z.input<typeof workspaceApi.runs.response>);
 });
-if (companionMode) app.use("/api", companion);
-app.use("/api", teams);
-app.use("/api", agentDefinitions);
-app.use("/api", agentMail);
-app.use("/api", notifications);
-app.use("/api", memoryRoutes);
-if (capabilities.runtimeHosts) app.use("/api", runtimeHosts);
-app.use("/api", subscriptions);
-app.use("/api", activityRoutes);
-app.use("/api", mobile);
-app.use("/api", cards);
-app.use("/api", cardTokens);
-app.use("/api", prWatches);
-app.use("/api", githubPulls);
-app.use("/api", news);
-app.use("/api", feedWatches);
-app.use("/api", feedDigests);
-app.use("/api", core);
-app.use("/api", workspace);
-app.use("/api", workflows);
-app.use("/api", mcp);
-app.use("/api", sharing);
+if (companionMode) mountRoutes(app, companion, "/api");
+mountRoutes(app, teams, "/api");
+mountRoutes(app, agentDefinitions, "/api");
+mountRoutes(app, agentMail, "/api");
+mountRoutes(app, notifications, "/api");
+mountRoutes(app, memoryRoutes, "/api");
+if (capabilities.runtimeHosts) mountRoutes(app, runtimeHosts, "/api");
+mountRoutes(app, subscriptions, "/api");
+mountRoutes(app, activityRoutes, "/api");
+mountRoutes(app, mobile, "/api");
+mountRoutes(app, cards, "/api");
+mountRoutes(app, cardTokens, "/api");
+mountRoutes(app, prWatches, "/api");
+mountRoutes(app, githubPulls, "/api");
+mountRoutes(app, news, "/api");
+mountRoutes(app, feedWatches, "/api");
+mountRoutes(app, feedDigests, "/api");
+mountRoutes(app, core, "/api");
+mountRoutes(app, workspace, "/api");
+mountRoutes(app, workflows, "/api");
+mountRoutes(app, mcp, "/api");
+mountRoutes(app, sharing, "/api");
 app.use("/api", (_req, res) =>
   res.status(404).json({ error: "Endpoint not found" }),
 );

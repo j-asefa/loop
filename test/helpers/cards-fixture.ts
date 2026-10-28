@@ -209,6 +209,32 @@ export async function cardsFixture(
     fixtureSecret: ready.fixtureSecret,
     request,
     browser,
+    async interleaveResultWrite(artifact: string) {
+      const armed = once(child, "message");
+      child.send({ type: "interleave-result-write", artifact });
+      const [result] = await armed;
+      if (result.error) throw new Error(result.error);
+      return async () => {
+        const reply = once(child, "message");
+        child.send({ type: "finish-result-write" });
+        const [state] = await reply;
+        if (state.error) throw new Error(state.error);
+        return state as { attempted: boolean; committed: boolean };
+      };
+    },
+    async integrationRecords(
+      who = owner,
+    ): Promise<
+      ReturnType<
+        typeof import("../fixtures/integration-records.js").integrationRecords
+      >
+    > {
+      const reply = once(child, "message");
+      child.send({ type: "integration-records", owner: who });
+      const [result] = await reply;
+      if (result.error) throw new Error(result.error);
+      return result.records;
+    },
     async setBusyTimeout(ms: number): Promise<void> {
       const reply = once(child, "message");
       child.send({ type: "busy-timeout", ms });
