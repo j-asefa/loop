@@ -628,7 +628,8 @@ export class Codex implements Adapter {
                     ? "Complete MCP request in your browser"
                     : "MCP elicitation (form completion unavailable)"
                 : "Codex permission",
-            completionUrl,
+            // Workspace events are strict: omit the key unless it has a value.
+            ...(completionUrl && { completionUrl }),
             detail: completionUrl
               ? `${typeof p.message === "string" ? p.message : "Open the link to complete this request."}\nAfter completing the browser flow, select Completed.`
               : toolApproval

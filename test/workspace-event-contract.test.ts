@@ -93,6 +93,24 @@ const examples = [
       event: { type: "delta", id: "message", text: "Hello" },
     },
   ],
+  [
+    "native.event",
+    {
+      conversationId: "thread",
+      generation: "generation",
+      event: {
+        type: "request",
+        request: {
+          id: "request",
+          kind: "approval",
+          title: "Complete MCP request in your browser",
+          detail: "Reconnect Linear.",
+          completionUrl: "https://chatgpt.com/apps/linear/example",
+          choices: ["accept", "decline", "cancel"],
+        },
+      },
+    },
+  ],
 ] satisfies WorkspaceEmission[];
 
 it("round-trips every declared producer type through emit, durable v2 rows and the v3 union", async () => {

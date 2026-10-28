@@ -104,6 +104,7 @@ const NativeRequest = z.strictObject({
   title: Text,
   detail: Text,
   choices: z.array(Text).max(MAX_NATIVE_REQUEST_BYTES).optional(),
+  completionUrl: z.string().url().startsWith("https://").optional(),
   allow: Text.optional(),
   questions: z
     .array(

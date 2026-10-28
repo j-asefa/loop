@@ -12,6 +12,7 @@ import { Claude } from "../src/adapters/claude.js";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { conflict } from "../src/adapters/types.js";
 import type { AdapterEvent, Harness } from "../src/protocol.js";
+import { EmittedWorkspaceEvent } from "../src/shared/workspace-events.js";
 const executable = resolve("test/harness.mjs");
 chmodSync(executable, 0o755);
 import { until } from "./helpers.js";
@@ -60,6 +61,17 @@ test("Codex review approval without a tool title offers and delivers acceptance"
   }
 });
 
+// The projector publishes every request as a strict workspace event; a
+// rejected event throws inside the native message handler and ends the run.
+function assertPublishable(event: AdapterEvent) {
+  const parsed = EmittedWorkspaceEvent.safeParse({
+    type: "native.event",
+    scope: { kind: "run", id: "run" },
+    payload: { conversationId: "thread", generation: "generation", event },
+  });
+  assert.ok(parsed.success, JSON.stringify(parsed.error?.issues));
+}
+
 test("Codex MCP confirmations support one-call acceptance, decline and cancel", async () => {
   process.env.LOOP_TEST_HARNESS = "codex";
   const events: AdapterEvent[] = [];
@@ -84,6 +96,8 @@ test("Codex MCP confirmations support one-call acceptance, decline and cancel", 
       const event = events.find((e) => e.type === "request")!;
       assert.equal(event.type, "request");
       assert.equal(event.request.title, "Allow loop_delegate?");
+      assert.ok(!("completionUrl" in event.request));
+      assertPublishable(event);
       assert.deepEqual(event.request.choices, ["accept", "decline", "cancel"]);
       assert.equal(event.request.allow, "accept");
       await adapter.answer(event.request.id, { choice });
@@ -115,6 +129,7 @@ test("Codex MCP confirmations support one-call acceptance, decline and cancel", 
         event.request.completionUrl,
         "https://chatgpt.com/apps/linear/example",
       );
+      assertPublishable(event);
       assert.equal(event.request.allow, undefined);
       assert.deepEqual(event.request.choices, ["accept", "decline", "cancel"]);
       await adapter.answer(event.request.id, { choice });
@@ -485,6 +500,7 @@ for (const [name, Klass] of Object.entries({
       );
       const request = events.find((e) => e.type === "request")!;
       assert.equal(request.type, "request");
+      assertPublishable(request);
       // "Never ask" answers only the choice that permits this one call.
       assert.equal(
         request.request.allow,

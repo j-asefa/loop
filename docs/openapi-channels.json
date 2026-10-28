@@ -3224,6 +3224,11 @@
                                   "maxLength": 8388608
                                 }
                               },
+                              "completionUrl": {
+                                "type": "string",
+                                "format": "starts_with",
+                                "pattern": "^https:\\/\\/.*"
+                              },
                               "allow": {
                                 "type": "string",
                                 "maxLength": 8388608
