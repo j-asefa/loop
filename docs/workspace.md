@@ -4,6 +4,8 @@ Provider connections determine authentication, models and execution. Agents add 
 
 ## Conversations and organization
 
+Messages and result bodies render LaTeX math with `$…$` inline, `$$` on separate lines for display equations, or a fenced `math` block. KaTeX and its local styles load when a message may contain math; the original Markdown stays readable while loading. Wide equations scroll within the message on phones. Ordinary code stays literal, invalid math falls back to readable source, and `\$` escapes a literal dollar sign.
+
 **New agent** opens a simple **New chat** screen. With an account connected, choose **Start chatting** to create an agent with an automatic name and open the message box. The optional **First message** sends only when you choose **Start chatting**. **Customize** reveals the name, instructions, project, provider, model, effort and Markdown definitions; these settings start collapsed. Loop selects a connected account and its default model when available. If setup is needed, **Connect an account** leads to it.
 
 The **+** button opens the composer with your current or last-used agent, or the same simple creation screen when you have no agents. Write a message and send; photos, files and dictation remain alongside the input. **Chat options** reveals model and effort, native commands and scheduled sends. Closing the composer or changing conversations hides those options again.

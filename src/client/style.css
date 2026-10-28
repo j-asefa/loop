@@ -409,6 +409,21 @@ small,
 .markdown p {
   margin: 0 0 12px;
 }
+.markdown .katex {
+  font-size: 1.1em;
+  overflow-wrap: normal;
+}
+.markdown .katex-display,
+.markdown :not(.katex-display) > .katex {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0;
+}
+.markdown :not(.katex-display) > .katex {
+  display: inline-block;
+  vertical-align: middle;
+}
 .markdown pre {
   padding: 15px;
   background: var(--secondary);

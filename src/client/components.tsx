@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useMarkdownMath } from "./markdownMath";
 import type { Artifact, Connection, Provider } from "../shared/types";
 import { parse } from "./api";
 import { runModelName } from "./modelChoices";
@@ -252,6 +253,7 @@ export const RichText = memo(function RichText({
   compact?: boolean;
 }) {
   const sourceId = useSourceId();
+  const math = useMarkdownMath(content);
   // Preserve table scroll positions and open file previews during refreshes.
   const renderers = useMemo<Components>(
     () => ({
@@ -312,7 +314,12 @@ export const RichText = memo(function RichText({
   return (
     <div className="markdown">
       <Markdown
-        remarkPlugins={compact ? [remarkGfm, compactMarkdown] : [remarkGfm]}
+        remarkPlugins={[
+          remarkGfm,
+          ...(math?.remark || []),
+          ...(compact ? [compactMarkdown] : []),
+        ]}
+        rehypePlugins={math?.rehype}
         components={renderers}
       >
         {content}

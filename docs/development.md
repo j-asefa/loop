@@ -118,6 +118,7 @@ caller's process tree and cgroup.
 ```sh
 npx playwright install --with-deps chromium webkit
 npm run smoke:design
+npm run smoke:math
 npm run smoke:history
 npm run smoke:pulls
 npm run smoke:social
@@ -136,6 +137,8 @@ LOOP_BROWSER=webkit npm run smoke:journey
 `smoke:design`, `smoke:history`, `smoke:workspace`, `smoke:html`, `smoke:social` and `smoke:pulls` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium. `smoke:pulls` drives the Pull requests tab against a scripted GitHub ([fake-github.mjs](../scripts/helpers/fake-github.mjs)); it does not reach GitHub. `smoke:social` seeds stories straight into the feed store, so it drives Social's reading, saving, filtering, search and watches without reaching a feed.
 
 `smoke:history` opens a long transcript and verifies that older activity is fetched only when requested, historical file reviews remain available, and live updates keep their own cursor.
+
+`smoke:math` uses the built UI and isolated message fixtures in Chromium and WebKit. It checks math in Feed cards, reading sheets and conversations, delayed and failed asset downloads, local fonts, 320/390px equation scrolling and streamed message updates. Set `LOOP_BROWSER` to select one engine. It makes no provider requests and does not replace physical-phone validation.
 
 Use `npm run smoke:workspace -- --notifications-only` to check notification opt-in,
 category defaults and persistence in both browser engines without the other workspace journeys.

@@ -130,7 +130,11 @@ export function compactMarkdown() {
     for (const node of tree.children) {
       if (node.type === "list") node.children = node.children.slice(0, 5);
       if (node.type === "table") node.children = node.children.slice(0, 5);
-      if (node.type === "code" && node.lang !== "mermaid")
+      if (
+        node.type === "code" &&
+        node.lang !== "mermaid" &&
+        node.lang !== "math"
+      )
         node.value = node.value.split("\n").slice(0, 10).join("\n");
     }
   };
