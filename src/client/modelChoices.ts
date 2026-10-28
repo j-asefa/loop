@@ -14,6 +14,7 @@ export function harnessName(connection: Connection) {
       : "Claude API";
   return {
     openai: "OpenAI API",
+    antigravity: "Antigravity",
     gemini: "Gemini CLI",
     muse: "Muse Code",
     grok: "Grok Build",

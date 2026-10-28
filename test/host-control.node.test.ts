@@ -8,6 +8,12 @@ import { discover } from "../src/host-control.js";
 const exec = promisify(execFile);
 
 const versions = {
+  antigravity: {
+    minimum: "1.4.9",
+    older: "1.4.8",
+    latest: "1.4.9",
+    format: (v: string) => `${v}\n`,
+  },
   muse: {
     minimum: "1.4.12",
     older: "1.4.11",
@@ -57,7 +63,7 @@ test("harness discovery admits stable upgrades and rejects unsupported versions"
   const dir = await mkdtemp(join(resolve(".tmp"), "loop-discovery-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const fixture = async (name: string, output: string, exitCode = 0) => {
-    const executable = join(dir, name);
+    const executable = join(dir, name === "antigravity" ? "agy" : name);
     await writeFile(
       executable,
       // Grok's version check must not start its self-update.

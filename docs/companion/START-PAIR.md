@@ -4,7 +4,7 @@ Run `loop` in your project directory. It starts one workspace in the background 
 
 Loop connects supported Codex, Claude Code, Pi and OpenCode installations through their direct adapters. In **New agent**, choose a connected account, model, effort and project. Use **Settings → Provider connections** to sign in, refresh models or enable another harness. See [harnesses](../harnesses.md) for billing, team handoffs and upgrade recovery.
 
-`loop start --providers codex,claude` limits discovery; the default is all supported installed harnesses. Saved provider choices and projects are reused. Explicit `loop codex|claude|pi|opencode|gemini|muse|grok|acp` commands can register custom paths and native options in the same workspace.
+`loop start --providers codex,claude` limits discovery; the default is all supported installed harnesses. Saved provider choices and projects are reused. Explicit `loop codex|claude|pi|opencode|antigravity|muse|grok|acp` commands can register custom paths and native options in the same workspace.
 
 `loop pair` makes a fresh code without revoking existing devices. `loop status --json` distinguishes workspace readiness from verified execution availability. `loop logs --follow` shows diagnostics; `loop stop` shuts down. `--foreground` stays attached to the terminal; `--local-only` serves a desktop workspace without a tunnel.
 

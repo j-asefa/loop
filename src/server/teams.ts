@@ -71,6 +71,11 @@ export function createTeam(owner: string, input: unknown) {
       : undefined;
     if (connection?.status !== "connected")
       throw new Problem(409, "Every team member needs a connected provider");
+    if (connection.metadata.loopHarness === "antigravity")
+      throw new Problem(
+        409,
+        "Antigravity does not expose Loop workspace tools. Choose another harness for team delegation.",
+      );
   }
   return db
     .transaction(() => {
@@ -209,6 +214,14 @@ export function addTeamMember(owner: string, teamId: string, input: unknown) {
         ownedConnection(agent.connection_id, owner).status !== "connected"
       )
         throw new Problem(409, "This agent needs a connected provider");
+      if (
+        ownedConnection(agent.connection_id, owner).metadata.loopHarness ===
+        "antigravity"
+      )
+        throw new Problem(
+          409,
+          "Antigravity does not expose Loop workspace tools. Choose another harness for team delegation.",
+        );
       const existing = db
         .prepare("SELECT 1 FROM team_members WHERE team_id=? AND agent_id=?")
         .get(teamId, agentId);

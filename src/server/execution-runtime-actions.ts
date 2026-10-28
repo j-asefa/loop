@@ -200,11 +200,11 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
     );
   if (
     input.billing === "subscription" &&
-    ["opencode", "gemini", "muse", "grok"].includes(name)
+    ["opencode", "antigravity", "gemini", "muse", "grok"].includes(name)
   )
     throw new ExecutionRefused(
       422,
-      `${({ gemini: "Gemini CLI", muse: "Muse Code", grok: "Grok Build" } as Record<string, string>)[name] ?? "OpenCode"} cannot verify subscription billing. Choose existing native configuration instead.`,
+      `${({ antigravity: "Antigravity", gemini: "Gemini CLI", muse: "Muse Code", grok: "Grok Build" } as Record<string, string>)[name] ?? "OpenCode"} cannot verify subscription billing. Choose existing native configuration instead.`,
     );
   const probe = await discover(name, saved?.executable);
   if (!probe.installed || !probe.supported || !probe.version)

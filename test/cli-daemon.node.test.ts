@@ -51,7 +51,16 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   // and signed in on the developer's machine; explicit fixtures still run.
   const bin = join(base, "bin");
   await mkdir(bin);
-  for (const name of ["codex", "claude", "pi", "opencode"])
+  for (const name of [
+    "codex",
+    "claude",
+    "pi",
+    "opencode",
+    "agy",
+    "gemini",
+    "muse",
+    "grok",
+  ])
     await writeFile(join(bin, name), "#!/bin/sh\nexit 127\n", { mode: 0o755 });
   const env = {
     ...process.env,
@@ -947,7 +956,16 @@ test("loop start --direct pairs with no installed harness, reuses the host and s
     // Automatic discovery must not depend on this machine's signed-in CLIs.
     const unavailable = join(w.dir, "unavailable-runtimes");
     await mkdir(unavailable, { recursive: true });
-    for (const name of ["codex", "claude", "pi", "opencode"])
+    for (const name of [
+      "codex",
+      "claude",
+      "pi",
+      "opencode",
+      "agy",
+      "gemini",
+      "muse",
+      "grok",
+    ])
       await writeFile(join(unavailable, name), "#!/bin/sh\nexit 127\n", {
         mode: 0o755,
       });
@@ -987,7 +1005,7 @@ test("loop start --direct pairs with no installed harness, reuses the host and s
           "start",
           "--local-only",
           "--providers",
-          "opencode,pi,claude,codex,gemini,muse,grok",
+          "opencode,pi,claude,codex,antigravity,muse,grok",
         ])
       ).stdout,
       PAIR_URL,

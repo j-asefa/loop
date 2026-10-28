@@ -65,6 +65,7 @@ export async function prepareLocalHarnesses(
               billing: [
                 "opencode",
                 "pi",
+                "antigravity",
                 "gemini",
                 "muse",
                 "grok",

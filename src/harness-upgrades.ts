@@ -15,7 +15,14 @@ import {
 import { dirname, join, resolve } from "node:path";
 const exec = promisify(execFile);
 export type UpgradeHarness =
-  "codex" | "claude" | "pi" | "opencode" | "gemini" | "muse" | "grok";
+  | "codex"
+  | "claude"
+  | "pi"
+  | "opencode"
+  | "antigravity"
+  | "gemini"
+  | "muse"
+  | "grok";
 export type Upgrade = {
   commandId: string;
   name: UpgradeHarness;
@@ -129,6 +136,10 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
   if (name === "grok")
     throw new Error(
       "Grok Build updates itself. Run grok update on the computer to check for an update now.",
+    );
+  if (name === "antigravity")
+    throw new Error(
+      "Antigravity updates itself. Run agy update on the computer.",
     );
   const real = realpathSync(executable);
   if (name === "opencode" && /loop-opencode|helpers\/opencode/.test(real))
@@ -352,7 +363,7 @@ export class HarnessUpgrades {
           message.startsWith("Managed OpenCode") ||
           message.startsWith("Upgrade this custom") ||
           // Self-updating harnesses name their own update command.
-          / updates itself\. Run (muse|grok update) on the computer/.test(
+          / updates itself\. Run (muse|grok update|agy update) on the computer/.test(
             message,
           )
             ? message

@@ -272,7 +272,12 @@ it("workspace projects registered harnesses and directories from production writ
 it("runtimeList returns real CLI discovery and setup state", async () => {
   const result = await request("/workspace/runtimes?fresh=1");
   valid(workspaceApi.runtimeList, result);
-  expect(result.data.runtimes).toHaveLength(7);
+  expect(result.data.runtimes).toHaveLength(8);
+  expect(
+    result.data.runtimes.some(
+      (runtime: { name: string }) => runtime.name === "antigravity",
+    ),
+  ).toBe(true);
   expect(
     result.data.runtimes.find(
       (runtime: { name: string }) => runtime.name === "codex",

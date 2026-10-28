@@ -9,9 +9,13 @@ test("one launch selects all installed harnesses, with explicit opt-in subsets",
     "claude",
     "pi",
     "opencode",
-    "gemini",
+    "antigravity",
     "muse",
     "grok",
+  ]);
+  assert.deepEqual(selectedHarnesses("antigravity,codex"), [
+    "antigravity",
+    "codex",
   ]);
   assert.deepEqual(selectedHarnesses("gemini,codex"), ["gemini", "codex"]);
   assert.deepEqual(selectedHarnesses("both"), ["codex", "claude"]);

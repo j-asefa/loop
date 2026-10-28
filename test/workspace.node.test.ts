@@ -185,6 +185,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         assert.equal(runtimeList.computer, bootstrap.environmentName);
         assert.equal(runtimeList.online, true);
         assert.deepEqual(runtimeList.runtimes.map((r: any) => r.name).sort(), [
+          "antigravity",
           "claude",
           "codex",
           "gemini",

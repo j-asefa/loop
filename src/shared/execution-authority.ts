@@ -81,6 +81,7 @@ export const RuntimeHarness = z.enum([
   "claude",
   "pi",
   "opencode",
+  "antigravity",
   "gemini",
   "muse",
   "grok",
