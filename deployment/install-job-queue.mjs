@@ -104,6 +104,7 @@ const files = [
   "job-shim.mjs",
   "job-cli.mjs",
   "job-protocol.mjs",
+  "job-peer.mjs",
 ];
 const supervisor = await readFile(
   join(source, "../scripts/heavy-supervisor.py"),

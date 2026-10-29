@@ -10,6 +10,7 @@ import { constants, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { signedMessage, verifiedMessage } from "./job-protocol.mjs";
+import { peerIsSameUser } from "./job-peer.mjs";
 
 const exec = promisify(execFile);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -152,9 +153,15 @@ export async function cancelQueuedJob(config, identity) {
   }
   // Pueue may reuse numeric task IDs after cleanup. Address the original live
   // caller instead, so a delayed cancel can never target a newer command.
+  const legacy = control.protocol === undefined;
+  if (!legacy && control.protocol !== 2)
+    throw new Error("Unsupported job control protocol.");
+  const key = legacy ? control.key : control.secret;
+  if (!/^[a-f0-9]{64}$/.test(key)) throw new Error("Invalid job control key.");
   await new Promise((resolve, reject) => {
     const socket = connect({ host: "127.0.0.1", port: control.port });
     socket.setEncoding("utf8");
+    if (legacy) socket.pause();
     const nonce = randomBytes(32).toString("hex");
     const timer = setTimeout(() => {
       socket.destroy();
@@ -162,24 +169,27 @@ export async function cancelQueuedJob(config, identity) {
     }, 5000);
     let input = "",
       acknowledged = false;
-    socket.on("connect", () =>
+    socket.on("connect", async () => {
+      if (legacy && !(await peerIsSameUser(socket))) return socket.destroy();
       socket.write(
         JSON.stringify(
-          signedMessage(control.key, nonce, "request", { cancel: true }),
+          legacy
+            ? { key, cancel: true }
+            : signedMessage(key, nonce, "request", { cancel: true }),
         ) + "\n",
-      ),
-    );
+      );
+      if (legacy) socket.resume();
+    });
     socket.on("data", (chunk) => {
       input += chunk.toString();
       if (input.length > 1024) return socket.destroy();
       if (input.includes("\n")) {
         try {
+          const response = JSON.parse(input.trim());
           acknowledged =
-            verifiedMessage(
-              control.key,
-              nonce,
-              "response",
-              JSON.parse(input.trim()),
+            (legacy
+              ? response
+              : verifiedMessage(key, nonce, "response", response)
             )?.cancelled === true;
         } catch {}
         socket.end();
@@ -381,7 +391,13 @@ export async function runQueuedJob(command, args, options = {}) {
     const descriptor = join(directory, "control.json");
     await writeFile(
       descriptor,
-      JSON.stringify({ port: server.address().port, key, pid: process.pid }),
+      JSON.stringify({
+        port: server.address().port,
+        // An older CLI would transmit a `key` property without authenticating.
+        secret: key,
+        pid: process.pid,
+        protocol: 2,
+      }),
       { mode: 0o600 },
     );
     for (const [name, handler] of handlers) process.on(name, handler);

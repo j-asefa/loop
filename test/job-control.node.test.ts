@@ -12,12 +12,14 @@ import {
   rmSync,
   symlinkSync,
 } from "node:fs";
-import { createServer, type Socket } from "node:net";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { cancelQueuedJob } from "../deployment/job-client.mjs";
 import { underlyingCommand } from "../deployment/job-executables.mjs";
 import { signedMessage } from "../deployment/job-protocol.mjs";
+import { peerIsSameUser } from "../deployment/job-peer.mjs";
+import { cancelQueuedJob as cancelLegacyJob } from "./fixtures/job-client-v1.mjs";
 
 const delay = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
@@ -34,6 +36,7 @@ async function withListener(
     key: string,
     directory: string,
   ) => Promise<void> | void,
+  onConnect?: (socket: Socket, directory: string) => void,
 ) {
   const directory = mkdtempSync(join(tmpdir(), "loop-job-control-"));
   const identity = randomUUID(),
@@ -70,6 +73,7 @@ async function withListener(
         socket.destroy();
       }
     });
+    onConnect?.(socket, directory);
   });
   try {
     server.listen(0, "127.0.0.1");
@@ -77,7 +81,13 @@ async function withListener(
     const port = (server.address() as { port: number }).port;
     mkdirSync(join(directory, "job-" + identity), { mode: 0o700 });
     const descriptor = join(directory, "job-" + identity, "control.json");
-    writeFileSync(descriptor, JSON.stringify({ port, key }), { mode: 0o600 });
+    writeFileSync(
+      descriptor,
+      JSON.stringify({ port, secret: key, protocol: 2 }),
+      {
+        mode: 0o600,
+      },
+    );
     await run({ directory, descriptor, key, identity });
     if (failure) throw failure;
   } finally {
@@ -87,11 +97,11 @@ async function withListener(
   }
 }
 
-async function worker(descriptor: string) {
+async function worker(descriptor: string, env = process.env) {
   const child = spawn(
     process.execPath,
     [resolve("deployment/job-worker.mjs"), descriptor],
-    { stdio: "ignore" },
+    { stdio: "ignore", env },
   );
   const timer = setTimeout(() => child.kill("SIGKILL"), 10000);
   try {
@@ -101,6 +111,102 @@ async function worker(descriptor: string) {
     clearTimeout(timer);
   }
 }
+
+test("legacy peer ownership checks the connected server endpoint and its UID", async () => {
+  await withListener(
+    async ({ descriptor }) => {
+      const { port } = JSON.parse(readFileSync(descriptor, "utf8"));
+      const socket = connect(port, "127.0.0.1");
+      try {
+        await once(socket, "connect");
+        assert.equal(await peerIsSameUser(socket), true);
+        assert.equal(
+          await peerIsSameUser(socket, process.geteuid!() + 1),
+          false,
+        );
+      } finally {
+        socket.destroy();
+      }
+    },
+    () => {},
+  );
+});
+
+test("legacy workers and cancellation reject a different peer UID before sending credentials or accepting data", async () => {
+  for (const action of ["worker", "cancel"]) {
+    let disclosed = false;
+    await withListener(
+      async ({ descriptor, directory, identity }) => {
+        const control = JSON.parse(readFileSync(descriptor, "utf8"));
+        control.key = control.secret;
+        delete control.secret;
+        delete control.protocol;
+        writeFileSync(descriptor, JSON.stringify(control), { mode: 0o600 });
+        const fixture = join(directory, "different-user.mjs");
+        // Exercise the production gate with a deliberately different expected UID.
+        writeFileSync(
+          fixture,
+          "process.geteuid=()=>" + (process.geteuid!() + 1) + ";",
+        );
+        const env = { ...process.env, NODE_OPTIONS: "--import=" + fixture };
+        if (action === "worker")
+          assert.equal(await worker(descriptor, env), 125);
+        else {
+          const config = {
+            pueue: "/unused",
+            config: "/unused",
+            group: "loop-heavy",
+            jobs: directory,
+          };
+          const child = spawn(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              "const {cancelQueuedJob}=await import(" +
+                JSON.stringify(
+                  new URL("../deployment/job-client.mjs", import.meta.url).href,
+                ) +
+                ");try{await cancelQueuedJob(" +
+                JSON.stringify(config) +
+                "," +
+                JSON.stringify(identity) +
+                ");process.exitCode=1}catch{process.exitCode=0}",
+            ],
+            { env, stdio: "ignore" },
+          );
+          const [code] = await once(child, "close");
+          assert.equal(code, 0);
+        }
+        assert.equal(disclosed, false);
+        assert.equal(existsSync(join(directory, "forbidden")), false);
+      },
+      () => {
+        disclosed = true;
+      },
+      (socket, directory) => {
+        const execute = {
+          command: process.execPath,
+          args: [
+            "-e",
+            "require('fs').writeFileSync(" +
+              JSON.stringify(join(directory, "forbidden")) +
+              ",'bad')",
+          ],
+          cwd: directory,
+          env: { PATH: process.env.PATH },
+          stdio: "ignore",
+          label: "untrusted legacy peer",
+        };
+        socket.write(
+          JSON.stringify(
+            action === "worker" ? { execute } : { cancelled: true },
+          ) + "\n",
+        );
+      },
+    );
+  }
+});
 
 test("a replacement control listener cannot authorize a worker or reflect its proof", async () => {
   for (const attack of [
@@ -152,6 +258,28 @@ test("a replacement control listener cannot authorize a worker or reflect its pr
       },
     );
   }
+});
+
+test("an old cancellation CLI cannot disclose a current job's signing key", async () => {
+  await withListener(
+    async ({ directory, identity }) => {
+      await assert.rejects(
+        cancelLegacyJob(
+          {
+            pueue: "/unused",
+            config: "/unused",
+            group: "loop-heavy",
+            jobs: directory,
+          },
+          identity,
+        ),
+      );
+    },
+    (socket, request) => {
+      assert.equal("key" in request, false);
+      socket.end("{}\n");
+    },
+  );
 });
 
 test("split UTF-8 characters preserve authenticated arguments, environment and working directory", async () => {

@@ -8,6 +8,7 @@ import { dirname } from "node:path";
 import { constants } from "node:os";
 import { fileURLToPath } from "node:url";
 import { signedMessage, verifiedMessage } from "./job-protocol.mjs";
+import { peerIsSameUser } from "./job-peer.mjs";
 
 let socket,
   child,
@@ -65,11 +66,15 @@ async function execute(job) {
 async function main() {
   const descriptor = process.argv[2];
   const control = JSON.parse(await readFile(descriptor, "utf8"));
+  const legacy = control.protocol === undefined;
+  if (!legacy && control.protocol !== 2)
+    throw new Error("Unsupported job control protocol.");
+  const key = legacy ? control.key : control.secret;
   if (
     !Number.isInteger(control.port) ||
     control.port < 1 ||
     control.port > 65535 ||
-    !/^[a-f0-9]{64}$/.test(control.key)
+    !/^[a-f0-9]{64}$/.test(key)
   )
     throw new Error("Invalid job control endpoint.");
   let callerUnavailable = false;
@@ -77,6 +82,7 @@ async function main() {
     return await new Promise((resolve, reject) => {
       socket = connect({ host: "127.0.0.1", port: control.port });
       socket.setEncoding("utf8");
+      if (legacy) socket.pause();
       const nonce = randomBytes(32).toString("hex");
       let input = "",
         authorized = false,
@@ -87,13 +93,17 @@ async function main() {
         socket.destroy();
         reject(new Error("Job authorization timed out."));
       }, 5000);
-      socket.once("connect", () =>
+      socket.once("connect", async () => {
+        if (legacy && !(await peerIsSameUser(socket))) return socket.destroy();
         socket.write(
           JSON.stringify(
-            signedMessage(control.key, nonce, "request", { run: true }),
+            legacy
+              ? { key }
+              : signedMessage(key, nonce, "request", { run: true }),
           ) + "\n",
-        ),
-      );
+        );
+        if (legacy) socket.resume();
+      });
       socket.on("error", () => {
         callerUnavailable = true;
         if (!authorized)
@@ -120,12 +130,10 @@ async function main() {
         while ((end = input.indexOf("\n")) >= 0) {
           let message;
           try {
-            message = verifiedMessage(
-              control.key,
-              nonce,
-              "response",
-              JSON.parse(input.slice(0, end)),
-            );
+            const envelope = JSON.parse(input.slice(0, end));
+            message = legacy
+              ? envelope
+              : verifiedMessage(key, nonce, "response", envelope);
             if (!message) throw new Error("Unauthenticated job response.");
           } catch {
             cancel();
@@ -148,7 +156,9 @@ async function main() {
             done = true;
             socket.end(
               JSON.stringify(
-                signedMessage(control.key, nonce, "request", { code }),
+                legacy
+                  ? { code }
+                  : signedMessage(key, nonce, "request", { code }),
               ) + "\n",
             );
             resolve(code);

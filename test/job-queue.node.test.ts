@@ -26,6 +26,7 @@ import {
 import { classifyCommand, shimScript } from "../deployment/job-shim.mjs";
 import { runSupervised } from "../scripts/heavy-command.mjs";
 import { spawnNative } from "../src/native-spawn.js";
+import { runQueuedJob as runLegacyJob } from "./fixtures/job-client-v1.mjs";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(
@@ -500,6 +501,60 @@ test(
         },
       );
       await t.test(
+        "an original client can execute and cancel jobs after its shared worker is upgraded",
+        async () => {
+          writeFileSync(
+            configPath,
+            JSON.stringify({
+              ...config,
+              worker: resolve("deployment/job-worker.mjs"),
+            }),
+          );
+          try {
+            assert.equal(
+              await runLegacyJob(
+                process.execPath,
+                ["-e", "process.exit(23)"],
+                quiet,
+              ),
+              23,
+            );
+            const marker = join(dir, "legacy-started");
+            const task = runLegacyJob(
+              process.execPath,
+              [
+                "-e",
+                "require('fs').writeFileSync(" +
+                  JSON.stringify(marker) +
+                  ",'started');setInterval(()=>{},1000)",
+              ],
+              { ...quiet, label: "legacy check fixture" },
+            );
+            await until(
+              () => existsSync(marker),
+              "legacy command started through new worker",
+            );
+            const selected = Object.values(
+              (await queueStatus(config)).tasks,
+            ).find((task) => task.label?.endsWith(":legacy check fixture"))!;
+            const cli = spawn(
+              process.execPath,
+              [
+                resolve("deployment/job-cli.mjs"),
+                "cancel",
+                selected.label!.split(":")[1],
+              ],
+              { stdio: "ignore" },
+            );
+            const [code] = await once(cli, "close");
+            assert.equal(code, 0);
+            assert.equal(await task, 143);
+          } finally {
+            writeFileSync(configPath, JSON.stringify(config));
+          }
+        },
+      );
+      await t.test(
         "source clients use their matching worker across installed protocol generations",
         async () => {
           writeFileSync(
@@ -865,6 +920,7 @@ test(
             "job-client.mjs",
             "job-shim.mjs",
             "job-protocol.mjs",
+            "job-peer.mjs",
           ])
             cpSync(resolve("deployment", name), join(installed, name));
           writeFileSync(
