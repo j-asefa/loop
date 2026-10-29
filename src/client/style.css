@@ -3688,6 +3688,177 @@ fieldset {
 .create-agent-setup {
   margin-top: 16px;
 }
+.create-agent-model-options {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+}
+.create-agent-model-options > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px;
+  list-style: none;
+  border-radius: 14px;
+}
+.create-agent-model-options > summary::-webkit-details-marker {
+  display: none;
+}
+.create-agent-model-options > summary > svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.create-agent-selection {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.create-agent-selection strong {
+  font-size: var(--control-size);
+}
+.create-agent-model-options[open] .create-agent-selection-chevron {
+  transform: rotate(180deg);
+}
+.create-agent-model-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--line);
+}
+.create-agent-choices {
+  padding: 0;
+  margin: 18px 0 0;
+  border: 0;
+}
+.create-agent-choices legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.create-agent-choices p {
+  margin-bottom: 10px;
+}
+.create-agent-connections,
+.create-agent-model-list {
+  display: grid;
+  gap: 8px;
+}
+.create-agent-connections {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+}
+.sheet .create-agent-choice {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 12px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.create-agent-choice:has(input:checked) {
+  border-color: var(--brass);
+  background: color-mix(in srgb, var(--brass) 9%, var(--surface));
+}
+.create-agent-choice:has(input:focus-visible) {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+.create-agent-choice:has(input:disabled) {
+  opacity: 0.6;
+  cursor: default;
+}
+.sheet .create-agent-choice input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--brass);
+}
+.create-agent-choice > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.create-agent-choice strong {
+  font-size: 14px;
+}
+.create-agent-choice small {
+  font-weight: 400;
+}
+.create-agent-location {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.create-agent-location svg {
+  flex-shrink: 0;
+}
+.create-agent-more-connections,
+.create-agent-connection-info {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.create-agent-more-connections > summary,
+.create-agent-connection-info > summary {
+  padding: 10px 0;
+}
+.create-agent-models {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+}
+.create-agent-model-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 8px;
+  margin-top: -8px;
+}
+.create-agent-model-heading .field-hint {
+  flex: 1 1 150px;
+  margin: 0;
+}
+.create-agent-model-heading .text-button {
+  font-size: 12px;
+}
+.sheet .create-agent-model-search {
+  position: relative;
+  margin: 8px 0 12px;
+}
+.create-agent-model-search > svg {
+  position: absolute;
+  top: 15px;
+  left: 12px;
+  color: var(--muted);
+}
+.sheet .create-agent-model-search input {
+  padding-left: 36px;
+}
+.create-agent-model-list {
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 3px;
+  margin: 8px -3px 0;
+}
+.create-agent-effort {
+  margin-top: 14px;
+}
+.create-agent-effort > label {
+  margin-bottom: 0;
+}
 .file-preview-sheet {
   height: min(88dvh, calc(var(--visual-viewport-height, 100dvh) - 16px));
 }

@@ -5,6 +5,7 @@ import { geminiSmoke } from "./helpers/gemini-smoke.mjs";
 import { antigravitySmoke } from "./helpers/antigravity-smoke.mjs";
 import { harnessProvidersSmoke } from "./helpers/harness-providers-smoke.mjs";
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
+import { createAgentModelsSmoke } from "./helpers/create-agent-models-smoke.mjs";
 import { beginnerChatSmoke } from "./helpers/beginner-chat-smoke.mjs";
 import { workspaceProjectSmoke } from "./helpers/workspace-project-smoke.mjs";
 import { executionEnvironmentsSmoke } from "./helpers/execution-environments-smoke.mjs";
@@ -70,6 +71,7 @@ import { attachmentPickerSmoke } from "./helpers/attachment-picker-smoke.mjs";
 
 const scenarios = {
   "beginner-chat": beginnerChatSmoke,
+  "create-agent-models": createAgentModelsSmoke,
   "profile-photos-recipient": profilePhotosRecipientSmoke,
   "visual-layout": visualLayoutSmoke,
   gemini: geminiSmoke,

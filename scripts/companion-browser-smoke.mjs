@@ -1,3 +1,4 @@
+import { chooseAgentModel, openAgentModelOptions } from "./helpers/agent-model-options.mjs";
 process.env.LOOP_PROFILE = "companion";
 import { chromium, webkit, expect } from "@playwright/test";
 import { mkdtemp, rm, mkdir, chmod, writeFile } from "node:fs/promises";
@@ -204,28 +205,25 @@ try {
     "Choose a name",
   );
   await creation.getByLabel("Unique name").fill("native-model-picker");
-  await expect(creation.getByRole("alert")).toContainText(
-    "Couldn’t get this connection ready",
-  );
+  await openAgentModelOptions(creation);
+  await creation.getByRole("button", { name: "Refresh models", exact: true }).click();
+  await expect(creation.getByRole("alert")).toContainText("Couldn’t refresh models");
   await expect(
     creation.getByRole("button", { name: "Start chatting", exact: true }),
   ).toBeDisabled();
   await creation
     .getByRole("button", { name: "Try again", exact: true })
     .click();
-  await expect(creation.getByLabel("Model", { exact: true })).toBeEnabled();
-  await expect(creation.getByLabel("Model", { exact: true })).toContainText(
+  await expect(creation.getByRole("radiogroup", { name: "Model", exact: true }).locator('input[value="default"]')).toBeEnabled();
+  await expect(creation.getByRole("radiogroup", { name: "Model", exact: true })).toContainText(
     "Claude Opus 5 (1M)",
   );
-  await expect(creation.getByLabel("Model", { exact: true })).toHaveValue("default");
-  await creation.getByLabel("Model", { exact: true }).selectOption("opus");
+  await expect(creation.getByRole("radiogroup", { name: "Model", exact: true }).locator('input[value="default"]')).toBeChecked();
+  await chooseAgentModel(creation, "opus");
   await expect(creation.getByLabel("Effort", { exact: true })).toBeEnabled();
-  await creation.getByLabel("Model", { exact: true }).selectOption("default");
-  await expect(creation.getByLabel("Effort", { exact: true })).toBeDisabled();
-  await expect(creation).toContainText(
-    "Choose a specific model to see its available effort levels.",
-  );
-  await creation.getByLabel("Model", { exact: true }).selectOption("opus");
+  await chooseAgentModel(creation, "default");
+  await expect(creation.getByLabel("Effort", { exact: true })).toHaveCount(0);
+  await chooseAgentModel(creation, "opus");
   await expect(creation.getByLabel("Effort", { exact: true })).toBeEnabled();
   await creation.getByLabel("Effort", { exact: true }).selectOption("max");
   await expect(creation).toContainText(

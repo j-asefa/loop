@@ -1,3 +1,4 @@
+import { openAgentModelOptions } from "./agent-model-options.mjs";
 import { expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import {
@@ -675,9 +676,10 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
       .getByText("Customize", { exact: true })
       .click();
     const creation = page.getByRole("dialog", { name: "New chat" });
-    await expect(creation.getByLabel("Run on")).not.toContainText(
-      sources[0].name,
-    );
+    await openAgentModelOptions(creation);
+    await expect(
+      creation.getByRole("radiogroup", { name: "Connection", exact: true }),
+    ).not.toContainText(sources[0].name);
     await creation.getByRole("button", { name: "Close", exact: true }).click();
     await capture("first-result-before-other-reads");
     metadata.resolve();

@@ -1,3 +1,7 @@
+import {
+  chooseAgentConnection,
+  openAgentModelOptions,
+} from "./agent-model-options.mjs";
 import assert from "node:assert/strict";
 import { mockViewportCoordinates } from "./mock-viewport.mjs";
 import { expect } from "@playwright/test";
@@ -43,6 +47,7 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
     await expect(field).toHaveAttribute("autocapitalize", "sentences");
     await expect(field).toHaveAttribute("spellcheck", "true");
   }
+  await openAgentModelOptions(sheet);
   const body = sheet.locator(".sheet-body");
   for (const width of [390, 320, 430]) {
     await page.setViewportSize({ width, height: 844 });
@@ -51,12 +56,13 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
       await body.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
       "The provider choices must not widen or horizontally pan the form",
     );
-    await sheet
-      .getByLabel("Provider", { exact: true })
-      .selectOption("anthropic");
+    await expect(sheet.getByRole("radio", { name: /^Claude/ })).toHaveCount(0);
+    await sheet.locator(".create-agent-more-connections").evaluate((el) => {
+      el.open = true;
+    });
     await expect(
       sheet.getByRole("button", {
-        name: "Connect on This laptop",
+        name: "Connect another account",
         exact: true,
       }),
     ).toHaveCount(1);
@@ -130,7 +136,7 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
     );
   }
   // The footer's submit button must still submit the associated form.
-  await sheet.getByLabel("Provider", { exact: true }).selectOption("codex");
+  await chooseAgentConnection(sheet, { provider: "codex" });
   await sheet.getByLabel("Unique name").fill("mobilelayout");
   await sheet.getByLabel("Opening message", { exact: true }).fill("");
   await sheet

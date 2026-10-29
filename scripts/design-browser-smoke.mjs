@@ -3,6 +3,7 @@
 import { runSupervised } from "./heavy-command.mjs";
 const names = [
   "beginner-chat",
+  "create-agent-models",
   "profile-photos-recipient",
   "visual-layout",
   "gemini",

@@ -1,3 +1,8 @@
+import {
+  chooseAgentConnection,
+  chooseAgentModel,
+  openAgentModelOptions,
+} from "./agent-model-options.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -113,9 +118,12 @@ export async function markdownDefinitionsSmoke(
   await expect(
     dialog().getByRole("button", { name: "Start chatting", exact: true }),
   ).toBeDisabled();
+  await openAgentModelOptions(dialog());
   await dialog()
-    .getByLabel("Model", { exact: true })
-    .selectOption({ index: 1 });
+    .getByRole("radiogroup", { name: "Model", exact: true })
+    .getByRole("radio")
+    .first()
+    .check();
   await dialog()
     .getByRole("button", { name: "Start chatting", exact: true })
     .click();
@@ -328,9 +336,7 @@ export async function markdownModelsSmoke(page, fixture) {
       .getByRole("dialog", { name: "New chat", exact: true })
       .getByText("Customize", { exact: true })
       .click();
-    await dialog()
-      .getByLabel("Provider", { exact: true })
-      .selectOption("codex");
+    await chooseAgentConnection(dialog(), { provider: "codex" });
   };
   const openTeams = async () => {
     await page.waitForLoadState("networkidle");
@@ -367,16 +373,19 @@ export async function markdownModelsSmoke(page, fixture) {
       "PUT",
     );
     await openAgent();
-    await dialog().getByLabel("Model", { exact: true }).selectOption(selected);
+    await chooseAgentModel(dialog(), selected);
     await dialog()
       .getByRole("button", { name: "From Markdown", exact: true })
       .click();
     await dialog()
       .getByRole("button", { name: `Use ${name}`, exact: true })
       .click();
-    await expect(dialog().getByLabel("Model", { exact: true })).toHaveValue(
-      selected,
-    );
+    await openAgentModelOptions(dialog());
+    await expect(
+      dialog()
+        .getByRole("radiogroup", { name: "Model", exact: true })
+        .locator(`input[value="${selected}"]`),
+    ).toBeChecked();
     await expect(dialog().getByLabel("Effort", { exact: true })).toHaveValue(
       "low",
     );
@@ -388,6 +397,7 @@ export async function markdownModelsSmoke(page, fixture) {
       exact: true,
     });
     await expect(create).toBeDisabled();
+    await openAgentModelOptions(dialog());
     await dialog().getByLabel("Effort", { exact: true }).selectOption(effort);
     await expect(create).toBeEnabled();
     await create.click();
@@ -687,10 +697,8 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
       .getByRole("dialog", { name: "New chat", exact: true })
       .getByText("Customize", { exact: true })
       .click();
-    await dialog()
-      .getByLabel("Provider", { exact: true })
-      .selectOption("codex");
-    await dialog().getByLabel("Run on").selectOption(`${source}:${codex.id}`);
+    await chooseAgentConnection(dialog(), { provider: "codex" });
+    await chooseAgentConnection(dialog(), { id: codex.id, source });
     await dialog()
       .getByRole("button", { name: "From Markdown", exact: true })
       .click();

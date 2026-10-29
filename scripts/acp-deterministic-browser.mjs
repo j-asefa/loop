@@ -1,3 +1,4 @@
+import { chooseAgentConnection } from "./helpers/agent-model-options.mjs";
 // Full paired UI + production WorkspaceHost, SQLite, WS and adapter subprocesses.
 // Only the external harness protocols and a server-side network cut are fixtures.
 import { chromium, expect } from "@playwright/test";
@@ -89,11 +90,9 @@ async function createAgent(name, provider, connection, prompt, beforeCreate) {
     .getByText("Customize", { exact: true })
     .click();
   const dialog = page.getByRole("dialog", { name: "New chat" });
-  await dialog
-    .getByLabel("Provider", { exact: true })
-    .selectOption({ label: provider });
-  await dialog.getByLabel("Run on").selectOption(`laptop:${connection}`);
-  await expect(dialog.getByLabel("Run on")).toHaveValue(`laptop:${connection}`);
+  await expect(
+    await chooseAgentConnection(dialog, { id: connection, source: "" }),
+  ).toBeChecked();
   await dialog.getByLabel("Unique name").fill(name);
   await dialog.getByLabel("Opening message", { exact: true }).fill(prompt);
   if (/^(direct|acp)-/.test(name))

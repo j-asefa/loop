@@ -1,3 +1,4 @@
+import { chooseAgentConnection } from "./agent-model-options.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { mockViewportCoordinates } from "./mock-viewport.mjs";
@@ -135,7 +136,7 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
     // A double tap on Feed always lands at the top of Done, from another
     // filter or from another tab.
     const show = page.getByRole("tablist", { name: "Show" });
-    const done = show.getByRole("tab", { name: "Done", exact: true });
+    const done = show.getByRole("tab", { name: /^Done\b/ });
     await page.goto(fixture.base + "/?filter=queued", {
       waitUntil: "networkidle",
     });
@@ -172,9 +173,7 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
     assert(
       !fixture.db.prepare("SELECT 1 FROM handles WHERE name=?").get(suggestion),
     );
-    await dialog()
-      .getByLabel("Provider", { exact: true })
-      .selectOption("anthropic");
+    await chooseAgentConnection(dialog(), { provider: "anthropic" });
     await dialog()
       .getByLabel("Opening message", { exact: true })
       .fill("A first task");

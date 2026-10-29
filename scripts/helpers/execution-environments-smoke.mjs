@@ -1,3 +1,7 @@
+import {
+  chooseAgentConnection,
+  openAgentModelOptions,
+} from "./agent-model-options.mjs";
 import { expect } from "@playwright/test";
 
 // Exercise the production Feed and creation form with legacy metadata, named
@@ -49,9 +53,12 @@ export async function executionEnvironmentsSmoke(
         .click();
       const sheet = page.getByRole("dialog", { name: "New chat" });
       await sheet.getByText("Customize", { exact: true }).click();
+      await openAgentModelOptions(sheet);
       for (const [id, name] of names) {
-        await expect(sheet.getByLabel("Run on")).toContainText(name);
-        await sheet.getByLabel("Run on").selectOption("laptop:" + id);
+        await expect(
+          sheet.getByRole("radiogroup", { name: "Connection", exact: true }),
+        ).toContainText(name);
+        await chooseAgentConnection(sheet, { id });
         await expect(sheet.locator(".connection-details")).toContainText(name);
       }
       await expect(sheet).not.toContainText("This laptop");

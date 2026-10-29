@@ -136,7 +136,7 @@ loop logs --follow
 loop stop
 ```
 
-The paired app shows agents and conversations from your computer and connected local Loop Docker servers in one Feed. Choose each new agent's destination in **Run on**; every agent shows where it runs. See [unified agents and Feed](docs/pairing.md#unified-agents-and-feed).
+The paired app shows agents and conversations from your computer and connected local Loop Docker servers in one Feed. Choose each new agent's destination in **Model & connection**; every agent shows where it runs. See [unified agents and Feed](docs/pairing.md#unified-agents-and-feed).
 
 To update a checkout install, run `git pull` and `bash install` while Loop keeps running, then `loop restart`. `loop restart` replaces only the application: a separate connection service keeps cloudflared, the Quick Tunnel address and your paired phone, and the restarted application uses the same projects, runtimes, execution and billing settings. It refuses while runs are active unless you pass `--force`. With the login service installed, `loop restart` restarts the application service the same way.
 

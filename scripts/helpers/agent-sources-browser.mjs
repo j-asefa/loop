@@ -1,3 +1,7 @@
+import {
+  chooseAgentConnection,
+  openAgentModelOptions,
+} from "./agent-model-options.mjs";
 import { sourceConversationBrowser } from "./source-conversation-browser.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -400,21 +404,26 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       }),
       0,
     );
-    await page.getByRole("tab", { name: "Done", exact: true }).click();
+    await page.getByRole("tab", { name: /^Done\b/ }).click();
     await strip.getByRole("button", { name: "New agent" }).click();
     await page
       .getByRole("dialog", { name: "New chat", exact: true })
       .getByText("Customize", { exact: true })
       .click();
-    const destinations = page
-      .getByRole("dialog", { name: "New chat" })
-      .getByLabel("Run on");
+    await openAgentModelOptions(page);
+    const destinations = page.getByRole("radiogroup", {
+      name: "Connection",
+      exact: true,
+    });
     await expect(destinations).toContainText("Docker · Alpha");
     await expect(destinations).toContainText("Cloud · Beta");
     await expect(destinations).toContainText(computer);
     const sheet = page.getByRole("dialog", { name: "New chat" });
-    const dockerRunner = `${sources[0].id}:${records.get(sources[0].id).connection.id}`;
-    await destinations.selectOption(dockerRunner);
+    const dockerRunner = {
+      source: sources[0].id,
+      id: records.get(sources[0].id).connection.id,
+    };
+    await chooseAgentConnection(sheet, dockerRunner);
     await sheet.getByLabel("Unique name").fill("docker-files");
     await sheet
       .getByLabel("Opening message", { exact: true })
@@ -440,7 +449,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       .last()
       .getByRole("button", { name: "Close", exact: true })
       .click();
-    await destinations.selectOption(`laptop:${local.connection.id}`);
+    await chooseAgentConnection(sheet, { source: "", id: local.connection.id });
     await expect(sheet.locator(".connection-details")).toContainText(computer);
     await expect(sheet).not.toContainText("This laptop");
     await expect(
@@ -449,7 +458,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await expect(
       sheet.getByRole("button", { name: "Add attachments", exact: true }),
     ).toBeDisabled();
-    await destinations.selectOption(dockerRunner);
+    await chooseAgentConnection(sheet, dockerRunner);
     await sheet.getByRole("button", { name: "Start chatting" }).click();
     await expect(sheet.getByRole("alert")).toContainText(
       "Fixture connection interrupted",
@@ -462,6 +471,51 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
 
     await sheet.getByRole("button", { name: "Close", exact: true }).click();
     await page.waitForFunction(() => history.state?.loopSheet !== true);
+
+    // A connected Codex account must not hide setup for another provider on
+    // that same remote source. Follow the real navigation and return to creation.
+    await strip.getByRole("button", { name: "New agent" }).click();
+    await openAgentModelOptions(sheet);
+    await sheet.getByText("More connection options", { exact: true }).click();
+    for (const source of sources)
+      await expect(
+        sheet.getByRole("button", {
+          name: `Connect on ${source.name}`,
+          exact: true,
+        }),
+      ).toBeVisible();
+    const setupNavigation = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return (
+        request.isNavigationRequest() &&
+        url.searchParams.get("source") === sources[0].id &&
+        url.searchParams.get("connect") === "1"
+      );
+    });
+    await sheet
+      .getByRole("button", {
+        name: `Connect on ${sources[0].name}`,
+        exact: true,
+      })
+      .click();
+    await setupNavigation;
+    const settings = page.getByRole("dialog", {
+      name: "Provider connections",
+      exact: true,
+    });
+    await expect(settings).toBeVisible();
+    assert.equal(new URL(page.url()).searchParams.get("source"), sources[0].id);
+    await settings.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(sheet).toBeVisible();
+    await openAgentModelOptions(sheet);
+    await expect(
+      sheet.getByRole("radiogroup", {
+        name: "Connection",
+        exact: true,
+      }),
+    ).toContainText(sources[0].name);
+    await page.goto(workspaceUrl);
+
     await sourceConversationBrowser(page, workspaceUrl, {
       sources,
       records,

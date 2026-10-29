@@ -1,3 +1,4 @@
+import { openAgentModelOptions } from "./helpers/agent-model-options.mjs";
 // Runtime-neutral onboarding through the real mobile-width UI and fixture adapter.
 process.env.LOOP_PROFILE = "companion";
 import { chromium, expect } from "@playwright/test";
@@ -62,7 +63,10 @@ try {
     .getByRole("dialog", { name: "New chat", exact: true })
     .getByText("Customize", { exact: true })
     .click();
-  await expect(page.getByLabel("Run on")).toBeVisible();
+  await openAgentModelOptions(page);
+  await expect(
+    page.getByRole("radiogroup", { name: "Connection", exact: true }),
+  ).toBeVisible();
   await page.getByLabel("Unique name").fill("start-browser");
   await page
     .getByRole("dialog")

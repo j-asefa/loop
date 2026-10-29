@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import {
+  chooseAgentModel,
+  openAgentModelOptions,
+} from "./agent-model-options.mjs";
 import { expect } from "@playwright/test";
 import { closeSheets, openSettings } from "./browser-ui.mjs";
 
@@ -59,15 +63,9 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
   );
   await strip.getByRole("button", { name: "New agent", exact: true }).click();
   await expect(
-    sheet.getByText("Getting your chat ready…", { exact: true }),
+    sheet.getByText("Choosing a name…", { exact: true }),
   ).toBeVisible();
-  for (const label of [
-    "Unique name",
-    "Provider",
-    "Model",
-    "Project",
-    "Agent instructions",
-  ])
+  for (const label of ["Unique name", "Project", "Agent instructions"])
     await expect(sheet.getByLabel(label, { exact: true })).toBeHidden();
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
@@ -169,7 +167,10 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
     .getByRole("button", { name: "New agent", exact: true })
     .click();
   await sheet.getByText("Customize", { exact: true }).click();
-  await expect(sheet.getByLabel("Provider", { exact: true })).toBeVisible();
+  await openAgentModelOptions(sheet);
+  await expect(
+    sheet.getByRole("radiogroup", { name: "Connection", exact: true }),
+  ).toBeVisible();
   await sheet.getByLabel("Unique name").fill("beginner-custom");
   await sheet
     .getByLabel("Agent instructions", { exact: true })
@@ -177,7 +178,7 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
   await sheet
     .getByLabel("Project", { exact: true })
     .selectOption(fixture.projects[0].id);
-  await sheet.getByLabel("Model", { exact: true }).selectOption("specific");
+  await chooseAgentModel(sheet, "specific");
   await sheet.getByText("Customize", { exact: true }).click();
   await sheet
     .getByRole("button", { name: "Start chatting", exact: true })
@@ -226,28 +227,50 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
   assert.equal(count(), before + 3);
   assert.equal(requests, 4);
 
-  // A broken native catalog must stay visible with Customize closed, and must
-  // never silently fall back to a different account or stale cached model.
+  // Saved native models are ready without re-running discovery. An explicit
+  // refresh failure blocks creation and never silently uses the old catalog.
   fixture.db
     .prepare(
       "UPDATE connections SET metadata=json_set(metadata,'$.loopHarness','codex') WHERE id=?",
     )
     .run(connection.id);
-  await page.route(`**/api/connections/${connection.id}/models`, (route) =>
-    route.fulfill({ status: 503, json: { error: "Unavailable fixture" } }),
-  );
+  let catalogRequests = 0;
+  await page.route(`**/api/connections/${connection.id}/models`, (route) => {
+    catalogRequests++;
+    return route.fulfill({
+      status: 503,
+      json: { error: "Unavailable fixture" },
+    });
+  });
   await page.reload({ waitUntil: "networkidle" });
   await strip.getByRole("button", { name: "New agent", exact: true }).click();
-  await expect(sheet.getByRole("alert")).toContainText(
-    "Couldn’t get this connection ready",
+  await expect(start).toBeEnabled();
+  await expect(sheet.locator(".create-agent-selection")).toContainText(
+    "Default",
   );
+  assert.equal(
+    catalogRequests,
+    0,
+    "Opening with saved models does not discover the harness",
+  );
+  await openAgentModelOptions(sheet);
+  await sheet
+    .getByRole("button", { name: "Refresh models", exact: true })
+    .click();
+  await expect(sheet.getByRole("alert")).toContainText(
+    "Couldn’t refresh models",
+  );
+  assert.equal(catalogRequests, 1);
+  await sheet.getByLabel("Model and connection", { exact: true }).click();
   await expect(
     sheet.getByRole("button", { name: "Try again", exact: true }),
   ).toBeVisible();
   await expect(
     sheet.getByRole("button", { name: "Start chatting", exact: true }),
   ).toBeDisabled();
-  await expect(sheet.getByLabel("Model", { exact: true })).toBeHidden();
+  await expect(
+    sheet.getByRole("radiogroup", { name: "Model", exact: true }),
+  ).toBeHidden();
   assert.equal(requests, 4);
   await capture("connection-recovery");
   await closeSheets(page);
@@ -261,7 +284,9 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
   await expect(
     sheet.getByRole("button", { name: "Start chatting", exact: true }),
   ).toBeDisabled();
-  await expect(sheet.getByLabel("Provider", { exact: true })).toBeHidden();
+  await expect(
+    sheet.getByRole("radiogroup", { name: "Connection", exact: true }),
+  ).toBeHidden();
   assert.equal(requests, 4);
   await capture("first-time-setup");
   await closeSheets(page);
@@ -291,7 +316,9 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
   await page.reload({ waitUntil: "networkidle" });
   await page.locator(".composer-launch").click();
   await expect(sheet).toBeVisible();
-  await expect(sheet.getByLabel("Provider", { exact: true })).toBeHidden();
+  await expect(
+    sheet.getByRole("radiogroup", { name: "Connection", exact: true }),
+  ).toBeHidden();
   assert.equal(requests, 4);
   await start.click();
   await expect(input).toBeFocused();

@@ -1,17 +1,18 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
-import { ConnectionPicker, ModelPicker } from "./ConnectionPicker";
-import { ConnectionDetails } from "./ConnectionDetails";
+import {
+  CreateAgentModelOptions,
+  connectionKey,
+} from "./CreateAgentModelOptions";
 import { RuntimeSetup } from "./RuntimeSetup";
-import { EffortSelect } from "./EffortSelect";
 import type { ModelOption } from "../shared/models";
 import { capabilities } from "./capabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import { parse } from "./api";
 import { executionSourceId } from "./sourceRouting";
-import { Sheet, Avatar, providerName } from "./components";
+import { Sheet, Avatar } from "./components";
 import type { Connection, CreatedAgent } from "../shared/types";
 import type {
   AgentSource,
@@ -54,8 +55,6 @@ export function CreateAgent({
     sourceId: string,
   ) => void | Promise<void>;
 }) {
-  const connectionKey = (item: EnvironmentConnection) =>
-    `${item.sourceId || "laptop"}:${item.id}`;
   const connected = connections
     .filter((c) => c.status === "connected")
     .sort(
@@ -70,10 +69,7 @@ export function CreateAgent({
       (!preferredEnvironmentId || item.sourceId === preferredEnvironmentId)
     );
   });
-  const [provider, setProvider] = useState(
-      preferredConnection?.provider || connected[0]?.provider || "openai",
-    ),
-    [connection, setConnection] = useState(
+  const [connection, setConnection] = useState(
       preferredConnection
         ? connectionKey(preferredConnection)
         : connected[0]
@@ -109,9 +105,9 @@ export function CreateAgent({
   // must not change underneath them: a late suggestion would land between
   // their caret placement and first keystroke and merge into what they type.
   const name = nameTouched ? typedName : suggestedName;
-  const accounts = connected.filter((c) => c.provider === provider);
   const selected =
-    accounts.find((c) => connectionKey(c) === connection) || accounts[0];
+    connected.find((c) => connectionKey(c) === connection) ||
+    (!connection ? connected[0] : undefined);
   const source = selected?.sourceId || "";
   const availableFolders = folders.filter(
     (item) => (item.sourceId || "") === source && !item.is_workspace,
@@ -134,9 +130,8 @@ export function CreateAgent({
       cancelled = true;
     };
   }, [source, nameRevision]);
-  const nativeConnection = !!parse<any>(selected?.metadata, {}).loopHarness
-    ? selected?.id || ""
-    : "";
+  const selectedConnection = selected?.id || "";
+  const savedModels = parse<ModelOption[]>(selected?.models, []);
   const [catalog, setCatalog] = useState<{
     connectionId: string;
     source: string;
@@ -144,62 +139,109 @@ export function CreateAgent({
     error?: string;
   }>();
   const [catalogRevision, setCatalogRevision] = useState(0);
+  const catalogRequest = useRef<
+    | {
+        key: string;
+        cancel: () => void;
+        savedModels?: string;
+        succeeded: boolean;
+      }
+    | undefined
+  >(undefined);
+  useEffect(
+    () => () => {
+      catalogRequest.current?.cancel();
+      catalogRequest.current = undefined;
+    },
+    [],
+  );
   useEffect(() => {
-    if (!nativeConnection) return;
+    const key = JSON.stringify([selectedConnection, source, catalogRevision]);
+    const previous = catalogRequest.current;
+    if (previous?.key === key) {
+      const changed = previous.savedModels !== selected?.models;
+      previous.savedModels = selected?.models;
+      // Keep pending discovery alive across its own metadata notification.
+      // After success, later workspace updates become the current catalog.
+      // Failures still require an explicit retry rather than falling back.
+      if (previous.succeeded && changed)
+        setCatalog({
+          connectionId: selectedConnection,
+          source,
+          models: savedModels,
+        });
+      return;
+    }
+    catalogRequest.current?.cancel();
+    catalogRequest.current = undefined;
+    setCatalog(undefined);
+    // Bootstrap already includes the validated catalog. Re-discovering a native
+    // harness here can take seconds; only discover missing catalogs or refresh
+    // when requested. Creation still validates against the owner's connection.
+    if (!selectedConnection || (savedModels.length && !catalogRevision)) return;
     let current = true;
-    setCatalog({ connectionId: nativeConnection, source });
+    const discovery = {
+      key,
+      savedModels: selected?.models,
+      succeeded: false,
+      cancel: () => {
+        current = false;
+      },
+    };
+    catalogRequest.current = discovery;
+    setCatalog({ connectionId: selectedConnection, source });
     void callRoute(
       workspaceApi.connectionModels,
-      { params: { id: nativeConnection } },
+      { params: { id: selectedConnection } },
       source,
     ).then(
       ({ models }) => {
-        if (current)
-          setCatalog({ connectionId: nativeConnection, source, models });
+        if (current) {
+          discovery.succeeded = true;
+          setCatalog({ connectionId: selectedConnection, source, models });
+        }
       },
       (error: Error) => {
         if (current)
           setCatalog({
-            connectionId: nativeConnection,
+            connectionId: selectedConnection,
             source,
             error: error.message,
           });
       },
     );
-    return () => {
-      current = false;
-    };
-  }, [nativeConnection, source, catalogRevision]);
+  }, [selectedConnection, source, catalogRevision, selected?.models]);
   const currentCatalog =
-    catalog?.connectionId === nativeConnection && catalog.source === source
+    catalog?.connectionId === selectedConnection && catalog.source === source
       ? catalog
       : undefined;
   const refreshingModels =
-    !!nativeConnection && !currentCatalog?.models && !currentCatalog?.error;
-  const models = nativeConnection
-    ? currentCatalog?.models || []
-    : parse<ModelOption[]>(selected?.models, []);
+    !!selected &&
+    (currentCatalog
+      ? !currentCatalog.models && !currentCatalog.error
+      : !savedModels.length);
+  const models = currentCatalog ? currentCatalog.models || [] : savedModels;
+  function refreshModels() {
+    setCatalog({ connectionId: selectedConnection, source });
+    setCatalogRevision((revision) => revision + 1);
+  }
   const missingDefinitionModel =
     !!requestedModel && !models.some((m) => m.id === requestedModel);
   const chosen = missingDefinitionModel
     ? ""
-    : models.find((m) => m.id === model)?.id ||
-      models.find((m) => ["native-default", "default"].includes(m.id))?.id ||
-      models.find((m) => m.effortLevels?.length)?.id ||
-      models[0]?.id ||
-      "";
+    : model
+      ? models.find((m) => m.id === model)?.id || ""
+      : models.find((m) => ["native-default", "default"].includes(m.id))?.id ||
+        models.find((m) => m.effortLevels?.length)?.id ||
+        models[0]?.id ||
+        "";
   const chosenModel = models.find((m) => m.id === chosen);
   const invalidEffort =
     !!effort &&
     !chosenModel?.effortLevels?.some((level) => level.value === effort);
-  const setupSources = ["codex", "anthropic", "openai"].includes(provider)
-    ? sources.filter(
-        (item) =>
-          item.id &&
-          item.id !== executionSourceId() &&
-          !accounts.some((account) => account.sourceId === item.id),
-      )
-    : [];
+  const setupSources = sources.filter(
+    (item) => item.id && item.id !== executionSourceId(),
+  );
   const currentSourceName =
     sources.find((item) => item.id === attachmentSource)?.name ||
     "the original runtime";
@@ -257,7 +299,7 @@ export function CreateAgent({
   }
   const setupBlock = capabilities.localProjects ? (
     <details className="runtime-setup-options" open={!connected.length}>
-      <summary>More connection options</summary>
+      <summary>Enable an installed agent</summary>
       <div>
         <p className="field-hint">
           Choose or enable a runtime on this computer.
@@ -271,7 +313,6 @@ export function CreateAgent({
                 parse<any>(c.metadata, {}).loopHarness === runtimeName,
             );
             if (next && !selected) {
-              setProvider(next.provider);
               setConnection(connectionKey(next));
             }
             setCatalogRevision((revision) => revision + 1);
@@ -391,7 +432,7 @@ export function CreateAgent({
         {!!attachments.length && (
           <p className="field-hint" id={promptHint}>
             {crossSource
-              ? `These files belong to ${currentSourceName}. Remove them or choose that connection in Customize.`
+              ? `These files belong to ${currentSourceName}. Remove them or choose that connection below.`
               : "Add a message to send with your files."}
           </p>
         )}
@@ -405,9 +446,9 @@ export function CreateAgent({
             {setupBlock}
           </div>
         )}
-        {loadingName || refreshingModels ? (
+        {loadingName && !name.trim() ? (
           <p className="field-hint" role="status">
-            Getting your chat ready…
+            Choosing a name…
           </p>
         ) : null}
         {nameError && !name.trim() && (
@@ -422,18 +463,14 @@ export function CreateAgent({
             </button>
           </p>
         )}
-        {nativeConnection && currentCatalog?.error && (
+        {currentCatalog?.error && (
           <div className="error" role="alert">
-            Couldn’t get this connection ready. Try again or choose another in
-            Customize.
+            Couldn’t refresh models. Try again or choose another connection.
             <button
               type="button"
               className="text-button"
               disabled={busy || uploading}
-              onClick={() => {
-                setCatalog({ connectionId: nativeConnection, source });
-                setCatalogRevision((revision) => revision + 1);
-              }}
+              onClick={refreshModels}
             >
               Try again
             </button>
@@ -444,25 +481,77 @@ export function CreateAgent({
           !currentCatalog?.error &&
           !models.length && (
             <p className="error" role="alert">
-              This connection isn’t ready to chat. Choose another in Customize.
+              No models are available. Refresh models or choose another
+              connection.
             </p>
           )}
         {!selected && connected.length > 0 && (
           <p className="note" role="status">
-            Choose a connected account in Customize to start chatting.
+            Choose a connected account to start chatting.
           </p>
         )}
         {missingDefinitionModel && !refreshingModels && (
           <p className="error" role="alert">
             The definition requests {requestedModel}, which is unavailable on
-            this connection. Choose a model in Customize.
+            this connection. Choose another model below.
           </p>
         )}
-        {invalidEffort && (
+        {model &&
+          !chosen &&
+          !requestedModel &&
+          !refreshingModels &&
+          !currentCatalog?.error && (
+            <p className="error" role="alert">
+              The selected model is no longer available. Choose another model
+              below.
+            </p>
+          )}
+        {invalidEffort && !refreshingModels && chosenModel && (
           <p className="error" role="alert">
             This model does not report {effort} effort. Choose a reported effort
-            level or the runtime default in Customize.
+            level or the runtime default below.
           </p>
+        )}
+        {connected.length > 0 && (
+          <CreateAgentModelOptions
+            connections={connected}
+            selected={selected}
+            models={models}
+            model={chosen}
+            effort={effort}
+            disabled={busy || uploading}
+            refreshing={refreshingModels}
+            onConnectionChange={(next) => {
+              setConnection(connectionKey(next));
+              if ((next.sourceId || "") !== source) setFolderChoice("");
+              setModel("");
+              setRequestedModel("");
+              setEffort("");
+              setCatalog(undefined);
+              setCatalogRevision(0);
+            }}
+            onModelChange={(value) => {
+              setModel(value);
+              setRequestedModel("");
+              setEffort("");
+            }}
+            onEffortChange={setEffort}
+            onRefresh={refreshModels}
+            onConnect={onConnect}
+          >
+            {setupSources.map((item) => (
+              <button
+                type="button"
+                className="text-button"
+                key={item.id}
+                disabled={busy || uploading}
+                onClick={() => onSourceSetup?.(item.id)}
+              >
+                <Plus size={16} /> Connect on {item.name}
+              </button>
+            ))}
+            {setupBlock}
+          </CreateAgentModelOptions>
         )}
         <details
           className="advanced-agent-options"
@@ -552,114 +641,6 @@ export function CreateAgent({
                 ))}
               </select>
             </label>
-            <label>
-              Provider
-              <select
-                aria-label="Provider"
-                disabled={busy || uploading}
-                value={provider}
-                onChange={(event) => {
-                  setProvider(event.target.value as typeof provider);
-                  setConnection("");
-                  setModel("");
-                  setRequestedModel("");
-                  setEffort("");
-                }}
-              >
-                {(
-                  [
-                    "codex",
-                    "anthropic",
-                    "pi",
-                    "opencode",
-                    "antigravity",
-                    "gemini",
-                    "muse",
-                    "grok",
-                    "acp",
-                    "openai",
-                  ] as const
-                ).map((p) => (
-                  <option key={p} value={p}>
-                    {providerName(p)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {selected ? (
-              <>
-                <ConnectionPicker
-                  disabled={busy || uploading}
-                  value={connectionKey(selected)}
-                  onChange={(value) => {
-                    if (value.startsWith("setup-source:")) {
-                      onSourceSetup?.(value.slice("setup-source:".length));
-                      return;
-                    }
-                    setConnection(value);
-                    setFolderChoice("");
-                    setModel("");
-                    setRequestedModel("");
-                    setEffort("");
-                  }}
-                >
-                  {accounts.map((c) => (
-                    <option key={connectionKey(c)} value={connectionKey(c)}>
-                      {c.label.startsWith(
-                        c.executionEnvironment || "This computer",
-                      )
-                        ? c.label
-                        : `${c.executionEnvironment || "This computer"} · ${c.label}`}
-                    </option>
-                  ))}
-                  {setupSources.map((item) => (
-                    <option key={item.id} value={`setup-source:${item.id}`}>
-                      {item.name} · connect {providerName(provider)}
-                    </option>
-                  ))}
-                </ConnectionPicker>
-                <ModelPicker
-                  models={models}
-                  value={chosen}
-                  onChange={(value) => {
-                    setModel(value);
-                    setRequestedModel("");
-                    setEffort("");
-                  }}
-                  disabled={busy || uploading || refreshingModels}
-                  refreshing={refreshingModels}
-                />
-                <EffortSelect
-                  model={chosenModel}
-                  value={effort}
-                  onChange={setEffort}
-                />
-                <ConnectionDetails connection={selected} />
-              </>
-            ) : connected.length > 0 ? (
-              <div className="note">
-                Connect {providerName(provider)} to use it here.
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={onConnect}
-                >
-                  <Plus size={16} /> Connect on{" "}
-                  {sources.find((item) => !item.id)?.name || "This computer"}
-                </button>
-                {setupSources.map((item) => (
-                  <button
-                    type="button"
-                    className="text-button"
-                    key={item.id}
-                    onClick={() => onSourceSetup?.(item.id)}
-                  >
-                    <Plus size={16} /> Connect on {item.name}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {connected.length > 0 && setupBlock}
           </div>
         </details>
         {error && (

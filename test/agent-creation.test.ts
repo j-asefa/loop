@@ -366,6 +366,52 @@ it("validates ownership and prompt length before leaving an agent or reserved na
   }
 });
 
+it.each(["api", "native"])(
+  "rejects stale %s catalog selections at creation",
+  async (kind) => {
+    const owner = "stale-" + kind;
+    const connectionId = connection(owner);
+    if (kind === "native")
+      db.prepare(
+        "UPDATE connections SET provider='codex',metadata=? WHERE id=?",
+      ).run(
+        JSON.stringify({ loopHarness: "codex", authMode: "subscription" }),
+        connectionId,
+      );
+    const input = {
+      name: "stale-catalog-" + kind,
+      connectionId,
+      model: "fixture",
+      effort: "high",
+      idempotencyKey: id(),
+    };
+    const original = [{ id: "fixture", effortLevels: [{ value: "high" }] }];
+    const before = counts(owner);
+    for (const [models, status, expected] of [
+      [[{ id: "replacement" }], "connected", 400],
+      [[{ id: "fixture", effortLevels: [{ value: "low" }] }], "connected", 400],
+      [original, "needs_reconnect", 409],
+    ] as const) {
+      db.prepare("UPDATE connections SET models=?,status=? WHERE id=?").run(
+        JSON.stringify(models),
+        status,
+        connectionId,
+      );
+      expect((await create(input, owner)).status).toBe(expected);
+      expect(counts(owner)).toEqual(before);
+      expect(
+        db.prepare("SELECT 1 FROM handles WHERE name=?").get(input.name),
+      ).toBeUndefined();
+    }
+    db.prepare(
+      "UPDATE connections SET models=?,status='connected' WHERE id=?",
+    ).run(JSON.stringify(original), connectionId);
+    expect((await create(input, "another-owner")).status).toBe(404);
+    expect((await create(input, owner)).status).toBe(201);
+    expect(counts(owner)).toEqual({ ...before, agents: 1, agent_creations: 1 });
+  },
+);
+
 it("keeps creation receipts private to each workspace", async () => {
   const key = id();
   const alice = await create({

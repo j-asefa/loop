@@ -1,3 +1,4 @@
+import { chooseAgentModel } from "./helpers/agent-model-options.mjs";
 import { architectureSettingsJourney } from "./architecture-settings-journey.mjs";
 import {
   closeSheets,
@@ -230,9 +231,7 @@ try {
     .click();
   await page.getByRole("button", { name: "Choose provider & model" }).click();
   await page.getByText("Customize", { exact: true }).click();
-  await page
-    .getByRole("combobox", { name: /^Model/ })
-    .selectOption("browser-fixture-model");
+  await chooseAgentModel(page, "browser-fixture-model");
   const newName = "browser-" + crypto.randomUUID().slice(0, 8);
   await page.getByLabel("Unique name").fill(newName);
   await page

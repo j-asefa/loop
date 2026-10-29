@@ -1,3 +1,4 @@
+import { chooseAgentModel } from "./helpers/agent-model-options.mjs";
 import {
   closeSheets,
   inboxRowAction,
@@ -153,9 +154,7 @@ try {
   await expect(agentName).toHaveAttribute("placeholder", "Choose a name");
   await agentName.fill("journey-agent");
   await expect(agentName).toHaveValue("journey-agent");
-  await page
-    .getByRole("combobox", { name: /^Model/ })
-    .selectOption("openai-fixture");
+  await chooseAgentModel(page, "openai-fixture");
   const agentCreated = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/agents") &&

@@ -1,3 +1,7 @@
+import {
+  chooseAgentConnection,
+  chooseAgentModel,
+} from "./helpers/agent-model-options.mjs";
 import assert from "node:assert/strict";
 import { mockViewportCoordinates } from "./helpers/mock-viewport.mjs";
 import { expect } from "@playwright/test";
@@ -21,10 +25,8 @@ export async function agentCreationJourney(page, api) {
       .getByText("Customize", { exact: true })
       .click();
     await page.getByRole("heading", { name: "New chat" }).waitFor();
-    await page.getByLabel("Provider", { exact: true }).selectOption("openai");
-    await page
-      .getByRole("combobox", { name: /^Model/ })
-      .selectOption("openai-fixture");
+    await chooseAgentConnection(page, { provider: "openai" });
+    await chooseAgentModel(page, "openai-fixture");
   };
   // A name suggestion that arrives after the person has entered the field
   // must not merge into what they type (it once produced "otterproject-…").
