@@ -7,7 +7,7 @@ export function doneCards(
   owner: string,
   options: Parameters<typeof doneCardRows>[1],
 ): CardEntry[] {
-  return doneCardRows(owner, options).map(({ row, display }) => ({
+  return doneCardRows(owner, options).map(({ row, display, read_at }) => ({
     card: {
       type: "done",
       id: "d:" + (row.done_card_key ?? "idle:" + row.conversation_id),
@@ -51,6 +51,7 @@ export function doneCards(
           : ""),
       display: DoneDisplaySchema.parse({
         ...display,
+        read_at,
         position_message_id: null,
       }),
     },

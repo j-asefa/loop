@@ -27,6 +27,9 @@ export const DoneThreadSummary = DoneThread.extend({
   // Keep every destination available when organizing within a filtered feed.
   // Only threads with a matching preview appear in Done and Threads.
   preview: DoneCardSchema.nullable(),
+  // Members not yet opened; opening the thread reads them all. Absent from
+  // sources that do not record Done reads.
+  unread: z.number().int().nonnegative().optional(),
 });
 export const DoneThreadDetail = z.object({
   thread: DoneThread,

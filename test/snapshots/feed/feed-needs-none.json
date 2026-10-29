@@ -180,6 +180,7 @@
       "needs": 4,
       "working": 4,
       "queued": 1,
+      "done_unread": 10,
       "later_due": 1,
       "social_unread": 0,
       "scheduled_failed": 0,

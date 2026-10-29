@@ -100,6 +100,8 @@ export function listDoneThreads(
                 visible.map((card) => card.id),
               ),
               preview,
+              unread: visible.filter((card) => card.display.read_at === null)
+                .length,
             },
           ]
         : [];
@@ -120,6 +122,22 @@ export function readDoneThread(owner: string, id: string): DoneThreadDetail {
       cards: result,
     };
   })();
+}
+/** Opening a thread reads every member result, as opening a card reads it. */
+export function markDoneThreadRead(owner: string, id: string) {
+  return db
+    .transaction(() => {
+      owned(owner, id);
+      db.prepare(
+        `INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at)
+        SELECT m.owner_id,m.conversation_id,substr(m.card_id,3),? FROM done_thread_members m
+        JOIN feed_cards p ON p.owner_id=m.owner_id AND p.conversation_id=m.conversation_id
+          AND p.kind='result' AND p.card_key=substr(m.card_id,3)
+        WHERE m.owner_id=? AND m.thread_id=?`,
+      ).run(now(), owner, id);
+      return { ok: true };
+    })
+    .immediate();
 }
 function changed(owner: string) {
   db.prepare(

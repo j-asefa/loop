@@ -58,6 +58,7 @@ async function equivalent() {
     const old = oracle.doneCardRows(OWNER, options);
     const projected = readers.doneCardRows(OWNER, options);
     expect(projected.map((r) => r.display)).toEqual(old.map((r) => r.display));
+    expect(projected.map((r) => r.read_at)).toEqual(old.map((r) => r.read_at));
     const fields = [
       "conversation_id",
       "done_card_key",

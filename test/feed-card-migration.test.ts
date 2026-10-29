@@ -51,8 +51,8 @@ it.each([null, 118, 123])(
         old.close();
       }
       const scripts = [
-        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT name,prefix AS version FROM schema_migrations ORDER BY prefix,name').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
-        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT name,prefix AS version FROM schema_migrations ORDER BY prefix,name').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key FROM feed_cards ORDER BY kind').all()}));db.close();`,
+        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT name,prefix AS version FROM schema_migrations ORDER BY prefix,name').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key,unread FROM feed_cards ORDER BY kind').all()}));db.close();`,
+        `const {db}=await import(${JSON.stringify(source)});console.log(JSON.stringify({versions:db.prepare('SELECT name,prefix AS version FROM schema_migrations ORDER BY prefix,name').all(),dirty:db.prepare('SELECT count(*) n FROM feed_card_dirty').get(),cards:db.prepare('SELECT owner_id,conversation_id,kind,card_key,unread FROM feed_cards ORDER BY kind').all()}));db.close();`,
       ];
       const results = await Promise.all(
         scripts.map(
@@ -94,12 +94,16 @@ it.each([null, 118, 123])(
             conversation_id: "c",
             kind: "result",
             card_key: "message:m",
+            // Results from before read tracking start read, including when
+            // the projection is first built after every migration.
+            unread: 0,
           },
           {
             owner_id: "owner",
             conversation_id: "c",
             kind: "thread",
             card_key: "message:m",
+            unread: 0,
           },
         ]);
       else expect(first.cards).toEqual([]);

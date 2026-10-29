@@ -128,6 +128,36 @@ it.each(["server", "companion", "multi-user"] as const)(
       expect(
         read.cards.every((card) => card.source.conversation_id === "basil"),
       ).toBe(true);
+      // Opening a thread reads every member and nothing outside it.
+      const unread = (key: string, identity = owner) =>
+        db
+          .prepare(
+            "SELECT unread FROM feed_cards WHERE owner_id=? AND kind='result' AND card_key=?",
+          )
+          .get(identity, key);
+      expect((await list())[0].unread).toBe(2);
+      expect(
+        read.cards.map((card) => card.type === "done" && card.display.read_at),
+      ).toEqual([null, null]);
+      const opened = await request(`${root}/${id}/read`, {
+        method: "PUT",
+        headers: browser,
+        body: {},
+      });
+      expect(opened.status).toBe(200);
+      expect(
+        workspaceApi.doneThreadRead.response.parse(await opened.json()),
+      ).toEqual({ ok: true });
+      expect((await list())[0].unread).toBe(0);
+      const readCards = (await detail(id)).cards;
+      expect(
+        readCards.map((card) => card.type === "done" && card.display.read_at),
+      ).toEqual([expect.any(Number), expect.any(Number)]);
+      expect([unread("run:run0"), unread("run:run1")]).toEqual([
+        { unread: 0 },
+        { unread: 0 },
+      ]);
+      expect(unread("run:run2")).toEqual({ unread: 1 });
       // A tab that loaded the individual cards before grouping can still dismiss
       // them. Saved membership and its preview must survive those valid writes.
       for (const index of [0, 1]) {
@@ -143,7 +173,7 @@ it.each(["server", "companion", "multi-user"] as const)(
         cardIds: expect.arrayContaining(["d:run:run0", "d:run:run1"]),
         preview: { id: "d:run:run1" },
       });
-      expect((await detail(id)).cards).toEqual(read.cards);
+      expect((await detail(id)).cards).toEqual(readCards);
       const dismissedFeed = await request("/api/v1/cards?view=done", {
         headers: browser,
       });
@@ -286,6 +316,7 @@ it.each(["server", "companion", "multi-user"] as const)(
         [`${root}/${foreign}`, { method: "DELETE" }],
         [`${root}/${foreign}/cards/d%3Arun%3Arun6`, { method: "DELETE" }],
         [`${root}/${foreign}/cards`, { body: { cardIds: ["d:run:run2"] } }],
+        [`${root}/${foreign}/read`, { method: "PUT", body: {} }],
         [
           root,
           {
@@ -308,6 +339,7 @@ it.each(["server", "companion", "multi-user"] as const)(
           )
           .all(),
       ).toEqual([{ card_id: "d:run:run6" }]);
+      expect(unread("run:run6", "foreign")).toEqual({ unread: 1 });
       // A bearer grant for published cards cannot read or organize private Done threads.
       const token = await request("/api/card-tokens", {
         headers: browser,
@@ -320,6 +352,7 @@ it.each(["server", "companion", "multi-user"] as const)(
         [`${root}/${second}`, {}],
         [`${root}/${second}`, { method: "DELETE" }],
         [`${root}/${second}/cards`, { body: { cardIds: ["d:run:run2"] } }],
+        [`${root}/${second}/read`, { method: "PUT", body: {} }],
       ] as const) {
         expect(
           (

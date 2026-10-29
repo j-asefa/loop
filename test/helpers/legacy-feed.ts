@@ -76,6 +76,7 @@ type FeedRow = {
   folder_id: string | null;
   run_id: string | null;
   done_run_id: string | null;
+  done_message_id: string | null;
   done_card_key: string;
   last_activity_at: number;
   sort_at: number;
@@ -347,6 +348,16 @@ page AS MATERIALIZED (
       COALESCE(sum(has_queued),0) queued FROM flagged`,
     )
     .get(params) as Record<string, number>;
+  // Unread completed results in Done, with Done's team visibility, from history.
+  const doneUnread = db
+    .prepare(
+      `${feedSql(!!teams, !!folders, !!options.agent, true)} SELECT count(*) n FROM flagged
+      WHERE (done_run_id IS NOT NULL OR done_message_id IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key)
+        AND NOT EXISTS(SELECT 1 FROM done_card_reads d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key)
+        ${!teams && !options.agent ? "AND NOT EXISTS(SELECT 1 FROM teams t WHERE t.id=flagged.team_id AND t.owner_id=@owner AND t.deleted_at IS NULL AND t.hide_results_from_feed=1)" : ""}`,
+    )
+    .get(params) as { n: number };
   const laterDue = db
     .prepare(
       "SELECT count(*) n FROM later_items WHERE owner_id=? AND surfaced_at IS NOT NULL AND done_at IS NULL",
@@ -377,6 +388,7 @@ page AS MATERIALIZED (
       working: summary.working,
       queued: summary.queued,
       replies_unread: replyUnread(params),
+      done_unread: doneUnread.n,
       later_due: laterDue.n,
       social_unread: unreadCount(owner),
       scheduled_failed: scheduled.failed,
@@ -582,7 +594,18 @@ export function doneCardRows(
     const display = feedItem(owner, row, "done");
     if (display.last_message)
       display.last_message.content = row.message_content!;
-    return { row, display };
+    const result = row.done_run_id !== null || row.done_message_id !== null;
+    const read = db
+      .prepare(
+        "SELECT read_at FROM done_card_reads WHERE owner_id=? AND conversation_id=? AND card_key=?",
+      )
+      .get(owner, row.conversation_id, row.done_card_key) as
+      { read_at: number } | undefined;
+    return {
+      row,
+      display,
+      read_at: result ? (read?.read_at ?? null) : undefined,
+    };
   });
 }
 

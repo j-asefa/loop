@@ -12,6 +12,9 @@ export const FeedUpdateInput = z.object({
   hidden: z.boolean(),
   cardKey: Text.regex(/^(run|message):.+$/).max(200),
 });
+export const DoneReadInput = z.object({
+  cardKey: FeedUpdateInput.shape.cardKey,
+});
 export const SavedLabelInput = z.object({
   key: Text.regex(/^[ma]:/)
     .min(3)

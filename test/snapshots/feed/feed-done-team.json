@@ -55,6 +55,7 @@
       "needs": 0,
       "working": 0,
       "queued": 0,
+      "done_unread": 1,
       "later_due": 1,
       "social_unread": 0,
       "scheduled_failed": 0,

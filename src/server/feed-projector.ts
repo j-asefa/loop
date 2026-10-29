@@ -83,8 +83,8 @@ export function projectFeed(db: Database.Database, emit: Emit) {
   }
   const insert =
     db.prepare(`INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
-    needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,payload,legacy_sort_at,legacy_hidden)
-    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@payload,@legacy_sort_at,@legacy_hidden)
+    needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,payload,legacy_sort_at,legacy_hidden,unread)
+    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@payload,@legacy_sort_at,@legacy_hidden,@unread)
 `);
   for (const { owner, conversation, keys } of groups.values()) {
     const subject = { kind: "collection" as const, id: "feed" };
@@ -143,6 +143,16 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         payload: JSON.stringify(stored),
         legacy_sort_at: stored.legacy?.row.sort_at ?? r.sort_at,
         legacy_hidden: stored.legacy?.row.hidden ?? r.hidden,
+        // Only a result is read; its read time stays in done_card_reads.
+        unread:
+          kind === "result" &&
+          !db
+            .prepare(
+              "SELECT 1 FROM done_card_reads WHERE owner_id=? AND conversation_id=? AND card_key=?",
+            )
+            .get(owner, conversation, key)
+            ? 1
+            : 0,
       };
       // Only these compile-time column names enter SQL. Updating unchanged
       // indexed columns would still rewrite their B-tree pages in SQLite.

@@ -1,4 +1,4 @@
-import { FeedUpdateInput, SavedLabelInput } from "../shared/mobile-contract-schemas.js";
+import { DoneReadInput, FeedUpdateInput, SavedLabelInput } from "../shared/mobile-contract-schemas.js";
 import { assertFeedApplied, projectionFeed, projectionDoneRows } from "./feed-card-read.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
 import { z } from "zod";
@@ -103,6 +103,7 @@ function readFeed(
       working: summary.working,
       queued: summary.queued,
       replies_unread: replyUnread(params),
+      done_unread: summary.done_unread,
       later_due: laterDue.n,
       social_unread: unreadCount(owner),
       scheduled_failed: scheduled.failed,
@@ -221,6 +222,30 @@ export function setDoneCardHidden(
           "DELETE FROM done_card_dismissals WHERE owner_id=? AND conversation_id=? AND card_key=?",
         ).run(owner, conversation, cardKey);
       }
+      return { ok: true };
+    })
+    .immediate();
+}
+/** Record that the owner opened a Done result. Reading is idempotent and
+ * keeps the first time, as Replies does. */
+export function markDoneCardRead(
+  owner: string,
+  conversation: string,
+  body: unknown,
+) {
+  const { cardKey } = DoneReadInput.parse(body);
+  return db
+    .transaction(() => {
+      ownedConversation(conversation, owner);
+      const card = db
+        .prepare(
+          "SELECT 1 FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' AND card_key=?",
+        )
+        .get(owner, conversation, cardKey);
+      if (!card) throw new Problem(404, "Done card not found");
+      db.prepare(
+        "INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at) VALUES(?,?,?,?)",
+      ).run(owner, conversation, cardKey, now());
       return { ok: true };
     })
     .immediate();

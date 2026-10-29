@@ -114,7 +114,7 @@ export const FeedItem = DoneDisplaySchema.extend({
 });
 export const FeedPage = z.object({
   items: z.array(FeedItem), next: MaybeText,
-  summary: z.object({ needs: z.number(), working: z.number(), queued: z.number(), later_due: z.number(), replies_unread: z.number().optional(), social_unread: z.number().optional(), scheduled_failed: z.number().optional(), scheduled_pending: z.number().optional() }),
+  summary: z.object({ needs: z.number(), working: z.number(), queued: z.number(), later_due: z.number(), replies_unread: z.number().optional(), done_unread: z.number().optional(), social_unread: z.number().optional(), scheduled_failed: z.number().optional(), scheduled_pending: z.number().optional() }),
   projection: WorkspaceClock.optional(),
   projectionRows: FeedEntities.optional(),
 });
@@ -408,8 +408,10 @@ export const workspaceRoutes = {
   doneThreadCreate: endpoint({ ...base, method: "POST", path: "/feed/threads", body: DoneThreadCreate, response: DoneThread }),
   doneThreadDetail: endpoint({ ...base, method: "GET", path: "/feed/threads/:id", params: Id, response: DoneThreadDetail }),
   doneThreadMove: endpoint({ ...base, method: "POST", path: "/feed/threads/:id/cards", params: Id, body: DoneThreadMembers, response: DoneThread }),
+  doneThreadRead: endpoint({ ...base, method: "PUT", path: "/feed/threads/:id/read", params: Id, body: z.object({}).strict(), response: Ok }),
   doneThreadRemove: endpoint({ ...base, method: "DELETE", path: "/feed/threads/:id", params: Id, response: Ok }),
   doneThreadRemoveCard: endpoint({ ...base, method: "DELETE", path: "/feed/threads/:id/cards/:card", params: Id.extend({ card: DoneThreadCardId }), response: Ok }),
+  feedRead: endpoint({ ...base, method: "PUT", path: "/feed/:id/read", params: Id, body: mobile.DoneReadInput, response: Ok }),
   replyState: endpoint({ ...base, method: "PATCH", path: "/replies/:id", params: Id, body: ReplyState, response: Ok }),
   feedAway: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/feed/away", query: z.object({ since: NumberCursor.default(0) }), response: mobile.PublicAway }),
   messageSave: endpoint({ ...base, method: "POST", path: "/messages/:id/saved", params: Id, body: z.unknown(), response: Ok.extend({ saved: z.boolean() }) }),

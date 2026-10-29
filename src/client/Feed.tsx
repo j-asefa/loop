@@ -123,6 +123,8 @@ export type FeedItem = {
   executionEnvironment?: string;
   conversation_id: string;
   done_card_key?: string;
+  /** When a Done result was opened; null while unread. */
+  read_at?: number | null;
   reply_card_key?: string;
   reply?: { message_id: string; content: string; read_at: number | null };
   title: string;
@@ -203,6 +205,7 @@ type Summary = {
   scheduled_pending?: number;
   social_unread?: number;
   replies_unread?: number;
+  done_unread?: number;
 };
 type AwayItem = RouteResponse<typeof workspaceApi.feedAway>["completed"][number] & { sourceId?: string };
 
@@ -212,8 +215,8 @@ export const feedFilters: { id: FeedFilter; label: string }[] = [
   { id: "done", label: "Done" },
   { id: "working", label: "Working" },
   { id: "queued", label: "Queued" },
-  { id: "threads", label: "Threads" },
   { id: "replies", label: "Replies" },
+  { id: "threads", label: "Threads" },
 ];
 
 // A thread can have several Done cards; source and result identity must both
@@ -438,10 +441,12 @@ function FeedCard({
           }}
         >
           <span className="eyebrow inbox-eyebrow">
-            {groupCount ? <><Layers size={14} /> Thread · {groupCount} cards</> : item.reply ? (
+            {groupCount ? <><Layers size={14} /> Thread · {groupCount} cards{item.read_at === null && <Chip tone="working">Unread</Chip>}</> : item.reply ? (
               <>Reply{item.reply.read_at === null && <Chip tone="working">Unread</Chip>}</>
             ) : status.label && status.tone !== "done" ? (
               <Chip tone={status.tone}>{status.label}</Chip>
+            ) : item.read_at === null ? (
+              <>Thread<Chip tone="working">Unread</Chip></>
             ) : (
               "Thread"
             )}
@@ -1182,6 +1187,8 @@ export function Feed({
       visibleCards.push({
         thread, key: JSON.stringify([thread.source, "thread", thread.id]),
         item: { ...card.display, done_card_key: card.display.done_card_key ?? undefined,
+          // The thread is unread while any member is; its preview alone is not.
+          read_at: thread.unread ? null : undefined,
           sourceId: thread.source, pending_approvals: 0, position_message_id: null, card },
       });
     }
@@ -1676,6 +1683,7 @@ export function Feed({
               working: sum.working + page.summary.working,
               queued: sum.queued + page.summary.queued,
               replies_unread: (sum.replies_unread || 0) + (page.summary.replies_unread || 0),
+              done_unread: (sum.done_unread || 0) + (page.summary.done_unread || 0),
               later_due: sum.later_due + page.summary.later_due,
               scheduled_failed:
                 (sum.scheduled_failed || 0) +
@@ -1947,6 +1955,30 @@ export function Feed({
       if (owner === viewOwner()) setError((error as Error).message);
     }
   }
+  async function markDoneRead(item: FeedItem) {
+    if (item.read_at !== null || !item.done_card_key) return;
+    const owner = viewOwner(), source = item.sourceId ?? scopedSource;
+    try {
+      await callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey: item.done_card_key } }, source);
+      if (owner === viewOwner()) await load();
+    } catch (error) {
+      if (owner === viewOwner()) setError((error as Error).message);
+    }
+  }
+  // Every way of opening a saved group reads its members.
+  function openThread(thread: SourcedDoneThread) {
+    setReadingThread({ ...thread, generation });
+    if (thread.unread) void markThreadRead(thread);
+  }
+  async function markThreadRead(thread: SourcedDoneThread) {
+    const owner = viewOwner();
+    try {
+      await callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: {} }, thread.source);
+      if (owner === viewOwner()) { grouping.refresh(); await load(); }
+    } catch (error) {
+      if (owner === viewOwner()) setError((error as Error).message);
+    }
+  }
   function markSaved(item: FeedItem, saved: boolean, active = true) {
     const change = (old: FeedItem[]) => old.map((row) =>
         row.last_message?.id === item.last_message?.id &&
@@ -2069,7 +2101,7 @@ export function Feed({
         onSelect: () => setCombineFrom(key) },
     ] : [];
     if (thread) return [
-      { id: "open-thread", label: "Open thread", icon: <MessageSquare size={20} />, onSelect: () => setReadingThread({ ...thread, generation }) },
+      { id: "open-thread", label: "Open thread", icon: <MessageSquare size={20} />, onSelect: () => openThread(thread) },
       ...organize,
       { id: "ungroup", label: "Ungroup cards", hint: "Return each card to Done", icon: <Layers size={20} />, onSelect: () => void ungroup(thread) },
     ];
@@ -2291,9 +2323,9 @@ export function Feed({
             (source && activeSources.find(item => item.id === source)?.name) ||
             item.executionEnvironment,
         )}
-        onRead={item.reply ? () => void markReplyRead(item) : undefined}
+        onRead={item.reply ? () => void markReplyRead(item) : item.read_at === null && !thread ? () => void markDoneRead(item) : undefined}
         onQuestion={item.reply ? () => onOpen(item.conversation_id, item.reply!.message_id, source) : undefined}
-        onOpen={() => thread ? setReadingThread({ ...thread, generation }) : onOpen(item.conversation_id, item.reply ? item.last_message?.id : undefined, source)}
+        onOpen={() => thread ? openThread(thread) : onOpen(item.conversation_id, item.reply ? item.last_message?.id : undefined, source)}
         onReply={() =>
           onReply
             ? onReply(
@@ -2347,6 +2379,7 @@ export function Feed({
         working: summary.working,
         queued: summary.queued,
         replies: summary.replies_unread,
+        done: summary.done_unread,
       }
     : {};
   function selectFilter(nextFilter: FeedFilter) {

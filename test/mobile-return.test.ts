@@ -198,14 +198,15 @@ it("persists team result and thread visibility without hiding attention, explici
   run(w.owner, worker.id, delegated, "running");
   run(w.owner, manager.id, council.conversation_id, "queued");
   const before = (await cards()).summary;
-  expect(before).toMatchObject({ needs: 1, working: 1, queued: 1 });
+  expect(before).toMatchObject({ needs: 1, working: 1, queued: 1, done_unread: 1 });
   expect(ids(await cards("filter=all"))).toEqual([solo]);
   expect((await cards("filter=all")).summary).toEqual(before);
   expect(ids(await cards("filter=needs"))).toEqual([review.conversation_id]);
   expect(ids(await cards("filter=working"))).toEqual([delegated]);
   expect(ids(await cards("filter=queued"))).toEqual([council.conversation_id]);
   await setHidden(review.id, false);
-  expect((await cards()).summary).toEqual(before);
+  // Only the Done count follows the team's results back into view.
+  expect((await cards()).summary).toEqual({ ...before, done_unread: 4 });
   expect(ids(await cards()).sort()).toEqual([review.conversation_id, review.conversation_id, delegated, solo].sort());
   expect(ids(await cards("filter=all")).sort()).toEqual([review.conversation_id, delegated, solo].sort());
 
@@ -692,6 +693,8 @@ it("reads the production Done page and summary in one indexed projection query",
   expect(selections).toBe(1);
   expect(plan.some(row => /SEARCH p USING INDEX feed_cards_results/.test(row.detail))).toBe(true);
   expect(plan.some(row => /SEARCH t USING COVERING INDEX feed_cards_summary/.test(row.detail))).toBe(true);
+  // The Done count reads only unread visible results, not every result.
+  expect(plan.some(row => /SEARCH u USING (?:COVERING )?INDEX feed_cards_unread/.test(row.detail))).toBe(true);
   expect(plan.some(row => /(?:runs|messages)/.test(row.detail))).toBe(false);
 });
 
@@ -850,6 +853,42 @@ it("dismisses only the selected Done card, with exact-card retry and Undo", asyn
   expect(db.prepare("SELECT feed_hidden FROM conversations WHERE id=?").get(cid)).toEqual({ feed_hidden: 0 });
 });
 
+it("counts unread Done results and marks only the opened result read", async () => {
+  const { doneCards } = await import("../src/server/done-cards");
+  const w = workspaceFor(), a = w.agent();
+  const cid = conversation(w.owner, a.id, "Unread results");
+  const first = run(w.owner, a.id, cid, "completed");
+  message(w.owner, cid, "assistant", "First result", first);
+  const second = run(w.owner, a.id, cid, "completed");
+  message(w.owner, cid, "assistant", "Second result", second);
+  const unread = async (owner: string = w.owner) => (await api(owner, "/feed?filter=done&expand=results")).data.summary.done_unread;
+  const readAt = () => Object.fromEntries(doneCards(w.owner, { folders: null, teamIds: [], limit: 10 })
+    .map(({ card }) => [card.type === "done" && card.display.done_card_key, card.type === "done" && card.display.read_at]));
+  expect(await unread()).toBe(2);
+  expect(readAt()).toEqual({ [`run:${first}`]: null, [`run:${second}`]: null });
+  const read = (cardKey: string, owner: string = w.owner, conversationId = cid) =>
+    api(owner, `/feed/${conversationId}/read`, "PUT", { cardKey });
+
+  expect((await read(`run:${first}`, "intruder")).status).toBe(404);
+  expect((await read(`run:${first}`, w.owner, conversation(w.owner, a.id))).status).toBe(404);
+  expect((await read(`run:${id()}`)).status).toBe(404);
+  expect(await unread()).toBe(2);
+  expect((await read(`run:${first}`)).status).toBe(200);
+  const firstRead = readAt()[`run:${first}`];
+  expect(firstRead).toEqual(expect.any(Number));
+  expect(readAt()[`run:${second}`]).toBeNull();
+  expect(await unread()).toBe(1);
+  // Reading again keeps the first time.
+  expect((await read(`run:${first}`)).status).toBe(200);
+  expect(readAt()[`run:${first}`]).toBe(firstRead);
+  // A dismissed result is not counted; Undo brings its unread state back.
+  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: `run:${second}` });
+  expect(await unread()).toBe(0);
+  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: false, cardKey: `run:${second}` });
+  expect(await unread()).toBe(1);
+  expect(await unread("intruder")).toBe(0);
+});
+
 it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting_approval", "failed", "interrupted"])(
   "Done dismissal has no effect on %s work, other lists or counts",
   async (state) => {
@@ -862,7 +901,8 @@ it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting
     // Even a legacy client writing this obsolete flag cannot hide a thread.
     db.prepare("UPDATE conversations SET feed_hidden=1 WHERE id=?").run(cid);
     const filters = ["all", "needs", "working", "queued", "later", "outcomes", "unfinished"];
-    const display = ({ projection, projectionRows, ...page }: any) => page;
+    // Dismissing the unread result changes only the Done count, checked below.
+    const display = ({ projection, projectionRows, summary: { done_unread, ...summary }, ...page }: any) => ({ ...page, summary });
     const before = await Promise.all(filters.map(async (filter) =>
       display((await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data)));
     const done = (await api(w.owner, "/feed?filter=done&expand=results")).data;
@@ -872,9 +912,10 @@ it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting
       working: working ? 1 : 0,
       queued: state === "queued" ? 1 : 0,
       needs: ["paused", "awaiting_approval", "failed", "interrupted"].includes(state) ? 1 : 0,
+      done_unread: 1,
     });
     expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: done.items[0].done_card_key })).status).toBe(200);
-    expect((await api(w.owner, "/feed?filter=done&expand=results")).data).toMatchObject({ items: [], summary: done.summary });
+    expect((await api(w.owner, "/feed?filter=done&expand=results")).data).toMatchObject({ items: [], summary: { ...done.summary, done_unread: 0 } });
     for (const [index, filter] of filters.entries()) {
       expect(display((await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data)).toEqual(before[index]);
     }

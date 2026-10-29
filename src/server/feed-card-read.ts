@@ -27,6 +27,9 @@ type RecordRow = {
   sort_at: number;
   conversation_id: string;
   card_key: string;
+  kind?: string;
+  read_at?: number | null;
+  unread?: number;
 };
 const needs = "(t.needs_run OR COALESCE(t.approval_until,0)>@now)";
 const idle = `NOT (${needs} OR t.working OR t.queued) AND NOT t.snoozed`;
@@ -116,6 +119,16 @@ function display(
   return { row, display: item };
 }
 
+// Results in Done the owner has not opened, in the same scope as the list.
+// The literal predicates select feed_cards_unread, so the count visits only
+// unread visible results rather than every result in the owner's history.
+const doneUnreadSql = (
+  params: Scope,
+) => `SELECT count(*) FROM feed_cards u INDEXED BY feed_cards_unread
+    JOIN feed_cards ut ON ut.owner_id=u.owner_id AND ut.conversation_id=u.conversation_id AND ut.kind='thread'
+    WHERE ${scope("u", params)} AND u.kind='result' AND u.unread=1 AND u.hidden=0
+      AND (@teams IS NOT NULL OR @agent IS NOT NULL OR NOT ut.hide_results)`;
+
 export function projectionFeed(
   db: Database.Database,
   params: Scope & {
@@ -154,18 +167,24 @@ export function projectionFeed(
   // One indexed page selection and covering-index aggregate in one statement.
   // LEFT JOIN preserves summary counts even when this continuation has no rows.
   const summarySql = `SELECT COALESCE(sum(${needs}),0) needs,
-    COALESCE(sum(t.working),0) working,COALESCE(sum(t.queued),0) queued
+    COALESCE(sum(t.working),0) working,COALESCE(sum(t.queued),0) queued,
+    (${doneUnreadSql(params)}) done_unread
     FROM feed_cards t WHERE t.kind='thread' AND ${scope("t", params)}`;
-  type Summary = { needs: number; working: number; queued: number };
+  type Summary = {
+    needs: number;
+    working: number;
+    queued: number;
+    done_unread: number;
+  };
   const rows = db
     .prepare(
       `WITH summary AS (${summarySql})
-    SELECT page.*,summary.needs,summary.working,summary.queued FROM summary
+    SELECT page.*,summary.needs,summary.working,summary.queued,summary.done_unread FROM summary
     LEFT JOIN (${results ? sql : sql.replace(/\bt\./g, "p.")}) page ON 1
     ORDER BY page.sort_at DESC,page.conversation_id DESC,page.card_key DESC`,
     )
     .all(params) as ((RecordRow | { payload: null }) & Summary)[];
-  const { needs: needsCount, working, queued } = rows[0];
+  const { needs: needsCount, working, queued, done_unread } = rows[0];
   return {
     page: rows.flatMap((row) =>
       row.payload === null
@@ -180,7 +199,7 @@ export function projectionFeed(
             ),
           ],
     ),
-    summary: { needs: needsCount, working, queued },
+    summary: { needs: needsCount, working, queued, done_unread },
   };
 }
 
@@ -197,7 +216,8 @@ export function projectionDoneRows(
 ) {
   const rows = db
     .prepare(
-      `SELECT p.payload,t.payload thread_payload,p.sort_at,p.conversation_id,p.card_key
+      `SELECT p.payload,t.payload thread_payload,p.sort_at,p.conversation_id,p.card_key,p.kind,
+      CASE WHEN p.kind='result' AND NOT p.unread THEN (SELECT d.read_at FROM done_card_reads d WHERE d.owner_id=p.owner_id AND d.conversation_id=p.conversation_id AND d.card_key=p.card_key) END read_at,p.unread
     FROM feed_cards p JOIN feed_cards t ON t.owner_id=p.owner_id AND t.conversation_id=p.conversation_id AND t.kind='thread'
     WHERE ${scope("p", params)} AND p.kind IN ('result','idle') AND (p.kind='result' OR (p.kind='idle' AND NOT EXISTS(SELECT 1 FROM feed_cards r WHERE r.owner_id=p.owner_id AND r.conversation_id=p.conversation_id AND r.kind='result') AND ${idle}))
       AND (@includeDismissed OR NOT p.hidden) AND (@detail OR @teams IS NOT NULL OR @agent IS NOT NULL OR NOT t.hide_results)
@@ -210,5 +230,9 @@ export function projectionDoneRows(
       detail: Number(params.detail),
       includeDismissed: Number(params.includeDismissed),
     }) as RecordRow[];
-  return rows.map((row) => display(row, "done", params.now, false, true));
+  return rows.map((row) => ({
+    ...display(row, "done", params.now, false, true),
+    // Only results are read; an idle thread has no result to open.
+    read_at: row.kind === "result" ? (row.read_at ?? null) : undefined,
+  }));
 }
