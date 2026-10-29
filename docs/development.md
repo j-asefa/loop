@@ -89,7 +89,7 @@ Native async tests use bounded waits from `test/helpers.ts`. Regressions should 
 
 ## Command supervision
 
-Checks run immediately unless the host opts into the [Pueue job queue](server.md#queue-heavy-builds-and-tests). With `LOOP_JOB_QUEUE_CONFIG` set, builds and checks queue their heavy phases, test suites queue one invocation, and the design browser suite queues each scenario separately. Independent callers share FIFO ordering and one running heavy job by default. Nested checks keep their parent's admission, including fixtures that clear their environment. This schedules finite commands; model turns and ordinary file or Git operations remain concurrent.
+Checks run immediately unless the host opts into the [Pueue job queue](server.md#queue-heavy-builds-and-tests). With `LOOP_JOB_QUEUE_CONFIG` set, builds and checks queue their heavy phases, test suites queue one invocation, and the design browser suite queues each scenario separately. Independent callers share FIFO ordering and one running heavy job by default. Nested checks keep their parent's admission, including fixtures that clear their environment. Workers publish the configured worker identity in their process title so older installed shims can recognize a source checkout's admission too. This schedules finite commands; model turns and ordinary file or Git operations remain concurrent.
 
 TypeScript 7 runs with `--singleThreaded` to avoid duplicating large checker graphs. The full project is still checked. `GOMEMLIMIT` defaults to `1536MiB` for the compiler only; it is a soft Go heap target, not a process memory ceiling. Node's heap limit does not control this native compiler.
 

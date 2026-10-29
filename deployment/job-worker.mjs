@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import { connect } from "node:net";
-import { dirname } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import { constants } from "node:os";
 import { fileURLToPath } from "node:url";
 import { signedMessage, verifiedMessage } from "./job-protocol.mjs";
@@ -65,6 +65,14 @@ async function execute(job) {
 
 async function main() {
   const descriptor = process.argv[2];
+  const admissionWorker = process.argv[3];
+  if (admissionWorker && isAbsolute(admissionWorker)) {
+    // Older installed shims identify admission from this exact ps prefix.
+    // Publish the configured identity while executing this client's matching
+    // worker. Carrying the alias in argv also reserves enough title space on
+    // platforms that cannot grow it beyond the original command line.
+    process.title = process.execPath + " " + admissionWorker + " " + descriptor;
+  }
   const control = JSON.parse(await readFile(descriptor, "utf8"));
   const legacy = control.protocol === undefined;
   if (!legacy && control.protocol !== 2)

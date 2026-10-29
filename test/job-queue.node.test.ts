@@ -910,19 +910,26 @@ test(
         },
       );
       await t.test(
-        "installed shims recognize a source worker without Linux cgroup admission",
+        "original installed shims recognize a source worker without Linux cgroup admission",
         async () => {
           const installed = join(dir, "installed/deployment"),
             shims = join(dir, "installed-bin");
           mkdirSync(installed, { recursive: true });
           mkdirSync(shims);
           for (const name of [
-            "job-client.mjs",
-            "job-shim.mjs",
+            "job-worker.mjs",
             "job-protocol.mjs",
             "job-peer.mjs",
           ])
             cpSync(resolve("deployment", name), join(installed, name));
+          cpSync(
+            resolve("test/fixtures/job-client-v1.mjs"),
+            join(installed, "job-client.mjs"),
+          );
+          cpSync(
+            resolve("test/fixtures/job-shim-v1.mjs"),
+            join(installed, "job-shim.mjs"),
+          );
           writeFileSync(
             configPath,
             JSON.stringify({

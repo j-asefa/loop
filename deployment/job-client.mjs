@@ -409,7 +409,10 @@ export async function runQueuedJob(command, args, options = {}) {
     const worker = fileURLToPath(new URL("./job-worker.mjs", import.meta.url));
     // The queue sees only a worker and a private rendezvous file, never user argv.
     const line =
-      "exec " + [process.execPath, worker, descriptor].map(quote).join(" ");
+      "exec " +
+      [process.execPath, worker, descriptor, config.worker || worker]
+        .map(quote)
+        .join(" ");
     taskId = (
       await queueCommand(config, [
         "add",
