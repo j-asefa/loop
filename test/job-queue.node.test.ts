@@ -182,12 +182,34 @@ test("command shims preserve ordinary commands and classify old and current Loop
     for (const options of [
       ["--config", "vite.config.ts"],
       ["--mode", "production"],
+      ["-m", "production"],
+      ["--logLevel", "warn"],
+      ["-l", "warn"],
+      ["--configLoader", "native"],
+      ["--debug", "vite:config"],
+      ["-d", "vite:config"],
+      ["--profile", "build-profile"],
+      ["--assetsDir", "assets"],
+      ["--assetsInlineLimit", "4096"],
+      ["--minify", "oxc"],
+      ["--sourcemap", "hidden"],
     ]) {
       assert.equal(
         classifyCommand("npx", ["vite", ...options, "build"], dir).label,
         "vite check",
       );
     }
+    for (const options of [["--profile"], ["--sourcemap"], ["--minify"]]) {
+      assert.equal(
+        classifyCommand("npx", ["vite", "build", ...options, "--watch"], dir)
+          .label,
+        undefined,
+      );
+    }
+    assert.equal(
+      classifyCommand("npx", ["vite", "--open", "build"], dir).label,
+      undefined,
+    );
     for (const context of [
       { ci: true, tty: true },
       { ci: false, tty: false },

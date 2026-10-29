@@ -199,8 +199,10 @@ export function checkOptions(args) {
     "--config",
     "-c",
     "--root",
+    "-r",
     "--dir",
     "--filter",
+    "-f",
     "--test-name-pattern",
     "--test-skip-pattern",
     "--testNamePattern",
@@ -223,6 +225,10 @@ export function checkOptions(args) {
     "--pool",
     "--environment",
     "--mode",
+    "-m",
+    "--logLevel",
+    "-l",
+    "--configLoader",
     "--base",
     "--host",
     "--port",
@@ -232,17 +238,36 @@ export function checkOptions(args) {
     "--userconfig",
     "--watch-path",
     "--outDir",
+    "--assetsDir",
+    "--assetsInlineLimit",
     "--outFile",
     "--target",
     "--module",
     "--moduleResolution",
     "--lib",
   ]);
+  const optionalValues = new Set([
+    "--debug",
+    "-d",
+    "--profile",
+    "--open",
+    "--ssr",
+    "--sourcemap",
+    "--minify",
+    "--manifest",
+    "--ssrManifest",
+  ]);
   const options = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--") break;
     options.push(args[i]);
-    if (values.has(args[i])) i++;
+    if (
+      values.has(args[i]) ||
+      (optionalValues.has(args[i]) &&
+        args[i + 1] &&
+        !args[i + 1].startsWith("-"))
+    )
+      i++;
   }
   return options;
 }
