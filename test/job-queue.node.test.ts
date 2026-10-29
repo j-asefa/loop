@@ -722,6 +722,72 @@ test(
         },
       );
       await t.test(
+        "operator cancellation remains available until output has drained",
+        async () => {
+          const client = pathToFileURL(
+            resolve("deployment/job-client.mjs"),
+          ).href;
+          const marker = join(dir, "operator-output-completed");
+          const program =
+            "process.stdout.write('x'.repeat(2*1024*1024));require('fs').writeFileSync(" +
+            JSON.stringify(marker) +
+            ",'done')";
+          const caller = spawn(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              "const {runQueuedJob}=await import(" +
+                JSON.stringify(client) +
+                ");process.exitCode=await runQueuedJob(process.execPath,['-e'," +
+                JSON.stringify(program) +
+                "],{label:'operator drain fixture',log:()=>{}});",
+            ],
+            { stdio: ["ignore", "pipe", "pipe"] },
+          );
+          caller.stdout.pause();
+          caller.stderr.resume();
+          const closed = once(caller, "close");
+          try {
+            await until(
+              () => existsSync(marker),
+              "operator output command completed",
+            );
+            let identity = "";
+            await until(async () => {
+              const task = Object.values(
+                (await queueStatus(config)).tasks,
+              ).find((task) => task.label?.endsWith(":operator drain fixture"));
+              if (!task || taskState(task) !== "Done") return false;
+              identity = task.label!.split(":")[1];
+              return true;
+            }, "operator job is draining completed output");
+            await delay(750);
+            const cli = spawn(
+              process.execPath,
+              [resolve("deployment/job-cli.mjs"), "cancel", identity],
+              { stdio: "ignore" },
+            );
+            const [cancelCode] = await once(cli, "close");
+            assert.equal(cancelCode, 0);
+            caller.stdout.resume();
+            const [code] = await closed;
+            assert.equal(code, 143);
+            assert.ok(
+              Object.values((await queueStatus(config)).tasks).some((task) =>
+                task.label?.includes(identity),
+              ),
+              "interrupted diagnostics remain available",
+            );
+          } finally {
+            if (caller.exitCode === null && !caller.signalCode)
+              caller.kill("SIGTERM");
+            caller.stdout.resume();
+            await closed;
+          }
+        },
+      );
+      await t.test(
         "a failed output follower retains completed diagnostics",
         async () => {
           const wrapper = join(dir, "failed-follower");

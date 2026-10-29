@@ -223,13 +223,39 @@ export async function runQueuedJob(command, args, options = {}) {
   // A killed caller cannot remove its finished task. Retain orphaned logs for
   // a day, then prune only Loop-owned completed jobs on the next submission.
   for (const task of Object.values(initial.tasks || {})) {
+    const orphan = /^loop:([a-f0-9-]{36}):/.exec(task.label || "");
     if (
       task.group === config.group &&
-      /^loop:[a-f0-9-]{36}:/.test(task.label || "") &&
+      orphan &&
       taskState(task) === "Done" &&
       Date.parse(task.status.Done.end) < Date.now() - 86400000
-    )
-      await queueCommand(config, ["remove", String(task.id)]).catch(() => {});
+    ) {
+      try {
+        const descriptor = join(
+          config.jobs,
+          "job-" + orphan[1],
+          "control.json",
+        );
+        try {
+          const control = JSON.parse(await readFile(descriptor, "utf8"));
+          if (Number.isInteger(control.pid) && control.pid > 1) {
+            try {
+              process.kill(control.pid, 0);
+              continue; // A completed command may still be draining output.
+            } catch (error) {
+              if (error.code !== "ESRCH") continue;
+            }
+          }
+        } catch (error) {
+          if (error.code !== "ENOENT") continue;
+        }
+        await queueCommand(config, ["remove", String(task.id)]);
+        await rm(join(config.jobs, "job-" + orphan[1]), {
+          recursive: true,
+          force: true,
+        });
+      } catch {}
+    }
   }
   const name = String(label)
     .replace(/[\r\n\x00-\x1f]/g, " ")
@@ -355,7 +381,7 @@ export async function runQueuedJob(command, args, options = {}) {
     const descriptor = join(directory, "control.json");
     await writeFile(
       descriptor,
-      JSON.stringify({ port: server.address().port, key }),
+      JSON.stringify({ port: server.address().port, key, pid: process.pid }),
       { mode: 0o600 },
     );
     for (const [name, handler] of handlers) process.on(name, handler);
@@ -462,7 +488,6 @@ export async function runQueuedJob(command, args, options = {}) {
   } finally {
     // Closing this live connection also stops an orphaned running worker.
     connection?.destroy();
-    server.close();
     let outputDelivered = false;
     if (follower) {
       // Normal pipe backpressure must not truncate a completed job's output.
@@ -475,6 +500,7 @@ export async function runQueuedJob(command, args, options = {}) {
           "Job output was not fully delivered; its queue logs were retained for inspection.",
         );
     }
+    server.close();
     for (const [name, handler] of handlers) process.off(name, handler);
     signal?.removeEventListener("abort", abort);
     if (directory) await rm(directory, { recursive: true, force: true });

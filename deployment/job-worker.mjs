@@ -72,6 +72,7 @@ async function main() {
     !/^[a-f0-9]{64}$/.test(control.key)
   )
     throw new Error("Invalid job control endpoint.");
+  let callerUnavailable = false;
   try {
     return await new Promise((resolve, reject) => {
       socket = connect({ host: "127.0.0.1", port: control.port });
@@ -79,6 +80,7 @@ async function main() {
       const nonce = randomBytes(32).toString("hex");
       let input = "",
         authorized = false,
+        refused = false,
         done = false;
       const timer = setTimeout(() => {
         cancel();
@@ -93,6 +95,7 @@ async function main() {
         ),
       );
       socket.on("error", () => {
+        callerUnavailable = true;
         if (!authorized)
           reject(
             new Error(
@@ -102,6 +105,7 @@ async function main() {
       });
       socket.on("close", () => {
         clearTimeout(timer);
+        if (!done && !refused) callerUnavailable = true;
         if (!done) cancel();
         if (!authorized) resolve(125);
       });
@@ -131,7 +135,10 @@ async function main() {
           input = input.slice(end + 1);
           if (message.cancel) {
             cancel();
-            if (!authorized) socket.end();
+            if (!authorized) {
+              refused = true;
+              socket.end();
+            }
             continue;
           }
           if (authorized || !message.execute) continue;
@@ -152,8 +159,9 @@ async function main() {
   } finally {
     clearTimeout(escalation);
     socket?.destroy();
-    // Rendezvous files contain no command, environment or account credentials.
-    if (/\/job-[^/]+\/control\.json$/.test(descriptor))
+    // A live caller owns its endpoint through output draining. Only clean up
+    // here when that caller has gone away; a refused duplicate owns nothing.
+    if (callerUnavailable && /\/job-[^/]+\/control\.json$/.test(descriptor))
       await rm(dirname(descriptor), { recursive: true, force: true });
   }
 }
