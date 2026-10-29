@@ -56,8 +56,34 @@ function nodeScript(args) {
         "--loader",
         "--experimental-loader",
         "--env-file",
+        "--env-file-if-exists",
         "--conditions",
         "-C",
+        "--test-reporter",
+        "--test-reporter-destination",
+        "--test-name-pattern",
+        "--test-skip-pattern",
+        "--test-concurrency",
+        "--test-timeout",
+        "--test-shard",
+        "--test-isolation",
+        "--test-global-setup",
+        "--test-rerun-failures",
+        "--test-coverage-include",
+        "--test-coverage-exclude",
+        "--test-coverage-lines",
+        "--test-coverage-functions",
+        "--test-coverage-branches",
+        "--watch-path",
+        "--input-type",
+        "--inspect-port",
+        "--diagnostic-dir",
+        "--redirect-warnings",
+        "--title",
+        "--max-old-space-size",
+        "--max-semi-space-size",
+        "--stack-trace-limit",
+        "--unhandled-rejections",
       ].includes(value)
     ) {
       i++;
@@ -133,8 +159,18 @@ export function classifyCommand(program, original, cwd = process.cwd()) {
       !args.some((a) => /^(--eval|--print)(=|$)|^-[ep]/.test(a))
     )
       label = "native tests";
-    else if (/^(vitest|vite-node)(\.m?js)?$/.test(name)) label = "tests";
-    else if (root && dirname(resolve(cwd, script)) === join(root, "scripts")) {
+    else if (/^(vitest|vite-node)(\.m?js)?$/.test(name)) {
+      if (
+        name.startsWith("vite-node") ||
+        args
+          .slice(index + 1)
+          .some((a) => ["run", "--run", "--watch=false"].includes(a))
+      )
+        label = "tests";
+    } else if (
+      root &&
+      dirname(resolve(cwd, script)) === join(root, "scripts")
+    ) {
       const managed = [
         "typecheck.mjs",
         "build.mjs",
@@ -180,12 +216,40 @@ export function classifyCommand(program, original, cwd = process.cwd()) {
         label = script;
     } else if (["ci", "install", "i", "add", "rebuild"].includes(verb))
       label = "dependency installation";
-    else if (["exec", "x"].includes(verb)) label = "tool check";
+    else if (["exec", "x"].includes(verb))
+      label = classifyCommand(
+        "npx",
+        args.slice(args.indexOf(verb) + 1),
+        cwd,
+      ).label;
   } else if (program === "npx") {
-    const tool = toolWords(args, program)[0];
-    if (["tsc", "vitest", "playwright", "vite"].includes(tool))
+    const [tool, ...words] = toolWords(args, program);
+    if (
+      tool === "tsc" ||
+      (tool === "playwright" && words[0] === "test") ||
+      (tool === "vite" && words[0] === "build") ||
+      (tool === "vitest" &&
+        args.some((a) => ["run", "--run", "--watch=false"].includes(a)))
+    )
       label = tool + " check";
   }
+  // Watchers and development servers never release a finite queue slot. For
+  // npm, -w selects a workspace; only arguments after -- belong to its script.
+  const checkArgs =
+    program === "npm"
+      ? args.slice(
+          args.indexOf("--") < 0 ? args.length : args.indexOf("--") + 1,
+        )
+      : args;
+  if (
+    checkArgs.some(
+      (a) =>
+        (/^(--watch|--watch-path|--ui)(=|$)/.test(a) &&
+          !a.endsWith("=false")) ||
+        a === "-w",
+    )
+  )
+    label = undefined;
   // Version/help probes must stay fast and must not create queue jobs.
   if (args.some((a) => ["--version", "-v", "--help", "-h"].includes(a)))
     label = undefined;

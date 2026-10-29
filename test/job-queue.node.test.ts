@@ -116,6 +116,47 @@ test("command shims preserve ordinary commands and classify old and current Loop
       classifyCommand("node", ["app.mjs", "--test"], dir).label,
       undefined,
     );
+    for (const options of [
+      ["--test-reporter", "spec"],
+      ["--test-name-pattern", "selected"],
+      ["--test-reporter-destination", "stdout"],
+      ["--env-file-if-exists", "fixture.env"],
+    ]) {
+      assert.equal(
+        classifyCommand("node", [...options, "--test", "fixture.test.mjs"], dir)
+          .label,
+        "native tests",
+      );
+      assert.equal(
+        classifyCommand("node", [...options, "app.mjs", "--test"], dir).label,
+        undefined,
+      );
+    }
+    for (const [program, args] of [
+      ["npx", ["vite"]],
+      ["npx", ["vite", "preview"]],
+      ["npx", ["tsc", "--watch"]],
+      ["npx", ["vitest"]],
+      ["npx", ["vitest", "run", "--watch"]],
+      ["npx", ["playwright", "test", "--ui"]],
+      ["npm", ["exec", "vite"]],
+      ["npm", ["run", "build", "--", "--watch"]],
+      ["node", ["--test", "--watch", "fixture.test.mjs"]],
+    ] as const) {
+      assert.equal(classifyCommand(program, [...args], dir).label, undefined);
+    }
+    assert.equal(
+      classifyCommand("npx", ["vite", "build"], dir).label,
+      "vite check",
+    );
+    assert.equal(
+      classifyCommand("npx", ["vitest", "run"], dir).label,
+      "vitest check",
+    );
+    assert.equal(
+      classifyCommand("npm", ["exec", "--", "tsc", "--noEmit"], dir).label,
+      "tsc check",
+    );
     assert.equal(
       classifyCommand("node", ["-e", "console.log('ok')", "--", "--test"], dir)
         .label,
@@ -169,6 +210,40 @@ test("ordinary commands retain the native PID and extra protocol descriptors thr
   }
 });
 
+test("Node test options cannot bypass a configured unavailable queue through the host shim", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-job-node-options-"));
+  try {
+    const shim = join(dir, "node"),
+      marker = join(dir, "must-not-run"),
+      fixture = join(dir, "fixture.test.mjs");
+    writeFileSync(
+      shim,
+      shimScript(
+        join(dir, "missing.json"),
+        process.execPath,
+        resolve("deployment/job-shim.mjs"),
+        "node",
+        process.execPath,
+      ),
+      { mode: 0o700 },
+    );
+    writeFileSync(
+      fixture,
+      "import {writeFileSync} from 'node:fs';writeFileSync(" +
+        JSON.stringify(marker) +
+        ",'bad');",
+    );
+    const child = spawn(shim, ["--test-reporter", "spec", "--test", fixture], {
+      stdio: "ignore",
+    });
+    const [code] = await once(child, "close");
+    assert.equal(code, 125);
+    assert.equal(existsSync(marker), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the bounded compiler still rejects real TypeScript errors", () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-job-types-"));
   try {
@@ -198,6 +273,7 @@ test("the bounded compiler still rejects real TypeScript errors", () => {
 test("a configured unavailable queue never falls back to an unscheduled check", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-job-offline-"));
   const saved = process.env.LOOP_JOB_QUEUE_CONFIG;
+  const active = process.env.LOOP_JOB_ACTIVE;
   try {
     const config = join(dir, "config.json"),
       marker = join(dir, "must-not-start");
@@ -211,6 +287,14 @@ test("a configured unavailable queue never falls back to an unscheduled check", 
       }),
     );
     process.env.LOOP_JOB_QUEUE_CONFIG = config;
+    // The test itself may already be admitted by the host's queue. Exercise
+    // submission failure independently, then the supervisor's invalid-config
+    // path with no inherited admission marker.
+    await assert.rejects(
+      runQueuedJob(process.execPath, ["-e", "process.exit(0)"], quiet),
+    );
+    process.env.LOOP_JOB_QUEUE_CONFIG = join(dir, "missing-config.json");
+    delete process.env.LOOP_JOB_ACTIVE;
     const code = await runSupervised(
       process.execPath,
       [
@@ -224,6 +308,8 @@ test("a configured unavailable queue never falls back to an unscheduled check", 
   } finally {
     if (saved === undefined) delete process.env.LOOP_JOB_QUEUE_CONFIG;
     else process.env.LOOP_JOB_QUEUE_CONFIG = saved;
+    if (active === undefined) delete process.env.LOOP_JOB_ACTIVE;
+    else process.env.LOOP_JOB_ACTIVE = active;
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -412,6 +498,47 @@ test(
         },
       );
       await t.test(
+        "source clients use their matching worker across installed protocol generations",
+        async () => {
+          writeFileSync(
+            configPath,
+            JSON.stringify({
+              ...config,
+              worker: join(dir, "old-install/job-worker.mjs"),
+            }),
+          );
+          try {
+            assert.equal(await run("process.exit(19)"), 19);
+          } finally {
+            writeFileSync(configPath, JSON.stringify(config));
+          }
+        },
+      );
+      await t.test(
+        "nested explicit jobs finish in the parent's slot and preserve status",
+        async () => {
+          const cli = resolve("deployment/job-cli.mjs");
+          for (const clean of [false, true]) {
+            const code =
+              "const r=require('child_process').spawnSync(process.execPath," +
+              JSON.stringify([
+                cli,
+                "run",
+                "--",
+                process.execPath,
+                "-e",
+                "process.exit(17)",
+              ]) +
+              ",{stdio:'ignore',timeout:5000" +
+              (clean
+                ? ",env:{PATH:process.env.PATH,LOOP_JOB_QUEUE_CONFIG:process.env.LOOP_JOB_QUEUE_CONFIG}"
+                : "") +
+              "});process.exit(r.status ?? 99)";
+            assert.equal(await run(code), 17);
+          }
+        },
+      );
+      await t.test(
         "running cancellation cleans up before the next command starts",
         async () => {
           const marker = join(dir, "running-cancel");
@@ -491,6 +618,96 @@ test(
           const lines = output.trimEnd().split("\n");
           assert.equal(lines.length, 4001);
           assert.equal(lines.at(-1), "last-output-marker");
+        },
+      );
+      await t.test(
+        "slow output consumers receive complete diagnostics before task removal",
+        async () => {
+          const client = pathToFileURL(
+            resolve("deployment/job-client.mjs"),
+          ).href;
+          const marker = join(dir, "slow-output-completed");
+          const expected = "x".repeat(2 * 1024 * 1024) + "last-output-marker\n";
+          const program =
+            "process.stdout.write('x'.repeat(2*1024*1024)+'last-output-marker\\n');require('fs').writeFileSync(" +
+            JSON.stringify(marker) +
+            ",'done')";
+          const caller = spawn(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              "const {runQueuedJob}=await import(" +
+                JSON.stringify(client) +
+                ");process.exitCode=await runQueuedJob(process.execPath,['-e'," +
+                JSON.stringify(program) +
+                "],{log:()=>{}});",
+            ],
+            { stdio: ["ignore", "pipe", "pipe"] },
+          );
+          let output = "",
+            errors = "";
+          caller.stdout.pause();
+          caller.stderr.on("data", (chunk) => (errors += chunk));
+          const closed = once(caller, "close");
+          try {
+            await until(
+              () => existsSync(marker),
+              "slow output command completed",
+            );
+            await delay(3000);
+            assert.equal(
+              caller.exitCode,
+              null,
+              "caller waits for downstream output",
+            );
+            caller.stdout.on("data", (chunk) => (output += chunk));
+            caller.stdout.resume();
+            const [code] = await closed;
+            assert.equal(code, 0, errors);
+            assert.equal(output, expected);
+          } finally {
+            if (caller.exitCode === null && !caller.signalCode)
+              caller.kill("SIGTERM");
+            caller.stdout.resume();
+            await closed;
+          }
+        },
+      );
+      await t.test(
+        "a failed output follower retains completed diagnostics",
+        async () => {
+          const wrapper = join(dir, "failed-follower");
+          writeFileSync(
+            wrapper,
+            "#!" +
+              process.execPath +
+              "\n" +
+              "const {spawnSync}=require('node:child_process');const args=process.argv.slice(2);if(args.includes('follow'))process.exit(7);const r=spawnSync(" +
+              JSON.stringify(binary) +
+              ",args,{stdio:'inherit'});process.exit(r.status ?? 125);",
+            { mode: 0o700 },
+          );
+          const messages: string[] = [];
+          writeFileSync(
+            configPath,
+            JSON.stringify({ ...config, pueue: wrapper }),
+          );
+          try {
+            assert.equal(
+              await run("console.log('retained diagnostics')", {
+                log: (line) => messages.push(line),
+              }),
+              0,
+            );
+            const tasks = Object.values((await queueStatus(config)).tasks);
+            assert.ok(tasks.some((task) => taskState(task) === "Done"));
+            assert.ok(
+              messages.some((line) => line.includes("logs were retained")),
+            );
+          } finally {
+            writeFileSync(configPath, JSON.stringify(config));
+          }
         },
       );
       await t.test(

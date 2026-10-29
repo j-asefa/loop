@@ -34,7 +34,9 @@ if (
   ];
   process.exitCode = await runSupervised(process.execPath, args, {
     label: "typecheck",
-    job: true,
+    job: !process.argv
+      .slice(2)
+      .some((arg) => arg === "-w" || /^--watch(?:=true)?$/.test(arg)),
     env: {
       ...process.env,
       GOMEMLIMIT: process.env.GOMEMLIMIT || "1536MiB",

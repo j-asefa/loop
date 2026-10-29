@@ -55,6 +55,12 @@ test(
       const fixture = `import { existsSync, writeFileSync } from 'node:fs';
       writeFileSync(process.env.LOOP_TEST_STARTED, String(process.pid));
       while (!existsSync(${JSON.stringify(release)})) await new Promise(r => setTimeout(r, 20));`;
+      mkdirSync(join(root, "scripts"));
+      cpSync(
+        new URL("../deployment", import.meta.url),
+        join(root, "deployment"),
+        { recursive: true },
+      );
       for (const name of [
         "heavy-command.mjs",
         "heavy-supervisor.py",
@@ -62,7 +68,7 @@ test(
       ])
         cpSync(
           new URL(`../scripts/${name}`, import.meta.url),
-          join(root, name),
+          join(root, "scripts", name),
         );
       mkdirSync(join(root, "node_modules/typescript"), { recursive: true });
       mkdirSync(join(root, "node_modules/vitest"), { recursive: true });
@@ -87,8 +93,8 @@ test(
           fileURLToPath(new URL("../scripts/test-runner.mjs", import.meta.url)),
           "vitest",
         ],
-        [join(root, "typecheck.mjs")],
-        [join(root, "heavy-command.mjs"), join(root, "browser.mjs")],
+        [join(root, "scripts/typecheck.mjs")],
+        [join(root, "scripts/heavy-command.mjs"), join(root, "browser.mjs")],
       ];
       const markers = commands.map((_, index) =>
         join(root, `started-${index}`),

@@ -2,13 +2,14 @@
 // private, live control connection, never in Pueue's persisted environment.
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import { isAbsolute, join } from "node:path";
 import { constants, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { signedMessage, verifiedMessage } from "./job-protocol.mjs";
 
 const exec = promisify(execFile);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -53,9 +54,10 @@ export function insideQueuedJob(config) {
         return true;
     } catch {}
   }
-  const worker =
-    config.worker ||
-    fileURLToPath(new URL("./job-worker.mjs", import.meta.url));
+  const workers = [
+    config.worker,
+    fileURLToPath(new URL("./job-worker.mjs", import.meta.url)),
+  ].filter(Boolean);
   let pid = process.ppid;
   for (let depth = 0; pid > 1 && depth < 48; depth++) {
     try {
@@ -73,7 +75,11 @@ export function insideQueuedJob(config) {
       if (
         [process.execPath, config.commands?.node]
           .filter(Boolean)
-          .some((node) => match[2].startsWith(node + " " + worker + " "))
+          .some((node) =>
+            workers.some((worker) =>
+              match[2].startsWith(node + " " + worker + " "),
+            ),
+          )
       )
         return true;
       const parent = Number(match[1]);
@@ -140,6 +146,8 @@ export async function cancelQueuedJob(config, identity) {
   // caller instead, so a delayed cancel can never target a newer command.
   await new Promise((resolve, reject) => {
     const socket = connect({ host: "127.0.0.1", port: control.port });
+    socket.setEncoding("utf8");
+    const nonce = randomBytes(32).toString("hex");
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new Error("Job cancellation was not acknowledged."));
@@ -147,13 +155,25 @@ export async function cancelQueuedJob(config, identity) {
     let input = "",
       acknowledged = false;
     socket.on("connect", () =>
-      socket.write(JSON.stringify({ key: control.key, cancel: true }) + "\n"),
+      socket.write(
+        JSON.stringify(
+          signedMessage(control.key, nonce, "request", { cancel: true }),
+        ) + "\n",
+      ),
     );
     socket.on("data", (chunk) => {
       input += chunk.toString();
       if (input.length > 1024) return socket.destroy();
       if (input.includes("\n")) {
-        acknowledged = input.trim() === '{"cancelled":true}';
+        try {
+          acknowledged =
+            verifiedMessage(
+              control.key,
+              nonce,
+              "response",
+              JSON.parse(input.trim()),
+            )?.cancelled === true;
+        } catch {}
         socket.end();
       }
     });
@@ -219,16 +239,31 @@ export async function runQueuedJob(command, args, options = {}) {
     cancelAt = 0,
     actualResult,
     connection,
+    connectionNonce,
+    followerEscalation,
     lastReport = "";
   let lastReportAt = 0;
+  const stopFollower = () => {
+    follower?.kill("SIGTERM");
+    followerEscalation ??= setTimeout(() => follower?.kill("SIGKILL"), 1500);
+    followerEscalation.unref();
+  };
   const cancel = (code = 130) => {
     if (cancelled) return;
     cancelled = code;
     cancelAt = Date.now();
-    connection?.write(JSON.stringify({ cancel: true }) + "\n");
+    if (connection)
+      connection.write(
+        JSON.stringify(
+          signedMessage(key, connectionNonce, "response", { cancel: true }),
+        ) + "\n",
+      );
+    if (completed) stopFollower();
   };
   const server = createServer((socket) => {
+    socket.setEncoding("utf8");
     let input = "",
+      nonce,
       authenticated = false;
     socket.on("error", () => {});
     socket.setTimeout(5000, () => {
@@ -241,41 +276,49 @@ export async function runQueuedJob(command, args, options = {}) {
       while ((end = input.indexOf("\n")) >= 0) {
         let message;
         try {
-          message = JSON.parse(input.slice(0, end));
+          const envelope = JSON.parse(input.slice(0, end));
+          nonce ??= envelope?.nonce;
+          message = verifiedMessage(key, nonce, "request", envelope);
+          if (!message) return socket.destroy();
         } catch {
           return socket.destroy();
         }
         input = input.slice(end + 1);
         if (!authenticated) {
-          const supplied = Buffer.from(
-            typeof message.key === "string" ? message.key : "",
-          );
-          if (
-            supplied.length !== key.length ||
-            !timingSafeEqual(supplied, Buffer.from(key))
-          )
-            return socket.destroy();
           authenticated = true;
           socket.setTimeout(0);
           if (message.cancel === true) {
             cancel(143);
-            return socket.end('{"cancelled":true}\n');
+            return socket.end(
+              JSON.stringify(
+                signedMessage(key, nonce, "response", { cancelled: true }),
+              ) + "\n",
+            );
           }
+          if (message.run !== true) return socket.destroy();
           // A manually restarted Pueue task cannot replay an already dispatched command.
-          if (admitted || cancelled) return socket.end('{"cancel":true}\n');
+          if (admitted || cancelled)
+            return socket.end(
+              JSON.stringify(
+                signedMessage(key, nonce, "response", { cancel: true }),
+              ) + "\n",
+            );
           admitted = true;
           connection = socket;
+          connectionNonce = nonce;
           socket.write(
-            JSON.stringify({
-              execute: {
-                command,
-                args,
-                cwd,
-                env: { ...env, LOOP_JOB_ACTIVE: identity },
-                stdio,
-                label: name,
-              },
-            }) + "\n",
+            JSON.stringify(
+              signedMessage(key, nonce, "response", {
+                execute: {
+                  command,
+                  args,
+                  cwd,
+                  env: { ...env, LOOP_JOB_ACTIVE: identity },
+                  stdio,
+                  label: name,
+                },
+              }),
+            ) + "\n",
           );
         } else if (
           Number.isInteger(message.code) &&
@@ -310,9 +353,9 @@ export async function runQueuedJob(command, args, options = {}) {
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) cancel();
     if (cancelled) return cancelled;
-    const worker =
-      config.worker ||
-      fileURLToPath(new URL("./job-worker.mjs", import.meta.url));
+    // A source checkout and an installed shim may use different protocol
+    // generations. Always launch the worker shipped alongside this client.
+    const worker = fileURLToPath(new URL("./job-worker.mjs", import.meta.url));
     // The queue sees only a worker and a private rendezvous file, never user argv.
     const line =
       "exec " + [process.execPath, worker, descriptor].map(quote).join(" ");
@@ -352,8 +395,8 @@ export async function runQueuedJob(command, args, options = {}) {
       },
     );
     following = new Promise((resolve) => {
-      follower.once("close", resolve);
-      follower.once("error", resolve);
+      follower.once("close", (code) => resolve(code === 0));
+      follower.once("error", () => resolve(false));
     });
     for (;;) {
       const state = await queueStatus(config);
@@ -410,18 +453,24 @@ export async function runQueuedJob(command, args, options = {}) {
     // Closing this live connection also stops an orphaned running worker.
     connection?.destroy();
     server.close();
+    let outputDelivered = false;
+    if (follower) {
+      // Normal pipe backpressure must not truncate a completed job's output.
+      // Keep cancellation handlers until the follower has drained or stopped.
+      if (!completed || cancelled) stopFollower();
+      outputDelivered = await following;
+      clearTimeout(followerEscalation);
+      if (completed && !outputDelivered)
+        log(
+          "Job output was not fully delivered; its queue logs were retained for inspection.",
+        );
+    }
     for (const [name, handler] of handlers) process.off(name, handler);
     signal?.removeEventListener("abort", abort);
-    if (follower) {
-      if (completed) await Promise.race([following, delay(1500)]);
-      if (follower.exitCode === null && !follower.signalCode)
-        follower.kill("SIGTERM");
-      await Promise.race([following, delay(1500)]);
-    }
     if (directory) await rm(directory, { recursive: true, force: true });
     // Completed output already reached Loop's command trace. Remove only this
     // invocation's task so persisted queue logs cannot grow without a bound.
-    if (completed && taskId) {
+    if (completed && taskId && outputDelivered) {
       try {
         const state = await queueStatus(config);
         const task = state.tasks?.[taskId];

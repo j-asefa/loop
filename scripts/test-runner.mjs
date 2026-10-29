@@ -46,6 +46,6 @@ if (
     label: `${suite} tests`,
     stdio: "inherit",
     env: testEnvironment(process.env, suite),
-    job: true,
+    job: !extra.some((arg) => arg === "-w" || /^--watch(?:=true)?$/.test(arg)),
   });
 }

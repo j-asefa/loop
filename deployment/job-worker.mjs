@@ -1,11 +1,13 @@
 // Pueue starts this small worker only when the shared queue admits a job.
 // A live, authenticated submitting process must authorize exactly one execution.
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import { connect } from "node:net";
 import { dirname } from "node:path";
 import { constants } from "node:os";
 import { fileURLToPath } from "node:url";
+import { signedMessage, verifiedMessage } from "./job-protocol.mjs";
 
 let socket,
   child,
@@ -73,6 +75,8 @@ async function main() {
   try {
     return await new Promise((resolve, reject) => {
       socket = connect({ host: "127.0.0.1", port: control.port });
+      socket.setEncoding("utf8");
+      const nonce = randomBytes(32).toString("hex");
       let input = "",
         authorized = false,
         done = false;
@@ -82,7 +86,11 @@ async function main() {
         reject(new Error("Job authorization timed out."));
       }, 5000);
       socket.once("connect", () =>
-        socket.write(JSON.stringify({ key: control.key }) + "\n"),
+        socket.write(
+          JSON.stringify(
+            signedMessage(control.key, nonce, "request", { run: true }),
+          ) + "\n",
+        ),
       );
       socket.on("error", () => {
         if (!authorized)
@@ -108,7 +116,13 @@ async function main() {
         while ((end = input.indexOf("\n")) >= 0) {
           let message;
           try {
-            message = JSON.parse(input.slice(0, end));
+            message = verifiedMessage(
+              control.key,
+              nonce,
+              "response",
+              JSON.parse(input.slice(0, end)),
+            );
+            if (!message) throw new Error("Unauthenticated job response.");
           } catch {
             cancel();
             socket.destroy();
@@ -125,7 +139,11 @@ async function main() {
           clearTimeout(timer);
           void execute(message.execute).then((code) => {
             done = true;
-            socket.end(JSON.stringify({ code }) + "\n");
+            socket.end(
+              JSON.stringify(
+                signedMessage(control.key, nonce, "request", { code }),
+              ) + "\n",
+            );
             resolve(code);
           }, reject);
         }

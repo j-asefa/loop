@@ -11,12 +11,12 @@ import {
   rename,
   writeFile,
 } from "node:fs/promises";
-import { constants } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, delimiter } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { queueCommand, queueStatus } from "./job-client.mjs";
 import { shimScript } from "./job-shim.mjs";
+import { underlyingCommand } from "./job-executables.mjs";
 
 const version = "4.0.4";
 const assets = {
@@ -103,6 +103,7 @@ const files = [
   "job-worker.mjs",
   "job-shim.mjs",
   "job-cli.mjs",
+  "job-protocol.mjs",
 ];
 const supervisor = await readFile(
   join(source, "../scripts/heavy-supervisor.py"),
@@ -128,22 +129,17 @@ let previous;
 try {
   previous = JSON.parse(await readFile(configPath, "utf8"));
 } catch {}
-async function underlying(name) {
-  if (previous?.commands?.[name]) return previous.commands[name];
-  if (name === "node") return process.execPath;
-  for (const dir of (process.env.PATH || "").split(delimiter)) {
-    if (!dir || dir === bin) continue;
-    const path = join(dir, name);
-    try {
-      await access(path, constants.X_OK);
-      return path;
-    } catch {}
-  }
-  throw new Error("Cannot find the underlying " + name + " executable.");
-}
 const commands = Object.fromEntries(
   await Promise.all(
-    ["node", "npm", "npx"].map(async (name) => [name, await underlying(name)]),
+    ["node", "npm", "npx"].map(async (name) => [
+      name,
+      await underlyingCommand(name, {
+        previous,
+        bin,
+        node: process.execPath,
+        path: process.env.PATH,
+      }),
+    ]),
   ),
 );
 const config = {
