@@ -72,20 +72,32 @@ export class Native extends EventEmitter {
     }) as ChildProcessWithoutNullStreams;
     own(this.child);
     let metadata = "";
+    let metadataBytes = 0;
+    const metadataDecoder = new StringDecoder("utf8");
     (this.child.stdio[3] as NodeJS.ReadableStream).on("data", (chunk) => {
-      metadata += chunk.toString();
-      if (metadata.length > 100000) {
-        this.fail(new Error("Native metadata too large"));
-        return;
-      }
-      let end;
-      while ((end = metadata.indexOf("\n")) >= 0) {
-        const line = metadata.slice(0, end);
-        metadata = metadata.slice(end + 1);
+      const segments = metadataDecoder.write(chunk).split("\n");
+      for (let index = 0; index < segments.length; index++) {
+        metadata += segments[index];
+        metadataBytes += Buffer.byteLength(segments[index]);
+        // Metadata lines carry whole model catalogs (up to MAX_NATIVE_MODELS),
+        // so they share the protocol frame bound.
+        if (metadataBytes > maxFrameBytes) {
+          this.fail(
+            new Error(
+              `Native metadata exceeds ${maxFrameBytes / 1024 / 1024} MiB.`,
+            ),
+          );
+          return;
+        }
+        if (index === segments.length - 1) break;
+        const line = metadata;
+        metadata = "";
+        metadataBytes = 0;
         try {
           this.emit("metadata", JSON.parse(line));
         } catch {
           this.fail(new Error("Invalid metadata"));
+          return;
         }
       }
     });

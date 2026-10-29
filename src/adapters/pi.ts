@@ -274,7 +274,8 @@ export class Pi implements Adapter {
             ? error
             : new NativeSetupError(
                 "native_start_failed",
-                "Pi could not start. Check its executable, version and extension loading. No prompt was sent.",
+                // Native failures carry Loop-authored transport messages only.
+                `Pi could not start (${String(error.message).replace(/\.$/, "")}). Check its executable, version and extension loading. No prompt was sent.`,
               ),
         );
         this.infoWait = undefined;

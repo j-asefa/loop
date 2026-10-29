@@ -407,6 +407,71 @@ test("Pi's subscription catalog excludes API routes for the same model", async (
     delete process.env.LOOP_TEST_PI_AUTH;
   }
 });
+test("Pi starts with an aggregator-sized catalog and full workspace tools, and names a startup failure", async () => {
+  process.env.LOOP_TEST_HARNESS = "pi";
+  // 5,000 models is the registration bound; the real extension reports them.
+  process.env.LOOP_TEST_PI_EXTENSION_MODELS = "5000";
+  process.env.LOOP_TEST_PI_EXTENSION_ID_TEXT = "漢";
+  try {
+    const adapter = new Pi(
+      {
+        harness: "pi",
+        project: process.cwd(),
+        executable,
+        billing: "subscription",
+        version: "fixture",
+      },
+      () => {},
+    );
+    try {
+      await adapter.start();
+      assert.deepEqual(
+        adapter.models.find((model) => model.id === "openai-codex/fixture")
+          ?.effortLevels?.length,
+        7,
+      );
+      assert.equal(adapter.customizationInventory.toolsTruncated, false);
+      // Multibyte identifiers survive pipe chunk boundaries intact.
+      const efforts = (adapter as any).info.modelEfforts;
+      assert.equal(efforts.length, 5001);
+      assert.equal(
+        efforts[4999].id,
+        "openrouter/vendor-19/model-4999-" + "漢".repeat(24),
+      );
+    } finally {
+      await adapter.dispose();
+    }
+    // Three-byte identifiers: under 8 MiB in characters, over it in bytes.
+    process.env.LOOP_TEST_PI_EXTENSION_MODELS = "60000";
+    const oversized = new Pi(
+      {
+        harness: "pi",
+        project: process.cwd(),
+        executable,
+        billing: "existing",
+        version: "fixture",
+      },
+      () => {},
+    );
+    try {
+      await assert.rejects(
+        oversized.start(),
+        (error) =>
+          error instanceof NativeSetupError &&
+          error.code === "native_start_failed" &&
+          error.message.startsWith(
+            "Pi could not start (Native metadata exceeds 8 MiB). ",
+          ),
+      );
+    } finally {
+      await oversized.dispose();
+    }
+  } finally {
+    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP_TEST_PI_EXTENSION_MODELS;
+    delete process.env.LOOP_TEST_PI_EXTENSION_ID_TEXT;
+  }
+});
 test("Pi reports an extension question asked during startup instead of waiting", async () => {
   process.env.LOOP_TEST_HARNESS = "pi";
   process.env.LOOP_TEST_PI_STARTUP_QUESTION = "1";

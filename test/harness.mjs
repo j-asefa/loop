@@ -160,7 +160,66 @@ function finish(status = "completed") {
   held = false;
 }
 let piModel = { provider: "openai-codex", id: "fixture" };
-if (kind === "pi")
+if (kind === "pi" && process.env.LOOP_TEST_PI_EXTENSION_MODELS) {
+  // Run Loop's real metadata extension against an aggregator-sized catalog
+  // and a full workspace tool list; Pi's thinking-level helper is stubbed.
+  const { registerHooks } = await import("node:module");
+  registerHooks({
+    resolve: (specifier, context, next) =>
+      specifier === "@earendil-works/pi-ai/compat"
+        ? {
+            url: "data:text/javascript,export const getSupportedThinkingLevels=()=>['off','minimal','low','medium','high','xhigh','max']",
+            shortCircuit: true,
+          }
+        : next(specifier, context),
+  });
+  const { default: extension } = await import("../src/pi-extension.mjs");
+  const available = Array.from(
+    { length: Number(process.env.LOOP_TEST_PI_EXTENSION_MODELS) },
+    (_, i) => ({
+      provider: "openrouter",
+      id:
+        `vendor-${i % 60}/model-${i}-` +
+        (process.env.LOOP_TEST_PI_EXTENSION_ID_TEXT || "x").repeat(24),
+    }),
+  );
+  available.push({ provider: "openai-codex", id: "fixture" });
+  const tools = Array.from({ length: 150 }, (_, i) => ({
+    name: `loop_mcp_${String(i).padStart(20, "0")}`,
+    description: "d".repeat(300),
+    sourceInfo: {
+      path: "/opt/loop/dist/pi-extension.mjs",
+      source: "extension",
+      scope: "temporary",
+      origin: "top-level",
+    },
+  }));
+  const handlers = {};
+  extension({
+    on: (event, handler) => (handlers[event] = handler),
+    registerCommand: () => {},
+    registerTool: () => {},
+    getAllTools: () => tools,
+    getActiveTools: () => tools.map((tool) => tool.name),
+  });
+  const oauth = (model) => model.provider === "openai-codex";
+  await handlers.session_start(
+    {},
+    {
+      model: available.at(-1),
+      isProjectTrusted: () => true,
+      modelRegistry: {
+        getAvailable: () => available,
+        getProvider: (provider) =>
+          provider === "openai-codex"
+            ? { auth: { oauth: { isSubscription: true } } }
+            : {},
+        isUsingOAuth: oauth,
+        hasConfiguredAuth: () => true,
+      },
+    },
+  );
+} else if (kind === "pi")
   writeSync(
     3,
     JSON.stringify({

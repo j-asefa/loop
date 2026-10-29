@@ -26,13 +26,20 @@ export default function loopMetadata(pi) {
         id: `${available.provider}/${available.id}`,
         levels: getSupportedThinkingLevels(available),
       })),
-      modelBilling: ctx.modelRegistry.getAvailable().map((available) => ({
-        id: `${available.provider}/${available.id}`,
-        subscription:
-          ctx.modelRegistry.isUsingOAuth(available) &&
-          ctx.modelRegistry.getProvider(available.provider)?.auth?.oauth
-            ?.isSubscription === true,
-      })),
+      // Only confirmed subscriptions: aggregator catalogs list hundreds of
+      // models, and Loop treats an absent entry as not a subscription.
+      modelBilling: ctx.modelRegistry
+        .getAvailable()
+        .filter(
+          (available) =>
+            ctx.modelRegistry.isUsingOAuth(available) &&
+            ctx.modelRegistry.getProvider(available.provider)?.auth?.oauth
+              ?.isSubscription === true,
+        )
+        .map((available) => ({
+          id: `${available.provider}/${available.id}`,
+          subscription: true,
+        })),
       configured: !!model && ctx.modelRegistry.hasConfiguredAuth(model),
       subscription:
         !!model &&
