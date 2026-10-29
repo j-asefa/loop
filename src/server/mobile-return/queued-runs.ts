@@ -11,6 +11,11 @@ import { transition, type Run } from "../queue.js";
 import { NATIVE_CONNECTION_SQL } from "../native-connections.js";
 import { MAX_MESSAGE_FILES } from "../../shared/uploads.js";
 import { attachmentDescriptors } from "./shared.js";
+import {
+  recordFleetEffectEdit,
+  assertFleetEffect,
+  inheritFleetEffect,
+} from "../fleet-effect-authorizations.js";
 
 // Queued runs a reorder can swap with. Same scope as the queue claim: one
 // agent, and one conversation when both runs use a per-conversation (native)
@@ -121,6 +126,7 @@ export function editQueuedRun(owner: string, runId: string, body: unknown) {
           409,
           "This message has already started. It can no longer be edited.",
         );
+      recordFleetEffectEdit(owner, "run", run.id);
       db.prepare(
         "UPDATE runs SET input=?,updated_at=? WHERE id=? AND owner_id=? AND state='queued' AND worker_id IS NULL",
       ).run(input, now(), run.id, owner);
@@ -222,10 +228,13 @@ export function moveQueuedRun(owner: string, runId: string, body: unknown) {
           .get(run.id, run.id)
       )
         throw new Problem(409, "Only a queued message you sent can be moved");
+      assertFleetEffect(owner, "run", run.id);
       if (!transition(run, "cancelled", { reason: "Moved to another agent" }))
         throw new Problem(409, "This message has already started");
       // submit() throwing rolls back the cancellation too.
-      return submit(owner, request);
+      const moved = submit(owner, request);
+      inheritFleetEffect(owner, "run", run.id, moved.id);
+      return moved;
     })
     .immediate();
 }

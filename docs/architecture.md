@@ -164,13 +164,47 @@ The directory outbox uses this primitive when a recipient reports a newer
 unknown head. Credential refusal can also trigger this shared refresh, with one
 pending refresh and a thirty-second cooldown across all operation leases.
 
+The peer workspace catalog allowlists existing local GET contracts. A
+read credential maps to the destination owner; callers cannot select another
+owner/source, arbitrary URLs or private native/provider endpoints. The in-memory
+bridge runs existing middleware and public projections. Signed responses bind
+the request, machine, grant, directory and source clock. Catalogs advertise only
+implemented capabilities. Destination reads have four slots and a 2 MiB limit;
+clients allow four requests per peer, sixteen overall, cancellation and a
+45-second deadline. The bridge holds its four read and four action slots until
+handlers finish, even after HTTP timeouts; expired middleware cannot start a
+handler. Commands deduplicate before admission, in-flight duplicates share their
+operation, and receipts remain readable during unrelated work. Rejection
+invalidates only the credential used. Verified directory changes trigger bounded
+history reconciliation without replaying the read. Startup and source discovery
+leave these hooks unmounted until source-control integration is complete.
+
 Destination fleet command receipts retain their original identity across retries,
 gateway changes and restarts. They project responses through the owning public
 contract, bound cached response bodies, and retain compacted completion records.
+Their payload digest binds the parsed wire input before handler defaults and
+inner idempotency keys are supplied, so receipt queries use the same payload.
 A process exiting after dispatch leaves an uncertain receipt; reading or retrying
 it never submits the effect again. Directory/grant checks precede dispatch, and
 the owning native handler still enforces decision generations. Peer agent-action
 HTTP endpoints are not registered yet.
+
+Fleet work retains its creator and every peer edit, resume or explicit scheduled
+retry in the owning transaction, including work created locally. Scheduled
+conversion, queue moves, delegation, workflow steps, review fan-out and local mail
+inherit all constraints. Steering, native/API approvals and permission changes
+to a waiting native turn add the peer before delivery; uncertainty preserves it.
+Pending mail rechecks the sender's grants; never-delivered steering retains them
+when converted to a queued turn. Revocation of any contributor blocks later
+dispatch. Committed events clear the waking request's ambient context so consumers
+use their own stored constraints.
+
+Native prompt, steering and answer callbacks recheck the run, generation and
+grants after adapter preparation, immediately before input. Definitively refused
+answers discard only their new constraint in the recovery transaction; accepted,
+uncertain and earlier contributions remain. API execution checks grants before
+each tool, the MCP broker checks after connection preparation, and the native
+tool bridge checks before tool entry.
 
 Currently authorized peers share the destination owner's approved operation
 scope, including receipt reconciliation. Receipts retain the originating peer
@@ -279,7 +313,9 @@ An earlier release ran harnesses through HAPI; that code is gone. Migration 080 
 The companion host calls a private execution boundary for operations that need live native state. The authority owns the scheduler, native sessions, tool bridge, sign-ins and upgrade reservations. It runs in a child process started by the companion host over inherited Node IPC, using the same profile and data directory. Both sides validate the same operation schemas and JSON envelopes: requests have unique IDs, an authority generation, readiness checks and a limit of the public HTTP body size (12 MiB) plus 64 KiB for envelope metadata; responses have matching identities and a 64 MiB limit to accommodate native frames and their derived catalogs. Disconnect rejects outstanding requests. The client never silently switches authority or resends a command. Unknown and completed command outcomes remain explicit through the HTTP boundary, including a completed command whose cached response expired. Runtime setup, sign-in and session settings retain the original command for retries. After checking current status, the user can explicitly start a new verification, sign-in or setting request.
 
 Trusted in-process passive workspace reads return stored model catalogs and do
-not initialize projects. Their native requests are limited to process status,
+not initialize projects. The fleet workspace bridge applies this context to
+allowlisted reads for the authenticated destination owner. Their native requests
+are limited to process status,
 loaded session controls, stored runtime registrations and already loaded command
 catalogs. A missing command catalog reports unavailable instead of launching a
 probe. The context is internal, owner-bound and cannot be selected by request

@@ -14,6 +14,12 @@ import { submit } from "../agent-runtime.js";
 import { attachedFiles } from "../uploads.js";
 import { messageReplyContext } from "../message-replies.js";
 import { attachmentDescriptors, encode, decode } from "./shared.js";
+import {
+  recordFleetEffect,
+  recordFleetEffectEdit,
+  inheritFleetEffect,
+  withFleetEffect,
+} from "../fleet-effect-authorizations.js";
 
 // ---------------------------------------------------------------------------
 // 6. Scheduled sends
@@ -110,6 +116,7 @@ export function createScheduledSend(owner: string, body: unknown) {
           "You have 100 scheduled messages. Cancel some first.",
         );
       const sendId = id();
+      recordFleetEffect(owner, "scheduled", sendId);
       db.prepare(
         `INSERT INTO scheduled_sends(id,owner_id,agent_id,conversation_id,folder_id,folder_chosen,input,attachment_ids,reply_to_message_id,reply_excerpt,idempotency_key,send_at,state,created_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?)`,
@@ -256,6 +263,7 @@ export function editScheduledSend(
           );
       }
       if (d.sendAt !== undefined) validSendAt(d.sendAt);
+      recordFleetEffectEdit(owner, "scheduled", row.id);
       db.prepare(
         "UPDATE scheduled_sends SET input=?,send_at=?,state='scheduled',error=NULL WHERE id=? AND owner_id=? AND state IN ('scheduled','failed')",
       ).run(d.input ?? row.input, d.sendAt ?? row.send_at, sendId, owner);
@@ -267,21 +275,24 @@ export function editScheduledSend(
 // Submits a scheduled message with its stored idempotency key, inside the
 // caller's transaction: if it was already accepted, submit() returns that run.
 function submitScheduled(row: ScheduledSend) {
-  const run = submit(row.owner_id, {
-    agentId: row.agent_id,
-    conversationId: row.conversation_id ?? undefined,
-    // "No project" stays null; only an unchosen project uses the agent's.
-    folderId: row.folder_chosen ? row.folder_id : undefined,
-    input: row.input,
-    attachmentIds: JSON.parse(row.attachment_ids),
-    replyToMessageId: row.reply_to_message_id ?? undefined,
-    replyExcerpt: row.reply_excerpt ?? undefined,
-    idempotencyKey: row.idempotency_key,
-    // A deferred message never steers work that started after it was
-    // written; it queues behind the conversation's current run.
-    steer: false,
-    personal: true,
-  });
+  const run = withFleetEffect(row.owner_id, "scheduled", row.id, () =>
+    submit(row.owner_id, {
+      agentId: row.agent_id,
+      conversationId: row.conversation_id ?? undefined,
+      // "No project" stays null; only an unchosen project uses the agent's.
+      folderId: row.folder_chosen ? row.folder_id : undefined,
+      input: row.input,
+      attachmentIds: JSON.parse(row.attachment_ids),
+      replyToMessageId: row.reply_to_message_id ?? undefined,
+      replyExcerpt: row.reply_excerpt ?? undefined,
+      idempotencyKey: row.idempotency_key,
+      // A deferred message never steers work that started after it was
+      // written; it queues behind the conversation's current run.
+      steer: false,
+      personal: true,
+    }),
+  );
+  inheritFleetEffect(row.owner_id, "scheduled", row.id, run.id);
   db.prepare(
     "UPDATE scheduled_sends SET state='submitted',run_id=?,error=NULL WHERE id=?",
   ).run(run.id, row.id);
@@ -309,6 +320,7 @@ export function retryScheduledSend(owner: string, sendId: string) {
           409,
           "Only a message that could not be sent can be retried",
         );
+      recordFleetEffectEdit(owner, "scheduled", row.id);
       try {
         return {
           run: submitScheduled(row),

@@ -109,6 +109,14 @@ export class FleetCredentialLeases {
   get(peer: string, operation: FleetOperation) {
     return this.entry(peer, operation).lease.get();
   }
+  rejected(peer: string, operation: FleetOperation, token: string) {
+    if (this.stopped) return;
+    this.leases.get(`${peer}:${operation}`)?.lease.rejected(token);
+    this.unavailable(new Problem(403, "A peer credential was refused."));
+  }
+  refreshDirectory() {
+    this.unavailable(new Problem(409, "A peer has a different directory."));
+  }
   /** Authority notifications run after commit; individual get() calls also
    * recheck the head before dispatch, even before this notification arrives. */
   changed() {

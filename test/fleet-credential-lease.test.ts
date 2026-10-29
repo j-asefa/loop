@@ -35,6 +35,25 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 const scope = ["read", "act", "events", "mail", "files"] as const;
+
+it("replaces a refused issuer credential without replaying work or discarding a later replacement", async () => {
+  const { a, b, lease, calls } = fixture();
+  const old = await lease.get();
+  b.credentials = new FleetCredentials(b.db, b.authority, secrets, b.clock);
+  expect(() => b.credentials.authenticate(old.token)).toThrow("invalid");
+  lease.rejected(old.token);
+  await expect(lease.get()).rejects.toMatchObject({ status: 503 });
+  await vi.advanceTimersByTimeAsync(1_000);
+  const current = await lease.get();
+  expect(current.token).not.toBe(old.token);
+  expect(b.credentials.authenticate(current.token).context.peer).toBe(
+    a.authority.identity.machineId,
+  );
+  lease.rejected(old.token);
+  expect((await lease.get()).token).toBe(current.token);
+  expect(calls.issue).toBe(2);
+});
+
 function fixture(random = 0.5) {
   vi.useFakeTimers();
   const started = Date.now();

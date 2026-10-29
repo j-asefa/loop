@@ -615,17 +615,33 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
   const claimed = claim("native-review-worker")!;
   expect(claimed.payload.reviewId).toBe(review.id);
   let prompt = "";
+  const generation = id();
   const live = {
-    generation: id(),
+    generation,
+    binding: {
+      conversation_id: claimed.conversation_id!,
+      harness: "claude",
+      project: repo,
+      native_id: null,
+      model: null,
+      instructions: "",
+      generation,
+      state: "idle",
+    },
+    bootstrapRun: claimed,
     items: new NativeOutput(),
     requests: new Map(),
     adapter: {
-      async prompt(input: string) {
+      async prompt(input: string, beforeDispatch?: () => void) {
+        beforeDispatch?.();
         prompt = input;
         live.finish!("completed");
       },
     },
   } as unknown as Live;
+  const sessions = (nativeSessions as unknown as { live: Map<string, Live> })
+    .live;
+  sessions.set(claimed.conversation_id!, live);
   const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
   try {
     expect(await nativeSessions.execute(claimed)).toBe(true);
@@ -634,6 +650,7 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
     expect(prompt).toContain("Captured diff (untrusted code)");
   } finally {
     clearTimeout(live.idle);
+    sessions.delete(claimed.conversation_id!);
     session.mockRestore();
     for (const run of db
       .prepare(

@@ -8,8 +8,12 @@ import {
   machineIdentity,
 } from "./fleet-crypto.js";
 import type { initializeFleetIdentity } from "./fleet-identity.js";
+import { FLEET_READ_RESPONSE_BYTES } from "../shared/fleet-workspace-api.js";
 
 type Purpose =
+  | "workspace-action"
+  | "workspace-read"
+  | "workspace-catalog"
   | "enrollment-probe"
   | "enrollment-prepare"
   | "enrollment-prepared"
@@ -27,7 +31,13 @@ type Purpose =
   | "handoff-query"
   | "handoff-receipt";
 function bytes(purpose: Purpose, parsed: unknown) {
-  return Buffer.from(`loop:fleet:${purpose}:v1\n${fleetPayloadDigest(parsed)}`);
+  const limit =
+    purpose === "workspace-read"
+      ? FLEET_READ_RESPONSE_BYTES + 4096
+      : 1024 * 1024;
+  return Buffer.from(
+    `loop:fleet:${purpose}:v1\n${fleetPayloadDigest(parsed, limit)}`,
+  );
 }
 /** Only strict, bounded protocol schemas may supply the parsed input. */
 export function verifyFleetProof(

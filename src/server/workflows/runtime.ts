@@ -7,6 +7,10 @@ import { enqueue, transition, type Run } from "../queue.js";
 import { saveArtifact } from "../artifacts.js";
 import { requestApproval } from "../approvals.js";
 import { compile, bind, interpolate } from "./compiler.js";
+import {
+  assertFleetEffect,
+  inheritFleetEffect,
+} from "../fleet-effect-authorizations.js";
 
 type WorkflowPayload = import("zod").infer<
   typeof import("../row-schemas.js").WorkflowPayload
@@ -69,6 +73,7 @@ export function startWorkflow(
   });
 }
 export async function executeWorkflow(run: Run): Promise<boolean> {
+  assertFleetEffect(run.owner_id, "run", run.id);
   const p = workflowPayload(run);
   const state = (
     db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
@@ -173,6 +178,7 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
             workflowStep: step.id,
           },
         });
+        inheritFleetEffect(run.owner_id, "run", run.id, child.id);
         db.prepare(
           "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'user',?,?)",
         ).run(id(), run.owner_id, conversation, child.id, prompt, now());

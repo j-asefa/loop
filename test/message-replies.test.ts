@@ -292,17 +292,33 @@ it("supports saved final messages and carries their quote into native harness pr
   const claimed = claim("native-reply-worker")!;
   expect(claimed.id).toBe(reply.id);
   let prompt = "";
+  const generation = id();
   const live = {
-    generation: id(),
+    generation,
+    binding: {
+      conversation_id: claimed.conversation_id!,
+      harness: "codex",
+      project: dir,
+      native_id: null,
+      model: null,
+      instructions: "",
+      generation,
+      state: "idle",
+    },
+    bootstrapRun: claimed,
     items: new NativeOutput(),
     requests: new Map(),
     adapter: {
-      async prompt(input: string) {
+      async prompt(input: string, beforeDispatch?: () => void) {
+        beforeDispatch?.();
         prompt = input;
         live.finish!("completed");
       },
     },
   } as unknown as Live;
+  const sessions = (nativeSessions as unknown as { live: Map<string, Live> })
+    .live;
+  sessions.set(claimed.conversation_id!, live);
   const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
   try {
     expect(await nativeSessions.execute(claimed)).toBe(true);
@@ -311,6 +327,7 @@ it("supports saved final messages and carries their quote into native harness pr
     transition(claimed, "completed");
   } finally {
     clearTimeout(live.idle);
+    sessions.delete(claimed.conversation_id!);
     session.mockRestore();
   }
 });

@@ -17,6 +17,7 @@ import { companionMode } from "./profile.js";
 import { submit } from "./agent-runtime.js";
 import { captureSnapshot, snapshotFingerprint } from "./review-snapshot.js";
 import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
+import { inheritFleetEffect } from "./fleet-effect-authorizations.js";
 
 import type { Run } from "./queue.js";
 
@@ -158,6 +159,8 @@ function ensureCodeReview(
         idempotencyKey: `review:${reviewId}:lead`,
         personal: true,
       });
+      if (requester)
+        inheritFleetEffect(owner, "run", requester.runId, manager.id);
       db.prepare("UPDATE code_reviews SET run_id=? WHERE id=?").run(
         manager.id,
         reviewId,
@@ -177,6 +180,7 @@ function ensureCodeReview(
           input: `Independently review snapshot ${reviewId} as the ${a.role} reviewer. Read the captured files as needed and report evidence-backed findings.`,
           idempotencyKey: `review:${reviewId}:${a.role}`,
         });
+        inheritFleetEffect(owner, "run", manager.id, child.id);
         // Existing queue dependency and cancellation machinery owns this fan-out.
         db.prepare(
           "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,0)",

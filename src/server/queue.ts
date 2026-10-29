@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  recordFleetEffect,
+  recordFleetEffectEdit,
+} from "./fleet-effect-authorizations.js";
 export const RunIdentity = z.object({
   id: z.string().min(1),
   owner_id: z.string().min(1),
@@ -67,6 +71,7 @@ export function enqueue(
           "This workspace has 100 pending runs. Finish or cancel some before adding more.",
         );
       const runId = id();
+      recordFleetEffect(owner, "run", runId);
       db.prepare(
         "INSERT INTO runs(id,owner_id,agent_id,conversation_id,kind,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,'queued',?,?,?,?)",
       ).run(
@@ -191,10 +196,14 @@ function transitionState(
   return db
     .transaction(() => {
       const current = db
-        .prepare("SELECT state FROM runs WHERE id=?")
-        .get(run.id) as { state: string };
-      if (!legalRunTransition(RunState.parse(current.state), state))
+        .prepare("SELECT state FROM runs WHERE id=? AND owner_id=?")
+        .get(run.id, run.owner_id) as { state: string } | undefined;
+      if (!current || !legalRunTransition(RunState.parse(current.state), state))
         return false;
+      // Resuming existing work introduces a new deferred effect even if a local
+      // device created it. Preserve the resuming peer alongside its creator.
+      if (state === "queued")
+        recordFleetEffectEdit(run.owner_id, "run", run.id);
       const time = now();
       db.prepare(
         `UPDATE runs SET state=?,updated_at=?,

@@ -125,7 +125,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -257,7 +277,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -389,7 +429,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -521,7 +581,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -653,7 +733,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -785,7 +885,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -917,7 +1037,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -1049,7 +1189,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -1181,7 +1341,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -1313,7 +1493,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -1445,7 +1645,27 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -1577,7 +1797,635 @@
               }
             }
           },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
           "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/workspace/catalog": {
+      "post": {
+        "operationId": "workspaceCatalog",
+        "description": "Requires the destination owner's read credential. Signs request identity and implemented local reads; absent actions/events/files confer no capability. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceCatalogRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed bounded local projection with correlated request, input digest and machine/grant identities; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workspaceCatalogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/workspace/read": {
+      "post": {
+        "operationId": "workspaceRead",
+        "description": "Requires a read credential and allowlisted local projection. Runs destination middleware, projects bounded results and rechecks grant/directory before signing the input digest and result. No caller-selected URL, source, owner, headers, private admin/native/provider setup or recursive routing. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed bounded local projection with correlated request, input digest and machine/grant identities; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workspaceReadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/workspace/action": {
+      "post": {
+        "operationId": "workspaceAction",
+        "description": "Requires an act credential and allowlisted local action. Records the command and parsed wire digest before its owning handler; defaults cannot change that digest. Rechecks grants and native generations at owning boundaries. Never replays uncertain work. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workspaceActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/workspace/receipt": {
+      "post": {
+        "operationId": "workspaceReceipt",
+        "description": "Requires an act credential, original command ID and parsed wire digest. Returns the retained receipt without dispatch; missing or uncertain receipts do not prove an absent effect. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceReceiptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workspaceActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
             "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
             "content": {
               "application/json": {
@@ -5590,6 +6438,672 @@
         "required": [
           "ack",
           "signature"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceCatalogRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "credential"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceCatalogResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "catalog": {
+            "type": "object",
+            "properties": {
+              "peer": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "grantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "profile": {
+                "type": "string",
+                "const": "companion"
+              },
+              "reads": {
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-zA-Z0-9]{0,99}$"
+                }
+              },
+              "actions": {
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              },
+              "events": {
+                "type": "boolean"
+              },
+              "files": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "peer",
+              "grantId",
+              "requestDigest",
+              "version",
+              "requestId",
+              "machineId",
+              "directory",
+              "profile",
+              "reads",
+              "actions",
+              "events",
+              "files"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "catalog",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceReadRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "input": {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "string",
+                "enum": [
+                  "capabilities",
+                  "bootstrap",
+                  "feed",
+                  "feedAway",
+                  "runs",
+                  "conversation",
+                  "conversationActivities",
+                  "conversationOutline",
+                  "conversationUsage",
+                  "conversationPulls",
+                  "agentDetail",
+                  "agentHarness",
+                  "agentMessages",
+                  "agentTraces",
+                  "agentMail",
+                  "messageSearch",
+                  "messageDetail",
+                  "results",
+                  "resultUpdates",
+                  "approvals",
+                  "nativeDecisions",
+                  "session",
+                  "connectionModels",
+                  "workspace",
+                  "runtimeList",
+                  "folderList",
+                  "projectSummaries",
+                  "savedList",
+                  "personalFiles",
+                  "personalDecisions",
+                  "personalApproval",
+                  "personalProfile",
+                  "personalPrompts",
+                  "laterList",
+                  "scheduledSendList",
+                  "snippetList",
+                  "artifactList",
+                  "artifactDetail",
+                  "runCheckout",
+                  "runVerifications",
+                  "runFiles",
+                  "search",
+                  "searchStatus",
+                  "preferences",
+                  "definitionList",
+                  "definitionRead",
+                  "prWatchList"
+                ]
+              },
+              "params": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-zA-Z0-9]{0,63}$"
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 4096
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              },
+              "query": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-zA-Z0-9]{0,63}$"
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 4096
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    {
+                      "maxItems": 50,
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 4096
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "route",
+              "params",
+              "query"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "credential",
+          "input"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceReadResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "properties": {
+              "peer": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "grantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "result": {
+                "$ref": "#/components/schemas/workspaceReadResponse/$defs/__schema0"
+              },
+              "clock": {
+                "type": "object",
+                "properties": {
+                  "epoch": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "serverNow": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "nextDeadline": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cursor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "epoch",
+                  "serverNow",
+                  "nextDeadline",
+                  "cursor"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "peer",
+              "grantId",
+              "requestDigest",
+              "version",
+              "requestId",
+              "machineId",
+              "directory",
+              "result"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "response",
+          "signature"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/workspaceReadResponse/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/workspaceReadResponse/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "workspaceActionRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "input": {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "string",
+                "enum": [
+                  "agentCreate",
+                  "agentUpdate",
+                  "submit",
+                  "runAction",
+                  "approval",
+                  "nativeAnswer",
+                  "setting",
+                  "resultUpdate",
+                  "conversationPosition",
+                  "feedUpdate",
+                  "replyState",
+                  "messageSave",
+                  "messageUnsave",
+                  "savedLabel",
+                  "laterCreate",
+                  "laterFinish",
+                  "laterSnooze",
+                  "laterReopen",
+                  "projectOpened",
+                  "scheduledSendCreate",
+                  "scheduledSendCancel",
+                  "scheduledSendUpdate",
+                  "scheduledSendRetry",
+                  "runReorder",
+                  "runUpdate",
+                  "runWithdraw",
+                  "runMove",
+                  "conversationFork",
+                  "conversationContinue",
+                  "conversationContinueStart",
+                  "folderCreate",
+                  "folderUpdate",
+                  "workspaceProjectCreate",
+                  "workspaceProjectUpdate",
+                  "artifactCreate",
+                  "artifactUpdate",
+                  "artifactMove",
+                  "operationUndo"
+                ]
+              },
+              "params": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-zA-Z0-9]{0,63}$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              },
+              "body": {}
+            },
+            "required": [
+              "route",
+              "params",
+              "body"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "commandId",
+          "credential",
+          "input"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceActionResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "peer": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "grantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "receipt": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "commandId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "started",
+                          "completed",
+                          "unknown",
+                          "refused"
+                        ]
+                      },
+                      "result": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/workspaceActionResponse/$defs/__schema0"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "commandId",
+                      "state",
+                      "result"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "requestId",
+              "machineId",
+              "peer",
+              "directory",
+              "grantId",
+              "requestDigest",
+              "receipt"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "response",
+          "signature"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/workspaceActionResponse/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/workspaceActionResponse/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "workspaceReceiptRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "payloadDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "commandId",
+          "credential",
+          "payloadDigest"
         ],
         "additionalProperties": false
       }

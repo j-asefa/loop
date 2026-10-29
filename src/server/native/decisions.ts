@@ -1,3 +1,10 @@
+import { assertFleetAction } from "../fleet-action-context.js";
+import { ExecutionRefused } from "../execution-refusal.js";
+import {
+  assertFleetEffect,
+  recordFleetEffectEdit,
+  discardFleetEffectEdit,
+} from "../fleet-effect-authorizations.js";
 import type { QueryRow } from "../query-records.js";
 import { recordPersonalDecision } from "../personal-decisions.js";
 import { createHash } from "node:crypto";
@@ -148,25 +155,66 @@ export class NativeDecisions {
     } catch (e) {
       throw new Problem(400, (e as Error).message);
     }
-    db.transaction(() => {
-      const claimed = db
-        .prepare(
-          "UPDATE native_decisions SET state='deciding',command_id=?,digest=? WHERE id=? AND state='pending'",
-        )
-        .run(commandId, digest, decisionId).changes;
-      if (!claimed)
-        throw new Problem(409, "This native decision was already handled.");
-      if (!commandId.startsWith("auto:"))
-        recordPersonalDecision({
-          owner: run.owner_id,
-          run: run.id,
-          native: decisionId,
-          request: JSON.parse(d.request),
-          answer,
-        });
-    }).immediate();
+    const edit = db
+      .transaction(() => {
+        assertFleetAction(run.owner_id);
+        assertFleetEffect(run.owner_id, "run", run.id);
+        const edit = recordFleetEffectEdit(run.owner_id, "run", run.id);
+        const claimed = db
+          .prepare(
+            "UPDATE native_decisions SET state='deciding',command_id=?,digest=? WHERE id=? AND state='pending'",
+          )
+          .run(commandId, digest, decisionId).changes;
+        if (!claimed)
+          throw new Problem(409, "This native decision was already handled.");
+        if (!commandId.startsWith("auto:"))
+          recordPersonalDecision({
+            owner: run.owner_id,
+            run: run.id,
+            native: decisionId,
+            request: JSON.parse(d.request),
+            answer,
+          });
+        return edit;
+      })
+      .immediate();
     try {
-      await live.adapter.answer(d.native_id, answer);
+      await live.adapter.answer(d.native_id, answer, () => {
+        const current = db
+          .prepare(
+            "SELECT state,command_id,digest FROM native_decisions WHERE id=?",
+          )
+          .get(decisionId) as
+          | Pick<
+              QueryRow<"native_decisions">,
+              "state" | "command_id" | "digest"
+            >
+          | undefined;
+        if (
+          this.context.live.get(d.conversation_id) !== live ||
+          live.closed ||
+          live.cancelling ||
+          live.generation !== d.generation ||
+          live.run?.id !== d.run_id ||
+          current?.state !== "deciding" ||
+          current.command_id !== commandId ||
+          current.digest !== digest ||
+          !["running", "awaiting_approval"].includes(
+            ownedRun(d.run_id, run.owner_id).state,
+          )
+        )
+          throw new NotDelivered("This native decision is no longer active.");
+        try {
+          assertFleetAction(run.owner_id);
+          assertFleetEffect(run.owner_id, "run", run.id);
+        } catch (error) {
+          // This callback runs before answer IO, so a revoked admission is
+          // definitive non-delivery and may use the normal recovery below.
+          if (error instanceof ExecutionRefused)
+            throw new NotDelivered(error.message);
+          throw error;
+        }
+      });
       finishDecisions("resolved", "id=?", [decisionId]);
       return { state: "resolved" };
     } catch (error) {
@@ -204,10 +252,12 @@ export class NativeDecisions {
               .get(decisionId) as { state: string } | undefined;
             // Definitive non-delivery is not an answer, even if the run ended.
             // Preserve only a response the harness already confirmed meanwhile.
-            if (stored?.state !== "resolved")
+            if (stored?.state !== "resolved") {
+              discardFleetEffectEdit(edit);
               db.prepare(
                 "DELETE FROM personal_decisions WHERE native_decision_id=?",
               ).run(decisionId);
+            }
             return { reopened, state: stored?.state };
           })
           .immediate();

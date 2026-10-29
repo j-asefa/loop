@@ -1,6 +1,10 @@
 import express, { type ErrorRequestHandler } from "express";
 import { ZodError } from "zod";
 import { FleetOrigin } from "../shared/fleet.js";
+import { fleetWorkspaceApi } from "../shared/fleet-workspace-api.js";
+import { fleetWorkspaceActionApi } from "../shared/fleet-workspace-action-api.js";
+import type { FleetWorkspaceRead } from "./fleet-workspace-read.js";
+import type { FleetWorkspaceActions } from "./fleet-workspace-actions.js";
 import { fleetPeerApi } from "../shared/fleet-peer-api.js";
 import { fleetHandoffApi } from "../shared/fleet-handoff-api.js";
 import { fleetDirectoryApi } from "../shared/fleet-directory-api.js";
@@ -15,7 +19,7 @@ import type { FleetCredentials } from "./fleet-credentials.js";
 import type { FleetPendingDirectory } from "./fleet-pending-directory.js";
 
 /** This application has only fixed fleet protocol handlers. It cannot fall through
- * to the workspace API, native providers, browser sessions or local admin. */
+ * to arbitrary workspace routes, native bridges, browser sessions or local admin. */
 export function createFleetPeerHttp(
   destination: FleetEnrollmentDestination,
   origin: () => string,
@@ -24,11 +28,17 @@ export function createFleetPeerHttp(
     directory?: FleetDirectorySync;
     credentials?: FleetCredentials;
     pendingDirectory?: FleetPendingDirectory;
+    workspaceRead?: FleetWorkspaceRead;
+    workspaceActions?: FleetWorkspaceActions;
   } = {},
 ) {
   const paths = new Set(
     [
       ...Object.values(fleetPeerApi),
+      ...(options.workspaceRead ? Object.values(fleetWorkspaceApi) : []),
+      ...(options.workspaceActions
+        ? Object.values(fleetWorkspaceActionApi)
+        : []),
       ...(options.handoff ? Object.values(fleetHandoffApi) : []),
       ...(options.directory ? Object.values(fleetDirectoryApi) : []),
       ...(options.credentials ? Object.values(fleetCredentialApi) : []),
@@ -158,6 +168,24 @@ export function createFleetPeerHttp(
     );
     routes.on(fleetPendingDirectoryApi.pendingDirectoryPush, ({ body }, res) =>
       res.json(pending.receive(body)),
+    );
+  }
+  if (options.workspaceRead) {
+    const workspace = options.workspaceRead;
+    routes.on(fleetWorkspaceApi.catalog, ({ body }, res) =>
+      res.json(workspace.catalog(body)),
+    );
+    routes.on(fleetWorkspaceApi.read, async ({ body }, res) =>
+      res.json(await workspace.read(body)),
+    );
+  }
+  if (options.workspaceActions) {
+    const workspace = options.workspaceActions;
+    routes.on(fleetWorkspaceActionApi.action, async ({ body }, res) =>
+      res.json(await workspace.action(body)),
+    );
+    routes.on(fleetWorkspaceActionApi.receipt, ({ body }, res) =>
+      res.json(workspace.receipt(body)),
     );
   }
   app.use(routes.mount);

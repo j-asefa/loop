@@ -1,4 +1,6 @@
 import { ExecutionRefused } from "./execution-refusal.js";
+import { withFleetAction } from "./fleet-action-context.js";
+import { authorizeFleetEffect } from "./fleet-effect-authorizations.js";
 import {
   assertExecutionGeneration,
   executionGeneration,
@@ -295,7 +297,7 @@ export class ExecutionAuthority {
       if ("conversationId" in input && input.conversationId)
         ownedConversation(input.conversationId, OWNER);
       if ("connectionId" in input) ownedConnection(input.connectionId, OWNER);
-      const run = async () => {
+      const apply = async () => {
         entered = true;
         // The mapped handlers are checked against their individual inputs;
         // this one dynamic dispatch follows the method's runtime schema.
@@ -308,6 +310,31 @@ export class ExecutionAuthority {
         });
         return operation.output.parse(
           boundedExecutionJson(result, EXECUTION_RESPONSE_BYTES),
+        );
+      };
+      const run = () => {
+        if (!request.fleet) return apply();
+        if (
+          request.fleet.operation !== "act" ||
+          ![
+            "native.answer",
+            "native.setting",
+            "native.controls",
+            "native.catalog",
+          ].includes(request.method)
+        )
+          throw new ExecutionRefused(
+            403,
+            "This grant cannot control native execution.",
+          );
+        return withFleetAction(
+          {
+            owner: request.owner,
+            commandId: request.commandId ?? "",
+            grant: request.fleet,
+          },
+          () => authorizeFleetEffect(request.owner, request.fleet!),
+          apply,
         );
       };
       const result =

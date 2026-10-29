@@ -5,6 +5,10 @@ import { db, id, now, emit } from "./db.js";
 import { ownedApproval, ownedRun, ownedRunControl, Problem } from "./domain.js";
 import { transition, type Run } from "./queue.js";
 import { recordPersonalDecision } from "./personal-decisions.js";
+import {
+  assertFleetEffect,
+  recordFleetEffectEdit,
+} from "./fleet-effect-authorizations.js";
 export function requestApproval(
   run: Run,
   request: unknown,
@@ -60,6 +64,15 @@ export function decide(
           409,
           "This approval expired. Start a new run after review.",
         );
+      const resumesNative = db
+        .prepare(
+          "SELECT 1 FROM native_dispatch WHERE run_id=? AND state IN ('accepted','unknown')",
+        )
+        .get(run.id);
+      if (decision === "approve" || resumesNative) {
+        assertFleetEffect(owner, "run", run.id);
+        recordFleetEffectEdit(owner, "run", run.id);
+      }
       db.prepare("UPDATE approvals SET state=? WHERE id=? AND state=?").run(
         decision === "approve" ? "approved" : "rejected",
         approvalId,
@@ -72,13 +85,7 @@ export function decide(
           approval: approvalId,
           answer: { choice: decision },
         });
-      if (
-        db
-          .prepare(
-            "SELECT 1 FROM native_dispatch WHERE run_id=? AND state IN ('accepted','unknown')",
-          )
-          .get(run.id)
-      ) {
+      if (resumesNative) {
         db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
         emit(owner, run.id, "approval.decided", {
           approvalId,

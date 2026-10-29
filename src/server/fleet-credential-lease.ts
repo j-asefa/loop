@@ -299,6 +299,17 @@ export class FleetCredentialLease {
     }
     return this.renew(target);
   }
+  /** A consumer saw this exact credential refused. Retire only that token;
+   * a late response cannot invalidate its replacement. Renewal is a fresh
+   * challenge, never a replay of the consuming application operation. */
+  rejected(token: string) {
+    if (this.stopped || this.credential?.token !== token) return;
+    const now = this.now();
+    this.credential = undefined;
+    this.nextAttempt = Math.min(this.nextAttempt, now + 1_000);
+    this.notify();
+    this.schedule();
+  }
   /** Invoke synchronously when the owning gateway accepts a directory change. */
   changed() {
     if (!this.stopped) void this.get().catch(() => {});

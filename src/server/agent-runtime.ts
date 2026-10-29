@@ -1,3 +1,4 @@
+import { assertFleetEffect } from "./fleet-effect-authorizations.js";
 import { MessageMetadata, readRunFolder, readRunReviewId, parseMessages, parseRuns, maybeRun, agentPayload } from "./row-schemas.js";
 import { QueryRecords, type QueryRow } from "./query-records.js";
 
@@ -489,6 +490,7 @@ function apiCapabilities(
   });
 }
 export async function executeAgent(run: Run): Promise<boolean> {
+  assertFleetEffect(run.owner_id, "run", run.id);
   const snapshot = agentPayload(run);
   if (snapshot.reviewId) {
     assertReviewIdentity(
@@ -678,6 +680,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       if (cp.stage === "tools") {
         for (const invocation of pending) {
           if (invocation.done) continue;
+          assertFleetEffect(run.owner_id, "run", run.id);
           const traceKey = "tool:" + invocation.call.id;
           const trace = {
             kind: "tool" as const,
@@ -909,6 +912,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           })
         : undefined;
       try {
+        assertFleetEffect(run.owner_id, "run", run.id);
         for await (const chunk of streamConnection(currentConnection, {
           workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
           model: snapshot.model,

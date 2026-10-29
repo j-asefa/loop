@@ -153,7 +153,7 @@ const Teams = Text.max(2000).optional();
 const Ok = z.object({ ok: z.boolean() });
 const ResultSelection = { agent: Text.optional(), folder: Text.optional(), teams: Teams, view: z.enum(["all", "prompts", "files"]).default("all"), saved: z.enum(["1", "0"]).optional() };
 const NumberCursor = z.coerce.number<string>().int().min(0).max(Number.MAX_SAFE_INTEGER);
-export type PeerAccess = "peer:enrollment" | "peer:handoff" | "peer:directory" | "peer:credentials";
+export type PeerAccess = "peer:enrollment" | "peer:handoff" | "peer:directory" | "peer:credentials" | "peer:workspace";
 type SessionAccess = "session" | PeerAccess | "device:fleet";
 export type RouteContract = {
   path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;

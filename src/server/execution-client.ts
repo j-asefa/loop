@@ -15,6 +15,10 @@ import {
   type ExecutionOutput,
 } from "../shared/execution-authority.js";
 import { boundedExecutionJson } from "./execution-wire.js";
+import {
+  assertFleetAction,
+  currentFleetAction,
+} from "./fleet-action-context.js";
 
 function passiveInput<M extends ExecutionMethod>(
   method: M,
@@ -92,6 +96,17 @@ export class ExecutionClient {
         "Native execution requests are busy. Retry after pending requests settle.",
       );
     const operation = executionOperations[method];
+    const fleet = currentFleetAction();
+    if (
+      fleet &&
+      (fleet.owner !== (options.owner ?? "local-workspace") ||
+        (options.commandId !== undefined &&
+          options.commandId !== fleet.commandId))
+    )
+      throw new ExecutionRefused(
+        409,
+        "The native command does not match its fleet admission.",
+      );
     const request = ExecutionRequest.parse(
       boundedExecutionJson(
         {
@@ -99,11 +114,12 @@ export class ExecutionClient {
           requestId: randomUUID(),
           generation: connection.generation,
           owner: options.owner ?? "local-workspace",
+          fleet: fleet?.grant,
           method,
           commandId:
             operation.effect === "none"
               ? undefined
-              : (options.commandId ?? randomUUID()),
+              : (fleet?.commandId ?? options.commandId ?? randomUUID()),
           input: operation.input.parse(input),
         },
         EXECUTION_REQUEST_BYTES,
@@ -124,6 +140,7 @@ export class ExecutionClient {
         .then(() => {
           if (this.connection !== connection || !this.pending.has(stop))
             throw unavailable();
+          assertFleetAction(request.owner);
           return connection.transport.send(request);
         })
         .then((raw) => {

@@ -1,6 +1,7 @@
 import { withoutPassiveWorkspaceRead } from "./workspace-read-context.js";
 import type { WorkspaceSubject } from "../shared/workspace-events.js";
 import type Database from "better-sqlite3";
+import { withoutFleetAction } from "./fleet-action-context.js";
 
 // Publications identify durable rows. Payloads stay in SQLite so a large event
 // cannot bypass the consumer's replay byte limits merely by waking it.
@@ -61,7 +62,9 @@ export function createChangeBus(
     if (retry) clearTimeout(retry);
     retry = undefined;
     if (!draining && !scheduled)
-      scheduled = setImmediate(() => withoutPassiveWorkspaceRead(drain));
+      scheduled = setImmediate(() =>
+        withoutFleetAction(() => withoutPassiveWorkspaceRead(drain)),
+      );
   }
   function retryLater() {
     if (closed || retry) return;

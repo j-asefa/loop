@@ -1,3 +1,8 @@
+import { assertFleetAction } from "../fleet-action-context.js";
+import {
+  assertFleetEffect,
+  recordFleetEffectEdit,
+} from "../fleet-effect-authorizations.js";
 import { agentPayload } from "../row-schemas.js";
 import { ExecutionRefused } from "../execution-refusal.js";
 import { providerChangeInProgress } from "../native-provider-locks.js";
@@ -290,7 +295,33 @@ export class NativeSessions {
     // confirmed. The next turn/idle timer owns the session after this request.
     clearTimeout(live.idle);
     try {
-      const settings = await live.adapter.setSetting(setting, value, revision);
+      assertFleetAction(live.bootstrapRun.owner_id);
+      const activeRun = live.run;
+      const settings = await live.adapter.setSetting(
+        setting,
+        value,
+        revision,
+        () => {
+          // Adapters can queue setting changes. Recheck at dispatch, after their
+          // preflight accepts the value, so rejected changes attach no authority.
+          if (
+            !isCurrent() ||
+            live.run !== activeRun ||
+            live.cancelling ||
+            (activeRun && !(setting === "mode" && live.waiting))
+          )
+            throw new ExecutionRefused(
+              409,
+              "Native session changed; refresh and retry.",
+            );
+          assertFleetAction(live.bootstrapRun.owner_id);
+          if (activeRun)
+            db.transaction(() => {
+              assertFleetEffect(activeRun.owner_id, "run", activeRun.id);
+              recordFleetEffectEdit(activeRun.owner_id, "run", activeRun.id);
+            }).immediate();
+        },
+      );
       if (!isCurrent())
         throw new Problem(409, "Native session changed; refresh and retry.");
       const confirmed = settings.options.find(
@@ -325,6 +356,7 @@ export class NativeSessions {
           ),
       };
     } catch (error) {
+      if (error instanceof ExecutionRefused) throw error;
       throw new Problem(
         409,
         error instanceof Error ? error.message : "Native setting was rejected",
@@ -338,6 +370,7 @@ export class NativeSessions {
     }
   }
   async session(run: Run): Promise<Live> {
+    assertFleetEffect(run.owner_id, "run", run.id);
     if (!run.conversation_id)
       throw new Problem(400, "Native work requires a conversation.");
     const conversation = run.conversation_id;
@@ -380,6 +413,7 @@ export class NativeSessions {
         // Refresh only metadata from this same generation; the transaction still
         // refuses a different generation or a later change during disposal.
         binding = { ...binding, native_id: current.binding.native_id };
+        assertFleetEffect(run.owner_id, "run", run.id);
         await this.dispose(current);
       }
       previousBinding = binding;
@@ -391,6 +425,7 @@ export class NativeSessions {
         previousProject ?? this.projects.project(snapshot, registration);
       if (!run.agent_id)
         throw new Problem(409, "Native work requires an agent identity.");
+      assertFleetEffect(run.owner_id, "run", run.id);
       const workspace = prepareWorkspace(
         source,
         source,
@@ -565,6 +600,7 @@ export class NativeSessions {
     ).run(generation, now(), conversation);
     live.ready = (async () => {
       try {
+        assertFleetEffect(run.owner_id, "run", run.id);
         await live.adapter.start();
         if (this.stopped || live.closed)
           throw new Error("Workspace stopped during native startup.");
@@ -583,6 +619,7 @@ export class NativeSessions {
     return live;
   }
   async execute(run: Run) {
+    assertFleetEffect(run.owner_id, "run", run.id);
     // The run is already claimed, so an upgrade that holds this harness
     // afterwards sees it as active; one that held it first is refused here.
     // A missing connection is reported by session() below.
@@ -605,6 +642,7 @@ export class NativeSessions {
         "This native turn was already dispatched or has an uncertain outcome. Review it and submit a new follow-up explicitly.",
       );
     const live = await this.session(run);
+    assertFleetEffect(run.owner_id, "run", run.id);
     if (live.run)
       throw new Problem(409, "This native conversation is already running.");
     if (ownedRun(run.id, run.owner_id).state !== "running") return false;
@@ -689,32 +727,52 @@ export class NativeSessions {
       !!this.tools && !snapshot.reviewId,
     );
     let stopSteering: (() => Promise<void>) | undefined;
-    try {
+    const generation = live.generation;
+    // Adapters may await billing, history or interruption before native IO.
+    // Recheck this exact turn and its retained authority after that preparation.
+    const beforeDispatch = () => {
       watched.signal.throwIfAborted();
+      if (
+        this.live.get(live.binding.conversation_id) !== live ||
+        live.closed ||
+        live.cancelling ||
+        live.generation !== generation ||
+        live.run?.id !== run.id ||
+        !["running", "awaiting_approval"].includes(
+          ownedRun(run.id, run.owner_id).state,
+        )
+      )
+        throw new NotDelivered("This native turn cannot accept input");
+      assertFleetEffect(run.owner_id, "run", run.id);
+    };
+    try {
+      beforeDispatch();
       await live.adapter.prompt(
         localAttachmentPrompt(
           run.owner_id,
           input,
           attachedFiles(run.owner_id, snapshot.attachmentIds || []),
         ),
+        beforeDispatch,
       );
       db.prepare(
         "UPDATE native_dispatch SET state='accepted' WHERE run_id=? AND state='unknown'",
       ).run(run.id);
       stopSteering = steering.listen(async (message) => {
-        if (
-          !live.adapter.steer ||
-          live.closed ||
-          live.cancelling ||
-          live.run?.id !== run.id
-        )
+        if (!live.adapter.steer)
           throw new NotDelivered("This native turn cannot accept live input");
+        const beforeSteering = () => {
+          assertFleetAction(run.owner_id);
+          beforeDispatch();
+        };
+        beforeSteering();
         await live.adapter.steer(
           localAttachmentPrompt(
             run.owner_id,
             message.content,
             message.attachments || [],
           ),
+          beforeSteering,
         );
       });
       const state = await complete;

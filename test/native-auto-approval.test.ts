@@ -88,6 +88,7 @@ function session(
     (db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as any).state;
   return { live, answer, request, state, run, sessions };
 }
+const dispatchGuard = expect.any(Function);
 const approval: Request = {
   id: "bash",
   kind: "approval",
@@ -276,7 +277,11 @@ it.each([
         await sessions.answer(stored.id, "file-decision", { choice });
       }
       await vi.waitFor(() => expect(decision().state).toBe("resolved"));
-      expect(answer).toHaveBeenCalledExactlyOnceWith("102", { choice });
+      expect(answer).toHaveBeenCalledExactlyOnceWith(
+        "102",
+        { choice },
+        dispatchGuard,
+      );
       expect(interrupt).not.toHaveBeenCalled();
       expect(state()).toBe("running");
     } finally {
@@ -384,9 +389,13 @@ it.each([
           });
         }
         await vi.waitFor(() => expect(decision().state).toBe("resolved"));
-        expect(answer).toHaveBeenCalledExactlyOnceWith("102", {
-          choice: "accept",
-        });
+        expect(answer).toHaveBeenCalledExactlyOnceWith(
+          "102",
+          {
+            choice: "accept",
+          },
+          dispatchGuard,
+        );
         expect(state()).toBe("running");
       } finally {
         await live.adapter.dispose();
@@ -402,7 +411,11 @@ it("Never ask answers a tool approval without waiting for the user", async () =>
   );
   request(approval);
   await vi.waitFor(() =>
-    expect(answer).toHaveBeenCalledWith("bash", { choice: "allow" }),
+    expect(answer).toHaveBeenCalledWith(
+      "bash",
+      { choice: "allow" },
+      dispatchGuard,
+    ),
   );
   expect(state()).toBe("running");
   await vi.waitFor(() =>
@@ -539,7 +552,11 @@ it("a session's own permission mode outranks the workspace level", async () => {
   bypass.live.sessionMode = "bypassPermissions";
   bypass.request(approval);
   await vi.waitFor(() =>
-    expect(bypass.answer).toHaveBeenCalledWith("bash", { choice: "allow" }),
+    expect(bypass.answer).toHaveBeenCalledWith(
+      "bash",
+      { choice: "allow" },
+      dispatchGuard,
+    ),
   );
 });
 
@@ -627,7 +644,11 @@ it.each([
         await sessions.answer(stored.id, "github-decision", { choice });
       }
       await vi.waitFor(() => expect(decision()?.state).toBe("resolved"));
-      expect(answer).toHaveBeenCalledExactlyOnceWith("102", { choice });
+      expect(answer).toHaveBeenCalledExactlyOnceWith(
+        "102",
+        { choice },
+        dispatchGuard,
+      );
       expect(interrupt).not.toHaveBeenCalled();
       expect(state()).toBe("running");
     } finally {
@@ -880,7 +901,11 @@ it("does not retry an uncertain automatic answer after abbreviating a large requ
   await expect(
     sessions.answer(decision().id, "retry", { choice: "allow" }),
   ).rejects.toThrow();
-  expect(answer).toHaveBeenCalledExactlyOnceWith("bash", { choice: "allow" });
+  expect(answer).toHaveBeenCalledExactlyOnceWith(
+    "bash",
+    { choice: "allow" },
+    dispatchGuard,
+  );
   expect(decision().state).toBe("unknown");
   expect(state()).toBe("awaiting_approval");
   expect(interrupt).not.toHaveBeenCalled();
@@ -905,9 +930,13 @@ it("keeps a confirmed answer resolved when the transport subsequently fails", as
   await expect(
     sessions.answer(decision.id, "confirmed-command", { choice: "allow" }),
   ).resolves.toEqual({ state: "resolved" });
-  expect(answer).toHaveBeenCalledExactlyOnceWith(approval.id, {
-    choice: "allow",
-  });
+  expect(answer).toHaveBeenCalledExactlyOnceWith(
+    approval.id,
+    {
+      choice: "allow",
+    },
+    dispatchGuard,
+  );
   expect(
     db
       .prepare("SELECT state FROM native_decisions WHERE id=?")
@@ -960,7 +989,11 @@ it("records validated native answers once, hides secrets, and retains uncertain 
   await expect(
     f.sessions.answer(decision.id, "personal-answer", response),
   ).resolves.toEqual({ state: "unknown" });
-  expect(f.answer).toHaveBeenCalledExactlyOnceWith("questions", response);
+  expect(f.answer).toHaveBeenCalledExactlyOnceWith(
+    "questions",
+    response,
+    dispatchGuard,
+  );
   const item = personalDecisions(OWNER, { kind: "answer" }).items.find(
     (item) => item.id === "native:" + decision.id,
   );
@@ -1025,7 +1058,11 @@ it("bounds saved answer previews without changing the complete answer delivered 
   );
   await f.sessions.answer(decision.id, "large-answer-command", response);
   await f.sessions.answer(decision.id, "large-answer-command", response);
-  expect(f.answer).toHaveBeenCalledExactlyOnceWith("large-questions", response);
+  expect(f.answer).toHaveBeenCalledExactlyOnceWith(
+    "large-questions",
+    response,
+    dispatchGuard,
+  );
   expect(response.q48[29]).toHaveLength(8000);
   const stored = db
     .prepare(

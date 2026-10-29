@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FleetGrantContext } from "./fleet.js";
 import {
   NativeProvider,
   NativeProviderView,
@@ -387,6 +388,8 @@ export type ExecutionOutput<M extends ExecutionMethod> = z.output<
   (typeof executionOperations)[M]["output"]
 >;
 export const ExecutionRequest = z.strictObject({
+  // Trusted host-to-worker delegation; never accepted from a browser header.
+  fleet: FleetGrantContext.optional(),
   v: z.literal(1),
   requestId: z.uuid(),
   generation: z.uuid(),

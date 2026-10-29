@@ -1,5 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
+import { fleetWorkspaceApi } from "../src/shared/fleet-workspace-api.ts";
+import { fleetWorkspaceActionApi } from "../src/shared/fleet-workspace-action-api.ts";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.ts";
 import { fleetHandoffApi } from "../src/shared/fleet-handoff-api.ts";
 import { fleetDirectoryApi } from "../src/shared/fleet-directory-api.ts";
@@ -12,10 +14,35 @@ const options = { target: "draft-2020-12" };
 const schemas = {
   FleetError: z.toJSONSchema(z.object({ error: z.string() }).strict(), options),
 };
+function component(schema, name, io) {
+  const result = z.toJSONSchema(schema, { ...options, io });
+  const root =
+    "#/components/schemas/" + name.replace(/~/g, "~0").replace(/\//g, "~1");
+  function references(value) {
+    if (!value || typeof value !== "object") return;
+    if (typeof value.$ref === "string" && value.$ref.startsWith("#"))
+      value.$ref = root + value.$ref.slice(1);
+    for (const child of Object.values(value)) references(child);
+  }
+  references(result);
+  return result;
+}
 const paths = {};
 // Fleet uses only its dedicated peer/device credentials.
+// Action submission and receipt lookup return the same signed envelope.
+const responseNames = new Map([
+  [fleetWorkspaceActionApi.action.response, "workspaceActionResponse"],
+]);
 
 const proof = {
+  workspaceCatalog:
+    "Requires the destination owner's read credential. Signs request identity and implemented local reads; absent actions/events/files confer no capability.",
+  workspaceRead:
+    "Requires a read credential and allowlisted local projection. Runs destination middleware, projects bounded results and rechecks grant/directory before signing the input digest and result. No caller-selected URL, source, owner, headers, private admin/native/provider setup or recursive routing.",
+  workspaceAction:
+    "Requires an act credential and allowlisted local action. Records the command and parsed wire digest before its owning handler; defaults cannot change that digest. Rechecks grants and native generations at owning boundaries. Never replays uncertain work.",
+  workspaceReceipt:
+    "Requires an act credential, original command ID and parsed wire digest. Returns the retained receipt without dispatch; missing or uncertain receipts do not prove an absent effect.",
   credentialChallenge:
     "Returns a signed, short-lived challenge only for a currently authorized destination grant, peer, directory and operation. A challenge grants no access and allocates no per-request nonce state.",
   credentialIssue:
@@ -47,14 +74,16 @@ for (const [name, route] of Object.entries({
   ...fleetDirectoryApi,
   ...fleetCredentialApi,
   ...fleetPendingDirectoryApi,
+  workspaceCatalog: fleetWorkspaceApi.catalog,
+  workspaceRead: fleetWorkspaceApi.read,
+  workspaceAction: fleetWorkspaceActionApi.action,
+  workspaceReceipt: fleetWorkspaceActionApi.receipt,
 })) {
   if (typeof route.access !== "string")
     throw new Error("Fleet routes cannot admit integration tokens");
-  schemas[name + "Request"] = z.toJSONSchema(route.body, {
-    ...options,
-    io: "input",
-  });
-  schemas[name + "Response"] = z.toJSONSchema(route.response, options);
+  schemas[name + "Request"] = component(route.body, name + "Request", "input");
+  const responseName = responseNames.get(route.response) || name + "Response";
+  schemas[responseName] ??= component(route.response, responseName, "output");
   const error = {
     description:
       "A safe protocol error. A failed or missing response does not prove an effect was absent.",
@@ -78,7 +107,11 @@ for (const [name, route] of Object.entries({
       "x-loop-authentication":
         name === "enrollmentProbe" || name === "credentialChallenge"
           ? "public challenge; credential challenges require an active grant context"
-          : "signed request body; prepare also requires a one-time capability",
+          : name === "workspaceCatalog" || name === "workspaceRead"
+            ? "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
+            : name === "workspaceAction" || name === "workspaceReceipt"
+              ? "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
+              : "signed request body; prepare also requires a one-time capability",
       parameters: [
         {
           name: "X-Loop-Fleet-Version",
@@ -97,18 +130,20 @@ for (const [name, route] of Object.entries({
       },
       responses: {
         200: {
-          description: "Signed fleet protocol response; never a device cookie.",
+          description:
+            name === "workspaceCatalog" || name === "workspaceRead"
+              ? "Signed bounded local projection with correlated request, input digest and machine/grant identities; never a device cookie."
+              : "Signed fleet protocol response; never a device cookie.",
           content: {
             "application/json": {
-              schema: { $ref: "#/components/schemas/" + name + "Response" },
+              schema: { $ref: "#/components/schemas/" + responseName },
             },
           },
         },
         ...Object.fromEntries(
-          [400, 403, 404, 405, 409, 413, 415, 500, 503].map((status) => [
-            status,
-            error,
-          ]),
+          [400, 403, 404, 405, 409, 413, 415, 500, 502, 503, 504].map(
+            (status) => [status, error],
+          ),
         ),
       },
     },

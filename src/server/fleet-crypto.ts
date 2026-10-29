@@ -86,10 +86,21 @@ export function directoryDigest(document: FleetDirectory): string {
     .digest("hex");
 }
 
-/** Digest parsed JSON input, excluding transport credentials and retry timing. */
-export function fleetPayloadDigest(input: unknown): string {
+/** Digest parsed JSON input, excluding transport credentials and retry timing.
+ * Larger response protocols may supply their own finite bound; operation
+ * receipts and every existing proof retain the one-MiB default. */
+export function fleetPayloadDigest(
+  input: unknown,
+  maxBytes = 1024 * 1024,
+): string {
   const json = JSON.stringify(input);
-  if (json === undefined || Buffer.byteLength(json) > 1024 * 1024)
+  if (
+    !Number.isSafeInteger(maxBytes) ||
+    maxBytes <= 0 ||
+    maxBytes > 4 * 1024 * 1024 ||
+    json === undefined ||
+    Buffer.byteLength(json) > maxBytes
+  )
     throw new Problem(413, "Fleet operation input is too large.");
   return createHash("sha256")
     .update(`loop:fleet:operation:v1\n${canonical(JSON.parse(json))}`)

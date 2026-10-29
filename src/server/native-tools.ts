@@ -1,5 +1,9 @@
 import type { QueryRow } from "./query-records.js";
 import { agentPayload } from "./row-schemas.js";
+import {
+  assertFleetEffect,
+  inheritFleetEffect,
+} from "./fleet-effect-authorizations.js";
 
 import { z } from "zod";
 import {
@@ -257,6 +261,7 @@ export async function invokeNative(
   // Only callers that advertised loop_plan (the API runtime) may invoke it.
   options: { plans?: boolean } = {},
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
+  assertFleetEffect(run.owner_id, "run", run.id);
   if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
   if (!nativeBindings(run, options).some((t) => t.tool === binding.tool))
@@ -595,6 +600,7 @@ export async function invokeNative(
             folderId: parent.folderId,
             idempotencyKey: "delegate:" + run.id + ":" + callId + ":" + i,
           });
+          inheritFleetEffect(run.owner_id, "run", run.id, child.id);
           db.prepare(
             "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,?)",
           ).run(

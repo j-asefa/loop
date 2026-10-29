@@ -15,6 +15,15 @@ Every workspace, Cards and fleet API route is declared as a contract; the host's
 - `params`, `query` and `body` are strict where the route is strict today and lenient where it is lenient today. Do not tighten input on an existing route unless the current handler already rejects that input; record each tightening you did make in the PR body as a compatibility decision.
 - GET routes have `body: NoBody`. Routes that return nothing return `Ok` or an explicit empty object; do not invent response fields.
 
+Workspace federation adds the `fleetWorkspaceApi` and `fleetWorkspaceActionApi`
+registries under `src/shared/fleet-*-api.ts`. Their `peer:workspace` access uses
+machine admission and destination-issued `read` or `act` credentials. The grant
+maps to the destination owner; browser credentials, arbitrary paths and private
+native/provider routes are refused. Catalog and allowlisted reads use the
+existing workspace contracts' projections. Durable actions and receipt reads
+preserve the originating machine, original command and current grant through
+destination receipts and generation checks.
+
 ## Responses are projections
 
 - Response schemas describe what the caller receives, never a storage row. Never import `row-schemas.ts`, `query-records.ts`, `db.ts` or any credential schema into `src/shared`. The existing `Public*` schemas are the pattern: add to them, extend them, or add a sibling.

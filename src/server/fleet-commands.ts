@@ -30,6 +30,10 @@ export class FleetCommands {
   constructor(
     private readonly db: Database.Database,
     private readonly authority: FleetAuthority,
+    private readonly admission: { limit: number; status: 429 | 503 } = {
+      limit: 64,
+      status: 429,
+    },
   ) {}
 
   private row(owner: string, commandId: string) {
@@ -55,6 +59,7 @@ export class FleetCommands {
   receipt(
     input: FleetGrantContext,
     commandId: string,
+    expectedDigest?: string,
   ): FleetCommandReceipt | null {
     const context = FleetGrantContext.parse(input);
     z.string().uuid().parse(commandId);
@@ -64,7 +69,8 @@ export class FleetCommands {
     if (
       row.fleet_id !== context.fleetId ||
       row.grant_id !== context.grantId ||
-      row.operation !== context.operation
+      row.operation !== context.operation ||
+      (expectedDigest !== undefined && row.payload_digest !== expectedDigest)
     )
       throw new Problem(
         409,
@@ -107,8 +113,11 @@ export class FleetCommands {
               "Fleet command ID belongs to different input or authorization.",
             );
         } else {
-          if (this.inflight.size >= 64)
-            throw new Problem(429, "Fleet commands are busy. Retry later.");
+          if (this.inflight.size >= this.admission.limit)
+            throw new Problem(
+              this.admission.status,
+              "Fleet commands are busy. Retry later.",
+            );
           const now = Date.now();
           this.db
             .prepare(

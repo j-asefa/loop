@@ -35,6 +35,10 @@ import {
 } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import {
+  assertFleetEffect,
+  inheritFleetEffect,
+} from "./fleet-effect-authorizations.js";
+import {
   authorizeMail,
   eligibleMailAgent,
   mailConversation,
@@ -250,6 +254,7 @@ export function agentDirectory(run: Run, input: unknown) {
 
 function assertMailRun(run: Run) {
   const current = ownedRun(run.id, run.owner_id);
+  assertFleetEffect(current.owner_id, "run", current.id);
   if (current.state !== "running")
     throw new Problem(409, "Run is no longer executing");
   if (
@@ -656,6 +661,17 @@ function dispatch(
     run = attempt(undefined);
   }
   const steeringId = "steeringId" in run ? run.steeringId : null;
+  if (mail.sender_run_id) {
+    inheritFleetEffect(mail.owner_id, "run", mail.sender_run_id, run.id);
+    if (typeof steeringId === "string")
+      inheritFleetEffect(
+        mail.owner_id,
+        "run",
+        mail.sender_run_id,
+        steeringId,
+        "steering",
+      );
+  }
   const busy = !!db
     .prepare(
       `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND id<>? AND state IN ${ACTIVE}`,
@@ -1261,8 +1277,8 @@ function requeue(mail: Mail) {
         mail.recipient_agent_id,
         mail.kind === "result" ? mail.sender_run_id : undefined,
       );
-      const run = db.transaction(() =>
-        submit(mail.owner_id, {
+      const run = db.transaction(() => {
+        const run = submit(mail.owner_id, {
           agentId: mail.recipient_agent_id,
           // Where the recipient is working now, so this never opens a second
           // session beside it; otherwise the conversation it was meant for.
@@ -1276,8 +1292,17 @@ function requeue(mail: Mail) {
           idempotencyKey: mail.idempotency_key + ":requeue",
           attachmentIds: JSON.parse(mail.file_ids),
           automation: JSON.parse(message.metadata).automation,
-        }),
-      )();
+        });
+        inheritFleetEffect(
+          mail.owner_id,
+          "steering",
+          mail.steering_id!,
+          run.id,
+        );
+        if (mail.sender_run_id)
+          inheritFleetEffect(mail.owner_id, "run", mail.sender_run_id, run.id);
+        return run;
+      })();
       note(REQUEUED);
       db.prepare(
         "UPDATE agent_mail SET requeued_run_id=?,delivery='queued',recipient_conversation_id=? WHERE id=?",

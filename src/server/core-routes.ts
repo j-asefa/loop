@@ -53,6 +53,7 @@ import { seal, unseal } from "./secrets.js";
 import { nextTurnConnection, submit } from "./agent-runtime.js";
 import { activeRun } from "./steering.js";
 import { transition } from "./queue.js";
+import { assertFleetEffect, inheritFleetEffect } from "./fleet-effect-authorizations.js";
 
 import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
 import { assertTeamConnectionChange } from "./team-eligibility.js";
@@ -463,19 +464,24 @@ routes.on(workspaceApi.runAction, (req, res) => {
       !run.agent_id
     )
       throw new Problem(409, "This run cannot be retried automatically");
+    const agentId = run.agent_id;
     const d = z
       .object({ idempotencyKey: z.string().min(8).max(150) })
       .parse(req.body);
-    res.json(
-      runResponse(submit(res.locals.owner, {
-        agentId: run.agent_id,
+    const replacement = db.transaction(() => {
+      assertFleetEffect(run.owner_id, "run", run.id);
+      const replacement = submit(res.locals.owner, {
+        agentId,
         conversationId: run.conversation_id || undefined,
         input: run.input,
         idempotencyKey: d.idempotencyKey,
         attachmentIds: run.payload.attachmentIds || [],
         replyTo: run.payload.replyTo,
-      })),
-    );
+      });
+      inheritFleetEffect(run.owner_id, "run", run.id, replacement.id);
+      return replacement;
+    }).immediate();
+    res.json(runResponse(replacement));
     return;
   }
   if (action === "resume" && run.state === "paused" && run.result) {

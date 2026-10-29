@@ -1,6 +1,7 @@
 import { QueryRecords, type QueryRow } from "../query-records.js";
 
 import { watchRun } from "../run-signal.js";
+import { assertFleetEffect } from "../fleet-effect-authorizations.js";
 import { MCP_TOOL_TIMEOUT_MS } from "./timeouts.js";
 import {
   diagnosticText,
@@ -132,6 +133,7 @@ export async function invokeTool(
   callId: string,
   args: Record<string, unknown>,
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
+  assertFleetEffect(run.owner_id, "run", run.id);
   if (run.payload.reviewId)
     throw new Problem(
       403,
@@ -307,6 +309,7 @@ export async function invokeTool(
     const live = ownedRun(run.id, run.owner_id);
     if (live.state !== "running")
       throw new Problem(409, "Run is no longer executing");
+    assertFleetEffect(run.owner_id, "run", run.id);
     phase = "calling";
     let result: any = await client.callTool(
       { name: binding.tool, arguments: args },

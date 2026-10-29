@@ -1,4 +1,10 @@
 import { MessageMetadata, parseRun } from "./row-schemas.js";
+import {
+  recordFleetEffect,
+  inheritFleetEffect,
+  withFleetEffect,
+} from "./fleet-effect-authorizations.js";
+import { ExecutionRefused } from "./execution-refusal.js";
 
 import { watchRun } from "./run-signal.js";
 import { db, emit, id, now } from "./db.js";
@@ -56,25 +62,33 @@ export function saveSteering(
   content: string,
   metadata: object,
 ) {
-  const steeringId = id(),
-    messageId = id(),
-    messageAt = now();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user',?,?,?)",
-  ).run(
-    messageId,
-    run.owner_id,
-    run.conversation_id,
-    run.id,
-    content,
-    JSON.stringify(MessageMetadata.parse({ ...metadata, steeringId })),
-    messageAt,
-  );
-  db.prepare(
-    "INSERT INTO run_steering(id,owner_id,run_id,message_id,idempotency_key,request,created_at) VALUES(?,?,?,?,?,?,?)",
-  ).run(steeringId, run.owner_id, run.id, messageId, key, request, now());
-  emit(run.owner_id, run.id, "steering.pending", { messageId, steeringId });
-  return { ...run, steeringId };
+  return db
+    .transaction(() => {
+      const steeringId = id(),
+        messageId = id(),
+        messageAt = now();
+      recordFleetEffect(run.owner_id, "steering", steeringId);
+      db.prepare(
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user',?,?,?)",
+      ).run(
+        messageId,
+        run.owner_id,
+        run.conversation_id,
+        run.id,
+        content,
+        JSON.stringify(MessageMetadata.parse({ ...metadata, steeringId })),
+        messageAt,
+      );
+      db.prepare(
+        "INSERT INTO run_steering(id,owner_id,run_id,message_id,idempotency_key,request,created_at) VALUES(?,?,?,?,?,?,?)",
+      ).run(steeringId, run.owner_id, run.id, messageId, key, request, now());
+      // Accepting peer input constrains the receiving run, including subsequent
+      // tools after delivery. Keep the constraint even if delivery is uncertain.
+      inheritFleetEffect(run.owner_id, "steering", steeringId, run.id);
+      emit(run.owner_id, run.id, "steering.pending", { messageId, steeringId });
+      return { ...run, steeringId };
+    })
+    .immediate();
 }
 
 function message(input: Input, replyToolAvailable: boolean): ChatMessage {
@@ -136,7 +150,9 @@ export class SteeringInbox {
       this.busy = (async () => {
         try {
           const value = message(input, this.replyToolAvailable);
-          await deliver(value, input.id);
+          await withFleetEffect(this.run.owner_id, "steering", input.id, () =>
+            deliver(value, input.id),
+          );
           db.transaction(() => {
             this.delivered(value);
             this.receipt(input, "delivered");
@@ -154,7 +170,9 @@ export class SteeringInbox {
           this.receipt(
             input,
             "failed",
-            "Live delivery could not be confirmed. Review the agent's messages before sending again.",
+            error instanceof ExecutionRefused
+              ? "The fleet grant was revoked before this input was delivered."
+              : "Live delivery could not be confirmed. Review the agent's messages before sending again.",
           );
         }
       })().finally(() => {
@@ -178,10 +196,23 @@ export class SteeringInbox {
   // its history/checkpoint. This also catches sends racing with turn completion.
   appendPending(history: ChatMessage[]) {
     const pending = this.pending();
+    let delivered = 0;
     for (const input of pending) {
-      history.push(message(input, this.replyToolAvailable));
-      this.receipt(input, "delivered");
+      try {
+        withFleetEffect(this.run.owner_id, "steering", input.id, () => {
+          history.push(message(input, this.replyToolAvailable));
+          this.receipt(input, "delivered");
+          delivered++;
+        });
+      } catch (error) {
+        if (!(error instanceof ExecutionRefused)) throw error;
+        this.receipt(
+          input,
+          "failed",
+          "The fleet grant was revoked before this input was delivered.",
+        );
+      }
     }
-    return pending.length;
+    return delivered;
   }
 }

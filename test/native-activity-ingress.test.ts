@@ -15,7 +15,7 @@ const dir = mkdtempSync(join(tmpdir(), "loop-activity-ingress-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db");
-const { enqueue, claim } = await import("../src/server/queue");
+const { enqueue, claim, transition } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
 const { activityRoutes } = await import("../src/server/activities");
 const { Host } = await import("../src/host");
@@ -710,7 +710,9 @@ it("rejects settings writes from stale generations, including replacement during
 
 it("does not return old adapter controls or confirm a write after the binding changes", async () => {
   const sessions = new NativeSessions();
-  const current = start(sessions, "controls-before", undefined);
+  const run = turn("conv", "controls-before");
+  transition(run, "completed");
+  const current = start(sessions, "controls-before", run);
   current.live.adapter.setSetting = async () => {
     db.prepare(
       "UPDATE companion_sessions SET generation='controls-after' WHERE conversation_id='conv'",

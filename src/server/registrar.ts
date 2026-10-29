@@ -8,6 +8,7 @@ import {
 } from "express";
 import { z } from "zod";
 import { Problem } from "../shared/problem.js";
+import { assertFleetAction } from "./fleet-action-context.js";
 import {
   workspaceRoutes,
   type RouteContract,
@@ -21,6 +22,15 @@ const probes = new WeakMap<
   { router: ReturnType<typeof Router>; options: RouterOptions }
 >();
 const mounted = new WeakMap<Express, ReturnType<typeof Router>[]>();
+type RouteLifecycle = { start: () => void; finish: () => void };
+const lifecycles = new WeakMap<object, RouteLifecycle>();
+
+/** Internal in-memory requests can expire before dispatch or before an async
+ * handler finishes. Stream closure alone does not establish handler completion.
+ * Only the bridge holding the actual request object can bind this lifecycle. */
+export function bindRouteLifecycle(request: object, lifecycle: RouteLifecycle) {
+  lifecycles.set(request, lifecycle);
+}
 
 /** Record exactly the mounts used by the application, in dispatch order. The
  * probe routers use Express itself, including each registrar's matching options,
@@ -103,6 +113,12 @@ function route<C extends RouteContract>(
 ): RequestHandler<Record<string, string>> {
   return (req, res) => {
     const json = res.json;
+    const lifecycle = lifecycles.get(req);
+    lifecycle?.start();
+    const complete = () => {
+      res.json = json;
+      lifecycle?.finish();
+    };
     try {
       const input = {
         params: contract.params.parse(req.params),
@@ -148,6 +164,7 @@ function route<C extends RouteContract>(
             input: { params: input.params, body: input.body },
           },
           () => {
+            assertFleetAction(res.locals.owner);
             const effect = handler(input, res);
             return effect instanceof Promise
               ? effect.then(response)
@@ -162,22 +179,22 @@ function route<C extends RouteContract>(
         // This is outside the local commit / external completion transaction.
         // Losing or throwing from the HTTP response cannot undo the receipt.
         if (result instanceof Promise)
-          return result.then(send).finally(() => {
-            res.json = json;
-          });
-        return send(result);
+          return result.then(send).finally(complete);
+        const sent = send(result);
+        complete();
+        return sent;
       }
       if (contract.kind !== "stream")
         res.json = (body) => json.call(res, projectResponse(contract, body));
+      // A delegated action may have waited in body parsing or middleware. The
+      // authenticated internal context must still authorize the owning handler.
+      assertFleetAction(res.locals.owner);
       const result = handler(input, res);
-      if (result instanceof Promise)
-        return result.finally(() => {
-          res.json = json;
-        });
-      res.json = json;
+      if (result instanceof Promise) return result.finally(complete);
+      complete();
       return result;
     } catch (error) {
-      res.json = json;
+      complete();
       throw error;
     }
   };
