@@ -2,7 +2,7 @@
 // private, live control connection, never in Pueue's persisted environment.
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import { isAbsolute, join } from "node:path";
@@ -273,6 +273,7 @@ export async function runQueuedJob(command, args, options = {}) {
   const identity = randomUUID();
   const taskLabel = "loop:" + identity + ":" + name;
   const key = randomBytes(32).toString("hex");
+  const cancellationKey = randomBytes(32).toString("hex");
   let directory,
     taskId,
     follower,
@@ -322,6 +323,21 @@ export async function runQueuedJob(command, args, options = {}) {
         let message;
         try {
           const envelope = JSON.parse(input.slice(0, end));
+          // Old operator CLIs send a bearer key. Give them cancellation-only
+          // authority, never the signing key that authorizes worker execution.
+          if (
+            !authenticated &&
+            envelope?.cancel === true &&
+            typeof envelope.key === "string" &&
+            envelope.key.length === cancellationKey.length &&
+            timingSafeEqual(
+              Buffer.from(envelope.key),
+              Buffer.from(cancellationKey),
+            )
+          ) {
+            cancel(143);
+            return socket.end('{"cancelled":true}\n');
+          }
           nonce ??= envelope?.nonce;
           message = verifiedMessage(key, nonce, "request", envelope);
           if (!message) return socket.destroy();
@@ -393,7 +409,8 @@ export async function runQueuedJob(command, args, options = {}) {
       descriptor,
       JSON.stringify({
         port: server.address().port,
-        // An older CLI would transmit a `key` property without authenticating.
+        // An old CLI can cancel, but cannot disclose the execution credential.
+        key: cancellationKey,
         secret: key,
         pid: process.pid,
         protocol: 2,

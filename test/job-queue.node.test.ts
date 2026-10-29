@@ -26,7 +26,10 @@ import {
 import { classifyCommand, shimScript } from "../deployment/job-shim.mjs";
 import { runSupervised } from "../scripts/heavy-command.mjs";
 import { spawnNative } from "../src/native-spawn.js";
-import { runQueuedJob as runLegacyJob } from "./fixtures/job-client-v1.mjs";
+import {
+  runQueuedJob as runLegacyJob,
+  cancelQueuedJob as cancelLegacyJob,
+} from "./fixtures/job-client-v1.mjs";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(
@@ -92,6 +95,28 @@ test("command shims preserve ordinary commands and classify old and current Loop
     );
     assert.equal(classifyCommand("node", ["--version"], dir).label, undefined);
     assert.equal(
+      classifyCommand("npx", ["--help", "tsc"], dir).label,
+      undefined,
+    );
+    for (const pattern of ["--watch", "--version", "-pattern"]) {
+      assert.equal(
+        classifyCommand(
+          "node",
+          ["--test", "--test-name-pattern", pattern, "fixture.test.mjs"],
+          dir,
+        ).label,
+        "native tests",
+      );
+      assert.equal(
+        classifyCommand(
+          "npx",
+          ["vitest", "run", "--testNamePattern", pattern],
+          dir,
+        ).label,
+        "vitest check",
+      );
+    }
+    assert.equal(
       classifyCommand("npx", ["tsc", "--noEmit"], dir).label,
       "tsc check",
     );
@@ -139,12 +164,14 @@ test("command shims preserve ordinary commands and classify old and current Loop
       ["npx", ["vite"]],
       ["npx", ["vite", "preview"]],
       ["npx", ["tsc", "--watch"]],
+      ["npx", ["--yes", "--", "tsc", "--watch"]],
       ["npx", ["vitest"]],
       ["npx", ["vitest", "run", "--watch"]],
       ["npx", ["playwright", "test", "--ui"]],
       ["npm", ["exec", "vite"]],
       ["npm", ["run", "build", "--", "--watch"]],
       ["node", ["--test", "--watch", "fixture.test.mjs"]],
+      ["node", ["--test", "--watch-path=false", "fixture.test.mjs"]],
     ] as const) {
       assert.equal(classifyCommand(program, [...args], dir).label, undefined);
     }
@@ -236,12 +263,20 @@ test("Node test options cannot bypass a configured unavailable queue through the
         JSON.stringify(marker) +
         ",'bad');",
     );
-    const child = spawn(shim, ["--test-reporter", "spec", "--test", fixture], {
-      stdio: "ignore",
-    });
-    const [code] = await once(child, "close");
-    assert.equal(code, 125);
-    assert.equal(existsSync(marker), false);
+    for (const args of [
+      ["--test-reporter", "spec", "--test", fixture],
+      ...["--watch", "--version", "-pattern"].map((pattern) => [
+        "--test",
+        "--test-name-pattern",
+        pattern,
+        fixture,
+      ]),
+    ]) {
+      const child = spawn(shim, args, { stdio: "ignore" });
+      const [code] = await once(child, "close");
+      assert.equal(code, 125);
+      assert.equal(existsSync(marker), false);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -551,6 +586,41 @@ test(
             assert.equal(await task, 143);
           } finally {
             writeFileSync(configPath, JSON.stringify(config));
+          }
+        },
+      );
+      await t.test(
+        "an original operator can cancel a current job without receiving its signing key",
+        async () => {
+          const marker = join(dir, "old-operator-started");
+          const controller = new AbortController();
+          const task = run(
+            "require('fs').writeFileSync(" +
+              JSON.stringify(marker) +
+              ",'started');setInterval(()=>{},1000)",
+            { label: "old operator fixture", signal: controller.signal },
+          );
+          try {
+            await until(
+              () => existsSync(marker),
+              "current job started for old operator",
+            );
+            const selected = Object.values(
+              (await queueStatus(config)).tasks,
+            ).find((task) => task.label?.endsWith(":old operator fixture"))!;
+            const identity = selected.label!.split(":")[1];
+            const control = JSON.parse(
+              readFileSync(
+                join(config.jobs, "job-" + identity, "control.json"),
+                "utf8",
+              ),
+            );
+            assert.notEqual(control.key, control.secret);
+            await cancelLegacyJob(config, identity);
+            assert.equal(await task, 143);
+          } finally {
+            controller.abort();
+            await task;
           }
         },
       );

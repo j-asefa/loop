@@ -1,3 +1,4 @@
+export function checkOptions(args: string[]): string[];
 export function classifyCommand(
   program: string,
   args: string[],

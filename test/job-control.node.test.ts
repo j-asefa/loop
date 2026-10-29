@@ -83,7 +83,12 @@ async function withListener(
     const descriptor = join(directory, "job-" + identity, "control.json");
     writeFileSync(
       descriptor,
-      JSON.stringify({ port, secret: key, protocol: 2 }),
+      JSON.stringify({
+        port,
+        key: randomBytes(32).toString("hex"),
+        secret: key,
+        protocol: 2,
+      }),
       {
         mode: 0o600,
       },
@@ -275,8 +280,8 @@ test("an old cancellation CLI cannot disclose a current job's signing key", asyn
         ),
       );
     },
-    (socket, request) => {
-      assert.equal("key" in request, false);
+    (socket, request, key) => {
+      assert.notEqual((request as unknown as { key?: string }).key, key);
       socket.end("{}\n");
     },
   );

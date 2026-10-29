@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runSupervised } from "./heavy-command.mjs";
+import { checkOptions } from "../deployment/job-shim.mjs";
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -34,9 +35,9 @@ if (
   ];
   process.exitCode = await runSupervised(process.execPath, args, {
     label: "typecheck",
-    job: !process.argv
-      .slice(2)
-      .some((arg) => arg === "-w" || /^--watch(?:=true)?$/.test(arg)),
+    job: !checkOptions(process.argv.slice(2)).some(
+      (arg) => arg === "-w" || /^--watch(?:=true)?$/.test(arg),
+    ),
     env: {
       ...process.env,
       GOMEMLIMIT: process.env.GOMEMLIMIT || "1536MiB",

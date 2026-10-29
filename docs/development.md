@@ -101,6 +101,8 @@ Pueue stores ordering, task state and output. The submitting process sends comma
 
 The old `LOOP_HEAVY_SLOT`, `LOOP_HEAVY_WAIT_SECONDS`, `LOOP_HEAVY_RESERVE_MB` and `LOOP_HEAVY_SCHEDULING` controls have no effect on current checks. The [agent resource installer](../deployment/install-agent-resources.sh) sets `LOOP_HEAVY_SCHEDULING=off` for older worktrees. Pueue provides explicit task IDs and cancellation rather than that removed shared-slot gate.
 
+Older cancellation tools can stop current jobs using a separate cancellation-only token. That token cannot authorize a worker to execute a command, and those tools never receive the current signing key.
+
 Queue regression tests use isolated local Pueue daemons and no provider accounts. To include them, set `LOOP_TEST_PUEUE` and `LOOP_TEST_PUEUED` to absolute paths for the pinned 4.0.4 binaries, then run `node --import tsx --test test/job-control.node.test.ts test/job-queue.node.test.ts`. Without those binaries, control-channel authentication, Unicode transport, executable discovery, classification, protocol-descriptor and unavailable-queue tests still run.
 
 The [agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-server) still limits aggregate agent memory and CPU. Container builds need separate limits because Docker work runs outside the caller's process tree and cgroup.

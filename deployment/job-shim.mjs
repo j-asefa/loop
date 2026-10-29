@@ -39,15 +39,17 @@ function queueAware(root) {
     return false;
   }
 }
-function nodeScript(args) {
+function nodeScript(args, options) {
   for (let i = 0; i < args.length; i++) {
     const value = args[i];
     if (
       ["-e", "--eval", "-p", "--print"].includes(value) ||
       /^(--eval|--print)=/.test(value) ||
       /^-[ep]./.test(value)
-    )
+    ) {
+      options.push(value);
       return undefined;
+    }
     if (
       [
         "--import",
@@ -126,11 +128,13 @@ function nodeScript(args) {
         "--watch-kill-signal",
       ].includes(value)
     ) {
+      options.push(value);
       i++;
       continue;
     }
     if (value === "--") return i + 1 < args.length ? i + 1 : undefined;
     if (!value.startsWith("-")) return i;
+    options.push(value);
   }
 }
 function toolWords(args, program) {
@@ -174,14 +178,92 @@ function compiler7(path) {
   }
 }
 
+function npxArguments(args) {
+  const values = new Set([
+    "--package",
+    "-p",
+    "--cache",
+    "--userconfig",
+    "--registry",
+  ]);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--") return args.slice(i + 1);
+    if (values.has(args[i])) i++;
+    else if (!args[i].startsWith("-")) return args.slice(i);
+  }
+  return [];
+}
+
+// Consumed option values cannot opt a finite check out of queue admission.
+export function checkOptions(args) {
+  const values = new Set([
+    "--project",
+    "-p",
+    "--config",
+    "-c",
+    "--root",
+    "--dir",
+    "--filter",
+    "--test-name-pattern",
+    "--test-skip-pattern",
+    "--testNamePattern",
+    "-t",
+    "--grep",
+    "-g",
+    "--grep-invert",
+    "--reporter",
+    "--outputFile",
+    "--output",
+    "--browser",
+    "--device",
+    "--timeout",
+    "--testTimeout",
+    "--hookTimeout",
+    "--retries",
+    "--workers",
+    "--maxWorkers",
+    "--minWorkers",
+    "--pool",
+    "--environment",
+    "--mode",
+    "--base",
+    "--host",
+    "--port",
+    "--package",
+    "--cache",
+    "--registry",
+    "--userconfig",
+    "--watch-path",
+    "--outDir",
+    "--outFile",
+    "--target",
+    "--module",
+    "--moduleResolution",
+    "--lib",
+  ]);
+  const options = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--") break;
+    options.push(args[i]);
+    if (values.has(args[i])) i++;
+  }
+  return options;
+}
+
 export function classifyCommand(program, original, cwd = process.cwd()) {
   const args = [...original];
   const root = loopProject(cwd),
     aware = queueAware(root);
   let label,
     compiler = false;
+  let commandOptions = checkOptions(args);
   if (program === "node") {
-    const index = nodeScript(args);
+    const nodeOptions = [];
+    const index = nodeScript(args, nodeOptions);
+    commandOptions = [
+      ...nodeOptions,
+      ...(index === undefined ? [] : checkOptions(args.slice(index + 1))),
+    ];
     const script = index === undefined ? "" : args[index];
     const name = basename(script);
     if (["tsc", "tsc.js", "_tsc.js"].includes(name)) {
@@ -195,11 +277,12 @@ export function classifyCommand(program, original, cwd = process.cwd()) {
       )
         args.push("--singleThreaded");
     } else if (
-      args.slice(0, index ?? args.length).includes("--test") &&
-      !args.some((a) => /^(--eval|--print)(=|$)|^-[ep]/.test(a))
-    )
+      nodeOptions.includes("--test") &&
+      !nodeOptions.some((a) => /^(--eval|--print)(=|$)|^-[ep]/.test(a))
+    ) {
       label = "native tests";
-    else if (/^(vitest|vite-node)(\.m?js)?$/.test(name)) {
+      commandOptions = nodeOptions;
+    } else if (/^(vitest|vite-node)(\.m?js)?$/.test(name)) {
       if (
         name.startsWith("vite-node") ||
         args
@@ -263,13 +346,20 @@ export function classifyCommand(program, original, cwd = process.cwd()) {
         cwd,
       ).label;
   } else if (program === "npx") {
-    const [tool, ...words] = toolWords(args, program);
+    const invocation = npxArguments(args);
+    const [tool, ...words] = toolWords(invocation, program);
+    commandOptions = [
+      ...checkOptions(args.slice(0, args.length - invocation.length)),
+      ...checkOptions(invocation.slice(1)),
+    ];
     if (
       tool === "tsc" ||
       (tool === "playwright" && words[0] === "test") ||
       (tool === "vite" && words[0] === "build") ||
       (tool === "vitest" &&
-        args.some((a) => ["run", "--run", "--watch=false"].includes(a)))
+        commandOptions.some((a) =>
+          ["run", "--run", "--watch=false"].includes(a),
+        ))
     )
       label = tool + " check";
   }
@@ -277,21 +367,25 @@ export function classifyCommand(program, original, cwd = process.cwd()) {
   // npm, -w selects a workspace; only arguments after -- belong to its script.
   const checkArgs =
     program === "npm"
-      ? args.slice(
-          args.indexOf("--") < 0 ? args.length : args.indexOf("--") + 1,
+      ? checkOptions(
+          args.slice(
+            args.indexOf("--") < 0 ? args.length : args.indexOf("--") + 1,
+          ),
         )
-      : args;
+      : commandOptions;
   if (
     checkArgs.some(
       (a) =>
-        (/^(--watch|--watch-path|--ui)(=|$)/.test(a) &&
-          !a.endsWith("=false")) ||
+        /^--watch-path(=|$)/.test(a) ||
+        (/^(--watch|--ui)(=|$)/.test(a) && !a.endsWith("=false")) ||
         a === "-w",
     )
   )
     label = undefined;
   // Version/help probes must stay fast and must not create queue jobs.
-  if (args.some((a) => ["--version", "-v", "--help", "-h"].includes(a)))
+  if (
+    commandOptions.some((a) => ["--version", "-v", "--help", "-h"].includes(a))
+  )
     label = undefined;
   return { label, args, compiler };
 }
