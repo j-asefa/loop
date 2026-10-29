@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { ModelOption } from "../shared/models";
-import { modelDisplayName } from "./modelChoices";
+import { modelOptionLabel } from "./modelChoices";
 
 /** Shared native selects for agent creation. */
 export function ConnectionPicker({
@@ -63,7 +63,7 @@ export function ModelPicker({
         )}
         {models.map((model) => (
           <option key={model.id} value={model.id}>
-            {modelDisplayName(model)}
+            {modelOptionLabel(model)}
           </option>
         ))}
       </select>

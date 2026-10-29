@@ -4,7 +4,12 @@ import { workspaceApi } from "../shared/workspace-api";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { Sheet } from "./components";
-import { effortName, modelGroups, modelDisplayName } from "./modelChoices";
+import {
+  effortName,
+  modelGroups,
+  modelDisplayName,
+  modelOptionLabel,
+} from "./modelChoices";
 import type { Agent, Connection } from "../shared/types";
 import type { ModelOption } from "../shared/models";
 
@@ -251,7 +256,7 @@ export function AgentModelSettings({
                       type="button"
                       className="model-option"
                       role="radio"
-                      aria-label={`${modelDisplayName(model)} · ${group.name} · ${group.connection.label}`}
+                      aria-label={`${modelOptionLabel(model)} · ${group.name} · ${group.connection.label}`}
                       aria-checked={active}
                       disabled={busy}
                       key={model.id}
@@ -264,7 +269,7 @@ export function AgentModelSettings({
                         );
                       }}
                     >
-                      <span>{modelDisplayName(model)}</span>
+                      <span>{modelOptionLabel(model)}</span>
                       {active && <Check size={21} />}
                     </button>
                   );

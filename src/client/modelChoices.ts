@@ -44,6 +44,13 @@ export function modelGroups(
       ],
     }));
 }
+/** A harness default stays labelled as a default when choosing it; the model
+ * it resolved to is shown where the saved choice is displayed. */
+export function modelOptionLabel(model: ModelOption) {
+  return model.id === "default" || model.id === "native-default"
+    ? model.name || "Default"
+    : modelDisplayName(model);
+}
 export function effortName(value?: string | null) {
   if (!value) return "Default";
   if (value === "xhigh") return "Extra high";

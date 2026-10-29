@@ -4,6 +4,7 @@ import {
   connectionEnvironments,
   connectionLocation,
   modelDisplayName,
+  modelOptionLabel,
   runModelName,
 } from "../src/client/modelChoices";
 import type { Connection } from "../src/shared/types";
@@ -44,6 +45,23 @@ it("shows harness-resolved versions without guessing the version of an alias", (
   expect(modelDisplayName({ id: "gpt-6-astra", name: "GPT-6 Astra" })).toBe(
     "GPT-6 Astra",
   );
+});
+
+it("labels a harness default as a default in the model picker", () => {
+  const nativeDefault = {
+    id: "native-default",
+    name: "Use native default",
+    resolvedModel: "gpt-6.1-sol",
+  };
+  expect(modelOptionLabel(nativeDefault)).toBe("Use native default");
+  expect(modelDisplayName(nativeDefault)).toBe("gpt-6.1-sol");
+  expect(
+    modelOptionLabel({
+      id: "opus",
+      name: "Opus",
+      resolvedModel: "claude-opus-5-5",
+    }),
+  ).toBe("Claude Opus 5.5");
 });
 
 it("resolves the model using the agent's own connection", () => {
