@@ -3,7 +3,7 @@
   "info": {
     "title": "Loop workspace event channels",
     "version": "3",
-    "description": "Companion to openapi.json. Event variants describe canonical decoded output; unknown or malformed events decode to invalidate. Serialized byte/depth bounds remain runtime constraints. No client writes are accepted on this socket."
+    "description": "Companion to openapi.json. Event variants describe canonical decoded output; unknown or malformed events decode to invalidate. Serialized byte/depth bounds remain runtime constraints. Browser sockets accept no client writes; token sockets accept only delivery acknowledgements."
   },
   "paths": {},
   "x-channels": {
@@ -28,6 +28,33 @@
         "query": {
           "$ref": "./openapi.json#/components/schemas/eventsQuery"
         },
+        "response": {
+          "$ref": "./openapi.json#/components/schemas/eventsResponse"
+        }
+      }
+    },
+    "tokenEvents": {
+      "kind": "socket",
+      "path": "/api/events/stream",
+      "security": [
+        {
+          "IntegrationBearer": []
+        }
+      ],
+      "description": "Read integration bearer in the WebSocket upgrade header only. Server text messages contain the same v3 frames and projected message/decision content as the browser channel. Confirm an offered epoch/cursor with a TokenEventAck JSON text message on this same socket after processing or reset reconciliation. Only confirmed progress is durable; a replacement fences earlier confirmations. Bare reconnect resumes the confirmed checkpoint; after requests earlier replay. Invalid acknowledgements close the connection without advancing it. Authority is checked before every frame, on acknowledgements and every 25 seconds while idle. Plain GET/HEAD returns 426 without opening or replacing a socket. Handshakes and acknowledgements share token request limits; inbound messages are limited to 1024 bytes.",
+      "query": {
+        "$ref": "#/components/schemas/TokenEventsQuery"
+      },
+      "frames": {
+        "$ref": "#/components/schemas/WorkspaceFrameV3"
+      },
+      "confirmation": {
+        "$ref": "#/components/schemas/TokenEventAck"
+      },
+      "httpFallback": {
+        "operationId": "events",
+        "method": "GET",
+        "path": "/api/events",
         "response": {
           "$ref": "./openapi.json#/components/schemas/eventsResponse"
         }
@@ -3539,6 +3566,31 @@
         ],
         "additionalProperties": false
       },
+      "TokenEventAck": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "ack"
+          },
+          "epoch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "type",
+          "epoch",
+          "cursor"
+        ],
+        "additionalProperties": false
+      },
       "WorkspaceScope": {
         "oneOf": [
           {
@@ -3680,6 +3732,24 @@
         "required": [
           "v"
         ]
+      },
+      "TokenEventsQuery": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "IntegrationBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Integration token with read scope"
       }
     }
   }

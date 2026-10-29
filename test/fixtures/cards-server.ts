@@ -1,6 +1,9 @@
 // An actual production HTTP entrypoint, with no workers or model providers.
 // Environment and data directory are supplied by the isolated parent fixture.
 import { once } from "node:events";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
+import { join } from "node:path";
 const source =
   process.env.LOOP_TEST_CARDS_SOURCE ||
   (process.env.LOOP_TEST_CARDS_COMPILED === "1" ? "../../dist/" : "../../src/");
@@ -8,7 +11,15 @@ const { config } = await import(source + "server/config.js");
 const { db, changes } = await import(source + "server/db.js");
 const { seal } = await import(source + "server/secrets.js");
 let close: () => Promise<void>;
+let stopListening: () => Promise<void>;
 let origin: string, owner: string, pair: string | undefined;
+let transportOrigin: string | undefined;
+const tokenSockets = new Set<Duplex>();
+function observeTokenSocket(req: IncomingMessage, socket: Duplex) {
+  if (req.url?.split("?")[0] !== "/api/events/stream") return;
+  tokenSockets.add(socket);
+  socket.once("close", () => tokenSockets.delete(socket));
+}
 if (process.env.LOOP_PROFILE === "companion") {
   const { WorkspaceHost } = await import(source + "workspace-host.js");
   const { OWNER } = await import(source + "server/native-sessions.js");
@@ -19,14 +30,43 @@ if (process.env.LOOP_PROFILE === "companion") {
     executable: process.execPath,
     billing: "existing",
   });
-  await host.gateway.listen();
-  origin = host.gateway.origin;
+  const upgrade = host.gateway.workspace!.tokenEvents!.upgrade;
+  host.gateway.workspace!.tokenEvents!.upgrade = (
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+  ) => {
+    observeTokenSocket(req, socket);
+    upgrade(req, socket, head);
+  };
+  if (process.env.LOOP_TEST_CARDS_RELAY === "1") {
+    const { Relay } = await import(source + "relay.js");
+    const relay = new Relay();
+    const path = join(config.data, "gateway.sock");
+    await host.gateway.listen({ socket: path });
+    await relay.listen("127.0.0.1");
+    // Model the TLS edge: the local relay receives HTTP with the public HTTPS
+    // Host/Origin, just as it does behind cloudflared. No live tunnel is used.
+    transportOrigin = "http://127.0.0.1:" + relay.port;
+    origin = "https://cards-fixture.loop.test";
+    host.setOrigin(origin);
+    relay.setBackend({ generation: 1, path });
+    close = async () => {
+      await host.close();
+      await relay.close();
+    };
+  } else {
+    await host.gateway.listen();
+    origin = host.gateway.origin;
+    close = () => host.close();
+  }
   owner = OWNER;
   pair = host.pair().url;
-  close = () => host.close();
+  stopListening = () => host.close();
 } else {
   const { startServer } = await import(source + "server/serve.js");
   const server = startServer();
+  server.on("upgrade", observeTokenSocket);
   await once(server, "listening");
   origin = config.url =
     "http://127.0.0.1:" + (server.address() as { port: number }).port;
@@ -38,6 +78,8 @@ if (process.env.LOOP_PROFILE === "companion") {
           }
         | undefined
     )?.owner_id || "";
+  stopListening = () =>
+    new Promise<void>((resolve) => server.close(() => resolve()));
   close = async () => {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -46,6 +88,7 @@ if (process.env.LOOP_PROFILE === "companion") {
 // This fixed mock credential exists only in the isolated fixture database.
 process.send?.({
   origin,
+  transportOrigin: transportOrigin ?? origin,
   owner,
   pair,
   fixtureSecret: owner ? seal("fixture-api-key", owner) : undefined,
@@ -54,6 +97,51 @@ process.send?.({
 let finishResultWrite:
   (() => { attempted: boolean; committed: boolean }) | undefined;
 process.on("message", (message) => {
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
+    message.type === "stop-listener"
+  )
+    void stopListening()
+      .then(() => process.send?.({ stopped: true }))
+      .catch((error) => process.send?.({ error: String(error) }));
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
+    message.type === "token-event-delta" &&
+    "owner" in message &&
+    "message" in message &&
+    "text" in message
+  ) {
+    void import("../../src/server/db.js")
+      .then(({ emit }) => {
+        const row = db
+          .prepare(
+            "SELECT id,conversation_id,revision FROM messages WHERE id=? AND owner_id=?",
+          )
+          .get(message.message, message.owner) as
+          { id: string; conversation_id: string; revision: number } | undefined;
+        if (!row) throw new Error("Fixture message not found");
+        const event = emit(
+          String(message.owner),
+          { kind: "message", id: row.id },
+          "message.delta",
+          {
+            messageId: row.id,
+            conversationId: row.conversation_id,
+            revision: row.revision + 1,
+            baseRevision: row.revision,
+            offset: 0,
+            chunkIndex: 0,
+            text: String(message.text),
+          },
+        );
+        process.send?.({ event: Number(event) });
+      })
+      .catch((error) => process.send?.({ error: String(error) }));
+  }
   if (
     message &&
     typeof message === "object" &&
@@ -144,6 +232,13 @@ process.on("message", (message) => {
     message.type === "change-subscriber-count"
   )
     process.send?.({ count: changes.subscriberCount });
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
+    message.type === "token-socket-count"
+  )
+    process.send?.({ count: tokenSockets.size });
 });
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, async () => {

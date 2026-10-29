@@ -76,6 +76,10 @@ export function listenWorkspaceChanges(
 /** Coalescing retains scopes per source without holding streamed payloads. */
 export class WorkspaceChangeQueue {
   private pending = new Map<string, Map<string, WorkspaceEvent>>();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private lastRefresh = 0;
+  private scheduledAt = 0;
+  private publish: ((detail: WorkspaceChangeDetail) => void) | undefined;
   readonly capabilities = new Map<string, WorkspaceCapabilities>();
   add(source: string, events: readonly WorkspaceEvent[] = [invalidate()]) {
     const scopes =
@@ -95,15 +99,50 @@ export class WorkspaceChangeQueue {
   delete(source: string) {
     this.pending.delete(source);
     this.capabilities.delete(source);
+    if (!this.size) this.cancel();
+    else if (this.publish) this.schedule(this.publish);
   }
   clear() {
+    this.cancel();
     this.pending.clear();
     this.capabilities.clear();
+  }
+  private cancel() {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.publish = undefined;
+  }
+  schedule(publish: (detail: WorkspaceChangeDetail) => void) {
+    if (!this.size) return;
+    const due = this.lastRefresh + (this.broad ? 3000 : 2000);
+    if (this.timer !== undefined && this.scheduledAt === due) return;
+    // A broad invalidation may arrive after a scoped timer was scheduled.
+    // Move that deadline once, without postponing it on every later event.
+    this.cancel();
+    this.publish = publish;
+    this.scheduledAt = due;
+    this.timer = setTimeout(
+      () => {
+        this.timer = undefined;
+        this.lastRefresh = Date.now();
+        publish(this.drain());
+      },
+      Math.max(0, due - Date.now()),
+    );
   }
   get size() {
     return this.pending.size;
   }
+  get broad() {
+    return [...this.pending.values()].some((events) =>
+      [...events.values()].some(
+        (event) =>
+          event.scope.kind === "collection" && event.scope.id === "all",
+      ),
+    );
+  }
   drain(): WorkspaceChangeDetail {
+    this.cancel();
     const changes = [...this.pending].map(([source, events]) => ({
       source,
       events: [...events.values()],

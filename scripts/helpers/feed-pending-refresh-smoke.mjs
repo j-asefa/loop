@@ -14,6 +14,19 @@ export async function pendingSourceRefreshSmoke(context, origin, remoteSource) {
   const feedRoute = (url) =>
     url.pathname.endsWith("/feed") &&
     ["working", "needs"].includes(url.searchParams.get("filter"));
+  const startupReads = new Set();
+  let lastFeedActivity = Date.now();
+  page.on("request", (request) => {
+    if (feedRoute(new URL(request.url()))) {
+      startupReads.add(request);
+      lastFeedActivity = Date.now();
+    }
+  });
+  const finishRead = (request) => {
+    if (startupReads.delete(request)) lastFeedActivity = Date.now();
+  };
+  page.on("requestfinished", finishRead);
+  page.on("requestfailed", finishRead);
   const refresh = (sources) =>
     page.evaluate((sources) => {
       window.dispatchEvent(
@@ -34,6 +47,21 @@ export async function pendingSourceRefreshSmoke(context, origin, remoteSource) {
       );
     }, sources);
   try {
+    await page.addInitScript(() => {
+      window.__pendingFeedInitialSources = new Set();
+      window.addEventListener("loop-workspace-change", (event) => {
+        for (const change of event.detail?.changes ?? [])
+          if (
+            change.events.some(
+              (event) =>
+                event.type === "invalidate" &&
+                event.scope?.kind === "collection" &&
+                event.scope.id === "all",
+            )
+          )
+            window.__pendingFeedInitialSources.add(change.source);
+      });
+    });
     await page.goto(origin + "/?filter=working");
     await expect(
       page
@@ -45,9 +73,22 @@ export async function pendingSourceRefreshSmoke(context, origin, remoteSource) {
         .locator(".needs-stack .inbox-card")
         .filter({ hasText: "Remote approval task" }),
     ).toHaveCount(1);
-    // Finish the fixture's initial socket reset/coalescing before controlling
-    // the single notification under test. No database mutation follows it.
-    await page.waitForTimeout(2500);
+    // Both sources must publish their initial reset and finish its reads before
+    // controlling the next notification. A fixed delay can end while the
+    // remote source is still waiting for the broad coalescing deadline.
+    await page.waitForFunction(
+      (remote) =>
+        ["", remote].every((source) =>
+          window.__pendingFeedInitialSources.has(source),
+        ),
+      remoteSource,
+      { timeout: 8000 },
+    );
+    await expect
+      .poll(
+        () => startupReads.size === 0 && Date.now() - lastFeedActivity >= 250,
+      )
+      .toBe(true);
     await page.route(feedRoute, async (route) => {
       const url = new URL(route.request().url());
       const remote = url.pathname.includes("/agent-sources/");

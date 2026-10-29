@@ -296,7 +296,9 @@ try {
   const restart = loop("restart");
   // The thread is a modal sheet: the notice must show inside it, not behind it.
   const sheet = page.getByRole("dialog");
-  await expect(sheet.getByText(/Loop is reconnecting/)).toBeVisible({
+  await expect(
+    sheet.getByRole("status").filter({ hasText: /Loop is reconnecting/ }),
+  ).toBeVisible({
     timeout: 30000,
   });
   const restarted = await restart;

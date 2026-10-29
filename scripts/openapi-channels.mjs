@@ -8,12 +8,14 @@ import {
 } from "../src/shared/workspace-events.ts";
 
 const channel = workspaceApi.channels.events;
+const tokenChannel = workspaceApi.channels.tokenEvents;
 const registry = z.registry();
 for (const [id, schema] of Object.entries({
   WorkspaceFrameV3: channel.frames,
   WorkspaceEvent: channel.event,
   WorkspaceCapabilities: channel.capabilities,
   WorkspaceClock: channel.clock,
+  TokenEventAck: tokenChannel.confirmation,
   WorkspaceScope,
   WorkspaceSubject,
 }))
@@ -34,6 +36,10 @@ schemas.WorkspaceEventsQuery = z.toJSONSchema(channel.query, {
   target: "draft-2020-12",
   io: "input",
 });
+schemas.TokenEventsQuery = z.toJSONSchema(tokenChannel.query, {
+  target: "draft-2020-12",
+  io: "input",
+});
 for (const schema of Object.values(schemas)) {
   delete schema.$schema;
   delete schema.$id;
@@ -50,7 +56,7 @@ const document = {
     title: "Loop workspace event channels",
     version: "3",
     description:
-      "Companion to openapi.json. Event variants describe canonical decoded output; unknown or malformed events decode to invalidate. Serialized byte/depth bounds remain runtime constraints. No client writes are accepted on this socket.",
+      "Companion to openapi.json. Event variants describe canonical decoded output; unknown or malformed events decode to invalidate. Serialized byte/depth bounds remain runtime constraints. Browser sockets accept no client writes; token sockets accept only delivery acknowledgements.",
   },
   paths: {},
   "x-channels": {
@@ -75,8 +81,35 @@ const document = {
         },
       },
     },
+    tokenEvents: {
+      kind: tokenChannel.kind,
+      path: "/api" + tokenChannel.path,
+      security: [tokenChannel.security],
+      description:
+        "Read integration bearer in the WebSocket upgrade header only. Server text messages contain the same v3 frames and projected message/decision content as the browser channel. Confirm an offered epoch/cursor with a TokenEventAck JSON text message on this same socket after processing or reset reconciliation. Only confirmed progress is durable; a replacement fences earlier confirmations. Bare reconnect resumes the confirmed checkpoint; after requests earlier replay. Invalid acknowledgements close the connection without advancing it. Authority is checked before every frame, on acknowledgements and every 25 seconds while idle. Plain GET/HEAD returns 426 without opening or replacing a socket. Handshakes and acknowledgements share token request limits; inbound messages are limited to 1024 bytes.",
+      query: { $ref: "#/components/schemas/TokenEventsQuery" },
+      frames: { $ref: "#/components/schemas/WorkspaceFrameV3" },
+      confirmation: {
+        $ref: "#/components/schemas/TokenEventAck",
+      },
+      httpFallback: {
+        operationId: fallbackId,
+        method: fallbackRoute.method,
+        path: "/api" + fallbackRoute.path,
+        response: { $ref: "./openapi.json#/components/schemas/eventsResponse" },
+      },
+    },
   },
-  components: { schemas },
+  components: {
+    schemas,
+    securitySchemes: {
+      IntegrationBearer: {
+        type: "http",
+        scheme: "bearer",
+        description: "Integration token with read scope",
+      },
+    },
+  },
 };
 // Keep the channel document independent so Cards retains local-only references.
 const output = JSON.stringify(document, null, 2) + "\n";

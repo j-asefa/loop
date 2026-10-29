@@ -24,7 +24,7 @@ import { ProfileInput, PublicProfile, PersonalPromptsQuery, PersonalPromptsPage 
 import { AgentCreateInput, AgentUpdateInput, ConnectionCreateInput, ConnectionReconnectInput, PublicModels, PublicConnectionRefresh, PublicHarnessCatalog, PublicPiConfiguration, PublicPiMutation, PublicPiInspection, PiTrustInput, PiFiltersInput, PiPreviewInput, PiInspectInput, PiRollbackInput, PiActionInput, PublicAgentMessages, PublicAgentTraces } from "./agent-contract-schemas.js";
 import { DoneDisplaySchema } from "./done-card.js";
 import { DoneThread, DoneThreadSummary, DoneThreadQuery, DoneThreadDetail, DoneThreadCreate, DoneThreadMembers, DoneThreadCardId } from "./done-threads.js";
-import { WorkspaceClock, WorkspaceFrameV3, WorkspaceEvent, WorkspaceCapabilities } from "./workspace-events.js";
+import { WorkspaceClock, WorkspaceFrameV3, WorkspaceEvent, WorkspaceCapabilities, TokenEventAck } from "./workspace-events.js";
 import { ProjectedMessage } from "./transcript-projection.js";
 import { SessionControls } from "./session-controls.js";
 import { AttachmentIds } from "./uploads.js";
@@ -166,7 +166,7 @@ export type RouteContract = {
   multipart?: true;
   contentType?: string;
   // Documentation of existing middleware; never an authorization bypass.
-  security?: "public" | "local-setup" | "optional-session" | "paired-device";
+  security?: "public" | "local-setup" | "optional-session" | "paired-device" | "integration-token";
 } & (({ kind?: "stream"; protocol?: never } & (
     { method: "GET"; access: SessionAccess | { admits: readonly TokenAdmission[] } }
     | { method: "POST" | "PUT" | "PATCH" | "DELETE"; access: SessionAccess | { admits: readonly Exclude<TokenAdmission, "write" | "approvals:decide">[] } }
@@ -218,7 +218,8 @@ export const workspaceRoutes = {
   health: endpoint({ ...base, security: "public", method: "GET", path: "/health", response: app.PublicHealth, additionalStatuses: [503] }),
   build: endpoint({ ...base, method: "GET", path: "/build", response: app.PublicBuild }),
   diagnostic: endpoint({ ...base, method: "POST", path: "/diagnostic", body: app.DiagnosticInput, response: PublicRun }),
-  events: endpoint({ ...base, method: "GET", path: "/events", query: z.object({ after: z.unknown().optional() }), response: z.array(app.PublicHttpEvent) }),
+  events: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/events", query: z.object({ after: z.unknown().optional() }), response: z.array(app.PublicHttpEvent) }),
+  tokenEvents: endpoint({ ...base, access: { admits: ["read"] }, security: "integration-token", method: "GET", path: "/events/stream", query: z.strictObject({ after: z.coerce.number<string>().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional() }), status: 426, response: CardErrorSchema }),
   authOptions: endpoint({ ...base, security: "public", method: "GET", path: "/auth-options", response: app.PublicAuthOptions }),
   authSession: endpoint({ ...base, security: "optional-session", method: "GET", path: "/auth/get-session", query: app.AuthSessionQuery, response: app.PublicAuthSession }),
   authSignInEmail: endpoint({ ...base, method: "POST", path: "/auth/sign-in/email", body: app.AuthSignInEmailInput, kind: "transport", protocol: "authentication", response: z.unknown() }),
@@ -505,6 +506,16 @@ export const workspaceApi = {
       event: WorkspaceEvent,
       capabilities: WorkspaceCapabilities,
       clock: WorkspaceClock,
+      fallback: workspaceRoutes.events,
+    },
+    tokenEvents: {
+      kind: "socket",
+      path: workspaceRoutes.tokenEvents.path,
+      security: { IntegrationBearer: [] },
+      query: workspaceRoutes.tokenEvents.query,
+      frames: WorkspaceFrameV3,
+      request: workspaceRoutes.tokenEvents,
+      confirmation: TokenEventAck,
       fallback: workspaceRoutes.events,
     },
   },

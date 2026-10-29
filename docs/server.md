@@ -17,6 +17,8 @@ Open http://localhost:3000. `GET /api/health` reports readiness. [src/server/con
 
 Forward WebSocket upgrades for `/api/events/ws` through any reverse proxy, with the same session cookies or trusted gateway header as ordinary requests. See [workspace updates](architecture.md#workspace-updates) for push updates and polling recovery.
 
+For integration streams, forward WebSocket upgrades and the `Authorization` header for `/api/events/stream`. Acknowledgements travel on the same socket. The endpoint checks token authority and sends a ping every 25 seconds while idle; server and companion shutdown terminate its sockets. It uses WebSockets for compatibility with the default Quick Tunnel connection; see [Integration API events](cards-api.md#event-pages-and-streaming).
+
 ## Docker and harness connections
 
 Use Settings → Provider connections to connect server subscription accounts through the configured runtime broker, or register a native host. See [remote runtimes](remote-runtimes.md). The root Compose stack supplies the server and subscription runtime; the paired Docker companion is a separate deployment.

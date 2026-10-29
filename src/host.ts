@@ -82,6 +82,14 @@ export class Host {
     /** Dedicated machine protocol; never forwards to the browser workspace API. */
     peerHttp?: (req: IncomingMessage, res: ServerResponse) => void;
     authorizeToken?: (req: IncomingMessage) => CardAuthorization;
+    tokenEvents?: {
+      upgrade: (
+        req: IncomingMessage,
+        socket: import("node:stream").Duplex,
+        head: Buffer,
+      ) => void;
+      close: () => void;
+    };
     status: () => unknown;
     admin: (action: string, input: any) => Promise<unknown>;
     shareTools?: (
@@ -212,6 +220,26 @@ export class Host {
     options: { socket?: string; probe?: (nonce: string) => string } = {},
   ) {
     this.publicServer.on("upgrade", (req, socket, head) => {
+      // Token sockets are a separate, contract-admitted channel. Browser/device
+      // cookies never substitute for a bearer, and linked-source paths stay out.
+      if (
+        req.url?.split("?")[0] ===
+          "/api" + workspaceApi.channels.tokenEvents.path &&
+        this.workspace?.tokenEvents
+      ) {
+        if (
+          !this.validHost(req) ||
+          (req.headers.origin && !this.validOrigin(req)) ||
+          req.headers["sec-fetch-site"] === "cross-site"
+        ) {
+          socket.on("error", () => socket.destroy());
+          socket.end(
+            "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+          );
+          return;
+        }
+        return this.workspace.tokenEvents.upgrade(req, socket, head);
+      }
       const device = this.authenticate(req);
       if (
         !this.validOrigin(req) ||
@@ -971,6 +999,7 @@ export class Host {
     if (this.stopped) return;
     this.emit({ type: "status", status: "stopped" });
     this.stopped = true;
+    this.workspace?.tokenEvents?.close();
     this.closeFleetRequests();
     clearTimeout(this.flush);
     clearInterval(this.heartbeat);

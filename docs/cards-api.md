@@ -4,8 +4,8 @@ Loop's Integration API admits scoped bearer credentials through the mounted
 [workspace contracts](contracts.md). Each admitted route declares `{ admits }`;
 a token may use it when at least one stored admission value matches. Session
 access keeps its existing rules. GET and HEAD share authorization; HEAD has no
-body. Token reads do not save, acknowledge, mark read, resolve decisions or
-dispatch work. Responses omit owner-session clock headers and the JSON
+body. Token reads do not save, mark product items read, resolve decisions or
+dispatch work; the event acknowledgement confirms only that token's stream cursor. Responses omit owner-session clock headers and the JSON
 `projection` clock; collection cursors remain available for pagination.
 
 ## Integration tokens
@@ -22,7 +22,7 @@ metadata and revokes tokens immediately.
 
 | Selectable scope | Current admission |
 | --- | --- |
-| `read` | Bootstrap; agent details, messages and traces; Feed pages; conversation and message reads; run and approval lists; companion native-decision lists; Results, artifacts and file downloads; Cards Results, Saved and Sent |
+| `read` | Bootstrap; agent details, messages and traces; Feed pages; conversation and message reads; run and approval lists; companion native-decision lists; Results, artifacts and file downloads; Cards Results, Saved and Sent; event pages and stream |
 | `write` | Submit messages and replies; cancel or dismiss runs; reorder, withdraw or move queued runs |
 | `approvals:decide` | Decide API approvals and answer companion native decisions |
 
@@ -86,7 +86,7 @@ uncopied token using the metadata list and create another.
 Requests are limited to 120 per token and 600 per owner per minute. A 429 response
 includes `Retry-After: 60`. The approximate `last_used_at` updates at most once a
 minute; each request still checks revocation. These bookkeeping tables are the
-only state changed by token reads, along with source/owner-bound identifiers of
+only state changed by ordinary token reads, along with source/owner-bound identifiers of
 cards, Results and artifacts previously returned to that token. Removal responses expose only those
 previously disclosed IDs; they never reveal IDs of private uploads or other
 ineligible records. This read bookkeeping is discarded on revocation. After
@@ -99,6 +99,79 @@ Read-disclosure storage grows with distinct cards returned per active token;
 repeated reads do not add duplicate rows. Keep only the integration tokens you
 need and revoke unused ones. These short, indexed bookkeeping writes share the
 database write lock with the worker; the rate limits bound their frequency.
+
+## Event pages and streaming
+
+`GET /api/events?after=ID` returns the existing array of owner-scoped event rows,
+including serialized `payload` text. The last row's `id` is the next cursor.
+Read tokens receive at most 200 rows and a 512 KiB serialized array budget.
+Rows stay whole: if the first unread row alone exceeds that budget, it is returned
+alone and intact, so a client always makes progress. Browser event pages retain
+their existing 200-row behavior. GET and HEAD require `read`; neither legacy
+Card grant can read events.
+
+The `read` scope includes committed owner-wide deadline events. Their payload
+contains `serverNow` and one `nextDeadline`: the minimum unprocessed approval or
+pull-watch expiry timestamp, or null when none remains. It names no individual
+approval or watch. Expiry invalidations also name affected collections, including
+`pulls`. These event payloads stay intact, as they do for the browser. Ordinary
+bearer responses still omit the automatic workspace-clock headers; granting
+legacy Cards access, `write`, or `approvals:decide` alone does not grant events.
+
+`/api/events/stream` is a token-only WebSocket endpoint. Send
+`Authorization: Bearer loop_token_…` in the upgrade request using a WebSocket
+client that supports headers; it needs no cookie. Use `wss:` for HTTPS origins
+and `ws:` for local HTTP. Tokens are never accepted in URLs. WebSockets support
+Loop's default Quick Tunnel connection; Cloudflare documents that
+[Quick Tunnels do not support SSE](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/#limitations).
+Each server text message is the canonical v3 frame from the same ordered committed change drain as
+the browser socket. This includes projected message content and decision payloads.
+Individual event and batch byte limits can replace content with a scoped
+invalidation; read the corresponding route for authoritative full content.
+The browser `/api/events/ws` and companion `/ws` protocol is unchanged and still
+refuses bearer credentials. See the [channel document](openapi-channels.json).
+
+The JSON `cursor` is **offered** progress. Writing a frame to the connection
+does not confirm its delivery. After processing a frame, send this JSON text
+message on the same socket, using the frame's values:
+
+```json
+{ "type": "ack", "epoch": "EPOCH", "cursor": 123 }
+```
+
+The server saves this token's **confirmed** checkpoint. Confirm only after
+reconciling through the routes when the frame is a reset. There is no separate
+HTTP acknowledgement endpoint or acknowledgement receipt; a lost confirmation
+can cause replay after reconnect. Batch
+acknowledgements within the existing per-token request rate; one confirmation
+covers preceding offered frames from that connection and epoch. A stale,
+unoffered or replaced-connection acknowledgement closes the socket without
+advancing its checkpoint. Other client messages, binary messages and messages
+larger than 1,024 bytes are refused. Ordinary GET/HEAD requests without an upgrade
+return 426 after admission, without advancing a checkpoint or replacing a socket.
+
+A bare reconnect resumes from the confirmed checkpoint; `?after=ID` requests
+retained history from another cursor, including an earlier point. A frame lost
+before confirmation can therefore be delivered again. Consumers must tolerate
+duplicates. Two tokens have independent checkpoints. Only one connection per
+token may offer or confirm frames: a new connection closes the previous local
+stream and invalidates its confirmations. Reconnect to the serving API process
+after a restart or proxy change; an acknowledgement cannot revive a closed stream.
+
+The first bare connection sends a reset. A normal server restart retains the
+durable epoch and resumes confirmed history. A changed epoch, pruned history,
+out-of-bounds checkpoint or missing log tail instead sends the same explicit
+reset as the browser channel. Deleted history is not recoverable from the stream;
+reconcile through the routes and then confirm the reset's tip. Reset delivery
+alone never advances the saved checkpoint.
+
+Authority is rechecked before each frame, on acknowledgements and every 25 seconds while idle, so
+revoking a token ends an idle stream within 30 seconds. Slow connections close
+on the shared output buffer bound or after 1,024 unconfirmed frames, discarding
+buffered output when closed; reconnect from the confirmed checkpoint. Cursor state is removed when the token record is
+pruned. Upgrade requests and acknowledgement messages share the normal per-token
+rate limits. Both server and companion shutdown close their token sockets,
+including when the companion is reached through its connection-service relay.
 
 ## Write identities and replay
 

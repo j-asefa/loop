@@ -18,6 +18,9 @@ import {
   PublicUpgradeView,
 } from "../src/shared/companion-contract-schemas.ts";
 import { ActivityRecordSchema } from "../src/agent-activities.ts";
+import { DoneDisplaySchema } from "../src/shared/done-card.ts";
+import { AgentThreadSummary } from "../src/shared/agent-thread-feed.ts";
+import { PublicMailMessage } from "../src/shared/agent-mail.ts";
 import {
   ResultCardSchema,
   MessageCardSchema,
@@ -74,6 +77,13 @@ const jsonOptions = {
 // endpoint. Stable per-route response names remain references to these schemas.
 const publicProjections = {
   Ok: workspaceRoutes.workspaceRevoke.response,
+  PublicConversation: workspaceRoutes.conversation.response.shape.conversation,
+  PublicDoneCheckout: DoneDisplaySchema.shape.run
+    .unwrap()
+    .shape.checkout.unwrap(),
+  PublicDoneVerification: DoneDisplaySchema.shape.run
+    .unwrap()
+    .shape.verification.unwrap(),
   DoneCard: DoneCardSchema,
   ResultItem,
   PublicUploadDescriptor,
@@ -86,6 +96,8 @@ const publicProjections = {
   PublicPiMutation,
   PublicPiPackage,
   PublicModel,
+  AgentThreadSummary,
+  PublicMailMessage,
   PublicAgent,
   PublicConnection,
   PublicFolder,
@@ -342,6 +354,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
     errorStatuses.push(409);
   if (name === "cardTokenRevoke" || name === "personalApproval")
     errorStatuses.push(404);
+  if (name === "tokenEvents") errorStatuses.push(503);
   const errors = Object.fromEntries(
     errorStatuses
       .sort((a, b) => a - b)
@@ -364,6 +377,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
                 : "Cursor no longer valid; reset selection",
             429: "Request limit reached",
             500: "Server error",
+            503: "Server shutting down",
           }[status],
           ...(status === 429
             ? {
@@ -425,16 +439,18 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
         : [{ OwnerSession: [] }, {}]
       : route.security === "public"
         ? []
-        : route.security === "paired-device"
-          ? [{ PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) }]
-          : route.security === "local-setup"
-            ? [{ LocalSourceSetup: [] }]
-            : [
-                ...(route.security === "optional-session" ? [{}] : []),
-                ...(admission ? [{ IntegrationBearer: [] }] : []),
-                { OwnerSession: [] },
-                { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
-              ],
+        : route.security === "integration-token"
+          ? [{ IntegrationBearer: [] }]
+          : route.security === "paired-device"
+            ? [{ PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) }]
+            : route.security === "local-setup"
+              ? [{ LocalSourceSetup: [] }]
+              : [
+                  ...(route.security === "optional-session" ? [{}] : []),
+                  ...(admission ? [{ IntegrationBearer: [] }] : []),
+                  { OwnerSession: [] },
+                  { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
+                ],
     ...(admission ? { "x-scopes": admission } : {}),
     ...(tokenMutation
       ? {
@@ -490,6 +506,17 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
         : documentedErrors),
     },
   };
+  if (name === "tokenEvents") {
+    operation.responses[101] = {
+      description:
+        "WebSocket upgrade; canonical frames and acknowledgements are defined by openapi-channels.json.",
+    };
+    operation.responses[426].description =
+      "WebSocket upgrade required; GET/HEAD without an upgrade never opens or replaces a token socket.";
+    operation.responses[426].headers = {
+      Upgrade: { schema: { type: "string", const: "websocket" } },
+    };
+  }
   paths[path] ||= {};
   paths[path][method] = operation;
   // Preserve the previously published Cards HEAD operations. Other contracts

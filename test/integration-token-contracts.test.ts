@@ -91,6 +91,7 @@ it.each(["server", "companion", "multi-user"] as const)(
       .run(local.artifact);
     const paths: Partial<Record<keyof typeof workspaceApi, string>> = {
       bootstrap: "/bootstrap",
+      events: "/events?after=0",
       agentDetail: `/agents/${local.agent}`,
       agentMessages: `/agents/${local.agent}/messages`,
       agentTraces: `/agents/${local.agent}/traces`,
@@ -118,6 +119,7 @@ it.each(["server", "companion", "multi-user"] as const)(
       .filter(
         ([, route]) =>
           typeof route.access === "object" &&
+          !("security" in route && route.security === "integration-token") &&
           route.access.admits.some((scope) => scope === "read"),
       )
       .map(([name]) => name)
@@ -125,6 +127,7 @@ it.each(["server", "companion", "multi-user"] as const)(
     expect(Object.keys(paths).sort()).toEqual(admitted);
     const visible: Partial<Record<keyof typeof workspaceApi, string>> = {
       bootstrap: local.agent,
+      events: local.message,
       agentDetail: local.agent,
       agentMessages: local.reply,
       agentTraces: "Fixture trace",
@@ -229,7 +232,7 @@ it.each(["server", "companion", "multi-user"] as const)(
       "/v1/cards?view=done",
       "/card-tokens",
       "/connections",
-      "/events",
+      "/events/ws",
       "/workspace/devices",
       "/agent-sources",
       "/mcp-sharing",
@@ -387,6 +390,9 @@ it.each(["server", "companion"] as const)(
           (await f.request("/api/bootstrap", { method, headers })).status,
         ).toBe(scope === "read" ? 200 : 403);
         expect(
+          (await f.request("/api/events", { method, headers })).status,
+        ).toBe(scope === "read" ? 200 : 403);
+        expect(
           (await f.request("/api/v1/cards", { method, headers })).status,
         ).toBe(
           ["read", "results:read", "cards:read"].includes(scope) ? 200 : 403,
@@ -395,7 +401,6 @@ it.each(["server", "companion"] as const)(
           "/api/card-tokens",
           "/api/fleet/admin/state",
           "/api/fleet/peer/v1/directory/history",
-          "/api/events",
           "/api/v1/cards?view=done",
         ])
           expect((await f.request(path, { method, headers })).status).toBe(403);

@@ -9,11 +9,16 @@ import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
 import { installFixtureProjection } from "./projected-writer.js";
+import { fleetDeviceFromLink } from "../../src/shared/fleet-pairing.js";
 
 export async function cardsFixture(
   mode: "server" | "companion" | "multi-user",
   compiled: boolean | string = false,
-  options: { projectedWrites?: boolean; nodeEnv?: "test" | "production" } = {},
+  options: {
+    projectedWrites?: boolean;
+    nodeEnv?: "test" | "production";
+    relay?: boolean;
+  } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "loop-card-access-"));
   let port = 0;
@@ -48,6 +53,7 @@ export async function cardsFixture(
           PORT: String(port),
           LOOP_TEST_CARDS_COMPILED: compiled ? "1" : "0",
           LOOP_TEST_CARDS_SOURCE: typeof compiled === "string" ? compiled : "",
+          LOOP_TEST_CARDS_RELAY: options.relay ? "1" : "0",
           NODE_ENV: options.nodeEnv ?? "test",
           TEST: options.nodeEnv === "production" ? "" : process.env.TEST,
           LOOP_LISTEN_HOST: "127.0.0.1",
@@ -66,6 +72,7 @@ export async function cardsFixture(
   const timeout = setTimeout(() => child.kill(), 20000);
   let ready: {
     origin: string;
+    transportOrigin: string;
     owner: string;
     pair?: string;
     fixtureSecret?: string;
@@ -88,7 +95,7 @@ export async function cardsFixture(
   // Opt in when exercising Feed: this independent connection must commit its
   // projection with its source writes, exactly like the production worker.
   if (options.projectedWrites) installFixtureProjection(database);
-  let { origin } = ready;
+  let { origin, transportOrigin } = ready;
   let owner = ready.owner;
   const request = (
     path: string,
@@ -103,10 +110,11 @@ export async function cardsFixture(
       const req = httpRequest(
         {
           hostname: "127.0.0.1",
-          port: new URL(origin).port,
+          port: new URL(transportOrigin).port,
           path,
           method: options.method || (options.body ? "POST" : "GET"),
           headers: {
+            host: new URL(origin).host,
             "content-type": "application/json",
             ...(payload
               ? { "content-length": String(Buffer.byteLength(payload)) }
@@ -150,15 +158,15 @@ export async function cardsFixture(
   if (ready.pair) {
     const response = await request("/pair", {
       body: {
-        secret: new URLSearchParams(new URL(ready.pair).hash.slice(1)).get(
-          "pair",
-        ),
+        ...fleetDeviceFromLink(ready.pair, origin),
         name: "Card fixture",
       },
       headers: { origin },
     });
     if (response.status !== 200)
-      throw new Error("Could not pair isolated card fixture");
+      throw new Error(
+        `Could not pair isolated card fixture (${response.status}): ${await response.text()}`,
+      );
     cookie = response.headers.get("set-cookie")!.split(";", 1)[0];
     csrf = (await (await request("/session", { headers: { cookie } })).json())
       .csrf;
@@ -182,7 +190,12 @@ export async function cardsFixture(
       .map((value) => value.split(";", 1)[0])
       .join("; ");
   }
-  const browser = { origin, cookie, "x-loop-csrf": csrf };
+  const browser = {
+    origin,
+    host: new URL(origin).host,
+    cookie,
+    "x-loop-csrf": csrf,
+  };
   let closed = false;
   const close = async () => {
     if (closed) return;
@@ -208,6 +221,9 @@ export async function cardsFixture(
     mode,
     dir,
     origin,
+    get transportOrigin() {
+      return transportOrigin;
+    },
     owner,
     db: database,
     fixtureSecret: ready.fixtureSecret,
@@ -230,7 +246,9 @@ export async function cardsFixture(
           }),
         ]);
         origin = restarted.origin;
+        transportOrigin = restarted.transportOrigin;
         browser.origin = origin;
+        browser.host = new URL(origin).host;
       } finally {
         clearTimeout(timeout);
       }
@@ -286,9 +304,31 @@ export async function cardsFixture(
       child.send({ type: "busy-timeout", ms });
       await reply;
     },
+    async stopListening(): Promise<void> {
+      const reply = once(child, "message");
+      child.send({ type: "stop-listener" });
+      const [result] = await reply;
+      if (result.error) throw new Error(result.error);
+    },
+    async eventDelta(
+      message: string,
+      text: string,
+      who = owner,
+    ): Promise<number> {
+      const reply = once(child, "message");
+      child.send({ type: "token-event-delta", message, text, owner: who });
+      const [result] = await reply;
+      if (result.error) throw new Error(result.error);
+      return result.event;
+    },
     async eventSubscriberCount(): Promise<number> {
       const reply = once(child, "message");
       child.send({ type: "change-subscriber-count" });
+      return (await reply)[0].count;
+    },
+    async tokenSocketCount(): Promise<number> {
+      const reply = once(child, "message");
+      child.send({ type: "token-socket-count" });
       return (await reply)[0].count;
     },
     close,

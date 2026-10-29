@@ -9,7 +9,7 @@ import { cardsFixture } from "../test/helpers/cards-fixture.ts";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 // Foreign commits wake the 250ms change drain, followed by up to two seconds
-// of source coalescing and 250ms of App coalescing.
+// of scoped source coalescing (three for broad invalidations) and 250ms of App coalescing.
 const revisionTimeout = 8000;
 
 function seed({ db, owner }, label, history = 55, activeHistory = 45) {
@@ -779,12 +779,16 @@ for (const engine of engines) {
             ),
           );
           assert.ok(
-            after.every((count, i) => count - before[i] >= 8),
+            after.every((count, i) => count - before[i] >= 6),
             "both tabs received sustained push updates",
           );
           assert.ok(
             requests.length <= 180,
-            `two streaming tabs made ${requests.length} requests in 20 seconds`,
+            `two streaming tabs made ${requests.length} requests in 20 seconds: ${JSON.stringify(requests.reduce((counts, value) => {
+              const path = new URL(value).pathname;
+              counts[path] = (counts[path] || 0) + 1;
+              return counts;
+            }, {}))}`,
           );
           assert.deepEqual(
             limited,

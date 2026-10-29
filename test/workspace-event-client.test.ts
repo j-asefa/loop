@@ -73,6 +73,123 @@ function subscribe(
     socket: Socket.instances.at(-1)!,
   };
 }
+
+it("extends a scoped batch when a later broad invalidation arrives", async () => {
+  const one = subscribe(),
+    two = subscribe();
+  const queue = new WorkspaceChangeQueue(),
+    published = vi.fn();
+  stops.push(() => queue.clear());
+  for (const [source, stream] of [
+    ["one", one],
+    ["two", two],
+  ] as const)
+    stream.changed.mockImplementation((events) => {
+      queue.add(source, events);
+      queue.schedule(published);
+    });
+  let id = 0;
+  const send = (stream: typeof one, scope: "feed" | "all") =>
+    stream.socket.onmessage?.({
+      data: JSON.stringify({
+        v: 3,
+        type: "events",
+        epoch: "epoch",
+        cursor: ++id,
+        events: [
+          {
+            id,
+            event: {
+              type: "invalidate",
+              scope: { kind: "collection", id: scope },
+            },
+          },
+        ],
+      }),
+    });
+  send(one, "feed");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(published).toHaveBeenCalledTimes(1);
+  for (let cycle = 0; cycle < 3; cycle++) {
+    send(one, "feed");
+    await vi.advanceTimersByTimeAsync(500);
+    send(two, "all");
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(published).toHaveBeenCalledTimes(cycle + 1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(published).toHaveBeenCalledTimes(cycle + 1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(published).toHaveBeenCalledTimes(cycle + 2);
+    expect(published.mock.lastCall![0]).toMatchObject({
+      sources: ["one", "two"],
+      changes: [
+        {
+          source: "one",
+          events: [{ scope: { kind: "collection", id: "feed" } }],
+        },
+        {
+          source: "two",
+          events: [{ scope: { kind: "collection", id: "all" } }],
+        },
+      ],
+    });
+  }
+});
+
+it("keeps scoped batches at two seconds and cancels removed-source work", async () => {
+  const queue = new WorkspaceChangeQueue(),
+    published = vi.fn();
+  const add = () => {
+    queue.add("one", [
+      { type: "invalidate", scope: { kind: "collection", id: "feed" } },
+    ]);
+    queue.schedule(published);
+  };
+  stops.push(() => queue.clear());
+  add();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(published).toHaveBeenCalledTimes(1);
+  add();
+  await vi.advanceTimersByTimeAsync(1999);
+  expect(published).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(published).toHaveBeenCalledTimes(2);
+  add();
+  queue.delete("one");
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(published).toHaveBeenCalledTimes(2);
+  add();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(published).toHaveBeenCalledTimes(3);
+  add();
+  queue.clear();
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(published).toHaveBeenCalledTimes(3);
+});
+
+it("restores the scoped deadline when removing a broad source", async () => {
+  const queue = new WorkspaceChangeQueue(),
+    published = vi.fn();
+  stops.push(() => queue.clear());
+  queue.add("one");
+  queue.schedule(published);
+  await vi.advanceTimersByTimeAsync(0);
+  queue.add("one");
+  queue.schedule(published);
+  queue.add("two", [
+    { type: "invalidate", scope: { kind: "collection", id: "feed" } },
+  ]);
+  queue.schedule(published);
+  await vi.advanceTimersByTimeAsync(500);
+  queue.delete("one");
+  await vi.advanceTimersByTimeAsync(1499);
+  expect(published).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(published).toHaveBeenCalledTimes(2);
+  expect(published.mock.lastCall![0]).toMatchObject({ sources: ["two"] });
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(published).toHaveBeenCalledTimes(2);
+});
 it("uses push while connected and catches up with the source cursor after reconnect", async () => {
   const s = subscribe();
   s.socket.frame(41, "source-epoch", "reset");

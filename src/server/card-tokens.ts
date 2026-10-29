@@ -243,6 +243,32 @@ export type CardRequest = IncomingMessage & {
   [cardAuthorization]?: CardAuthorization;
 };
 
+/** Long-lived readers recheck authority without charging a new HTTP request. */
+export function activeIntegrationToken(
+  owner: string,
+  tokenId: string,
+  scope: TokenAdmission,
+) {
+  const token = db
+    .prepare(
+      "SELECT scope FROM card_tokens WHERE id=? AND owner_id=? AND revoked_at IS NULL",
+    )
+    .get(tokenId, owner) as { scope: string } | undefined;
+  const installedOwner = companionMode
+    ? OWNER
+    : config.authMode === "single-user"
+      ? (
+          db.prepare("SELECT owner_id FROM installation WHERE id=1").get() as
+            { owner_id: string } | undefined
+        )?.owner_id
+      : owner;
+  return (
+    owner === installedOwner &&
+    !!token &&
+    !!storedAdmission(token.scope)?.includes(scope)
+  );
+}
+
 export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
   const header = req.headers.authorization;
   const match =

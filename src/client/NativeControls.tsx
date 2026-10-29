@@ -40,22 +40,19 @@ export function WorkspaceConnection({
   // Discovery changes are reconciled below without restarting healthy peers.
   useEffect(() => {
     let build = "";
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let lastRefresh = 0;
     const pending = new WorkspaceChangeQueue();
     // Streaming tokens can produce many committed events. Reconcile views
-    // immediately after idle, then at most every two seconds while busy.
-    // Retain every source and the trailing change without flooding HTTP reads.
+    // immediately after idle. Broad invalidations refresh every collection:
+    // allow three seconds between them so two tabs leave room under the owner
+    // request limit. Scoped changes retain two seconds; projected rows publish
+    // directly below. Retain every source and the trailing change.
     const changed = (source: string, events?: readonly WorkspaceEvent[]) => {
       pending.add(source, events);
-      if (!pending.size || timer) return;
-      timer = setTimeout(() => {
-        timer = undefined;
-        lastRefresh = Date.now();
+      pending.schedule((detail) => {
         window.dispatchEvent(
-          new CustomEvent("loop-workspace-change", { detail: pending.drain() }),
+          new CustomEvent("loop-workspace-change", { detail }),
         );
-      }, Math.max(0, 2000 - (Date.now() - lastRefresh)));
+      });
     };
     const stops = new Map<string, () => void>();
     const subscribe = (sourceId: string) => {
@@ -111,14 +108,9 @@ export function WorkspaceConnection({
       }
       for (const source of wanted)
         if (!stops.has(source)) stops.set(source, subscribe(source));
-      if (!pending.size) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
     };
     reconcileSources.current = reconcile;
     const stop = () => {
-      clearTimeout(timer);
       stops.forEach((stop, source) => { stop(); forgetProjectionSource(source); });
       stops.clear();
       pending.clear();

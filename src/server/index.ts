@@ -50,6 +50,7 @@ import { notifications } from "./notifications.js";
 import { mobile } from "./mobile-routes.js";
 import { cards } from "./card-routes.js";
 import { cardTokens } from "./card-token-routes.js";
+import { eventPage, requireTokenEventUpgrade } from "./token-events.js";
 import { authenticateCardToken, type CardRequest } from "./card-tokens.js";
 import { cardAuthorization, type CardAuthorization } from "../shared/card-access.js";
 import { admitsToken, TokenAdmissions } from "../shared/token-scopes.js";
@@ -77,8 +78,10 @@ app.use("/api", (req, res, next) => {
   if (req.method === "GET") {
     const json = res.json.bind(res);
     res.json = (body) => {
-      // Integration grants authorize their projections, not private workspace
-      // activity or approval/watch expiry metadata, even with an owner cookie.
+      // Do not attach owner-wide clock metadata to every bearer projection,
+      // including legacy Cards and write-only grants, even with an owner cookie.
+      // The read grant separately admits unchanged event payloads, including
+      // committed deadline events; that permission belongs to the event routes.
       if (res.locals.owner && res.locals.bearer === undefined && res.statusCode < 400) {
         const clock = res.locals.workspaceClock ?? workspaceClock(res.locals.owner);
         res.setHeader("X-Loop-Change-Epoch", clock.epoch);
@@ -328,10 +331,9 @@ appSession.on(workspaceApi.diagnostic, (req, res) =>
   ),
 );
 appSession.on(workspaceApi.events, (req, res) =>
-  res.json(projectResponse(workspaceApi.events,
-    db.prepare("SELECT * FROM events WHERE owner_id=? AND id>? ORDER BY id LIMIT 200")
-      .all(res.locals.owner, Number(req.query.after) || 0))),
+  res.json(eventPage(res.locals.owner, Number(req.query.after) || 0, !!res.locals.bearer)),
 );
+appSession.on(workspaceApi.tokenEvents, (_req, res) => requireTokenEventUpgrade(res));
 appSession.on(workspaceApi.runs, (req, res) => {
   const selectedTeams = teamFilter(req.query.teams, res.locals.owner);
   res.json(listRuns(res.locals.owner, selectedTeams, req.query.active === "1") as z.input<typeof workspaceApi.runs.response>);

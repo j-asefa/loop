@@ -13,9 +13,20 @@ import {
 const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_REPLAY_BYTES = 512 * 1024;
 
+/** The transport owns authentication and confirmation; this drain only offers
+ * canonical frames. Browser and token sockets share these operations. */
+export interface WorkspaceEventConnection {
+  readonly readyState: number;
+  readonly bufferedAmount: number;
+  send(data: string): void;
+  close(code: number, reason: string): void;
+  once(event: "close", listener: () => void): unknown;
+  off(event: "close", listener: () => void): unknown;
+}
+
 // Publications wake reconciliation; each socket retains its own replay cursor.
 export function connectWorkspaceEvents(
-  socket: WebSocket,
+  socket: WorkspaceEventConnection,
   url: URL,
   owner: string,
   epoch: string,

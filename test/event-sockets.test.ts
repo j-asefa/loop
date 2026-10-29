@@ -21,6 +21,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
+const refuseToken = () => {
+  throw new Error("Browser socket fixture has no integration tokens");
+};
+
 it("retries session lookup failures while reserving expiry for confirmed revocation", async () => {
   // The actual HTTP upgrade and heartbeat run with an injected session-store
   // failure. Only intervals are advanced; socket I/O keeps real timers.
@@ -28,7 +32,7 @@ it("retries session lookup failures while reserving expiry for confirmed revocat
   const identity = { user: { id: "owner" } };
   session.mockResolvedValue(identity);
   const server = createServer();
-  installEventSockets(server);
+  installEventSockets(server, refuseToken);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;
@@ -60,7 +64,7 @@ it("closes established and pending sockets and refuses late authentication after
   const identity = { user: { id: "owner" } };
   session.mockResolvedValue(identity);
   const server = createServer();
-  installEventSockets(server);
+  installEventSockets(server, refuseToken);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;
@@ -108,7 +112,7 @@ it("releases upgrade capacity after stalled authentication sockets time out", as
     () => new Promise((resolve) => finish.push(resolve)),
   );
   const server = createServer();
-  installEventSockets(server);
+  installEventSockets(server, refuseToken);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;

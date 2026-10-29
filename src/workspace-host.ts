@@ -23,6 +23,7 @@ import { publicBuild } from "./shared/build.js";
 import { observeProcess } from "./server/deployments.js";
 import { observedBuild } from "./server/build-runtime.js";
 import { authorizeIntegrationToken } from "./server/index.js";
+import { createTokenEventSockets } from "./server/token-events.js";
 import { FleetAuthority } from "./server/fleet-authority.js";
 import { FleetPairing } from "./server/fleet-pairing.js";
 import { FleetEnrollmentDestination } from "./server/fleet-enrollment.js";
@@ -200,6 +201,7 @@ export class WorkspaceHost {
           })
         : undefined,
       authorizeToken: authorizeIntegrationToken,
+      tokenEvents: createTokenEventSockets(authorizeIntegrationToken),
       status: () => ({
         workspace: true,
         state: "ready",

@@ -487,3 +487,10 @@ export const WorkspaceFrameV3 = z.discriminatedUnion("type", [
   }),
 ]);
 export type WorkspaceFrameV3 = z.infer<typeof WorkspaceFrameV3>;
+
+/** Client-to-server confirmation on the token connection that offered it. */
+export const TokenEventAck = z.strictObject({
+  type: z.literal("ack"),
+  epoch: z.string().min(1).max(200),
+  cursor: Count,
+});

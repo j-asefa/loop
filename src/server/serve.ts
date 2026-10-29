@@ -7,7 +7,7 @@ if (companionMode)
   throw new Error(
     "Start companion mode using loop so device authorization is installed.",
   );
-const { app } = await import("./index.js");
+const { app, authorizeIntegrationToken } = await import("./index.js");
 const { installEventSockets } = await import("./event-sockets.js");
 export function startServer() {
   let stop: (() => void) | undefined;
@@ -15,7 +15,7 @@ export function startServer() {
     stop = observeProcess("api");
     console.log(`Loop listening on ${config.port}`);
   });
-  installEventSockets(server);
+  installEventSockets(server, authorizeIntegrationToken);
   server.once("close", () => stop?.());
   return server;
 }

@@ -5,11 +5,16 @@ import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import { allowedOrigin, workspaceSession } from "./access.js";
 import { connectWorkspaceEvents } from "./workspace-events.js";
+import { createTokenEventSockets } from "./token-events.js";
 
 export const eventSocketContract = workspaceApi.channels.events;
 
-/** Session-only, read-only event transport. Never accepts Cards credentials. */
-export function installEventSockets(server: Server) {
+/** Separate browser-session and read-token channels on the server listener. */
+export function installEventSockets(
+  server: Server,
+  authorizeIntegrationToken: Parameters<typeof createTokenEventSockets>[0],
+) {
+  const tokenSockets = createTokenEventSockets(authorizeIntegrationToken);
   const sockets = new WebSocketServer({
     noServer: true,
     maxPayload: 1024,
@@ -28,6 +33,14 @@ export function installEventSockets(server: Server) {
     const timeout = setTimeout(failed, 10_000);
     try {
       const url = new URL(req.url || "", "http://loop");
+      if (url.pathname === "/api" + workspaceApi.channels.tokenEvents.path) {
+        if (
+          (req.headers.origin && !allowedOrigin(req)) ||
+          req.headers["sec-fetch-site"] === "cross-site"
+        )
+          return reject(socket, 403);
+        return tokenSockets.upgrade(req, socket, head);
+      }
       if (url.pathname !== "/api" + eventSocketContract.path)
         return reject(socket, 404);
       if (
@@ -109,6 +122,7 @@ export function installEventSockets(server: Server) {
   const close = server.close;
   server.close = function (...args) {
     closing = true;
+    tokenSockets.close();
     for (const socket of pending) socket.destroy();
     for (const ws of owners.keys()) ws.terminate();
     return close.apply(this, args);
