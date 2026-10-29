@@ -16,11 +16,15 @@ import {
 import {
   PublicRuntimeAuth,
   PublicUpgradeView,
+  PublicEnabledRuntime,
 } from "../src/shared/companion-contract-schemas.ts";
 import { ActivityRecordSchema } from "../src/agent-activities.ts";
 import { DoneDisplaySchema } from "../src/shared/done-card.ts";
 import { AgentThreadSummary } from "../src/shared/agent-thread-feed.ts";
 import { PublicMailMessage } from "../src/shared/agent-mail.ts";
+import { PublicMcpConnection } from "../src/shared/mcp-contract-schemas.ts";
+import { PublicReview } from "../src/shared/team-contract-schemas.ts";
+import { WorkspaceClock } from "../src/shared/workspace-events.ts";
 import {
   ResultCardSchema,
   MessageCardSchema,
@@ -36,7 +40,10 @@ import {
   PublicWatch,
   PublicDigest,
 } from "../src/shared/social-contract-schemas.ts";
-import { SessionControls } from "../src/shared/session-controls.ts";
+import {
+  SessionControls,
+  SessionCapabilities,
+} from "../src/shared/session-controls.ts";
 import {
   PublicAwayItem,
   PublicLaterView,
@@ -77,6 +84,17 @@ const jsonOptions = {
 // endpoint. Stable per-route response names remain references to these schemas.
 const publicProjections = {
   Ok: workspaceRoutes.workspaceRevoke.response,
+  PublicActivitySource: ActivityRecordSchema.options[0].shape.source,
+  WorkspaceClock,
+  PublicMcpConnection,
+  PublicReview,
+  PublicEnabledRuntime,
+  PublicBilling: PublicEnabledRuntime.shape.billing,
+  CardSource: DoneCardSchema.shape.source,
+  CardAuthor: DoneCardSchema.shape.author,
+  CardContext: DoneCardSchema.shape.context,
+  CardAttachment: DoneCardSchema.shape.attachments.element,
+  SessionCapabilities,
   PublicConversation: workspaceRoutes.conversation.response.shape.conversation,
   PublicDoneCheckout: DoneDisplaySchema.shape.run
     .unwrap()
