@@ -10,6 +10,8 @@ npm run setup
 npm run build
 ```
 
+`npm run build` copies `package-lock.json` to the ignored `npm-shrinkwrap.json` for packaging, and `npm ci` prefers that copy. If `npm ci` reports packages missing from the lock file after a pull, delete `npm-shrinkwrap.json` and run it again; `bash install` does this itself.
+
 The root build typechecks, builds the Vite UI/service worker and bundles CLI/server modules. For source development run `npm run dev` and `npm run worker` in separate terminals. Optionally run `npm run ui` for Vite at port 5173 and set `LOOP_URL` consistently for browser-origin checks. `npm start` starts only the API and expects environment configuration already loaded.
 
 For design or runtime experiments before merging, use [experiment previews](previews.md). `loop preview create NAME` creates a separate branch, build and paired workspace; design previews use sample data and simulated replies by default.

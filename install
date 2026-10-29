@@ -13,6 +13,9 @@ if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number
   exit 1
 fi
 
+# The build copies package-lock.json to npm-shrinkwrap.json for packaging, and
+# npm ci prefers it. A copy from an earlier build misses newer dependencies.
+rm -f npm-shrinkwrap.json
 npm ci
 npm run build
 
