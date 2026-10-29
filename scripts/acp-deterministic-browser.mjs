@@ -95,7 +95,7 @@ async function createAgent(name, provider, connection, prompt, beforeCreate) {
   await dialog.getByLabel("Run on").selectOption(`laptop:${connection}`);
   await expect(dialog.getByLabel("Run on")).toHaveValue(`laptop:${connection}`);
   await dialog.getByLabel("Unique name").fill(name);
-  await dialog.getByLabel("First message", { exact: true }).fill(prompt);
+  await dialog.getByLabel("Opening message", { exact: true }).fill(prompt);
   if (/^(direct|acp)-/.test(name))
     await page.screenshot({
       path: `${evidence}/selection-${name}.png`,

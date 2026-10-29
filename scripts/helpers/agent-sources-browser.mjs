@@ -417,7 +417,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await destinations.selectOption(dockerRunner);
     await sheet.getByLabel("Unique name").fill("docker-files");
     await sheet
-      .getByLabel("First message", { exact: true })
+      .getByLabel("Opening message", { exact: true })
       .fill("Read these files");
     await expect(
       sheet.getByRole("button", { name: "Add attachments", exact: true }),

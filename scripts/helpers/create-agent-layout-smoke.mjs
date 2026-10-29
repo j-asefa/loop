@@ -36,7 +36,7 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
   await expect(
     sheet.getByLabel("Unique name", { exact: true }),
   ).toHaveAttribute("autocomplete", "off");
-  for (const name of ["First message", "Agent instructions"]) {
+  for (const name of ["Opening message", "Agent instructions"]) {
     const field = sheet.getByRole("textbox", { name, exact: true });
     await expect(field).toHaveAttribute("autocomplete", "off");
     await expect(field).toHaveAttribute("autocorrect", "on");
@@ -61,7 +61,7 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
       }),
     ).toHaveCount(1);
     const prompt = sheet.getByRole("textbox", {
-      name: "First message",
+      name: "Opening message",
       exact: true,
     });
     await prompt.fill("Keep my draft while changing fields.");
@@ -132,7 +132,7 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
   // The footer's submit button must still submit the associated form.
   await sheet.getByLabel("Provider", { exact: true }).selectOption("codex");
   await sheet.getByLabel("Unique name").fill("mobilelayout");
-  await sheet.getByLabel("First message", { exact: true }).fill("");
+  await sheet.getByLabel("Opening message", { exact: true }).fill("");
   await sheet
     .getByRole("button", { name: "Start chatting", exact: true })
     .click();

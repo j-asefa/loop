@@ -342,12 +342,11 @@ export function CreateAgent({
       <form id={formId} onSubmit={create} autoComplete="off">
         <label className="create-agent-message">
           <span>
-            First message <span className="muted">(optional)</span>
+            Opening message <span className="muted">(optional)</span>
           </span>
           <textarea
             {...proseEntry}
-            name="initialPrompt"
-            aria-label="First message"
+            aria-label="Opening message"
             rows={3}
             maxLength={30000}
             required={attachments.length > 0}

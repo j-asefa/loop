@@ -176,7 +176,7 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
       .getByLabel("Provider", { exact: true })
       .selectOption("anthropic");
     await dialog()
-      .getByLabel("First message", { exact: true })
+      .getByLabel("Opening message", { exact: true })
       .fill("A first task");
     await expect(input).toHaveValue(suggestion);
     await input.scrollIntoViewIfNeeded();

@@ -1,7 +1,8 @@
-// Every text field declares what it holds. Without these hints iOS Safari
-// guesses from labels and placeholders, and may offer contact AutoFill in
-// place of autocorrect. Fields that want real AutoFill (sign-in name, email,
-// password) declare their autocomplete token instead.
+// Every text field declares what it holds. Fields that want real AutoFill
+// (sign-in name, email, password) declare their autocomplete token instead.
+// iOS Safari ignores autocomplete="off" when it guesses a field is a contact
+// field from its label, name or placeholder, so keep words like "first",
+// "initial" and "name" out of those on fields that are not contact details.
 
 /** Sentences people write: messages, notes, names and titles. */
 export const proseEntry = {

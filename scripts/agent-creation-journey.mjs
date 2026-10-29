@@ -76,7 +76,7 @@ export async function agentCreationJourney(page, api) {
   await page
     .getByLabel("Agent instructions", { exact: true })
     .fill(instructions);
-  await page.getByLabel("First message", { exact: true }).fill(prompt);
+  await page.getByLabel("Opening message", { exact: true }).fill(prompt);
   assert.equal(await page.getByLabel("Unique name").inputValue(), suggested);
   await page.getByLabel("Unique name").fill("creation-starter");
   const projectChoice = page
@@ -150,13 +150,13 @@ export async function agentCreationJourney(page, api) {
   );
   await menu().getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(1);
-  await page.getByLabel("First message", { exact: true }).fill("");
+  await page.getByLabel("Opening message", { exact: true }).fill("");
   await expect(button("Start chatting")).toBeDisabled();
-  await page.getByLabel("First message", { exact: true }).fill(prompt);
+  await page.getByLabel("Opening message", { exact: true }).fill(prompt);
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
     await page
-      .getByLabel("First message", { exact: true })
+      .getByLabel("Opening message", { exact: true })
       .scrollIntoViewIfNeeded();
     const dialog = page.locator("dialog[open]").last();
     assert.equal(
@@ -169,7 +169,7 @@ export async function agentCreationJourney(page, api) {
   }
   // Typing the prompt on a phone: the keyboard shrinks the sheet, and the
   // field sits just above it. The Create button must not cover the field.
-  const promptField = page.getByLabel("First message", { exact: true });
+  const promptField = page.getByLabel("Opening message", { exact: true });
   await promptField.focus();
   await page.evaluate(() => {
     Object.defineProperty(window.visualViewport, "height", {
@@ -215,7 +215,7 @@ export async function agentCreationJourney(page, api) {
   await button("Start chatting").click();
   await page.getByRole("alert").waitFor();
   await expect(button("Start chatting")).toBeEnabled();
-  await expect(page.getByLabel("First message", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Opening message", { exact: true })).toHaveValue(
     prompt,
   );
   await expect(

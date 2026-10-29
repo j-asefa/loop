@@ -68,7 +68,7 @@ try {
     .getByRole("dialog")
     .getByLabel("Project", { exact: true })
     .selectOption({ label: basename(dir) });
-  await page.getByLabel("First message", { exact: true }).fill("hello");
+  await page.getByLabel("Opening message", { exact: true }).fill("hello");
   await page
     .getByRole("button", { name: "Start chatting", exact: true })
     .click();
