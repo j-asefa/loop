@@ -4288,6 +4288,7 @@ fieldset {
   margin-bottom: 13px;
   font-size: 20px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 .card-byline {
   display: flex;
@@ -5969,6 +5970,8 @@ select {
   margin: 0;
   padding: 0;
   display: grid;
+  /* Agent thread rows do not clip; an auto column would grow to their widest word. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 .inbox-card .inbox-avatar {

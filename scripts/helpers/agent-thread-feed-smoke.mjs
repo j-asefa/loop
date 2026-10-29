@@ -66,7 +66,9 @@ export async function agentThreadFeedSmoke(page, fixture, _engine, capture) {
         at,
       );
   thread(first, "Navigation review");
-  thread(separate, "Build question");
+  // One unbreakable word must not widen the other Done cards.
+  const longSubject = "Build question about loop_mcp_" + "a1b2c3d4".repeat(8);
+  thread(separate, longSubject);
   thread(waiting, "Waiting exchange");
   const question = randomUUID(),
     answer = randomUUID();
@@ -138,6 +140,20 @@ export async function agentThreadFeedSmoke(page, fixture, _engine, capture) {
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   await expect(mailCard(first)).toContainText("Agent thread · 2 messages");
   await expect(mailCard(separate)).toHaveCount(1);
+  await expect(mailCard(separate)).toContainText(longSubject);
+  const widths = await page
+    .locator(".inbox-results .inbox-list > li")
+    .evaluateAll((rows) =>
+      rows.map((row) => [
+        row.getBoundingClientRect().width,
+        row.parentElement.clientWidth,
+        innerWidth,
+      ]),
+    );
+  assert.ok(
+    widths.every(([row, list, page]) => row <= list && list <= page),
+    `Done rows wider than the feed: ${JSON.stringify(widths)}`,
+  );
   await expect(mailCard(waiting)).toHaveCount(0);
   await mailCard(first).scrollIntoViewIfNeeded();
   await capture("automatic-exchange-card");
