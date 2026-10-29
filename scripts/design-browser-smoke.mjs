@@ -51,6 +51,7 @@ const names = [
   "swipe",
   "done-card-dismissal",
   "done-card-actions",
+  "done-feed-filters",
   "steering-replies",
   "messages",
   "files",

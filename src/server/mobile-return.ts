@@ -181,11 +181,12 @@ export function doneCardRows(owner: string, options: {
   folders: (string | null)[] | null; teamIds: string[]; agent?: string;
   before?: [number, string] | null; ids?: string[]; limit: number; detail?: boolean; atTime?: number;
   includeDismissed?: boolean;
+  read?: "read" | "unread";
 }) {
   if (options.ids && !options.ids.length) return [];
   return db.transaction(() => {
     assertFeedApplied(db);
-    return projectionDoneRows(db, { owner, now: options.atTime ?? now(),
+    return projectionDoneRows(db, { owner, now: options.atTime ?? now(), read: options.read,
       teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
       folders: options.folders ? JSON.stringify(options.folders) : null, agent: options.agent ?? null,
       ids: options.ids ? JSON.stringify(options.ids) : null, at: options.before?.[0] ?? null,

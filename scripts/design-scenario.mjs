@@ -46,6 +46,7 @@ import { modelLabelsSmoke } from "./helpers/model-labels-smoke.mjs";
 import { swipeBackSmoke } from "./helpers/swipe-back-smoke.mjs";
 import { doneCardDismissalSmoke } from "./helpers/done-card-dismissal-smoke.mjs";
 import { doneCardActionsSmoke } from "./helpers/done-card-actions-smoke.mjs";
+import { doneFeedFiltersSmoke } from "./helpers/done-feed-filters-smoke.mjs";
 import { steeringRepliesSmoke } from "./helpers/steering-replies-smoke.mjs";
 import { resultFilesSmoke } from "./helpers/result-files-smoke.mjs";
 import { replyKeyboardSmoke } from "./helpers/reply-keyboard-smoke.mjs";
@@ -160,6 +161,7 @@ const scenarios = {
   swipe: swipeBackSmoke,
   "done-card-dismissal": doneCardDismissalSmoke,
   "done-card-actions": doneCardActionsSmoke,
+  "done-feed-filters": doneFeedFiltersSmoke,
   "steering-replies": steeringRepliesSmoke,
   messages: (p, f) => messageNavigationSmoke(p, f),
   files: (p, f, e, c) => resultFilesSmoke(p, f, c),

@@ -123,6 +123,12 @@ export const CardSelectionSchema = z.object({
   project: z.string().min(1).max(150).optional(),
   agent: z.string().min(1).max(150).optional(),
   teams: z.string().max(2000).optional(),
+  read: z
+    .enum(["read", "unread"])
+    .optional()
+    .describe(
+      "Filter Done results by read status; omit to include all entries.",
+    ),
   q: z
     .string()
     .trim()

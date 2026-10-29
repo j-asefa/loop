@@ -5806,6 +5806,33 @@ select {
   line-height: 18px;
   box-shadow: 0 0 0 2px var(--bg);
 }
+.done-feed-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+}
+.done-read-filters {
+  display: flex;
+  gap: 4px;
+}
+.done-read-filters .chip {
+  min-height: 40px;
+  padding: 6px 12px;
+}
+.done-agent-filter {
+  min-width: 0;
+  max-width: 100%;
+}
+.done-feed-filters .done-agent-filter select {
+  min-height: 40px;
+  max-width: min(260px, 100%);
+}
+.done-feed-filters > .text-button {
+  min-height: 40px;
+  margin-left: auto;
+}
 /* Needs you: the cards waiting on you, stacked above the Feed filters. The
    cards come from several components; their wrappers step aside so every
    card is one item in the stack. */

@@ -87,6 +87,8 @@ function decode(value: string): unknown {
   return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
 }
 function selection(owner: string, input: CardSelection): Selection {
+  if (input.read !== undefined && input.view !== "done")
+    throw new Problem(400, "Read status is supported only for Done");
   if (["results", "done"].includes(input.view) && input.q !== undefined)
     throw new Problem(400, "Search is supported for Saved and Sent");
   if (input.project) owned("folders", input.project, owner);
@@ -111,6 +113,8 @@ function fingerprint(owner: string, options: Selection) {
         options.agent || null,
         options.teamIds,
         options.q || null,
+        // Preserve existing unfiltered cursor domains.
+        ...(options.read ? [options.read] : []),
       ]),
     )
     .digest("hex");

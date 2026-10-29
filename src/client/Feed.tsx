@@ -4,6 +4,7 @@ import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/wor
 import { callRoute, readRoute } from "./workspace-api";
 import { CollectionReadNotice } from "./CollectionRead";
 import { DoneCardsReader } from "./feed-cards";
+import { DoneFeedFilters, doneAgentKey, type DoneReadFilter } from "./DoneFeedFilters";
 import { useDoneThreads, OrganizeCards, DoneThreadReader, type SourcedDoneThread, type ThreadSelection } from "./DoneThreads";
 import { DoneCardMenu, DoneCardPicker } from "./DoneCardMenu";
 import { useAgentThreadFeed, type SourcedAgentThread } from "./useAgentThreadFeed";
@@ -207,6 +208,18 @@ type Summary = {
   replies_unread?: number;
   done_unread?: number;
 };
+const combineSummaries = (summaries: Summary[]) => summaries.reduce((sum, summary) => ({
+  needs: sum.needs + summary.needs,
+  working: sum.working + summary.working,
+  queued: sum.queued + summary.queued,
+  replies_unread: (sum.replies_unread || 0) + (summary.replies_unread || 0),
+  done_unread: (sum.done_unread || 0) + (summary.done_unread || 0),
+  later_due: sum.later_due + summary.later_due,
+  scheduled_failed: (sum.scheduled_failed || 0) + (summary.scheduled_failed || 0),
+  scheduled_pending: (sum.scheduled_pending || 0) + (summary.scheduled_pending || 0),
+  // Social belongs to the paired app, not each linked workspace.
+  social_unread: Math.max(sum.social_unread || 0, summary.social_unread || 0),
+}), { needs: 0, working: 0, queued: 0, later_due: 0 } as Summary);
 type AwayItem = RouteResponse<typeof workspaceApi.feedAway>["completed"][number] & { sourceId?: string };
 
 export const feedFilters: { id: FeedFilter; label: string }[] = [
@@ -241,6 +254,7 @@ function FeedCard({
   onOpen,
   onReply,
   onRead,
+  onReadingChange,
   onQuestion,
   onNext,
   onAgent,
@@ -263,6 +277,7 @@ function FeedCard({
   onOpen: () => void;
   onReply: () => void;
   onRead?: () => void;
+  onReadingChange?: (open: boolean) => void;
   onQuestion?: () => void;
   /** Open exactly where the next action is. */
   onNext: (action: FeedNextAction) => void;
@@ -344,12 +359,17 @@ function FeedCard({
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
   const openReading = () => {
     if (onSelect) { onSelect(); return; }
+    if (readAsCard) onReadingChange?.(true);
     onRead?.();
     if (readAsCard) setReading(true);
     else onOpen();
   };
-  const leaveReading = (action: () => void) => {
+  const closeReading = () => {
     setReading(false);
+    onReadingChange?.(false);
+  };
+  const leaveReading = (action: () => void) => {
+    closeReading();
     action();
   };
   return (
@@ -560,7 +580,7 @@ function FeedCard({
               swipeToClose
               className="result-sheet feed-reading-sheet"
               title={item.title}
-              onClose={() => setReading(false)}
+              onClose={closeReading}
               heading={
                 <div className="result-header">
                   <ResultIdentity
@@ -1031,7 +1051,7 @@ export function Feed({
   hideFilters = false,
   connections,
   onReply,
-  agent,
+  agent: scopedAgent,
   onScheduled,
   onShowReminder,
   onAsk,
@@ -1082,6 +1102,29 @@ export function Feed({
     unsupportedReplySources?: string[];
   };
   const generation = viewGeneration();
+  const selectionScope = JSON.stringify([
+    generation, scopedSource, project, teams, scopedAgent,
+  ]);
+  const [doneSelection, setDoneSelection] = useState({
+    scope: selectionScope, read: "all" as DoneReadFilter, agent: "",
+  });
+  const selection = doneSelection.scope === selectionScope
+    ? doneSelection
+    : { scope: selectionScope, read: "all" as const, agent: "" };
+  const clearDoneFilters = () => setDoneSelection({
+    scope: selectionScope, read: "all", agent: "",
+  });
+  const combined = !!sources && !project && !teams && !scopedAgent;
+  const allSources = combined ? sources : [{ id: scopedSource, name: "" }];
+  const needsSourceKey = JSON.stringify(allSources.map(source => source.id).sort());
+  const doneAgents = agents.filter(item =>
+    allSources.some(source => source.id === (item.sourceId ?? scopedSource)) &&
+    (!scopedAgent || item.id === scopedAgent));
+  const selectedAgent = doneAgents.find(item => doneAgentKey(item, scopedSource) === selection.agent);
+  const doneAgent = filter === "done" ? selectedAgent : undefined;
+  const agent = doneAgent?.id ?? scopedAgent;
+  const doneRead = filter === "done" ? selection.read : "all";
+  const doneFiltered = filter === "done" && (doneRead !== "all" || !!doneAgent);
   const readRecovery = useRef(new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>());
   const recoverSource = useRef<(source: string) => void>(() => {});
   const readSnapshot = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>, purpose = "", manual = false) => {
@@ -1099,16 +1142,15 @@ export function Feed({
     const read = (known?: string) => readSnapshot(source, { ...query, known }, "", manual);
     return reactiveSource(source, "feed") ? projectionPages.current.read(source, JSON.stringify(query), read) : read();
   };
-  const combined = !!sources && !project && !teams && !agent;
-  const activeSources = combined ? sources : [{ id: scopedSource, name: "" }];
+  const activeSources = doneAgent ? allSources.filter(source => source.id === (doneAgent.sourceId ?? scopedSource)) : allSources;
   const sourceKey = JSON.stringify(
     activeSources.map((source) => source.id).sort(),
   );
   const shownKey = () =>
-    "feed:" + JSON.stringify([filter, project, agent, teams, sourceKey]);
+    "feed:" + JSON.stringify([filter, project, agent, teams, sourceKey, doneRead]);
   // Discovery can add sources after the first cards arrive. Retain those
   // sources' pages only within the same owner and selection.
-  const pagesKey = () => JSON.stringify([viewOwner(), filter, project, agent, teams]);
+  const pagesKey = () => JSON.stringify([viewOwner(), filter, project, agent, teams, doneRead]);
   const activeView = useRef<string | null>(null);
   activeView.current = JSON.stringify([viewOwner(), shownKey()]);
   // Going back shows the list as you left it while it refreshes.
@@ -1140,9 +1182,21 @@ export function Feed({
     return text ? { kind, label: text } : null;
   };
   const [items, setItems] = useState<FeedItem[]>(shown?.items || []);
-  const [summary, setSummary] = useState<Summary | null>(
-    shown?.summary || null,
-  );
+  const itemsSelection = useRef(shownKey());
+  const sourcePages = useRef<{ key: string; pages: Map<string, Shown>; failures: Set<string> }>({
+    key: "",
+    pages: new Map(),
+    failures: new Set(),
+  });
+  // Render and the selection effect must retain the same pages so discovery
+  // cannot unmount existing cards before the effect adopts its new view key.
+  const retainedItems = () => sourcePages.current.key === pagesKey()
+    ? activeSources.flatMap(source =>
+        (sourcePages.current.pages.get(source.id)?.items || []).map(item => ({
+          ...item, sourceId: source.id,
+          executionEnvironment: source.id ? source.name : undefined,
+        })))
+    : [];
   const [next, setNext] = useState<string | null>(shown?.next || null);
   const [loadedKey, setLoadedKey] = useState<string | null>(shown ? shownKey() : null);
   // Refresh listeners outlive their render and may run after cache eviction.
@@ -1162,7 +1216,7 @@ export function Feed({
   const grouping = useDoneThreads(activeSources.map(source => source.id), filter === "done" || filter === "threads", {
     project: project || undefined, agent: agent || undefined, teams: teams || undefined,
   });
-  const mailThreads = useAgentThreadFeed(activeSources.map(source => source.id), filter === "done" || filter === "threads", {
+  const mailThreads = useAgentThreadFeed(activeSources.map(source => source.id), (filter === "done" && doneRead === "all") || filter === "threads", {
     view: filter === "done" ? "done" : "threads",
     project: project || undefined, agent: agent || undefined, teams: teams || undefined,
   });
@@ -1172,19 +1226,27 @@ export function Feed({
   const [aggregate, setAggregate] = useState<ThreadSelection | null>(null);
   const [combineFrom, setCombineFrom] = useState<string | null>(null);
   const [selectedCards, setSelectedCards] = useState<string[] | null>(null);
+  const [readingCard, setReadingCard] = useState<{ item: FeedItem; view: string } | null>(null);
   const aggregatable = (item: FeedItem) => filter === "done" && grouping.supported.includes(item.sourceId ?? scopedSource) && !!item.done_card_key && item.last_message?.role === "assistant";
   const doneId = (item: FeedItem) => item.card?.id ?? "d:" + item.done_card_key;
   type VisibleCard = { item: FeedItem; thread?: SourcedDoneThread; key: string };
-  const visibleCards: VisibleCard[] = items.flatMap(item => {
+  // Reading marks a result read immediately. Keep its mounted reader until it
+  // closes even after the server removes that card from the Unread selection.
+  const heldCard = readingCard?.view === shownKey() ? readingCard.item : undefined;
+  const shownItems = itemsSelection.current === shownKey() ? items : shown?.items ?? retainedItems();
+  const readerItems = heldCard && !shownItems.some(item => feedItemKey(item) === feedItemKey(heldCard)) ? [...shownItems, heldCard] : shownItems;
+  const visibleCards: VisibleCard[] = readerItems.flatMap(item => {
     const source = item.sourceId ?? scopedSource;
     const thread = filter === "done" ? grouping.threads.find(thread => thread.source === source && thread.cardIds.includes(doneId(item))) : undefined;
-    return thread ? [] : [{ item, key: feedItemKey(item, source) }];
+    const matchesRead = doneRead === "all" || (doneRead === "unread" ? item.read_at === null : typeof item.read_at === "number") || (heldCard && feedItemKey(item) === feedItemKey(heldCard));
+    return thread || !matchesRead ? [] : [{ item, key: feedItemKey(item, source) }];
   });
   if (filter === "threads" || filter === "done") {
     // Card threads have their own identity and preview. They remain visible even
     // when members are dismissed, have newer work or are beyond the loaded page.
     for (const thread of grouping.threads) {
       if (!thread.preview) continue;
+      if (doneRead !== "all" && (thread.unread === undefined || (doneRead === "unread" ? thread.unread === 0 : thread.unread > 0))) continue;
       const card = thread.preview;
       visibleCards.push({
         thread, key: JSON.stringify([thread.source, "thread", thread.id]),
@@ -1234,8 +1296,9 @@ export function Feed({
   useEffect(() => {
     setMenu(null); setMenuThread(null); setReadingThread(null);
     setReadingMail(null);
+    setReadingCard(null);
     setAggregate(null); setCombineFrom(null); setSelectedCards(null);
-  }, [filter, project, agent, teams, sourceKey, generation]);
+  }, [filter, project, agent, teams, sourceKey, doneRead, generation]);
   const [later, setLater] = useState<FeedItem | null>(null);
   // Finished cards have their own message; work in progress keeps thread reminders.
   const reminderMessage = later && (
@@ -1246,7 +1309,16 @@ export function Feed({
   // Threads waiting on you, whichever filter is shown, for the stack above
   // the filters.
   const needsKey = () =>
-    "feed-needs:" + JSON.stringify([project, agent, teams, sourceKey]);
+    "feed-needs:" + JSON.stringify([project, scopedAgent, teams, needsSourceKey]);
+  // Tab badges and scheduled failures share Needs you's scope, independently
+  // of the selected Done agent, read state and paginated result windows.
+  const summaryKey = "feed-summary:" + JSON.stringify([generation, needsKey()]);
+  const [operational, setOperational] = useState(() => ({
+    key: summaryKey, sources: cachedView<Record<string, Summary>>(summaryKey) ?? {},
+  }));
+  const summaries = operational.key === summaryKey
+    ? operational.sources : cachedView<Record<string, Summary>>(summaryKey) ?? {};
+  const summary = combineSummaries(allSources.flatMap(source => summaries[source.id] ? [summaries[source.id]] : []));
   const [needs, setNeeds] = useState<FeedItem[]>(
     () => cachedView<FeedItem[]>(needsKey()) || [],
   );
@@ -1254,21 +1326,19 @@ export function Feed({
   const needsRequest = useRef(0);
   const needsSourceRequests = useRef(new Map<string, number>());
   const request = useRef(0);
-  const query = (before?: string, which: FeedFilter | "needs" = filter): NonNullable<RouteInput<typeof workspaceApi.feed>["query"]> => ({
-    // The existing thread query also works with older connected workspaces.
-    filter: which === "threads" ? "all" : which,
-    ...(which === "done" ? { expand: "results" } : {}),
-    ...(project ? { folder: project } : {}),
-    ...(agent ? { agent } : {}),
-    ...(teams ? { teams } : {}),
-    ...(before ? { before } : {}),
-  });
+  const query = (before?: string, which: FeedFilter | "needs" = filter): NonNullable<RouteInput<typeof workspaceApi.feed>["query"]> => {
+    const selectedAgent = which === "needs" ? scopedAgent : agent;
+    return {
+      // The existing thread query also works with older connected workspaces.
+      filter: which === "threads" ? "all" : which,
+      ...(which === "done" ? { expand: "results" } : {}),
+      ...(project ? { folder: project } : {}),
+      ...(selectedAgent ? { agent: selectedAgent } : {}),
+      ...(teams ? { teams } : {}),
+      ...(before ? { before } : {}),
+    };
+  };
   const inFlight = useRef(false);
-  const sourcePages = useRef<{ key: string; pages: Map<string, Shown>; failures: Set<string> }>({
-    key: "",
-    pages: new Map(),
-    failures: new Set(),
-  });
   const deferredUnsaves = useRef(new Map<string, object>());
   const savedKey = (source: string, message: string) =>
     JSON.stringify([viewOwner(), source, message]);
@@ -1296,7 +1366,7 @@ export function Feed({
     const ticketGeneration = needsRequest.current;
     const owner = viewOwner();
     const key = needsKey();
-    const requested = activeSources.filter(source => !onlySources || onlySources.includes(source.id));
+    const requested = allSources.filter(source => !onlySources || onlySources.includes(source.id));
     const tickets = new Map(requested.map(source => {
       const ticket = (needsSourceRequests.current.get(source.id) ?? 0) + 1;
       needsSourceRequests.current.set(source.id, ticket);
@@ -1305,13 +1375,13 @@ export function Feed({
     const settled = await Promise.allSettled(
       requested.map(async (source) => {
         const page = await readSnapshot(combined ? source.id : scopedSource, query(undefined, "needs"), "", manual);
-        return combined
+        return { summary: page.summary, items: combined
           ? page.items.map((item) => ({
               ...item,
               sourceId: source.id,
               executionEnvironment: source.id ? source.name : undefined,
             }))
-          : page.items;
+          : page.items };
       }),
     );
     if (ticketGeneration !== needsRequest.current || generation !== viewGeneration() || owner !== viewOwner()) return;
@@ -1320,12 +1390,12 @@ export function Feed({
     const current = settled.flatMap((entry, index) => {
       const source = requested[index].id;
       return entry.status === "fulfilled" && tickets.get(source) === needsSourceRequests.current.get(source)
-        ? [{ source, items: entry.value }] : [];
+        ? [{ source, ...entry.value }] : [];
     });
     // The Feed's own error covers an unreachable source; keep what loaded.
     if (!current.length) return;
     const refreshed = new Set(current.map(entry => entry.source));
-    const selected = new Set(activeSources.map(source => source.id));
+    const selected = new Set(allSources.map(source => source.id));
     const retained = (cachedView<FeedItem[]>(key) ?? []).filter(item =>
       selected.has(item.sourceId ?? scopedSource) && !refreshed.has(item.sourceId ?? scopedSource));
     const loaded = [...retained, ...current
@@ -1333,6 +1403,12 @@ export function Feed({
     ].sort((a, b) => b.last_activity_at - a.last_activity_at);
     cacheView(key, loaded, owner);
     setNeeds(loaded);
+    const summaries = Object.fromEntries(Object.entries(
+      cachedView<Record<string, Summary>>(summaryKey) ?? {},
+    ).filter(([source]) => selected.has(source)));
+    for (const entry of current) summaries[entry.source] = entry.summary;
+    cacheView(summaryKey, summaries, owner);
+    setOperational({ key: summaryKey, sources: summaries });
   }
   const pendingRefresh = useRef({ key: "", sources: new Set<string>() });
   const headSources = useRef(new Set<string>());
@@ -1392,7 +1468,7 @@ export function Feed({
     headSources.current = new Set(requestedSources.filter(source => !pages.get(source)!.append));
     if (headSources.current.size) {
       for (const source of headSources.current) pending.delete(source);
-      void loadNeeds([...headSources.current], manual);
+      void loadNeeds(background ? [...headSources.current] : undefined, manual);
     }
     if (!manual && !background) setReadError("");
     clearTimeout(doneCatchup.current);
@@ -1446,7 +1522,6 @@ export function Feed({
             doneCards.current.set(cardKey, reader);
             if (doneCards.current.size > 40) doneCards.current.delete(doneCards.current.keys().next().value!);
           }
-          const combined = sources && !project && !teams && !agent;
           const transport: CardReadTransport = (contract, input, signal) => callRoute(contract, input, combined ? source : scopedSource, signal);
           const boundary = reader.pager.snapshot()?.boundary;
           const catchUp = boundary && priorItems.some(item => compareCardOrder(order(item), boundary) < 0);
@@ -1460,6 +1535,7 @@ export function Feed({
             window = summaryOnly ? reader.pager.snapshot() : null;
             if (!window) window = await reader.load(transport, {
               view: "done", project: project || undefined, agent: agent || undefined, teams: teams || undefined,
+              ...(doneRead !== "all" ? { read: doneRead } : {}),
             }, !summaryOnly && (appending || !!catchUp));
           } finally {
             if (reader.discardPrior && ticket === request.current && owner === viewOwner()) {
@@ -1510,6 +1586,7 @@ export function Feed({
               next: window.page.next, summary: operational.summary,
             };
           }
+          if (doneRead !== "all") throw new Error(`Update Loop in ${activeSources.find(item => item.id === source)?.name || "this workspace"} to filter Done by read status.`);
           fallbackTransition = !!cachedView<CardWindow>(cardKey);
           if (fallbackTransition) doneRefresh.current.sources.delete(source);
         }
@@ -1523,7 +1600,6 @@ export function Feed({
           }
           return page;
         }
-        const combined = sources && !project && !teams && !agent;
         const current = () => ticket === request.current && owner === viewOwner();
         let firstNext: string | null = null;
         const result = await refreshDonePage<FeedItem, Page>(async cursor => {
@@ -1637,7 +1713,7 @@ export function Feed({
         if (!loaded.length && settled.length && settled.every(entry => entry.status === "rejected" && entry.reason?.name === "AbortError"))
           throw new DOMException("Feed read superseded", "AbortError");
         if (!loaded.length && settled.length)
-          throw new Error("Couldn’t load the Feed from any environment.");
+          throw new Error(settled.length === 1 && settled[0].status === "rejected" ? settled[0].reason.message : "Couldn’t load the Feed from any environment.");
         partialError = sourcePages.current.failures.size
           ? "Some environments could not refresh. Showing their last loaded threads."
           : "";
@@ -1679,29 +1755,7 @@ export function Feed({
             activePages.map(([id, page]) => [id, page.summary]),
           ),
           unsupportedReplySources: activePages.flatMap(([, page]) => page.unsupportedReplySources ?? []),
-          summary: activePages.reduce(
-            (sum, [, page]) => ({
-              needs: sum.needs + page.summary.needs,
-              working: sum.working + page.summary.working,
-              queued: sum.queued + page.summary.queued,
-              replies_unread: (sum.replies_unread || 0) + (page.summary.replies_unread || 0),
-              done_unread: (sum.done_unread || 0) + (page.summary.done_unread || 0),
-              later_due: sum.later_due + page.summary.later_due,
-              scheduled_failed:
-                (sum.scheduled_failed || 0) +
-                (page.summary.scheduled_failed || 0),
-              scheduled_pending:
-                (sum.scheduled_pending || 0) +
-                (page.summary.scheduled_pending || 0),
-              // Social feeds belong to the paired app, so the count is one
-              // workspace's, not the sum of every source's.
-              social_unread: Math.max(
-                sum.social_unread || 0,
-                page.summary.social_unread || 0,
-              ),
-            }),
-            { needs: 0, working: 0, queued: 0, later_due: 0 } as Summary,
-          ),
+          summary: combineSummaries(activePages.map(([, page]) => page.summary)),
         };
       } else {
         result = await readPage(
@@ -1747,7 +1801,6 @@ export function Feed({
       });
       setNext(result.next);
       setUnsupportedReplySources(result.unsupportedReplySources ?? []);
-      if (!append) setSummary(result.summary);
       setReadError(partialError);
     } catch (e) {
       if (isCurrent() && (e as Error).name !== "AbortError") {
@@ -1767,26 +1820,22 @@ export function Feed({
       }
     }
   }
-  recoverSource.current = source => { void load(false, true, [source]); };
+  recoverSource.current = source => {
+    if (activeSources.some(item => item.id === source)) void load(false, true, [source]);
+    else if (allSources.some(item => item.id === source)) void loadNeeds([source]);
+  };
   const firstLoad = useRef(true);
   useEffect(() => {
     setNeedsOpen(false);
     setReadError("");
     retryPages.current.clear();
+    itemsSelection.current = shownKey();
     const cached = cachedView<Shown>(shownKey());
     // The first render already shows the cached list; a filter change swaps
     // to that filter's cached list, or a loader.
     if (!firstLoad.current) {
-      const retained = sourcePages.current.key === pagesKey()
-        ? activeSources.flatMap(source =>
-            (sourcePages.current.pages.get(source.id)?.items || []).map(item => ({
-              ...item, sourceId: source.id,
-              executionEnvironment: source.id ? source.name : undefined,
-            })))
-        : [];
-      setItems(cached?.items || retained);
+      setItems(cached?.items || retainedItems());
       setNext(cached?.next || null);
-      setSummary(cached?.summary || null);
       setUnsupportedReplySources(cached?.unsupportedReplySources || []);
       setNeeds(cachedView<FeedItem[]>(needsKey()) || []);
     }
@@ -1812,7 +1861,7 @@ export function Feed({
       inFlight.current = false;
       setReadBusy(false);
     };
-  }, [filter, project, teams, agent, sourceKey, generation]);
+  }, [filter, project, teams, agent, sourceKey, needsSourceKey, doneRead, generation]);
   useEffect(() => {
     const legacy=activeSources.filter(source=>!reactiveSource(source.id,"feed")).map(source=>source.id);
     if(legacy.length)void load(false, true, legacy);
@@ -1836,9 +1885,15 @@ export function Feed({
         if ([...retryPages.current.keys()].every(source => affected.includes(source))) setReadError("");
         void load(false,true,affected);
       }
+      const needsOnly = allSources.filter(source => !activeSources.some(active => active.id === source.id) && workspaceChangeAffects(event, "feed", source.id)).map(source => source.id);
+      if (needsOnly.length) void loadNeeds(needsOnly);
     });
-    const stopFallback = surfaceFallback(activeSources.map(source=>source.id),"feed",30_000,
-      missing => void load(false,true,missing));
+    const stopFallback = surfaceFallback(allSources.map(source=>source.id),"feed",30_000, missing => {
+      const selected = missing.filter(source => activeSources.some(item => item.id === source));
+      const needsOnly = missing.filter(source => !selected.includes(source));
+      if (selected.length) void load(false, true, selected);
+      if (needsOnly.length) void loadNeeds(needsOnly);
+    });
     return () => {
       window.removeEventListener("loop-later-change", update);
       window.removeEventListener("loop-social-read", update);
@@ -1849,7 +1904,7 @@ export function Feed({
     };
     // Re-arm with every input `load` reads, so the fallback refresh never
     // replaces the Feed using a stale filter or source list.
-  }, [filter, project, teams, agent, sourceKey, generation]);
+  }, [filter, project, teams, agent, sourceKey, needsSourceKey, doneRead, generation]);
   async function runAction(
     runId: string,
     ...command: [action: "reorder", sourceId: string, body: RouteInput<typeof workspaceApi.runReorder>["body"]]
@@ -2326,6 +2381,7 @@ export function Feed({
             item.executionEnvironment,
         )}
         onRead={item.reply ? () => void markReplyRead(item) : item.read_at === null && !thread ? () => void markDoneRead(item) : undefined}
+        onReadingChange={!inNeeds && !thread && doneRead === "unread" ? open => setReadingCard(open ? { item, view: shownKey() } : null) : undefined}
         onQuestion={item.reply ? () => onOpen(item.conversation_id, item.reply!.message_id, source) : undefined}
         onOpen={() => thread ? openThread(thread) : onOpen(item.conversation_id, item.reply ? item.last_message?.id : undefined, source)}
         onReply={() =>
@@ -2392,7 +2448,7 @@ export function Feed({
     <section className="inbox" aria-label="Feed">
       {!hideFilters && (
         <AwaySummary
-          sources={activeSources}
+          sources={allSources}
           onFilter={selectFilter}
           onNeeds={() => setNeedsOpen(true)}
           onOpen={(id, source) => onOpen(id, undefined, source)}
@@ -2485,6 +2541,15 @@ export function Feed({
       </div>}
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
       <div className="inbox-results" hidden={needsOpen}>
+        {!hideFilters && filter === "done" && <DoneFeedFilters
+          read={selection.read}
+          agent={selectedAgent ? selection.agent : ""}
+          agents={doneAgents}
+          source={scopedSource}
+          onRead={read => setDoneSelection({ ...selection, read })}
+          onAgent={agent => setDoneSelection({ ...selection, agent })}
+          onClear={clearDoneFilters}
+        />}
         <>
           {(loading || mailThreads.loading || (combined && sourcesLoading)) && !feedRows.length ? (
             <div
@@ -2507,7 +2572,9 @@ export function Feed({
               <div className="inbox-empty">
                 <p>
                   <strong>
-                    {filter === "all"
+                    {doneFiltered
+                      ? "No results match these filters."
+                      : filter === "all"
                       ? "Nothing here yet."
                       : filter === "threads"
                         ? "No threads yet."
@@ -2524,7 +2591,7 @@ export function Feed({
                                   : "Nothing is queued."}
                   </strong>
                 </p>
-                {["all", "done", "threads"].includes(filter) && emptyAction}
+                {!doneFiltered && ["all", "done", "threads"].includes(filter) && emptyAction}
               </div>
             )
           )}

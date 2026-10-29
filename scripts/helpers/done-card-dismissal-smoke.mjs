@@ -88,11 +88,14 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await page.reload({ waitUntil: "networkidle" });
     const before = (await fixture.api("/feed?filter=done&expand=results"))
       .summary;
+    assert(before.done_unread > 0);
     await swipe(row);
     await expect(row).toHaveCount(0);
+    // Dismissing an unread result removes it from the Done badge, while
+    // follow-up work and every other operational count stay unchanged.
     assert.deepEqual(
       (await fixture.api("/feed?filter=done&expand=results")).summary,
-      before,
+      { ...before, done_unread: before.done_unread - 1 },
     );
     let dismissRequests = 0;
     const countDismiss = (request) => {
@@ -552,7 +555,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       "aria-selected",
       "true",
     );
-    await page.getByRole("tab", { name: "Done", exact: true }).click();
+    await page.getByRole("tab", { name: /^Done/ }).click();
     await expect(remoteRow).toHaveCount(1);
     // A failed mutation has no server delta to repair an optimistic cache.
     rejectSave = true;
@@ -566,7 +569,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     saveFailureRelease();
     await page.waitForLoadState("networkidle");
     rejectSave = false;
-    await page.getByRole("tab", { name: "Done", exact: true }).click();
+    await page.getByRole("tab", { name: /^Done/ }).click();
     await expect(remoteRow).toHaveCount(1);
     await remoteRow
       .locator("xpath=..")
@@ -590,7 +593,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       .filter({ hasText: "Removed from Saved." })
       .getByRole("button", { name: "Undo", exact: true })
       .click();
-    await page.getByRole("tab", { name: "Done", exact: true }).click();
+    await page.getByRole("tab", { name: /^Done/ }).click();
     await remoteRow
       .locator("xpath=..")
       .getByRole("button", { name: "Thread actions", exact: true })
@@ -680,7 +683,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     // even though another filter has replaced the component's source cache.
     await page.getByRole("tab", { name: /^Working/ }).click();
     await expect(history).toHaveCount(0);
-    await page.getByRole("tab", { name: "Done", exact: true }).click();
+    await page.getByRole("tab", { name: /^Done/ }).click();
     await expect(
       page.getByText(
         "Some environments could not refresh. Showing their last loaded threads.",
@@ -715,7 +718,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     localUnavailable = true;
     await page.getByRole("tab", { name: /^Working/ }).click();
     await expect(history).toHaveCount(0);
-    await page.getByRole("tab", { name: "Done", exact: true }).click();
+    await page.getByRole("tab", { name: /^Done/ }).click();
     await expect(
       page.getByText(
         "Some environments could not refresh. Showing their last loaded threads.",
@@ -813,8 +816,11 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       ),
     ).toHaveCount(40);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(page.locator(".collection-read-error")).toContainText(
+      "Fixture old pages unavailable",
+    );
     await expect(
-      page.getByText("Couldn’t load the Feed from any environment."),
+      page.getByRole("button", { name: "Retry connection", exact: true }),
     ).toBeVisible();
     await expect(history).toHaveCount(0);
   } finally {

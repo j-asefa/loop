@@ -783,7 +783,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     // the fast, empty local response, while both linked reads are pending.
     refresh = Promise.withResolvers();
     refreshReads = 0;
-    await page.getByRole("tab", { name: "Done", exact: true }).click();
+    await page.getByRole("tab", { name: /^Done/ }).click();
     await expect.poll(() => refreshReads).toBeGreaterThanOrEqual(2);
     await expect(first).toBeVisible();
     await expect(second).toBeVisible();
