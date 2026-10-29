@@ -584,19 +584,21 @@ function FeedCard({
               }
             >
               <div className="result-content">
-                <h3 className="result-title">
+                {!item.reply && <h3 className="result-title">
                   <InlineMarkdown content={item.title} />
-                </h3>
+                </h3>}
                 {item.reply && (
-                  <div className="reply-question">
-                    <p className="field-hint">In reply to your message</p>
+                  <section className="reply-question" aria-label="Your original message">
+                    <div className="reply-question-header">
+                      <span><MessageSquare size={15} aria-hidden="true" /> Replying to you</span>
+                      {onQuestion && <button className="text-button" onClick={() => leaveReading(onQuestion)}>
+                        View message <ArrowUpRight size={14} aria-hidden="true" />
+                      </button>}
+                    </div>
                     <blockquote><RichText content={item.reply.content} /></blockquote>
-                    <button className="text-button" onClick={() => onQuestion && leaveReading(onQuestion)}>
-                      Open your message <ArrowUpRight size={14} />
-                    </button>
-                    {detail && <p className="field-hint">{detail}</p>}
-                  </div>
+                  </section>
                 )}
+                {item.reply && <h3 className="reply-answer-label">{name ? `Reply from @${name.replace(/^@/, "")}` : "Agent reply"}</h3>}
                 {status.tone !== "done" && (
                   <p className="field-hint">
                     {status.label}

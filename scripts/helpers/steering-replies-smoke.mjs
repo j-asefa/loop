@@ -73,11 +73,11 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
   ).toBeVisible();
   const filters = feed.getByRole("tablist", { name: "Show", exact: true });
   await expect(filters.getByRole("tab")).toHaveText([
-    "Done",
+    /^Done\s*\d+$/,
     /^Working\s*\d+$/,
     /^Queued\s*\d+$/,
-    "Threads",
     /^Replies\s*2$/,
+    "Threads",
   ]);
   const workingBadge = filters.locator('[data-filter="working"] .chip-count');
   const repliesBadge = filters.locator('[data-filter="replies"] .chip-count');
@@ -108,8 +108,31 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
     sheet.getByText("Full reply ending.", { exact: false }),
   ).toBeVisible();
   await expect(
-    sheet.getByText("In reply to your message", { exact: true }),
+    sheet.getByText("Replying to you", { exact: true }),
   ).toBeVisible();
+  const context = sheet.getByRole("region", { name: "Your original message" });
+  await expect(context).toContainText(question);
+  await expect(sheet.locator(".result-title")).toHaveCount(0);
+  await expect(sheet.locator(".reply-answer-label")).toBeVisible();
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    assert(
+      await context.evaluate((el) => el.scrollWidth <= el.clientWidth),
+      `Reply context fits a ${width}px viewport`,
+    );
+    await capture(`reply-context-${width}`);
+  }
+  await context.getByRole("button", { name: "View message" }).click();
+  const originalThread = page.locator("dialog.conversation-sheet[open]");
+  await expect(
+    originalThread.locator(`[data-message-id="${steering.message_id}"]`),
+  ).toBeVisible();
+  await originalThread
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await firstRow
+    .getByRole("button", { name: "Read reply", exact: true })
+    .click();
   await expect
     .poll(
       () =>

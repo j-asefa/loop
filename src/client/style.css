@@ -4150,6 +4150,50 @@ fieldset {
   font-size: var(--reading-size);
   line-height: 1.65;
 }
+.reply-question {
+  margin-bottom: 24px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brass-text);
+  border-radius: 12px;
+  background: var(--secondary);
+  overflow-wrap: anywhere;
+}
+.reply-question-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.reply-question-header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.reply-question-header .text-button {
+  min-height: 44px;
+  font-size: 13px;
+}
+.reply-question > blockquote {
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+}
+.reply-question .markdown > :first-child {
+  margin-top: 0;
+}
+.reply-question .markdown > :last-child {
+  margin-bottom: 0;
+}
+.reply-answer-label {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
 .result-run-details {
   display: flex;
   flex-wrap: wrap;
