@@ -1,3 +1,4 @@
+import { passiveWorkspaceRead } from "./workspace-read-context.js";
 import { recordCardRead, tokenResultPage } from "./card-tokens.js";
 import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -66,7 +67,8 @@ routes.on(
   },
 );
 routes.on(workspaceApi.folderList, (_req, res) => {
-  ensureWorkspaceProject(res.locals.owner);
+  if (!passiveWorkspaceRead(res.locals.owner))
+    ensureWorkspaceProject(res.locals.owner);
   res.json(
     db
       .prepare(

@@ -316,7 +316,7 @@ export class NativeProjects {
   // Reports the catalog of the harness the conversation's next turn would
   // use. session() rebinds a chat to the agent's current harness while
   // keeping its project, so the catalog follows the same rule.
-  async catalog(agent: any, conversation?: string) {
+  async catalog(agent: any, conversation?: string, cachedOnly = false) {
     const c = conversation ? ownedConversation(conversation, OWNER) : undefined;
     if (c && c.agent_id !== agent.id)
       throw new Problem(400, "Conversation belongs to another agent");
@@ -335,7 +335,8 @@ export class NativeProjects {
       : this.project({ folderId: agent.folder_id } as Snapshot, options);
     if (conversation && binding?.harness === harness) {
       const live = this.context.live.get(conversation);
-      if (live && !live.closed && live.adapter.commandCatalog)
+      if (live && !live.closed && live.adapter.commandCatalog) {
+        if (!cachedOnly) live.adapter.refreshCommandCatalog?.();
         return {
           available: true,
           runtime: labels[harness],
@@ -350,6 +351,7 @@ export class NativeProjects {
               "Native adapter has not reported activity support",
             ),
         };
+      }
     }
     const projectTrust =
       harness === "pi"
@@ -361,6 +363,13 @@ export class NativeProjects {
     const key = JSON.stringify([harness, project, projectTrust ?? null]);
     const cached = this.probes.get(key);
     if (cached && cached.expires > Date.now()) return cached.result;
+    if (cachedOnly)
+      return {
+        available: false,
+        commands: [],
+        message:
+          "No loaded command catalog is available. Refresh the runtime on its owning computer.",
+      };
     if (this.catalogCount >= 3)
       throw new Problem(429, "Native catalogs are busy. Retry shortly.");
     this.catalogCount++;

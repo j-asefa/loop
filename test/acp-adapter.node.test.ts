@@ -345,7 +345,17 @@ test("ACP setting writes are revision checked and confirmed by the agent", async
   try {
     await adapter.start();
     const revision = adapter.settings.revision;
-    const result = await adapter.setSetting("level", "deep", revision);
+    let authorized = 0;
+    const authorize = () => {
+      authorized++;
+    };
+    const result = await adapter.setSetting(
+      "level",
+      "deep",
+      revision,
+      authorize,
+    );
+    assert.equal(authorized, 1);
     assert.equal(
       result.options.find((x) => x.id === "level")?.confirmed,
       "deep",
@@ -355,9 +365,10 @@ test("ACP setting writes are revision checked and confirmed by the agent", async
       undefined,
     );
     await assert.rejects(
-      adapter.setSetting("level", "normal", revision),
+      adapter.setSetting("level", "normal", revision, authorize),
       /Refresh/,
     );
+    assert.equal(authorized, 1);
     const mode = await adapter.setSetting(
       "acp-mode",
       "code",

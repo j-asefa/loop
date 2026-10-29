@@ -268,7 +268,17 @@ it("Codex queues choices without replacing the confirmed model and applies them 
     { id: "b", name: "B", effortLevels: [{ value: "low" }] },
   ];
   adapter.displayControls.publish(adapter.sessionOptions("a"));
-  const pending = await adapter.setSetting("model", "b", 1);
+  await expect(
+    adapter.setSetting("model", "b", 1, () => {
+      throw new Error("Fixture authority revoked");
+    }),
+  ).rejects.toThrow("Fixture authority revoked");
+  expect(adapter.options.model).toBeUndefined();
+  const pending = await adapter.setSetting(
+    "model",
+    "b",
+    adapter.settings.revision,
+  );
   expect(pending.options.find((o: any) => o.id === "model")).toMatchObject({
     confirmed: "a",
     requested: "b",

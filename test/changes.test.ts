@@ -302,3 +302,16 @@ it.each([0, -1, NaN, Infinity, 2 ** 31])(
     }
   },
 );
+
+it("shared committed-event consumers do not inherit a passive read context", async () => {
+  const { withPassiveWorkspaceRead, passiveWorkspaceRead } =
+    await import("../src/server/workspace-read-context.js");
+  const seen: boolean[] = [];
+  local.changes.subscribe("one", () => {
+    seen.push(passiveWorkspaceRead());
+  });
+  withPassiveWorkspaceRead("one", () =>
+    local.emit("one", "one", "running", {}),
+  );
+  await expect.poll(() => seen).toEqual([false]);
+});

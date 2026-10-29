@@ -147,9 +147,9 @@ const handlers: Handlers = {
     ownedConversation(decision.conversation_id, OWNER);
     return nativeSessions.answer(decisionId, commandId, answer);
   },
-  "native.controls": ({ conversationId }) => {
+  "native.controls": ({ conversationId, cachedOnly }) => {
     ownedConversation(conversationId, OWNER);
-    return nativeSessions.controls(conversationId);
+    return nativeSessions.controls(conversationId, cachedOnly);
   },
   "native.setting": ({
     conversationId,
@@ -167,7 +167,7 @@ const handlers: Handlers = {
       generation,
     );
   },
-  "native.catalog": ({ agentId, conversationId }) => {
+  "native.catalog": ({ agentId, conversationId, cachedOnly }) => {
     const selectedAgent = agent(agentId);
     const selected = conversationId
       ? ownedConversation(conversationId, OWNER)
@@ -182,6 +182,7 @@ const handlers: Handlers = {
         folder_id: nextTurnFolder(OWNER, selectedAgent, conversation),
       },
       conversation,
+      cachedOnly,
     );
   },
   "pi.trust": ({ agentId, trusted, fingerprint }) =>

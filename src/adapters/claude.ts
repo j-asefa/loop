@@ -126,10 +126,16 @@ export class Claude implements Adapter {
       },
     ];
   }
-  async setSetting(id: string, value: SettingValue, revision: number) {
+  async setSetting(
+    id: string,
+    value: SettingValue,
+    revision: number,
+    beforeApply?: () => void,
+  ) {
     return this.displayControls.change(id, value, revision, async () => {
       if (typeof value !== "string" || !["model", "mode"].includes(id))
         throw new Error("Invalid session setting.");
+      beforeApply?.();
       if (id === "mode") {
         await this.control({ subtype: "set_permission_mode", mode: value });
         this.permissionMode = value;

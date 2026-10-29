@@ -1,3 +1,5 @@
+import { passiveWorkspaceRead } from "./workspace-read-context.js";
+import { ExecutionRefused } from "./execution-refusal.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ExecutionProblem, Problem } from "../shared/problem.js";
@@ -13,6 +15,31 @@ import {
   type ExecutionOutput,
 } from "../shared/execution-authority.js";
 import { boundedExecutionJson } from "./execution-wire.js";
+
+function passiveInput<M extends ExecutionMethod>(
+  method: M,
+  input: ExecutionInput<M>,
+  owner = "local-workspace",
+): ExecutionInput<M> {
+  if (!passiveWorkspaceRead(owner)) return input;
+  if (
+    ![
+      "runtime.status",
+      "runtime.list",
+      "native.controls",
+      "native.catalog",
+    ].includes(method)
+  )
+    throw new ExecutionRefused(
+      403,
+      "A workspace read cannot change native execution.",
+    );
+  return method === "runtime.list" ||
+    method === "native.catalog" ||
+    method === "native.controls"
+    ? { ...input, cachedOnly: true }
+    : input;
+}
 
 export type ExecutionTransport = {
   status(): z.infer<typeof ExecutionReady>;
@@ -51,6 +78,7 @@ export class ExecutionClient {
     input: ExecutionInput<M>,
     options: { owner?: string; commandId?: string } = {},
   ): Promise<ExecutionOutput<M>> {
+    input = passiveInput(method, input, options.owner);
     const connection = this.connection;
     if (
       !connection ||
@@ -160,6 +188,7 @@ export async function executionRequest<M extends ExecutionMethod>(
   input: ExecutionInput<M>,
   options?: { owner?: string; commandId?: string },
 ) {
+  input = passiveInput(method, input, options?.owner);
   if (!remote) await localAuthority();
   return executionClient.request(method, input, options);
 }

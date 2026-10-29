@@ -58,13 +58,25 @@ function recentDiscover(name: Harness, executable?: string, fresh = false) {
   probe.catch(() => probes.delete(key));
   return probe;
 }
-export async function runtimeList({ fresh }: ExecutionInput<"runtime.list">) {
+export async function runtimeList({
+  fresh,
+  cachedOnly,
+}: ExecutionInput<"runtime.list">) {
   const registered = nativeSessions.registrations();
   const runtimes = await Promise.all(
     RuntimeHarness.options.map(async (name) => {
       const enabled = registered.find((r) => r.name === name);
       const saved = enabled ? nativeSessions.registration(name) : undefined;
-      const probe = await recentDiscover(name, saved?.executable, fresh);
+      const probe = cachedOnly
+        ? {
+            installed: !!saved,
+            supported: !!saved,
+            version: saved?.version,
+            help: saved
+              ? "Previously enabled on this computer."
+              : "Not registered on this computer.",
+          }
+        : await recentDiscover(name, saved?.executable, fresh);
       return {
         name,
         backend: "direct",

@@ -170,8 +170,8 @@ export class NativeSessions {
   // Reports the catalog of the harness the conversation's next turn would
   // use. session() rebinds a chat to the agent's current harness while
   // keeping its project, so the catalog follows the same rule.
-  catalog(agent: any, conversation?: string) {
-    return this.projects.catalog(agent, conversation);
+  catalog(agent: any, conversation?: string, cachedOnly = false) {
+    return this.projects.catalog(agent, conversation, cachedOnly);
   }
   /** Forget probed catalogs after Pi configuration or trust changes. */
   clearProbes() {
@@ -220,7 +220,7 @@ export class NativeSessions {
   get count() {
     return this.live.size;
   }
-  controls(conversation: string) {
+  controls(conversation: string, cachedOnly = false) {
     const binding = db
       .prepare(
         "SELECT generation,state,harness FROM companion_sessions WHERE conversation_id=?",
@@ -236,6 +236,7 @@ export class NativeSessions {
       candidate.generation === binding.generation
         ? candidate
         : undefined;
+    if (!cachedOnly) live?.adapter.refreshCommandCatalog?.();
     return {
       generation: live?.generation || binding.generation,
       state: live ? binding.state : "disconnected",
@@ -312,6 +313,7 @@ export class NativeSessions {
           live.binding.permission_base = base;
         }
       }
+      live.adapter.refreshCommandCatalog?.();
       return {
         generation: live.generation,
         settings,

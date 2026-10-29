@@ -57,11 +57,18 @@ export interface Adapter {
   customizationInventory?: unknown;
   activityCapabilities?: ActivityCapabilities;
   settings?: SettingsData;
+  /** Read the loaded catalog without native IO or publication. */
   commandCatalog?: CommandsData;
+  /** Explicitly request throttled catalog rediscovery for an active session. */
+  refreshCommandCatalog?(): void;
+  /** Call beforeApply after validation, immediately before changing state or
+   * handing the setting to the harness. Preflight rejection must not call it;
+   * a failure after this point can represent an uncertain effect. */
   setSetting?(
     id: string,
     value: SettingValue,
     revision: number,
+    beforeApply?: () => void,
   ): Promise<SettingsData>;
   start(): Promise<Billing>;
   prompt(text: string): Promise<void>;

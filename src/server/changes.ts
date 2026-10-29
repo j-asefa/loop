@@ -1,3 +1,4 @@
+import { withoutPassiveWorkspaceRead } from "./workspace-read-context.js";
 import type { WorkspaceSubject } from "../shared/workspace-events.js";
 import type Database from "better-sqlite3";
 
@@ -59,7 +60,8 @@ export function createChangeBus(
     dirty = true;
     if (retry) clearTimeout(retry);
     retry = undefined;
-    if (!draining && !scheduled) scheduled = setImmediate(drain);
+    if (!draining && !scheduled)
+      scheduled = setImmediate(() => withoutPassiveWorkspaceRead(drain));
   }
   function retryLater() {
     if (closed || retry) return;

@@ -220,11 +220,12 @@ test("never follows symlinked releases or archive destinations", () => {
   );
   const outside = join(external.root, "outside");
   writeFileSync(outside, "leave alone", { mode: 0o644 });
+  const originalMode = lstatSync(outside).mode & 0o777;
   symlinkSync(outside, join(releases[0], archiveName));
   assert.notEqual(run(root).status, 0);
   assert(existsSync(join(releases[0], backupName)));
   assert.equal(readFileSync(outside, "utf8"), "leave alone");
-  assert.equal(lstatSync(outside).mode & 0o777, 0o644);
+  assert.equal(lstatSync(outside).mode & 0o777, originalMode);
   assert(existsSync(join(external.releases[0], backupName)));
 });
 

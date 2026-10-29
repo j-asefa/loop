@@ -1,3 +1,4 @@
+import { passiveWorkspaceRead } from "./workspace-read-context.js";
 import { submitTokenWrite, runControlTokenWrite } from "./token-write-policies.js";
 import { recordCardRead, tokenResultPage } from "./card-tokens.js";
 import { registrar, projectResponse } from "./registrar.js";
@@ -62,7 +63,7 @@ const routes = registrar("core", { middleware: [[viewportDiagnostics]] });
 export const core = routes.mount;
 
 routes.on(workspaceApi.bootstrap, (_req, res) => {
-  if (!res.locals.bearer) ensureWorkspaceProject(res.locals.owner);
+  if (!res.locals.bearer && !passiveWorkspaceRead(res.locals.owner)) ensureWorkspaceProject(res.locals.owner);
   res.json({
     ...(publicPreview ? { preview: publicPreview } : {}),
     environmentName: hostEnvironmentName(),
@@ -153,6 +154,10 @@ routes.on(workspaceApi.connectionModels, async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner);
   if (c.status !== "connected")
     throw new Problem(409, "Reconnect this provider first");
+  if (passiveWorkspaceRead(res.locals.owner)) {
+    res.json({ models: c.models });
+    return;
+  }
   if (isNativeConnection(c)) {
     // The refresh stores the harness's complete validated catalog; native
     // providers such as Pi with OpenRouter report more models and longer ids

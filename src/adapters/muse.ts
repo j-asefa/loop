@@ -162,10 +162,16 @@ export class Muse implements Adapter {
         : []),
     ];
   }
-  async setSetting(id: string, value: SettingValue, revision: number) {
+  async setSetting(
+    id: string,
+    value: SettingValue,
+    revision: number,
+    beforeApply?: () => void,
+  ) {
     return this.displayControls.change(id, value, revision, async () => {
       if (typeof value !== "string" || !["model", "effort"].includes(id))
         throw new Error("Invalid session setting.");
+      beforeApply?.();
       this.options[id as "model" | "effort"] = value;
       if (id === "model") {
         this.options.effort = undefined;

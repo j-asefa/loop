@@ -28,6 +28,9 @@ export class Pi implements Adapter {
     return this.displayControls.settings;
   }
   get commandCatalog() {
+    return this.displayControls.commands;
+  }
+  refreshCommandCatalog() {
     if (this.native) {
       this.displayControls.refresh(
         async () => {
@@ -48,7 +51,6 @@ export class Pi implements Adapter {
         },
       );
     }
-    return this.displayControls.commands;
   }
   get activityCapabilities() {
     return this.displayControls.capabilities;
@@ -167,11 +169,17 @@ export class Pi implements Adapter {
       },
     ];
   }
-  async setSetting(id: string, value: SettingValue, revision: number) {
+  async setSetting(
+    id: string,
+    value: SettingValue,
+    revision: number,
+    beforeApply?: () => void,
+  ) {
     return this.displayControls.change(id, value, revision, async () => {
       if (id === "auto-compaction") {
         if (typeof value !== "boolean")
           throw new Error("Invalid setting value.");
+        beforeApply?.();
         await this.native.request(
           "set_auto_compaction",
           { enabled: value },
@@ -181,20 +189,23 @@ export class Pi implements Adapter {
         throw new Error("Invalid setting value.");
       else if (id === "model") {
         const slash = value.indexOf("/");
+        beforeApply?.();
         await this.native.request(
           "set_model",
           { provider: value.slice(0, slash), modelId: value.slice(slash + 1) },
           false,
         );
-      } else if (id === "effort")
+      } else if (id === "effort") {
+        beforeApply?.();
         await this.native.request(
           "set_thinking_level",
           { level: value },
           false,
         );
-      else if (id === "steering-mode" || id === "follow-up-mode") {
+      } else if (id === "steering-mode" || id === "follow-up-mode") {
         if (value !== "all" && value !== "one-at-a-time")
           throw new Error("Invalid queue mode.");
+        beforeApply?.();
         await this.native.request(
           id === "steering-mode" ? "set_steering_mode" : "set_follow_up_mode",
           { mode: value },

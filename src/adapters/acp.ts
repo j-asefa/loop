@@ -599,6 +599,7 @@ export class Acp implements Adapter {
     id: string,
     value: SettingValue,
     revision: number,
+    beforeApply?: () => void,
   ): Promise<SettingsData> {
     // Serialize mutations and check revisions at the actual dispatch boundary.
     this.pendingSettingWrites++;
@@ -631,6 +632,7 @@ export class Acp implements Adapter {
               !option.choices?.some((c) => c.value === value))
         )
           throw new Error("Unsupported ACP setting or value");
+        beforeApply?.();
         this.settings = {
           ...this.settings,
           revision: this.settings.revision + 1,

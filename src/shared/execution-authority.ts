@@ -207,7 +207,7 @@ export const executionOperations = {
     z.strictObject({ nativeProcesses: z.number().int().nonnegative() }),
   ),
   "runtime.list": method(
-    z.strictObject({ fresh: z.boolean() }),
+    z.strictObject({ fresh: z.boolean(), cachedOnly: z.boolean().optional() }),
     z.strictObject({
       computer: z.string(),
       online: z.literal(true),
@@ -313,7 +313,10 @@ export const executionOperations = {
     "existing",
   ),
   "native.controls": method(
-    z.strictObject({ conversationId: z.uuid() }),
+    z.strictObject({
+      conversationId: z.uuid(),
+      cachedOnly: z.boolean().optional(),
+    }),
     Controls,
   ),
   "native.setting": method(
@@ -328,7 +331,11 @@ export const executionOperations = {
     "receipt",
   ),
   "native.catalog": method(
-    z.strictObject({ ...Agent, conversationId: z.uuid().optional() }),
+    z.strictObject({
+      ...Agent,
+      conversationId: z.uuid().optional(),
+      cachedOnly: z.boolean().optional(),
+    }),
     Catalog,
   ),
   "pi.trust": method(
