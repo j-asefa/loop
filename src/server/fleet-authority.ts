@@ -23,6 +23,7 @@ import {
   verifyHandoffProposalSignature,
 } from "./fleet-crypto.js";
 import { initializeFleetIdentity } from "./fleet-identity.js";
+import { FleetHistoryIndex } from "./fleet-history-index.js";
 
 type Secrets = Parameters<typeof initializeFleetIdentity>[1];
 const Owner = z.string().min(1).max(256);
@@ -85,6 +86,8 @@ type ActiveGrant = {
  * Peer callers may relay successors; neither signatures nor URLs create consent. */
 export class FleetAuthority {
   readonly identity: MachineIdentity;
+  private readonly histories = new Map<string, FleetHistoryIndex>();
+  private readonly historyWarm = new Map<string, Set<string>>();
   private readonly observers = new Map<
     string,
     Set<{ state: string; notify: () => void }>
@@ -98,6 +101,81 @@ export class FleetAuthority {
     if (options.isolated)
       throw new Problem(403, "Previews cannot join fleets.");
     this.identity = initializeFleetIdentity(db, secrets);
+    // Build once during local startup, before accepting peer history queries.
+    // Subsequent committed inserts extend the verified index, independently of
+    // an untrusted caller's choice of cursor.
+    const binding = db
+      .prepare("SELECT owner_id FROM fleet_binding WHERE singleton=1")
+      .get() as { owner_id: string } | undefined;
+    if (binding && !db.inTransaction) {
+      const rows = db
+        .prepare(
+          "SELECT digest FROM fleet_directory_history WHERE owner_id=? ORDER BY rowid",
+        )
+        .all(binding.owner_id) as { digest: string }[];
+      this.history(binding.owner_id).prime(rows.map((row) => row.digest));
+    }
+  }
+
+  private history(owner: string) {
+    // Never retain observations from a caller's transaction that may roll back.
+    if (this.db.inTransaction)
+      return new FleetHistoryIndex((digest) => this.saved(owner, digest));
+    let index = this.histories.get(owner);
+    if (!index)
+      this.histories.set(
+        owner,
+        (index = new FleetHistoryIndex((digest) => this.saved(owner, digest))),
+      );
+    return index;
+  }
+
+  private warmHistory(owner: string, digest: string) {
+    let pending = this.historyWarm.get(owner);
+    if (pending) {
+      pending.add(digest);
+      return;
+    }
+    this.historyWarm.set(owner, (pending = new Set([digest])));
+    queueMicrotask(() => {
+      this.historyWarm.delete(owner);
+      if (!this.db.open) return;
+      try {
+        const index = this.history(owner);
+        index.prime(pending!);
+        const binding = this.binding(owner);
+        if (binding) index.prime([binding.head]);
+      } catch {
+        // A corrupt committed path must fail the next read, never crash a
+        // background notification or leave a partly populated trusted index.
+        this.histories.delete(owner);
+      }
+    });
+  }
+
+  ancestor(owner: string, head: string, cursor: string) {
+    if (!this.binding(owner)) return false;
+    FleetDigest.parse(head);
+    FleetDigest.parse(cursor);
+    // Random signed cursor probes perform one indexed existence check. They
+    // cannot allocate cache entries or initiate a retained-history traversal.
+    if (
+      !this.db
+        .prepare(
+          "SELECT 1 FROM fleet_directory_history WHERE owner_id=? AND digest=?",
+        )
+        .get(owner, cursor)
+    )
+      return this.history(owner).knownMissing(head, cursor);
+    return this.history(owner).contains(head, cursor);
+  }
+
+  lineage(owner: string, head?: string): Set<string> {
+    const binding = this.binding(owner);
+    if (!binding) return new Set();
+    return this.history(owner).lineage(
+      head === undefined ? binding.head : FleetDigest.parse(head),
+    );
   }
 
   private binding(owner: string): Binding | undefined {
@@ -276,6 +354,7 @@ export class FleetAuthority {
         JSON.stringify(signed),
         Date.now(),
       );
+    this.warmHistory(owner, digest);
     const previous = signed.document.parent
       ? this.saved(owner, signed.document.parent)
       : undefined;

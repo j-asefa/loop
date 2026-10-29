@@ -1,4 +1,4 @@
-import { afterAll, expect, it } from "vitest";
+import { afterAll, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -363,6 +363,105 @@ it("bounds history pages and preserves a cursor without treating a missing ances
   expect(next.page.next).toBeNull();
   expect(() => a.sync.history(history(b, a, "f".repeat(64)))).toThrow(
     "outside",
+  );
+});
+
+it("rejects arbitrary cursor probes without walking long history and still serves old retained cursors", async () => {
+  const { a, b, first } = fixture();
+  for (let i = 0; i < 1025; i++) {
+    revise(a, a.authority.directory(a.owner)!.document.members);
+    if (i % 64 === 0)
+      await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  await Promise.resolve(); // committed history indexing is independent of peer input
+  const reads = vi.spyOn(a.authority as any, "saved");
+  try {
+    for (let i = 0; i < 8; i++)
+      expect(() =>
+        a.sync.history(history(b, a, randomBytes(32).toString("hex"))),
+      ).toThrow("outside");
+    // Only current authority is read. Random cursor values never enter the
+    // verified ancestry cache or trigger one signature check per old revision.
+    expect(reads.mock.calls.length).toBeLessThanOrEqual(8);
+    reads.mockClear();
+    const request = history(b, a, directoryDigest(first.document));
+    expect(
+      verifyFleetHistoryResponse(
+        request,
+        a.sync.history(request),
+      ).page.entries.at(-1)!.document.kind,
+    ).toBe("genesis");
+    expect(reads.mock.calls.length).toBeLessThanOrEqual(33);
+    const removed = revise(
+      a,
+      a.authority
+        .directory(a.owner)!
+        .document.members.filter(
+          (member) => member.machineId !== b.authority.identity.machineId,
+        ),
+    );
+    const after = revise(a, removed.document.members);
+    await Promise.resolve();
+    reads.mockClear();
+    expect(() =>
+      a.sync.history(history(b, a, directoryDigest(after.document))),
+    ).toThrow("outside");
+    const earlier = history(b, a, directoryDigest(first.document));
+    expect(
+      verifyFleetHistoryResponse(earlier, a.sync.history(earlier)).page.head,
+    ).toBe(directoryDigest(removed.document));
+    expect(reads.mock.calls.length).toBeLessThanOrEqual(40);
+  } finally {
+    reads.mockRestore();
+  }
+}, 60_000);
+
+it("refreshes indexed ancestry after late retention without caching rolled-back history", async () => {
+  const { a, c, first, second } = fixture();
+  const genesis = a.authority.directory(a.owner, first.document.parent!)!;
+  const head = directoryDigest(second.document),
+    old = directoryDigest(genesis.document);
+  await Promise.resolve();
+  expect(c.authority.ancestor(c.owner, head, old)).toBe(false);
+  expect(() =>
+    c.db.transaction(() => {
+      expect(c.authority.retainAncestors(c.owner, [first, genesis])).toBe(true);
+      expect(c.authority.ancestor(c.owner, head, old)).toBe(true);
+      throw new Error("Fixture rollback");
+    })(),
+  ).toThrow("Fixture rollback");
+  await Promise.resolve();
+  expect(c.authority.ancestor(c.owner, head, old)).toBe(false);
+  expect(c.authority.retainAncestors(c.owner, [first, genesis])).toBe(true);
+  expect(c.authority.ancestor(c.owner, head, old)).toBe(true);
+  expect(() => c.authority.ancestor(a.owner, head, old)).toThrow();
+  const recovery = c.authority.recover(c.owner, {
+    mutationId: randomUUID(),
+    expected: head,
+    name: "Recovery",
+    origin: c.origin,
+    scope: [...scope],
+  });
+  await Promise.resolve();
+  expect(
+    c.authority.ancestor(c.owner, directoryDigest(recovery.document), old),
+  ).toBe(false);
+});
+
+it("reports a directly named missing predecessor after another authority instance installs consent", () => {
+  const a = machine(),
+    b = machine();
+  const reader = new FleetAuthority(b.db, secrets);
+  a.authority.create(a.owner, {
+    mutationId: randomUUID(),
+    name: "A",
+    origin: a.origin,
+    scope: [...scope],
+  });
+  const accepted = enroll(a, b);
+  const sync = new FleetDirectorySync(b.db, reader, b.owner, secrets);
+  expect(() => sync.history(history(a, b, accepted.document.parent))).toThrow(
+    "not stored",
   );
 });
 

@@ -874,6 +874,177 @@ it.each(["enrollment", "handoff"] as const)(
   },
 );
 
+it("shows owner-scoped latest directory delivery, retries only its durable packet and retires old recovery work", async () => {
+  const a = await machine(),
+    b = await machine();
+  await enrolled(a, b);
+  const previous = a.admin.state();
+  const removed = await call(a, "remove", {
+    mutationId: randomUUID(),
+    expected: previous.head,
+    machineId: b.authority.identity.machineId,
+    confirm: true,
+  });
+  expect(removed.status).toBe(200);
+  const head = removed.body.head;
+  const foreign = randomUUID();
+  a.db
+    .prepare(
+      `INSERT INTO fleet_directory_history
+    SELECT ?,digest,fleet_id,mutation_id,signed,accepted_at FROM fleet_directory_history WHERE owner_id=? AND digest=?`,
+    )
+    .run(foreign, a.owner, head);
+  a.db
+    .prepare(
+      "INSERT INTO fleet_distribution(owner_id,peer_id,directory_digest,state) VALUES(?,?,?,'pending')",
+    )
+    .run(foreign, a.authority.identity.machineId, head);
+  a.db
+    .prepare(
+      "UPDATE fleet_distribution SET state='incompatible',attempts=3,next_attempt=123456 WHERE owner_id=? AND peer_id=? AND directory_digest=?",
+    )
+    .run(a.owner, b.authority.identity.machineId, head);
+  a.db
+    .prepare(
+      "INSERT INTO fleet_distribution_work(owner_id,peer_id,directory_digest,request) VALUES(?,?,?,?)",
+    )
+    .run(
+      a.owner,
+      b.authority.identity.machineId,
+      head,
+      "retained packet fixture",
+    );
+  const page = await call(a, "deliveries", { cursor: null });
+  expect(page.status).toBe(200);
+  expect(page.body.items).toHaveLength(1);
+  const delivery = page.body.items[0];
+  expect(delivery).toMatchObject({
+    peerId: b.authority.identity.machineId,
+    digest: head,
+    state: "incompatible",
+    current: true,
+    attempts: 3,
+  });
+  expect(JSON.stringify(page.body)).not.toContain(foreign);
+  expect(JSON.stringify(page.body)).not.toContain("packet");
+  const input = {
+    peerId: delivery.peerId,
+    digest: head,
+    expected: head,
+    confirm: true,
+  };
+  expect(
+    (await call(a, "retryDelivery", { ...input, expected: previous.head }))
+      .status,
+  ).toBe(409);
+  const dispatches = wireCalls.length;
+  expect((await call(a, "retryDelivery", input)).status).toBe(200);
+  expect(wireCalls).toHaveLength(dispatches);
+  expect(
+    a.db
+      .prepare(
+        "SELECT state,attempts,next_attempt FROM fleet_distribution WHERE owner_id=? AND peer_id=? AND directory_digest=?",
+      )
+      .get(a.owner, delivery.peerId, head),
+  ).toEqual({ state: "pending", attempts: 3, next_attempt: 0 });
+  expect(
+    a.db
+      .prepare(
+        "SELECT request FROM fleet_distribution_work WHERE owner_id=? AND peer_id=? AND directory_digest=?",
+      )
+      .get(a.owner, delivery.peerId, head),
+  ).toEqual({ request: "retained packet fixture" });
+  const recovered = await call(a, "recover", {
+    mutationId: randomUUID(),
+    expected: head,
+    name: "Recovered",
+    scope: [...scope],
+    confirm: true,
+  });
+  expect(recovered.status).toBe(200);
+  expect(recovered.body.pendingDistribution).toBe(0);
+  expect(
+    (await call(a, "deliveries", { cursor: null })).body.items[0].current,
+  ).toBe(false);
+  expect(
+    (
+      await call(a, "retryDelivery", {
+        ...input,
+        expected: recovered.body.head,
+      })
+    ).status,
+  ).toBe(409);
+});
+
+it("keeps a pending removal current after more than 1024 ordinary revisions", async () => {
+  const a = await machine(),
+    b = await machine();
+  await enrolled(a, b);
+  const removed = await call(a, "remove", {
+    mutationId: randomUUID(),
+    expected: a.admin.state().head,
+    machineId: b.authority.identity.machineId,
+    confirm: true,
+  });
+  expect(removed.status).toBe(200);
+  let head = removed.body.head;
+  for (let i = 0; i < 1025; i++) {
+    a.authority.revise(a.owner, {
+      mutationId: randomUUID(),
+      expected: head,
+      members: a.authority.directory(a.owner)!.document.members,
+    });
+    head = a.authority.status(a.owner).head!;
+    // Keep HTTP keep-alive timers progressing during the signed-history setup.
+    if (i % 64 === 63)
+      await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const page = await call(a, "deliveries", { cursor: null });
+  expect(page.status).toBe(200);
+  expect(
+    page.body.items.find(
+      (item: { peerId: string }) =>
+        item.peerId === b.authority.identity.machineId,
+    ),
+  ).toMatchObject({
+    digest: removed.body.head,
+    current: true,
+    state: "pending",
+  });
+  expect((await call(a, "state")).body.pendingDistribution).toBeGreaterThan(0);
+  expect(
+    (
+      await call(a, "retryDelivery", {
+        peerId: b.authority.identity.machineId,
+        digest: removed.body.head,
+        expected: head,
+        confirm: true,
+      })
+    ).status,
+  ).toBe(200);
+  const recovered = await call(a, "recover", {
+    mutationId: randomUUID(),
+    expected: head,
+    name: "Recovered",
+    scope: [...scope],
+    confirm: true,
+  });
+  expect(recovered.status).toBe(200);
+  expect(
+    (await call(a, "deliveries", { cursor: null })).body.items[0].current,
+  ).toBe(false);
+  expect(
+    (
+      await call(a, "retryDelivery", {
+        peerId: b.authority.identity.machineId,
+        digest: removed.body.head,
+        expected: recovered.body.head,
+        confirm: true,
+      })
+    ).status,
+  ).toBe(409);
+}, 60000);
+
 it("pages every retained operation without leaking capabilities or another owner's jobs", async () => {
   const a = await machine(),
     b = await machine();

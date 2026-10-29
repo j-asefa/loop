@@ -1,0 +1,76 @@
+.fleet-authority-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  width: 100%;
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  text-align: left;
+  font-size: 0.8rem;
+}
+.fleet-authority-notice small {
+  color: var(--muted);
+}
+.fleet-settings {
+  overflow-wrap: anywhere;
+}
+.fleet-settings .fleet-section {
+  margin: 1.25rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+.fleet-settings label:not(.fleet-check) {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+.fleet-settings textarea,
+.fleet-settings input:not([type="checkbox"]),
+.fleet-settings select {
+  width: 100%;
+  min-width: 0;
+}
+.fleet-settings textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+.fleet-settings fieldset {
+  margin: 1rem 0;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+}
+.fleet-settings .fleet-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0.7rem 0;
+}
+.fleet-settings .fleet-check input {
+  flex: 0 0 auto;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.15rem;
+}
+.fleet-settings .fleet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.7rem 0;
+}
+.fleet-settings .fleet-confirm {
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 1rem;
+}
+.fleet-settings dd {
+  margin: 0.2rem 0 0.8rem;
+}
+.fleet-settings .fleet-camera video {
+  width: 100%;
+  max-height: 20rem;
+  object-fit: contain;
+  background: #000;
+  border-radius: 0.6rem;
+}

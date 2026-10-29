@@ -143,16 +143,7 @@ export class FleetDistribution {
     return value;
   }
   private ancestors(head: string) {
-    const result = new Set<string>();
-    let cursor: string | null = head;
-    for (let count = 0; cursor && count <= 1024; count++) {
-      const entry = this.authority.directory(this.owner, cursor);
-      if (!entry) break;
-      result.add(cursor);
-      cursor =
-        entry.document.kind === "recovery" ? null : entry.document.parent;
-    }
-    return result;
+    return this.authority.lineage(this.owner, head);
   }
   private admission(directory: SignedFleetDirectory) {
     const entries: SignedFleetDirectory[] = [];
@@ -205,17 +196,23 @@ export class FleetDistribution {
       );
     if (this.target(row).head !== target.head) throw unavailable();
   }
-  /** Oldest first, excluding the trusted anchor. A reset is not an ordinary edge. */
-  private between(anchor: string, target: string) {
+  /** Oldest first, excluding the trusted anchor. A reset is not an ordinary edge.
+   * Validation walks all retained ancestors; callers collecting a wire page
+   * retain a bounded prefix plus its possible admission continuation. */
+  private between(anchor: string, target: string, collect = true) {
+    if (!this.authority.ancestor(this.owner, target, anchor)) throw conflict();
+    if (!collect) return [];
     const entries: SignedFleetDirectory[] = [];
     let cursor = target,
       bytes = 0;
     while (cursor !== anchor) {
       const entry = this.directory(cursor);
-      bytes += Buffer.byteLength(JSON.stringify(entry));
-      if (entries.length >= 1024 || bytes > 16 * 1024 * 1024)
-        throw unavailable();
-      entries.push(entry);
+      if (collect) {
+        entries.push(entry);
+        bytes += Buffer.byteLength(JSON.stringify(entry));
+        while (entries.length > 1024 || bytes > 16 * 1024 * 1024)
+          bytes -= Buffer.byteLength(JSON.stringify(entries.shift()!));
+      }
       if (!entry.document.parent || entry.document.kind === "recovery")
         throw conflict();
       cursor = entry.document.parent;
@@ -226,10 +223,10 @@ export class FleetDistribution {
     this.live();
     const local = this.authority.status(this.owner);
     if (!local.directory || local.state === "removed") throw conflict();
-    this.between(row.directory_digest, local.head!);
+    this.between(row.directory_digest, local.head!, false);
     const directory = this.directory(row.directory_digest);
     let at: SignedFleetDirectory | undefined = local.directory;
-    for (let count = 0; at && count < 1024; count++) {
+    while (at) {
       const peer = at.document.members.find((m) => m.machineId === row.peer_id);
       if (peer) return { directory, peer, head: local.head! };
       at =
@@ -275,7 +272,7 @@ export class FleetDistribution {
         if (request && this.stored(row)?.request !== request) return;
         // A verified destination head can acknowledge an older target. It cannot
         // acknowledge a descendant or unrelated fork based on an integer alone.
-        this.between(row.directory_digest, head);
+        this.between(row.directory_digest, head, false);
         const acknowledge = this.db.prepare(
           "UPDATE fleet_distribution SET state='acked',next_attempt=0 WHERE owner_id=? AND peer_id=? AND directory_digest=? AND state='pending'",
         );
@@ -664,6 +661,7 @@ export class FleetDistribution {
     this.between(
       directoryDigest(request.push.entries.at(-1)!.document),
       row.directory_digest,
+      false,
     );
     let response: unknown;
     try {
@@ -775,7 +773,7 @@ export class FleetDistribution {
         throw conflict();
       const anchor = this.directory(request.push.anchor);
       const requested = directoryDigest(request.push.entries.at(-1)!.document);
-      this.between(requested, row.directory_digest);
+      this.between(requested, row.directory_digest, false);
       await this.identify(row, target);
       const response = verifyFleetDirectoryAck(
         request,

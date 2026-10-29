@@ -161,6 +161,8 @@ it("synchronizes exactly 1,024 missing revisions including the final trusted anc
   expect(b.authority.status(b.owner).head).toBe(
     c.authority.status(c.owner).head,
   );
+  // The oldest stored ancestor remains a valid cursor after 1,024 revisions.
+  // Its named, unstored predecessor is missing, rather than a different lineage.
   const query = {
     version: 1 as const,
     nonce: secret(),
@@ -171,7 +173,7 @@ it("synchronizes exactly 1,024 missing revisions including the final trusted anc
   const proof = new FleetProof(b.db, b.authority.identity, secrets);
   expect(() =>
     c.sync.history({ query, signature: proof.sign("directory-query", query) }),
-  ).toThrow("outside");
+  ).toThrow("not stored");
 }, 60_000);
 
 it("a corrupt late page leaves the original head and all grants unchanged", async () => {

@@ -68,6 +68,13 @@ export function createFleetAdminHttp(admin: FleetLocalAdmin) {
     automaticOptions: false,
   });
   routes.on(fleetAdminApi.state, (_req, res) => res.json(admin.state()));
+  routes.on(fleetAdminApi.deliveries, ({ body }, res) =>
+    res.json(admin.deliveries(body.cursor)),
+  );
+  routes.on(fleetAdminApi.retryDelivery, ({ body }, res) => {
+    admin.retryDelivery(body);
+    res.json({ ok: true });
+  });
   routes.on(fleetAdminApi.create, ({ body }, res) =>
     res.json(admin.create(body)),
   );

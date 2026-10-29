@@ -23,6 +23,7 @@
     "test:all": "npm test && npm run test:native",
     "prepack": "npm run build",
     "test:browser:acp": "node scripts/heavy-command.mjs scripts/acp-deterministic-browser.mjs",
+    "smoke:fleet": "node scripts/heavy-command.mjs scripts/fleet-browser-smoke.mjs",
     "smoke:companion": "node scripts/heavy-command.mjs scripts/companion-browser-smoke.mjs",
     "smoke:cards": "node scripts/heavy-command.mjs --import tsx scripts/cards-browser-smoke.mjs && node scripts/heavy-command.mjs --import tsx scripts/cards-content-browser.mjs && node scripts/heavy-command.mjs scripts/cards-window-browser.mjs",
     "smoke:feed-events": "node scripts/heavy-command.mjs --import tsx scripts/feed-websocket-smoke.mjs && node scripts/heavy-command.mjs --import tsx scripts/personal-files-events-smoke.mjs",
@@ -83,7 +84,8 @@
     "ws": "8.21.3",
     "yaml": "^2.8.2",
     "yauzl": "^3.4.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "zxing-wasm": "3.1.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

@@ -8,6 +8,7 @@ import { UploadButton } from "../Attachments";
 import { capabilities } from "../capabilities";
 import { executionSourceId } from "../sourceRouting";
 import { NativeDecisions, WorkspaceConnection } from "../NativeControls";
+import { FleetAuthorityNotice } from "../FleetContext";
 import { BrowserBuildStatus } from "../BuildStatus";
 import { YourAgents } from "../YourAgents";
 import { ProfileCover } from "../ProfileCover";
@@ -257,6 +258,7 @@ export function renderAppPages(
         stopRef={stopWorkspaceEvents}
       />
       <BrowserBuildStatus />
+      <FleetAuthorityNotice open={() => setSheet("fleet")} />
       {profile ? (
         <>
           <div className="profile-backbar">

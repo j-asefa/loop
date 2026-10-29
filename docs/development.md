@@ -164,6 +164,17 @@ Set `LOOP_BROWSER_TRACE_DIR=/tmp/loop-traces` to capture Playwright traces for f
 
 Omitting scenario names runs all scenarios; unknown names fail. Each scenario reports timing, and screenshots include its engine/name. `smoke:journey` remains the integrated service-worker/provider journey.
 
+`npm run smoke:fleet` exercises three isolated compiled companions through local
+TLS fixture origins, including controller setup, QR/paste enrollment, directory
+status, changed-address repair, handoff and explicit recovery. Set
+`LOOP_BROWSER=chromium` or `LOOP_BROWSER=webkit` for mobile browser emulation.
+It uses the bundled QR decoder with synthetic camera frames and no native
+BarcodeDetector. Chromium uses a canvas capture stream; WebKit supplies frames
+at the media-element boundary because its headless canvas stream can stall
+without emitting frames. Both use the production scanner and local decoder
+worker. Harness execution and peer routing are fixtures; this is not physical
+camera, provider or Internet tunnel acceptance.
+
 The native contract checks exercise direct adapter framing, paired sign-in, native session recovery, live steering and team messaging across harnesses. They use subprocess fixtures and do not verify real provider OAuth or inference.
 
 Before a PR, run `npm run check` on the commit you are submitting and paste its `check:` lines into the PR; repeat after revisions. The review team reads a snapshot and does not run it. The command runs Prettier's check, [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the [formatting policy](../test/format-policy.test.ts), the registry route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. Budget roughly a minute on an idle shared host. Typecheck needs about 2 GiB, and the contract tests use two Vitest workers; the route inventory starts the server twice, once per profile. Run it per submitted PR head, not in a mandatory push hook. It refuses to start without the required local `node_modules` tools or with a different Prettier version; use `npm ci`. It is not the full suite. Also run checks relevant to the change and report exact failures or unavailable dependencies.

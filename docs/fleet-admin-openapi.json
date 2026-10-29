@@ -120,6 +120,280 @@
         }
       }
     },
+    "/api/fleet/admin/deliveries": {
+      "post": {
+        "operationId": "fleetAdminDeliveries",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/deliveriesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/deliveriesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/admin/deliveries/retry": {
+      "post": {
+        "operationId": "fleetAdminRetryDelivery",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/retryDeliveryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Projected local fleet administration response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/retryDeliveryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAdminError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/fleet/admin/create": {
       "post": {
         "operationId": "fleetAdminCreate",
@@ -2606,6 +2880,145 @@
           "scope",
           "pendingDistribution",
           "unconfirmed"
+        ],
+        "additionalProperties": false
+      },
+      "deliveriesResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "peerId": {
+                  "type": "string",
+                  "pattern": "^m_[a-f0-9]{64}$"
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "epoch": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "acked",
+                    "incompatible"
+                  ]
+                },
+                "attempts": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "current": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "peerId",
+                "digest",
+                "epoch",
+                "revision",
+                "state",
+                "attempts",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ],
+        "additionalProperties": false
+      },
+      "deliveriesRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cursor"
+        ],
+        "additionalProperties": false
+      },
+      "retryDeliveryResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      },
+      "retryDeliveryRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "peerId": {
+            "type": "string",
+            "pattern": "^m_[a-f0-9]{64}$"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "expected": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "peerId",
+          "digest",
+          "expected",
+          "confirm"
         ],
         "additionalProperties": false
       },

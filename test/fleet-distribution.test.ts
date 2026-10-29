@@ -472,6 +472,38 @@ it("delivers a removal directly to the last known endpoint and retains its accep
   ).toEqual({ n: 0 });
 });
 
+it("delivers a pending removal after more than 1024 later ordinary revisions", async () => {
+  const f = fixture();
+  const observer = machine();
+  const introduced = enroll(f.a, observer);
+  const removed = revise(
+    f.a,
+    introduced.document.members.filter(
+      (m) => m.machineId !== f.b.authority.identity.machineId,
+    ),
+  );
+  queue(f.a, f.b, removed);
+  for (let i = 0; i < 1025; i++) revise(f.a);
+  const query = {
+    version: 1 as const,
+    nonce: randomBytes(32).toString("base64url"),
+    sender: observer.authority.identity,
+    destination: f.a.authority.identity,
+    cursor: directoryDigest(removed.document),
+  };
+  const history = f.a.sync.history({
+    query,
+    signature: observer.proof.sign("directory-query", query),
+  });
+  expect(history.page.entries[0]).toEqual(removed);
+  expect(history.page.entries.length).toBeLessThanOrEqual(32);
+  await f.worker().flush();
+  expect(f.b.authority.status(f.b.owner).state).toBe("removed");
+  expect(state(f.a, f.b, removed).state).toBe("acked");
+  expect(f.sent).toHaveLength(1);
+  expect(f.sent[0].push.entries).toEqual([introduced, removed]);
+}, 60000);
+
 it("acknowledges an already learned removal when retained history exceeds the admission budget", async () => {
   const f = fixture(),
     members = [...f.first.document.members];

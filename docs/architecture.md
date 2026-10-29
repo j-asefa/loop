@@ -24,7 +24,7 @@ Loop has one React UI, workspace API and SQLite migration set, with two authoriz
 | Queued-message editing and conversation forks             | [queued-runs.ts](../src/server/mobile-return/queued-runs.ts), [forking.ts](../src/server/mobile-return/forking.ts)                                                                                                                                                                                |
 | Results stream (result cards and files, `/api/results`)   | [results.ts](../src/server/results.ts), [core-routes.ts](../src/server/core-routes.ts)                                                                                                                                                                                                            |
 | Your profile, sent prompts and decision history           | [user-profile.ts](../src/server/user-profile.ts), [personal-history.ts](../src/server/personal-history.ts), [personal-decisions.ts](../src/server/personal-decisions.ts)                                                                                                                          |
-| UI and shared contracts                                   | [client](../src/client), [shared](../src/shared), [workspace contracts](../src/shared/workspace-api.ts), [registrar](../src/server/registrar.ts), [browser API](../src/client/workspace-api.ts)                                                                                                                                                                                      |
+| UI and shared contracts                                   | [client](../src/client), [shared](../src/shared), [workspace contracts](../src/shared/workspace-api.ts), [registrar](../src/server/registrar.ts), [browser API](../src/client/workspace-api.ts)                                                                                                   |
 | Client state, navigation and session lifecycle            | [app/AppController.tsx](../src/client/app/AppController.tsx), [app/Session.tsx](../src/client/app/Session.tsx)                                                                                                                                                                                    |
 | Client shell and page composition                         | [App.tsx](../src/client/App.tsx), [app/AppView.tsx](../src/client/app/AppView.tsx), [app/AppPages.tsx](../src/client/app/AppPages.tsx), [explicit view props](../src/client/app/AppViewProps.ts)                                                                                                  |
 | Client workspace loading and result paging                | [app/WorkspaceData.ts](../src/client/app/WorkspaceData.ts), [app/Results.tsx](../src/client/app/Results.tsx)                                                                                                                                                                                      |
@@ -61,6 +61,13 @@ Destination acceptance and pending dissemination rows commit atomically.
 Directory synchronization serves authenticated pages of already signed history
 from any currently authorized replica. Pages contain at most 32 entries and
 768 KiB of entry data; a reported remote head does not establish global freshness.
+An owner-scoped index caches ancestry only from verified, immutable stored
+directories. Startup primes retained history, and committed local inserts warm
+new paths after their transaction completes. Missing cursors fail an indexed
+existence check; known cursors use logarithmic ancestry lookup, followed by normal
+signature checks for the bounded response page. Late predecessor retention
+refreshes incomplete paths. Transaction-local reads do not populate the shared
+cache, and recovery roots never connect to their named prior lineage.
 A removed caller can prove its former machine key to retrieve only the chain
 ending at its own recorded removal. Later revisions and unrelated cursors remain
 inaccessible. The removal index is populated with directory acceptance and
@@ -125,7 +132,25 @@ confirmation, expected directory heads and durable operation identities. Source
 enrollment rechecks the device after remote identity discovery and before
 claiming dispatch. Device revocation invalidates its active administration
 requests. Recovery lists former unconfirmed members separately and restores no
-grant for them. Browser fleet screens remain subsequent integration.
+grant for them. The gateway-owned browser authority context reads this local API
+independently of the selected conversation source, refreshes on foreground and
+reconnect, and retains an unavailable roster as stale while disabling edits.
+The [fleet administration flow](pairing.md#add-and-manage-machines) exposes explicit
+consent, receipts and bounded operation/delivery pages. Delivery retry retains
+the exact durable signed packet and refuses work from a retired recovery lineage.
+An open fleet sheet refreshes delivery records after each successful authority
+read. When the directory head changes, it hides earlier delivery status until
+the new read completes; a late response cannot restore an old acknowledgement.
+Loaded pages from the same head remain available while every loaded page is
+refreshed. Loading another page waits for that refresh, so a late first-page
+result cannot erase newly loaded rows.
+
+Retained ordinary ancestors remain current regardless of lineage length;
+only a recovery boundary retires that history. Directory distribution verifies
+the entire retained connecting lineage. Preparing a transmission retains only
+its bounded oldest prefix and potential admission continuation, rather than all
+newer documents. Wire pages and admission proofs retain their separate byte and
+entry limits.
 
 The directory reconciliation primitive retrieves those pages from an enrolled
 replica without an access credential. It verifies the complete connecting chain

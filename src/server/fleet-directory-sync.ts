@@ -169,20 +169,6 @@ export class FleetDirectorySync {
     throw refused();
   }
 
-  private ancestor(head: string, cursor: string) {
-    let next: string | null = head;
-    // The 1,024 unknown revisions may be followed by their trusted anchor.
-    for (let i = 0; next && i <= 1024; i++) {
-      if (next === cursor) return true;
-      const entry = this.authority.directory(this.owner, next);
-      next =
-        entry && entry.document.kind !== "recovery"
-          ? entry.document.parent
-          : null;
-    }
-    return false;
-  }
-
   /** Already signed history may be obtained from any currently authorized
    * replica, without a phone, controller or unexpired access credential. The
    * machine proof cannot grant workspace reads or enlarge local scope. */
@@ -204,9 +190,20 @@ export class FleetDirectorySync {
     const head = enrolled
       ? local.head!
       : this.removalHead(local.directory, query.sender);
+    const approved = enrolled
+      ? local.directory
+      : this.authority.directory(this.owner, head)!;
     // An explicit cursor cannot cross a recovery reset or expose a different
     // retained lineage, even to a member enrolled in the current directory.
-    if (query.cursor && !this.ancestor(head, query.cursor)) throw refused();
+    if (
+      query.cursor &&
+      !(
+        approved.document.kind !== "recovery" &&
+        approved.document.parent === query.cursor
+      ) &&
+      !this.authority.ancestor(this.owner, head, query.cursor)
+    )
+      throw refused();
     let cursor: string | null = query.cursor ?? head;
     const entries: SignedFleetDirectory[] = [];
     let bytes = 0;

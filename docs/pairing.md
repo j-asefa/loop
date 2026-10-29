@@ -67,8 +67,41 @@ receipt reconciliation does not repeat an uncertain transition. A replica's
 device session cannot perform controller edits. A changed origin requires fresh
 local browser pairing; the surviving controller key can then authorize its
 own address repair. Explicit recovery reports unconfirmed former members
-without restoring their grants. Browser fleet screens remain subsequent
-integration.
+without restoring their grants.
+
+### Add and manage machines
+
+Open **Settings → Machines & fleet** on a paired HTTPS companion. Create a fleet
+on the machine that will control its directory, choosing its name and allowed
+operations. On another machine, run `loop pair`; use **Scan pairing QR** in the
+controller's Add machine screen or paste the complete link. Review the address,
+machine identity, purpose and scope, then confirm and continue enrollment. The
+controller receives only the enrollment capability. Camera images are decoded
+locally in a bundled worker; denying camera access leaves the paste path available.
+The decoder loads only when scanning starts and does not use a CDN. Closing or
+hiding the scanner releases its camera and worker.
+
+If the phone's OS camera opened the other machine's pairing page first, pair
+there, open **Machines & fleet → Add this machine to an existing fleet**, and
+create a fresh enrollment-only link. Paste it into the controller's Add machine
+screen. A fresh link replaces older unused codes on that machine; existing paired
+devices remain trusted. Links expire after two minutes and are hidden when the
+page leaves the foreground. Keep enrollment links private.
+
+The current gateway displays its directory authority. A replica exposes its
+read-only directory; only the controller offers directory edits. Details
+show the accepted epoch/revision, the last local status read, and per-machine
+directory acknowledgements. An acknowledgement is not proof that the machine is
+still online. **Retry directory synchronization** reschedules the existing signed
+packet; it cannot repeat enrollment, handoff or an agent action. Failed contact
+keeps the machine pending. Use a fresh pairing link to repair a changed address.
+
+Removal and controller transfer require confirmation against the displayed
+directory. An uncertain operation offers receipt reconciliation, without another
+commit. To administer a transferred directory, open and pair at its new controller.
+Explicit recovery without the old controller authorizes this machine alone;
+other machines remain unconfirmed until they give fresh local consent. After this
+controller's URL changes, pair at its new address and confirm its address repair.
 
 Signed directory distribution runs independently of a browser and retains pending
 acknowledgements across restarts.

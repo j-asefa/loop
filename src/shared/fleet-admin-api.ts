@@ -83,6 +83,23 @@ export const FleetPendingPage = z
     next: z.string().uuid().nullable(),
   })
   .strict();
+export const FleetDelivery = z
+  .object({
+    peerId: MachineId,
+    digest: FleetDigest,
+    epoch: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    state: z.enum(["pending", "acked", "incompatible"]),
+    attempts: z.number().int().min(0),
+    current: z.boolean(),
+  })
+  .strict();
+export const FleetDeliveryPage = z
+  .object({
+    items: z.array(FleetDelivery).max(50),
+    next: MachineId.nullable(),
+  })
+  .strict();
 const page = z.object({ cursor: FleetOperationCursor.nullable() }).strict();
 const operation = z.object({ operationId: z.string().uuid() }).strict();
 const done = z.object({ ok: z.literal(true) }).strict();
@@ -95,6 +112,27 @@ export const fleetAdminApi = {
     method: "GET",
     path: "/fleet/admin/state",
     response: FleetAdminState,
+  },
+  deliveries: {
+    ...base,
+    method: "POST",
+    path: "/fleet/admin/deliveries",
+    body: z.object({ cursor: MachineId.nullable() }).strict(),
+    response: FleetDeliveryPage,
+  },
+  retryDelivery: {
+    ...base,
+    method: "POST",
+    path: "/fleet/admin/deliveries/retry",
+    body: z
+      .object({
+        peerId: MachineId,
+        digest: FleetDigest,
+        expected: FleetDigest,
+        confirm: z.literal(true),
+      })
+      .strict(),
+    response: done,
   },
   create: {
     ...base,

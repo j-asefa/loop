@@ -11,6 +11,7 @@ import {
   FleetHandoffPage,
   FleetOperationCursor,
   FleetPendingPage,
+  FleetDeliveryPage,
   fleetAdminApi,
 } from "../shared/fleet-admin-api.js";
 import {
@@ -38,6 +39,83 @@ export class FleetLocalAdmin {
     private readonly owner: string,
     private readonly origin: () => string,
   ) {}
+  private lineage() {
+    return this.authority.lineage(this.owner);
+  }
+  deliveries(cursor: string | null) {
+    const rows = this.db
+      .prepare(
+        `
+      SELECT d.peer_id,d.directory_digest,d.state,d.attempts
+      FROM fleet_distribution d
+      JOIN fleet_directory_history h ON h.owner_id=d.owner_id AND h.digest=d.directory_digest
+      WHERE d.owner_id=? AND (? IS NULL OR d.peer_id>?)
+        AND NOT EXISTS (
+          SELECT 1 FROM fleet_distribution newer
+          JOIN fleet_directory_history n ON n.owner_id=newer.owner_id AND n.digest=newer.directory_digest
+          WHERE newer.owner_id=d.owner_id AND newer.peer_id=d.peer_id AND n.rowid>h.rowid
+        )
+      ORDER BY d.peer_id LIMIT 51
+    `,
+      )
+      .all(this.owner, cursor, cursor) as {
+      peer_id: string;
+      directory_digest: string;
+      state: string;
+      attempts: number;
+    }[];
+    const lineage = this.lineage();
+    return FleetDeliveryPage.parse({
+      items: rows.slice(0, 50).map((row) => {
+        const directory = this.authority.directory(
+          this.owner,
+          row.directory_digest,
+        )!;
+        return {
+          peerId: row.peer_id,
+          digest: row.directory_digest,
+          epoch: directory.document.epoch,
+          revision: directory.document.revision,
+          state: row.state,
+          attempts: row.attempts,
+          current: lineage.has(row.directory_digest),
+        };
+      }),
+      next: rows.length > 50 ? rows[49].peer_id : null,
+    });
+  }
+  retryDelivery(input: z.infer<typeof fleetAdminApi.retryDelivery.body>) {
+    const value = fleetAdminApi.retryDelivery.body.parse(input);
+    this.db
+      .transaction(() => {
+        const status = this.authority.status(this.owner);
+        if (
+          status.head !== value.expected ||
+          !["controller", "replica"].includes(status.state) ||
+          !this.lineage().has(value.digest)
+        )
+          throw new Problem(
+            409,
+            "Refresh the current directory before retrying synchronization.",
+          );
+        const row = this.db
+          .prepare(
+            "SELECT state FROM fleet_distribution WHERE owner_id=? AND peer_id=? AND directory_digest=?",
+          )
+          .get(this.owner, value.peerId, value.digest) as
+          { state: string } | undefined;
+        if (!row) throw new Problem(404, "Directory delivery was not found.");
+        if (row.state !== "acked")
+          this.db
+            .prepare(
+              "UPDATE fleet_distribution SET state='pending',next_attempt=0 WHERE owner_id=? AND peer_id=? AND directory_digest=?",
+            )
+            .run(this.owner, value.peerId, value.digest);
+        // Retain the durable packet. Only idempotent signed directory exchange
+        // may retry; this endpoint cannot repeat enrollment or an agent effect.
+      })
+      .immediate();
+  }
   state() {
     const current = this.authority.status(this.owner);
     const binding = this.db
@@ -54,11 +132,12 @@ export class FleetLocalAdmin {
     const prior = consent?.previous_head
       ? this.authority.directory(this.owner, consent.previous_head)
       : undefined;
+    const lineage = this.lineage();
     const pending = this.db
       .prepare(
-        "SELECT count(*) n FROM fleet_distribution WHERE owner_id=? AND state<>'acked'",
+        "SELECT directory_digest,count(DISTINCT peer_id) n FROM fleet_distribution WHERE owner_id=? AND state<>'acked' GROUP BY directory_digest",
       )
-      .get(this.owner) as { n: number };
+      .all(this.owner) as { directory_digest: string; n: number }[];
     return FleetAdminState.parse({
       identity: this.authority.identity,
       origin: FleetOrigin.parse(this.origin()),
@@ -66,7 +145,10 @@ export class FleetLocalAdmin {
       head: current.head,
       directory: current.directory ?? null,
       scope: binding ? FleetCapabilities.parse(JSON.parse(binding.scope)) : [],
-      pendingDistribution: pending.n,
+      pendingDistribution: pending.reduce(
+        (total, row) => total + (lineage.has(row.directory_digest) ? row.n : 0),
+        0,
+      ),
       unconfirmed:
         current.state !== "removed" && current.directory && prior
           ? prior.document.members.filter(

@@ -3,6 +3,7 @@ import { renderComposer, renderComposerSendSheets } from "./Composer";
 import { workspaceApi } from "../../shared/workspace-api";
 import { callRoute } from "../workspace-api";
 import { StartCodeReview } from "../CodeReview";
+import { FleetSettings } from "../FleetSettings";
 import { SettingsHome } from "../SettingsHome";
 import { CardTokens } from "../CardTokens";
 import { AgentModelSettings } from "../AgentModelSettings";
@@ -1510,6 +1511,7 @@ export function renderApp(props: AppViewProps) {
           onChange={() => void changed()}
         />
       )}
+      {sheet === "fleet" && <FleetSettings onClose={closeSheet} />}
       {sheet === "search-settings" && (
         <SearchSettings connections={data.connections} onClose={closeSheet} />
       )}
