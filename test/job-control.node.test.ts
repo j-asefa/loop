@@ -137,6 +137,29 @@ test("legacy peer ownership checks the connected server endpoint and its UID", a
   );
 });
 
+test("legacy peer ownership waits for the server to accept the connected socket", async () => {
+  const server = spawn(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "import {createServer} from 'node:net';const server=createServer(socket=>{server.close();socket.on('error',()=>{});});server.listen(0,'127.0.0.1',()=>{console.log(server.address().port);Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1000);});",
+    ],
+    { stdio: ["ignore", "pipe", "inherit"] },
+  );
+  let socket: Socket | undefined;
+  try {
+    const [port] = await once(server.stdout!, "data");
+    socket = connect(Number(String(port).trim()), "127.0.0.1");
+    await once(socket, "connect");
+    assert.equal(await peerIsSameUser(socket), true);
+  } finally {
+    socket?.destroy();
+    server.kill("SIGTERM");
+    await once(server, "close");
+  }
+});
+
 test("legacy workers and cancellation reject a different peer UID before sending credentials or accepting data", async () => {
   for (const action of ["worker", "cancel"]) {
     let disclosed = false;

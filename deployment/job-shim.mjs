@@ -250,10 +250,21 @@ export function checkOptions(args) {
   return options;
 }
 
-export function classifyCommand(program, original, cwd = process.cwd()) {
+export function classifyCommand(
+  program,
+  original,
+  cwd = process.cwd(),
+  context = {},
+) {
   const args = [...original];
   const root = loopProject(cwd),
     aware = queueAware(root);
+  const finiteVitest = (options) =>
+    (context.ci ?? Boolean(process.env.CI)) ||
+    !(context.tty ?? Boolean(process.stdin.isTTY)) ||
+    options.some((a) =>
+      ["run", "--run", "--run=true", "--watch=false", "--no-watch"].includes(a),
+    );
   let label,
     compiler = false;
   let commandOptions = checkOptions(args);
@@ -285,9 +296,7 @@ export function classifyCommand(program, original, cwd = process.cwd()) {
     } else if (/^(vitest|vite-node)(\.m?js)?$/.test(name)) {
       if (
         name.startsWith("vite-node") ||
-        args
-          .slice(index + 1)
-          .some((a) => ["run", "--run", "--watch=false"].includes(a))
+        finiteVitest(checkOptions(args.slice(index + 1)))
       )
         label = "tests";
     } else if (
@@ -344,10 +353,12 @@ export function classifyCommand(program, original, cwd = process.cwd()) {
         "npx",
         args.slice(args.indexOf(verb) + 1),
         cwd,
+        context,
       ).label;
   } else if (program === "npx") {
     const invocation = npxArguments(args);
-    const [tool, ...words] = toolWords(invocation, program);
+    const [tool, ...toolArgs] = invocation;
+    const words = checkOptions(toolArgs).filter((arg) => !arg.startsWith("-"));
     commandOptions = [
       ...checkOptions(args.slice(0, args.length - invocation.length)),
       ...checkOptions(invocation.slice(1)),
@@ -356,10 +367,7 @@ export function classifyCommand(program, original, cwd = process.cwd()) {
       tool === "tsc" ||
       (tool === "playwright" && words[0] === "test") ||
       (tool === "vite" && words[0] === "build") ||
-      (tool === "vitest" &&
-        commandOptions.some((a) =>
-          ["run", "--run", "--watch=false"].includes(a),
-        ))
+      (tool === "vitest" && finiteVitest(commandOptions))
     )
       label = tool + " check";
   }

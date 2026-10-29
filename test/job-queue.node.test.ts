@@ -173,7 +173,46 @@ test("command shims preserve ordinary commands and classify old and current Loop
       ["node", ["--test", "--watch", "fixture.test.mjs"]],
       ["node", ["--test", "--watch-path=false", "fixture.test.mjs"]],
     ] as const) {
-      assert.equal(classifyCommand(program, [...args], dir).label, undefined);
+      assert.equal(
+        classifyCommand(program, [...args], dir, { ci: false, tty: true })
+          .label,
+        undefined,
+      );
+    }
+    for (const options of [
+      ["--config", "vite.config.ts"],
+      ["--mode", "production"],
+    ]) {
+      assert.equal(
+        classifyCommand("npx", ["vite", ...options, "build"], dir).label,
+        "vite check",
+      );
+    }
+    for (const context of [
+      { ci: true, tty: true },
+      { ci: false, tty: false },
+    ]) {
+      assert.equal(
+        classifyCommand("npx", ["vitest"], dir, context).label,
+        "vitest check",
+      );
+      assert.equal(
+        classifyCommand(
+          "node",
+          ["node_modules/vitest/vitest.mjs"],
+          dir,
+          context,
+        ).label,
+        "tests",
+      );
+      assert.equal(
+        classifyCommand("npm", ["exec", "--", "vitest"], dir, context).label,
+        "vitest check",
+      );
+      assert.equal(
+        classifyCommand("npx", ["vitest", "--watch"], dir, context).label,
+        undefined,
+      );
     }
     assert.equal(
       classifyCommand("npx", ["vite", "build"], dir).label,
@@ -276,6 +315,50 @@ test("Node test options cannot bypass a configured unavailable queue through the
       const [code] = await once(child, "close");
       assert.equal(code, 125);
       assert.equal(existsSync(marker), false);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Vite option order and implicit CI Vitest runs cannot bypass an unavailable queue", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-job-tool-options-"));
+  try {
+    const marker = join(dir, "must-not-run"),
+      command = join(dir, "underlying");
+    writeFileSync(command, "#!/bin/sh\ntouch '" + marker + "'\n", {
+      mode: 0o700,
+    });
+    for (const program of ["npx", "node"] as const) {
+      const shim = join(dir, program);
+      writeFileSync(
+        shim,
+        shimScript(
+          join(dir, "missing.json"),
+          process.execPath,
+          resolve("deployment/job-shim.mjs"),
+          program,
+          command,
+        ),
+        { mode: 0o700 },
+      );
+      const cases =
+        program === "npx"
+          ? [
+              ["vite", "--config", "vite.config.ts", "build"],
+              ["vite", "--mode", "production", "build"],
+              ["vitest"],
+            ]
+          : [["node_modules/vitest/vitest.mjs"]];
+      for (const args of cases) {
+        const child = spawn(shim, args, {
+          stdio: "ignore",
+          env: { ...process.env, CI: "true" },
+        });
+        const [code] = await once(child, "close");
+        assert.equal(code, 125);
+        assert.equal(existsSync(marker), false);
+      }
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });

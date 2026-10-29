@@ -3,6 +3,7 @@ export function classifyCommand(
   program: string,
   args: string[],
   cwd?: string,
+  context?: { ci?: boolean; tty?: boolean },
 ): {
   label?: string;
   args: string[];
