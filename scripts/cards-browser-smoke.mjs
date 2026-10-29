@@ -43,9 +43,31 @@ try {
           .click();
         const title = mode + " " + width;
         await page.getByLabel("Token name", { exact: true }).fill(title);
-        await page
-          .getByLabel("Read access", { exact: true })
-          .selectOption("read");
+        const read = page.getByRole("checkbox", {
+          name: /^Read workspace/,
+        });
+        const write = page.getByRole("checkbox", {
+          name: /^Send and control runs/,
+        });
+        const approvals = page.getByRole("checkbox", {
+          name: /^Answer approvals/,
+        });
+        await expect(read).toBeChecked();
+        await expect(write).not.toBeChecked();
+        await expect(approvals).not.toBeChecked();
+        await expect(
+          page.getByText(
+            "Enable only when your script should make those decisions.",
+            { exact: false },
+          ),
+        ).toBeVisible();
+        await read.uncheck();
+        await expect(
+          page.getByRole("button", { name: "Create token", exact: true }),
+        ).toBeDisabled();
+        await read.check();
+        await write.check();
+        await approvals.check();
         await expect(
           page.getByText(
             "Read agents, conversations, results, files and pending decisions across your projects.",
@@ -53,7 +75,7 @@ try {
           ),
         ).toBeVisible();
         await page
-          .getByRole("button", { name: "Create read-only token", exact: true })
+          .getByRole("button", { name: "Create token", exact: true })
           .click();
         const secretBox = page.locator(".settings-command pre");
         await expect(secretBox).toBeVisible();
@@ -73,6 +95,17 @@ try {
           headers: { authorization: "Bearer " + secret },
         });
         assert.equal(response.status, 200);
+        const metadata = await (
+          await fixture.request("/api/card-tokens", {
+            headers: fixture.browser,
+          })
+        ).json();
+        assert.deepEqual(metadata.find((item) => item.name === title).scopes, [
+          "approvals:decide",
+          "read",
+          "write",
+        ]);
+        await expect(approvals).not.toBeChecked();
         const storage = await page.evaluate(() =>
           JSON.stringify({
             local: { ...localStorage },
@@ -123,15 +156,14 @@ try {
           .getByLabel("Token name", { exact: true })
           .fill("Refused " + title);
         await page
-          .getByRole("button", { name: "Create read-only token", exact: true })
+          .getByRole("button", { name: "Create token", exact: true })
           .click();
         await expect(page.getByRole("alert")).toContainText("Creation refused");
         await expect(
           page.getByLabel("Token name", { exact: true }),
         ).toBeEnabled();
-        await expect(
-          page.getByLabel("Read access", { exact: true }),
-        ).toBeEnabled();
+        for (const scope of [read, write, approvals])
+          await expect(scope).toBeEnabled();
         await expect(
           page.getByRole("button", {
             name: "Retry token creation",
@@ -151,7 +183,7 @@ try {
           .getByLabel("Token name", { exact: true })
           .fill("Lost " + title);
         await page
-          .getByRole("button", { name: "Create read-only token", exact: true })
+          .getByRole("button", { name: "Create token", exact: true })
           .click();
         await expect(secretBox).toBeVisible();
         assert.equal(await secretBox.textContent(), lostRequest.secret);
@@ -194,7 +226,7 @@ try {
           .getByLabel("Token name", { exact: true })
           .fill("Pending " + title);
         await page
-          .getByRole("button", { name: "Create read-only token", exact: true })
+          .getByRole("button", { name: "Create token", exact: true })
           .click();
         await reached;
         await page

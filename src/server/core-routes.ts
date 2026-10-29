@@ -1,3 +1,4 @@
+import { submitTokenWrite, runControlTokenWrite } from "./token-write-policies.js";
 import { recordCardRead, tokenResultPage } from "./card-tokens.js";
 import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi, PublicAgent, PublicConnection, PublicFolder, PublicMessage, ResultItem } from "../shared/workspace-api.js";
@@ -423,8 +424,8 @@ routes.on(workspaceApi.agentDetail, (req, res) => {
 routes.on(workspaceApi.submit, (req, res) => {
   const { queue, ...data } = req.body;
   res.json(runResponse(submit(res.locals.owner, { ...data, steer: !queue, personal: true })));
-});
-routes.on(workspaceApi.runAction, async (req, res) => {
+}, { tokenWrite: submitTokenWrite });
+routes.on(workspaceApi.runAction, (req, res) => {
   const action = req.params.action;
   if (action === "dismiss" || action === "cancel") {
     res.json((action === "dismiss" ? dismissRun : cancelRun)(res.locals.owner, req.params.id));
@@ -495,6 +496,13 @@ routes.on(workspaceApi.runAction, async (req, res) => {
   )
     transition(run, "paused");
   res.json({ ok: true });
+}, {
+  tokenWrite: runControlTokenWrite,
+  middleware: [(req, res, next) => {
+    if (res.locals.bearer && !["cancel", "dismiss"].includes(req.params.action))
+      throw new Problem(403, "This token permits only cancel and dismiss run actions.");
+    next();
+  }],
 });
 routes.on(workspaceApi.resultUpdates, (req, res) => {
   const options = { ...req.query, saved: req.query.saved === "1" };

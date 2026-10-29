@@ -58,6 +58,31 @@ process.on("message", (message) => {
     message &&
     typeof message === "object" &&
     "type" in message &&
+    message.type === "token-write-fixture" &&
+    "action" in message
+  ) {
+    void import("./token-writes.js")
+      .then((fixture) => {
+        let result: unknown;
+        if (message.action === "lose-response") fixture.loseTokenResponse();
+        else if (message.action === "fail-completion")
+          fixture.failTokenCompletion();
+        else if (
+          message.action === "native-success" ||
+          message.action === "native-failure"
+        )
+          result = fixture.nativeTokenDecision(
+            message.action === "native-failure",
+          );
+        else throw new Error("Unknown token fixture action");
+        process.send?.({ result });
+      })
+      .catch((error) => process.send?.({ error: String(error) }));
+  }
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
     message.type === "interleave-result-write" &&
     "artifact" in message &&
     typeof message.artifact === "string"

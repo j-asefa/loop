@@ -31,7 +31,19 @@ const peer: FleetRouteContract = {
   // @ts-expect-error A peer registry cannot combine its access with token admission.
   access: { admits: ["read"], peer: "peer:credentials" },
 };
-void [transport, fleet, peer];
+// @ts-expect-error A bearer-admitted mutation must name its body identity.
+const writeWithoutIdentity: RouteContract = {
+  ...workspaceApi.approvals,
+  method: "POST",
+  access: { admits: ["write"] },
+};
+// @ts-expect-error Mixing read and decision admissions still requires identity.
+const decisionWithoutIdentity: RouteContract = {
+  ...workspaceApi.approvals,
+  method: "PATCH",
+  access: { admits: ["read", "approvals:decide"] },
+};
+void [transport, fleet, peer, writeWithoutIdentity, decisionWithoutIdentity];
 
 it.each(["server", "companion", "multi-user"] as const)(
   "%s admits the declared read catalog with GET/HEAD, safe projections and owner isolation",
@@ -103,7 +115,11 @@ it.each(["server", "companion", "multi-user"] as const)(
       cardChanges: `/v1/cards/changes?after=${encodeURIComponent(revision)}`,
     };
     const admitted = Object.entries(workspaceRoutes)
-      .filter(([, route]) => typeof route.access === "object")
+      .filter(
+        ([, route]) =>
+          typeof route.access === "object" &&
+          route.access.admits.some((scope) => scope === "read"),
+      )
       .map(([name]) => name)
       .sort();
     expect(Object.keys(paths).sort()).toEqual(admitted);
@@ -336,7 +352,7 @@ it.each(["server", "companion", "multi-user"] as const)(
 );
 
 it.each(["server", "companion"] as const)(
-  "%s keeps every other scope closed and legacy grants separate from read",
+  "%s keeps management closed and legacy grants separate from read",
   async (mode) => {
     const f = await cardsFixture(mode);
     for (const scope of [
@@ -385,10 +401,6 @@ it.each(["server", "companion"] as const)(
           expect((await f.request(path, { method, headers })).status).toBe(403);
       }
       for (const path of [
-        "/api/runs",
-        "/api/runs/id/cancel",
-        "/api/approvals/id",
-        "/api/native/decisions/id",
         "/api/fleet/admin/create",
         "/api/fleet/peer/v1/enrollment/probe",
         "/api/fleet/peer/v1/credentials/challenge",

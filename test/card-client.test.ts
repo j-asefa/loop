@@ -446,7 +446,9 @@ it("generates a schema with resolvable references and the runtime read/managemen
   const walk = (value: any) => {
     if (!value || typeof value !== "object") return;
     if (value.$ref) {
-      expect(value.$ref).toMatch(/^#\/components\/(schemas|responses)\//);
+      expect(value.$ref).toMatch(
+        /^#\/components\/(schemas|responses|parameters)\//,
+      );
       const target = value.$ref
         .slice(2)
         .split("/")

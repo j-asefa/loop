@@ -22,7 +22,7 @@ Run the checks the verification guide lists for the PR's category. Record each c
 
 ## Open the pull request
 
-Immediately before opening the PR, fetch `origin/main` and rebase onto it if needed. If this changes the branch head, run its required checks on the new base before opening the PR or requesting review. Once the PR is open, rebase only after the review gate holds and merge conflicts need resolving; advancing main alone does not trigger a rebase.
+Immediately before opening the PR, fetch `origin/main`, but do not rebase. As directed by the owner on 2026-10-29, rebase only when about to merge, after all required checks pass and the review gate holds, and only if there are merge conflicts. Conflict resolution requires fresh checks and review before merging. Advancing main alone does not invalidate completed checks or review.
 
 ```sh
 git push -u origin tokens/NN-slug
@@ -57,7 +57,7 @@ After each pass, append one line to the ledger's review history and one entry to
 
 When the gate holds:
 
-Fetch main and inspect the PR's mergeability. If there are merge conflicts, rebase onto `origin/main`, resolve them, and repeat the required checks and review on the new head. Otherwise preserve the checked and reviewed branch, even when main has advanced. The user authorized this rebase policy on 2026-10-26; the completed review gate is the approval point for it, since the review team does not emit approval.
+After all required checks pass and the review gate holds, fetch main and inspect the PR's mergeability. Only at this pre-merge point, and only if there are merge conflicts, rebase onto `origin/main`, resolve them, and repeat the required checks and review on the new head. Otherwise preserve the checked and reviewed branch, even when main has advanced. The owner clarified this policy on 2026-10-29; the completed review gate is the approval point for it, since the review team does not emit approval.
 
 ```sh
 git fetch origin main

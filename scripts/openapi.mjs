@@ -1,4 +1,4 @@
-import { SCOPE_CATALOG } from "../src/shared/token-scopes.ts";
+import { SCOPE_CATALOG, isTokenMutation } from "../src/shared/token-scopes.ts";
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import {
@@ -11,6 +11,7 @@ import {
   PublicMessage,
   PublicArtifact,
   PublicRun,
+  ResultItem,
 } from "../src/shared/workspace-api.ts";
 import {
   PublicRuntimeAuth,
@@ -22,6 +23,7 @@ import {
   MessageCardSchema,
   CardSchema,
   CardEntrySchema,
+  DoneCardSchema,
 } from "../src/shared/cards.ts";
 import { CardTokenSchema } from "../src/shared/card-access.ts";
 import {
@@ -32,7 +34,12 @@ import {
   PublicDigest,
 } from "../src/shared/social-contract-schemas.ts";
 import { SessionControls } from "../src/shared/session-controls.ts";
-import { PublicScheduledSend } from "../src/shared/mobile-contract-schemas.ts";
+import {
+  PublicAwayItem,
+  PublicLaterView,
+  PublicScheduledSend,
+  PublicUploadDescriptor,
+} from "../src/shared/mobile-contract-schemas.ts";
 import { NativeProviderView } from "../src/shared/native-providers.ts";
 import {
   PublicPiConfiguration,
@@ -67,6 +74,11 @@ const jsonOptions = {
 // endpoint. Stable per-route response names remain references to these schemas.
 const publicProjections = {
   Ok: workspaceRoutes.workspaceRevoke.response,
+  DoneCard: DoneCardSchema,
+  ResultItem,
+  PublicUploadDescriptor,
+  PublicAwayItem,
+  PublicLaterView,
   SessionControls,
   PublicScheduledSend,
   NativeProviderView,
@@ -164,6 +176,22 @@ const schemas = {
   ...registeredSchemas(registry, "output", "ResponseShared"),
   ...registeredSchemas(inputs, "input", "RequestShared"),
 };
+// Keep published component names, but make identical schemas aliases. Repeated
+// route inputs and projections otherwise inflate the document without adding
+// contract information. Only alias when the reference is smaller.
+const canonicalSchemas = new Map();
+for (const [name, schema] of Object.entries(schemas)) {
+  const encoded = JSON.stringify(schema);
+  const canonical = canonicalSchemas.get(encoded);
+  const alias = { $ref: "#/components/schemas/" + canonical };
+  if (
+    canonical &&
+    encoded.length > 100 &&
+    JSON.stringify(alias).length < encoded.length
+  )
+    schemas[name] = alias;
+  else if (!canonical) canonicalSchemas.set(encoded, name);
+}
 const responses = {};
 const paths = {};
 // Share standard errors by route family. Cards reads retain their
@@ -231,11 +259,14 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   const writes = method !== "get";
   const admission =
     typeof route.access === "object" ? route.access.admits : undefined;
+  const tokenMutation = isTokenMutation(route);
   const cardRead =
     admission?.includes("results:read") || admission?.includes("cards:read");
   const prefix = schemaName(name);
   const parameters = [];
-  if (writes && !transport)
+  if (tokenMutation)
+    parameters.push({ $ref: "#/components/parameters/IntegrationWriteOrigin" });
+  else if (writes && !transport)
     parameters.push({
       name: "Origin",
       in: "header",
@@ -307,7 +338,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   };
   const errorStatuses = [400, 401, 403, 429, 500];
   if (cardRead) errorStatuses.push(404);
-  if (name === "cardChanges" || name === "cardTokenCreate")
+  if (name === "cardChanges" || name === "cardTokenCreate" || tokenMutation)
     errorStatuses.push(409);
   if (name === "cardTokenRevoke" || name === "personalApproval")
     errorStatuses.push(404);
@@ -357,6 +388,17 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
       ? Object.fromEntries(
           Object.entries(errors).map(([status, response]) => {
             // These descriptions depend on the operation, unlike standard errors.
+            if (status === "409" && tokenMutation) {
+              responses.IntegrationRequestConflict = {
+                ...response,
+                description:
+                  "Identity reused for different input/operation, uncertain pending outcome, expired identity or unavailable result. The effect is never dispatched again on replay.",
+              };
+              return [
+                status,
+                { $ref: "#/components/responses/IntegrationRequestConflict" },
+              ];
+            }
             if (status === "404" || status === "409") return [status, response];
             const key = "WorkspaceError" + status;
             responses[key] = response;
@@ -394,6 +436,19 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
                 { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
               ],
     ...(admission ? { "x-scopes": admission } : {}),
+    ...(tokenMutation
+      ? {
+          "x-request-identity": route.identity,
+          description:
+            "Bearer identity required; replay: IntegrationBearer." +
+            (name === "submit"
+              ? " The send key also remains unique per owner across tokens and browser sessions."
+              : "") +
+            (name === "runAction"
+              ? " Bearers may only cancel or dismiss; pause, resume and retry require a session."
+              : ""),
+        }
+      : {}),
     ...(cardRead
       ? {
           "x-card-grants": admission.filter(
@@ -463,6 +518,17 @@ const document = {
   components: {
     schemas,
     responses,
+    parameters: {
+      IntegrationWriteOrigin: {
+        name: "Origin",
+        in: "header",
+        required: false,
+        schema: { type: "string", format: "uri" },
+        description:
+          "Required for OwnerSession and PairedDevice writes, with the existing paired CSRF credential. IntegrationBearer needs neither; a supplied disallowed Origin or cross-site Fetch Metadata is still refused.",
+        "x-required-for": ["OwnerSession", "PairedDevice"],
+      },
+    },
     securitySchemes: {
       LocalSourceSetup: {
         type: "apiKey",
@@ -482,7 +548,7 @@ const document = {
         scheme: "bearer",
         bearerFormat: "loop_token_… (legacy loop_card_… accepted)",
         description:
-          "Owner/source-bound integration credential. Only contracts whose x-scopes intersect its grants admit it. Never send tokens in URLs.",
+          "Owner/source-bound integration credential. Only contracts whose x-scopes intersect its grants admit it. Never send tokens in URLs. Every admitted write requires its x-request-identity body field. Identity is scoped to owner and token; changed validated input or operation conflicts. Completed requests replay the first status with the current result projection, without invoking the effect again. Pending outcomes are uncertain and replay as 409. Result data expires after 24 hours; permanent credential-lifetime markers refuse old keys with 409.",
         "x-scope-catalog": SCOPE_CATALOG,
       },
       CardBearer: {

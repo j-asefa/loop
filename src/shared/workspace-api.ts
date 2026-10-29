@@ -158,6 +158,8 @@ type SessionAccess = "session" | PeerAccess | "device:fleet";
 export type RouteContract = {
   path: string; params: z.ZodType; query: z.ZodType; body: z.ZodType; response: z.ZodType;
   status?: number;
+  // Body field required for a bearer mutation; session compatibility is unchanged.
+  identity?: string;
   // Other statuses using this response shape (accepted replay or health failure).
   additionalStatuses?: readonly number[];
   // One file part named "file", plus the ordinary body schema's text fields.
@@ -165,8 +167,11 @@ export type RouteContract = {
   contentType?: string;
   // Documentation of existing middleware; never an authorization bypass.
   security?: "public" | "local-setup" | "optional-session" | "paired-device";
-} & ({ method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; kind?: "stream"; protocol?: never; access: SessionAccess | { admits: readonly TokenAdmission[] } }
-  | { method: "POST" | "ALL"; kind: "transport"; protocol: "mcp" | "authentication"; access: SessionAccess });
+} & (({ kind?: "stream"; protocol?: never } & (
+    { method: "GET"; access: SessionAccess | { admits: readonly TokenAdmission[] } }
+    | { method: "POST" | "PUT" | "PATCH" | "DELETE"; access: SessionAccess | { admits: readonly Exclude<TokenAdmission, "write" | "approvals:decide">[] } }
+    | { method: "POST" | "PUT" | "PATCH" | "DELETE"; access: { admits: readonly TokenAdmission[] }; identity: string }
+  )) | { method: "POST" | "ALL"; kind: "transport"; protocol: "mcp" | "authentication"; access: SessionAccess });
 export type FleetRouteContract = RouteContract & { access: PeerAccess | "device:fleet" };
 export type ClientRouteContract = RouteContract & { method: Exclude<RouteContract["method"], "ALL"> };
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
@@ -435,10 +440,10 @@ export const workspaceRoutes = {
   scheduledSendCancel: endpoint({ ...base, method: "DELETE", path: "/scheduled-sends/:id", params: Id, body: z.unknown(), response: Ok }),
   scheduledSendUpdate: endpoint({ ...base, method: "PATCH", path: "/scheduled-sends/:id", params: Id, body: mobile.ScheduleUpdateInput.optional(), response: mobile.PublicScheduledSend }),
   scheduledSendRetry: endpoint({ ...base, method: "POST", path: "/scheduled-sends/:id/retry", params: Id, body: z.unknown(), response: z.object({ run: PublicRun.nullable(), row: mobile.PublicScheduledSend }) }),
-  runReorder: endpoint({ ...base, method: "POST", path: "/runs/:id/reorder", params: Id, body: mobile.RunReorderInput, response: Ok }),
+  runReorder: endpoint({ ...base, access: { admits: ["write"] }, identity: "idempotencyKey", method: "POST", path: "/runs/:id/reorder", params: Id, body: mobile.RunReorderInput, response: Ok }),
   runUpdate: endpoint({ ...base, method: "PATCH", path: "/runs/:id", params: Id, body: mobile.QueuedRunInput, response: Ok }),
-  runWithdraw: endpoint({ ...base, method: "POST", path: "/runs/:id/withdraw", params: Id, body: mobile.RunWithdrawInput.optional(), response: mobile.PublicWithdrawnDraft }),
-  runMove: endpoint({ ...base, method: "POST", path: "/runs/:id/move", params: Id, body: mobile.RunMoveInput, response: PublicRun, status: 202 }),
+  runWithdraw: endpoint({ ...base, access: { admits: ["write"] }, identity: "idempotencyKey", method: "POST", path: "/runs/:id/withdraw", params: Id, body: mobile.RunWithdrawInput.optional(), response: mobile.PublicWithdrawnDraft }),
+  runMove: endpoint({ ...base, access: { admits: ["write"] }, identity: "idempotencyKey", method: "POST", path: "/runs/:id/move", params: Id, body: mobile.RunMoveInput, response: PublicRun, status: 202 }),
   conversationFork: endpoint({ ...base, method: "POST", path: "/conversations/:id/fork", params: Id, body: mobile.ConversationForkInput, response: z.object({ id: Text, agentId: Text }) }),
   conversationUsage: endpoint({ ...base, method: "GET", path: "/conversations/:id/usage", params: Id, response: mobile.PublicUsage }),
   snippetList: endpoint({ ...base, method: "GET", path: "/snippets", response: mobile.PublicSnippets }),
@@ -471,17 +476,17 @@ export const workspaceRoutes = {
   conversation: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/conversations/:id", params: Id, query: z.object({ before: Text.max(512).optional(), message: Text.max(150).optional(), resume: z.enum(["0", "1"]).optional() }), response: ConversationPage }),
   conversationPulls: endpoint({ ...base, method: "GET", path: "/conversations/:id/pulls", params: Id, query: z.object({ refresh: z.enum(["1"]).optional() }), response: ConversationPulls }),
   runs: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/runs", query: z.object({ teams: Teams, active: Text.optional() }), response: z.array(PublicRun) }),
-  submit: endpoint({ ...base, method: "POST", path: "/runs", body: z.object({
+  submit: endpoint({ ...base, access: { admits: ["write"] }, identity: "idempotencyKey", method: "POST", path: "/runs", body: z.object({
     agentId: Text, conversationId: Text.optional(), replyToMessageId: Text.min(1).max(150).optional(), replyExcerpt: Text.trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
     input: Text.trim().min(1).max(30000), attachmentIds: AttachmentIds, idempotencyKey: Text.min(8).max(150), folderId: Text.min(1).nullable().optional(), queue: z.boolean().optional(),
   }).refine(d => !d.replyExcerpt || d.replyToMessageId, { message: "Choose the message the excerpt comes from", path: ["replyExcerpt"] }), response: PublicRun, status: 202 }),
-  runAction: endpoint({ ...base, method: "POST", path: "/runs/:id/:action", params: Id.extend({ action: Text }), body: z.object({ idempotencyKey: Text.min(8).max(150).optional() }).optional(), response: z.union([PublicRun, Ok]) }),
+  runAction: endpoint({ ...base, access: { admits: ["write"] }, identity: "idempotencyKey", method: "POST", path: "/runs/:id/:action", params: Id.extend({ action: Text }), body: z.object({ idempotencyKey: Text.min(8).max(150).optional() }).optional(), response: z.union([PublicRun, Ok]) }),
   results: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/results", query: z.object({ ...ResultSelection, view: Text.optional(), saved: Text.optional(), before: z.coerce.number<string>().min(0).catch(0).default(0) }), response: ResultsPage }),
   resultUpdates: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/results/updates", query: z.object({ ...ResultSelection, after: NumberCursor, through: NumberCursor }), response: ResultsUpdates }),
   approvals: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/approvals", query: z.object({ teams: Teams }), response: z.array(Approval) }),
-  approval: endpoint({ ...base, method: "POST", path: "/approvals/:id", params: Id, body: z.object({ decision: z.enum(["approve", "reject"]) }), response: Ok }),
+  approval: endpoint({ ...base, access: { admits: ["approvals:decide"] }, identity: "idempotencyKey", method: "POST", path: "/approvals/:id", params: Id, body: z.object({ decision: z.enum(["approve", "reject"]), idempotencyKey: Text.min(8).max(150).optional() }), response: Ok }),
   nativeDecisions: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/native/decisions", query: z.object({ conversation: Text.uuid().optional() }), response: z.array(NativeDecision) }),
-  nativeAnswer: endpoint({ ...base, method: "POST", path: "/native/decisions/:id", params: Id, body: z.strictObject({ commandId: Text.uuid(), answer: z.record(Text, z.json()) }), response: z.object({ state: Text }) }),
+  nativeAnswer: endpoint({ ...base, access: { admits: ["approvals:decide"] }, identity: "commandId", method: "POST", path: "/native/decisions/:id", params: Id, body: z.strictObject({ commandId: Text.uuid(), answer: z.record(Text, z.json()) }), response: z.object({ state: Text }) }),
   session: endpoint({ ...base, method: "GET", path: "/conversations/:id/settings", params: z.object({ id: Text.uuid() }), response: SessionControls }),
   setting: endpoint({ ...base, method: "PATCH", path: "/conversations/:id/settings/:setting", params: z.object({ id: Text.uuid(), setting: Text }), body: z.strictObject({ value: z.union([Text.max(1000), z.boolean(), z.number()]), revision: z.number().int().nonnegative(), generation: Text.min(1).max(200), commandId: Text.uuid().optional() }), response: SessionControls }),
 } as const;

@@ -48,11 +48,15 @@ export const ScheduleUpdateInput = z.object({
   input: Text.trim().min(1).max(30000).optional(),
   sendAt: FutureTime.optional(),
 });
-export const RunReorderInput = z.object({ direction: z.enum(["up", "down"]) });
+export const RunReorderInput = z.object({
+  direction: z.enum(["up", "down"]),
+  idempotencyKey: Text.min(8).max(150).optional(),
+});
 export const QueuedRunInput = z.object({
   input: Text.trim().min(1).max(30000),
 });
 export const RunWithdrawInput = z.object({
+  idempotencyKey: Text.min(8).max(150).optional(),
   draftAttachmentIds: z.array(Target).max(MAX_MESSAGE_FILES).default([]),
 });
 export const RunMoveInput = z.object({

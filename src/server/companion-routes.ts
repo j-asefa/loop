@@ -1,3 +1,4 @@
+import { nativeAnswerTokenWrite } from "./token-write-policies.js";
 import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 
@@ -208,16 +209,20 @@ routes.on(workspaceApi.nativeDecisions, (req, res) => {
     >,
   );
 });
-routes.on(workspaceApi.nativeAnswer, async (req, res) => {
-  const d = req.body;
-  res.json(
-    await executionRequest(
-      "native.answer",
-      { decisionId: String(req.params.id), answer: d.answer },
-      { commandId: d.commandId },
-    ),
-  );
-});
+routes.on(
+  workspaceApi.nativeAnswer,
+  async (req, res) => {
+    const d = req.body;
+    res.json(
+      await executionRequest(
+        "native.answer",
+        { decisionId: String(req.params.id), answer: d.answer },
+        { owner: res.locals.owner, commandId: d.commandId },
+      ),
+    );
+  },
+  { tokenWrite: nativeAnswerTokenWrite },
+);
 routes.on(workspaceApi.session, async (req, res) => {
   const conversation = req.params.id;
   ownedConversation(conversation, OWNER);

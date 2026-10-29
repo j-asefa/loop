@@ -24,37 +24,41 @@ export async function cardsFixture(
     port = (reservation.address() as { port: number }).port;
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
   }
-  const child = spawn(
-    process.execPath,
-    [
-      "--import",
-      "tsx",
-      fileURLToPath(new URL("../fixtures/cards-server.ts", import.meta.url)),
-    ],
-    {
-      env: {
-        ...Object.fromEntries(
-          Object.entries(process.env).filter(
-            ([key]) => !key.startsWith("LOOP_"),
+  const authSecret = randomBytes(32).toString("hex"),
+    encryptionKey = randomBytes(32).toString("hex");
+  const launch = () =>
+    spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        fileURLToPath(new URL("../fixtures/cards-server.ts", import.meta.url)),
+      ],
+      {
+        env: {
+          ...Object.fromEntries(
+            Object.entries(process.env).filter(
+              ([key]) => !key.startsWith("LOOP_"),
+            ),
           ),
-        ),
-        LOOP_PROFILE: mode === "companion" ? "companion" : "server",
-        LOOP_AUTH_MODE: mode === "multi-user" ? "multi-user" : "single-user",
-        LOOP_DATA_DIR: dir,
-        LOOP_URL: "http://127.0.0.1" + (port ? ":" + port : ""),
-        PORT: String(port),
-        LOOP_TEST_CARDS_COMPILED: compiled ? "1" : "0",
-        LOOP_TEST_CARDS_SOURCE: typeof compiled === "string" ? compiled : "",
-        NODE_ENV: options.nodeEnv ?? "test",
-        TEST: options.nodeEnv === "production" ? "" : process.env.TEST,
-        LOOP_LISTEN_HOST: "127.0.0.1",
-        LOOP_BIND_ADDRESS: "127.0.0.1",
-        BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-        LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+          LOOP_PROFILE: mode === "companion" ? "companion" : "server",
+          LOOP_AUTH_MODE: mode === "multi-user" ? "multi-user" : "single-user",
+          LOOP_DATA_DIR: dir,
+          LOOP_URL: "http://127.0.0.1" + (port ? ":" + port : ""),
+          PORT: String(port),
+          LOOP_TEST_CARDS_COMPILED: compiled ? "1" : "0",
+          LOOP_TEST_CARDS_SOURCE: typeof compiled === "string" ? compiled : "",
+          NODE_ENV: options.nodeEnv ?? "test",
+          TEST: options.nodeEnv === "production" ? "" : process.env.TEST,
+          LOOP_LISTEN_HOST: "127.0.0.1",
+          LOOP_BIND_ADDRESS: "127.0.0.1",
+          BETTER_AUTH_SECRET: authSecret,
+          LOOP_ENCRYPTION_KEY: encryptionKey,
+        },
+        stdio: ["ignore", "ignore", "pipe", "ipc"],
       },
-      stdio: ["ignore", "ignore", "pipe", "ipc"],
-    },
-  );
+    );
+  let child = launch();
   let errors = "";
   child.stderr?.on("data", (chunk) => {
     errors += chunk;
@@ -84,7 +88,7 @@ export async function cardsFixture(
   // Opt in when exercising Feed: this independent connection must commit its
   // projection with its source writes, exactly like the production worker.
   if (options.projectedWrites) installFixtureProjection(database);
-  const { origin } = ready;
+  let { origin } = ready;
   let owner = ready.owner;
   const request = (
     path: string,
@@ -209,6 +213,48 @@ export async function cardsFixture(
     fixtureSecret: ready.fixtureSecret,
     request,
     browser,
+    async restart() {
+      const exited = once(child, "exit");
+      child.kill("SIGKILL");
+      await exited;
+      child = launch();
+      child.stderr?.on("data", (chunk) => {
+        errors += chunk;
+      });
+      const timeout = setTimeout(() => child.kill(), 20000);
+      try {
+        const restarted = await Promise.race([
+          once(child, "message").then(([message]) => message),
+          once(child, "exit").then(() => {
+            throw new Error("Card fixture did not restart: " + errors);
+          }),
+        ]);
+        origin = restarted.origin;
+        browser.origin = origin;
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+    async tokenWriteFixture(
+      action:
+        | "lose-response"
+        | "fail-completion"
+        | "native-success"
+        | "native-failure",
+    ) {
+      const reply = once(child, "message");
+      child.send({ type: "token-write-fixture", action });
+      const [result] = await reply;
+      if (result.error) throw new Error(result.error);
+      return result.result as
+        | {
+            decision: string;
+            run: string;
+            conversation: string;
+            generation: string;
+          }
+        | undefined;
+    },
     async interleaveResultWrite(artifact: string) {
       const armed = once(child, "message");
       child.send({ type: "interleave-result-write", artifact });

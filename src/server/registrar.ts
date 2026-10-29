@@ -6,10 +6,14 @@ import {
   type Response,
   type Express,
 } from "express";
-import type { z } from "zod";
+import { z } from "zod";
 import { Problem } from "../shared/problem.js";
-import type { RouteContract } from "../shared/workspace-api.js";
-import { admitsToken } from "../shared/token-scopes.js";
+import {
+  workspaceRoutes,
+  type RouteContract,
+} from "../shared/workspace-api.js";
+import { admitsToken, isTokenMutation } from "../shared/token-scopes.js";
+import type { TokenResult, TokenWrite } from "./token-requests.js";
 
 type MatchedRoute = { contract: RouteContract; params: unknown };
 const probes = new WeakMap<
@@ -87,12 +91,15 @@ export function projectResponse<C extends RouteContract>(
   return parsed.data as z.output<C["response"]>;
 }
 
+const RequestIdentity = z.string().min(8).max(150);
+
 /** Keep Express authorization/error middleware and synchronous snapshot transactions.
  * Inputs retain their ZodError -> Problem-shaped 400 handling. Bad server output is
  * a generic 500, never a request error or a dump of private data. */
 function route<C extends RouteContract>(
   contract: C,
   handler: (input: Input<C>, response: Response<ResponseBody<C>>) => unknown,
+  identity?: { operation: string; run: TokenWrite },
 ): RequestHandler<Record<string, string>> {
   return (req, res) => {
     const json = res.json;
@@ -103,9 +110,65 @@ function route<C extends RouteContract>(
         body: contract.body.parse(req.body),
         ...(contract.multipart ? { file: req.file } : {}),
       } as Input<C>;
+      res.status(contract.status ?? 200);
+      if (res.locals.bearer && isTokenMutation(contract)) {
+        const field = contract.identity;
+        const value =
+          field && typeof input.body === "object" && input.body !== null
+            ? Reflect.get(input.body, field)
+            : undefined;
+        const key = RequestIdentity.safeParse(value);
+        if (!key.success)
+          throw new Problem(
+            400,
+            `A bearer write requires the ${field} request identity.`,
+          );
+        if (!identity) throw new Error("Token mutation has no identity policy");
+        let captured: TokenResult | undefined;
+        res.json = (body) => {
+          if (captured)
+            throw new Error("A token write must produce one response");
+          captured = {
+            status: res.statusCode,
+            body: projectResponse(contract, body),
+          };
+          return res;
+        };
+        const response = () => {
+          if (!captured)
+            throw new Error("A token write must produce a JSON response");
+          return captured;
+        };
+        const result = identity.run(
+          {
+            owner: res.locals.owner,
+            tokenId: res.locals.bearer.tokenId,
+            identity: key.data,
+            operation: identity.operation,
+            input: { params: input.params, body: input.body },
+          },
+          () => {
+            const effect = handler(input, res);
+            return effect instanceof Promise
+              ? effect.then(response)
+              : response();
+          },
+        );
+        const send = (result: TokenResult) => {
+          res.json = json;
+          res.status(result.status);
+          return json.call(res, projectResponse(contract, result.body));
+        };
+        // This is outside the local commit / external completion transaction.
+        // Losing or throwing from the HTTP response cannot undo the receipt.
+        if (result instanceof Promise)
+          return result.then(send).finally(() => {
+            res.json = json;
+          });
+        return send(result);
+      }
       if (contract.kind !== "stream")
         res.json = (body) => json.call(res, projectResponse(contract, body));
-      res.status(contract.status ?? 200);
       const result = handler(input, res);
       if (result instanceof Promise)
         return result.finally(() => {
@@ -169,14 +232,35 @@ export function registrar(_name: string, options: Options = {}) {
       options: {
         wrap?: (handler: Handler) => Handler;
         middleware?: readonly Handler[];
+        tokenWrite?: TokenWrite;
       } = {},
     ) {
+      let identity: { operation: string; run: TokenWrite } | undefined;
+      if (isTokenMutation(contract)) {
+        const operation = Object.entries(workspaceRoutes).find(([, route]) =>
+          Object.is(route, contract),
+        )?.[0];
+        if (
+          !contract.identity ||
+          !options.tokenWrite ||
+          !operation ||
+          contract.kind === "stream"
+        )
+          throw new Error(
+            "A token mutation requires its registered identity and JSON replay policy",
+          );
+        identity = { operation, run: options.tokenWrite };
+      }
       // Protocol owners retain raw requests, next(), body limits, cookies and
       // streaming responses. This bypass is explicit in the registry/OpenAPI.
       const wrapped =
         contract.kind === "transport"
           ? (handler as Handler)
-          : route(contract, handler as Parameters<typeof route<C>>[1]);
+          : route(
+              contract,
+              handler as Parameters<typeof route<C>>[1],
+              identity,
+            );
       const method = contract.method.toLowerCase() as
         "get" | "post" | "put" | "patch" | "delete" | "all";
       const registration = router.route(prefix + contract.path);

@@ -10,7 +10,11 @@ dispatch work. Responses omit owner-session clock headers and the JSON
 
 ## Integration tokens
 
-Open **Settings → Integration tokens**, name the token and select **Read**.
+Open **Settings → Integration tokens**, name the token and select its scopes.
+Read workspace is selected by default. Send and control runs is optional;
+Answer approvals is unchecked and warns that the script can authorize tool
+calls and answer native decisions. Select it only when the script should make
+those decisions.
 Copy the secret when it appears; Loop stores its SHA-256 digest and cannot
 display it again. Keep it in a script's environment or secret store and send
 `Authorization: Bearer loop_token_…`. The same Settings page lists nonsecret
@@ -19,8 +23,8 @@ metadata and revokes tokens immediately.
 | Selectable scope | Current admission |
 | --- | --- |
 | `read` | Bootstrap; agent details, messages and traces; Feed pages; conversation and message reads; run and approval lists; companion native-decision lists; Results, artifacts and file downloads; Cards Results, Saved and Sent |
-| `write` | Reserved; no routes admit it in this release and Settings does not offer it yet |
-| `approvals:decide` | Reserved; no routes admit it in this release and Settings does not offer it yet |
+| `write` | Submit messages and replies; cancel or dismiss runs; reorder, withdraw or move queued runs |
+| `approvals:decide` | Decide API approvals and answer companion native decisions |
 
 The generated [OpenAPI document](openapi.json) lists the exact admission values
 on each operation as `x-scopes`. An omitted admission means session-only access.
@@ -28,6 +32,11 @@ Transport, peer and fleet routes never admit integration credentials. The
 bootstrap projection includes public connection labels, models and status;
 connection management and credentials remain unavailable to tokens. Native
 decisions are available only where the companion profile mounts that route.
+
+Write authority includes each mutation's public response: submit and move return
+current run content, including when submit steers existing work, and withdraw
+returns the draft content. These responses do not require `read`; that scope
+admits the separate GET/HEAD routes.
 
 Existing `loop_card_…` credentials remain valid with their distinct legacy grants:
 
@@ -50,8 +59,10 @@ invalidates the previous owner's tokens for that installation. Additional routes
 An Authorization header selects token authentication before any browser cookie.
 Malformed schemes (including Basic), invalid/revoked tokens and insufficient
 grants never inherit the session's permissions. Gateways must consume their own
-Authorization credentials before forwarding browser traffic. The integration path admits only declared GET/HEAD reads. Writes, source
-proxies, token management and session-only routes refuse every token. Ordinary paired sessions retain their origin/CSRF rules.
+Authorization credentials before forwarding browser traffic. The integration path admits only declared reads and writes. Source
+proxies, token management and session-only routes refuse every token. Bearer writes require neither an Origin header nor paired CSRF credentials;
+a supplied disallowed Origin or cross-site Fetch Metadata is still refused.
+Ordinary owner and paired sessions retain their origin/CSRF rules.
 No third-party browser CORS or OAuth flow is provided.
 
 Owner sessions manage tokens with `GET /api/card-tokens`,
@@ -88,6 +99,38 @@ Read-disclosure storage grows with distinct cards returned per active token;
 repeated reads do not add duplicate rows. Keep only the integration tokens you
 need and revoke unused ones. These short, indexed bookkeeping writes share the
 database write lock with the worker; the rate limits bound their frequency.
+
+## Write identities and replay
+
+Every admitted write requires a body identity. Use `idempotencyKey` (8–150
+characters) for submit, cancel/dismiss, reorder, withdraw, move and API approval
+decisions; native answers use their existing UUID `commandId`. The generated
+operation names the field in `x-request-identity`. Session callers may continue
+omitting identities on routes that previously allowed it.
+
+An identity belongs to one owner and token. Reuse it only with the same operation
+and validated params/body. Different input or another operation returns 409.
+A completed replay returns the original HTTP status and current public result
+without repeating the effect. Submit retains its owner-wide key: two tokens of
+the same owner submitting the same work and key receive the same run. Replies,
+including durable steering of active work, use the submit operation.
+
+Local changes and the completion receipt commit together. Native answers record
+a pending receipt before dispatch. A pending replay returns an uncertain-outcome
+409 and never dispatches again; inspect the workspace through ordinary reads.
+Do not automatically replace an uncertain key with a new one. A missing result
+returns an unavailable-result 409. Withdraw retains the original public draft
+response with the cancelled run's ID, so a lost reply can be recovered without
+withdrawing again or creating another draft.
+
+The replay window ends after 24 hours. Each write prunes expired completion data
+for that credential, retaining a compact marker; expired identities return 409
+and never become new work. Inactive or revoked credentials can retain full
+receipts until another write or credential pruning; this is not a timed physical
+deletion guarantee. Credential deletion cascades to its receipts, while markers
+remain for as long as the credential can authenticate.
+Pause, resume, retry, Later and scheduled sends remain session-only. Token
+management is available only through Settings and owner-session management routes.
 
 ## Cards collections and detail
 

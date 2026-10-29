@@ -42,3 +42,15 @@ export function admitsToken(
 export function fullCardRead(admission: readonly TokenAdmission[]) {
   return admission.includes("read") || admission.includes("cards:read");
 }
+
+/** Every admitted mutation has one identity, even when a session may omit it. */
+export function isTokenMutation(contract: RouteContract) {
+  return (
+    contract.method !== "GET" &&
+    contract.kind !== "transport" &&
+    typeof contract.access === "object" &&
+    contract.access.admits.some(
+      (scope) => scope === "write" || scope === "approvals:decide",
+    )
+  );
+}

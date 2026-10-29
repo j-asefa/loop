@@ -1,3 +1,4 @@
+import { reorderTokenWrite, withdrawTokenWrite, moveTokenWrite } from "./token-write-policies.js";
 import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 
@@ -149,15 +150,18 @@ routes.on(workspaceApi.scheduledSendRetry, (req, res) => {
 });
 routes.on(workspaceApi.runReorder, (req, res) =>
   res.json(reorderRun(res.locals.owner, req.params.id, req.body)),
+  { tokenWrite: reorderTokenWrite },
 );
 routes.on(workspaceApi.runUpdate, (req, res) =>
   res.json(editQueuedRun(res.locals.owner, req.params.id, req.body)),
 );
 routes.on(workspaceApi.runWithdraw, (req, res) =>
   res.json(withdrawQueuedRun(res.locals.owner, req.params.id, req.body)),
+  { tokenWrite: withdrawTokenWrite },
 );
 routes.on(workspaceApi.runMove, (req, res) =>
   res.status(202).json(runResponse(moveQueuedRun(res.locals.owner, req.params.id, req.body))),
+  { tokenWrite: moveTokenWrite },
 );
 routes.on(workspaceApi.conversationFork, (req, res) =>
   res.json(forkConversation(res.locals.owner, req.params.id, req.body)),

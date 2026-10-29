@@ -1,3 +1,4 @@
+import { approvalTokenWrite } from "../token-write-policies.js";
 import { registrar, projectResponse } from "../registrar.js";
 import { workspaceApi } from "../../shared/workspace-api.js";
 
@@ -150,7 +151,11 @@ routes.on(workspaceApi.approvals, (req, res) => {
     >,
   );
 });
-routes.on(workspaceApi.approval, async (req, res) => {
-  const approval = ownedApproval(req.params.id, res.locals.owner);
-  res.json(decide(res.locals.owner, req.params.id, req.body.decision));
-});
+routes.on(
+  workspaceApi.approval,
+  (req, res) => {
+    const approval = ownedApproval(req.params.id, res.locals.owner);
+    res.json(decide(res.locals.owner, req.params.id, req.body.decision));
+  },
+  { tokenWrite: approvalTokenWrite },
+);

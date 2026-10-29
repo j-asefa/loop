@@ -10,13 +10,14 @@ import {
   SettingsNote,
   SettingsRow,
   SettingsSection,
+  SettingsToggle,
 } from "./SettingsUI";
 import {
   integrationTokenRequest,
   type IntegrationTokenRequest,
   type CardToken,
 } from "../shared/card-access";
-import { SCOPE_CATALOG, type TokenScope } from "../shared/token-scopes";
+import { SCOPE_CATALOG, TokenScope } from "../shared/token-scopes";
 import { viewOwner } from "./viewCache";
 
 // Pending creation survives closing Settings, scoped to its initiating owner/source.
@@ -34,14 +35,13 @@ export function CardTokens({
 }) {
   const key = JSON.stringify([owner, sourceId]);
   const receipt = useRef(pending.get(key));
-  const nameId = useId(),
-    scopeId = useId();
+  const nameId = useId();
   const [tokens, setTokens] = useState<CardToken[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [name, setName] = useState(receipt.current?.name || "");
-  const [scope, setScope] = useState<TokenScope>(
-    receipt.current?.scopes[0] || "read",
+  const [scopes, setScopes] = useState<TokenScope[]>(
+    receipt.current?.scopes || ["read"],
   );
   const [created, setCreated] = useState<{
     token: CardToken;
@@ -77,6 +77,7 @@ export function CardTokens({
           receipt.current = undefined;
           pending.delete(key);
           setName("");
+          setScopes(["read"]);
           setError("");
         }
       }
@@ -112,8 +113,8 @@ export function CardTokens({
   return (
     <>
       <p className="settings-intro">
-        Let a script read this workspace. Each token belongs to this source and
-        your account.
+        Choose what a script can do in this workspace. Each token belongs to
+        this source and your account.
       </p>
       {error && (
         <SettingsNote role="alert" tone="attention">
@@ -127,9 +128,9 @@ export function CardTokens({
         <form
           onSubmit={async (event) => {
             event.preventDefault();
-            if (busy || !current()) return;
+            if (busy || !current() || !scopes.length) return;
             const draft =
-              receipt.current || integrationTokenRequest(name, [scope]);
+              receipt.current || integrationTokenRequest(name, scopes);
             receipt.current = draft;
             pending.set(key, draft);
             setBusy(true);
@@ -146,6 +147,7 @@ export function CardTokens({
                 pending.delete(key);
                 setCreated(result);
                 setName("");
+                setScopes(["read"]);
                 await load();
               }
             } catch (e) {
@@ -188,22 +190,39 @@ export function CardTokens({
             onChange={(event) => setName(event.target.value)}
             placeholder="Project dashboard"
           />
-          <label htmlFor={scopeId}>Read access</label>
-          <select
-            id={scopeId}
-            disabled={busy || !!receipt.current}
-            value={scope}
-            onChange={(event) => setScope(event.target.value as TokenScope)}
+          <fieldset disabled={busy || !!receipt.current}>
+            <legend>Access</legend>
+            {TokenScope.options.map((scope) => (
+              <SettingsToggle
+                key={scope}
+                title={SCOPE_CATALOG[scope].label}
+                description={
+                  scope === "approvals:decide"
+                    ? SCOPE_CATALOG[scope].description +
+                      " Enable only when your script should make those decisions."
+                    : SCOPE_CATALOG[scope].description
+                }
+                checked={scopes.includes(scope)}
+                disabled={busy || !!receipt.current}
+                onChange={(checked) =>
+                  setScopes((current) =>
+                    checked
+                      ? [...current, scope]
+                      : current.filter((value) => value !== scope),
+                  )
+                }
+              />
+            ))}
+          </fieldset>
+          <button
+            type="submit"
+            disabled={busy || !name.trim() || !scopes.length}
           >
-            <option value="read">{SCOPE_CATALOG.read.label}</option>
-          </select>
-          <p className="field-hint">{SCOPE_CATALOG.read.description}</p>
-          <button type="submit" disabled={busy || !name.trim()}>
             {busy
               ? "Creating…"
               : receipt.current
                 ? "Retry token creation"
-                : "Create read-only token"}
+                : "Create token"}
           </button>
         </form>
         {created && (
