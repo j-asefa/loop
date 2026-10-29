@@ -12,11 +12,11 @@ Loop puts the agents on your computer into one phone workspace. Start runs, appr
     <td><img src="docs/screenshots/feed.png" alt="The Feed's Done tab: result cards from @orion, a review of pull request #42, and @bug-hunter, the root cause of order totals off by a cent" width="300"></td>
   </tr>
   <tr>
-    <th>Conversation: pull requests and reviews</th>
+    <th>Result: read and reply</th>
     <th>Saved: results worth keeping, labelled</th>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/result.png" alt="A conversation with its linked pull request above the messages: current PR title, state, review requests, submitted reviews and the PR's GitHub change counts" width="300"></td>
+    <td><img src="docs/screenshots/result.png" alt="A result from @bug-hunter using Kimi K3.1 Pro: the order-total fix, linked pull request and Reply action" width="300"></td>
     <td><img src="docs/screenshots/saved.png" alt="Saved under Your profile: a searchable list with labels such as Rounding fix and Review before merge, each result with Reply, Saved, Remind me and File" width="300"></td>
   </tr>
   <tr>
@@ -24,10 +24,12 @@ Loop puts the agents on your computer into one phone workspace. Start runs, appr
     <th>Your profile: a history of your prompts</th>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/agent-profile.png" alt="The @orion agent profile: its tagline, model, computer, team and current work awaiting approval, above its results" width="300"></td>
+    <td><img src="docs/screenshots/agent-profile.png" alt="The @orion agent profile: its tagline, Claude Opus 5.5 model, computer, team and current work awaiting approval, above its results" width="300"></td>
     <td><img src="docs/screenshots/your-profile.png" alt="Your profile: robot avatar, banner, name, handle, bio and counts, above the Messages tab showing a prompt you sent to @orion" width="300"></td>
   </tr>
 </table>
+
+Screenshots use illustrative sample data, captured from Loop’s UI. Regenerate them with `node scripts/readme-screenshots.mjs` after building the UI.
 
 ## Why Loop
 
