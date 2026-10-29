@@ -561,6 +561,7 @@ a:focus-visible {
   padding-inline: 2px;
   box-shadow: none;
 }
+.inbox-filters [data-filter="done"] .chip-count,
 .inbox-filters [data-filter="working"] .chip-count,
 .inbox-filters [data-filter="queued"] .chip-count,
 .inbox-filters [data-filter="replies"] .chip-count {
