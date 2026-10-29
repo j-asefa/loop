@@ -226,6 +226,37 @@ test("command shims preserve ordinary commands and classify old and current Loop
       classifyCommand("npm", ["exec", "--", "tsc", "--noEmit"], dir).label,
       "tsc check",
     );
+    for (const selection of [
+      ["--workspace", "frontend"],
+      ["-w", "frontend"],
+      ["--prefix", "/other"],
+    ]) {
+      for (const tool of ["vite", "vitest", "tsc"]) {
+        const command =
+          tool === "vite"
+            ? [tool, "build"]
+            : tool === "vitest"
+              ? [tool, "run"]
+              : [tool, "--noEmit"];
+        for (const args of [
+          ["exec", ...selection, "--", ...command],
+          [...selection, "exec", "--", ...command],
+        ]) {
+          assert.equal(
+            classifyCommand("npm", args, dir).label,
+            tool + " check",
+          );
+        }
+      }
+      assert.equal(
+        classifyCommand(
+          "npm",
+          ["exec", ...selection, "--", "vite", "preview"],
+          dir,
+        ).label,
+        undefined,
+      );
+    }
     assert.equal(
       classifyCommand("node", ["-e", "console.log('ok')", "--", "--test"], dir)
         .label,
@@ -321,7 +352,7 @@ test("Node test options cannot bypass a configured unavailable queue through the
   }
 });
 
-test("Vite option order and implicit CI Vitest runs cannot bypass an unavailable queue", async () => {
+test("package manager options and implicit CI Vitest runs cannot bypass an unavailable queue", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-job-tool-options-"));
   try {
     const marker = join(dir, "must-not-run"),
@@ -329,7 +360,7 @@ test("Vite option order and implicit CI Vitest runs cannot bypass an unavailable
     writeFileSync(command, "#!/bin/sh\ntouch '" + marker + "'\n", {
       mode: 0o700,
     });
-    for (const program of ["npx", "node"] as const) {
+    for (const program of ["npx", "node", "npm"] as const) {
       const shim = join(dir, program);
       writeFileSync(
         shim,
@@ -349,7 +380,12 @@ test("Vite option order and implicit CI Vitest runs cannot bypass an unavailable
               ["vite", "--mode", "production", "build"],
               ["vitest"],
             ]
-          : [["node_modules/vitest/vitest.mjs"]];
+          : program === "node"
+            ? [["node_modules/vitest/vitest.mjs"]]
+            : [
+                ["exec", "--workspace", "frontend", "--", "vite", "build"],
+                ["exec", "-w", "frontend", "--", "vitest", "run"],
+              ];
       for (const args of cases) {
         const child = spawn(shim, args, {
           stdio: "ignore",

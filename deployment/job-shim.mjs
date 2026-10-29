@@ -137,8 +137,8 @@ function nodeScript(args, options) {
     options.push(value);
   }
 }
-function toolWords(args, program) {
-  const values = new Set(
+function packageManagerValues(program) {
+  return new Set(
     program === "npm"
       ? [
           "--prefix",
@@ -154,6 +154,9 @@ function toolWords(args, program) {
         ]
       : ["--package", "-p", "--cache", "--userconfig", "--registry"],
   );
+}
+function toolWords(args, program) {
+  const values = packageManagerValues(program);
   const words = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--") return [...words, ...args.slice(i + 1)];
@@ -178,14 +181,8 @@ function compiler7(path) {
   }
 }
 
-function npxArguments(args) {
-  const values = new Set([
-    "--package",
-    "-p",
-    "--cache",
-    "--userconfig",
-    "--registry",
-  ]);
+function npxArguments(args, program = "npx") {
+  const values = packageManagerValues(program);
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--") return args.slice(i + 1);
     if (values.has(args[i])) i++;
@@ -351,7 +348,7 @@ export function classifyCommand(
     else if (["exec", "x"].includes(verb))
       label = classifyCommand(
         "npx",
-        args.slice(args.indexOf(verb) + 1),
+        npxArguments(args.slice(args.indexOf(verb) + 1), "npm"),
         cwd,
         context,
       ).label;
