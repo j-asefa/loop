@@ -113,7 +113,7 @@ test("command shims preserve ordinary commands and classify old and current Loop
           ["vitest", "run", "--testNamePattern", pattern],
           dir,
         ).label,
-        "vitest check",
+        pattern === "-pattern" ? "vitest check" : undefined,
       );
     }
     assert.equal(
@@ -417,6 +417,118 @@ test("package manager options and implicit CI Vitest runs cannot bypass an unava
         assert.equal(code, 125);
         assert.equal(existsSync(marker), false);
       }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("forwarded npm probes stay available when the queue is unavailable", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-job-npm-probes-"));
+  try {
+    const marker = join(dir, "arguments"),
+      command = join(dir, "underlying"),
+      shim = join(dir, "npm");
+    writeFileSync(
+      command,
+      "#!" +
+        process.execPath +
+        "\nrequire('fs').writeFileSync(" +
+        JSON.stringify(marker) +
+        ",JSON.stringify(process.argv.slice(2)));\n",
+      { mode: 0o700 },
+    );
+    writeFileSync(
+      shim,
+      shimScript(
+        join(dir, "missing.json"),
+        process.execPath,
+        resolve("deployment/job-shim.mjs"),
+        "npm",
+        command,
+      ),
+      { mode: 0o700 },
+    );
+    for (const flag of ["--help", "-h", "--version", "-v"]) {
+      const args = ["run", "build", "--", flag];
+      const child = spawn(shim, args, { cwd: dir, stdio: "ignore" });
+      const [code] = await once(child, "close");
+      assert.equal(code, 0);
+      assert.deepEqual(JSON.parse(readFileSync(marker, "utf8")), args);
+      rmSync(marker);
+    }
+    const child = spawn(shim, ["run", "build", "--", "--config=--help"], {
+      cwd: dir,
+      stdio: "ignore",
+    });
+    const [code] = await once(child, "close");
+    assert.equal(code, 125);
+    assert.equal(existsSync(marker), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("watch classification follows Vitest parsing while preserving Node and Commander option values", async () => {
+  const { parseCLI } = await import("vitest/node");
+  for (const option of ["--testNamePattern", "--exclude"]) {
+    const args = ["run", option, "--watch"];
+    assert.equal(parseCLI(["vitest", ...args]).options.watch, true);
+    assert.equal(classifyCommand("npx", ["vitest", ...args]).label, undefined);
+    assert.equal(
+      classifyCommand("node", ["node_modules/vitest/vitest.mjs", ...args])
+        .label,
+      undefined,
+    );
+  }
+  assert.equal(
+    classifyCommand("node", [
+      "--test",
+      "--test-name-pattern",
+      "--watch",
+      "fixture.test.mjs",
+    ]).label,
+    "native tests",
+  );
+  assert.equal(
+    classifyCommand("npx", ["playwright", "test", "--grep", "--ui"]).label,
+    "playwright check",
+  );
+  assert.equal(
+    classifyCommand("npx", ["tsc", "--project", "--watch"]).label,
+    "tsc check",
+  );
+});
+
+test("the test runner keeps Vitest watch flags separate from native pattern values", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-job-runner-options-"));
+  try {
+    const marker = join(dir, "watch-invoked");
+    mkdirSync(join(dir, "node_modules/vitest"), { recursive: true });
+    writeFileSync(
+      join(dir, "node_modules/vitest/vitest.mjs"),
+      "import {writeFileSync} from 'node:fs';writeFileSync(" +
+        JSON.stringify(marker) +
+        ",'started');",
+    );
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      LOOP_JOB_QUEUE_CONFIG: join(dir, "missing.json"),
+    };
+    delete env.LOOP_JOB_ACTIVE;
+    for (const [suite, option, expected] of [
+      ["vitest", "--testNamePattern", 0],
+      ["native", "--test-name-pattern", 125],
+    ] as const) {
+      const child = spawn(
+        process.execPath,
+        [resolve("scripts/test-runner.mjs"), suite, option, "--watch"],
+        { cwd: dir, env, stdio: "ignore" },
+      );
+      const [code] = await once(child, "close");
+      assert.equal(code, expected);
+      assert.equal(existsSync(marker), suite === "vitest");
+      if (existsSync(marker)) rmSync(marker);
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -191,8 +191,9 @@ function npxArguments(args, program = "npx") {
   return [];
 }
 
-// Consumed option values cannot opt a finite check out of queue admission.
-export function checkOptions(args) {
+// Node, TypeScript and Commander consume required values beginning with '-'.
+// CAC (Vite/Vitest) parses those tokens as separate options instead.
+export function checkOptions(args, dashValues = true) {
   const values = new Set([
     "--project",
     "-p",
@@ -262,7 +263,8 @@ export function checkOptions(args) {
     if (args[i] === "--") break;
     options.push(args[i]);
     if (
-      values.has(args[i]) ||
+      (values.has(args[i]) &&
+        (dashValues || (args[i + 1] && !args[i + 1].startsWith("-")))) ||
       (optionalValues.has(args[i]) &&
         args[i + 1] &&
         !args[i + 1].startsWith("-"))
@@ -293,12 +295,17 @@ export function classifyCommand(
   if (program === "node") {
     const nodeOptions = [];
     const index = nodeScript(args, nodeOptions);
-    commandOptions = [
-      ...nodeOptions,
-      ...(index === undefined ? [] : checkOptions(args.slice(index + 1))),
-    ];
     const script = index === undefined ? "" : args[index];
     const name = basename(script);
+    commandOptions = [
+      ...nodeOptions,
+      ...(index === undefined
+        ? []
+        : checkOptions(
+            args.slice(index + 1),
+            !/^(vitest|vite-node)(\.m?js)?$/.test(name),
+          )),
+    ];
     if (["tsc", "tsc.js", "_tsc.js"].includes(name)) {
       label = "typecheck";
       compiler = compiler7(resolve(cwd, script));
@@ -318,7 +325,7 @@ export function classifyCommand(
     } else if (/^(vitest|vite-node)(\.m?js)?$/.test(name)) {
       if (
         name.startsWith("vite-node") ||
-        finiteVitest(checkOptions(args.slice(index + 1)))
+        finiteVitest(checkOptions(args.slice(index + 1), false))
       )
         label = "tests";
     } else if (
@@ -380,10 +387,14 @@ export function classifyCommand(
   } else if (program === "npx") {
     const invocation = npxArguments(args);
     const [tool, ...toolArgs] = invocation;
-    const words = checkOptions(toolArgs).filter((arg) => !arg.startsWith("-"));
+    const toolOptions = checkOptions(
+      toolArgs,
+      !["vite", "vitest"].includes(tool),
+    );
+    const words = toolOptions.filter((arg) => !arg.startsWith("-"));
     commandOptions = [
       ...checkOptions(args.slice(0, args.length - invocation.length)),
-      ...checkOptions(invocation.slice(1)),
+      ...toolOptions,
     ];
     if (
       tool === "tsc" ||
@@ -414,7 +425,9 @@ export function classifyCommand(
     label = undefined;
   // Version/help probes must stay fast and must not create queue jobs.
   if (
-    commandOptions.some((a) => ["--version", "-v", "--help", "-h"].includes(a))
+    [...commandOptions, ...checkArgs].some((a) =>
+      ["--version", "-v", "--help", "-h"].includes(a),
+    )
   )
     label = undefined;
   return { label, args, compiler };

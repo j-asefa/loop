@@ -47,7 +47,7 @@ if (
     label: `${suite} tests`,
     stdio: "inherit",
     env: testEnvironment(process.env, suite),
-    job: !checkOptions(extra).some(
+    job: !checkOptions(extra, suite !== "vitest").some(
       (arg) => arg === "-w" || /^--watch(?:=true)?$/.test(arg),
     ),
   });
