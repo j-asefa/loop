@@ -58,6 +58,11 @@ export function insideQueuedJob(config) {
     config.worker,
     fileURLToPath(new URL("./job-worker.mjs", import.meta.url)),
   ].filter(Boolean);
+  const descriptorSuffix = new RegExp(
+    " /?.*/job-worker\\.mjs " +
+      config.jobs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+      "/job-[a-f0-9-]{36}/control\\.json$",
+  );
   let pid = process.ppid;
   for (let depth = 0; pid > 1 && depth < 48; depth++) {
     try {
@@ -75,10 +80,13 @@ export function insideQueuedJob(config) {
       if (
         [process.execPath, config.commands?.node]
           .filter(Boolean)
-          .some((node) =>
-            workers.some((worker) =>
-              match[2].startsWith(node + " " + worker + " "),
-            ),
+          .some(
+            (node) =>
+              workers.some((worker) =>
+                match[2].startsWith(node + " " + worker + " "),
+              ) ||
+              (match[2].startsWith(node + " ") &&
+                descriptorSuffix.test(match[2])),
           )
       )
         return true;
@@ -237,6 +245,7 @@ export async function runQueuedJob(command, args, options = {}) {
     completed = false;
   let cancelled = 0,
     cancelAt = 0,
+    outcome,
     actualResult,
     connection,
     connectionNonce,
@@ -408,7 +417,8 @@ export async function runQueuedJob(command, args, options = {}) {
       const status = taskState(task);
       if (status === "Done") {
         completed = true;
-        return cancelled || (actualResult ?? resultCode(task));
+        outcome = actualResult ?? resultCode(task);
+        break;
       }
       if (cancelled) {
         if (status !== "Running" && status !== "Paused") {
@@ -481,4 +491,5 @@ export async function runQueuedJob(command, args, options = {}) {
       }
     }
   }
+  return cancelled || outcome;
 }

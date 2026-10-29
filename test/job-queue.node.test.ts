@@ -10,6 +10,7 @@ import {
   existsSync,
   rmSync,
   readdirSync,
+  cpSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -121,6 +122,7 @@ test("command shims preserve ordinary commands and classify old and current Loop
       ["--test-name-pattern", "selected"],
       ["--test-reporter-destination", "stdout"],
       ["--env-file-if-exists", "fixture.env"],
+      ["--max-http-header-size", "16384"],
     ]) {
       assert.equal(
         classifyCommand("node", [...options, "--test", "fixture.test.mjs"], dir)
@@ -675,6 +677,51 @@ test(
         },
       );
       await t.test(
+        "cancelling output drain preserves cancellation status and saved logs",
+        async () => {
+          const client = pathToFileURL(
+            resolve("deployment/job-client.mjs"),
+          ).href;
+          const marker = join(dir, "cancel-output-completed");
+          const program =
+            "process.stdout.write('x'.repeat(2*1024*1024));require('fs').writeFileSync(" +
+            JSON.stringify(marker) +
+            ",'done')";
+          const caller = spawn(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              "const {runQueuedJob}=await import(" +
+                JSON.stringify(client) +
+                ");process.exitCode=await runQueuedJob(process.execPath,['-e'," +
+                JSON.stringify(program) +
+                "],{log:()=>{}});",
+            ],
+            { stdio: ["ignore", "pipe", "pipe"] },
+          );
+          caller.stdout.pause();
+          caller.stderr.resume();
+          const closed = once(caller, "close");
+          try {
+            await until(
+              () => existsSync(marker),
+              "cancel output command completed",
+            );
+            await delay(3000);
+            caller.kill("SIGTERM");
+            caller.stdout.resume();
+            const [code] = await closed;
+            assert.equal(code, 143);
+          } finally {
+            if (caller.exitCode === null && !caller.signalCode)
+              caller.kill("SIGTERM");
+            caller.stdout.resume();
+            await closed;
+          }
+        },
+      );
+      await t.test(
         "a failed output follower retains completed diagnostics",
         async () => {
           const wrapper = join(dir, "failed-follower");
@@ -739,6 +786,66 @@ test(
             JSON.stringify(clean) +
             ",stdio:'ignore',timeout:7000});process.exit(r.status ?? 99)";
           assert.equal(await run(code), 0);
+        },
+      );
+      await t.test(
+        "installed shims recognize a source worker without Linux cgroup admission",
+        async () => {
+          const installed = join(dir, "installed/deployment"),
+            shims = join(dir, "installed-bin");
+          mkdirSync(installed, { recursive: true });
+          mkdirSync(shims);
+          for (const name of [
+            "job-client.mjs",
+            "job-shim.mjs",
+            "job-protocol.mjs",
+          ])
+            cpSync(resolve("deployment", name), join(installed, name));
+          writeFileSync(
+            configPath,
+            JSON.stringify({
+              ...config,
+              worker: join(installed, "job-worker.mjs"),
+            }),
+          );
+          writeFileSync(
+            join(shims, "node"),
+            shimScript(
+              configPath,
+              process.execPath,
+              join(installed, "job-shim.mjs"),
+              "node",
+              process.execPath,
+            ),
+            { mode: 0o700 },
+          );
+          // Simulate the macOS ownership path in this child only; no cgroup
+          // shortcut and no active-job environment marker may admit it.
+          const platform = join(dir, "non-linux.mjs"),
+            fixture = join(dir, "cross-generation.test.mjs");
+          writeFileSync(
+            platform,
+            "Object.defineProperty(process,'platform',{value:'darwin'});",
+          );
+          writeFileSync(
+            fixture,
+            "import test from 'node:test';test('nested fixture',()=>{});",
+          );
+          const clean = {
+            PATH: shims + ":" + process.env.PATH,
+            NODE_OPTIONS: "--import=" + platform,
+          };
+          const code =
+            "const r=require('child_process').spawnSync('node',['--test'," +
+            JSON.stringify(fixture) +
+            "],{env:" +
+            JSON.stringify(clean) +
+            ",stdio:'ignore',timeout:5000});process.exit(r.status ?? 99)";
+          try {
+            assert.equal(await run(code), 0);
+          } finally {
+            writeFileSync(configPath, JSON.stringify(config));
+          }
         },
       );
       await t.test(
