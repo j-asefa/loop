@@ -18,11 +18,14 @@ GRACE = 5
 def descendants():
     found = set()
     complete = True
+    missing_children = False
     pending = [os.getpid()]
     while pending:
         pid = pending.pop()
         try:
-            for task in Path(f"/proc/{pid}/task").glob("*/children"):
+            tasks = list(Path(f"/proc/{pid}/task").glob("*/children"))
+            missing_children = missing_children or not tasks
+            for task in tasks:
                 try:
                     children = [int(value) for value in task.read_text().split()]
                 except (FileNotFoundError, ProcessLookupError):
@@ -36,6 +39,26 @@ def descendants():
             # A PID may exit between collecting it and iterating its tasks.
             # Reaping and the next scan still find any adopted descendants.
             complete = False
+    if missing_children:
+        # Some Linux kernels omit /proc/PID/task/TID/children. PPid remains
+        # available; never interpret the missing optional interface as no work.
+        parents = {}
+        for name in os.listdir("/proc"):
+            if not name.isdigit():
+                continue
+            try:
+                with open(f"/proc/{name}/stat") as stream:
+                    fields = stream.read().rsplit(")", 1)[1].split()
+                parents.setdefault(int(fields[1]), []).append(int(name))
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+        pending, seen = [os.getpid()], set()
+        while pending:
+            for child in parents.get(pending.pop(), []):
+                if child not in seen:
+                    seen.add(child)
+                    found.add(child)
+                    pending.append(child)
     return found, complete
 
 
@@ -83,18 +106,20 @@ def main():
     deadline = None
     notified = set()
     while True:
+        no_children = False
         while True:
             try:
                 pid, status = os.waitpid(-1, os.WNOHANG)
             except ChildProcessError:
                 pid = 0
+                no_children = True
             if not pid:
                 break
             if pid == child.pid:
                 child.returncode = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -os.WTERMSIG(status)
                 result = child.returncode if child.returncode >= 0 else 128 - child.returncode
         remaining, complete = descendants()
-        if result is not None and not remaining and complete:
+        if result is not None and no_children and not remaining and complete:
             return 128 + interrupted() if interrupted() else result
         if interrupted() or result is not None:
             if deadline is None:

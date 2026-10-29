@@ -110,7 +110,8 @@
   },
   "private": true,
   "bin": {
-    "loop": "dist/cli.js"
+    "loop": "dist/cli.js",
+    "loop-job": "deployment/job-cli.mjs"
   },
   "engines": {
     "node": ">=22.19"
@@ -123,6 +124,7 @@
     "README.md",
     "npm-shrinkwrap.json",
     "native",
-    "deployment"
+    "deployment",
+    "scripts/heavy-supervisor.py"
   ]
 }

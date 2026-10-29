@@ -76,8 +76,8 @@ systemctl --user restart loop.service
 ```
 
 The installer sets `LOOP_HEAVY_SCHEDULING=off` for new harnesses so tests in
-older worktrees bypass their removed shared-slot limiter. Current repository
-checks start immediately; see [command supervision](development.md#command-supervision).
+older worktrees bypass their removed shared-slot limiter. Checks can use the
+optional job queue below; see [command supervision](development.md#command-supervision).
 
 The installer copies the launcher and installs
 [loop-agents.slice](../deployment/loop-agents.slice): all native agent processes
@@ -113,6 +113,25 @@ SQLite's write lock, the timestamp remains unchanged and the next timer tries
 again; stale observations still expire. Contention cannot terminate the server
 through those timer callbacks. Ordinary writes retain their normal timeout and
 error behavior.
+
+## Queue heavy builds and tests
+
+Install Loop's dedicated [Pueue](https://github.com/Nukesor/pueue) queue on Linux or macOS (Node 24, x64 or arm64):
+
+```sh
+node deployment/install-job-queue.mjs
+```
+
+This downloads checksum-verified Pueue 4.0.4 binaries and starts a per-user daemon. It does not restart Loop. Configuration lives in `~/.config/loop/jobs.json` (or `$XDG_CONFIG_HOME/loop/jobs.json`); queue state and logs live in `~/.local/state/loop-jobs`. It leaves an existing personal Pueue installation alone.
+
+On Linux, rerun `bash deployment/install-agent-resources.sh loop.service`, then restart Loop when ready. The installer reads the queue configuration and sets `LOOP_JOB_QUEUE_CONFIG` and `LOOP_JOB_SHIMS` for new native harnesses. Pueue runs in `loop-agents-jobs.slice`, with a 3 GiB memory cap, 512 MiB swap and two CPUs, **within** the aggregate 5 GiB agent budget. Its service uses `OOMPolicy=continue`; an individual compiler or browser kill does not deliberately stop the owning native agent. A host can still exhaust the aggregate budget with many harnesses or commands outside the queue. Adjust the slice files for that host; upgrades preserve those capacity choices.
+
+On macOS, the installer creates the `dev.loop.job-queue` LaunchAgent for the logged-in desktop user. Start Loop with the two environment assignments printed by the installer. The same queue ordering, visibility and cancellation apply; macOS does not get the Linux cgroup memory caps. A headless Mac needs a suitable launchd user domain configured by its operator.
+
+`LOOP_JOB_SHIMS` affects native harness command PATHs, not the Loop server's executable. It catches common `npm` build/test/install, `npx tsc`/Vitest/Playwright, raw Node TypeScript and repository browser checks, including older Loop worktrees. Ordinary commands retain their native PID and extra protocol pipes. Current source schedules browser scenarios individually; older worktrees queue whole check invocations. Absolute executable paths, custom scripts and external services can bypass PATH wrappers; use `loop-job run -- COMMAND ...` for an explicit heavy job. Keep long-running development servers and watch sessions outside this finite-check queue.
+
+Use `loop-job status` to inspect jobs and `loop-job cancel ID` to cancel one. Outside a native terminal, the command is also at `~/.local/lib/loop/job-queue/bin/loop-job`. Inspect `systemctl --user status loop-job-queue.service` on Linux or `launchctl print gui/$(id -u)/dev.loop.job-queue` on macOS. A failed daemon does not silently replay commands. See [command supervision](development.md#command-supervision) for execution ownership, logs and credential handling.
+
 
 ## Archive deployment backups
 

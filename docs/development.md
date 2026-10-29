@@ -89,31 +89,21 @@ Native async tests use bounded waits from `test/helpers.ts`. Regressions should 
 
 ## Command supervision
 
-Builds, checks, tests and browser scenarios start immediately. They do not acquire
-an exclusive host slot, wait for estimated memory headroom or return a slot-busy
-status. Separate invocations can run concurrently; each suite still controls its
-own worker count.
+Checks run immediately unless the host opts into the [Pueue job queue](server.md#queue-heavy-builds-and-tests). With `LOOP_JOB_QUEUE_CONFIG` set, builds and checks queue their heavy phases, test suites queue one invocation, and the design browser suite queues each scenario separately. Independent callers share FIFO ordering and one running heavy job by default. Nested checks keep their parent's admission, including fixtures that clear their environment. This schedules finite commands; model turns and ordinary file or Git operations remain concurrent.
 
-[scripts/heavy-command.mjs](../scripts/heavy-command.mjs) remains the compatible
-browser-check entrypoint. Its `runSupervised` helper uses Python 3.8+'s standard
-library on Linux to preserve process cleanup. The command stays in the caller's
-process group and cgroup. On interruption or caller death, the supervisor
-terminates the command, adopts orphaned descendants and gives cleanup five seconds
-before escalating to SIGKILL. Killing the supervisor itself with SIGKILL cannot
-run cleanup. Non-Linux hosts launch the command directly and forward signals.
-Linux requires Python 3.8+; a supervision setup failure exits 127.
+TypeScript 7 runs with `--singleThreaded` to avoid duplicating large checker graphs. The full project is still checked. `GOMEMLIMIT` defaults to `1536MiB` for the compiler only; it is a soft Go heap target, not a process memory ceiling. Node's heap limit does not control this native compiler.
 
-The old `LOOP_HEAVY_SLOT`, `LOOP_HEAVY_WAIT_SECONDS`, `LOOP_HEAVY_RESERVE_MB` and
-`LOOP_HEAVY_SCHEDULING` controls have no effect on current checks. The
-[agent resource installer](../deployment/install-agent-resources.sh) sets
-`LOOP_HEAVY_SCHEDULING=off` for newly launched harnesses so older agent worktrees
-also bypass their admission gate. Restart Loop after applying that installer.
+[scripts/heavy-command.mjs](../scripts/heavy-command.mjs) supervises commands. On Linux, Python 3.8+ adopts orphaned descendants and gives cleanup five seconds before escalating to SIGKILL. It also cleans up if the caller dies; killing the supervisor itself with SIGKILL requires the enclosing cgroup to clean up. Queued commands run under the separate queue service, so a test's memory kill need not stop its native harness. On macOS, queued cancellation signals the job's process group; browser scripts must still close their own detached helpers. Without a queue, non-Linux commands launch directly and forward signals.
 
-The [agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-server)
-still limits aggregate agent memory and CPU. There is no repository job queue or
-memory reservation; choose suite worker counts for the available capacity.
-Container builds need their own limits because Docker work runs outside the
-caller's process tree and cgroup.
+Queued output streams back to the command trace, and the original exit status is preserved. Each invocation reports its job ID, running/waiting counts and status every 30 seconds. Use `loop-job status` or `loop-job cancel ID`. Cancellation removes waiting work or terminates a running job. If the caller or daemon disappears, Loop stops owned work and reports an uncertain failure; it never resubmits the command automatically. An unavailable configured queue fails the check instead of executing it outside the budget.
+
+Pueue stores ordering, task state and output. The submitting process sends command arguments and its credential environment to the admitted worker over an authenticated local connection, without persisting them in Pueue's task environment. A live caller authorizes execution once. Completed tasks are removed after their output has been followed; orphaned completed logs are retained for one day and pruned on a later submission. Commands must still avoid printing secrets.
+
+The old `LOOP_HEAVY_SLOT`, `LOOP_HEAVY_WAIT_SECONDS`, `LOOP_HEAVY_RESERVE_MB` and `LOOP_HEAVY_SCHEDULING` controls have no effect on current checks. The [agent resource installer](../deployment/install-agent-resources.sh) sets `LOOP_HEAVY_SCHEDULING=off` for older worktrees. Pueue provides explicit task IDs and cancellation rather than that removed shared-slot gate.
+
+Queue regression tests use isolated local Pueue daemons and no provider accounts. To include them, set `LOOP_TEST_PUEUE` and `LOOP_TEST_PUEUED` to absolute paths for the pinned 4.0.4 binaries, then run `node --import tsx --test test/job-queue.node.test.ts`. Without those binaries, classification, protocol-descriptor and unavailable-queue tests still run.
+
+The [agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-server) still limits aggregate agent memory and CPU. Container builds need separate limits because Docker work runs outside the caller's process tree and cgroup.
 
 ## Browser checks
 

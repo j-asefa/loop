@@ -3,6 +3,7 @@ export function runSupervised(
   args: string[],
   options?: {
     label?: string;
+    job?: boolean;
     stdio?: "inherit" | "ignore";
     cwd?: string;
     env?: NodeJS.ProcessEnv;

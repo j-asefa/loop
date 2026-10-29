@@ -46,5 +46,6 @@ if (
     label: `${suite} tests`,
     stdio: "inherit",
     env: testEnvironment(process.env, suite),
+    job: true,
   });
 }

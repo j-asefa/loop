@@ -24,8 +24,20 @@ if (
   const bin =
     typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.tsc;
   if (!bin) throw new Error("The typescript package declares no tsc binary.");
-  const args = [join(root, bin), "--noEmit", ...process.argv.slice(2)];
+  // TypeScript 7's parallel checkers duplicate large type graphs. Keep full
+  // checking while reducing peak RAM; Go's soft heap target is not a hard cap.
+  const args = [
+    join(root, bin),
+    "--noEmit",
+    "--singleThreaded",
+    ...process.argv.slice(2),
+  ];
   process.exitCode = await runSupervised(process.execPath, args, {
     label: "typecheck",
+    job: true,
+    env: {
+      ...process.env,
+      GOMEMLIMIT: process.env.GOMEMLIMIT || "1536MiB",
+    },
   });
 }

@@ -3,7 +3,7 @@ import {
   type SpawnOptions,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { delimiter, isAbsolute } from "node:path";
 import { observeNativeMemory } from "./native-memory.js";
 
 /** Optional host-owned resource launcher. It must exec the command with its
@@ -23,6 +23,12 @@ export function spawnNative(
   // Descendants already inherit the resource group. A nested fixture workspace
   // must not take over the host's service or create a second resource scope.
   delete env.LOOP_NATIVE_LAUNCHER;
+  const shims = process.env.LOOP_JOB_SHIMS;
+  if (shims) {
+    if (!isAbsolute(shims))
+      throw new Error("LOOP_JOB_SHIMS must be an absolute path");
+    env.PATH = shims + delimiter + (env.PATH || process.env.PATH || "");
+  }
   const child = spawn(
     launcher || command,
     launcher ? [command, ...args] : args,

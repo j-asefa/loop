@@ -72,6 +72,7 @@ for (const [name, args, env = process.env] of steps) {
     label: `check ${name}`,
     stdio: "inherit",
     env,
+    job: name === "contracts",
   });
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   if (status !== 0) {

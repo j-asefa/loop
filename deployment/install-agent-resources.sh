@@ -15,13 +15,19 @@ if [ ! -f "$unit_dir/loop-agents.slice" ]; then
   install -m 0644 "$source_dir/loop-agents.slice" "$unit_dir/loop-agents.slice"
 fi
 python3 - "$helper_dir/agent-scope.py" "$unit_dir/$service.d/agent-resources.conf" <<'PY'
-import json, pathlib, sys
+import json, os, pathlib, sys
 launcher = 'LOOP_NATIVE_LAUNCHER=' + sys.argv[1]
 # Older agent worktrees still have the cooperative test limiter. Disable it in
 # their inherited environment too; current checks retain cleanup without admission.
 # Systemd interprets percent specifiers even inside quoted Environment values.
 launcher = launcher.replace('%', '%%')
-pathlib.Path(sys.argv[2]).write_text('[Service]\nEnvironment=' + json.dumps(launcher) + '\nEnvironment=LOOP_HEAVY_SCHEDULING=off\nMemoryLow=512M\n')
+settings = '[Service]\nEnvironment=' + json.dumps(launcher) + '\nEnvironment=LOOP_HEAVY_SCHEDULING=off\nMemoryLow=512M\n'
+queue = pathlib.Path(os.environ.get('XDG_CONFIG_HOME', pathlib.Path.home() / '.config')) / 'loop/jobs.json'
+if queue.is_file():
+    config = json.loads(queue.read_text())
+    for key, value in [('LOOP_JOB_QUEUE_CONFIG', str(queue)), ('LOOP_JOB_SHIMS', config['shims'])]:
+        settings += 'Environment=' + json.dumps((key + '=' + value).replace('%', '%%')) + '\n'
+pathlib.Path(sys.argv[2]).write_text(settings)
 PY
 systemctl --user daemon-reload
 systemctl --user start loop-agents.slice

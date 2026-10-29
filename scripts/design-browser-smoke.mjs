@@ -83,6 +83,7 @@ async function worker() {
       {
         label: `design/${name}`,
         signal: controller.signal,
+        job: true,
       },
     );
     // Cancelling siblings must not replace the failure that stopped the suite.

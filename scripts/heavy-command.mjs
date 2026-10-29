@@ -1,19 +1,46 @@
-// Supervise repository commands without a shared slot or memory admission gate.
-// The Linux supervisor retains descendant cleanup for interrupted callers.
+// Supervise commands, optionally scheduling finite heavy checks in the host's
+// shared Pueue queue. Nested checks stay inside their already admitted job.
 import { spawn } from "node:child_process";
 import { constants } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  runQueuedJob,
+  insideQueuedJob,
+  queueConfiguration,
+} from "../deployment/job-client.mjs";
 
 export async function runSupervised(command, args, options = {}) {
   const {
     label = "command",
     stdio = "inherit",
     cwd,
-    env = process.env,
+    env: requestedEnv = process.env,
     signal,
     log = (line) => process.stderr.write(line + "\n"),
   } = options;
   if (signal?.aborted) return 130;
+  let activeJob = process.env.LOOP_JOB_ACTIVE;
+  if (options.job && !activeJob && process.env.LOOP_JOB_QUEUE_CONFIG) {
+    try {
+      if (insideQueuedJob(await queueConfiguration())) activeJob = "inherited";
+    } catch {
+      /* The queue submission below reports unavailable configuration. */
+    }
+  }
+  const env = activeJob
+    ? { ...requestedEnv, LOOP_JOB_ACTIVE: activeJob }
+    : requestedEnv;
+  if (options.job && !activeJob && process.env.LOOP_JOB_QUEUE_CONFIG) {
+    try {
+      return await runQueuedJob(command, args, { ...options, env });
+    } catch {
+      log(
+        label +
+          ": the job queue could not confirm completion. Check loop-job status before retrying; no command was replayed.",
+      );
+      return 125;
+    }
+  }
   const supervised = process.platform === "linux";
   const config = { label, parentPid: process.pid };
   return new Promise((resolve) => {
@@ -80,5 +107,6 @@ if (
     );
   process.exitCode = await runSupervised(process.execPath, args, {
     label: "browser smoke",
+    job: true,
   });
 }
