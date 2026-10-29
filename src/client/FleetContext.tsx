@@ -149,15 +149,13 @@ export function fleetAuthorityLabel(state: FleetState) {
 
 export function FleetAuthorityNotice({ open }: { open: () => void }) {
   const { state, error } = useFleet();
-  if (!state && !error) return null;
+  if (!error && (!state || state.state === "standalone")) return null;
   return (
     <button type="button" className="fleet-authority-notice" onClick={open}>
       <span>
         {error
           ? "Directory status unavailable"
-          : state?.state === "standalone"
-            ? "This computer · Add machines"
-            : state && fleetAuthorityLabel(state)}
+          : state && fleetAuthorityLabel(state)}
       </span>
       {!!state && state.pendingDistribution > 0 && (
         <small>Directory synchronization pending</small>

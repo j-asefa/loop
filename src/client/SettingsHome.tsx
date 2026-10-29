@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { capabilities } from "./capabilities";
-import { useFleet } from "./FleetContext";
 import { SettingsPill } from "./SettingsUI";
 import type { Agent, Connection } from "../shared/types";
 
@@ -35,7 +34,6 @@ export function SettingsHome({
 }) {
   // Only summarize what the workspace has already loaded. A settings row never
   // starts a probe of its own just to show a badge.
-  const fleet = useFleet();
   const connected = connections.filter((c) => c.status === "connected").length;
   const unhealthy = connections.length - connected;
   const providerState = !connections.length ? null : unhealthy ? (
@@ -77,13 +75,6 @@ export function SettingsHome({
         <section aria-labelledby="settings-connections">
           <h3 id="settings-connections">Connections</h3>
           <div className="settings-row-group">
-            {(fleet.state || fleet.error) &&
-              row(
-                "fleet",
-                "Machines & fleet",
-                "Add, re-pair and manage your machines",
-                Server,
-              )}
             {row(
               "connections",
               "Provider connections",
@@ -110,11 +101,11 @@ export function SettingsHome({
                 "Read-only access for scripts",
                 KeyRound,
               )}
-            {capabilities.runtimeHosts &&
+            {(capabilities.runtimeHosts || capabilities.pairedDevices) &&
               row(
                 "runtime-hosts",
                 "Runtime machines",
-                "Run agents on your own computer",
+                "Add and manage your computers",
                 Server,
               )}
           </div>

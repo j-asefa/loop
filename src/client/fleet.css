@@ -13,6 +13,88 @@
 .fleet-authority-notice small {
   color: var(--muted);
 }
+.fleet-add-machine {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-block: 0 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--brass) 45%, var(--line));
+  border-radius: 16px;
+  text-align: left;
+  background: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--brass) 15%, var(--surface)),
+    color-mix(in srgb, var(--brass) 5%, var(--surface))
+  );
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--brass) 8%, transparent);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+.fleet-add-machine-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  background: var(--brass);
+  color: #1a1a1c;
+  box-shadow: inset 0 1px 0 #ffffff40;
+}
+.fleet-add-machine-plus {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  padding: 2px;
+  width: 21px;
+  height: 21px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--surface);
+}
+.fleet-add-machine-copy {
+  display: grid;
+  gap: 4px;
+  text-wrap: pretty;
+}
+.fleet-add-machine-copy strong {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.3px;
+  line-height: 1.25;
+}
+.fleet-add-machine-copy > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.fleet-add-machine-arrow {
+  color: var(--brass-text);
+  transition: transform 160ms ease;
+}
+@media (hover: hover) {
+  .fleet-add-machine:hover {
+    border-color: var(--brass);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--brass) 16%, transparent);
+  }
+  .fleet-add-machine:hover .fleet-add-machine-arrow {
+    transform: translate(2px, -2px);
+  }
+}
+.fleet-add-machine:active {
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fleet-add-machine,
+  .fleet-add-machine-arrow {
+    transition: none;
+  }
+}
 .fleet-settings {
   overflow-wrap: anywhere;
 }

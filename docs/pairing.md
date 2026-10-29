@@ -71,7 +71,8 @@ without restoring their grants.
 
 ### Add and manage machines
 
-Open **Settings → Machines & fleet** on a paired HTTPS companion. Create a fleet
+Open **Settings → Runtime machines** on a paired HTTPS companion. Choose
+**Add machine**, or **Machines & fleet** if a fleet is already configured. Create a fleet
 on the machine that will control its directory, choosing its name and allowed
 operations. On another machine, run `loop pair`; use **Scan pairing QR** in the
 controller's Add machine screen or paste the complete link. Review the address,
@@ -82,7 +83,8 @@ The decoder loads only when scanning starts and does not use a CDN. Closing or
 hiding the scanner releases its camera and worker.
 
 If the phone's OS camera opened the other machine's pairing page first, pair
-there, open **Machines & fleet → Add this machine to an existing fleet**, and
+there, open **Settings → Runtime machines → Add machine**, choose
+**Add this machine to an existing fleet**, and
 create a fresh enrollment-only link. Paste it into the controller's Add machine
 screen. A fresh link replaces older unused codes on that machine; existing paired
 devices remain trusted. Links expire after two minutes and are hidden when the

@@ -1,6 +1,9 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { capabilities } from "./capabilities";
 import { PairedDevices } from "./PairedDevices";
+import { AddMachineButton } from "./AddMachineButton";
+import { useFleet } from "./FleetContext";
+import { FleetSettings } from "./FleetSettings";
 import { useEffect, useState } from "react";
 import {
   BookOpen,
@@ -8,6 +11,7 @@ import {
   Link,
   Server,
   ShieldAlert,
+  Smartphone,
   TriangleAlert,
 } from "lucide-react";
 import {
@@ -315,10 +319,46 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
   );
 }
 
+function CompanionRuntimeHosts({ onClose }: { onClose: () => void }) {
+  const { state, error } = useFleet();
+  const [fleetOpen, setFleetOpen] = useState(false);
+  const [devicesOpen, setDevicesOpen] = useState(false);
+  const showAddMachine = !error && state?.state === "standalone";
+  return (
+    <>
+      <Sheet title="Runtime machines" onClose={onClose}>
+        <p className="settings-intro">
+          Connect and manage the computers that run your agents.
+        </p>
+        {showAddMachine && <AddMachineButton open={() => setFleetOpen(true)} />}
+        <SettingsList>
+          {!showAddMachine && (state || error) && (
+            <SettingsRow
+              icon={Server}
+              title="Machines & fleet"
+              ariaLabel="Machines & fleet"
+              description={error || "Add, re-pair and manage your machines"}
+              onClick={() => setFleetOpen(true)}
+            />
+          )}
+          <SettingsRow
+            icon={Smartphone}
+            title="This computer & paired devices"
+            description="Manage devices connected to this computer"
+            onClick={() => setDevicesOpen(true)}
+          />
+        </SettingsList>
+      </Sheet>
+      {fleetOpen && <FleetSettings onClose={() => setFleetOpen(false)} />}
+      {devicesOpen && <PairedDevices onClose={() => setDevicesOpen(false)} />}
+    </>
+  );
+}
+
 export function RuntimeHosts(props: Parameters<typeof ServerRuntimeHosts>[0]) {
   return capabilities.runtimeHosts ? (
     <ServerRuntimeHosts {...props} />
   ) : capabilities.pairedDevices ? (
-    <PairedDevices {...props} />
+    <CompanionRuntimeHosts onClose={props.onClose} />
   ) : null;
 }

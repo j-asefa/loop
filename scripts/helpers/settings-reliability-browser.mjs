@@ -79,10 +79,31 @@ export async function settingsReliabilityBrowser(
     await expect(
       drawer.getByRole("button", { name: /Search preferences/ }),
     ).toBeVisible();
-    if (companion)
+    if (companion) {
       await expect(
-        drawer.getByRole("button", { name: /Runtime machines/ }),
+        drawer.getByRole("button", { name: "Add machine", exact: true }),
       ).toHaveCount(0);
+      await drawer
+        .getByRole("button", { name: "Runtime machines", exact: true })
+        .click();
+      const machines = page.getByRole("dialog", {
+        name: "Runtime machines",
+        exact: true,
+      });
+      await expect(
+        machines.getByRole("button", {
+          name: /This computer & paired devices/,
+        }),
+      ).toBeVisible();
+      assert.equal(
+        hostReads,
+        0,
+        "Companion machine settings do not request server runtime hosts",
+      );
+      await machines
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+    }
     await capture("settings-home");
     // Exercise memory contracts through the real app and database. No response
     // fixture substitutes for the note, its revision or the policy writes.

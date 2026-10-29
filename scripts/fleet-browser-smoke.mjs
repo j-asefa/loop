@@ -128,12 +128,23 @@ async function machine(name) {
     });
   return { origin, call, child, port: ready.port };
 }
-async function openSettings(page) {
+async function openRuntimeMachines(page) {
   await page
     .getByRole("button", { name: "Open settings", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Machines & fleet", exact: true })
+  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+  await expect(
+    settings.getByRole("button", { name: "Add machine", exact: true }),
+  ).toHaveCount(0);
+  await settings
+    .getByRole("button", { name: "Runtime machines", exact: true })
+    .click();
+  return page.getByRole("dialog", { name: "Runtime machines", exact: true });
+}
+async function openSettings(page) {
+  const machines = await openRuntimeMachines(page);
+  await machines
+    .getByRole("button", { name: /^(Add machine|Machines & fleet)$/ })
     .click();
   return page.getByRole("dialog", { name: "Machines & fleet", exact: true });
 }
@@ -299,7 +310,17 @@ try {
   await page.clock.runFor(30_000);
   await expect(
     page.getByRole("button", {
-      name: "This computer · Add machines",
+      name: "Directory status unavailable",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Add machine", exact: true }),
+  ).toHaveCount(0);
+  const machines = await openRuntimeMachines(page);
+  await expect(
+    machines.getByRole("button", {
+      name: "Add machine",
       exact: true,
     }),
   ).toBeVisible();
@@ -378,6 +399,12 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await pair(page, (await a.call("pair")).url);
   sheet = await openSettings(page);
+  await sheet.getByRole("button", { name: "Close", exact: true }).click();
+  const addMachine = page
+    .getByRole("dialog", { name: "Runtime machines", exact: true })
+    .getByRole("button", { name: "Add machine", exact: true });
+  await expect(addMachine).toBeFocused();
+  await addMachine.click();
   checkpoint = "create fleet";
   await sheet.getByLabel("Machine name", { exact: true }).fill("Laptop A");
   await sheet
