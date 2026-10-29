@@ -40,12 +40,15 @@ export class Gemini extends Acp {
       );
     }
   }
-  override async prompt(text: string) {
+  override async prompt(text: string, beforeDispatch?: () => void) {
     // ACP has no system-instruction field. Carry the saved instructions with
     // each explicit prompt, including after session/load. A saved session ID
     // proves only creation, not that a prior prompt delivered instructions.
     // This repeats context, never an earlier user task or an uncertain effect.
     const instructions = this.geminiOptions.instructions;
-    await super.prompt(instructions ? `${instructions}\n\n${text}` : text);
+    await super.prompt(
+      instructions ? `${instructions}\n\n${text}` : text,
+      beforeDispatch,
+    );
   }
 }

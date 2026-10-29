@@ -71,10 +71,16 @@ export interface Adapter {
     beforeApply?: () => void,
   ): Promise<SettingsData>;
   start(): Promise<Billing>;
-  prompt(text: string): Promise<void>;
-  steer?(text: string): Promise<void>;
+  /** Recheck immediately before each native dispatch, after asynchronous
+   * preparation or queueing. A thrown guard must prevent that dispatch. */
+  prompt(text: string, beforeDispatch?: () => void): Promise<void>;
+  steer?(text: string, beforeDispatch?: () => void): Promise<void>;
   cancel(): Promise<void>;
-  answer(id: string, answer: Record<string, unknown>): Promise<void>;
+  answer(
+    id: string,
+    answer: Record<string, unknown>,
+    beforeDispatch?: () => void,
+  ): Promise<void>;
   dispose(): Promise<void>;
 }
 export const capabilities: Capabilities = {

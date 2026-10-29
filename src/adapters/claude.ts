@@ -320,7 +320,8 @@ export class Claude implements Adapter {
         });
     });
   }
-  async prompt(text: string) {
+  async prompt(text: string, beforeDispatch?: () => void) {
+    beforeDispatch?.();
     this.interrupted = false;
     this.active = true;
     await this.native.write({
@@ -332,13 +333,14 @@ export class Claude implements Adapter {
       message: { role: "user", content: text },
     });
   }
-  async steer(text: string) {
+  async steer(text: string, beforeDispatch?: () => void) {
     if (!this.active) throw new NotDelivered("No active Claude turn.");
+    beforeDispatch?.();
     try {
       await this.steering.steer(
         text,
         () => this.control({ subtype: "interrupt" }),
-        (value: string) => this.prompt(value),
+        (value: string) => this.prompt(value, beforeDispatch),
       );
     } catch (error) {
       this.active = false;
@@ -355,7 +357,11 @@ export class Claude implements Adapter {
     this.interrupted = true;
     await this.control({ subtype: "interrupt" });
   }
-  async answer(id: string, answer: Record<string, unknown>) {
+  async answer(
+    id: string,
+    answer: Record<string, unknown>,
+    beforeDispatch?: () => void,
+  ) {
     const m = this.requests.get(id);
     if (!m) throw new Error("Claude request expired.");
     const r = m.request;
@@ -380,6 +386,7 @@ export class Claude implements Adapter {
         answer.choice === "allow"
           ? { behavior: "allow", updatedInput: r.input }
           : { behavior: "deny", message: "Denied by the user in Loop." };
+    beforeDispatch?.();
     this.requests.delete(id);
     await this.native.write({
       type: "control_response",

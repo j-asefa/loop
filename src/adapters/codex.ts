@@ -337,7 +337,7 @@ export class Codex implements Adapter {
   ) {
     return this.native.request(method, params);
   }
-  async prompt(text: string) {
+  async prompt(text: string, beforeDispatch?: () => void) {
     if (this.options.billing === "subscription") {
       conflict(this.options.billing, [
         "OPENAI_API_KEY",
@@ -360,6 +360,7 @@ export class Codex implements Adapter {
           "Codex effective subscription configuration changed. No prompt was sent.",
         );
     }
+    beforeDispatch?.();
     this.tokenBaseline = this.tokenTotal;
     const revision = this.turnRevision;
     const r = await this.native.request("turn/start", {
@@ -389,11 +390,12 @@ export class Codex implements Adapter {
     )
       this.turn = r.turn.id;
   }
-  async steer(text: string) {
+  async steer(text: string, beforeDispatch?: () => void) {
     if (!this.turn) {
-      if (this.asyncQuestions.size) return this.prompt(text);
+      if (this.asyncQuestions.size) return this.prompt(text, beforeDispatch);
       throw new NotDelivered("No active Codex turn.");
     }
+    beforeDispatch?.();
     await this.native.request("turn/steer", {
       threadId: this.thread,
       expectedTurnId: this.turn,
@@ -412,19 +414,26 @@ export class Codex implements Adapter {
       turnId: this.turn,
     });
   }
-  async answer(id: string, answer: Record<string, unknown>) {
+  async answer(
+    id: string,
+    answer: Record<string, unknown>,
+    beforeDispatch?: () => void,
+  ) {
     const question = this.asyncQuestions.get(id);
     if (question) {
       // Async input has no outstanding JSON-RPC request. Deliver the user's
       // explicit answer as native input, once, in the same thread.
-      this.asyncQuestions.delete(id);
+      const dispatch = () => {
+        beforeDispatch?.();
+        this.asyncQuestions.delete(id);
+      };
       const text =
         "Answers to your questions:\n" +
         question
           .questions!.map((q) => `${q.title}\n${JSON.stringify(answer[q.id])}`)
           .join("\n\n");
-      if (this.turn) await this.steer(text);
-      else await this.prompt(text);
+      if (this.turn) await this.steer(text, dispatch);
+      else await this.prompt(text, dispatch);
       this.emit({ type: "resolved", id });
       return;
     }
@@ -459,6 +468,7 @@ export class Codex implements Adapter {
         content: answer.choice === "accept" && approval ? {} : null,
       };
     } else result = { decision: answer.choice };
+    beforeDispatch?.();
     this.requests.delete(id);
     await this.native.write({ id: m.id, result });
     this.emit({ type: "resolved", id });

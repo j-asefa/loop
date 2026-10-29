@@ -322,7 +322,7 @@ export class OpenCode implements Adapter {
     const text = Buffer.concat(chunks).toString();
     return text ? JSON.parse(text) : undefined;
   }
-  async prompt(text: string) {
+  async prompt(text: string, beforeDispatch?: () => void) {
     if (this.recovering)
       throw new Error(
         "OpenCode event stream is recovering. Wait before sending.",
@@ -331,6 +331,7 @@ export class OpenCode implements Adapter {
     const previous = await this.api(
       `/session/${this.session}/message?limit=100`,
     );
+    beforeDispatch?.();
     this.previousMessages = new Set(previous.map((m: any) => m.info.id));
     this.activeTurn = true;
     this.interrupted = false;
@@ -371,9 +372,14 @@ export class OpenCode implements Adapter {
     this.interrupted = true;
     await this.api(`/session/${this.session}/abort`, {});
   }
-  async answer(id: string, answer: Record<string, unknown>) {
+  async answer(
+    id: string,
+    answer: Record<string, unknown>,
+    beforeDispatch?: () => void,
+  ) {
     const r = this.requests.get(id);
     if (!r) throw new Error("OpenCode request expired.");
+    beforeDispatch?.();
     this.requests.delete(id);
     if (r.type === "permission.asked")
       await this.api(

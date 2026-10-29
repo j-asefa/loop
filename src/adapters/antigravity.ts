@@ -169,13 +169,14 @@ export class Antigravity implements Adapter {
     });
   }
 
-  async prompt(text: string) {
+  async prompt(text: string, beforeDispatch?: () => void) {
     if (this.stopped || !this.native || !this.session)
       throw new Error("Antigravity session is unavailable.");
     if (this.active)
       throw new Error(
         "Antigravity is still running. Queue the follow-up for the next turn.",
       );
+    beforeDispatch?.();
     this.turn = randomUUID();
     this.responseId = undefined;
     this.usage.clear();

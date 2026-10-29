@@ -447,11 +447,13 @@ export class Pi implements Adapter {
         "This Pi model does not use a confirmed subscription login. Choose a subscription model such as the openai-codex route, or explicitly enable existing-provider billing. No prompt was sent and no API fallback occurred.",
       );
   }
-  async prompt(text: string) {
+  async prompt(text: string, beforeDispatch?: () => void) {
+    beforeDispatch?.();
     const metadata = this.waitInfo();
     await this.native.request("prompt", { message: "/loop-status" }, false);
     await metadata;
     this.checkBilling();
+    beforeDispatch?.();
     this.interrupted = false;
     this.failed = false;
     // Set before sending: Pi's events can settle the turn before the
@@ -467,13 +469,14 @@ export class Pi implements Adapter {
   // Pi delivers steering after the current tool calls, before its next model
   // call. A turn that ends without another model call still reads it first.
   // One steer at a time, so Pi's queue never holds two of Loop's at once.
-  steer(text: string) {
-    const sent = this.steering.then(() => this.steerOnce(text));
+  steer(text: string, beforeDispatch?: () => void) {
+    const sent = this.steering.then(() => this.steerOnce(text, beforeDispatch));
     this.steering = sent.catch(() => {});
     return sent;
   }
-  private async steerOnce(text: string) {
+  private async steerOnce(text: string, beforeDispatch?: () => void) {
     if (!this.turnActive) throw new NotDelivered("No active Pi turn.");
+    beforeDispatch?.();
     await this.native.request("steer", { message: text }, false);
     const state = await this.native.request("get_state", {}, false);
     if (state?.isStreaming || !(state?.pendingMessageCount > 0)) return;
@@ -483,6 +486,11 @@ export class Pi implements Adapter {
     // Otherwise leave it queued and report it as unconfirmed, never resent.
     const queued =
       "Pi finished its turn before Loop could confirm it read this input. Anything still queued waits for Pi's next prompt.";
+    // Pi exposes text, not durable queue-entry identities. A guarded input
+    // cannot safely clear/restore a queue that another native writer may change:
+    // restoration would need each entry's own authorization. Keep the native
+    // queue intact and the accepted input uncertain; never submit it again.
+    if (beforeDispatch) throw new Error(queued);
     if (state.pendingMessageCount !== 1) throw new Error(queued);
     const cleared = await this.native.request("clear_queue", {}, false);
     const steering: string[] = cleared?.steering ?? [];
@@ -499,9 +507,14 @@ export class Pi implements Adapter {
     this.interrupted = true;
     await this.native.request("abort", {}, false);
   }
-  async answer(id: string, answer: Record<string, unknown>) {
+  async answer(
+    id: string,
+    answer: Record<string, unknown>,
+    beforeDispatch?: () => void,
+  ) {
     const r = this.requests.get(id);
     if (!r) throw new Error("Pi dialog expired.");
+    beforeDispatch?.();
     clearTimeout(r.timer);
     this.requests.delete(id);
     await this.native.write({

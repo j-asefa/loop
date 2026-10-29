@@ -306,7 +306,8 @@ export class Muse implements Adapter {
   private input(text: string) {
     return [{ type: "text", text }];
   }
-  async prompt(text: string) {
+  async prompt(text: string, beforeDispatch?: () => void) {
+    beforeDispatch?.();
     if (this.notice) {
       this.emit({ type: "error", message: this.notice });
       this.notice = undefined;
@@ -327,6 +328,7 @@ export class Muse implements Adapter {
       ? undefined
       : this.options.instructions;
     const revision = this.turnRevision;
+    beforeDispatch?.();
     const r = await this.native.request("turn/start", {
       commandId: uuidv7(),
       sessionId: this.session,
@@ -340,8 +342,9 @@ export class Muse implements Adapter {
     if (r.startedNewTurn && !this.turn && this.turnRevision === revision)
       this.turn = r.turnId;
   }
-  async steer(text: string) {
+  async steer(text: string, beforeDispatch?: () => void) {
     if (!this.turn) throw new NotDelivered("No active Muse Code turn.");
+    beforeDispatch?.();
     await this.native
       .request("turn/steer", {
         commandId: uuidv7(),
@@ -367,13 +370,18 @@ export class Muse implements Adapter {
       turnId: this.turn,
     });
   }
-  async answer(id: string, answer: Record<string, unknown>) {
+  async answer(
+    id: string,
+    answer: Record<string, unknown>,
+    beforeDispatch?: () => void,
+  ) {
     const entry = [...this.approvals].find(([, a]) => a.requestId === id);
     if (entry) {
       const [approvalId, approval] = entry;
       const choiceId = approval.choices.get(answer.choice as string);
       if (!choiceId || approval.answered)
         throw new Error("Unsupported Muse Code decision.");
+      beforeDispatch?.();
       approval.answered = true;
       try {
         await this.native.request("approval/decide", {
@@ -402,6 +410,7 @@ export class Muse implements Adapter {
     }
     const questions = this.questions.get(id);
     if (!questions) throw new Error("Native request expired.");
+    beforeDispatch?.();
     this.questions.delete(id);
     try {
       await this.native.request("userInput/answer", {

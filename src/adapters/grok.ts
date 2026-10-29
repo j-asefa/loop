@@ -52,7 +52,7 @@ export class Grok extends Acp {
       );
     }
   }
-  override async prompt(text: string) {
+  override async prompt(text: string, beforeDispatch?: () => void) {
     // ACP has no system-instruction field, so prompts carry the saved
     // instructions until a turn completes; Grok then keeps them in that
     // session's context. They can include a transcript carried over from
@@ -63,6 +63,9 @@ export class Grok extends Acp {
       this.instructed || this.historyReplayed
         ? undefined
         : this.grokOptions.instructions;
-    await super.prompt(instructions ? `${instructions}\n\n${text}` : text);
+    await super.prompt(
+      instructions ? `${instructions}\n\n${text}` : text,
+      beforeDispatch,
+    );
   }
 }

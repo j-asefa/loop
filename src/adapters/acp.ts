@@ -373,7 +373,7 @@ export class Acp implements Adapter {
       })),
     ];
   }
-  async prompt(value: string) {
+  async prompt(value: string, beforeDispatch?: () => void) {
     if (
       this.closed ||
       !this.connection ||
@@ -382,6 +382,7 @@ export class Acp implements Adapter {
       this.pendingSettingWrites
     )
       throw new Error("ACP session is unavailable or busy");
+    beforeDispatch?.();
     this.active = true;
     this.toolCommands.clear();
     this.cancelling = false;
@@ -437,7 +438,11 @@ export class Acp implements Adapter {
     if (!this.closed && this.session && this.connection && this.active)
       await this.connection.cancel({ sessionId: this.session });
   }
-  async answer(id: string, answer: Record<string, unknown>) {
+  async answer(
+    id: string,
+    answer: Record<string, unknown>,
+    beforeDispatch?: () => void,
+  ) {
     const pending = this.permissions.get(id);
     if (!pending) throw new Error("ACP permission expired");
     if (
@@ -445,6 +450,7 @@ export class Acp implements Adapter {
       !pending.choices.has(answer.choice)
     )
       throw new Error("Choose a listed ACP permission option");
+    beforeDispatch?.();
     this.permissions.delete(id);
     pending.resolve({
       outcome: { outcome: "selected", optionId: answer.choice },
