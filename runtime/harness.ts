@@ -92,7 +92,7 @@ export async function codexTurn(
   if (nativeTools && command) {
     if (command !== "review")
       throw new HarnessError(
-        "This Codex command is not available in Loop. Open Commands & skills to see supported actions.",
+        "This Codex command is not available in Loop55. Open Commands & skills to see supported actions.",
       );
     const instructions = latestPrompt(input).slice("/review".length).trim();
     const result = await rpc.call("review/start", {
@@ -174,7 +174,7 @@ async function claudeInitialize(launch: Launch): Promise<Record<string, any>> {
           (m) => {
             if (
               m.type !== "control_response" ||
-              m.response?.request_id !== "loop-catalog"
+              m.response?.request_id !== "loop55-catalog"
             )
               return;
             if (
@@ -190,7 +190,7 @@ async function claudeInitialize(launch: Launch): Promise<Record<string, any>> {
         p.stdin.write(
           JSON.stringify({
             type: "control_request",
-            request_id: "loop-catalog",
+            request_id: "loop55-catalog",
             request: { subtype: "initialize" },
           }) + "\n",
         );
@@ -255,7 +255,7 @@ export async function claudeCatalog(launch: Launch) {
         )
           ? {
               disabledReason:
-                "Requires a persistent Claude terminal session. Loop keeps the conversation history here.",
+                "Requires a persistent Claude terminal session. Loop55 keeps the conversation history here.",
             }
           : {}),
       })),

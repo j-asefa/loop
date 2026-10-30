@@ -4,7 +4,7 @@ import { existsSync, writeFileSync, appendFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import childProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
-const dir = process.env.LOOP_TEST_SUPERVISION;
+const dir = process.env.LOOP55_TEST_SUPERVISION;
 if (dir && !process.argv[1]?.endsWith("/execution-worker.js")) {
   const fork = childProcess.fork;
   childProcess.fork = function (...args) {

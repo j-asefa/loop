@@ -85,7 +85,7 @@ export class FleetPeerHttpTransport {
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          "X-Loop-Fleet-Version": "1",
+          "X-Loop55-Fleet-Version": "1",
         },
         body: encoded,
         dispatcher: publicNetworkDispatcher,

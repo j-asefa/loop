@@ -1,4 +1,4 @@
-process.env.LOOP_PROFILE = "companion";
+process.env.LOOP55_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -73,7 +73,7 @@ function assertPublishable(event: AdapterEvent) {
 }
 
 test("Codex MCP confirmations support one-call acceptance, decline and cancel", async () => {
-  process.env.LOOP_TEST_HARNESS = "codex";
+  process.env.LOOP55_TEST_HARNESS = "codex";
   const events: AdapterEvent[] = [];
   const adapter = new Codex(
     {
@@ -95,7 +95,7 @@ test("Codex MCP confirmations support one-call acceptance, decline and cancel", 
       await until(() => events.some((e) => e.type === "request"));
       const event = events.find((e) => e.type === "request")!;
       assert.equal(event.type, "request");
-      assert.equal(event.request.title, "Allow loop_delegate?");
+      assert.equal(event.request.title, "Allow loop55_delegate?");
       assert.ok(!("completionUrl" in event.request));
       assertPublishable(event);
       assert.deepEqual(event.request.choices, ["accept", "decline", "cancel"]);
@@ -185,12 +185,12 @@ test("Codex MCP confirmations support one-call acceptance, decline and cancel", 
     }
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_HARNESS;
   }
 });
 test("Codex async questions surface once and accept answers during or after native work", async () => {
-  process.env.LOOP_TEST_HARNESS = "codex";
-  process.env.LOOP_TEST_ASYNC_ANSWER = "1";
+  process.env.LOOP55_TEST_HARNESS = "codex";
+  process.env.LOOP55_TEST_ASYNC_ANSWER = "1";
   try {
     for (const finished of [false, true]) {
       const events: AdapterEvent[] = [];
@@ -250,13 +250,13 @@ test("Codex async questions surface once and accept answers during or after nati
       }
     }
   } finally {
-    delete process.env.LOOP_TEST_HARNESS;
-    delete process.env.LOOP_TEST_ASYNC_ANSWER;
+    delete process.env.LOOP55_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_ASYNC_ANSWER;
   }
 });
 
 test("Codex can cancel while waiting for an async answer after native completion", async () => {
-  process.env.LOOP_TEST_HARNESS = "codex";
+  process.env.LOOP55_TEST_HARNESS = "codex";
   const events: AdapterEvent[] = [];
   const adapter = new Codex(
     {
@@ -284,13 +284,13 @@ test("Codex can cancel while waiting for an async answer after native completion
     );
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_HARNESS;
   }
 });
 
 test("Codex does not reopen async questions from resumed history", async () => {
-  process.env.LOOP_TEST_HARNESS = "codex";
-  process.env.LOOP_TEST_ASYNC_HISTORY = "1";
+  process.env.LOOP55_TEST_HARNESS = "codex";
+  process.env.LOOP55_TEST_ASYNC_HISTORY = "1";
   const events: AdapterEvent[] = [];
   const adapter = new Codex(
     {
@@ -311,14 +311,14 @@ test("Codex does not reopen async questions from resumed history", async () => {
     assert(!events.some((e) => e.type === "request"));
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
-    delete process.env.LOOP_TEST_ASYNC_HISTORY;
+    delete process.env.LOOP55_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_ASYNC_HISTORY;
   }
 });
 
 test("Codex resumes file-heavy history without transferring saved turns", async () => {
-  process.env.LOOP_TEST_HARNESS = "codex";
-  process.env.LOOP_TEST_LARGE_CODEX_HISTORY = "1";
+  process.env.LOOP55_TEST_HARNESS = "codex";
+  process.env.LOOP55_TEST_LARGE_CODEX_HISTORY = "1";
   const events: AdapterEvent[] = [];
   const adapter = new Codex(
     {
@@ -347,14 +347,14 @@ test("Codex resumes file-heavy history without transferring saved turns", async 
     );
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
-    delete process.env.LOOP_TEST_LARGE_CODEX_HISTORY;
+    delete process.env.LOOP55_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_LARGE_CODEX_HISTORY;
   }
 });
 
 test("Pi's subscription catalog excludes API routes for the same model", async () => {
-  process.env.LOOP_TEST_HARNESS = "pi";
-  process.env.LOOP_TEST_PI_API_MODEL = "1";
+  process.env.LOOP55_TEST_HARNESS = "pi";
+  process.env.LOOP55_TEST_PI_API_MODEL = "1";
   try {
     for (const billing of ["subscription", "existing"] as const) {
       const adapter = new Pi(
@@ -380,7 +380,7 @@ test("Pi's subscription catalog excludes API routes for the same model", async (
         await adapter.dispose();
       }
     }
-    process.env.LOOP_TEST_PI_AUTH = "api";
+    process.env.LOOP55_TEST_PI_AUTH = "api";
     const adapter = new Pi(
       {
         harness: "pi",
@@ -402,16 +402,16 @@ test("Pi's subscription catalog excludes API routes for the same model", async (
       await adapter.dispose();
     }
   } finally {
-    delete process.env.LOOP_TEST_HARNESS;
-    delete process.env.LOOP_TEST_PI_API_MODEL;
-    delete process.env.LOOP_TEST_PI_AUTH;
+    delete process.env.LOOP55_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_PI_API_MODEL;
+    delete process.env.LOOP55_TEST_PI_AUTH;
   }
 });
 test("Pi starts with an aggregator-sized catalog and full workspace tools, and names a startup failure", async () => {
-  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP55_TEST_HARNESS = "pi";
   // 5,000 models is the registration bound; the real extension reports them.
-  process.env.LOOP_TEST_PI_EXTENSION_MODELS = "5000";
-  process.env.LOOP_TEST_PI_EXTENSION_ID_TEXT = "漢";
+  process.env.LOOP55_TEST_PI_EXTENSION_MODELS = "5000";
+  process.env.LOOP55_TEST_PI_EXTENSION_ID_TEXT = "漢";
   try {
     const adapter = new Pi(
       {
@@ -442,7 +442,7 @@ test("Pi starts with an aggregator-sized catalog and full workspace tools, and n
       await adapter.dispose();
     }
     // Three-byte identifiers: under 8 MiB in characters, over it in bytes.
-    process.env.LOOP_TEST_PI_EXTENSION_MODELS = "60000";
+    process.env.LOOP55_TEST_PI_EXTENSION_MODELS = "60000";
     const oversized = new Pi(
       {
         harness: "pi",
@@ -467,14 +467,14 @@ test("Pi starts with an aggregator-sized catalog and full workspace tools, and n
       await oversized.dispose();
     }
   } finally {
-    delete process.env.LOOP_TEST_HARNESS;
-    delete process.env.LOOP_TEST_PI_EXTENSION_MODELS;
-    delete process.env.LOOP_TEST_PI_EXTENSION_ID_TEXT;
+    delete process.env.LOOP55_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_PI_EXTENSION_MODELS;
+    delete process.env.LOOP55_TEST_PI_EXTENSION_ID_TEXT;
   }
 });
 test("Pi reports an extension question asked during startup instead of waiting", async () => {
-  process.env.LOOP_TEST_HARNESS = "pi";
-  process.env.LOOP_TEST_PI_STARTUP_QUESTION = "1";
+  process.env.LOOP55_TEST_HARNESS = "pi";
+  process.env.LOOP55_TEST_PI_STARTUP_QUESTION = "1";
   const events: any[] = [];
   const adapter = new Pi(
     {
@@ -499,13 +499,13 @@ test("Pi reports an extension question asked during startup instead of waiting",
     assert(!events.some((event) => event.type === "request"));
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
-    delete process.env.LOOP_TEST_PI_STARTUP_QUESTION;
+    delete process.env.LOOP55_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_PI_STARTUP_QUESTION;
   }
 });
 test("Pi relays an extension question asked after it answers RPC requests", async () => {
-  process.env.LOOP_TEST_HARNESS = "pi";
-  process.env.LOOP_TEST_PI_LATE_QUESTION = "1";
+  process.env.LOOP55_TEST_HARNESS = "pi";
+  process.env.LOOP55_TEST_PI_LATE_QUESTION = "1";
   const events: any[] = [];
   const adapter = new Pi(
     {
@@ -527,12 +527,12 @@ test("Pi relays an extension question asked after it answers RPC requests", asyn
     );
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
-    delete process.env.LOOP_TEST_PI_LATE_QUESTION;
+    delete process.env.LOOP55_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_PI_LATE_QUESTION;
   }
 });
 test("Pi exposes model-specific effort and applies saved effort to new and resumed sessions", async () => {
-  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP55_TEST_HARNESS = "pi";
   try {
     for (const resume of [undefined, "pi-1"]) {
       const adapter = new Pi(
@@ -590,7 +590,7 @@ test("Pi exposes model-specific effort and applies saved effort to new and resum
       await invalid.dispose();
     }
   } finally {
-    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_HARNESS;
   }
 });
 for (const [name, Klass] of Object.entries({
@@ -600,8 +600,9 @@ for (const [name, Klass] of Object.entries({
   opencode: OpenCode,
 })) {
   test(`${name}: real subprocess framing, incremental output, permissions, follow-up and cancellation`, async () => {
-    process.env.LOOP_TEST_HARNESS = name;
-    if (name === "claude") process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS = "1";
+    process.env.LOOP55_TEST_HARNESS = name;
+    if (name === "claude")
+      process.env.LOOP55_TEST_CLAUDE_INJECTED_RESULTS = "1";
     const events: AdapterEvent[] = [];
     const adapter = new Klass(
       {
@@ -691,20 +692,20 @@ for (const [name, Klass] of Object.entries({
           !events.some(
             (e) => e.type === "status" && e.status === "interrupted",
           ),
-          "steering must not terminate the Loop run",
+          "steering must not terminate the Loop55 run",
         );
       }
     } finally {
       await adapter.dispose();
-      delete process.env.LOOP_TEST_HARNESS;
-      delete process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS;
+      delete process.env.LOOP55_TEST_HARNESS;
+      delete process.env.LOOP55_TEST_CLAUDE_INJECTED_RESULTS;
     }
   });
 }
 test("Claude launches in the workspace permission mode", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-claude-argv-"));
-  process.env.LOOP_TEST_HARNESS = "claude";
-  process.env.LOOP_TEST_ARGV = join(dir, "argv");
+  const dir = mkdtempSync(join(tmpdir(), "loop55-claude-argv-"));
+  process.env.LOOP55_TEST_HARNESS = "claude";
+  process.env.LOOP55_TEST_ARGV = join(dir, "argv");
   try {
     for (const permissionMode of [undefined, "default", "bypassPermissions"]) {
       const adapter = new Claude(
@@ -729,7 +730,7 @@ test("Claude launches in the workspace permission mode", async () => {
         await adapter.dispose();
       }
     }
-    const launches = readFileSync(process.env.LOOP_TEST_ARGV, "utf8")
+    const launches = readFileSync(process.env.LOOP55_TEST_ARGV, "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as string[]);
@@ -739,24 +740,24 @@ test("Claude launches in the workspace permission mode", async () => {
     const flag = launches[2].indexOf("--permission-mode");
     assert.equal(launches[2][flag + 1], "bypassPermissions");
   } finally {
-    delete process.env.LOOP_TEST_HARNESS;
-    delete process.env.LOOP_TEST_ARGV;
+    delete process.env.LOOP55_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_ARGV;
     rmSync(dir, { recursive: true, force: true });
   }
 });
 test("subscription conflicts are rejected without changing the environment", () => {
-  process.env.LOOP_TEST_CONFLICT = "not-a-real-key";
+  process.env.LOOP55_TEST_CONFLICT = "not-a-real-key";
   assert.throws(
-    () => conflict("subscription", ["LOOP_TEST_CONFLICT"]),
+    () => conflict("subscription", ["LOOP55_TEST_CONFLICT"]),
     /conflicts/,
   );
-  assert.equal(process.env.LOOP_TEST_CONFLICT, "not-a-real-key");
-  conflict("existing", ["LOOP_TEST_CONFLICT"]);
-  delete process.env.LOOP_TEST_CONFLICT;
+  assert.equal(process.env.LOOP55_TEST_CONFLICT, "not-a-real-key");
+  conflict("existing", ["LOOP55_TEST_CONFLICT"]);
+  delete process.env.LOOP55_TEST_CONFLICT;
 });
 
 test("Pi steers only a live turn", async () => {
-  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP55_TEST_HARNESS = "pi";
   const events: AdapterEvent[] = [];
   const adapter = new Pi(
     {
@@ -770,7 +771,7 @@ test("Pi steers only a live turn", async () => {
   );
   try {
     await adapter.start();
-    // Pi would queue this for its next prompt; Loop refuses it instead.
+    // Pi would queue this for its next prompt; Loop55 refuses it instead.
     await assert.rejects(() => adapter.steer("Too early"), /No active Pi turn/);
     await adapter.prompt("wait");
     await until(() => events.some((e) => e.type === "delta"));
@@ -790,11 +791,11 @@ test("Pi steers only a live turn", async () => {
     );
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_HARNESS;
   }
 });
 test("Pi takes back a late steer only when it is the sole queued input", async () => {
-  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP55_TEST_HARNESS = "pi";
   const events: AdapterEvent[] = [];
   const adapter = new Pi(
     {
@@ -825,7 +826,7 @@ test("Pi takes back a late steer only when it is the sole queued input", async (
       assert.ok(notDelivered((result as PromiseRejectedResult).reason));
     }
     assert.deepEqual(await queue(), []);
-    // Queued behind an extension's follow-up: nothing is cleared, and Loop
+    // Queued behind an extension's follow-up: nothing is cleared, and Loop55
     // reports it unconfirmed rather than retryable.
     await assert.rejects(() => adapter.steer("late-behind"), unconfirmed);
     assert.deepEqual(await queue(), [
@@ -839,11 +840,11 @@ test("Pi takes back a late steer only when it is the sole queued input", async (
     assert.deepEqual(await queue(), [["followUp", "extension follow-up"]]);
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_HARNESS;
   }
 });
 test("Pi preserves assistant failures until settled and resets on follow-up", async () => {
-  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP55_TEST_HARNESS = "pi";
   const events: AdapterEvent[] = [];
   const adapter = new Pi(
     {
@@ -887,7 +888,7 @@ test("Pi preserves assistant failures until settled and resets on follow-up", as
     assert(!events.some((e) => e.type === "status" && e.status === "failed"));
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_HARNESS;
   }
 });
 
@@ -900,18 +901,18 @@ test("Claude subscription mode accepts native OAuth and rejects API or unverifie
     "CLAUDE_CODE_USE_BEDROCK",
     "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY",
-    "LOOP_TEST_HARNESS",
-    "LOOP_TEST_CLAUDE_AUTH",
-    "LOOP_TEST_CLAUDE_PROVIDER",
-    "LOOP_TEST_CLAUDE_KEY_SOURCE",
-    "LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE",
+    "LOOP55_TEST_HARNESS",
+    "LOOP55_TEST_CLAUDE_AUTH",
+    "LOOP55_TEST_CLAUDE_PROVIDER",
+    "LOOP55_TEST_CLAUDE_KEY_SOURCE",
+    "LOOP55_TEST_CLAUDE_AUTH_KEY_SOURCE",
   ];
   const saved = new Map(variables.map((name) => [name, process.env[name]]));
   for (const name of variables) delete process.env[name];
-  process.env.LOOP_TEST_HARNESS = "claude";
+  process.env.LOOP55_TEST_HARNESS = "claude";
   try {
     for (const auth of ["oauth", "api", "none"]) {
-      process.env.LOOP_TEST_CLAUDE_AUTH = auth;
+      process.env.LOOP55_TEST_CLAUDE_AUTH = auth;
       const adapter = new Claude(
         {
           harness: "claude",
@@ -932,8 +933,8 @@ test("Claude subscription mode accepts native OAuth and rejects API or unverifie
         await adapter.dispose();
       }
     }
-    process.env.LOOP_TEST_CLAUDE_AUTH = "oauth";
-    process.env.LOOP_TEST_CLAUDE_PROVIDER = "bedrock";
+    process.env.LOOP55_TEST_CLAUDE_AUTH = "oauth";
+    process.env.LOOP55_TEST_CLAUDE_PROVIDER = "bedrock";
     const changed = new Claude(
       {
         harness: "claude",
@@ -952,8 +953,8 @@ test("Claude subscription mode accepts native OAuth and rejects API or unverifie
     } finally {
       await changed.dispose();
     }
-    delete process.env.LOOP_TEST_CLAUDE_PROVIDER;
-    process.env.LOOP_TEST_CLAUDE_KEY_SOURCE = "ANTHROPIC_API_KEY";
+    delete process.env.LOOP55_TEST_CLAUDE_PROVIDER;
+    process.env.LOOP55_TEST_CLAUDE_KEY_SOURCE = "ANTHROPIC_API_KEY";
     const settingsKey = new Claude(
       {
         harness: "claude",
@@ -992,8 +993,8 @@ test("Claude subscription mode accepts native OAuth and rejects API or unverifie
     } finally {
       await existingKey.dispose();
     }
-    delete process.env.LOOP_TEST_CLAUDE_KEY_SOURCE;
-    process.env.LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE = "ANTHROPIC_API_KEY";
+    delete process.env.LOOP55_TEST_CLAUDE_KEY_SOURCE;
+    process.env.LOOP55_TEST_CLAUDE_AUTH_KEY_SOURCE = "ANTHROPIC_API_KEY";
     const authKey = new Claude(
       {
         harness: "claude",
@@ -1014,7 +1015,7 @@ test("Claude subscription mode accepts native OAuth and rejects API or unverifie
     } finally {
       await authKey.dispose();
     }
-    delete process.env.LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE;
+    delete process.env.LOOP55_TEST_CLAUDE_AUTH_KEY_SOURCE;
     process.env.ANTHROPIC_API_KEY = "fixture-private-api-key";
     const conflict = new Claude(
       {

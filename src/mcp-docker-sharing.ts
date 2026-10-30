@@ -100,7 +100,7 @@ export class DockerMcpSharing {
       throw new Problem(
         response.status === 404 ? 409 : 502,
         response.status === 404
-          ? "Update this Docker Loop server to share its MCP tools."
+          ? "Update this Docker Loop55 server to share its MCP tools."
           : "Docker tool sharing is unavailable. Try again when the source is running.",
       );
     return (await response.json()) as T;

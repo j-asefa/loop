@@ -6,9 +6,9 @@ import { randomBytes } from "node:crypto";
 import express from "express";
 import { ZodError } from "zod";
 import { PERSONAL_DECISION_RESPONSE_LIMIT, PERSONAL_DECISIONS_PAGE_LIMIT } from "../src/shared/personal-decisions";
-const dir = mkdtempSync(join(tmpdir(), "loop-mobile-return-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-mobile-return-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now, emit } = await import("../src/server/db");
 const { ownedRun, ownedConversation,  createAgent, owned, Problem } = await import("../src/server/domain");
 const { recordConversationUpdate } = await import("../src/server/conversation-updates");
@@ -1189,7 +1189,7 @@ it("scopes the Saved list to a project and to teams like the results feed", asyn
     ).run(f, w.owner, name, parent ? "folder" : "project", parent, now());
     return f;
   };
-  const project = folder("Loop"),
+  const project = folder("Loop55"),
     nested = folder("Docs", project),
     other = folder("Other");
   const team = id();
@@ -1483,7 +1483,7 @@ it("keeps scheduled messages that could not be sent visible until you retry or d
   const other = (
     await api(w.owner, "/scheduled-sends", "POST", { ...body, idempotencyKey: key + "-b" })
   ).data;
-  // The agent is retired before the messages are due: Loop refuses them.
+  // The agent is retired before the messages are due: Loop55 refuses them.
   db.prepare("UPDATE agents SET retired_at=1 WHERE id=?").run(a.id);
   expect(deliverScheduledSends(now() + 120000)).toBe(0);
   const listed = (await api(w.owner, "/scheduled-sends")).data.items;
@@ -1868,7 +1868,7 @@ it("binds a fork to a native agent's backend and carries the copied turns", asyn
     nativeConnection,
     w.owner,
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify({loopHarness:"codex",authMode:"subscription"}),
+    JSON.stringify({loop55Harness:"codex",authMode:"subscription"}),
     now(),
   );
   const native = createAgent(w.owner, {
@@ -1915,7 +1915,7 @@ it("forks a conversation through the chosen message", async () => {
   const fork = await api(w.owner, `/conversations/${cid}/fork`, "POST", { messageId: m2 });
   expect(fork.data.agentId).toBe(a.id);
   const created = db.prepare("SELECT * FROM conversations WHERE id=?").get(fork.data.id) as any;
-  expect(created).toMatchObject({ title: "Fork: Origin", origin: "loop-fork", owner_id: w.owner });
+  expect(created).toMatchObject({ title: "Fork: Origin", origin: "loop55-fork", owner_id: w.owner });
   const copied = db
     .prepare("SELECT content,json_extract(metadata,'$.sourceMessage') source FROM messages WHERE conversation_id=? ORDER BY created_at,rowid")
     .all(fork.data.id);
@@ -1982,7 +1982,7 @@ it("pushes approval requests without their arguments and delivers app messages",
   expect(rows[0]).toMatchObject({
     subscription_id: sid,
     title: `@${a.name} needs your approval`,
-    body: "Open Loop to review the request.",
+    body: "Open Loop55 to review the request.",
     url: "/?conversation=" + cid,
   });
   expect(JSON.stringify(rows)).not.toContain("secret-token");
@@ -2006,7 +2006,7 @@ it("pushes approval requests without their arguments and delivers app messages",
   expect(mine).toEqual([
     {
       title: `@${a.name} needs your approval`,
-      body: "Open Loop to review the request.",
+      body: "Open Loop55 to review the request.",
       tag: "approval-" + approval.id,
       url: "/?conversation=" + cid,
     },

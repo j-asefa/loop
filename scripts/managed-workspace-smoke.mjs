@@ -1,11 +1,12 @@
+import "../deployment/environment.mjs";
 // Real pinned runtime, production container boundaries, no model inference.
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { containerArgs } from "../runtime/container.ts";
-const prefix = "loop-workspace-smoke-" + randomBytes(5).toString("hex");
+const prefix = "loop55-workspace-smoke-" + randomBytes(5).toString("hex");
 const key = randomBytes(32).toString("hex");
-const image = process.env.LOOP_RUNTIME_IMAGE || "loop-runtime:0.2";
+const image = process.env.LOOP55_RUNTIME_IMAGE || "loop55-runtime:0.2";
 const program = `
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
@@ -18,7 +19,7 @@ const child=spawn('codex',['app-server','--stdio','-c','shell_environment_policy
 child.stderr.resume();
 const rpc=new Rpc(child);
 try {
-  await rpc.call('initialize',{clientInfo:{name:'loop_workspace_smoke',version:'1'}});
+  await rpc.call('initialize',{clientInfo:{name:'loop55_workspace_smoke',version:'1'}});
   rpc.send({method:'initialized',params:{}});
   const result=await rpc.call('command/exec',{
     cwd,sandboxPolicy:{type:'dangerFullAccess'},timeoutMs:20000,

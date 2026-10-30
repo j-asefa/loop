@@ -207,14 +207,14 @@ export async function publishRunFile(
   const connection = ownedConnection(snapshot.connectionId, run.owner_id);
   const metadata = connection.metadata;
   const binding =
-    companionMode && metadata.loopHarness
+    companionMode && metadata.loop55Harness
       ? (db
           .prepare(
             "SELECT project FROM companion_sessions WHERE conversation_id=?",
           )
           .get(run.conversation_id) as { project: string } | undefined)
       : undefined;
-  if (metadata.loopHarness && !binding)
+  if (metadata.loop55Harness && !binding)
     throw new Problem(409, "Native workspace unavailable");
   if (!binding && metadata.authMode !== "subscription")
     throw new Problem(

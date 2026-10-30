@@ -415,7 +415,7 @@ export async function markdownModelsSmoke(page, fixture) {
   fixture.db
     .prepare("UPDATE connections SET metadata=?,models=? WHERE id=?")
     .run(
-      JSON.stringify({ loopHarness: "codex", authMode: "subscription" }),
+      JSON.stringify({ loop55Harness: "codex", authMode: "subscription" }),
       JSON.stringify([{ id: "retired-native", name: "Old model" }]),
       codex.id,
     );
@@ -425,7 +425,7 @@ export async function markdownModelsSmoke(page, fixture) {
   fixture.db
     .prepare("UPDATE connections SET metadata=? WHERE id=?")
     .run(
-      JSON.stringify({ loopHarness: "claude", authMode: "subscription" }),
+      JSON.stringify({ loop55Harness: "claude", authMode: "subscription" }),
       second.id,
     );
   let secondRequests = 0,
@@ -677,7 +677,7 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
       dialog()
         .getByRole("status")
         .filter({ hasText: "Markdown definitions are unavailable" }),
-    ).toContainText("Update Loop on that computer");
+    ).toContainText("Update Loop55 on that computer");
     await expect(
       dialog().getByRole("button", {
         name: `New ${kind} definition`,
@@ -742,7 +742,7 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
     await expect(dialog().getByRole("alert")).toContainText(
       "Return to the laptop workspace.",
     );
-    await expect(dialog()).not.toContainText("Update Loop on that computer");
+    await expect(dialog()).not.toContainText("Update Loop55 on that computer");
     await expect(
       dialog().getByRole("button", {
         name: "New agent definition",

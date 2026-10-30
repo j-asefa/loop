@@ -33,7 +33,7 @@ export async function buildSource(root) {
       return { directory: root, stamp, cleanup: async () => {} };
     // Build the named immutable tree, never mutable checkout files after a
     // clean check. New edits during the build cannot change its provenance.
-    directory = await mkdtemp(join(tmpdir(), "loop-build-"));
+    directory = await mkdtemp(join(tmpdir(), "loop55-build-"));
     const archive = execFileSync(
       "git",
       ["-C", root, "archive", "--format=tar", commit],

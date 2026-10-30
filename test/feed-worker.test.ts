@@ -35,11 +35,11 @@ const rss = (titles: string[]) =>
 /** A worker on its own data directory, with the feed network replaced. */
 async function worker(feed: () => Promise<Response>) {
   vi.resetModules();
-  const dir = mkdtempSync(join(tmpdir(), "loop-feed-worker-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-feed-worker-"));
   dirs.push(dir);
-  vi.stubEnv("LOOP_PROFILE", "server");
-  vi.stubEnv("LOOP_DATA_DIR", dir);
-  vi.stubEnv("LOOP_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
+  vi.stubEnv("LOOP55_PROFILE", "server");
+  vi.stubEnv("LOOP55_DATA_DIR", dir);
+  vi.stubEnv("LOOP55_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
   const { db } = await import("../src/server/db");
   const news = await import("../src/server/news");
   const watches = await import("../src/server/feed-watches");

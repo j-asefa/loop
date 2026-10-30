@@ -489,8 +489,8 @@ export class Host {
   }
   private get cookieName() {
     const name = this.origin.startsWith("https:")
-      ? "__Host-loop"
-      : "loop_local";
+      ? "__Host-loop55"
+      : "loop55_local";
     // Cookies ignore ports. Preview identities stay distinct across local hosts and rebuilds.
     return this.workspace?.isolated
       ? `${name}_${hash(resolve(this.dir)).slice(0, 24)}`
@@ -505,8 +505,18 @@ export class Host {
     const token = req.headers.cookie
       ?.split(";")
       .map((x) => x.trim())
-      .find((x) => x.startsWith(this.cookieName + "="))
-      ?.slice(this.cookieName.length + 1);
+      .find(
+        (x) =>
+          x.startsWith(this.cookieName + "=") ||
+          x.startsWith(
+            (this.cookieName === "__Host-loop55"
+              ? "__Host-loop"
+              : "loop_local") + "=",
+          ),
+      )
+      ?.split("=")
+      .slice(1)
+      .join("=");
     if (!token || token.length > 100) return;
     if (this.trust) return this.trust.authenticate(hash(token));
     const device = [...this.devices.values()].find(
@@ -529,8 +539,8 @@ export class Host {
     this.active++;
     res.once("close", () => this.active--);
     // Registration check from the connection service over the private socket.
-    // The relay never forwards /__loop paths from the public listener.
-    if (this.probe && req.url?.startsWith("/__loop/backend-probe?")) {
+    // The relay never forwards /__loop55 paths from the public listener.
+    if (this.probe && req.url?.startsWith("/__loop55/backend-probe?")) {
       const nonce = new URL(req.url, "http://probe").searchParams.get("nonce");
       if (req.method !== "GET" || !nonce || !/^[\w-]{16,100}$/.test(nonce))
         return this.json(res, 400, { error: "Invalid probe" });
@@ -621,7 +631,7 @@ export class Host {
         if (!expiry || expiry <= Date.now())
           return this.json(res, 403, {
             error:
-              "Pairing link expired, invalid or already used. Run loop pair on your desktop.",
+              "Pairing link expired, invalid or already used. Run loop55 pair on your desktop.",
           });
         this.pairs.delete(digest); // Single-use consume and credential creation happen without awaiting.
         if (this.devices.size >= 10)
@@ -674,7 +684,7 @@ export class Host {
         if (
           !["GET", "HEAD"].includes(req.method || "") &&
           (!this.validOrigin(req) ||
-            !equal(String(req.headers["x-loop-csrf"] || ""), device.csrf))
+            !equal(String(req.headers["x-loop55-csrf"] || ""), device.csrf))
         )
           return this.json(res, 403, {
             error: "Workspace authorization rejected.",
@@ -716,7 +726,7 @@ export class Host {
             (path === "/api/mcp-sharing" && req.method !== "GET")
           )
             return this.json(res, 403, {
-              error: "Previews do not connect to other Loop workspaces.",
+              error: "Previews do not connect to other Loop55 workspaces.",
             });
         }
         if (path === "/api/linked-workspaces" && req.method === "GET") {

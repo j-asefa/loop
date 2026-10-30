@@ -16,15 +16,15 @@ const options: Options = {
   version: "1.0.70",
 };
 const requests = () =>
-  readFileSync(process.env.LOOP_TEST_GROK_LOG!, "utf8")
+  readFileSync(process.env.LOOP55_TEST_GROK_LOG!, "utf8")
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
 function log(t: { after(fn: () => void): void }) {
-  const dir = mkdtempSync(join(tmpdir(), "loop-grok-"));
-  process.env.LOOP_TEST_GROK_LOG = join(dir, "requests");
+  const dir = mkdtempSync(join(tmpdir(), "loop55-grok-"));
+  process.env.LOOP55_TEST_GROK_LOG = join(dir, "requests");
   t.after(() => {
-    delete process.env.LOOP_TEST_GROK_LOG;
+    delete process.env.LOOP55_TEST_GROK_LOG;
     rmSync(dir, { recursive: true, force: true });
   });
 }
@@ -127,7 +127,7 @@ test("Grok carries the selected model, private tool bridge and instructions once
   );
   try {
     await resumed.start();
-    // session/load replays history; Loop already has its own display.
+    // session/load replays history; Loop55 already has its own display.
     assert(!replay.some((event) => event.type === "delta"));
     await resumed.prompt("continue");
     await until(() => replay.some((event) => event.type === "request"));
@@ -148,7 +148,7 @@ test("Grok carries the selected model, private tool bridge and instructions once
     await resumed.dispose();
   }
   // A load that replays nothing proves no earlier prompt reached the session.
-  process.env.LOOP_TEST_GROK_EMPTY_LOAD = "1";
+  process.env.LOOP55_TEST_GROK_EMPTY_LOAD = "1";
   const empty = new Grok(
     {
       ...options,
@@ -174,14 +174,14 @@ test("Grok carries the selected model, private tool bridge and instructions once
       "Project instructions\n\nfresh",
     );
   } finally {
-    delete process.env.LOOP_TEST_GROK_EMPTY_LOAD;
+    delete process.env.LOOP55_TEST_GROK_EMPTY_LOAD;
     await empty.dispose();
   }
 });
 
 test("Grok resends instructions after a first turn that did not complete", async (t) => {
   log(t);
-  process.env.LOOP_TEST_GROK_REJECT_PROMPT = "1";
+  process.env.LOOP55_TEST_GROK_REJECT_PROMPT = "1";
   const events: AdapterEvent[] = [];
   const adapter = new Grok(
     { ...options, instructions: "Project instructions" },
@@ -204,7 +204,7 @@ test("Grok resends instructions after a first turn that did not complete", async
       ["Project instructions\n\nfirst", "Project instructions\n\nretry"],
     );
   } finally {
-    delete process.env.LOOP_TEST_GROK_REJECT_PROMPT;
+    delete process.env.LOOP55_TEST_GROK_REJECT_PROMPT;
     await adapter.dispose();
   }
 });
@@ -216,7 +216,7 @@ test("Grok rejects unverifiable subscription policy and redacts a signed-out acc
     () => {},
   );
   await assert.rejects(subscription.start(), /--billing existing/);
-  process.env.LOOP_TEST_GROK_SIGNED_OUT = "1";
+  process.env.LOOP55_TEST_GROK_SIGNED_OUT = "1";
   const adapter = new Grok({ ...options, probeOnly: true }, () => {});
   try {
     await assert.rejects(adapter.start(), (error: Error) => {
@@ -228,7 +228,7 @@ test("Grok rejects unverifiable subscription policy and redacts a signed-out acc
       return true;
     });
   } finally {
-    delete process.env.LOOP_TEST_GROK_SIGNED_OUT;
+    delete process.env.LOOP55_TEST_GROK_SIGNED_OUT;
     await adapter.dispose();
   }
 });

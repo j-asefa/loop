@@ -21,7 +21,7 @@ export function McpApp({
     const f = frame.current!;
     const bridge = new AppBridge(
       null,
-      { name: "Loop", version: "0.1.0" },
+      { name: "Loop55", version: "0.1.0" },
       { serverTools: {}, logging: {} },
     );
     let ready = false;
@@ -41,7 +41,7 @@ export function McpApp({
             {
               type: "text",
               text:
-                "Request queued for explicit approval in Loop Running. Run ID: " +
+                "Request queued for explicit approval in Loop55 Running. Run ID: " +
                 r.id,
             },
           ],
@@ -88,7 +88,7 @@ export function McpApp({
     const timeout = setTimeout(() => {
       if (!ready)
         setStatus(
-          "This app needs capabilities Loop does not grant. Use the saved result below.",
+          "This app needs capabilities Loop55 does not grant. Use the saved result below.",
         );
     }, 7000);
     return () => {
@@ -101,7 +101,7 @@ export function McpApp({
       <p className="field-hint">{status}</p>
       <iframe
         ref={frame}
-        title="MCP app, isolated from Loop"
+        title="MCP app, isolated from Loop55"
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
       />

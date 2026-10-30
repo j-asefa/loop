@@ -43,17 +43,17 @@ async function until(
   }
   assert.fail(message);
 }
-const binary = process.env.LOOP_TEST_PUEUE;
-const daemonBinary = process.env.LOOP_TEST_PUEUED;
+const binary = process.env.LOOP55_TEST_PUEUE;
+const daemonBinary = process.env.LOOP55_TEST_PUEUED;
 const quiet = { stdio: "ignore" as const, log: () => {} };
 
-test("command shims preserve ordinary commands and classify old and current Loop checks", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-job-classify-"));
+test("command shims preserve ordinary commands and classify old and current Loop55 checks", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop55-job-classify-"));
   try {
     mkdirSync(join(dir, "scripts"));
     writeFileSync(
       join(dir, "package.json"),
-      JSON.stringify({ name: "loop", repository: "github:j-asefa/loop" }),
+      JSON.stringify({ name: "loop55", repository: "github:j-asefa/loop55" }),
     );
     assert.equal(
       classifyCommand("npm", ["run", "smoke:design"], dir).label,
@@ -289,27 +289,27 @@ test("command shims preserve ordinary commands and classify old and current Loop
 });
 
 test("native commands discard automatic queue settings and wrappers while preserving protocol descriptors", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-job-fds-"));
-  const savedShims = process.env.LOOP_JOB_SHIMS;
+  const dir = mkdtempSync(join(tmpdir(), "loop55-job-fds-"));
+  const savedShims = process.env.LOOP55_JOB_SHIMS;
   try {
     const shim = join(dir, "node");
     writeFileSync(shim, "#!/bin/sh\nexit 99\n", { mode: 0o700 });
-    process.env.LOOP_JOB_SHIMS = dir;
+    process.env.LOOP55_JOB_SHIMS = dir;
     const child = spawnNative(
       "node",
       [
         "-e",
-        "const a=require('assert/strict'); for(const key of ['LOOP_JOB_QUEUE_CONFIG','LOOP_JOB_SHIMS','LOOP_JOB_ACTIVE']) a.equal(process.env[key],undefined); a.equal(process.env.LOOP_HEAVY_SCHEDULING,'off'); require('fs').writeSync(3, String(process.pid)); process.exit(7)",
+        "const a=require('assert/strict'); for(const key of ['LOOP55_JOB_QUEUE_CONFIG','LOOP55_JOB_SHIMS','LOOP55_JOB_ACTIVE']) a.equal(process.env[key],undefined); a.equal(process.env.LOOP55_HEAVY_SCHEDULING,'off'); require('fs').writeSync(3, String(process.pid)); process.exit(7)",
       ],
       {
         stdio: ["ignore", "ignore", "pipe", "pipe"],
         env: {
           ...process.env,
           PATH: dir + "/:" + process.env.PATH,
-          LOOP_JOB_SHIMS: dir,
-          LOOP_JOB_QUEUE_CONFIG: join(dir, "missing.json"),
-          LOOP_JOB_ACTIVE: "stale",
-          LOOP_HEAVY_SCHEDULING: "on",
+          LOOP55_JOB_SHIMS: dir,
+          LOOP55_JOB_QUEUE_CONFIG: join(dir, "missing.json"),
+          LOOP55_JOB_ACTIVE: "stale",
+          LOOP55_HEAVY_SCHEDULING: "on",
         },
       },
     );
@@ -324,14 +324,14 @@ test("native commands discard automatic queue settings and wrappers while preser
     assert.equal(code, 7, errors);
     assert.equal(Number(protocol), child.pid);
   } finally {
-    if (savedShims === undefined) delete process.env.LOOP_JOB_SHIMS;
-    else process.env.LOOP_JOB_SHIMS = savedShims;
+    if (savedShims === undefined) delete process.env.LOOP55_JOB_SHIMS;
+    else process.env.LOOP55_JOB_SHIMS = savedShims;
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("Node test options cannot bypass a configured unavailable queue through the host shim", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-job-node-options-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-job-node-options-"));
   try {
     const shim = join(dir, "node"),
       marker = join(dir, "must-not-run"),
@@ -373,7 +373,7 @@ test("Node test options cannot bypass a configured unavailable queue through the
 });
 
 test("package manager options and implicit CI Vitest runs cannot bypass an unavailable queue", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-job-tool-options-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-job-tool-options-"));
   try {
     const marker = join(dir, "must-not-run"),
       command = join(dir, "underlying");
@@ -422,7 +422,7 @@ test("package manager options and implicit CI Vitest runs cannot bypass an unava
 });
 
 test("forwarded npm probes stay available when the queue is unavailable", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-job-npm-probes-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-job-npm-probes-"));
   try {
     const marker = join(dir, "arguments"),
       command = join(dir, "underlying"),
@@ -499,7 +499,7 @@ test("watch classification follows Vitest parsing while preserving Node and Comm
 });
 
 test("test runners forward watch and pattern options without consulting the queue", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-job-runner-options-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-job-runner-options-"));
   try {
     const marker = join(dir, "watch-invoked");
     mkdirSync(join(dir, "node_modules/vitest"), { recursive: true });
@@ -511,9 +511,9 @@ test("test runners forward watch and pattern options without consulting the queu
     );
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      LOOP_JOB_QUEUE_CONFIG: join(dir, "missing.json"),
+      LOOP55_JOB_QUEUE_CONFIG: join(dir, "missing.json"),
     };
-    delete env.LOOP_JOB_ACTIVE;
+    delete env.LOOP55_JOB_ACTIVE;
     for (const [suite, option] of [
       ["vitest", "--testNamePattern"],
       ["native", "--test-name-pattern"],
@@ -555,7 +555,7 @@ test("test runners forward watch and pattern options without consulting the queu
 });
 
 test("the bounded compiler still rejects real TypeScript errors", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-job-types-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-job-types-"));
   try {
     writeFileSync(
       join(dir, "bad.ts"),
@@ -581,9 +581,9 @@ test("the bounded compiler still rejects real TypeScript errors", () => {
 });
 
 test("an explicit job fails when its queue is unavailable without running the command", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-job-offline-"));
-  const saved = process.env.LOOP_JOB_QUEUE_CONFIG;
-  const active = process.env.LOOP_JOB_ACTIVE;
+  const dir = mkdtempSync(join(tmpdir(), "loop55-job-offline-"));
+  const saved = process.env.LOOP55_JOB_QUEUE_CONFIG;
+  const active = process.env.LOOP55_JOB_ACTIVE;
   try {
     const config = join(dir, "config.json"),
       marker = join(dir, "must-not-start");
@@ -593,16 +593,16 @@ test("an explicit job fails when its queue is unavailable without running the co
         pueue: join(dir, "missing"),
         config: join(dir, "pueue.yml"),
         jobs: join(dir, "jobs"),
-        group: "loop-heavy",
+        group: "loop55-heavy",
       }),
     );
-    process.env.LOOP_JOB_QUEUE_CONFIG = config;
+    process.env.LOOP55_JOB_QUEUE_CONFIG = config;
     // Explicit submission still requires the queue; ordinary checks do not.
     await assert.rejects(
       runQueuedJob(process.execPath, ["-e", "process.exit(0)"], quiet),
     );
-    process.env.LOOP_JOB_QUEUE_CONFIG = join(dir, "missing-config.json");
-    delete process.env.LOOP_JOB_ACTIVE;
+    process.env.LOOP55_JOB_QUEUE_CONFIG = join(dir, "missing-config.json");
+    delete process.env.LOOP55_JOB_ACTIVE;
     await assert.rejects(
       runQueuedJob(
         process.execPath,
@@ -615,10 +615,10 @@ test("an explicit job fails when its queue is unavailable without running the co
     );
     assert.equal(existsSync(marker), false);
   } finally {
-    if (saved === undefined) delete process.env.LOOP_JOB_QUEUE_CONFIG;
-    else process.env.LOOP_JOB_QUEUE_CONFIG = saved;
-    if (active === undefined) delete process.env.LOOP_JOB_ACTIVE;
-    else process.env.LOOP_JOB_ACTIVE = active;
+    if (saved === undefined) delete process.env.LOOP55_JOB_QUEUE_CONFIG;
+    else process.env.LOOP55_JOB_QUEUE_CONFIG = saved;
+    if (active === undefined) delete process.env.LOOP55_JOB_ACTIVE;
+    else process.env.LOOP55_JOB_ACTIVE = active;
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -627,13 +627,13 @@ test(
   "real Pueue queue preserves execution ownership and makes progress after failures",
   { skip: !binary || !daemonBinary, timeout: 120000 },
   async (t) => {
-    const dir = mkdtempSync(join(tmpdir(), "loop-job-real-"));
-    const saved = process.env.LOOP_JOB_QUEUE_CONFIG;
+    const dir = mkdtempSync(join(tmpdir(), "loop55-job-real-"));
+    const saved = process.env.LOOP55_JOB_QUEUE_CONFIG;
     const config: JobConfiguration = {
       pueue: binary!,
       config: join(dir, "pueue.yml"),
       jobs: join(dir, "controls"),
-      group: "loop-heavy",
+      group: "loop55-heavy",
       commands: { node: process.execPath },
     };
     const configPath = join(dir, "jobs.json"),
@@ -650,7 +650,7 @@ test(
       { mode: 0o600 },
     );
     writeFileSync(configPath, JSON.stringify(config), { mode: 0o600 });
-    process.env.LOOP_JOB_QUEUE_CONFIG = configPath;
+    process.env.LOOP55_JOB_QUEUE_CONFIG = configPath;
     let daemon: ChildProcess;
     async function start() {
       daemon = spawn(daemonBinary!, ["--config", config.config], {
@@ -929,7 +929,7 @@ test(
               ]) +
               ",{stdio:'ignore',timeout:5000" +
               (clean
-                ? ",env:{PATH:process.env.PATH,LOOP_JOB_QUEUE_CONFIG:process.env.LOOP_JOB_QUEUE_CONFIG}"
+                ? ",env:{PATH:process.env.PATH,LOOP55_JOB_QUEUE_CONFIG:process.env.LOOP55_JOB_QUEUE_CONFIG}"
                 : "") +
               "});process.exit(r.status ?? 99)";
             assert.equal(await run(code), 17);
@@ -1397,8 +1397,8 @@ test(
         daemon!.kill("SIGTERM");
         await closed;
       }
-      if (saved === undefined) delete process.env.LOOP_JOB_QUEUE_CONFIG;
-      else process.env.LOOP_JOB_QUEUE_CONFIG = saved;
+      if (saved === undefined) delete process.env.LOOP55_JOB_QUEUE_CONFIG;
+      else process.env.LOOP55_JOB_QUEUE_CONFIG = saved;
       rmSync(dir, { recursive: true, force: true });
     }
   },

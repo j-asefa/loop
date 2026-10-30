@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-github-pulls-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-github-pulls-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { errorHandler } = await import("../src/server/error-handler");
@@ -280,7 +280,7 @@ const restoreGithub = withGithubFixture(async (url, init) => {
       headers.accept !== "application/vnd.github.raw+json"
     )
       return json({ message: "Not Found" }, 404);
-    // GitHub's own content type is never what Loop serves.
+    // GitHub's own content type is never what Loop55 serves.
     return new Response(
       body === "huge" ? "x" : new Uint8Array(Buffer.from(body)),
       {
@@ -424,7 +424,7 @@ it("lists your open pull requests with every filter's count", async () => {
   expect([...github.authorizations]).toEqual(["Bearer gh-secret"]);
   expect(JSON.stringify(result.data)).not.toContain("gh-secret");
   expect((await api("/github/pulls?repo=not a repo")).status).toBe(400);
-  // Another Loop account never reads with your connection.
+  // Another Loop55 account never reads with your connection.
   expect(
     (await api("/github/pulls", "GET", undefined, "mallory")).data,
   ).toEqual({

@@ -12,11 +12,14 @@ if (process.argv[2] === "--version") {
   process.exit(0);
 }
 if (process.argv[2] !== "serve") process.exit(91);
-const dir = process.env.LOOP_TEST_MUSE_DIR || process.cwd();
+const dir = process.env.LOOP55_TEST_MUSE_DIR || process.cwd();
 const credential = dir + "/muse-credential.json";
 const log = (value) =>
-  process.env.LOOP_TEST_MUSE_LOG &&
-  appendFileSync(process.env.LOOP_TEST_MUSE_LOG, JSON.stringify(value) + "\n");
+  process.env.LOOP55_TEST_MUSE_LOG &&
+  appendFileSync(
+    process.env.LOOP55_TEST_MUSE_LOG,
+    JSON.stringify(value) + "\n",
+  );
 const send = (value) =>
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...value }) + "\n");
 const notify = (method, params) =>
@@ -116,7 +119,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
   }
   const reply = (result) => send({ id: req.id, result });
   if (req.method === "initialize") {
-    granted = process.env.LOOP_TEST_MUSE_NO_MCP
+    granted = process.env.LOOP55_TEST_MUSE_NO_MCP
       ? []
       : (p.capabilities?.requestedCapabilities ?? []);
     reply({
@@ -133,7 +136,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
         JSON.stringify({ state: "apiKey", method: "api", key: p.apiKey }),
         { mode: 0o600 },
       );
-      if (!process.env.LOOP_TEST_MUSE_SILENT_KEY)
+      if (!process.env.LOOP55_TEST_MUSE_SILENT_KEY)
         notify("account/loginCompleted", { outcome: "granted" });
       reply({});
     } else {
@@ -275,7 +278,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
           questions: [],
         },
       });
-      // Complete only when Loop declines this request with userInput/cancel.
+      // Complete only when Loop55 declines this request with userInput/cancel.
       continue;
     }
     if (text.includes("foreign request"))

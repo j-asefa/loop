@@ -16,7 +16,7 @@ export function setDraftOwner(owner: string | undefined) {
   currentOwner = owner || undefined;
 }
 const key = (owner: string, kind: "text" | "files", id: string) =>
-  `loop-draft-${kind}:${owner}:${id}`;
+  `loop55-draft-${kind}:${owner}:${id}`;
 
 /** Unsent text and files for one thread, kept across app restarts. */
 export function threadDraft(

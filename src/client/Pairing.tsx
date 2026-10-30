@@ -84,7 +84,7 @@ export function Pairing({ onDone }: { onDone: () => void }) {
       <div className="auth-story">
         <div className="wordmark">
           <Orbit />
-          loop
+          loop55
           <span className="wordmark-dot" />
         </div>
         <div>
@@ -112,12 +112,12 @@ export function Pairing({ onDone }: { onDone: () => void }) {
             onClick={() => void pair()}
             disabled={busy}
           >
-            {busy ? "Pairing…" : "Pair and open Loop"}
+            {busy ? "Pairing…" : "Pair and open Loop55"}
           </button>
         ) : (
           <p className="note">
-            Run <code>loop pair</code> on your desktop and scan the new QR code.
-            No Loop account is needed.
+            Run <code>loop55 pair</code> on your desktop and scan the new QR
+            code. No Loop55 account is needed.
           </p>
         )}
         {error && (

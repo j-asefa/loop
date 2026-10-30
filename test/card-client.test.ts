@@ -33,7 +33,7 @@ it.each(["server", "companion", "multi-user"] as const)(
         const credentials: Record<string, string> = {
           OwnerSession: fixture.browser.cookie,
           PairedDevice: fixture.browser.cookie,
-          PairedCsrf: fixture.browser["x-loop-csrf"],
+          PairedCsrf: fixture.browser["x-loop55-csrf"],
         };
         // Non-browser requests supply exactly the header names/values declared
         // by the chosen security alternative, without rewriting cookie names.
@@ -78,7 +78,7 @@ it.each(["server", "companion", "multi-user"] as const)(
       ).toBe(403);
       if (mode === "companion") {
         const withoutCsrf: Record<string, string> = { ...createHeaders };
-        delete withoutCsrf["x-loop-csrf"];
+        delete withoutCsrf["x-loop55-csrf"];
         expect(
           (
             await fixture.request("/api/card-tokens", {
@@ -504,7 +504,7 @@ it("generates a schema with resolvable references and the runtime read/managemen
       contract.method === "ALL" ? "post" : contract.method.toLowerCase();
     expect(spec.paths[path][method].operationId).toBe(key);
     if (contract.method === "ALL")
-      expect(spec.paths[path][method]["x-loop-method"]).toBe("ALL");
+      expect(spec.paths[path][method]["x-loop55-method"]).toBe("ALL");
   }
   expect(spec.paths["/api/bootstrap"].get.security).toEqual([
     { IntegrationBearer: [] },
@@ -563,8 +563,8 @@ it("generates a schema with resolvable references and the runtime read/managemen
     expect(spec.paths["/api" + path].get.security).toEqual([]);
   for (const path of ["/mcp/federation", "/mcp/reverse"]) {
     const operation = spec.paths["/api" + path].post;
-    expect(operation["x-loop-method"]).toBe("ALL");
-    expect(operation["x-loop-transport"]).toBe("mcp");
+    expect(operation["x-loop55-method"]).toBe("ALL");
+    expect(operation["x-loop55-transport"]).toBe("mcp");
     expect(operation.security).toEqual([{ FederationBearer: [] }]);
     expect(operation.responses.default).toBeDefined();
     expect(operation.responses[400]).toBeUndefined();

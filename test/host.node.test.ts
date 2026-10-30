@@ -1,4 +1,4 @@
-process.env.LOOP_PROFILE = "companion";
+process.env.LOOP55_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -42,10 +42,10 @@ async function until(fn: () => boolean) {
 }
 
 test("authenticated WS journey: atomic pairing, CSRF, native dedupe, replay, approval races, revoke", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-host-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-host-"));
   const audit = join(dir, "audit");
-  process.env.LOOP_TEST_HARNESS = "codex";
-  process.env.LOOP_TEST_AUDIT = audit;
+  process.env.LOOP55_TEST_HARNESS = "codex";
+  process.env.LOOP55_TEST_AUDIT = audit;
   const host = new Host(dir, initial);
   host.adapter = new Codex(
     {
@@ -213,13 +213,13 @@ test("authenticated WS journey: atomic pairing, CSRF, native dedupe, replay, app
     await host.adapter.dispose();
     await host.close();
     await rm(dir, { recursive: true, force: true });
-    delete process.env.LOOP_TEST_AUDIT;
-    delete process.env.LOOP_TEST_HARNESS;
+    delete process.env.LOOP55_TEST_AUDIT;
+    delete process.env.LOOP55_TEST_HARNESS;
   }
 });
 
 test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentication", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-cookie-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-cookie-"));
   const host = new Host(dir, initial);
   host.workspace = {
     http: (_req, res) => {
@@ -255,6 +255,15 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
     assert.deepEqual(await paired.json(), { paired: true });
     const cookie = paired.headers.get("set-cookie")!.split(";")[0];
     const token = cookie.slice(cookie.indexOf("=") + 1);
+    assert.equal(
+      (
+        await fetch(host.origin + "/session", {
+          headers: { cookie: cookie.replace(/^loop55_local=/, "loop_local=") },
+        })
+      ).status,
+      200,
+      "the original paired-device cookie remains valid after the rename",
+    );
     assert(
       !(await readFile(join(dir, "devices.json"), "utf8")).includes(token),
     );
@@ -277,18 +286,18 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
         await write({
           ...auth,
           Origin: host.origin,
-          "x-loop-csrf": session.csrf,
+          "x-loop55-csrf": session.csrf,
         })
       ).status,
       403,
     );
     assert.equal((await write({ cookie, Origin: host.origin })).status, 403);
     assert.equal(
-      (await write({ cookie, "x-loop-csrf": session.csrf })).status,
+      (await write({ cookie, "x-loop55-csrf": session.csrf })).status,
       403,
     );
     assert.equal(
-      (await write({ cookie, ...auth, "x-loop-csrf": session.csrf })).status,
+      (await write({ cookie, ...auth, "x-loop55-csrf": session.csrf })).status,
       403,
     );
     assert.equal(
@@ -296,7 +305,7 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
         await write({
           cookie,
           Origin: "https://evil.example",
-          "x-loop-csrf": session.csrf,
+          "x-loop55-csrf": session.csrf,
         })
       ).status,
       403,
@@ -306,7 +315,7 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
         await write({
           cookie,
           Origin: host.origin,
-          "x-loop-csrf": session.csrf,
+          "x-loop55-csrf": session.csrf,
         })
       ).status,
       200,
@@ -348,7 +357,7 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
 });
 
 test("malformed pairing requests count toward the pairing rate limit", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-pair-limit-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-pair-limit-"));
   const host = new Host(dir, initial);
   try {
     await host.listen();
@@ -370,7 +379,7 @@ test("malformed pairing requests count toward the pairing rate limit", async () 
 });
 
 test("state retention and durable unknown command outcomes never imply a retry", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-state-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-state-"));
   try {
     const state = new State(dir, initial);
     const id = randomUUID();
@@ -419,7 +428,7 @@ test("stopping during helper lookup cancels tunnel startup", async () => {
   };
   const assetHash = assetHashes[`${process.platform}-${process.arch}`];
   if (!assetHash) return;
-  const dir = await mkdtemp(join(tmpdir(), "loop-tunnel-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-tunnel-"));
   try {
     const helperDir = join(dir, "helpers", "2026.9.3");
     await mkdir(helperDir, { recursive: true });
@@ -443,7 +452,7 @@ test("stopping during helper lookup cancels tunnel startup", async () => {
 });
 
 test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-pair-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-pair-"));
   const host = new Host(dir, initial);
   const now = Date.now;
   try {
@@ -509,7 +518,7 @@ test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", asyn
     );
     assert.equal(response.status, 200);
     const cookie = response.cookie;
-    assert(cookie.startsWith("__Host-loop="));
+    assert(cookie.startsWith("__Host-loop55="));
     assert(cookie.includes("Secure;"));
     assert(cookie.includes("SameSite=Lax"));
     Date.now = () => now() + 366 * 86400000;
@@ -530,7 +539,7 @@ test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", asyn
 });
 
 test("device trust survives restart; explicit revocation survives the next restart", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-device-restart-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-device-restart-"));
   let host = new Host(dir, initial);
   try {
     await host.listen();
@@ -576,7 +585,7 @@ test("device trust survives restart; explicit revocation survives the next resta
 });
 
 test("device renewal persists but cannot exceed its fixed maximum lifetime", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-device-cap-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-device-cap-"));
   let host = new Host(dir, initial);
   try {
     await host.listen();

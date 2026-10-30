@@ -41,7 +41,7 @@ export function installDaemonLog(path: string, maxBytes = LOG_MAX_BYTES) {
       // once another maxBytes has been written.
       writeSync(
         fd,
-        `Loop: could not rotate ${path} (${(e as Error).message}); logging continues in the current file.\n`,
+        `Loop55: could not rotate ${path} (${(e as Error).message}); logging continues in the current file.\n`,
       );
     }
   };
@@ -328,7 +328,7 @@ export async function terminateWorkspace(
   return { unresolved, survivors: running().map((t) => t.pid) };
 }
 
-// Written only by `loop stop`, so it outlives the workspace's own registry
+// Written only by `loop55 stop`, so it outlives the workspace's own registry
 // (children.json), which a restarted workspace also starts afresh.
 const STOP_RECORDS = "stop-records.json";
 async function readRecords(path: string) {
@@ -351,7 +351,7 @@ export async function recordedChildren(dir: string) {
     ...(await readRecords(join(dir, "children.json"))),
     ...(await readRecords(join(dir, STOP_RECORDS))),
     // A companion worker owns detached native children in its own registry.
-    // Keep them reachable by loop stop even if both API and worker crashed.
+    // Keep them reachable by loop55 stop even if both API and worker crashed.
     ...(await readRecords(join(dir, "execution", "children.json"))),
     ...(await readRecords(join(dir, "execution", STOP_RECORDS))),
   ];
@@ -366,7 +366,7 @@ export async function recordedChildren(dir: string) {
   });
 }
 
-/** The workspace is gone, but these records stay for a later `loop stop`. */
+/** The workspace is gone, but these records stay for a later `loop55 stop`. */
 export async function keepUnresolved(dir: string, records: Recorded[]) {
   atomic(join(dir, STOP_RECORDS), records);
   await Promise.all(
@@ -387,7 +387,7 @@ export async function forgetWorkspace(dir: string) {
     )
   )
     throw new Error(
-      "Recorded processes remain unconfirmed. Their records were kept; run loop stop again.",
+      "Recorded processes remain unconfirmed. Their records were kept; run loop55 stop again.",
     );
   await Promise.all(
     [

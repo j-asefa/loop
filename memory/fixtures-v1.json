@@ -98,13 +98,13 @@
   [
     "operations",
     "backup",
-    "Application backups include Loop SQLite, the HAPI store and memory tombstones.",
+    "Application backups include Loop55 SQLite, the HAPI store and memory tombstones.",
     "What must an application recovery backup contain?"
   ],
   [
     "operations",
     "outage",
-    "During worker outages Loop serves stored messages and leaves new work queued.",
+    "During worker outages Loop55 serves stored messages and leaves new work queued.",
     "What happens to new prompts while execution is offline?"
   ],
   [

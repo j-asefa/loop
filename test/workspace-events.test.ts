@@ -499,7 +499,7 @@ for (const mode of ["server", "companion"] as const) {
 it("negotiates v3 through the paired Docker proxy into a compiled source server", async () => {
   const remote = await fixture("server");
   seed(remote);
-  const directory = mkdtempSync(join(tmpdir(), "loop-v3-docker-"));
+  const directory = mkdtempSync(join(tmpdir(), "loop55-v3-docker-"));
   const priorPath = process.env.PATH;
   const container = "a".repeat(64);
   try {
@@ -557,9 +557,9 @@ it("negotiates v3 through the paired Docker proxy into a compiled source server"
       WorkspaceFrameV3.parse({ ...directReset, serverNow: 0 }),
     );
     const snapshot = await paired.request(`/api/agent-sources/${encodeURIComponent("docker:" + sources[0].id)}/feed`, { headers: paired.browser });
-    expect(snapshot.headers.get("x-loop-change-epoch")).toBe(linked.frames[0].epoch);
-    expect(snapshot.headers.get("x-loop-next-deadline")).toBe("null");
-    expect(Number(snapshot.headers.get("x-loop-server-now"))).toBeGreaterThan(Date.now() - 5000);
+    expect(snapshot.headers.get("x-loop55-change-epoch")).toBe(linked.frames[0].epoch);
+    expect(snapshot.headers.get("x-loop55-next-deadline")).toBe("null");
+    expect(Number(snapshot.headers.get("x-loop55-server-now"))).toBeGreaterThan(Date.now() - 5000);
     expect(linked.frames[0].capabilities).toEqual(
       COMPLETE_WORKSPACE_CAPABILITIES,
     );
@@ -607,7 +607,7 @@ it.each(["secret", "routing"] as const)("revokes a connection with invalid %s th
   const f = await fixture("server");
   const socket = connect(f, "?v=3&clock=1");
   await expect.poll(() => socket.frames.length).toBe(1);
-  const metadata = invalid === "routing" ? '{"loopHarness":false}' : '{}';
+  const metadata = invalid === "routing" ? '{"loop55Harness":false}' : '{}';
   f.db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('status-connection',?,'openai','Fixture',?,'connected',?,1)").run(f.owner, invalid === "secret" ? "must stay secret" : f.fixtureSecret, metadata);
   const response = await f.request("/api/connections/status-connection", { method: "DELETE", headers: f.browser });
   expect(response.status).toBe(200);

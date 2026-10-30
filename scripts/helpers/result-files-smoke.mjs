@@ -16,7 +16,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
     .prepare("SELECT * FROM agents WHERE id=?")
     .get(original.agent_id);
   const source =
-    "| Feature | What ACP could let us surface | Difference from Loop today |\n| --- | --- | --- |\n| Live plans | A checklist with pending, active and completed steps that updates as the agent works. | Loop's native event model has no dedicated plan representation. |\n| Streaming updates | Readable intermediate messages and progress from the agent. | The final column stays readable while scrolling horizontally. |";
+    "| Feature | What ACP could let us surface | Difference from Loop55 today |\n| --- | --- | --- |\n| Live plans | A checklist with pending, active and completed steps that updates as the agent works. | Loop55's native event model has no dedicated plan representation. |\n| Streaming updates | Readable intermediate messages and progress from the agent. | The final column stays readable while scrolling horizontally. |";
   const fileId = randomUUID(),
     callId = randomUUID();
   const bytes = Buffer.from(
@@ -157,7 +157,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
         assert.equal(
           page.url(),
           url,
-          "Previewing a file must not navigate away from Loop",
+          "Previewing a file must not navigate away from Loop55",
         );
         await capture(`in-app-file-preview-${theme}-${width}`);
         await dialog()
@@ -322,7 +322,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
     const replyDraft = "Keep my reply while I preview the mockups";
     await page.evaluate(
       ({ id, draft }) => {
-        sessionStorage.setItem("loop-result-reply-" + id, draft);
+        sessionStorage.setItem("loop55-result-reply-" + id, draft);
       },
       { id: original.id, draft: replyDraft },
     );
@@ -348,7 +348,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
     await expect(page.locator("dialog[open]")).toHaveCount(1);
     await expect(composer.getByLabel("Reply to agent")).toHaveValue(replyDraft);
     const replyContext = await page.evaluate(() =>
-      sessionStorage.getItem("loop-draft-context"),
+      sessionStorage.getItem("loop55-draft-context"),
     );
     await closeThread();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
@@ -374,7 +374,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
       composer.getByRole("region", { name: "Original message" }),
     ).toContainText("Live plans");
     assert.equal(
-      await page.evaluate(() => sessionStorage.getItem("loop-draft-context")),
+      await page.evaluate(() => sessionStorage.getItem("loop55-draft-context")),
       replyContext,
     );
     await composer.getByLabel("Reply to agent").fill("");
@@ -383,7 +383,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
     await closeThread();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     await page.evaluate(
-      (id) => sessionStorage.removeItem("loop-result-reply-" + id),
+      (id) => sessionStorage.removeItem("loop55-result-reply-" + id),
       original.id,
     );
     // Real result entry points (here a project's activity) start below the

@@ -30,7 +30,7 @@ export async function sourceConversationBrowser(
       owner_id: record.agent.owner_id,
       agent_id: record.agent.id,
       title: record.thread.title,
-      origin: "loop",
+      origin: "loop55",
       external_id: null,
       created_at: record.thread.last_activity_at,
       team_id: null,
@@ -162,7 +162,7 @@ export async function sourceConversationBrowser(
   const close = async () => {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
   };
   try {
     // Reading a linked host's card fetches its message from that same host,
@@ -218,7 +218,7 @@ export async function sourceConversationBrowser(
       ([away, back]) => {
         for (const url of [away, back])
           navigator.serviceWorker.dispatchEvent(
-            new MessageEvent("message", { data: { type: "loop-open", url } }),
+            new MessageEvent("message", { data: { type: "loop55-open", url } }),
           );
       },
       [away.toString(), back.toString()],
@@ -432,7 +432,7 @@ export async function sourceConversationBrowser(
     await page.evaluate(
       (url) =>
         navigator.serviceWorker.dispatchEvent(
-          new MessageEvent("message", { data: { type: "loop-open", url } }),
+          new MessageEvent("message", { data: { type: "loop55-open", url } }),
         ),
       notification.toString(),
     );
@@ -523,7 +523,7 @@ export async function sourceConversationBrowser(
       "@" + local.agent.name,
     );
     assert.equal(
-      await page.evaluate(() => history.state.loopShellSource),
+      await page.evaluate(() => history.state.loop55ShellSource),
       sources[0].id,
     );
     await close();

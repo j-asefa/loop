@@ -94,7 +94,7 @@ function PersonalApprovalSheet({
             <h3>{item.title}</h3>
             <p>
               Full approval details are not available on this workspace yet.
-              Update Loop on that workspace to reopen the full request here.
+              Update Loop55 on that workspace to reopen the full request here.
             </p>
           </div>
         )}
@@ -288,7 +288,7 @@ export function PersonalDecisions({
       const sources = (event as CustomEvent<{ sources?: string[] }>).detail
         ?.sources;
       if (sources && !sources.includes(source)) return;
-      if (event.type === "loop-refresh") {
+      if (event.type === "loop55-refresh") {
         refreshImmediately = true;
         refreshAfter = 0;
         clearTimeout(timer);
@@ -310,7 +310,7 @@ export function PersonalDecisions({
       source,
     );
     const stopMetadata = listenWorkspaceChanges("metadata", refresh, source);
-    window.addEventListener("loop-refresh", refresh);
+    window.addEventListener("loop55-refresh", refresh);
     setPage(empty);
     void load();
     return () => {
@@ -318,7 +318,7 @@ export function PersonalDecisions({
       clearTimeout(timer);
       stop();
       stopMetadata();
-      window.removeEventListener("loop-refresh", refresh);
+      window.removeEventListener("loop55-refresh", refresh);
     };
   }, [call, source, supported, kind, generation]);
   if (!supported)
@@ -329,7 +329,7 @@ export function PersonalDecisions({
       >
         <p>
           Approval and answer history is not available on this workspace yet.
-          Update Loop on that workspace to view it.
+          Update Loop55 on that workspace to view it.
         </p>
       </section>
     );

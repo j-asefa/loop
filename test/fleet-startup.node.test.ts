@@ -27,7 +27,7 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
       `
       const { db } = await import('./src/server/db.ts');
       let refused = false, lifecycle, workspaceServices = false;
-      if (process.env.LOOP_TEST_FLEET_IDENTITY_ONLY === '1') {
+      if (process.env.LOOP55_TEST_FLEET_IDENTITY_ONLY === '1') {
         const { initializeFleetIdentity } = await import('./src/server/fleet-identity.ts');
         const { seal, unseal } = await import('./src/server/secrets.ts');
         initializeFleetIdentity(db, { seal, unseal });
@@ -35,12 +35,12 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
         const { WorkspaceHost } = await import('./src/workspace-host.ts');
         const options = {
           harness: 'codex', executable: process.execPath,
-          project: process.env.LOOP_DATA_DIR, version: 'fixture', billing: 'existing'
+          project: process.env.LOOP55_DATA_DIR, version: 'fixture', billing: 'existing'
         };
-        const host = new WorkspaceHost(process.env.LOOP_DATA_DIR, options,
-          process.env.LOOP_TEST_FLEET_WORKER === '1' ? { open: async () => {}, schedule: async () => {}, close: async () => {} } : undefined);
+        const host = new WorkspaceHost(process.env.LOOP55_DATA_DIR, options,
+          process.env.LOOP55_TEST_FLEET_WORKER === '1' ? { open: async () => {}, schedule: async () => {}, close: async () => {} } : undefined);
         workspaceServices = !!host.fleetWorkspace && !!host.gateway.workspace.sources && !!host.gateway.workspace.fleetCommandsHttp;
-        if (process.env.LOOP_TEST_FLEET_WORKER === '1') {
+        if (process.env.LOOP55_TEST_FLEET_WORKER === '1') {
           if (!host.fleetDistribution) throw new Error('Missing directory worker');
           // Stub unrelated Docker discovery; exercise the actual gateway start,
           // worker scheduler, empty outbox read and gateway shutdown.
@@ -56,8 +56,8 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
           lifecycle = { started: stoppedAt > 0, stopped: stoppedAt === ticks };
         }
       } catch (error) {
-        if (process.env.LOOP_PROFILE !== 'server') throw error;
-        refused = /requires LOOP_PROFILE=companion/.test(error.message);
+        if (process.env.LOOP55_PROFILE !== 'server') throw error;
+        refused = /requires LOOP55_PROFILE=companion/.test(error.message);
         if (!refused) throw error;
       }
       console.log(JSON.stringify({
@@ -78,13 +78,13 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
       env: {
         ...Object.fromEntries(
           Object.entries(process.env).filter(
-            ([key]) => !key.startsWith("LOOP_"),
+            ([key]) => !key.startsWith("LOOP55_"),
           ),
         ),
-        LOOP_DATA_DIR: directory,
-        LOOP_PROFILE: "companion",
-        LOOP_ENCRYPTION_KEY: "ab".repeat(32),
-        LOOP_PREVIEW_MANIFEST: "",
+        LOOP55_DATA_DIR: directory,
+        LOOP55_PROFILE: "companion",
+        LOOP55_ENCRYPTION_KEY: "ab".repeat(32),
+        LOOP55_PREVIEW_MANIFEST: "",
         BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
         GITHUB_CLIENT_ID: "",
         GITHUB_CLIENT_SECRET: "",
@@ -97,9 +97,9 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
 }
 
 test("companion gateway startup keeps machine identity across process and origin changes", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "loop-fleet-startup-"));
+  const directory = mkdtempSync(join(tmpdir(), "loop55-fleet-startup-"));
   try {
-    const first = await startup(directory, { LOOP_ENCRYPTION_KEY: "" });
+    const first = await startup(directory, { LOOP55_ENCRYPTION_KEY: "" });
     const encryptionKey = readFileSync(
       join(directory, "encryption-key"),
       "utf8",
@@ -115,8 +115,8 @@ test("companion gateway startup keeps machine identity across process and origin
     assert.match(first.identities[0].machine_id, /^m_[a-f0-9]{64}$/);
     assert.deepEqual(
       await startup(directory, {
-        LOOP_URL: "https://rotated.example",
-        LOOP_ENCRYPTION_KEY: "",
+        LOOP55_URL: "https://rotated.example",
+        LOOP55_ENCRYPTION_KEY: "",
       }),
       first,
     );
@@ -131,10 +131,10 @@ test("companion gateway startup keeps machine identity across process and origin
 });
 
 test("server profile and isolated preview startup never create fleet signing identities", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "loop-fleet-profile-"));
+  const directory = mkdtempSync(join(tmpdir(), "loop55-fleet-profile-"));
   try {
     const server = await startup(join(directory, "server"), {
-      LOOP_PROFILE: "server",
+      LOOP55_PROFILE: "server",
     });
     assert.equal(server.refused, true);
     assert.equal(server.workers, 0);
@@ -163,9 +163,9 @@ test("server profile and isolated preview startup never create fleet signing ide
       const path = join(data, "preview-owner.json");
       writeFileSync(path, JSON.stringify(manifest));
       const isolated = await startup(data, {
-        LOOP_PREVIEW_MANIFEST: path,
-        LOOP_HOME: home,
-        LOOP_ENCRYPTION_KEY: "",
+        LOOP55_PREVIEW_MANIFEST: path,
+        LOOP55_HOME: home,
+        LOOP55_ENCRYPTION_KEY: "",
       });
       assert.deepEqual(isolated.identities, []);
       assert.equal(isolated.workspaceServices, false);
@@ -177,9 +177,9 @@ test("server profile and isolated preview startup never create fleet signing ide
 });
 
 test("companion gateway starts and stops its directory worker with the runtime lifecycle", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "loop-fleet-lifecycle-"));
+  const directory = mkdtempSync(join(tmpdir(), "loop55-fleet-lifecycle-"));
   try {
-    const result = await startup(directory, { LOOP_TEST_FLEET_WORKER: "1" });
+    const result = await startup(directory, { LOOP55_TEST_FLEET_WORKER: "1" });
     assert.deepEqual(result.lifecycle, { started: true, stopped: true });
     assert.equal(result.workers, 1);
   } finally {
@@ -188,10 +188,10 @@ test("companion gateway starts and stops its directory worker with the runtime l
 });
 
 test("concurrent processes initialize one key and do not revive unreadable signing material", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "loop-fleet-concurrent-"));
+  const directory = mkdtempSync(join(tmpdir(), "loop55-fleet-concurrent-"));
   const options = {
-    LOOP_TEST_FLEET_IDENTITY_ONLY: "1",
-    LOOP_ENCRYPTION_KEY: "",
+    LOOP55_TEST_FLEET_IDENTITY_ONLY: "1",
+    LOOP55_ENCRYPTION_KEY: "",
   };
   try {
     const attempts = await Promise.allSettled([
@@ -210,9 +210,12 @@ test("concurrent processes initialize one key and do not revive unreadable signi
     assert.equal(attempts[0].value.identities.length, 1);
     assert.deepEqual(attempts[0].value, attempts[1].value);
     await assert.rejects(
-      startup(directory, { ...options, LOOP_ENCRYPTION_KEY: "cd".repeat(32) }),
+      startup(directory, {
+        ...options,
+        LOOP55_ENCRYPTION_KEY: "cd".repeat(32),
+      }),
     );
-    const database = new Database(join(directory, "loop.db"));
+    const database = new Database(join(directory, "loop55.db"));
     const original = database
       .prepare("SELECT private_key FROM fleet_machine_identity")
       .get() as { private_key: string };

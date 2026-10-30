@@ -39,7 +39,7 @@ import { useSheetViewport } from "./useSheetViewport";
 import { lockSheetPage } from "./sheet-scroll";
 import { registerSheet } from "./sheetHistory";
 import { ActionSheet, useLongPress, useSwipe } from "./ThreadTools";
-import { FileLink, loopFileUrl } from "./FilePreview";
+import { FileLink, loop55FileUrl } from "./FilePreview";
 import {
   browserPreview,
   compactMarkdown,
@@ -68,10 +68,10 @@ export const providerName = (p?: Provider) =>
                     ? "ChatGPT"
                     : p === "openai"
                       ? "OpenAI API"
-                      : "Loop";
+                      : "Loop55";
 export function Badge({ provider }: { provider?: Provider }) {
   return (
-    <span className={"provider " + (provider || "loop")}>
+    <span className={"provider " + (provider || "loop55")}>
       <span aria-hidden="true">{provider === "anthropic" ? "✳" : "◉"}</span>
       {providerName(provider)}
     </span>
@@ -286,7 +286,7 @@ export const RichText = memo(function RichText({
         return <pre>{children}</pre>;
       },
       a: ({ children, href }) => {
-        const file = loopFileUrl(href, sourceId);
+        const file = loop55FileUrl(href, sourceId);
         return file ? (
           <FileLink url={file}>{children}</FileLink>
         ) : (
@@ -296,7 +296,7 @@ export const RichText = memo(function RichText({
         );
       },
       img: ({ alt, src }) => {
-        const file = loopFileUrl(src, sourceId);
+        const file = loop55FileUrl(src, sourceId);
         return file ? (
           <FileLink url={file} name={alt || "Image preview"}>
             {alt || "View image"}

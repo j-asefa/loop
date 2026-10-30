@@ -12,9 +12,9 @@ import { join } from "node:path";
 const RETIREMENT = "080-retire-hapi-records.sql";
 
 it("retires HAPI records without deleting or replaying anything", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-hapi-retirement-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-hapi-retirement-"));
   try {
-    const db = new Database(join(dir, "loop.db"));
+    const db = new Database(join(dir, "loop55.db"));
     db.exec(
       "CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)",
     );

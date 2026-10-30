@@ -1,3 +1,4 @@
+import "../deployment/environment.mjs";
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
@@ -13,7 +14,7 @@ import { teamPresetsSmoke } from "./helpers/team-presets-smoke.mjs";
 import { markdownDefinitionsSmoke } from "./helpers/markdown-definitions-smoke.mjs";
 
 const notificationsOnly = process.argv.includes("--notifications-only");
-const evidence = process.env.LOOP_LIFECYCLE_EVIDENCE;
+const evidence = process.env.LOOP55_LIFECYCLE_EVIDENCE;
 if (evidence) mkdirSync(evidence, { recursive: true });
 for (const engine of selectedEngines()) {
   const fixture = await designFixture();
@@ -123,7 +124,7 @@ for (const engine of selectedEngines()) {
         });
       await page.route(savedReads, failSaved);
       await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop-later-change")),
+        window.dispatchEvent(new Event("loop55-later-change")),
       );
       await expect(page.getByRole("alert")).toHaveText(
         /Temporary saved refresh failure/,
@@ -133,14 +134,14 @@ for (const engine of selectedEngines()) {
       await expect(card).toBeVisible();
       await page.unroute(savedReads, failSaved);
       await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop-later-change")),
+        window.dispatchEvent(new Event("loop55-later-change")),
       );
       await expect(page.locator(".collection-read-error")).toHaveCount(0);
       await collectionReadRecovery(page, {
         route: savedReads,
         start: () =>
           page.evaluate(() =>
-            window.dispatchEvent(new Event("loop-later-change")),
+            window.dispatchEvent(new Event("loop55-later-change")),
           ),
       });
       await expect(card).toBeVisible();
@@ -154,7 +155,7 @@ for (const engine of selectedEngines()) {
         .run("Live edit stays on the same card.\n\n", saved.id);
       // Refreshing updates cards in place rather than remounting them.
       await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop-later-change")),
+        window.dispatchEvent(new Event("loop55-later-change")),
       );
       await expect(card.locator(".preview")).toContainText(
         "Live edit stays on the same card.",
@@ -629,7 +630,7 @@ for (const engine of selectedEngines()) {
         // same handler when it was installed before this navigation.
         await page.route(shareEndpoint, withoutEffort);
         const share = page.getByRole("dialog", {
-          name: "Bring it into Loop",
+          name: "Bring it into Loop55",
           exact: true,
         });
         await share

@@ -1,4 +1,4 @@
-process.env.LOOP_PROFILE = "companion";
+process.env.LOOP55_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -219,8 +219,8 @@ async function waitForSettlement(adapter: any) {
   assert.equal(adapter.activeTurn, false, "turn must eventually settle");
 }
 
-test("OpenCode's detached server is recorded for a forced loop stop", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-opencode-"));
+test("OpenCode's detached server is recorded for a forced loop55 stop", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "loop55-opencode-"));
   const registry = join(dir, "children.json");
   recordOwnedProcesses(registry);
   // Node can't load a script named "serve", so this server exits at startup.

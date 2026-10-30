@@ -15,7 +15,7 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Interactive prototype</title>
     <style>body{margin:0;padding:24px;background:#f4f0ff;color:#231c35;font:18px system-ui}h1{font-size:28px}button{padding:16px;border:0;border-radius:12px;background:#513596;color:white;font:inherit}.space{height:950px}</style>
-    <h1>Interactive prototype</h1><p>A page inside Loop, with its own styles.</p>
+    <h1>Interactive prototype</h1><p>A page inside Loop55, with its own styles.</p>
     <img alt="Embedded image" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=">
     <!--${"embedded asset ".repeat(12000)}-->
     <button onclick="this.textContent='Clicked '+(++window.clicks)">Try the prototype</button>
@@ -275,7 +275,7 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
     assert.deepEqual(
       requests,
       [],
-      "HTML scripts must not send authenticated requests to Loop",
+      "HTML scripts must not send authenticated requests to Loop55",
     );
   } finally {
     page.off("request", track);

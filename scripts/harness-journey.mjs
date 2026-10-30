@@ -37,7 +37,7 @@ export async function harnessJourney(page, api, agent, token, expected) {
     false,
   );
   await page.screenshot({
-    path: join(tmpdir(), `loop-harness-${agent.provider}.png`),
+    path: join(tmpdir(), `loop55-harness-${agent.provider}.png`),
   });
   await picker.locator(".harness-option").filter({ hasText: token }).click();
   await expect(page.getByLabel("Message your agent")).toHaveValue(token + " ");
@@ -89,7 +89,7 @@ export async function harnessJourney(page, api, agent, token, expected) {
 export async function failureJourney(page, api, dir) {
   // This case has its own request budget, independent of how quickly the
   // preceding provider/setup journeys ran on this machine.
-  const limits = new Database(join(dir, "loop.db"));
+  const limits = new Database(join(dir, "loop55.db"));
   try {
     limits.pragma("busy_timeout = 10000");
     limits.prepare("DELETE FROM request_limits").run();
@@ -149,7 +149,7 @@ export async function failureJourney(page, api, dir) {
   await expect(
     dialog.getByRole("button", { name: "Retry as a new run" }),
   ).toBeVisible();
-  await page.screenshot({ path: join(tmpdir(), "loop-failed-response.png") });
+  await page.screenshot({ path: join(tmpdir(), "loop55-failed-response.png") });
   await dialog.getByRole("button", { name: "Retry as a new run" }).click();
   await expect
     .poll(

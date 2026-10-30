@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
-const dir = mkdtempSync(join(tmpdir(), "loop-hosts-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-hosts-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { runtimeHosts, runtimeEndpoint } =
   await import("../src/server/runtime-hosts");
@@ -170,7 +170,7 @@ beforeAll(async () => {
   server = await listen(app);
   brokerUrl = "http://127.0.0.1:" + (broker.address() as any).port;
   origin = "http://127.0.0.1:" + (server.address() as any).port;
-  process.env.LOOP_ALLOWED_RUNTIME_ORIGINS = brokerUrl + "," + codex.url;
+  process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS = brokerUrl + "," + codex.url;
 });
 afterAll(async () => {
   await Promise.all(
@@ -252,7 +252,7 @@ it("tests a remote machine, encrypts its token and keeps its provider login scop
   ).not.toHaveProperty("limits");
   const beforeInvalid = requests.length;
   db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-    JSON.stringify({ ...savedMetadata, loopHarness: false }),
+    JSON.stringify({ ...savedMetadata, loop55Harness: false }),
     connection.data.id,
   );
   const refused = await api(

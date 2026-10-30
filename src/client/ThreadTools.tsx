@@ -289,7 +289,7 @@ export function QuotePartSheet({
   );
 }
 
-/** A reminder Loop created, for the confirmation's link and Undo. */
+/** A reminder Loop55 created, for the confirmation's link and Undo. */
 export type CreatedReminder = Required<
   Pick<RouteResponse<typeof workspaceApi.laterCreate>, "id" | "replaced">
 >;
@@ -371,7 +371,7 @@ export function LaterSheet({
             sourceId ?? scopedSource,
           ).then((row) => ({ id: row.id, replaced: row.replaced ?? null }));
       if (!current()) return;
-      window.dispatchEvent(new Event("loop-later-change"));
+      window.dispatchEvent(new Event("loop55-later-change"));
       onDone(label, created);
       onClose();
     } catch (e) {
@@ -447,7 +447,7 @@ export function LaterSheet({
 }
 
 /**
- * Undo a reminder Loop just created: cancel it, and reopen the reminder it
+ * Undo a reminder Loop55 just created: cancel it, and reopen the reminder it
  * replaced, if any. Both are true reversals: nothing was sent anywhere.
  */
 export async function undoReminder(
@@ -465,7 +465,7 @@ export async function undoReminder(
       { params: { id: created.replaced }, body: {} },
       sourceId,
     ).catch(() => {});
-  window.dispatchEvent(new Event("loop-later-change"));
+  window.dispatchEvent(new Event("loop55-later-change"));
 }
 
 type OutlineItem = RouteResponse<
@@ -867,7 +867,7 @@ function EditScheduled({
       </label>
       {failed && (
         <p className="field-hint">
-          Nothing was sent before. It sends once, at the new time, if Loop
+          Nothing was sent before. It sends once, at the new time, if Loop55
           accepts it then.
         </p>
       )}
@@ -910,7 +910,7 @@ function EditScheduled({
 
 /**
  * Scheduled messages that still need you: waiting to send (edit or cancel),
- * or not sent because Loop refused them when due (edit, send now, move to a
+ * or not sent because Loop55 refused them when due (edit, send now, move to a
  * draft or dismiss). In a thread they read like your own messages;
  * owner-wide (Later) each also names its recipient and where it goes.
  */
@@ -1006,10 +1006,10 @@ export function ScheduledSends({
     void load(false, true);
     const refresh = () => void load();
     const stopChanges = listenWorkspaceChanges("scheduled", refresh, sourceId);
-    window.addEventListener("loop-scheduled-change", refresh);
+    window.addEventListener("loop55-scheduled-change", refresh);
     return () => {
       stopChanges();
-      window.removeEventListener("loop-scheduled-change", refresh);
+      window.removeEventListener("loop55-scheduled-change", refresh);
     };
   }, [conversationId, sourceId, read]);
   // Scroll to the item a confirmation linked to, once it is listed.
@@ -1035,10 +1035,10 @@ export function ScheduledSends({
           body: {},
         });
         if (!result.run)
-          setError(result.row.error || "Loop could not send this message.");
+          setError(result.row.error || "Loop55 could not send this message.");
       }
       await load();
-      window.dispatchEvent(new Event("loop-scheduled-change"));
+      window.dispatchEvent(new Event("loop55-scheduled-change"));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1112,8 +1112,8 @@ export function ScheduledSends({
             <RichText content={item.input} />
             {failed && (
               <p className="error" role="status">
-                Loop could not send this: {item.error || "it was refused."}{" "}
-                Nothing was sent, and Loop will not retry it on its own.
+                Loop55 could not send this: {item.error || "it was refused."}{" "}
+                Nothing was sent, and Loop55 will not retry it on its own.
               </p>
             )}
             <div className="scheduled-actions">
@@ -1190,7 +1190,7 @@ export function ScheduledSends({
           onClose={() => setEditing(null)}
           onSaved={() => {
             void load();
-            window.dispatchEvent(new Event("loop-scheduled-change"));
+            window.dispatchEvent(new Event("loop55-scheduled-change"));
           }}
         />
       )}

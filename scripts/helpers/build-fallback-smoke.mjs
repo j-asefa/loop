@@ -56,7 +56,7 @@ export async function buildFallbackSmoke(browser, base) {
         jsx: "automatic",
         loader: { ".css": "empty" },
         define: {
-          __LOOP_BUILD__: JSON.stringify(identity(loaded)),
+          __LOOP55_BUILD__: JSON.stringify(identity(loaded)),
           "process.env.NODE_ENV": '"production"',
         },
       });

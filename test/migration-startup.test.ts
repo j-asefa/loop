@@ -6,8 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 it("waits for another startup migration, then restores the normal write timeout", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-migration-lock-"));
-  const env = { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir };
+  const dir = mkdtempSync(join(tmpdir(), "loop55-migration-lock-"));
+  const env = {
+    ...process.env,
+    LOOP55_PROFILE: "server",
+    LOOP55_DATA_DIR: dir,
+  };
   let locked: Database.Database | undefined;
   let child: ReturnType<typeof spawn> | undefined;
   try {
@@ -22,7 +26,7 @@ it("waits for another startup migration, then restores the normal write timeout"
       ],
       { env },
     );
-    locked = new Database(join(dir, "loop.db"));
+    locked = new Database(join(dir, "loop55.db"));
     locked.exec("BEGIN IMMEDIATE");
     // This holds the same lock as the API's backfill while the worker starts.
     child = spawn(

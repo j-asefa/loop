@@ -268,7 +268,7 @@ export async function migrateLegacy(root: string) {
     const path = join(projects, dir.name);
     if (await control(path, "status").catch(() => undefined))
       throw new Error(
-        "A legacy per-project Loop host is still running. Stop it using that version before migration. Its state and native sessions were preserved.",
+        "A legacy per-project Loop55 host is still running. Stop it using that version before migration. Its state and native sessions were preserved.",
       );
     const file = join(path, "session.json");
     const raw = await readFile(file, "utf8").catch((e) => {

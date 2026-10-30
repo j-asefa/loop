@@ -9,17 +9,17 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-const kind = process.env.LOOP_TEST_HARNESS;
+const kind = process.env.LOOP55_TEST_HARNESS;
 // Gemini signs in from a throwaway workspace, not the project or HOME.
 if (
-  process.env.LOOP_TEST_CLEAN_ENV === "1" &&
-  (process.env.LOOP_TEST_HOST_ONLY ||
+  process.env.LOOP55_TEST_CLEAN_ENV === "1" &&
+  (process.env.LOOP55_TEST_HOST_ONLY ||
     (kind !== "gemini" && process.env.HOME !== process.cwd()))
 ) {
   process.exit(91);
 }
 const path =
-  process.env.LOOP_TEST_AUTH_DIR ||
+  process.env.LOOP55_TEST_AUTH_DIR ||
   (kind === "gemini" ? process.env.HOME : process.cwd());
 const credential = path + "/" + kind + "-credential.json";
 const finish = path + "/authorize-" + kind;
@@ -43,7 +43,7 @@ if (process.argv.includes("--version")) {
   audit("models");
   appendFileSync(path + "/models-pids", process.pid + "\n");
   // A slow account check after sign-in, for cancellation.
-  if (process.env.LOOP_TEST_AGY_SLOW_MODELS && existsSync(credential))
+  if (process.env.LOOP55_TEST_AGY_SLOW_MODELS && existsSync(credential))
     await new Promise((resolve) => setTimeout(resolve, 60000));
   if (!existsSync(credential)) {
     console.log("Fetching available models...");
@@ -59,7 +59,7 @@ if (process.argv.includes("--version")) {
   audit("login");
   appendFileSync(path + "/login-pids", process.pid + "\n");
   // A stalled agy that never shows its sign-in menu.
-  if (process.env.LOOP_TEST_AGY_STALL)
+  if (process.env.LOOP55_TEST_AGY_STALL)
     await new Promise((resolve) => setTimeout(resolve, 60000));
   // The menu arrives in chunks, split inside the highlighted choice.
   const menu =
@@ -87,7 +87,7 @@ if (process.argv.includes("--version")) {
       );
     save("oauth");
     process.stdout.write(" Signed in.\n");
-    if (process.env.LOOP_TEST_AGY_EXIT_AFTER_SIGN_IN) process.exit(0);
+    if (process.env.LOOP55_TEST_AGY_EXIT_AFTER_SIGN_IN) process.exit(0);
   });
 } else if (kind === "codex" && process.argv[2] === "login") {
   audit("login");
@@ -164,7 +164,7 @@ if (process.argv.includes("--version")) {
     ],
   });
   if (
-    process.env.LOOP_TEST_PI_EXIT_IDLE &&
+    process.env.LOOP55_TEST_PI_EXIT_IDLE &&
     !existsSync(path + "/pi-exited-once")
   ) {
     writeFileSync(path + "/pi-exited-once", "yes");
@@ -186,7 +186,7 @@ if (process.argv.includes("--version")) {
         id: "fixture-prompt",
         prompt: {
           type: method === "api" ? "secret" : "manual_code",
-          message: process.env.LOOP_TEST_PI_BAD_PROMPT
+          message: process.env.LOOP55_TEST_PI_BAD_PROMPT
             ? "x".repeat(600)
             : method === "api"
               ? "Enter your API key"
@@ -211,7 +211,7 @@ if (process.argv.includes("--version")) {
 } else if (kind === "muse" && process.argv[2] === "serve") {
   // Muse's account surface is the MSP fixture; credentials stay in `path`.
   audit("login");
-  process.env.LOOP_TEST_MUSE_DIR = path;
+  process.env.LOOP55_TEST_MUSE_DIR = path;
   await import("./fixtures/fake-muse.mjs");
 } else if (kind === "gemini" && process.argv[2] === "--acp") {
   audit("login");
@@ -225,7 +225,7 @@ if (process.argv.includes("--version")) {
   )
     process.exit(1);
   const failure =
-    process.env.LOOP_TEST_GEMINI_AUTH_FAILURE ||
+    process.env.LOOP55_TEST_GEMINI_AUTH_FAILURE ||
     (existsSync(path + "/gemini-auth-failure")
       ? readFileSync(path + "/gemini-auth-failure", "utf8")
       : undefined);
@@ -247,7 +247,7 @@ if (process.argv.includes("--version")) {
       }) + "\n",
     );
   };
-  if (process.env.LOOP_TEST_GEMINI_CACHED || existsSync(credential)) {
+  if (process.env.LOOP55_TEST_GEMINI_CACHED || existsSync(credential)) {
     // Cached credentials: no sign-in screen, straight to ACP.
     createInterface({ input: process.stdin }).on("line", (line) => {
       reply(JSON.parse(line));
@@ -256,12 +256,12 @@ if (process.argv.includes("--version")) {
     const ask = () =>
       process.stdout.write(
         "\x1b[?1049hPlease visit the following URL to authorize the application:\n\n" +
-          (process.env.LOOP_TEST_GEMINI_URL ||
+          (process.env.LOOP55_TEST_GEMINI_URL ||
             `https://accounts.google.com/o/oauth2/v2/auth?state=fixture-${process.pid}`) +
           "\n\n\x1b[1G\x1b[0JEnter the authorization code: ",
       );
     // A slow start opens the sign-in screen late.
-    setTimeout(ask, Number(process.env.LOOP_TEST_GEMINI_DELAY_MS || 0));
+    setTimeout(ask, Number(process.env.LOOP55_TEST_GEMINI_DELAY_MS || 0));
     let authorized = false;
     createInterface({ input: process.stdin }).on("line", (line) => {
       if (!authorized) {
@@ -386,7 +386,7 @@ if (process.argv.includes("--version")) {
   );
 } else {
   if (kind === "claude" && existsSync(credential))
-    process.env.LOOP_TEST_CLAUDE_AUTH = readFileSync(
+    process.env.LOOP55_TEST_CLAUDE_AUTH = readFileSync(
       credential,
       "utf8",
     ).includes('"oauth"')

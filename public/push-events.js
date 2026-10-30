@@ -1,15 +1,15 @@
-/* Runs inside Loop's service worker, including when the app is closed. */
+/* Runs inside Loop55's service worker, including when the app is closed. */
 self.addEventListener("push", (event) => {
   let message = {};
   try {
     message = event.data?.json() || {};
   } catch {}
   event.waitUntil(
-    self.registration.showNotification(message.title || "New result in Loop", {
+    self.registration.showNotification(message.title || "New result in Loop55", {
       body: message.body || "Your agent has finished some work.",
       icon: "/icon-192.png",
       badge: "/icon-192.png",
-      tag: message.tag || "loop-result",
+      tag: message.tag || "loop55-result",
       data: { url: message.url || "/" },
     }),
   );

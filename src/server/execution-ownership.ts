@@ -72,7 +72,7 @@ function sameNamespace(
 }
 const foreignNamespace = () =>
   new Error(
-    "The prior execution worker belongs to another PID namespace lifetime after a container restart, host reboot, or moved workspace. After confirming the prior host/container and all its processes stopped, inspect loop recover-execution. No runs were recovered.",
+    "The prior execution worker belongs to another PID namespace lifetime after a container restart, host reboot, or moved workspace. After confirming the prior host/container and all its processes stopped, inspect loop55 recover-execution. No runs were recovered.",
   );
 /** Local stop must never interpret another namespace's PIDs as its own. */
 export function assertExecutionNamespace(data: string) {
@@ -130,14 +130,14 @@ export function recoverStoppedExecution(
     const owner = recordedExecutionOwner(data);
     if (!owner || owner.generation !== generation)
       throw new Error(
-        "Execution generation changed or is absent. Inspect loop recover-execution again; no records were retired.",
+        "Execution generation changed or is absent. Inspect loop55 recover-execution again; no records were retired.",
       );
     const location = executionNamespace();
     // Older non-Linux records have no location. They require the same explicit
     // stopped-generation assertion as a known foreign host; never infer local.
     if (sameNamespace(owner, location))
       throw new Error(
-        "This recovery is only for a stopped foreign PID namespace lifetime. Use loop stop for processes in this same namespace lifetime.",
+        "This recovery is only for a stopped foreign PID namespace lifetime. Use loop55 stop for processes in this same namespace lifetime.",
       );
     const archive = join(directory, `retired-${generation}-${randomUUID()}`);
     privateDir(archive);
@@ -183,7 +183,7 @@ async function confirmStoppedExecution(data: string, directory: string) {
   const cleanup = await terminateWorkspace(directory, undefined, 1000);
   if (cleanup.unresolved.length || cleanup.survivors.length)
     throw new Error(
-      "Prior native processes cannot be confirmed stopped. Run loop stop and inspect the retained execution process records before retrying.",
+      "Prior native processes cannot be confirmed stopped. Run loop55 stop and inspect the retained execution process records before retrying.",
     );
   return location;
 }

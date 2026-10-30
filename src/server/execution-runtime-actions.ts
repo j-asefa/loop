@@ -236,7 +236,7 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
     if (error instanceof Problem) throw error;
     throw new Problem(
       422,
-      `Could not enable ${name} on this computer. Check its CLI sign-in and configuration, and verify the selected billing policy. Subscription mode requires a supported native subscription; no billing fallback was attempted. Run loop doctor for installation checks, then retry.`,
+      `Could not enable ${name} on this computer. Check its CLI sign-in and configuration, and verify the selected billing policy. Subscription mode requires a supported native subscription; no billing fallback was attempted. Run loop55 doctor for installation checks, then retry.`,
     );
   }
 }

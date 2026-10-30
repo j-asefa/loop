@@ -55,7 +55,7 @@ const fullScope = FleetCapabilities.parse([
 const rejected = () =>
   new Problem(
     403,
-    "Pairing link expired, invalid or already used. Run loop pair on the destination machine.",
+    "Pairing link expired, invalid or already used. Run loop55 pair on the destination machine.",
   );
 
 /** One transaction owns a ceremony and the device or pending enrollment grant
@@ -134,7 +134,7 @@ export class FleetPairing implements DeviceTrust {
     if (this.clockFailed)
       throw new Problem(
         409,
-        "Device expiry could not be persisted. Repair local storage and restart Loop.",
+        "Device expiry could not be persisted. Repair local storage and restart Loop55.",
       );
     const prior = this.db
       .prepare("SELECT observed_at FROM fleet_pairing_clock WHERE singleton=1")

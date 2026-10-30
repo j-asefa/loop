@@ -3,7 +3,7 @@ import { pullStateLine, type PullState } from "../shared/pull-state";
 
 /**
  * The thread's pull request as its watch last saw it: which checks concluded
- * for which head, and when Loop last looked. Tapping opens the pull request
+ * for which head, and when Loop55 last looked. Tapping opens the pull request
  * in the Pull requests tab. "No PR linked" shows for a run that produced a
  * checkout but no watched pull request.
  */

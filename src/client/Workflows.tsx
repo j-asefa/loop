@@ -19,7 +19,7 @@ export function starter(agents: Agent[], folder: string) {
   const available = agents.filter((a) => a.connection_id);
   return JSON.stringify(
     {
-      dsl: "loop.workflow/v1",
+      dsl: "loop55.workflow/v1",
       title: "Research, review, refine",
       inputs: {
         topic: { description: "What should we investigate?", default: "" },
@@ -218,7 +218,7 @@ export function WorkflowEditor({
       );
       onStarted();
       setNotice(
-        "Workflow queued. You can close Loop; the server will continue.",
+        "Workflow queued. You can close Loop55; the server will continue.",
       );
       setError("");
       request.current = { signature: "", key: "" };
@@ -286,7 +286,7 @@ export function WorkflowEditor({
       </div>
       {mode === "source" ? (
         <label>
-          Loop DSL · loop.workflow/v1
+          Loop55 DSL · loop55.workflow/v1
           <textarea
             {...literalEntry}
             className="workflow-source"

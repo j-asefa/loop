@@ -107,7 +107,7 @@ test("Pi rechecks after metadata and after its steering queue", async () => {
   revoked = true;
   metadata.resolve();
   await assert.rejects(prompt, /authorization revoked/);
-  assert.deepEqual(inputs, ["/loop-status"]);
+  assert.deepEqual(inputs, ["/loop55-status"]);
   const queue = deferred<void>();
   adapter.steering = queue.promise;
   adapter.turnActive = true;
@@ -118,7 +118,7 @@ test("Pi rechecks after metadata and after its steering queue", async () => {
   revoked = true;
   queue.resolve();
   await assert.rejects(steer, /authorization revoked/);
-  assert.deepEqual(inputs, ["/loop-status"]);
+  assert.deepEqual(inputs, ["/loop55-status"]);
 });
 
 for (const otherMessage of [false, true])
@@ -138,7 +138,7 @@ for (const otherMessage of [false, true])
           waiting.resolve();
           await release.promise;
           // A native writer can race with this stale queue count. Its input
-          // has no Loop authorization token and must retain its native owner.
+          // has no Loop55 authorization token and must retain its native owner.
           if (otherMessage) queue.push("native input");
           return { isStreaming: false, pendingMessageCount: 1 };
         }

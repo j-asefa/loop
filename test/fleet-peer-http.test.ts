@@ -25,10 +25,10 @@ import {
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.js";
 import { secret } from "../src/state.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop-fleet-admission-"));
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_DATA_DIR = root;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop55-fleet-admission-"));
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = root;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
@@ -123,7 +123,7 @@ function send(
         headers: {
           host: hostHeader,
           "content-type": "application/json",
-          "x-loop-fleet-version": "1",
+          "x-loop55-fleet-version": "1",
           ...headers,
         },
       },
@@ -319,7 +319,7 @@ it("rejects browser and Cards credentials before protocol handling, including a 
     { origin: "https://attacker.example" },
     { cookie },
     { authorization: "Bearer fixture-card-token" },
-    { "x-loop-csrf": "fixture" },
+    { "x-loop55-csrf": "fixture" },
     { "sec-fetch-site": "same-origin" },
     { "sec-fetch-mode": "cors" },
     { "x-http-method-override": "POST" },
@@ -368,7 +368,7 @@ it("matches Host and exact peer paths without trusting forwarded headers or fall
 
 it("refuses wrong version, malformed or oversized JSON without reflecting capability-bearing input", async () => {
   expect(
-    (await send(probePath, probe(), { "x-loop-fleet-version": "2" })).status,
+    (await send(probePath, probe(), { "x-loop55-fleet-version": "2" })).status,
   ).toBe(400);
   expect(
     (await send(probePath, probe(), { "content-type": "text/plain" })).status,
@@ -421,7 +421,7 @@ it("bounds concurrent incomplete peer bodies without consuming a local ceremony"
                 host: hostHeader,
                 "content-type": "application/json",
                 "content-length": "1000",
-                "x-loop-fleet-version": "1",
+                "x-loop55-fleet-version": "1",
               },
             });
             open.push(req);

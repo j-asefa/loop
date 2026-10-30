@@ -1,4 +1,4 @@
-process.env.LOOP_PROFILE = "companion";
+process.env.LOOP55_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
@@ -7,9 +7,9 @@ import { randomUUID } from "node:crypto";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 await mkdir(".tmp", { recursive: true });
-const dir = await mkdtemp(join(resolve(".tmp"), "loop-start-runtimes-"));
+const dir = await mkdtemp(join(resolve(".tmp"), "loop55-start-runtimes-"));
 gitProject(dir);
-process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP55_DATA_DIR = dir;
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db } = await import("../src/server/db.js");
 
@@ -38,7 +38,7 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
     }
     await writeFile(
       join(bin, name),
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_CLAUDE_AUTH=oauth\nexport LOOP_TEST_HARNESS_VERSION=${versions[name]}\nexec '${process.execPath}' '${resolve("test/harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP55_TEST_HARNESS=${name}\nexport LOOP55_TEST_CLAUDE_AUTH=oauth\nexport LOOP55_TEST_HARNESS_VERSION=${versions[name]}\nexec '${process.execPath}' '${resolve("test/harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
   }
@@ -77,7 +77,7 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
         headers: {
           cookie,
           Origin: host.origin,
-          "x-loop-csrf": csrf,
+          "x-loop55-csrf": csrf,
           "Content-Type": "application/json",
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -108,7 +108,7 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
           headers: {
             cookie,
             Origin: host.origin,
-            "x-loop-csrf": csrf,
+            "x-loop55-csrf": csrf,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ projectId, billing: "subscription" }),

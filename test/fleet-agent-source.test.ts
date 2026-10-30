@@ -50,11 +50,11 @@ import { DoneCardsReader } from "../src/client/feed-cards.js";
 import { contractCardReader } from "../src/shared/card-client.js";
 import { routePath } from "../src/shared/route-path.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop-fleet-source-"));
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_DATA_DIR = join(root, "destination");
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-mkdirSync(process.env.LOOP_DATA_DIR);
+const root = mkdtempSync(join(tmpdir(), "loop55-fleet-source-"));
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = join(root, "destination");
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+mkdirSync(process.env.LOOP55_DATA_DIR);
 mkdirSync(join(root, "gateway"));
 const { FleetCredentialHttpTransport } =
   await import("../src/server/fleet-credential-http.js");
@@ -165,9 +165,9 @@ const destinationPairing = new FleetPairing(
   db,
   destination,
   OWNER,
-  process.env.LOOP_DATA_DIR,
+  process.env.LOOP55_DATA_DIR,
 );
-const host = new Host(process.env.LOOP_DATA_DIR, initial, destinationPairing);
+const host = new Host(process.env.LOOP55_DATA_DIR, initial, destinationPairing);
 host.workspace = {
   http: app,
   peerHttp: createFleetPeerHttp(
@@ -271,9 +271,9 @@ const fetcher: typeof undiciFetch = async (input, init) => {
     "cookie",
     "authorization",
     "origin",
-    "x-loop-csrf",
-    "x-loop-owner",
-    "x-loop-command-id",
+    "x-loop55-csrf",
+    "x-loop55-owner",
+    "x-loop55-command-id",
   ])
     expect(headers.has(name)).toBe(false);
   const action = url.pathname === "/api" + fleetWorkspaceActionApi.action.path;
@@ -299,7 +299,7 @@ const fetcher: typeof undiciFetch = async (input, init) => {
     url.pathname,
     "POST",
     JSON.parse(String(init?.body)),
-    { "x-loop-fleet-version": "1" },
+    { "x-loop55-fleet-version": "1" },
     init?.signal ?? undefined,
   );
   if (action && loseReply)
@@ -478,7 +478,7 @@ const browser = (
   http(gateway.port, gatewayOrigin, path, method, body, {
     cookie,
     origin: gatewayOrigin,
-    "x-loop-csrf": csrf,
+    "x-loop55-csrf": csrf,
     ...headers,
   });
 type Download = {
@@ -560,8 +560,8 @@ async function browserUpload(
           host: new URL(gatewayOrigin).host,
           cookie,
           origin: gatewayOrigin,
-          "x-loop-csrf": csrf,
-          "x-loop-command-id": id,
+          "x-loop55-csrf": csrf,
+          "x-loop55-command-id": id,
           "content-type": encoded.headers.get("content-type")!,
           "content-length": String(body.length),
           ...extra,
@@ -603,7 +603,7 @@ beforeAll(async () => {
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture','','connected',?,'{}',0)",
   ).run(connectionId, OWNER, JSON.stringify([{ id: "fixture" }]));
   db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,'Foreign','foreign','openai','fixture','untouched','loop',0)",
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,'Foreign','foreign','openai','fixture','untouched','loop55',0)",
   ).run(foreignAgent, foreignOwner);
   await host.listen();
   host.setOrigin(origin);
@@ -665,7 +665,9 @@ it("discovers only this Host's enrolled peers without contact and projects their
   const bootstrap = await browser(prefix + "/bootstrap");
   expect(bootstrap.status).toBe(200);
   expect(JSON.stringify(bootstrap.body)).not.toContain(foreignAgent);
-  expect(bootstrap.headers["x-loop-change-epoch"]).toEqual(expect.any(String));
+  expect(bootstrap.headers["x-loop55-change-epoch"]).toEqual(
+    expect.any(String),
+  );
   expect(localCalls).toBe(0);
 });
 
@@ -743,7 +745,7 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
       prefix + `/feed/${newer}/read`,
       "PUT",
       { cardKey: "run:" + newer },
-      { "x-loop-command-id": readCommand },
+      { "x-loop55-command-id": readCommand },
     );
   expect((await markRead()).status).toBe(200);
   const readCard = await cards.detail("d:run:" + newer);
@@ -803,7 +805,7 @@ it("streams an owning publication through the download alias without redirects",
     metadata: { name: "published.txt", mime: "text/plain" },
   });
   const key = `objects/${"a".repeat(64)}/${randomUUID()}/${"b".repeat(64)}`;
-  const path = join(process.env.LOOP_DATA_DIR!, key);
+  const path = join(process.env.LOOP55_DATA_DIR!, key);
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, bytes);
   db.prepare("INSERT INTO artifact_objects VALUES(?,?,?,?,?,?,?,?)").run(
@@ -1029,21 +1031,21 @@ it("preserves one command through the browser source route, lost response and re
     before = actionCalls;
   loseReply = true;
   const uncertain = await browser(prefix + "/agents", "POST", body, {
-    "x-loop-command-id": id,
-    "x-loop-owner": foreignOwner,
+    "x-loop55-command-id": id,
+    "x-loop55-owner": foreignOwner,
   });
   expect(uncertain.status).toBe(503);
   expect(uncertain.body.executionOutcome).toBe("unknown");
-  expect(uncertain.headers["x-loop-command-id"]).toBe(id);
-  expect(uncertain.headers["x-loop-command-state"]).toBe("unknown");
+  expect(uncertain.headers["x-loop55-command-id"]).toBe(id);
+  expect(uncertain.headers["x-loop55-command-state"]).toBe("unknown");
   loseReply = false;
   const complete = await browser(prefix + "/agents", "POST", body, {
-    "x-loop-command-id": id,
-    "x-loop-receipt-only": "1",
+    "x-loop55-command-id": id,
+    "x-loop55-receipt-only": "1",
   });
   expect(complete.status).toBe(201);
-  expect(complete.headers["x-loop-command-id"]).toBe(id);
-  expect(complete.headers["x-loop-command-state"]).toBe("completed");
+  expect(complete.headers["x-loop55-command-id"]).toBe(id);
+  expect(complete.headers["x-loop55-command-state"]).toBe("completed");
   expect(complete.body.name).toBe(body.name);
   expect(actionCalls - before).toBe(1);
   expect(
@@ -1057,7 +1059,7 @@ it("preserves one command through the browser source route, lost response and re
       .get(owner, id),
   ).toEqual({ state: "completed" });
   const different = await browser(prefix + "/agents", "POST", createBody(), {
-    "x-loop-command-id": id,
+    "x-loop55-command-id": id,
   });
   expect(different.status).toBeGreaterThanOrEqual(400);
   expect(actionCalls - before).toBe(1);
@@ -1067,7 +1069,7 @@ it.each(["move", "reorder", "withdraw", "cancel"] as const)(
   "routes a queued run's %s operation through its owning handler and receipt",
   async (operation) => {
     const created = await browser(prefix + "/agents", "POST", createBody(), {
-      "x-loop-command-id": randomUUID(),
+      "x-loop55-command-id": randomUUID(),
     });
     expect(created.status).toBe(201);
     const agent = created.body.id;
@@ -1093,7 +1095,7 @@ it.each(["move", "reorder", "withdraw", "cancel"] as const)(
         "POST",
         createBody(),
         {
-          "x-loop-command-id": randomUUID(),
+          "x-loop55-command-id": randomUUID(),
         },
       );
       expect(destination.status).toBe(201);
@@ -1108,11 +1110,11 @@ it.each(["move", "reorder", "withdraw", "cancel"] as const)(
     const before = actionCalls;
     const send = () =>
       browser(prefix + `/runs/${run.id}/${operation}`, "POST", body, {
-        "x-loop-command-id": commandId,
+        "x-loop55-command-id": commandId,
       });
     const first = await send();
     expect(first.status).toBe(operation === "move" ? 202 : 200);
-    expect(first.headers["x-loop-command-state"]).toBe("completed");
+    expect(first.headers["x-loop55-command-state"]).toBe("completed");
     expect(
       db
         .prepare(
@@ -1174,7 +1176,7 @@ it("refuses missing identities, foreign resources, arbitrary routes and cross-or
           prefix + path,
           "POST",
           {},
-          { "x-loop-command-id": randomUUID() },
+          { "x-loop55-command-id": randomUUID() },
         )
       ).status,
     ).toBe(409);
@@ -1204,7 +1206,7 @@ it("refuses missing identities, foreign resources, arbitrary routes and cross-or
     prefix + "/agents/" + foreignAgent,
     "PATCH",
     { name: "changed" },
-    { "x-loop-command-id": randomUUID() },
+    { "x-loop55-command-id": randomUUID() },
   );
   expect(foreign.status).toBeGreaterThanOrEqual(400);
   expect(
@@ -1240,7 +1242,7 @@ it("revoking a browser during destination preparation closes the delegated reque
     id = randomUUID(),
     body = createBody();
   const pending = browser(prefix + "/agents", "POST", body, {
-    "x-loop-command-id": id,
+    "x-loop55-command-id": id,
   }).catch((error) => error);
   await until(() => probeCalls > probes);
   expect((await browser("/api/auth/sign-out", "POST", {})).status).toBe(200);
@@ -1262,14 +1264,14 @@ it("revoking a browser during destination preparation closes the delegated reque
     await pair();
   }
   const refused = await browser(prefix + "/agents", "POST", body, {
-    "x-loop-command-id": id,
-    "x-loop-receipt-only": "1",
+    "x-loop55-command-id": id,
+    "x-loop55-receipt-only": "1",
   });
   expect(refused.status).toBe(409);
-  expect(refused.headers["x-loop-command-state"]).toBe("refused");
+  expect(refused.headers["x-loop55-command-state"]).toBe("refused");
   expect(actionCalls).toBe(before);
   const fresh = await browser(prefix + "/agents", "POST", body, {
-    "x-loop-command-id": randomUUID(),
+    "x-loop55-command-id": randomUUID(),
   });
   expect(fresh.status).toBe(201);
   expect(actionCalls).toBe(before + 1);
@@ -1296,7 +1298,7 @@ it("a gateway origin change fences a prepared read without erasing another viewe
 const receiptPath = "/api/fleet/commands/receipt";
 it("previews the remote recipient without a command and preserves one shared send through a lost reply", async () => {
   const created = await browser(prefix + "/agents", "POST", createBody(), {
-    "x-loop-command-id": randomUUID(),
+    "x-loop55-command-id": randomUUID(),
   });
   expect(created.status).toBe(201);
   const agent = created.body;
@@ -1321,7 +1323,7 @@ it("previews the remote recipient without a command and preserves one shared sen
   const preview = await browser(prefix + "/share/preview", "POST", body);
   expect(preview.status).toBe(200);
   expect(preview.body.agent.id).toBe(agent.id);
-  expect(preview.headers).not.toHaveProperty("x-loop-command-id");
+  expect(preview.headers).not.toHaveProperty("x-loop55-command-id");
   expect(
     sourceDb.prepare("SELECT count(*) n FROM fleet_forwarded_actions").get(),
   ).toEqual(rows);
@@ -1341,7 +1343,7 @@ it("previews the remote recipient without a command and preserves one shared sen
     expect(
       (
         await browser(prefix + "/share/send", "POST", body, {
-          "x-loop-command-id": id,
+          "x-loop55-command-id": id,
         })
       ).status,
     ).toBe(503);
@@ -1349,12 +1351,12 @@ it("previews the remote recipient without a command and preserves one shared sen
     loseReply = false;
   }
   const receipt = await browser(prefix + "/share/send", "POST", body, {
-    "x-loop-command-id": id,
-    "x-loop-receipt-only": "1",
+    "x-loop55-command-id": id,
+    "x-loop55-receipt-only": "1",
   });
   expect(receipt.status).toBe(200);
   expect(receipt.body.agent_id).toBe(agent.id);
-  expect(receipt.headers["x-loop-command-id"]).toBe(id);
+  expect(receipt.headers["x-loop55-command-id"]).toBe(id);
   expect(actionCalls - before).toBe(1);
   expect(
     db.prepare("SELECT count(*) n FROM runs WHERE agent_id=?").get(agent.id),
@@ -1370,18 +1372,18 @@ it("previews the remote recipient without a command and preserves one shared sen
     prefix + "/share/send",
     "POST",
     { ...body, question: "changed" },
-    { "x-loop-command-id": id },
+    { "x-loop55-command-id": id },
   );
   expect(conflict.status).toBe(409);
   expect(conflict.body.executionOutcome).toBe("unknown");
-  expect(conflict.headers).not.toHaveProperty("x-loop-command-state");
+  expect(conflict.headers).not.toHaveProperty("x-loop55-command-state");
   expect(
     (
       await browser(
         prefix + "/share/send",
         "POST",
         { question: "Foreign recipient", newAgentId: foreignAgent },
-        { "x-loop-command-id": randomUUID() },
+        { "x-loop55-command-id": randomUUID() },
       )
     ).status,
   ).toBe(409);
@@ -1409,7 +1411,7 @@ it("recovers a committed command using only its original ID, route and digest th
     expect(
       (
         await browser(prefix + "/agents", "POST", body, {
-          "x-loop-command-id": id,
+          "x-loop55-command-id": id,
         })
       ).status,
     ).toBe(503);
@@ -1452,7 +1454,7 @@ it("recovers a committed command using only its original ID, route and digest th
   const localHeaders = {
     cookie: localCookie,
     origin,
-    "x-loop-csrf": session.body.csrf,
+    "x-loop55-csrf": session.body.csrf,
   };
   const calls = probeCalls;
   expect(
@@ -1475,7 +1477,7 @@ it("recovers a committed command using only its original ID, route and digest th
     (
       await http(host.port, origin, receiptPath, "POST", reference, {
         ...localHeaders,
-        "x-loop-csrf": "wrong",
+        "x-loop55-csrf": "wrong",
       })
     ).status,
   ).toBe(403);
@@ -1567,8 +1569,11 @@ it("refuses unauthorized receipt lookup and retires an absent command without fo
     ).status,
   ).toBe(401);
   expect(
-    (await browser(receiptPath, "POST", reference, { "x-loop-csrf": "wrong" }))
-      .status,
+    (
+      await browser(receiptPath, "POST", reference, {
+        "x-loop55-csrf": "wrong",
+      })
+    ).status,
   ).toBe(403);
   expect(
     (
@@ -1671,9 +1676,9 @@ it("a concurrent upload lookup cannot consume the first sender's preparation", a
   try {
     await until(() => probeCalls > probes);
     const lookup = browserUpload(input, undefined, id, {
-      "x-loop-receipt-only": "1",
+      "x-loop55-receipt-only": "1",
     });
-    expect((await lookup).headers["x-loop-command-state"]).toBe("unknown");
+    expect((await lookup).headers["x-loop55-command-state"]).toBe("unknown");
     expect(probeCalls).toBe(probes + 1);
     holdProbe = undefined;
     release();
@@ -1683,7 +1688,7 @@ it("a concurrent upload lookup cannot consume the first sender's preparation", a
     expect(
       (
         await browserUpload(input, undefined, id, {
-          "x-loop-receipt-only": "1",
+          "x-loop55-receipt-only": "1",
         })
       ).body,
     ).toEqual(result.body);
@@ -1705,7 +1710,7 @@ it("a failed upload preparation stays uncertain until destination reconciliation
   try {
     const result = await browserUpload(input, bytes, id);
     expect(result.status).toBe(503);
-    expect(result.headers["x-loop-command-state"]).toBe("unknown");
+    expect(result.headers["x-loop55-command-state"]).toBe("unknown");
   } finally {
     fileFault = undefined;
   }
@@ -1716,8 +1721,11 @@ it("a failed upload preparation stays uncertain until destination reconciliation
       .filter((value) => /\/upload\/(prepare|chunk|commit)$/.test(value.path)),
   ).toEqual([]);
   expect(
-    (await browserUpload(input, undefined, id, { "x-loop-receipt-only": "1" }))
-      .headers["x-loop-command-state"],
+    (
+      await browserUpload(input, undefined, id, {
+        "x-loop55-receipt-only": "1",
+      })
+    ).headers["x-loop55-command-state"],
   ).toBe("refused");
   expect((await browserUpload(input, bytes, randomUUID())).status).toBe(201);
   expect(uploadCommits).toBe(commits + 1);
@@ -1750,7 +1758,7 @@ it("recovers a lost upload commit after uploads are withdrawn from the catalog w
   let recovered: Reply;
   try {
     recovered = await browserUpload(input, undefined, id, {
-      "x-loop-receipt-only": "1",
+      "x-loop55-receipt-only": "1",
     });
   } finally {
     fileFault = undefined;
@@ -1761,7 +1769,7 @@ it("recovers a lost upload commit after uploads are withdrawn from the catalog w
     mime: "text/plain",
     size: bytes.length,
   });
-  expect(recovered.headers["x-loop-command-state"]).toBe("completed");
+  expect(recovered.headers["x-loop55-command-state"]).toBe("completed");
   const object = db
     .prepare("SELECT bytes,owner_id FROM objects WHERE id=?")
     .get(recovered.body.objectId) as { bytes: Buffer; owner_id: string };
@@ -1800,7 +1808,7 @@ it("checks an upload receipt without its body and shares command identity with J
   expect(
     (
       await browser(prefix + "/agents", "POST", createBody(), {
-        "x-loop-command-id": id,
+        "x-loop55-command-id": id,
       })
     ).status,
   ).toBe(409);
@@ -1840,7 +1848,7 @@ it("does not commit a malformed signed upload acknowledgement or replay the unce
   expect(uploadCommits).toBe(before);
   const calls = fileCalls.length;
   const missing = await browserUpload(input, undefined, id, {
-    "x-loop-receipt-only": "1",
+    "x-loop55-receipt-only": "1",
   });
   expect(missing.status).toBe(409);
   expect(missing.body.executionOutcome).toBe("refused");
@@ -1973,7 +1981,7 @@ it("keeps a completed command uncertain when its destination is removed before r
     expect(
       (
         await browser(prefix + "/agents", "POST", body, {
-          "x-loop-command-id": id,
+          "x-loop55-command-id": id,
         })
       ).body.executionOutcome,
     ).toBe("unknown");
@@ -2009,11 +2017,11 @@ it("keeps a completed command uncertain when its destination is removed before r
       ),
     });
     const retry = await browser(prefix + "/agents", "POST", body, {
-      "x-loop-command-id": id,
+      "x-loop55-command-id": id,
     });
     expect(retry.status).toBe(403);
     expect(retry.body.executionOutcome).toBe("unknown");
-    expect(retry.headers["x-loop-command-state"]).toBeUndefined();
+    expect(retry.headers["x-loop55-command-state"]).toBeUndefined();
     expect(actionCalls).toBe(before + 1);
     expect(
       db

@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { pathToFileURL } from "node:url";
 
-const root = mkdtempSync(join(tmpdir(), "loop-native-host-"));
+const root = mkdtempSync(join(tmpdir(), "loop55-native-host-"));
 const home = join(root, "home"),
   workdir = join(root, "project"),
   bin = join(root, "bin");
@@ -50,7 +50,7 @@ if(args[0]==='auth') {
 } else {
  if(args.includes('--tools')||args.includes('--strict-mcp-config')||args.includes('--max-turns')||args[args.indexOf('--permission-mode')+1]!=='bypassPermissions')process.exit(3);
  let prompt='';process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',()=>{
- if(!prompt.includes('all native tools')||process.env.FIXTURE_MCP_TOKEN!=='host-token'||process.env.ANTHROPIC_API_KEY||process.env.LOOP_RUNTIME_TOKEN_FILE)process.exit(4);
+ if(!prompt.includes('all native tools')||process.env.FIXTURE_MCP_TOKEN!=='host-token'||process.env.ANTHROPIC_API_KEY||process.env.LOOP55_RUNTIME_TOKEN_FILE)process.exit(4);
  if(process.env.CLAUDE_CONFIG_DIR||process.env.CODEX_HOME)process.exit(5);
  if(JSON.parse(fs.readFileSync(path.join(home,'.claude','settings.json'),'utf8')).fixture!=='host-settings')process.exit(5);
  if(args[args.indexOf('--model')+1]==='wait') {fs.writeFileSync(path.join(process.cwd(),'running.pid'),String(process.pid));setInterval(()=>{},1000);return;}
@@ -87,7 +87,7 @@ async function startHost(
         PATH: bin + ":" + process.env.PATH,
         HOME: home,
         PORT: String(port),
-        LOOP_RUNTIME_TOKEN_FILE: tokenFile,
+        LOOP55_RUNTIME_TOKEN_FILE: tokenFile,
         FIXTURE_MCP_TOKEN: "host-token",
         ANTHROPIC_API_KEY: "must-not-use-api-billing",
       },

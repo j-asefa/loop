@@ -1,3 +1,4 @@
+import "../deployment/environment.mjs";
 import type { Steering } from "./types.ts";
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -11,7 +12,7 @@ import {
 import { HarnessError } from "./harness.ts";
 import { redactValues } from "./redaction.ts";
 
-const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
+const hostMode = process.env.LOOP55_RUNTIME_MODE === "host";
 const env: NodeJS.ProcessEnv = hostMode
   ? { ...process.env }
   : {
@@ -25,8 +26,8 @@ for (const key of [
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "CODEX_API_KEY",
-  "LOOP_RUNTIME_TOKEN",
-  "LOOP_RUNTIME_TOKEN_FILE",
+  "LOOP55_RUNTIME_TOKEN",
+  "LOOP55_RUNTIME_TOKEN_FILE",
 ])
   delete env[key];
 if (!hostMode) mkdirSync(env.CODEX_HOME!, { recursive: true, mode: 0o700 });
@@ -40,7 +41,7 @@ const child = spawn(
     ...(!hostMode ? ["-c", 'cli_auth_credentials_store="file"'] : []),
   ],
   {
-    cwd: hostMode ? process.env.LOOP_RUNTIME_WORKDIR : env.HOME,
+    cwd: hostMode ? process.env.LOOP55_RUNTIME_WORKDIR : env.HOME,
     env,
     stdio: ["pipe", "pipe", "pipe"],
   },
@@ -57,7 +58,7 @@ child.once("close", () => process.exit(1));
 const session = new CodexSession(child, {
   hostMode,
   home: env.HOME!,
-  cwd: process.env.LOOP_RUNTIME_WORKDIR || process.cwd(),
+  cwd: process.env.LOOP55_RUNTIME_WORKDIR || process.cwd(),
 });
 session.ready.catch(stop);
 const operations = new Map<

@@ -57,7 +57,7 @@ export async function feedThreadsSmoke(page, fixture, capture) {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
   };
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   await expect(
@@ -144,7 +144,7 @@ export async function feedThreadsSmoke(page, fixture, capture) {
     "PATCH",
   );
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop-source-refresh")),
+    window.dispatchEvent(new Event("loop55-source-refresh")),
   );
   await expect(titles.first()).toHaveText(latestTitle);
 
@@ -191,7 +191,7 @@ export async function feedThreadsSmoke(page, fixture, capture) {
     Date.now(),
   );
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop-source-refresh")),
+    window.dispatchEvent(new Event("loop55-source-refresh")),
   );
   await expect(titles.first()).toHaveText(changed.title);
   await expect(cards.first().locator(".preview")).toContainText(
@@ -231,7 +231,7 @@ export async function feedThreadsSmoke(page, fixture, capture) {
     .poll(
       async () => {
         await page.evaluate(() =>
-          window.dispatchEvent(new Event("loop-source-refresh")),
+          window.dispatchEvent(new Event("loop55-source-refresh")),
         );
         return cards.count();
       },

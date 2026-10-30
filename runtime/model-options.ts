@@ -1,4 +1,4 @@
-// Native provider model records are versioned outside Loop; validate each capability before exposing it.
+// Native provider model records are versioned outside Loop55; validate each capability before exposing it.
 // Preserve model capabilities reported by the provider; never infer effort
 // levels from a model name or silently substitute a different level.
 export function modelOptions(model: Record<string, any>): {

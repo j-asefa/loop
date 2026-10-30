@@ -18,16 +18,16 @@ import { gitProject } from "./git-project.js";
 import { until } from "./helpers.js";
 
 const root = realpathSync(
-  mkdtempSync(join(tmpdir(), "loop-native-workspaces-")),
+  mkdtempSync(join(tmpdir(), "loop55-native-workspaces-")),
 );
 const data = join(root, "data");
 const chat = join(root, "chat");
 const other = join(root, "other");
 for (const directory of [data, chat, other]) mkdirSync(directory);
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_DATA_DIR = data;
-process.env.LOOP_TEST_GEMINI_AUTO = "1";
-process.env.LOOP_TEST_GEMINI_LOG = join(root, "requests");
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = data;
+process.env.LOOP55_TEST_GEMINI_AUTO = "1";
+process.env.LOOP55_TEST_GEMINI_LOG = join(root, "requests");
 const { db } = await import("../src/server/db.js");
 const { nativeSessions, NativeSessions, OWNER } =
   await import("../src/server/native-sessions.js");
@@ -55,11 +55,11 @@ afterAll(async () => {
   await nativeSessions.close();
   db.close();
   for (const name of [
-    "LOOP_PROFILE",
-    "LOOP_TEST_GEMINI_AUTO",
-    "LOOP_TEST_GEMINI_LOG",
-    "LOOP_TEST_GEMINI_SESSION_ID",
-    "LOOP_TEST_ACP_SESSION_ID",
+    "LOOP55_PROFILE",
+    "LOOP55_TEST_GEMINI_AUTO",
+    "LOOP55_TEST_GEMINI_LOG",
+    "LOOP55_TEST_GEMINI_SESSION_ID",
+    "LOOP55_TEST_ACP_SESSION_ID",
   ])
     delete process.env[name];
   rmSync(root, { recursive: true, force: true });
@@ -116,8 +116,8 @@ function submit(
 }
 async function run(...args: Parameters<typeof submit>) {
   const task = submit(...args);
-  process.env.LOOP_TEST_GEMINI_SESSION_ID = "workspace-" + args[1];
-  process.env.LOOP_TEST_ACP_SESSION_ID = "workspace-" + args[1];
+  process.env.LOOP55_TEST_GEMINI_SESSION_ID = "workspace-" + args[1];
+  process.env.LOOP55_TEST_ACP_SESSION_ID = "workspace-" + args[1];
   expect(await tick(execute)).toBe(true);
   await completeCheckout(task.id);
   return task;
@@ -181,7 +181,7 @@ it("completes native output for a legacy payload without copying unknown fields"
     JSON.stringify({ ...task.payload, historicalLabel: "Old label" }),
     task.id,
   );
-  process.env.LOOP_TEST_GEMINI_SESSION_ID = "workspace-legacy-payload";
+  process.env.LOOP55_TEST_GEMINI_SESSION_ID = "workspace-legacy-payload";
   expect(await tick(execute)).toBe(true);
   await completeCheckout(task.id);
   expect(result(task)).toMatchObject({
@@ -340,7 +340,9 @@ it("preserves directory-scoped native history instead of relocating it to a Git 
         .get("scoped-" + harness),
     ).toBeUndefined();
   }
-  expect(existsSync(join(project, ".git", "loop-agent-worktrees"))).toBe(false);
+  expect(existsSync(join(project, ".git", "loop55-agent-worktrees"))).toBe(
+    false,
+  );
 });
 
 it.each(["concurrent", "failed-insert"])(
@@ -402,7 +404,7 @@ it.each(["concurrent", "failed-insert"])(
       ),
     ).resolves.toBe(conversations[0]);
     expect(
-      readdirSync(join(project, ".git", "loop-agent-worktrees")),
+      readdirSync(join(project, ".git", "loop55-agent-worktrees")),
     ).toHaveLength(1);
     await expect(
       prepareImportSession(
@@ -685,8 +687,8 @@ it("switches harnesses after a cancelled startup publishes its native session id
   const key = "cancelled-startup-switch";
   const project = directory(key);
   const first = submit(project, key);
-  process.env.LOOP_TEST_GEMINI_SESSION_ID = key;
-  process.env.LOOP_TEST_ACP_SESSION_ID = key;
+  process.env.LOOP55_TEST_GEMINI_SESSION_ID = key;
+  process.env.LOOP55_TEST_ACP_SESSION_ID = key;
   const firstExecution = tick(execute);
   let secondExecution: Promise<boolean> | undefined;
   try {

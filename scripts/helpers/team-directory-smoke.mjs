@@ -20,7 +20,7 @@ export async function teamDirectorySmoke(page, fixture, team) {
       .locator(".team-manager-option")
       .click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
     await expect(page.locator(".profile-head")).toHaveCount(0);
     await expect
       .poll(() => new URL(page.url()).searchParams.get("teams"))
@@ -313,7 +313,7 @@ async function teamEditingSmoke(page, fixture) {
       }
       await close();
       await expect(page.locator("dialog[open]")).toHaveCount(0);
-      await page.waitForFunction(() => history.state?.loopSheet !== true);
+      await page.waitForFunction(() => history.state?.loop55Sheet !== true);
     }
   } finally {
     fixture.db

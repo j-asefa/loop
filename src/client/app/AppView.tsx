@@ -456,7 +456,7 @@ export function renderApp(props: AppViewProps) {
           }}
         >
           <Orbit />
-          loop
+          loop55
           <span className="wordmark-dot" />
         </button>
         <nav>{nav}</nav>
@@ -507,7 +507,7 @@ export function renderApp(props: AppViewProps) {
         <header className="topbar">
           <div className="wordmark mobile-brand">
             <Orbit />
-            loop
+            loop55
             <span className="wordmark-dot" />
           </div>
           <span className="desktop-breadcrumb">
@@ -896,7 +896,7 @@ export function renderApp(props: AppViewProps) {
               setSheet("");
               if (newAgentPrompt) setDraft("");
               setNewAgentPrompt("");
-              window.dispatchEvent(new Event("loop-source-refresh"));
+              window.dispatchEvent(new Event("loop55-source-refresh"));
               setConversation(
                 a.initialRun.conversation_id,
                 undefined,
@@ -1105,8 +1105,8 @@ export function renderApp(props: AppViewProps) {
                   [],
                   session?.user?.id,
                 );
-                sessionStorage.setItem("loop-draft-agent", agentId);
-                sessionStorage.removeItem("loop-draft-context");
+                sessionStorage.setItem("loop55-draft-agent", agentId);
+                sessionStorage.removeItem("loop55-draft-context");
                 location.assign(sourceUrl(actionSource, { agent: agentId }));
                 return;
               }
@@ -1425,7 +1425,7 @@ export function renderApp(props: AppViewProps) {
             }}
             onWithdraw={withdrawToComposer}
             onSubmitted={() => {
-              window.dispatchEvent(new Event("loop-source-refresh"));
+              window.dispatchEvent(new Event("loop55-source-refresh"));
               void refresh();
             }}
           />

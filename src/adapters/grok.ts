@@ -3,7 +3,7 @@ import { NativeMemoryError } from "../native-memory.js";
 import type { Emit, Options } from "./types.js";
 import type { Billing } from "../protocol.js";
 
-/** Grok Build owns sign-in, billing and context; Loop speaks its native ACP API. */
+/** Grok Build owns sign-in, billing and context; Loop55 speaks its native ACP API. */
 export class Grok extends Acp {
   protected override verifySessionOnProbe = true;
   /** A turn in this session completed, so its first prompt was retained. */
@@ -12,7 +12,7 @@ export class Grok extends Acp {
     private grokOptions: Options,
     emit: Emit,
   ) {
-    // --no-leader keeps each session in a process Loop owns, even when the
+    // --no-leader keeps each session in a process Loop55 owns, even when the
     // user's configuration routes agents through a shared leader.
     super(
       { ...grokOptions, args: ["agent", "--no-leader", "stdio"] },

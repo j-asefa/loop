@@ -273,7 +273,7 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
   const header = req.headers.authorization;
   const match =
     typeof header === "string" &&
-    /^Bearer (loop_(?:card|token)_[A-Za-z0-9_-]{43})$/i.exec(header);
+    /^Bearer (loop(?:55)?_(?:card|token)_[A-Za-z0-9_-]{43})$/i.exec(header);
   if (!match) throw new Problem(401, "Invalid integration credential");
   // This query is deliberately performed for every request, including HEAD.
   // Last-use throttling must never become a revocation cache.

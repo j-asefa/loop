@@ -111,7 +111,7 @@ function EnrollmentForm({
     <section className="fleet-section" aria-labelledby="fleet-add-heading">
       <h3 id="fleet-add-heading">Add or re-pair a machine</h3>
       <p>
-        Run <code>loop pair</code> on the other machine. Scan its code here or
+        Run <code>loop55 pair</code> on the other machine. Scan its code here or
         paste the complete link. Its device-pairing secret stays in this
         browser.
       </p>

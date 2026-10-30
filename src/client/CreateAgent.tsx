@@ -325,7 +325,7 @@ export function CreateAgent({
             const next = updated.find(
               (c) =>
                 c.status === "connected" &&
-                parse<any>(c.metadata, {}).loopHarness === runtimeName,
+                parse<any>(c.metadata, {}).loop55Harness === runtimeName,
             );
             if (next && !selected) {
               setConnection(connectionKey(next));
@@ -395,7 +395,7 @@ export function CreateAgent({
       }
     >
       <div className="create-agent-welcome">
-        <Avatar name={name || "Loop"} />
+        <Avatar name={name || "Loop55"} />
         <div>
           <strong>
             {name ? `Meet ${name}` : "A little help with anything"}
@@ -463,7 +463,7 @@ export function CreateAgent({
         {!connected.length && (
           <div className="note create-agent-setup">
             <strong>Connect once to start chatting</strong>
-            <p>Link an AI account to use in Loop.</p>
+            <p>Link an AI account to use in Loop55.</p>
             <button type="button" onClick={onConnect}>
               <Plus size={16} /> Connect an account
             </button>

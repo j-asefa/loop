@@ -18,15 +18,19 @@ const start = async (directory: string) => {
       "const {db}=await import('./src/server/db.ts');if(db.pragma('foreign_key_check').length)throw Error('foreign keys');console.log(JSON.stringify(db.prepare('SELECT prefix AS version FROM schema_migrations ORDER BY prefix').all()));db.close();",
     ],
     {
-      env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: directory },
+      env: {
+        ...process.env,
+        LOOP55_PROFILE: "server",
+        LOOP55_DATA_DIR: directory,
+      },
     },
   );
   return JSON.parse(result.stdout) as { version: number }[];
 };
 
 it("upgrades run events without reusing deleted IDs and admits connection subjects without a run", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "loop-event-upgrade-"));
-  const db = new Database(join(directory, "loop.db"));
+  const directory = mkdtempSync(join(tmpdir(), "loop55-event-upgrade-"));
+  const db = new Database(join(directory, "loop55.db"));
   try {
     db.pragma("foreign_keys=ON");
     db.transaction(() => {
@@ -141,7 +145,7 @@ it("upgrades run events without reusing deleted IDs and admits connection subjec
 });
 
 it("serializes concurrent fresh database startup to one migration history", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "loop-event-fresh-"));
+  const directory = mkdtempSync(join(tmpdir(), "loop55-event-fresh-"));
   try {
     const [one, two] = await Promise.all([start(directory), start(directory)]);
     expect(one).toEqual(two);

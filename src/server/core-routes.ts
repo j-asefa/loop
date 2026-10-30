@@ -123,7 +123,7 @@ routes.on(workspaceApi.connectionCreate, async (req, res) => {
 routes.on(workspaceApi.connectionRefresh, async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner);
   if (isNativeConnection(c)) {
-    const harness = c.metadata.loopHarness;
+    const harness = c.metadata.loop55Harness;
     return res.json(
       await executionRequest("runtime.refresh", { connectionId: c.id }, { owner: res.locals.owner }),
     );
@@ -386,7 +386,7 @@ routes.on(workspaceApi.agentTraces, (req, res) => {
 routes.on(workspaceApi.agentTracesExport, (req, res) => {
   const runId = req.query.run;
   const data = runTraceExport(res.locals.owner, req.params.id, runId);
-  res.attachment(`loop-run-${runId}-traces.json`).json(data);
+  res.attachment(`loop55-run-${runId}-traces.json`).json(data);
 });
 routes.on(workspaceApi.personalFiles, (req, res) => {
   res.json(personalFiles(res.locals.owner, req.query));

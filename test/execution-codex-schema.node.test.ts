@@ -8,12 +8,12 @@ import { gitProject } from "./git-project.js";
 import { agentModelName, runModelName } from "../src/client/modelChoices.js";
 import type { Connection } from "../src/shared/types.js";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-codex-schema-"));
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_DATA_DIR = join(directory, "data");
-process.env.LOOP_TEST_HARNESS = "codex";
+const directory = mkdtempSync(join(tmpdir(), "loop55-codex-schema-"));
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = join(directory, "data");
+process.env.LOOP55_TEST_HARNESS = "codex";
 // Codex's generated v2 Config declares model: string | null.
-process.env.LOOP_TEST_CODEX_NULL_MODEL = "1";
+process.env.LOOP55_TEST_CODEX_NULL_MODEL = "1";
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db } = await import("../src/server/db.js");
 
@@ -60,7 +60,7 @@ test(
         headers: {
           cookie,
           Origin: origin,
-          "x-loop-csrf": csrf,
+          "x-loop55-csrf": csrf,
           "Content-Type": "application/json",
         },
         body: body ? JSON.stringify(body) : undefined,

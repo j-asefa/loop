@@ -26,6 +26,10 @@ const literalPath = (s: string) => {
   return s.replaceAll("%", "%%");
 };
 export const SERVICES = {
+  darwin: { app: "dev.loop55.workspace", connection: "dev.loop55.connection" },
+  linux: { app: "loop55.service", connection: "loop55-connection.service" },
+};
+const LEGACY_SERVICES = {
   darwin: { app: "dev.loop.workspace", connection: "dev.loop.connection" },
   linux: { app: "loop.service", connection: "loop-connection.service" },
 };
@@ -34,7 +38,7 @@ type Definition = { name: string; contents: string };
  * Two independently supervised services: the connection service (relay and
  * cloudflared) and the application. Restarting the application unit never
  * signals the connection's process tree, so its address survives. Both
- * restart only after failure, so loop stop is not undone by the supervisor.
+ * restart only after failure, so loop55 stop is not undone by the supervisor.
  */
 export function serviceDefinitions(
   platform: string,
@@ -47,7 +51,7 @@ export function serviceDefinitions(
   tunnel: string[] | null = [],
   launch: string[] = ["start", "--project", project],
 ): { connection?: Definition; app: Definition } {
-  // The saved launch, as loop restart repeats it. Without a tunnel (local-only
+  // The saved launch, as loop55 restart repeats it. Without a tunnel (local-only
   // or a user-managed proxy) there is no connection service to supervise.
   const app = [
     node,
@@ -66,7 +70,7 @@ export function serviceDefinitions(
       log: string,
     ) =>
       `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array>${args.map((s) => `<string>${xml(s)}</string>`).join("")}</array><key>WorkingDirectory</key><string>${xml(project)}</string><key>EnvironmentVariables</key><dict>${Object.entries(
-        { LOOP_HOME: root, PATH: path, ...env },
+        { LOOP55_HOME: root, PATH: path, ...env },
       )
         .map(([k, v]) => `<key>${k}</key><string>${xml(v)}</string>`)
         .join(
@@ -88,8 +92,8 @@ export function serviceDefinitions(
           SERVICES.darwin.app,
           app,
           {
-            ...(connection ? { LOOP_CONNECTION_MANAGED: "external" } : {}),
-            LOOP_SERVICE: "launchd",
+            ...(connection ? { LOOP55_CONNECTION_MANAGED: "external" } : {}),
+            LOOP55_SERVICE: "launchd",
           },
           "workspace/service.log",
         ),
@@ -101,12 +105,12 @@ export function serviceDefinitions(
   return {
     connection: connection && {
       name: SERVICES.linux.connection,
-      contents: `[Unit]\nDescription=Loop connection service (tunnel and relay)\nAfter=network-online.target\n\n[Service]\nType=simple\nWorkingDirectory=${literalPath(project)}\nEnvironment=${unit("LOOP_HOME=" + root)}\nEnvironment=${unit("PATH=" + path)}\nExecStart=${connection.map(unit).join(" ")}\nRestart=on-failure\nRestartSec=10\nKillMode=control-group\nTimeoutStopSec=15\n\n[Install]\nWantedBy=default.target\n`,
+      contents: `[Unit]\nDescription=Loop55 connection service (tunnel and relay)\nAfter=network-online.target\n\n[Service]\nType=simple\nWorkingDirectory=${literalPath(project)}\nEnvironment=${unit("LOOP55_HOME=" + root)}\nEnvironment=${unit("PATH=" + path)}\nExecStart=${connection.map(unit).join(" ")}\nRestart=on-failure\nRestartSec=10\nKillMode=control-group\nTimeoutStopSec=15\n\n[Install]\nWantedBy=default.target\n`,
     },
     app: {
       name: SERVICES.linux.app,
       // Wants, not Requires: restarting either unit leaves the other alone.
-      contents: `[Unit]\nDescription=Loop laptop workspace\nAfter=network-online.target${connection ? ` ${SERVICES.linux.connection}\nWants=${SERVICES.linux.connection}` : ""}\n\n[Service]\nType=simple\nWorkingDirectory=${literalPath(project)}\nEnvironment=${unit("LOOP_HOME=" + root)}\nEnvironment=${unit("PATH=" + path)}\n${connection ? 'Environment="LOOP_CONNECTION_MANAGED=external"\n' : ""}Environment="LOOP_SERVICE=systemd"\nExecStart=${app.map(unit).join(" ")}\nRestart=on-failure\nRestartSec=30\nKillMode=control-group\nTimeoutStopSec=30\n\n[Install]\nWantedBy=default.target\n`,
+      contents: `[Unit]\nDescription=Loop55 laptop workspace\nAfter=network-online.target${connection ? ` ${SERVICES.linux.connection}\nWants=${SERVICES.linux.connection}` : ""}\n\n[Service]\nType=simple\nWorkingDirectory=${literalPath(project)}\nEnvironment=${unit("LOOP55_HOME=" + root)}\nEnvironment=${unit("PATH=" + path)}\n${connection ? 'Environment="LOOP55_CONNECTION_MANAGED=external"\n' : ""}Environment="LOOP55_SERVICE=systemd"\nExecStart=${app.map(unit).join(" ")}\nRestart=on-failure\nRestartSec=30\nKillMode=control-group\nTimeoutStopSec=30\n\n[Install]\nWantedBy=default.target\n`,
     },
   };
 }
@@ -137,7 +141,7 @@ export function repointUnit(
   const found = contents.match(pattern);
   const unreadable = () =>
     new Error(
-      `Loop could not read the executable from ${where}, so it cannot point that service at this build. Run loop service install from the new build, then loop restart.`,
+      `Loop55 could not read the executable from ${where}, so it cannot point that service at this build. Run loop55 service install from the new build, then loop55 restart.`,
     );
   if (!found) throw unreadable();
   let args: string[];
@@ -184,7 +188,7 @@ export function repointUnit(
  * An upgrade installs the new build somewhere else (npm's global prefix, say)
  * while the unit still names the build it was installed from, typically a
  * checkout. Without this the manager relaunches the old code, so the upgrade
- * reports success while Loop keeps serving the previous release.
+ * reports success while Loop55 keeps serving the previous release.
  *
  * Returns "absent" when there is no unit to point, "unchanged" when it already
  * names this build (the caller restarts it as usual), and "repointed" when the
@@ -195,7 +199,7 @@ export async function repointAppService(cli: string, root: string) {
   // must not rewrite or restart the production workspace's installed units.
   if (!(await installedSupervisor(root))) return "absent" as const;
   const mac = process.platform === "darwin";
-  const names = mac ? SERVICES.darwin : SERVICES.linux;
+  const names = (await installedServiceNames(root))!;
   const unitFile = (name: string) =>
     join(
       homedir(),
@@ -239,25 +243,36 @@ export async function repointAppService(cli: string, root: string) {
  * a restart most needs to route to the manager exactly when the application is
  * too hung to answer at all.
  *
- * Matched on the unit's own LOOP_HOME: a unit installed for a different
+ * Matched on the unit's own LOOP55_HOME: a unit installed for a different
  * workspace is somebody else's, and kickstarting it from here would restart a
  * workspace the caller never named.
  */
-export async function installedSupervisor(root: string) {
+export async function installedServiceNames(root: string) {
   const mac = process.platform === "darwin";
-  const names = mac ? SERVICES.darwin : SERVICES.linux;
-  const file = join(
-    homedir(),
-    mac ? "Library/LaunchAgents" : ".config/systemd/user",
-    mac ? `${names.app}.plist` : names.app,
-  );
-  const contents = await readFile(file, "utf8").catch(() => undefined);
-  if (contents === undefined) return undefined;
-  const home = mac
-    ? contents.match(/<key>LOOP_HOME<\/key><string>([^<]*)<\/string>/)?.[1]
-    : contents.match(/^Environment="LOOP_HOME=((?:\\.|[^"\\])*)"/m)?.[1];
-  if (home !== (mac ? xml(root) : unit(root).slice(1, -1))) return undefined;
-  return mac ? "launchd" : "systemd";
+  for (const names of [
+    mac ? SERVICES.darwin : SERVICES.linux,
+    mac ? LEGACY_SERVICES.darwin : LEGACY_SERVICES.linux,
+  ]) {
+    const file = join(
+      homedir(),
+      mac ? "Library/LaunchAgents" : ".config/systemd/user",
+      mac ? `${names.app}.plist` : names.app,
+    );
+    const contents = await readFile(file, "utf8").catch(() => undefined);
+    if (contents === undefined) continue;
+    const home = mac
+      ? contents.match(
+          /<key>LOOP(?:55)?_HOME<\/key><string>([^<]*)<\/string>/,
+        )?.[1]
+      : contents.match(
+          /^Environment="LOOP(?:55)?_HOME=((?:\\.|[^"\\])*)"/m,
+        )?.[1];
+    if (home === (mac ? xml(root) : unit(root).slice(1, -1))) return names;
+  }
+}
+export async function installedSupervisor(root: string) {
+  if (!(await installedServiceNames(root))) return undefined;
+  return process.platform === "darwin" ? "launchd" : "systemd";
 }
 export async function userService(
   action: string,
@@ -272,13 +287,16 @@ export async function userService(
     ? join(homedir(), "Library/LaunchAgents")
     : join(homedir(), ".config/systemd/user");
   const names = mac ? SERVICES.darwin : SERVICES.linux;
+  const prior = await installedServiceNames(root);
+  const retired =
+    prior && prior.app !== names.app ? [prior.app, prior.connection] : [];
   const file = (name: string) => join(dir, mac ? `${name}.plist` : name);
   if (!["install", "uninstall"].includes(action))
-    throw new Error("Use loop service install or loop service uninstall");
+    throw new Error("Use loop55 service install or loop55 service uninstall");
   const uid = process.getuid!();
   // Stop the application before the connection, and start it after.
   const stop = async () => {
-    for (const name of [names.app, names.connection]) {
+    for (const name of [names.app, names.connection, ...retired]) {
       if (mac)
         await exec("launchctl", ["bootout", `gui/${uid}/${name}`]).catch(
           () => {},
@@ -302,6 +320,7 @@ export async function userService(
     );
     // Replacing an existing installation never runs two copies at once.
     await stop();
+    for (const name of retired) await rm(file(name), { force: true });
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await rm(file(names.connection), { force: true });
     const installed = [definitions.connection, definitions.app].filter(
@@ -325,7 +344,7 @@ export async function userService(
     }
   } else {
     await stop();
-    for (const name of [names.app, names.connection])
+    for (const name of [names.app, names.connection, ...retired])
       await rm(file(name), { force: true });
     if (!mac)
       await exec("systemctl", ["--user", "daemon-reload"]).catch(() => {});

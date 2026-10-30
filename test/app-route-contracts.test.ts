@@ -9,14 +9,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-app-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "server";
-process.env.LOOP_AUTH_MODE = "single-user";
-process.env.LOOP_URL = "http://127.0.0.1";
-process.env.LOOP_BIND_ADDRESS = "127.0.0.1";
-process.env.LOOP_GATEWAY_TOKEN = "";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop55-app-contracts-"));
+process.env.LOOP55_DATA_DIR = directory;
+process.env.LOOP55_PROFILE = "server";
+process.env.LOOP55_AUTH_MODE = "single-user";
+process.env.LOOP55_URL = "http://127.0.0.1";
+process.env.LOOP55_BIND_ADDRESS = "127.0.0.1";
+process.env.LOOP55_GATEWAY_TOKEN = "";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 process.env.BETTER_AUTH_SECRET = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");
 const { config } = await import("../src/server/config");
@@ -168,7 +168,7 @@ it("projects public discovery, local identity, health, build and actual diagnost
 });
 
 it("keeps local-only enrollment, opaque MCP dispatch and durable reverse-call identities", async () => {
-  const setup = { "x-loop-source-setup": "1" };
+  const setup = { "x-loop55-source-setup": "1" };
   const peerId = "laptop:" + id();
   const base = "/mcp/federation";
   const enrolled = await request(base + "/enroll", { peerId }, "POST", setup);
@@ -276,8 +276,8 @@ it("keeps local-only enrollment, opaque MCP dispatch and durable reverse-call id
         requestInit: {
           headers: {
             authorization: rpcHeaders.authorization,
-            "x-loop-run-id": run.id,
-            "x-loop-call-id": "contract-call",
+            "x-loop55-run-id": run.id,
+            "x-loop55-call-id": "contract-call",
           },
         },
       }),

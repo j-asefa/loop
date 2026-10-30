@@ -33,7 +33,7 @@ type Context = {
 };
 
 // Native tools can return far more text than the phone needs to display. Keep
-// a bounded tail in Loop's projection; the harness still owns the full output.
+// a bounded tail in Loop55's projection; the harness still owns the full output.
 function displayText(text: string) {
   const limit = 64000;
   if (Buffer.byteLength(JSON.stringify(text)) <= limit) return text;
@@ -76,7 +76,7 @@ export class NativeProjector {
         usage.output_tokens < 0
       )
         return;
-      // Cumulative for this Loop turn, separate from API message receipts.
+      // Cumulative for this Loop55 turn, separate from API message receipts.
       // Never persist arbitrary adapter fields in the public event stream.
       emit(run.owner_id, run.id, "native.usage", {
         usage: {
@@ -308,7 +308,7 @@ export class NativeProjector {
     const kind = (update as { kind?: unknown }).kind;
     // Session-scoped catalogs/settings may arrive during new/load before a
     // turn starts. Run-scoped records are accepted only during their turn:
-    // ACP load does not identify the original Loop turn for replayed tools, so
+    // ACP load does not identify the original Loop55 turn for replayed tools, so
     // those frames are discarded rather than assigned to the bootstrap run or
     // presented as new work. Stored projections remain authoritative.
     if (!live.run && kind !== "settings" && kind !== "commands") return;
@@ -340,7 +340,7 @@ export class NativeProjector {
         )
         .catch(() => {});
       // A test, type-check or lint the agent ran is recorded with the exit
-      // Loop saw, whatever that exit was, right behind the activity commit.
+      // Loop55 saw, whatever that exit was, right behind the activity commit.
       try {
         observeCompletedOutput(
           run,

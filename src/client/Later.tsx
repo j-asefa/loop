@@ -52,13 +52,13 @@ export type SavedMessage = {
   agent_name: string | null;
   provider: string | null;
   project_name: string | null;
-  /** Where a saved story is, which is outside Loop. */
+  /** Where a saved story is, which is outside Loop55. */
   url?: string | null;
 };
 export type LaterSection = "all" | "saved" | "reminders" | "scheduled";
 
 export type ShowLater = { section: LaterSection; focusId: string | null };
-export const SHOW_LATER = "loop-show-later";
+export const SHOW_LATER = "loop55-show-later";
 /**
  * Ask Later to open at a section, optionally highlighting one item. A page
  * that mounts reads the request from the view cache; one already open (your
@@ -121,7 +121,7 @@ function Card({
     >
       <div className="card-byline">
         <span className="identity">
-          <Avatar name={agentName || "Loop"} provider={provider as any} />
+          <Avatar name={agentName || "Loop55"} provider={provider as any} />
           <span>
             <strong>{agentName ? "@" + agentName : "Your workspace"}</strong>
             <span className="subline">{meta}</span>
@@ -357,7 +357,7 @@ function SavedCollection({
           }
           pending.current.delete(item.card.id);
           if (alive.current) await currentLoad.current();
-          window.dispatchEvent(new Event("loop-later-change"));
+          window.dispatchEvent(new Event("loop55-later-change"));
         })().catch((e) => {
           restore();
           if (alive.current && viewOwner() === owner) setError(e.message);
@@ -608,8 +608,8 @@ export function Later({
   useEffect(() => {
     void load(false, true);
     const update = () => void load();
-    window.addEventListener("loop-later-change", update);
-    window.addEventListener("loop-scheduled-change", update);
+    window.addEventListener("loop55-later-change", update);
+    window.addEventListener("loop55-scheduled-change", update);
     const stopFallback = surfaceFallback(
       [sourceId],
       "workspace",
@@ -619,8 +619,8 @@ export function Later({
     const stopChanges = listenWorkspaceChanges("later", update, sourceId);
     const stopScheduled = listenWorkspaceChanges("scheduled", update, sourceId);
     return () => {
-      window.removeEventListener("loop-later-change", update);
-      window.removeEventListener("loop-scheduled-change", update);
+      window.removeEventListener("loop55-later-change", update);
+      window.removeEventListener("loop55-scheduled-change", update);
       stopFallback();
       stopChanges();
       stopScheduled();
@@ -647,7 +647,7 @@ export function Later({
         { params: { id: item.id }, body: undefined },
         executionSourceId(),
       );
-      window.dispatchEvent(new Event("loop-later-change"));
+      window.dispatchEvent(new Event("loop55-later-change"));
       // Undo reopens this same reminder: Done is a state, not a deletion.
       notify({
         text: due ? "Marked done." : "Reminder cancelled.",
@@ -657,7 +657,7 @@ export function Later({
             { params: { id: item.id }, body: {} },
             executionSourceId(),
           );
-          window.dispatchEvent(new Event("loop-later-change"));
+          window.dispatchEvent(new Event("loop55-later-change"));
         },
       });
     } catch (e) {
@@ -808,7 +808,7 @@ export function Later({
         <>
           {!only && <h2 className="section-title">Scheduled</h2>}
           <p className="section-hint">
-            Messages you asked Loop to send to an agent later.
+            Messages you asked Loop55 to send to an agent later.
           </p>
           <ScheduledSends
             revision={revision}

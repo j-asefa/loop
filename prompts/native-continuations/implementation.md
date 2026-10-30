@@ -19,7 +19,7 @@ At assignment preparation, `NativeSessions.event()` records items received witho
 
 ## Suggested structure
 
-Separate native session lifetime from the lifetime of a Loop run. Introduce a normalized execution lifecycle with a correlated start and terminal event, explicit live/replay provenance, and background-work state where available. Exact type names and storage layout are implementation choices. Avoid overloading uncorrelated `status: running` events that may also describe startup or reconciliation.
+Separate native session lifetime from the lifetime of a Loop55 run. Introduce a normalized execution lifecycle with a correlated start and terminal event, explicit live/replay provenance, and background-work state where available. Exact type names and storage layout are implementation choices. Avoid overloading uncorrelated `status: running` events that may also describe startup or reconciliation.
 
 Factor the shared run setup and completion behavior so both prompted execution and observed continuation use it. The observed path creates a durable running record and attaches monitoring to existing execution; it must never enter a dispatch path that submits a prompt. Preserve normal output checkpoints, artifact creation, activity attribution, approvals, final results, and notifications without copying stale trigger-specific payloads from the previous run, such as a workflow step or mail receipt.
 

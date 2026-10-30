@@ -1,3 +1,4 @@
+import "../deployment/environment.mjs";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { z } from "zod";
@@ -32,9 +33,9 @@ export const previewManifest = z
   .strict();
 export type PreviewManifest = z.infer<typeof previewManifest>;
 export const PREVIEW_MARKER = "preview-owner.json";
-export const preview = process.env.LOOP_PREVIEW_MANIFEST
+export const preview = process.env.LOOP55_PREVIEW_MANIFEST
   ? previewManifest.parse(
-      JSON.parse(readFileSync(process.env.LOOP_PREVIEW_MANIFEST, "utf8")),
+      JSON.parse(readFileSync(process.env.LOOP55_PREVIEW_MANIFEST, "utf8")),
     )
   : undefined;
 export const designPreview = preview?.mode === "design";
@@ -60,9 +61,9 @@ export function assertPreviewDataDir(data: string) {
     marker.previewId !== preview.previewId ||
     marker.mode !== preview.mode ||
     resolve(data) !== join(resolve(preview.home), "workspace") ||
-    resolve(process.env.LOOP_HOME || "") !== resolve(preview.home)
+    resolve(process.env.LOOP55_HOME || "") !== resolve(preview.home)
   )
     throw new Error(
-      "Preview state requires its own launcher and original mode. Use loop preview start NAME.",
+      "Preview state requires its own launcher and original mode. Use loop55 preview start NAME.",
     );
 }

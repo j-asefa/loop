@@ -66,7 +66,7 @@ test("manual/schedule/push always run full, diff failures never skip", () => {
   );
 });
 test("real git diff covers all commits, deletions, renames and unusual filenames", () => {
-  const cwd = mkdtempSync(join(tmpdir(), "loop-ci-diff-"));
+  const cwd = mkdtempSync(join(tmpdir(), "loop55-ci-diff-"));
   const git = (...args) =>
     execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
   try {

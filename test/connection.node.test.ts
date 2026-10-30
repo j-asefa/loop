@@ -24,7 +24,7 @@ async function service(env: Record<string, string> = {}, existing?: string) {
   await mkdir(".tmp", { recursive: true });
   await chmod(FAKE, 0o755);
   const dir =
-    existing ?? (await mkdtemp(join(resolve(".tmp"), "loop-connection-")));
+    existing ?? (await mkdtemp(join(resolve(".tmp"), "loop55-connection-")));
   const tunnels = join(dir, "tunnels.log");
   const child = spawn(
     process.execPath,
@@ -41,8 +41,8 @@ async function service(env: Record<string, string> = {}, existing?: string) {
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       env: {
         ...process.env,
-        LOOP_TEST_CLOUDFLARED: FAKE,
-        LOOP_TEST_TUNNEL_LOG: tunnels,
+        LOOP55_TEST_CLOUDFLARED: FAKE,
+        LOOP55_TEST_TUNNEL_LOG: tunnels,
         ...env,
       },
     },
@@ -94,7 +94,7 @@ async function backend(
         host: req.headers.host,
         cookie: req.headers.cookie ?? null,
         path: req.url,
-        probe: req.headers["x-loop-probe"] ?? null,
+        probe: req.headers["x-loop55-probe"] ?? null,
         upgrade: req.headers.upgrade ?? null,
         te: req.headers["transfer-encoding"] ?? null,
       }),
@@ -105,7 +105,7 @@ async function backend(
   const socket = backendSocketPath(join(record.control, ".."));
   const seen: string[] = [];
   const server = createServer((req, res) => {
-    if (req.url?.startsWith("/__loop/backend-probe?")) {
+    if (req.url?.startsWith("/__loop55/backend-probe?")) {
       const nonce = new URL(req.url, "http://x").searchParams.get("nonce")!;
       res.end(
         JSON.stringify({
@@ -227,8 +227,8 @@ test("an unrelated listener never receives forwarded traffic and stale generatio
       headers: { accept: "text/html" },
     });
     assert.equal(page.status, 503);
-    assert.match(page.body.toString(), /Loop is reconnecting/);
-    assert.equal(page.headers["x-loop-unavailable"], "restarting");
+    assert.match(page.body.toString(), /Loop55 is reconnecting/);
+    assert.equal(page.headers["x-loop55-unavailable"], "restarting");
 
     // Same directory, same user, but it can't answer the lease's proof.
     const lease = await s.control("lease");
@@ -257,7 +257,7 @@ test("an unrelated listener never receives forwarded traffic and stale generatio
     );
     const denied = await relay(port, s.origin, "POST", "/api/runs", {
       headers: {
-        cookie: "__Host-loop=secret",
+        cookie: "__Host-loop55=secret",
         "content-type": "application/json",
       },
       body: "{}",
@@ -305,20 +305,20 @@ test("the relay preserves Host and cookies, strips private and hop-by-hop fields
     await app.register();
     const answer = await relay(port, s.origin, "GET", "/api/echo?q=1", {
       headers: {
-        cookie: "__Host-loop=abc",
-        "x-loop-probe": "1",
+        cookie: "__Host-loop55=abc",
+        "x-loop55-probe": "1",
         connection: "keep-alive, x-drop",
         "x-drop": "1",
       },
     });
     const echoed = JSON.parse(answer.body.toString());
     assert.equal(echoed.host, new URL(s.origin).host);
-    assert.equal(echoed.cookie, "__Host-loop=abc");
+    assert.equal(echoed.cookie, "__Host-loop55=abc");
     assert.equal(echoed.path, "/api/echo?q=1");
     assert.equal(echoed.probe, null);
     for (const path of [
-      "/__loop/backend-probe?nonce=" + "a".repeat(20),
-      "/__loop",
+      "/__loop55/backend-probe?nonce=" + "a".repeat(20),
+      "/__loop55",
     ])
       assert.equal((await relay(port, s.origin, "GET", path)).status, 404);
     assert.deepEqual(app.seen, ["GET /api/echo?q=1"]);
@@ -377,7 +377,7 @@ test("uploads and downloads stream, WebSockets upgrade, and an interrupted mutat
     assert(downloaded.body.equals(download));
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
-      headers: { host: new URL(s.origin).host, cookie: "__Host-loop=abc" },
+      headers: { host: new URL(s.origin).host, cookie: "__Host-loop55=abc" },
     });
     const messages: string[] = [];
     ws.on("message", (b) => messages.push(b.toString()));
@@ -386,7 +386,7 @@ test("uploads and downloads stream, WebSockets upgrade, and an interrupted mutat
     await until(() => messages.length === 2);
     assert.deepEqual(JSON.parse(messages[0]), {
       host: new URL(s.origin).host,
-      cookie: "__Host-loop=abc",
+      cookie: "__Host-loop55=abc",
     });
     assert.equal(messages[1], "echo:ping");
 
@@ -395,7 +395,7 @@ test("uploads and downloads stream, WebSockets upgrade, and an interrupted mutat
       body: "{}",
     });
     assert.equal(interrupted.status, 502);
-    assert.equal(interrupted.headers["x-loop-outcome"], "unknown");
+    assert.equal(interrupted.headers["x-loop55-outcome"], "unknown");
     assert.equal(mutations, 1, "the relay never resends a request");
 
     // Withdrawal ends this launch's forwarding; its open socket drains, then closes.
@@ -418,7 +418,7 @@ test("uploads and downloads stream, WebSockets upgrade, and an interrupted mutat
 });
 
 test("a dead or silent launch stops receiving traffic; shutdown stops cloudflared and clears records", async () => {
-  const s = await service({ LOOP_TEST_LEASE_TIMEOUT_MS: "1500" });
+  const s = await service({ LOOP55_TEST_LEASE_TIMEOUT_MS: "1500" });
   try {
     const {
       relay: { port },
@@ -551,7 +551,7 @@ for (const [speed, delay] of [
     lease.onOrigin = (origin) => origins.push(origin);
     // The application's gateway: answers the probe, otherwise reports the Host it serves.
     const app = createServer((req, res) => {
-      if (req.url?.startsWith("/__loop/backend-probe?")) {
+      if (req.url?.startsWith("/__loop55/backend-probe?")) {
         const nonce = new URL(req.url, "http://x").searchParams.get("nonce")!;
         res.end(JSON.stringify({ proof: lease.probe(nonce) }));
         return;
@@ -579,7 +579,7 @@ for (const [speed, delay] of [
       // starting, so heartbeats see it before it can grant a lease.
       await first.control("shutdown");
       await new Promise((r) => first.child.once("exit", r));
-      second = await service({ LOOP_TEST_TUNNEL_DELAY_MS: delay }, first.dir);
+      second = await service({ LOOP55_TEST_TUNNEL_DELAY_MS: delay }, first.dir);
       assert.notEqual(second.origin, first.origin);
       // The launch keeps retrying until the replacement grants it a lease.
       const end = Date.now() + 15000;
@@ -628,7 +628,7 @@ test("a second service for the same directory refuses to start", async () => {
       ],
       {
         stdio: ["ignore", "pipe", "pipe", "ipc"],
-        env: { ...process.env, LOOP_TEST_CLOUDFLARED: FAKE },
+        env: { ...process.env, LOOP55_TEST_CLOUDFLARED: FAKE },
       },
     );
     const message: any = await new Promise((r) => second.once("message", r));

@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-streaming-writes-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-streaming-writes-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, changes, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");

@@ -1,3 +1,4 @@
+import "../deployment/environment.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -7,8 +8,8 @@ import { selectedEngines } from "./helpers/engines.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 const screenshots =
-  process.env.LOOP_APP_CONTRACT_SCREENSHOTS ||
-  "/tmp/loop-app-contracts-screenshots";
+  process.env.LOOP55_APP_CONTRACT_SCREENSHOTS ||
+  "/tmp/loop55-app-contracts-screenshots";
 mkdirSync(screenshots, { recursive: true });
 for (const engine of selectedEngines()) {
   const name = engine.name();

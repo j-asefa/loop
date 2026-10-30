@@ -18,11 +18,11 @@ The existing `foreignResult()` guard protects a submitted prompt from unrelated,
 
 Verify what `result` means when background work remains and what observable event proves the parent has resumed. Track background lifetime separately from parent execution. If the protocol has no dedicated start event, justify and test a structured live-event boundary; never classify every assistant message or task notification as a new turn. A child finishing is not itself a parent start.
 
-Upstream starting point: [Claude subagents](https://code.claude.com/docs/en/agent-sdk/subagents). Follow its SDK references and verify against the supported CLI; Loop's adapter uses the CLI protocol.
+Upstream starting point: [Claude subagents](https://code.claude.com/docs/en/agent-sdk/subagents). Follow its SDK references and verify against the supported CLI; Loop55's adapter uses the CLI protocol.
 
 ## Pi
 
-Start in `src/adapters/pi.ts`. At preparation time Loop emits running on `agent_start` and completes on `agent_settled`. Ensure autonomous starts also reset turn-local flags and enable steering and cancellation; those must not depend solely on Loop calling `prompt()`.
+Start in `src/adapters/pi.ts`. At preparation time Loop55 emits running on `agent_start` and completes on `agent_settled`. Ensure autonomous starts also reset turn-local flags and enable steering and cancellation; those must not depend solely on Loop55 calling `prompt()`.
 
 Keep automatic retries, compaction, and immediate follow-ups within their verified logical lifecycle. Do not finish on a lower-level `agent_end` if Pi will continue before `agent_settled`. Check how installed extensions can deliver findings or trigger fresh parent execution after settlement.
 

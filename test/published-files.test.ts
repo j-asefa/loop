@@ -21,12 +21,12 @@ import {
   MAX_PUBLISHED_BYTES,
 } from "../runtime/published-files.ts";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-published-"));
+const directory = mkdtempSync(join(tmpdir(), "loop55-published-"));
 const workspace = join(directory, "workspace");
 mkdirSync(workspace);
-process.env.LOOP_DATA_DIR = join(directory, "data");
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP_PROFILE = "server";
+process.env.LOOP55_DATA_DIR = join(directory, "data");
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP55_PROFILE = "server";
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
@@ -51,7 +51,7 @@ app.use(express.json(), (req, res, next) => {
 app.post("/runtime", (req, res) => {
   requests.push(req.body);
   expect(req.get("authorization")).toBe(
-    "Bearer " + process.env.LOOP_RUNTIME_TOKEN,
+    "Bearer " + process.env.LOOP55_RUNTIME_TOKEN,
   );
   expect(req.body.action).toBe("read-file");
   if (req.body.path === "outage.bin") {
@@ -81,9 +81,9 @@ app.use((error: any, _req: any, res: any, _next: any) =>
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((r) => server.once("listening", r));
 const base = `http://127.0.0.1:${(server.address() as any).port}`;
-process.env.LOOP_RUNTIME_URL = base;
-process.env.LOOP_ALLOWED_RUNTIME_ORIGINS = base;
-process.env.LOOP_RUNTIME_TOKEN =
+process.env.LOOP55_RUNTIME_URL = base;
+process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS = base;
+process.env.LOOP55_RUNTIME_TOKEN =
   "file-fixture-runtime-token-at-least-32-characters";
 const request = (path: string, owner = "alice") =>
   fetch(base + "/api" + path, { headers: { "x-owner": owner } });
@@ -104,7 +104,7 @@ function fixture() {
   });
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
   const binding = nativeBindings(run).find(
-    (b) => b.tool === "loop_publish_file",
+    (b) => b.tool === "loop55_publish_file",
   )!;
   return {
     agent,
@@ -395,7 +395,7 @@ it("tells the agent why a workspace file was refused, unlike a runtime outage", 
     return outcome.result.content[0].text;
   };
   expect(await text("review-30fps.mp4")).toBe(
-    "File was not published: This file is 49.0 MB; Loop publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.",
+    "File was not published: This file is 49.0 MB; Loop55 publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.",
   );
   expect(await text("outage.bin")).toMatch(
     /^File was not published: Subscription runtime unavailable or busy \(HTTP 422\)/,
@@ -475,7 +475,7 @@ it("reads files through the real runtime entry without launching a provider", ()
         env: {
           PATH: process.env.PATH,
           HOME: home,
-          LOOP_RUNTIME_MODE: "container",
+          LOOP55_RUNTIME_MODE: "container",
         },
         input:
           JSON.stringify({

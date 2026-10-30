@@ -9,7 +9,7 @@ import { removeJobShims } from "../deployment/remove-job-shims.mjs";
 import { shimScript } from "../deployment/job-shim.mjs";
 
 test("retired wrappers run immediately with stale settings, preserving argv, PID and protocol pipes", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-retired-shims-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-retired-shims-"));
   const config = join(dir, "jobs.json");
   try {
     writeFileSync(
@@ -45,9 +45,9 @@ test("retired wrappers run immediately with stale settings, preserving argv, PID
           `
         const assert=require('assert/strict');
         assert.equal(process.argv[1], "space ' $literal");
-        for (const key of ['LOOP_JOB_QUEUE_CONFIG','LOOP_JOB_SHIMS','LOOP_JOB_ACTIVE'])
+        for (const key of ['LOOP55_JOB_QUEUE_CONFIG','LOOP55_JOB_SHIMS','LOOP55_JOB_ACTIVE'])
           assert.equal(process.env[key],undefined);
-        assert.equal(process.env.LOOP_HEAVY_SCHEDULING,'off');
+        assert.equal(process.env.LOOP55_HEAVY_SCHEDULING,'off');
         require('fs').writeSync(3,String(process.pid));
         process.exit(7);
       `,
@@ -56,10 +56,10 @@ test("retired wrappers run immediately with stale settings, preserving argv, PID
         {
           env: {
             ...process.env,
-            LOOP_JOB_QUEUE_CONFIG: "/missing/config.json",
-            LOOP_JOB_SHIMS: dir,
-            LOOP_JOB_ACTIVE: "old",
-            LOOP_HEAVY_SCHEDULING: "on",
+            LOOP55_JOB_QUEUE_CONFIG: "/missing/config.json",
+            LOOP55_JOB_SHIMS: dir,
+            LOOP55_JOB_ACTIVE: "old",
+            LOOP55_HEAVY_SCHEDULING: "on",
           },
           stdio: ["ignore", "ignore", "pipe", "pipe"],
         },
@@ -88,7 +88,7 @@ test("retired wrappers run immediately with stale settings, preserving argv, PID
 });
 
 test("wrapper retirement leaves custom commands and other wrappers untouched on validation failure", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-custom-shims-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-custom-shims-"));
   const config = join(dir, "jobs.json");
   try {
     writeFileSync(

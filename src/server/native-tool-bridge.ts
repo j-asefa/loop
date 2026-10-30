@@ -76,7 +76,7 @@ export class NativeToolBridge {
       ...toolBindings(run.owner_id, run.agent_id!).map((b) => ({
         ...b,
         name:
-          "loop_mcp_" +
+          "loop55_mcp_" +
           createHash("sha256")
             .update(b.connectionId + ":" + b.tool)
             .digest("hex")
@@ -187,7 +187,7 @@ export class NativeToolBridge {
             binding.connectionId === "__loop__" ? invokeNative : invokeTool
           )(run, binding, key, args);
           if ("result" in response) {
-            if (binding.tool === "loop_install_mcp") {
+            if (binding.tool === "loop55_install_mcp") {
               this.list(t);
               await t.server
                 ?.notification({ method: "notifications/tools/list_changed" })
@@ -294,7 +294,7 @@ export class NativeToolBridge {
           return;
         }
         t.server = new Server(
-          { name: "loop-workspace", version: "0.1.0" },
+          { name: "loop55-workspace", version: "0.1.0" },
           { capabilities: { tools: { listChanged: true } } },
         );
         t.server.setRequestHandler(ListToolsRequestSchema, async () =>

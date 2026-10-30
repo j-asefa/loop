@@ -105,7 +105,7 @@ export function submit(
     // User follow-ups steer active work. Internal delegation/retry creates work.
     steer?: boolean;
     personal?: boolean;
-    // Sent by Loop on your behalf (a watched pull request or a teammate
+    // Sent by Loop55 on your behalf (a watched pull request or a teammate
     // agent's message), not typed by you.
     automation?: Automation;
     /** Internal mail routing; ordinary HTTP sends never accept this option. */
@@ -209,7 +209,7 @@ export function submit(
           throw new Problem(400, "This conversation belongs to another agent");
         if (teamId && c.team_id !== teamId)
           throw new Problem(400, "Conversation belongs to another team");
-        // Loop owns the transcript, so a changed provider or model simply
+        // Loop55 owns the transcript, so a changed provider or model simply
         // handles the next turn; active work keeps its original snapshot.
         teamId = c.team_id || undefined;
         if (data.folderId === undefined)
@@ -358,7 +358,7 @@ export function submit(
     })
     .immediate();
 }
-// API-provider activities come from Loop's own broker and runtime, never from
+// API-provider activities come from Loop55's own broker and runtime, never from
 // model prose. Display records must not fail a run, so rejections are dropped.
 function apiToolActivity(
   run: Run,
@@ -384,9 +384,9 @@ function apiSessionActivities(
   reported: ReadonlySet<string>,
 ) {
   const scope = { owner: run.owner_id, conversation: run.conversation_id };
-  const source = { transport: "api" as const, origin: "loop" };
+  const source = { transport: "api" as const, origin: "loop55" };
   const reason =
-    "Set in this agent's settings. Loop applies it at the start of each run.";
+    "Set in this agent's settings. Loop55 applies it at the start of each run.";
   applyActivity(scope, {
     v: 1,
     kind: "settings",
@@ -402,7 +402,7 @@ function apiSessionActivities(
           application: "next-turn",
           mutable: false,
           reason,
-          provenance: "loop",
+          provenance: "loop55",
         },
         snapshot.effort
           ? {
@@ -413,7 +413,7 @@ function apiSessionActivities(
               application: "next-turn",
               mutable: false,
               reason,
-              provenance: "loop",
+              provenance: "loop55",
             }
           : { id: "effort", confirmed: null },
       ],
@@ -437,7 +437,7 @@ function reportedFeatures(run: Run, runtime: "codex" | "claude" | undefined) {
     (feature) => capabilities[feature]?.state === "supported",
   );
 }
-// Capabilities of an API-runtime run. Provider-key runs execute only Loop's
+// Capabilities of an API-runtime run. Provider-key runs execute only Loop55's
 // tool broker, whose MCP results carry no trusted file-change or command
 // metadata, and have no command catalog. Subscription runs execute in a Codex
 // or Claude Code runtime whose own executor reports structured command and
@@ -451,7 +451,7 @@ function apiCapabilities(
 ) {
   const scope = { owner: run.owner_id, conversation: run.conversation_id };
   const unavailable = (reason: string) =>
-    ({ state: "unsupported", source: "loop", reason }) as const;
+    ({ state: "unsupported", source: "loop55", reason }) as const;
   const label = runtime === "codex" ? "Codex runtime" : "Claude Code runtime";
   const structured = (feature: string, what: string) =>
     reported.has(feature)
@@ -459,29 +459,29 @@ function apiCapabilities(
       : ({
           state: "undiscovered",
           source: label,
-          reason: `Shown when the runtime reports its first structured ${what}. Runtimes older than this Loop version report only text traces.`,
+          reason: `Shown when the runtime reports its first structured ${what}. Runtimes older than this Loop55 version report only text traces.`,
         } as const);
   setActivityCapabilities(scope, { transport: "api", harness: runtime }, {
     plans: tools
       ? {
           state: "supported",
-          source: runtime ? `loop_plan tool and ${label}` : "loop_plan tool",
+          source: runtime ? `loop55_plan tool and ${label}` : "loop55_plan tool",
         }
       : unavailable("Workflow runs do not receive workspace tools."),
     tools: tools
-      ? { state: "supported", source: "loop tool broker" }
+      ? { state: "supported", source: "loop55 tool broker" }
       : unavailable("Workflow runs do not receive workspace tools."),
     diffs: runtime
       ? structured("diffs", "file change")
       : unavailable(
-          "Provider-key runs execute only Loop's tool broker; MCP tool results carry no trusted file-change data.",
+          "Provider-key runs execute only Loop55's tool broker; MCP tool results carry no trusted file-change data.",
         ),
     output: runtime
       ? structured("output", "command result")
       : unavailable(
-          "Provider-key runs execute only Loop's tool broker; MCP tool results carry no structured command output.",
+          "Provider-key runs execute only Loop55's tool broker; MCP tool results carry no structured command output.",
         ),
-    settings: { state: "supported", source: "loop agent settings" },
+    settings: { state: "supported", source: "loop55 agent settings" },
     commands: runtime
       ? { state: "supported", source: `${label} catalog (command picker)` }
       : unavailable(
@@ -502,7 +502,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   }
   const connection = ownedConnection(snapshot.connectionId, run.owner_id);
   if (snapshot.teamId || snapshot.reviewId) assertTeamConnection(connection);
-  const harness = connection.metadata.loopHarness;
+  const harness = connection.metadata.loop55Harness;
   if (harness &&
     (providerChangeInProgress(harness) || nativeSignIns.inProgress(harness)) &&
     !db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id) &&
@@ -692,7 +692,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           });
           // A plan is its own activity; a second tool card would duplicate it.
           const toolActivity =
-            invocation.binding.tool === "loop_plan" &&
+            invocation.binding.tool === "loop55_plan" &&
             invocation.binding.connectionId === "__loop__"
               ? () => {}
               : (patch: Parameters<typeof apiToolActivity>[2]) =>
@@ -749,7 +749,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
             // Release the lease only after the checkpoint is saved. A fast
             // worker must not resume this manager while it still persists.
             if (
-              ["loop_delegate", "loop_request_review"].includes(
+              ["loop55_delegate", "loop55_request_review"].includes(
                 invocation.binding.tool,
               ) &&
               invocation.binding.connectionId === "__loop__"
@@ -813,7 +813,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           // would corrupt escaped text or base64 needed to recover the file.
           const modelContent =
             invocation.binding.connectionId === "__loop__" &&
-            invocation.call.name === "loop_read_file"
+            invocation.call.name === "loop55_read_file"
               ? toolContent
               : toolContent.slice(0, 30000);
           history.push({
@@ -927,7 +927,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           steering,
           maxTokens: snapshot.maxTokens,
           // Bindings keep naming the underlying MCP tool. Connected MCP
-          // tools load on demand through the provider's tool search; Loop's
+          // tools load on demand through the provider's tool search; Loop55's
           // own tools stay in context.
           tools: bindings.length
             ? bindings.map((b) => ({

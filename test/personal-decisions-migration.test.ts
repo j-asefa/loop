@@ -36,7 +36,7 @@ it("recovers evidenced personal decisions without inventing old answers or treat
     event.run(
       "owner",
       "approval.decided",
-      '{"approvalId":"native-tool","decision":"approve","origin":"loop"}',
+      '{"approvalId":"native-tool","decision":"approve","origin":"loop55"}',
       102,
     );
     event.run("owner", "queued", '{"approvalId":"auto"}', 103);

@@ -544,7 +544,7 @@ export function useComposerSend({
           conversationId && !reply?.messageId
             ? parse<{ signature?: string; key?: string }>(
                 sessionStorage.getItem(
-                  "loop-receipt-" + draftId(conversationId),
+                  "loop55-receipt-" + draftId(conversationId),
                 ) || "",
                 {},
               )
@@ -634,12 +634,12 @@ export function useComposerSend({
         );
         settleStoredSend(
           sessionStorage,
-          `loop-draft-receipt:${actionSource || "laptop"}`,
+          `loop55-draft-receipt:${actionSource || "laptop"}`,
           sentReceipt!.key,
           null,
         );
-        window.dispatchEvent(new Event("loop-source-refresh"));
-        window.dispatchEvent(new Event("loop-later-change"));
+        window.dispatchEvent(new Event("loop55-source-refresh"));
+        window.dispatchEvent(new Event("loop55-later-change"));
       };
       if (options.sendAt) {
         const row = await threadApi(workspaceApi.scheduledSendCreate, {
@@ -661,16 +661,16 @@ export function useComposerSend({
             await threadApi(workspaceApi.scheduledSendCancel, {
               params: { id: row.id },
             });
-            window.dispatchEvent(new Event("loop-scheduled-change"));
+            window.dispatchEvent(new Event("loop55-scheduled-change"));
             if (currentView())
               setDraft((current) => (current.trim() ? current : text));
           },
         });
-        window.dispatchEvent(new Event("loop-scheduled-change"));
+        window.dispatchEvent(new Event("loop55-scheduled-change"));
         if (!sameComposer()) return;
         setDraft("");
         setAttachments([]);
-        if (!actionSource) sessionStorage.removeItem("loop-draft-receipt");
+        if (!actionSource) sessionStorage.removeItem("loop55-draft-receipt");
         setReplyContext(
           conversation && conversationTarget ? conversationTarget : null,
         );
@@ -691,7 +691,7 @@ export function useComposerSend({
       if (owner !== ownerRef.current) return;
       try {
         localStorage.setItem(
-          `loop-last-recipient:${JSON.stringify([owner, actionSource || "laptop"])}`,
+          `loop55-last-recipient:${JSON.stringify([owner, actionSource || "laptop"])}`,
           accepted.agent_id || recipient.id,
         );
       } catch {
@@ -725,18 +725,18 @@ export function useComposerSend({
         });
       setDraft("");
       setAttachments([]);
-      if (!actionSource) sessionStorage.removeItem("loop-draft-receipt");
+      if (!actionSource) sessionStorage.removeItem("loop55-draft-receipt");
       if (conversationId) {
         saveThreadDraft(conversationId, "", []);
-        sessionStorage.removeItem("loop-receipt-" + draftId(conversationId));
+        sessionStorage.removeItem("loop55-receipt-" + draftId(conversationId));
       }
       if (reply?.messageId)
         sessionStorage.removeItem(
-          "loop-message-reply-" + draftId(reply.messageId),
+          "loop55-message-reply-" + draftId(reply.messageId),
         );
       if (reply?.artifactId)
         sessionStorage.removeItem(
-          "loop-result-reply-" + draftId(reply.artifactId),
+          "loop55-result-reply-" + draftId(reply.artifactId),
         );
       // Stay in the thread after sending; its reply context returns to the
       // conversation itself rather than the quoted message.
@@ -954,7 +954,7 @@ export function renderComposer({
       let last: string | null = null;
       try {
         last = localStorage.getItem(
-          `loop-last-recipient:${JSON.stringify([session?.user?.id, executionSourceId() || "laptop"])}`,
+          `loop55-last-recipient:${JSON.stringify([session?.user?.id, executionSourceId() || "laptop"])}`,
         );
       } catch {
         // Storage unavailable: the profile default below still applies, and
@@ -1068,7 +1068,7 @@ export function renderComposer({
                       <option value="">Choose your first agent</option>
                     )}
                     {(composerOptions || selected === "__route__") && (
-                      <option value="__route__">Let Loop choose</option>
+                      <option value="__route__">Let Loop55 choose</option>
                     )}
                     {activeAgent?.retired_at && (
                       <option value={activeAgent.id} disabled>
@@ -1494,8 +1494,8 @@ export function renderComposerSendSheets({
             />
           </label>
           <p className="field-hint">
-            Loop sends it once, at that time, to the agent above. If it can’t be
-            sent then, it stays in Needs you and Later → Scheduled with the
+            Loop55 sends it once, at that time, to the agent above. If it can’t
+            be sent then, it stays in Needs you and Later → Scheduled with the
             reason, and is never retried on its own. This is not a reminder: use
             Remind me to bring something back to yourself.
           </p>

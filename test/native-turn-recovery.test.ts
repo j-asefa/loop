@@ -13,9 +13,9 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-turn-recovery-")));
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_DATA_DIR = dir;
+const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop55-turn-recovery-")));
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = dir;
 gitProject(dir);
 const { db, changes } = await import("../src/server/db");
 db.prepare(
@@ -41,19 +41,19 @@ for (const harness of ["claude", "codex"]) {
     `native-${harness}`,
     harness === "claude" ? "anthropic" : "codex",
     harness,
-    JSON.stringify({ loopHarness: harness }),
+    JSON.stringify({ loop55Harness: harness }),
   );
 }
 afterEach(() => {
-  delete process.env.LOOP_TEST_HARNESS;
-  delete process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS;
-  delete process.env.LOOP_TEST_CODEX_WRITER_BUSY;
-  delete process.env.LOOP_TEST_AUDIT;
+  delete process.env.LOOP55_TEST_HARNESS;
+  delete process.env.LOOP55_TEST_CLAUDE_INJECTED_RESULTS;
+  delete process.env.LOOP55_TEST_CODEX_WRITER_BUSY;
+  delete process.env.LOOP55_TEST_AUDIT;
 });
 afterAll(async () => {
   await nativeSessions.close();
   db.close();
-  delete process.env.LOOP_PROFILE;
+  delete process.env.LOOP55_PROFILE;
   rmSync(dir, { recursive: true, force: true });
 });
 function submit(conversation: string, harness: string, key: string) {
@@ -76,10 +76,10 @@ function submit(conversation: string, harness: string, key: string) {
 }
 
 it("keeps the user run open across injected Claude results and saves its actual final reply", async () => {
-  process.env.LOOP_TEST_HARNESS = "claude";
-  process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS = "1";
+  process.env.LOOP55_TEST_HARNESS = "claude";
+  process.env.LOOP55_TEST_CLAUDE_INJECTED_RESULTS = "1";
   const audit = join(dir, "claude-prompts");
-  process.env.LOOP_TEST_AUDIT = audit;
+  process.env.LOOP55_TEST_AUDIT = audit;
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const run = submit("claude-recovery", "claude", "claude-recovery");
   expect(await tick(execute)).toBe(true);
@@ -127,10 +127,10 @@ it("keeps the user run open across injected Claude results and saves its actual 
 });
 
 it("reports a Codex writer conflict without dispatch, takeover or raw native error disclosure", async () => {
-  process.env.LOOP_TEST_HARNESS = "codex";
-  process.env.LOOP_TEST_CODEX_WRITER_BUSY = "1";
+  process.env.LOOP55_TEST_HARNESS = "codex";
+  process.env.LOOP55_TEST_CODEX_WRITER_BUSY = "1";
   const audit = join(dir, "codex-prompts");
-  process.env.LOOP_TEST_AUDIT = audit;
+  process.env.LOOP55_TEST_AUDIT = audit;
   const run = submit("codex-busy", "codex", "codex-busy");
   db.prepare(
     "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation,worktree_source,worktree_agent_id) VALUES(?,'codex',?,'private-native-thread','idle',0,'old',?,'worktree-fixture')",
@@ -174,7 +174,7 @@ it("reports a Codex writer conflict without dispatch, takeover or raw native err
   ).toEqual({ native_id: "private-native-thread" });
   // Once its other owner releases it, only an explicit new request resumes
   // that same conversation. The rejected posting request is never replayed.
-  delete process.env.LOOP_TEST_CODEX_WRITER_BUSY;
+  delete process.env.LOOP55_TEST_CODEX_WRITER_BUSY;
   const retry = submit("codex-busy", "codex", "codex-explicit-retry");
   expect(await tick(execute)).toBe(true);
   expect(
@@ -184,13 +184,13 @@ it("reports a Codex writer conflict without dispatch, takeover or raw native err
 });
 
 it("recognises a reworded Codex writer conflict instead of leaking the native error", async () => {
-  process.env.LOOP_TEST_HARNESS = "codex";
-  // Loop does not own this message, so it matches the phrase rather than the
+  process.env.LOOP55_TEST_HARNESS = "codex";
+  // Loop55 does not own this message, so it matches the phrase rather than the
   // exact sentence: a prefix or suffix upstream must not drop the person back
   // to the raw native error.
-  process.env.LOOP_TEST_CODEX_WRITER_BUSY = "reworded";
+  process.env.LOOP55_TEST_CODEX_WRITER_BUSY = "reworded";
   const audit = join(dir, "codex-reworded-prompts");
-  process.env.LOOP_TEST_AUDIT = audit;
+  process.env.LOOP55_TEST_AUDIT = audit;
   const run = submit("codex-reworded", "codex", "codex-reworded");
   db.prepare(
     "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation,worktree_source,worktree_agent_id) VALUES(?,'codex',?,'other-native-thread','idle',0,'old',?,'worktree-fixture')",
@@ -222,7 +222,7 @@ it("recognises a reworded Codex writer conflict instead of leaking the native er
 it.each([true, false])(
   "interrupts a native turn through the cancel route (bus=%s)",
   async (enabled) => {
-    process.env.LOOP_TEST_HARNESS = "codex";
+    process.env.LOOP55_TEST_HARNESS = "codex";
     const { core } = await import("../src/server/core-routes");
     const app = express();
     app.use(express.json(), (_req, res, next) => {

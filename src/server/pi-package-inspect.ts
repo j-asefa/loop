@@ -53,7 +53,10 @@ async function getJson(url: string) {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(10000),
     redirect: "error",
-    headers: { Accept: "application/json", "User-Agent": "loop-pi-inspection" },
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "loop55-pi-inspection",
+    },
   });
   if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
   const raw = await response.text();

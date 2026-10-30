@@ -14,7 +14,7 @@ const processes: ChildProcess[] = [];
 const authSecret = randomBytes(32).toString("hex");
 const encryptionKey = randomBytes(32).toString("hex");
 function directory() {
-  const path = mkdtempSync(join(tmpdir(), "loop-access-"));
+  const path = mkdtempSync(join(tmpdir(), "loop55-access-"));
   directories.push(path);
   return path;
 }
@@ -47,17 +47,17 @@ async function launch(
       env: {
         ...process.env,
         NODE_ENV: "test",
-        LOOP_DATA_DIR: dir,
+        LOOP55_DATA_DIR: dir,
         PORT: String(port),
-        LOOP_URL: origin,
-        LOOP_LISTEN_HOST: "127.0.0.1",
-        LOOP_AUTH_MODE: "",
-        LOOP_SINGLE_USER_EMAIL: "",
-        LOOP_GATEWAY_TOKEN: "",
-        LOOP_LOOPBACK_PROXY: "0",
-        LOOP_BIND_ADDRESS: "127.0.0.1",
+        LOOP55_URL: origin,
+        LOOP55_LISTEN_HOST: "127.0.0.1",
+        LOOP55_AUTH_MODE: "",
+        LOOP55_SINGLE_USER_EMAIL: "",
+        LOOP55_GATEWAY_TOKEN: "",
+        LOOP55_LOOPBACK_PROXY: "0",
+        LOOP55_BIND_ADDRESS: "127.0.0.1",
         BETTER_AUTH_SECRET: authSecret,
-        LOOP_ENCRYPTION_KEY: encryptionKey,
+        LOOP55_ENCRYPTION_KEY: encryptionKey,
         ...options,
       },
       stdio: ["ignore", "ignore", "pipe"],
@@ -133,7 +133,7 @@ const sessionPath = "/auth/get-session";
 it.each(["single-user", "multi-user"])(
   "preserves app OPTIONS admission and later-router methods in %s mode",
   async (mode) => {
-    const server = await launch(directory(), { LOOP_AUTH_MODE: mode });
+    const server = await launch(directory(), { LOOP55_AUTH_MODE: mode });
     try {
       for (const path of [
         "/capabilities",
@@ -146,7 +146,7 @@ it.each(["single-user", "multi-user"])(
         expect(response.headers.get("allow"), path).toBeNull();
         expect(await response.json()).toEqual({
           error:
-            mode === "multi-user" ? "Sign in to Loop" : "Endpoint not found",
+            mode === "multi-user" ? "Sign in to Loop55" : "Endpoint not found",
         });
         const bearer = await server.request(
           path,
@@ -189,7 +189,7 @@ it("keeps running build observations behind the workspace authentication boundar
       .status,
   ).toBe(403);
   await stop(personal.child);
-  const shared = await launch(directory(), { LOOP_AUTH_MODE: "multi-user" });
+  const shared = await launch(directory(), { LOOP55_AUTH_MODE: "multi-user" });
   expect((await shared.request("/build")).status).toBe(401);
   await stop(shared.child);
 }, 30000);
@@ -248,7 +248,7 @@ it("opens a persistent personal workspace without accounts or cookies and reject
 
 it("reuses an existing account's workspace, preserves multi-user isolation and requires an explicit choice between accounts", async () => {
   const dir = directory();
-  let server = await launch(dir, { LOOP_AUTH_MODE: "multi-user" });
+  let server = await launch(dir, { LOOP55_AUTH_MODE: "multi-user" });
   expect(await (await server.request(sessionPath)).json()).toBeNull();
   expect((await server.request("/bootstrap")).status).toBe(401);
   expect((await server.request("/me/prompts?owner=someone-else")).status).toBe(
@@ -284,7 +284,7 @@ it("reuses an existing account's workspace, preserves multi-user isolation and r
   ).toBe(folder.id);
   await stop(server.child);
 
-  server = await launch(dir, { LOOP_AUTH_MODE: "multi-user" });
+  server = await launch(dir, { LOOP55_AUTH_MODE: "multi-user" });
   const signedIn = await server.request(
     "/auth/sign-in/email",
     { email, password },
@@ -309,7 +309,7 @@ it("reuses an existing account's workspace, preserves multi-user isolation and r
     .map((c) => c.split(";")[0])
     .join("; ");
   const otherOwner = (await other.json()).user.id as string;
-  const historyDb = new Database(join(dir, "loop.db"));
+  const historyDb = new Database(join(dir, "loop55.db"));
   for (const [id, user] of [
     ["owned-prompt", owner.id],
     ["foreign-prompt", otherOwner],
@@ -373,12 +373,12 @@ it("reuses an existing account's workspace, preserves multi-user isolation and r
   ).toBe(404);
   await stop(server.child);
   // Simulate an older multi-user installation that has not selected an owner.
-  const db = new Database(join(dir, "loop.db"));
+  const db = new Database(join(dir, "loop55.db"));
   db.prepare("DELETE FROM installation").run();
   db.close();
   const ambiguous = await launch(dir, {}, true);
-  expect(ambiguous.errors).toContain("Multiple Loop accounts exist");
-  server = await launch(dir, { LOOP_SINGLE_USER_EMAIL: email });
+  expect(ambiguous.errors).toContain("Multiple Loop55 accounts exist");
+  server = await launch(dir, { LOOP55_SINGLE_USER_EMAIL: email });
   expect((await (await server.request(sessionPath)).json()).user.id).toBe(
     owner.id,
   );
@@ -393,10 +393,10 @@ it("reuses an existing account's workspace, preserves multi-user isolation and r
 it("requires the authenticated gateway for a public hostname while retaining direct local access", async () => {
   const gateway = randomBytes(32).toString("hex");
   const server = await launch(directory(), {
-    LOOP_URL: "https://loop.example",
-    LOOP_GATEWAY_TOKEN: gateway,
+    LOOP55_URL: "https://loop55.example",
+    LOOP55_GATEWAY_TOKEN: gateway,
   });
-  const remote = { host: "loop.example", origin: "https://loop.example" };
+  const remote = { host: "loop55.example", origin: "https://loop55.example" };
   expect((await server.request(sessionPath, undefined, remote)).status).toBe(
     403,
   );
@@ -405,11 +405,11 @@ it("requires the authenticated gateway for a public hostname while retaining dir
       await server.request(sessionPath, undefined, {
         ...remote,
         "x-forwarded-for": "127.0.0.1",
-        "x-loop-gateway-token": "wrong",
+        "x-loop55-gateway-token": "wrong",
       })
     ).status,
   ).toBe(403);
-  const headers = { ...remote, "x-loop-gateway-token": gateway };
+  const headers = { ...remote, "x-loop55-gateway-token": gateway };
   const accepted = await server.request(sessionPath, undefined, headers);
   expect(accepted.status).toBe(200);
   expect(accepted.headers.getSetCookie()).toHaveLength(0);
@@ -448,13 +448,13 @@ it("requires the authenticated gateway for a public hostname while retaining dir
 it("refuses unsafe or ambiguous single-user deployment settings", async () => {
   const unprotected = await launch(
     directory(),
-    { LOOP_URL: "https://loop.example" },
+    { LOOP55_URL: "https://loop55.example" },
     true,
   );
   expect(unprotected.errors).toContain("authenticated gateway");
   const publicPort = await launch(
     directory(),
-    { LOOP_LOOPBACK_PROXY: "1", LOOP_BIND_ADDRESS: "0.0.0.0" },
+    { LOOP55_LOOPBACK_PROXY: "1", LOOP55_BIND_ADDRESS: "0.0.0.0" },
     true,
   );
   expect(publicPort.errors).toContain("loopback-only published port");
@@ -464,11 +464,11 @@ it("allows only state-validated OAuth navigations and retains host and gateway c
   const dir = directory();
   const gatewayToken = "fixture-gateway-token-32-characters-long";
   const server = await launch(dir, {
-    LOOP_URL: "https://loop.example",
-    LOOP_GATEWAY_TOKEN: gatewayToken,
+    LOOP55_URL: "https://loop55.example",
+    LOOP55_GATEWAY_TOKEN: gatewayToken,
   });
   const owner = (await (await server.request(sessionPath)).json()).user.id;
-  const fixtureDb = new Database(join(dir, "loop.db"));
+  const fixtureDb = new Database(join(dir, "loop55.db"));
   try {
     fixtureDb
       .prepare(
@@ -514,7 +514,7 @@ it("allows only state-validated OAuth navigations and retains host and gateway c
       (
         await server.request("/mcp/oauth/callback?state=valid", undefined, {
           ...navigation,
-          host: "loop.example",
+          host: "loop55.example",
         })
       ).status,
     ).toBe(403);
@@ -523,7 +523,7 @@ it("allows only state-validated OAuth navigations and retains host and gateway c
         await server.request("/mcp/oauth/callback?state=valid", undefined, {
           ...navigation,
           host: "wrong.example",
-          "x-loop-gateway-token": gatewayToken,
+          "x-loop55-gateway-token": gatewayToken,
         })
       ).status,
     ).toBe(403);
@@ -532,8 +532,8 @@ it("allows only state-validated OAuth navigations and retains host and gateway c
       undefined,
       {
         ...navigation,
-        host: "loop.example",
-        "x-loop-gateway-token": gatewayToken,
+        host: "loop55.example",
+        "x-loop55-gateway-token": gatewayToken,
       },
     );
     // Reaching callback validation (with no code to exchange) proves the gate
@@ -574,14 +574,18 @@ it("server capabilities retain managed runtimes and do not expose companion rout
   await stop(server.child);
 }, 20000);
 it("bare server entrypoint refuses companion mode before opening a listener", async () => {
-  const server = await launch(directory(), { LOOP_PROFILE: "companion" }, true);
+  const server = await launch(
+    directory(),
+    { LOOP55_PROFILE: "companion" },
+    true,
+  );
   expect(server.errors).toContain("device authorization");
 });
 it("data directories cannot cross authorization profiles", async () => {
   const dir = directory();
   const server = await launch(dir);
   await stop(server.child);
-  const database = new Database(join(dir, "loop.db"));
+  const database = new Database(join(dir, "loop55.db"));
   database.prepare("UPDATE deployment_profile SET profile='companion'").run();
   database.close();
   const rejected = await launch(dir, {}, true);
@@ -602,7 +606,11 @@ it("companion database startup rejects data bound to the server profile", async 
       "await import('./src/server/db.ts')",
     ],
     {
-      env: { ...process.env, LOOP_DATA_DIR: dir, LOOP_PROFILE: "companion" },
+      env: {
+        ...process.env,
+        LOOP55_DATA_DIR: dir,
+        LOOP55_PROFILE: "companion",
+      },
       stdio: ["ignore", "ignore", "pipe"],
     },
   );
@@ -618,7 +626,7 @@ it("companion database startup rejects data bound to the server profile", async 
 
 it("rejects pre-unification databases before migrating them", async () => {
   const dir = directory();
-  const database = new Database(join(dir, "loop.db"));
+  const database = new Database(join(dir, "loop55.db"));
   database.exec(
     "CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL); INSERT INTO schema_version VALUES(1,0)",
   );
@@ -627,7 +635,7 @@ it("rejects pre-unification databases before migrating them", async () => {
   expect(rejected.errors).toContain(
     "Pre-unification databases are unsupported",
   );
-  const unchanged = new Database(join(dir, "loop.db"));
+  const unchanged = new Database(join(dir, "loop55.db"));
   expect(unchanged.prepare("SELECT * FROM schema_version").all()).toEqual([
     { version: 1, applied_at: 0 },
   ]);

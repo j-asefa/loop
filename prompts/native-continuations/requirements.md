@@ -4,7 +4,7 @@
 
 Treat an agent's completed answer, outstanding background work, and renewed parent execution as distinct facts.
 
-| Event                                                        | Expected Loop behavior                                                                                                                                                                                                                        |
+| Event                                                        | Expected Loop55 behavior                                                                                                                                                                                                                        |
 | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Parent finishes run A while background children remain       | Preserve A and its result in Done. Keep the native session available for the children to report back.                                                                                                                                         |
 | Child emits progress or finishes without parent resumption   | Record supported activity without creating a parent Working card.                                                                                                                                                                             |
@@ -15,7 +15,7 @@ Treat an agent's completed answer, outstanding background work, and renewed pare
 
 Do not infer parent activity from assistant prose such as “waiting for subagents”, timestamps, tool names, or mere process existence. Use verified live lifecycle evidence. Do not turn replayed history, child-session output, initialization, settings refresh, or an unrelated native session into a continuation.
 
-Use a truthful trigger label such as “Continued automatically”. Use “Continuing after background work” only when the trigger is known. Do not fabricate a user message, copy the prior answer into the new card, or inject synthetic context into the harness. Native children remain harness-owned; they do not need to become Loop teammate agents.
+Use a truthful trigger label such as “Continued automatically”. Use “Continuing after background work” only when the trigger is known. Do not fabricate a user message, copy the prior answer into the new card, or inject synthetic context into the harness. Native children remain harness-owned; they do not need to become Loop55 teammate agents.
 
 ## Runtime guarantees
 
@@ -33,6 +33,6 @@ Use a truthful trigger label such as “Continued automatically”. Use “Conti
 
 Implement one shared lifecycle mechanism and harness-specific mappings for Claude, Pi, Codex, OpenCode, and supported ACP implementations. Claude and Pi must have end-to-end acceptance coverage. For the others, implement every lifecycle path supported by their verified contracts and expose limitations honestly. A capability is a description of support, not a substitute for implementing available support.
 
-Preserve Loop-managed `loop_delegate` and mail result delivery. Those already create or steer work through a different path; a native lifecycle event for that work must not create another run. Apply the feature to every currently supported production path that launches these harnesses, including local and remote/container paths where applicable. Do not resurrect retired transports.
+Preserve Loop55-managed `loop55_delegate` and mail result delivery. Those already create or steer work through a different path; a native lifecycle event for that work must not create another run. Apply the feature to every currently supported production path that launches these harnesses, including local and remote/container paths where applicable. Do not resurrect retired transports.
 
 An arbitrary Pi extension may run background processes without reporting their existence. Detecting the parent's eventual resumption and knowing whether the idle process may safely be shut down are separate capabilities. Implement an explicit retention strategy for unknown background state; do not equate “not reported” with “none”.

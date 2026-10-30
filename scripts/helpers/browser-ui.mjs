@@ -15,7 +15,7 @@ export async function closeSheets(page) {
   // Closing the last sheet pops its history entry asynchronously. Let that
   // Back settle so a following reload or navigation cannot receive it late.
   await page
-    .waitForFunction(() => !history.state?.loopSheet, null, { timeout: 2000 })
+    .waitForFunction(() => !history.state?.loop55Sheet, null, { timeout: 2000 })
     .catch(() => {});
 }
 
@@ -26,14 +26,14 @@ export async function isolatedBrowserEnv() {
   return {
     ...process.env,
     NODE_ENV: "test",
-    LOOP_PROFILE: "server",
-    LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+    LOOP55_PROFILE: "server",
+    LOOP55_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-    LOOP_BEHIND_PROXY: "0",
-    LOOP_GATEWAY_TOKEN: "",
-    LOOP_SINGLE_USER_EMAIL: "",
-    LOOP_RUNTIME_URL: "",
-    LOOP_RUNTIME_TOKEN: "",
+    LOOP55_BEHIND_PROXY: "0",
+    LOOP55_GATEWAY_TOKEN: "",
+    LOOP55_SINGLE_USER_EMAIL: "",
+    LOOP55_RUNTIME_URL: "",
+    LOOP55_RUNTIME_TOKEN: "",
   };
 }
 

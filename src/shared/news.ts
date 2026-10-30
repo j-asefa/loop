@@ -23,7 +23,7 @@ export type NewsStory = {
 /** A story as Social shows it: with the feed it came from, and when it arrived. */
 export type SocialStoryFields = {
   feed: string;
-  /** When Loop first read this story, which undated feeds are sorted by. */
+  /** When Loop55 first read this story, which undated feeds are sorted by. */
   first_seen_at: number;
   /** Whether you have opened, asked about or marked this story. */
   read: boolean;
@@ -115,7 +115,7 @@ const entry = (
   kind,
   ...(mark && { mark }),
 });
-// The feeds Loop offers. Each was read with the shared parser before it was
+// The feeds Loop55 offers. Each was read with the shared parser before it was
 // listed; changing one is a source change. A feed someone adds by address
 // (src/server/feed-sources.ts) has no such warrant, so it is validated first —
 // public HTTPS, no credentials, never an address on this network — and read

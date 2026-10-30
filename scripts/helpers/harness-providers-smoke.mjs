@@ -116,7 +116,7 @@ export async function harnessProvidersSmoke(page, fixture, _engine, capture) {
   const sheet = page.getByRole("dialog", { name: "Pi", exact: true });
   const status = sheet.locator(".harness-connection-status");
   const notice = sheet.locator(".harness-refresh-confirmation");
-  await expect(status).toContainText("Pi is not enabled in Loop");
+  await expect(status).toContainText("Pi is not enabled in Loop55");
   await expect(status).not.toHaveClass(/connected/);
   await expect(status).toContainText("355 models found.");
   const enable = sheet.getByRole("button", { name: "Enable Pi", exact: true });
@@ -127,7 +127,7 @@ export async function harnessProvidersSmoke(page, fixture, _engine, capture) {
   await expect.poll(() => refreshCommands.length).toBe(1);
   releaseRefresh();
   await expect(notice).toHaveText("Pi refreshed successfully.");
-  await expect(status).toContainText("Pi is enabled in Loop");
+  await expect(status).toContainText("Pi is enabled in Loop55");
   await expect(status).toHaveClass(/connected/);
   await expect(status).toContainText("355 models found.");
   await expect(status).toContainText(
@@ -166,7 +166,7 @@ export async function harnessProvidersSmoke(page, fixture, _engine, capture) {
     "Pi could not refresh its models.",
   );
   await expect(status).not.toHaveClass(/connected/);
-  await expect(status).toContainText("Pi is not enabled in Loop");
+  await expect(status).toContainText("Pi is not enabled in Loop55");
   await expect(notice).toBeEmpty();
   await expect(enable).toBeEnabled();
 

@@ -7,8 +7,8 @@ test("a corrupt baked tunnel binary is never executed and falls back to the pinn
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { helper } = await import("../src/tunnel.js");
-  const root = await mkdtemp(join(tmpdir(), "loop-baked-helper-"));
-  const previous = process.env.LOOP_BAKED_HELPERS;
+  const root = await mkdtemp(join(tmpdir(), "loop55-baked-helper-"));
+  const previous = process.env.LOOP55_BAKED_HELPERS;
   const originalFetch = globalThis.fetch;
   let requested = "";
   try {
@@ -22,7 +22,7 @@ test("a corrupt baked tunnel binary is never executed and falls back to the pinn
       join(baked, "helpers", release, "cloudflared"),
       "untrusted binary",
     );
-    process.env.LOOP_BAKED_HELPERS = baked;
+    process.env.LOOP55_BAKED_HELPERS = baked;
     globalThis.fetch = async (input) => {
       requested = String(input);
       return new Response("", { status: 503 });
@@ -38,8 +38,8 @@ test("a corrupt baked tunnel binary is never executed and falls back to the pinn
     );
   } finally {
     globalThis.fetch = originalFetch;
-    if (previous === undefined) delete process.env.LOOP_BAKED_HELPERS;
-    else process.env.LOOP_BAKED_HELPERS = previous;
+    if (previous === undefined) delete process.env.LOOP55_BAKED_HELPERS;
+    else process.env.LOOP55_BAKED_HELPERS = previous;
     await rm(root, { recursive: true, force: true });
   }
 });

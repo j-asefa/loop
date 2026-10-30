@@ -12,22 +12,22 @@ import { WorkspaceFrameV3 } from "../src/shared/workspace-events";
 
 it("processes overdue durable rows after a full server restart and preserves the owner epoch", async () => {
   const compiled = await compiledServerFixture();
-  const dir = mkdtempSync(join(tmpdir(), "loop-expiry-restart-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-expiry-restart-"));
   const env = {
     ...Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")),
+      Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP55_")),
     ),
-    LOOP_PROFILE: "server",
-    LOOP_AUTH_MODE: "single-user",
-    LOOP_DATA_DIR: dir,
-    LOOP_URL: "http://127.0.0.1",
+    LOOP55_PROFILE: "server",
+    LOOP55_AUTH_MODE: "single-user",
+    LOOP55_DATA_DIR: dir,
+    LOOP55_URL: "http://127.0.0.1",
     PORT: "0",
-    LOOP_TEST_CARDS_SOURCE: compiled.source,
+    LOOP55_TEST_CARDS_SOURCE: compiled.source,
     NODE_ENV: "test",
-    LOOP_LISTEN_HOST: "127.0.0.1",
-    LOOP_BIND_ADDRESS: "127.0.0.1",
+    LOOP55_LISTEN_HOST: "127.0.0.1",
+    LOOP55_BIND_ADDRESS: "127.0.0.1",
     BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-    LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+    LOOP55_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
   };
   let child: ReturnType<typeof spawn> | undefined;
   let db: Database.Database | undefined;
@@ -60,7 +60,7 @@ it("processes overdue durable rows after a full server restart and preserves the
   }
   try {
     const first = await start();
-    db = new Database(join(dir, "loop.db"));
+    db = new Database(join(dir, "loop55.db"));
     db.pragma("foreign_keys=ON");
     db.prepare(
       "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('run',?,'Prompt','awaiting_approval','key',1,1)",

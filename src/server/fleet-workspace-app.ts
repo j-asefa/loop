@@ -167,7 +167,7 @@ export class FleetWorkspaceApp {
         req.method = contract.method;
         req.url = path;
         req.headers = {
-          host: "loop.internal.invalid",
+          host: "loop55.internal.invalid",
           accept: file ? "*/*" : "application/json",
           connection: "close",
           ...(body === undefined
@@ -247,18 +247,18 @@ export class FleetWorkspaceApp {
               return;
             }
             const result = projectResponse(contract, parsed);
-            const epoch = res.getHeader("x-loop-change-epoch");
+            const epoch = res.getHeader("x-loop55-change-epoch");
             const clock =
               epoch === undefined
                 ? undefined
                 : WorkspaceClock.parse({
                     epoch,
-                    cursor: Number(res.getHeader("x-loop-change-cursor")),
-                    serverNow: Number(res.getHeader("x-loop-server-now")),
+                    cursor: Number(res.getHeader("x-loop55-change-cursor")),
+                    serverNow: Number(res.getHeader("x-loop55-server-now")),
                     nextDeadline:
-                      res.getHeader("x-loop-next-deadline") === "null"
+                      res.getHeader("x-loop55-next-deadline") === "null"
                         ? null
-                        : Number(res.getHeader("x-loop-next-deadline")),
+                        : Number(res.getHeader("x-loop55-next-deadline")),
                   });
             resolve({ result, ...(clock ? { clock } : {}) });
           } catch (error) {

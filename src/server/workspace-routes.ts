@@ -1,3 +1,4 @@
+import "../../deployment/environment.mjs";
 import { passiveWorkspaceRead } from "./workspace-read-context.js";
 import { recordCardRead, tokenResultPage } from "./card-tokens.js";
 import { registrar, projectResponse } from "./registrar.js";
@@ -211,7 +212,7 @@ routes.on(workspaceApi.artifactList, (req, res) => {
     ),
   );
 });
-// The checkout Loop observed for a run: branch, commits, files and the patch
+// The checkout Loop55 observed for a run: branch, commits, files and the patch
 // stored at capture time. Read-only; there is nothing to apply from here.
 routes.on(workspaceApi.runCheckout, (req, res) => {
   owned("runs", req.params.id, res.locals.owner);
@@ -219,7 +220,7 @@ routes.on(workspaceApi.runCheckout, (req, res) => {
   if (!detail) throw new Problem(404, "This run has no checkout record.");
   res.json(detail);
 });
-// The verification commands Loop observed for a run, with their exits and
+// The verification commands Loop55 observed for a run, with their exits and
 // output tails. Observations of what the agent ran, not what tests exist.
 routes.on(workspaceApi.runVerifications, (req, res) => {
   owned("runs", req.params.id, res.locals.owner);
@@ -359,7 +360,7 @@ routes.on(workspaceApi.preferencesUpdate, (req, res) => {
     res.locals.owner,
     d.connectionId,
     d.connectionId
-      ? process.env.LOOP_EMBEDDING_MODEL || "text-embedding-3-small"
+      ? process.env.LOOP55_EMBEDDING_MODEL || "text-embedding-3-small"
       : localModel,
     Number(d.embeddingEnabled),
   );

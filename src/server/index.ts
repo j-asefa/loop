@@ -1,3 +1,4 @@
+import "../../deployment/environment.mjs";
 import type { IncomingMessage } from "node:http";
 import type { z } from "zod";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -85,10 +86,10 @@ app.use("/api", (req, res, next) => {
       // committed deadline events; that permission belongs to the event routes.
       if (res.locals.owner && res.locals.bearer === undefined && res.statusCode < 400) {
         const clock = res.locals.workspaceClock ?? workspaceClock(res.locals.owner);
-        res.setHeader("X-Loop-Change-Epoch", clock.epoch);
-        res.setHeader("X-Loop-Change-Cursor", String(clock.cursor));
-        res.setHeader("X-Loop-Server-Now", String(clock.serverNow));
-        res.setHeader("X-Loop-Next-Deadline", String(clock.nextDeadline));
+        res.setHeader("X-Loop55-Change-Epoch", clock.epoch);
+        res.setHeader("X-Loop55-Change-Cursor", String(clock.cursor));
+        res.setHeader("X-Loop55-Server-Now", String(clock.serverNow));
+        res.setHeader("X-Loop55-Next-Deadline", String(clock.nextDeadline));
       }
       return json(body);
     };
@@ -112,8 +113,8 @@ app.use((req, res, next) => {
   next();
 });
 app.use((req, _res, next) => {
-  req.headers["x-loop-client-ip"] =
-    process.env.LOOP_BEHIND_PROXY === "1"
+  req.headers["x-loop55-client-ip"] =
+    process.env.LOOP55_BEHIND_PROXY === "1"
       ? String(req.headers["x-forwarded-for"] || "")
           .split(",")
           .at(-1)
@@ -122,7 +123,7 @@ app.use((req, _res, next) => {
   next();
 });
 app.use((req, _res, next) => {
-  if (/^Bearer loop_(?:card|token)_/i.test(req.headers.authorization ?? ""))
+  if (/^Bearer loop(?:55)?_(?:card|token)_/i.test(req.headers.authorization ?? ""))
     integrationRoute(req);
   next();
 });
@@ -225,7 +226,7 @@ if (companionMode) {
   const accountProtocol: express.RequestHandler = (req, res) => {
     if (config.authMode === "single-user") {
       res.status(404).json({
-        error: "This is a personal workspace. No Loop account is needed.",
+        error: "This is a personal workspace. No Loop55 account is needed.",
       });
       return;
     }
@@ -270,7 +271,7 @@ app.use("/api", async (req, res, next) => {
   }
   const session = await access!.workspaceSession(req);
   if (!session) {
-    res.status(401).json({ error: "Sign in to Loop" });
+    res.status(401).json({ error: "Sign in to Loop55" });
     return;
   }
   res.locals.owner = session.user.id;

@@ -55,7 +55,7 @@ const examples = [
   ],
   [
     "approval.decided",
-    { approvalId: "approval", decision: "approve", origin: "loop" },
+    { approvalId: "approval", decision: "approve", origin: "loop55" },
   ],
   ["tool.failed", { tool: "read", artifactId: "artifact" }],
   ["tool.completed", { tool: "read", artifactId: "" }],
@@ -114,9 +114,9 @@ const examples = [
 ] satisfies WorkspaceEmission[];
 
 it("round-trips every declared producer type through emit, durable v2 rows and the v3 union", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-event-contract-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-event-contract-"));
   vi.resetModules();
-  vi.stubEnv("LOOP_DATA_DIR", dir);
+  vi.stubEnv("LOOP55_DATA_DIR", dir);
   const { db, changes, emit } = await import("../src/server/db");
   try {
     db.prepare(
@@ -217,8 +217,8 @@ it("reconciles malformed historical rows and unknown future events without inven
 });
 
 it("checks producer ownership and accepts deletion evidence only for its original owner", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-event-ownership-"));
-  vi.resetModules(); vi.stubEnv("LOOP_DATA_DIR", dir);
+  const dir = mkdtempSync(join(tmpdir(), "loop55-event-ownership-"));
+  vi.resetModules(); vi.stubEnv("LOOP55_DATA_DIR", dir);
   const { db, changes, deadlines, emit, ownedEventSubject } = await import("../src/server/db");
   try {
     db.exec("INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES('artifact','alice','A','markdown','Body',1,1)");

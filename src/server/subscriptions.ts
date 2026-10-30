@@ -1,3 +1,4 @@
+import "../../deployment/environment.mjs";
 import { SubscriptionCodeInput } from "../shared/companion-contract-schemas.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { projectResponse, registrar } from "./registrar.js";
@@ -47,8 +48,8 @@ import {
 export const isSubscription = (c: Pick<Connection, "metadata">) =>
   c.metadata.authMode === "subscription" || isNativeConnection(c);
 export const runtimeConfigured = () =>
-  !!process.env.LOOP_RUNTIME_URL &&
-  (process.env.LOOP_RUNTIME_TOKEN?.length || 0) >= 32;
+  !!process.env.LOOP55_RUNTIME_URL &&
+  (process.env.LOOP55_RUNTIME_TOKEN?.length || 0) >= 32;
 export const runtimeKey = (c: Pick<Connection, "id" | "owner_id">) =>
   createHash("sha256")
     .update(c.owner_id + "\0" + c.id)
@@ -71,8 +72,8 @@ async function request(
   if (endpoint.kind === "codex-app-server") {
     if (action === "capabilities")
       return Response.json(await codexCapabilities(endpoint));
-    // Pair/unpair only Loop's connection. The account on this shared server
-    // belongs to the host user and must never be signed out by Loop.
+    // Pair/unpair only Loop55's connection. The account on this shared server
+    // belongs to the host user and must never be signed out by Loop55.
     if (["logout", "cancel"].includes(action))
       return Response.json({ ok: true });
     if (["login", "status"].includes(action))
@@ -121,7 +122,7 @@ export async function runtimeAction(
   extra: object = {},
   signal?: AbortSignal,
 ) {
-  const harness = c.metadata.loopHarness;
+  const harness = c.metadata.loop55Harness;
   if (harness) {
     if (!companionMode)
       throw new Problem(409, "Native harnesses require the companion profile.");
@@ -134,7 +135,7 @@ export async function runtimeAction(
       );
     throw new Problem(
       409,
-      "Sign in with the native harness on this computer, then run loop " +
+      "Sign in with the native harness on this computer, then run loop55 " +
         harness,
     );
   }
@@ -259,7 +260,7 @@ async function stageAttachments(
       (failed.length
         ? "\nThese files could not be copied to this machine: " +
           JSON.stringify(failed) +
-          ". Use loop_read_file to retrieve their original contents."
+          ". Use loop55_read_file to retrieve their original contents."
         : ""),
   };
   return { ...input, messages };

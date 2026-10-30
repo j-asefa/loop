@@ -670,7 +670,7 @@ export function TeamFilter({
                 } catch (error) {
                   setError(
                     (error as Error).name === "TimeoutError"
-                      ? "Loop took too long to respond. Try deleting again; your agents and history stay safe."
+                      ? "Loop55 took too long to respond. Try deleting again; your agents and history stay safe."
                       : (error as Error).message,
                   );
                 } finally {

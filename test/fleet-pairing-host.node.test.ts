@@ -20,10 +20,10 @@ import { Host } from "../src/host.js";
 import { control } from "../src/host-control.js";
 
 test("the HTTP gateway uses atomic companion pairing without exchanging an enrollment capability for a device cookie", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-fleet-pair-http-"));
-  process.env.LOOP_PROFILE = "companion";
-  process.env.LOOP_DATA_DIR = dir;
-  process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+  const dir = mkdtempSync(join(tmpdir(), "loop55-fleet-pair-http-"));
+  process.env.LOOP55_PROFILE = "companion";
+  process.env.LOOP55_DATA_DIR = dir;
+  process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
   const secrets = await import("../src/server/secrets.js");
   const db = new Database(join(dir, "workspace.db"));
   applyMigrations(db);

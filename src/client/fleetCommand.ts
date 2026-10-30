@@ -36,7 +36,7 @@ const Transfer = z.strictObject({
   command: Record.extend({ payloadDigest: z.string().regex(/^[a-f0-9]{64}$/) }),
 });
 export type PendingFleetCommand = z.infer<typeof Record>;
-export const fleetCommandsChanged = "loop-fleet-commands";
+export const fleetCommandsChanged = "loop55-fleet-commands";
 function changed() {
   // Updating a view must never alter whether an already retained command runs.
   try {
@@ -329,13 +329,13 @@ export async function prepareFleetCommand(
     },
     get headers() {
       return {
-        "x-loop-command-id": claim.id,
-        ...(claim.prior ? { "x-loop-receipt-only": "1" } : {}),
+        "x-loop55-command-id": claim.id,
+        ...(claim.prior ? { "x-loop55-receipt-only": "1" } : {}),
       };
     },
     observe(response: Response) {
-      if (response.headers.get("x-loop-command-id") !== claim.id) return;
-      const state = response.headers.get("x-loop-command-state");
+      if (response.headers.get("x-loop55-command-id") !== claim.id) return;
+      const state = response.headers.get("x-loop55-command-state");
       if (state === "completed" || state === "refused") terminal = state;
     },
     async settle(success: boolean) {
@@ -394,6 +394,7 @@ function journalScope(signal?: AbortSignal, requireLock = true) {
     throw unavailable(
       "This browser cannot safely retain remote commands. Use an updated browser over HTTPS.",
     );
+  // Keep cross-version tabs on the same journal and lock; never lose an uncertain effect.
   const key = `loop:fleet-commands:v1:${encodeURIComponent(owner!)}`;
   const read = async () => {
     // Retain older browser receipts on first use; committed IndexedDB state,
@@ -452,7 +453,7 @@ export async function importFleetCommand(text: string, signal?: AbortSignal) {
     command = Transfer.parse(JSON.parse(text)).command;
   } catch {
     throw new Error(
-      "Paste an unchanged receipt copied from Loop's Actions to check.",
+      "Paste an unchanged receipt copied from Loop55's Actions to check.",
     );
   }
   await navigator.locks.request(key, { signal }, async () => {

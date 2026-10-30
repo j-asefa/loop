@@ -12,8 +12,8 @@ import {
 } from "../shared/verification.js";
 
 /**
- * Verification Loop observed: a test, type-check or lint command the agent
- * ran, and the exit Loop saw for it. It is an observation of the command's
+ * Verification Loop55 observed: a test, type-check or lint command the agent
+ * ran, and the exit Loop55 saw for it. It is an observation of the command's
  * outcome, not the agent's account of it, and not a claim that the right
  * tests ran: the agent chose the command. Failures, unknown exits and cut
  * output are recorded rather than dropped, unlike pull request detection,

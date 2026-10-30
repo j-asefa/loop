@@ -52,7 +52,7 @@ export function forkConversation(
         owner,
         agent.id,
         ("Fork: " + c.title).slice(0, 200),
-        "loop-fork",
+        "loop55-fork",
         null,
         now(),
         c.project_id,

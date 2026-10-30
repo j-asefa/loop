@@ -5,11 +5,11 @@ import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-muse-native-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_TEST_MUSE_DIR = dir;
-process.env.LOOP_TEST_MUSE_LOG = join(dir, "requests");
+const dir = mkdtempSync(join(tmpdir(), "loop55-muse-native-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_TEST_MUSE_DIR = dir;
+process.env.LOOP55_TEST_MUSE_LOG = join(dir, "requests");
 writeFileSync(
   join(dir, "muse-credential.json"),
   JSON.stringify({ state: "accountLogin" }),
@@ -26,12 +26,12 @@ const sessions = new NativeSessions();
 afterAll(async () => {
   await sessions.close();
   db.close();
-  delete process.env.LOOP_TEST_MUSE_DIR;
-  delete process.env.LOOP_TEST_MUSE_LOG;
+  delete process.env.LOOP55_TEST_MUSE_DIR;
+  delete process.env.LOOP55_TEST_MUSE_LOG;
   rmSync(dir, { recursive: true, force: true });
 });
 const requests = () =>
-  readFileSync(process.env.LOOP_TEST_MUSE_LOG!, "utf8")
+  readFileSync(process.env.LOOP55_TEST_MUSE_LOG!, "utf8")
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
@@ -64,7 +64,7 @@ it("registers Muse Code as a live-input native connection and resumes its genera
   // Replies during a turn reach Muse through turn/steer, not the queue.
   expect(acceptsLiveInput(connection)).toBe(true);
   expect(connection.metadata).toMatchObject({
-    loopHarness: "muse",
+    loop55Harness: "muse",
     authMode: "native-existing",
   });
   // Registration checks the account and catalog only: no session, no prompt.

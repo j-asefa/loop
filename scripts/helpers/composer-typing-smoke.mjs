@@ -87,16 +87,16 @@ export async function composerTypingSmoke(page, fixture, engine, capture) {
       const input = page.locator("#composer:visible");
       await input.focus();
       await page.evaluate(() => {
-        window.__loopTypingLatencies = [];
-        window.__loopMeasureTyping = () => {
+        window.__loop55TypingLatencies = [];
+        window.__loop55MeasureTyping = () => {
           const start = performance.now();
           requestAnimationFrame(() =>
-            window.__loopTypingLatencies.push(performance.now() - start),
+            window.__loop55TypingLatencies.push(performance.now() - start),
           );
         };
         document
           .querySelector("#composer")
-          .addEventListener("input", window.__loopMeasureTyping, {
+          .addEventListener("input", window.__loop55MeasureTyping, {
             capture: true,
           });
       });
@@ -104,19 +104,19 @@ export async function composerTypingSmoke(page, fixture, engine, capture) {
       await input.pressSequentially(text, { delay: 20 });
       await expect(input).toHaveValue(text);
       await expect
-        .poll(() => page.evaluate(() => window.__loopTypingLatencies.length))
+        .poll(() => page.evaluate(() => window.__loop55TypingLatencies.length))
         .toBe(text.length);
       const timing = await page.evaluate(() => {
         document
           .querySelector("#composer")
-          .removeEventListener("input", window.__loopMeasureTyping, {
+          .removeEventListener("input", window.__loop55MeasureTyping, {
             capture: true,
           });
-        const times = window.__loopTypingLatencies
+        const times = window.__loop55TypingLatencies
           .slice()
           .sort((a, b) => a - b);
-        delete window.__loopMeasureTyping;
-        delete window.__loopTypingLatencies;
+        delete window.__loop55MeasureTyping;
+        delete window.__loop55TypingLatencies;
         return {
           median: times[Math.floor(times.length / 2)],
           p95: times[Math.floor(times.length * 0.95)],
@@ -138,8 +138,8 @@ export async function composerTypingSmoke(page, fixture, engine, capture) {
         .prepare("UPDATE messages SET content=? WHERE id=?")
         .run(update + "\n\n" + content, lastMessage);
       await page.evaluate(() => {
-        window.dispatchEvent(new Event("loop-source-refresh"));
-        window.dispatchEvent(new Event("loop-workspace-change"));
+        window.dispatchEvent(new Event("loop55-source-refresh"));
+        window.dispatchEvent(new Event("loop55-workspace-change"));
       });
       const scope =
         mode === "feed"

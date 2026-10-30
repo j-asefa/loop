@@ -7,7 +7,11 @@ import { Sheet } from "./components";
 import { isHtmlFile } from "../shared/file-preview";
 import { viewGeneration } from "./viewCache";
 
-export function loopFileUrl(href?: string, source?: string, preview?: "html") {
+export function loop55FileUrl(
+  href?: string,
+  source?: string,
+  preview?: "html",
+) {
   if (!href) return;
   try {
     const url = new URL(href, location.href);
@@ -188,7 +192,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
           controller.signal,
         );
         if (response.redirected || response.status === 401)
-          throw new Error("Sign in to Loop to open this file.");
+          throw new Error("Sign in to Loop55 to open this file.");
         if (!response.ok)
           throw new Error("Could not load this file. Please try again.");
         const blob = await response.blob();
@@ -201,7 +205,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
             : responseType;
         const file = new File([blob], fileName, { type });
         const htmlUrl = isHtmlFile(fileName, type)
-          ? loopFileUrl(url, undefined, "html")
+          ? loop55FileUrl(url, undefined, "html")
           : undefined;
         const html = !!htmlUrl;
         const image = [
@@ -263,7 +267,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
     setSharing(true);
     try {
       // The file is prepared before the tap so iOS retains user activation.
-      // Its share sheet offers Save to Files without navigating away from Loop.
+      // Its share sheet offers Save to Files without navigating away from Loop55.
       await navigator.share({ files: [ready.file] });
     } catch (error) {
       if ((error as Error).name !== "AbortError")

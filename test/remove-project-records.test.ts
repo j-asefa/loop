@@ -6,8 +6,8 @@ import { execFileSync } from "node:child_process";
 import { expect, it } from "vitest";
 
 it("upgrades populated records, preserves source work and restarts without retired producers", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-remove-project-records-"));
-  let db = new Database(join(dir, "loop.db"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-remove-project-records-"));
+  let db = new Database(join(dir, "loop55.db"));
   try {
     db.pragma("foreign_keys = ON");
     for (const file of readdirSync("migrations")
@@ -49,13 +49,17 @@ it("upgrades populated records, preserves source work and restarts without retir
           'const { db } = await import("./src/server/db.ts"); db.close();',
         ],
         {
-          env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+          env: {
+            ...process.env,
+            LOOP55_PROFILE: "server",
+            LOOP55_DATA_DIR: dir,
+          },
           timeout: 30000,
           stdio: "pipe",
         },
       );
     }
-    db = new Database(join(dir, "loop.db"));
+    db = new Database(join(dir, "loop55.db"));
     db.pragma("foreign_keys = ON");
     expect(
       db

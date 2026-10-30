@@ -21,7 +21,7 @@ export async function providerJourney(page, api) {
   const heading = (name) => page.getByRole("heading", { name, exact: true });
   const dialog = page.locator("dialog[open]").last();
   const snapshot = async (name) =>
-    page.screenshot({ path: join(tmpdir(), `loop-provider-${name}.png`) });
+    page.screenshot({ path: join(tmpdir(), `loop55-provider-${name}.png`) });
   const noOverflow = async () => {
     assert.equal(
       await page.evaluate(

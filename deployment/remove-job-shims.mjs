@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "./environment.mjs";
 // Retire automatic queue wrappers without breaking PATHs held by live shells.
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -15,14 +16,14 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const marker = "# Loop command passthrough; automatic queueing removed.";
+const marker = "# Loop55 command passthrough; automatic queueing removed.";
 const shell = (value) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
 
 export async function removeJobShims(
-  configPath = process.env.LOOP_JOB_QUEUE_CONFIG ||
+  configPath = process.env.LOOP55_JOB_QUEUE_CONFIG ||
     join(
       process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
-      "loop/jobs.json",
+      "loop55/jobs.json",
     ),
 ) {
   let config;
@@ -33,7 +34,7 @@ export async function removeJobShims(
     throw error;
   }
   if (typeof config.shims !== "string" || !isAbsolute(config.shims))
-    throw new Error("Invalid installed Loop command wrapper directory.");
+    throw new Error("Invalid installed Loop55 command wrapper directory.");
   const directory = await realpath(config.shims).catch((error) => {
     if (error.code === "ENOENT") return undefined;
     throw error;
@@ -55,9 +56,9 @@ export async function removeJobShims(
     if (
       !existing.startsWith("#!/bin/sh\n" + marker + "\n") &&
       !(
-        existing.startsWith("#!/bin/sh\nexport LOOP_JOB_QUEUE_CONFIG=") &&
+        existing.startsWith("#!/bin/sh\nexport LOOP55_JOB_QUEUE_CONFIG=") &&
         existing.includes("job-shim.mjs") &&
-        existing.includes("Loop command queue configuration is unavailable")
+        existing.includes("Loop55 command queue configuration is unavailable")
       )
     )
       throw new Error("Unrecognized command wrapper; left unchanged: " + path);
@@ -73,8 +74,8 @@ export async function removeJobShims(
     const body =
       "#!/bin/sh\n" +
       marker +
-      "\nunset LOOP_JOB_QUEUE_CONFIG LOOP_JOB_SHIMS LOOP_JOB_ACTIVE\n" +
-      "export LOOP_HEAVY_SCHEDULING=off\nexec " +
+      "\nunset LOOP55_JOB_QUEUE_CONFIG LOOP55_JOB_SHIMS LOOP55_JOB_ACTIVE\n" +
+      "export LOOP55_HEAVY_SCHEDULING=off\nexec " +
       shell(command) +
       ' "$@"\n';
     if (body !== existing) updates.push({ name, path, body });

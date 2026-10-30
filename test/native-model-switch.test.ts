@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-model-switch-")));
-process.env.LOOP_DATA_DIR = dir;
+const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop55-model-switch-")));
+process.env.LOOP55_DATA_DIR = dir;
 gitProject(dir);
 const { db, now } = await import("../src/server/db");
 db.prepare(
@@ -24,7 +24,7 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-it("moves a native conversation to the agent's new harness with Loop's transcript", async () => {
+it("moves a native conversation to the agent's new harness with Loop55's transcript", async () => {
   db.prepare("INSERT INTO harnesses VALUES('acp',?,'{}','{}','[]',0)").run(
     JSON.stringify({
       harness: "acp",
@@ -35,7 +35,7 @@ it("moves a native conversation to the agent's new harness with Loop's transcrip
   );
   db.prepare(
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-acp','owner','acp','ACP','','connected','[]',?,0)",
-  ).run(JSON.stringify({ loopHarness: "acp" }));
+  ).run(JSON.stringify({ loop55Harness: "acp" }));
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('switch','owner','t',0)",
   ).run();

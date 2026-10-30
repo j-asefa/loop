@@ -1,3 +1,4 @@
+import "../../deployment/environment.mjs";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar, projectResponse } from "./registrar.js";
 import { companionMode } from "./profile.js";
@@ -23,7 +24,7 @@ export type RuntimeEndpoint = {
 const kindOf = (url: string): RuntimeEndpoint["kind"] =>
   /^wss?:/.test(url) ? "codex-app-server" : "broker";
 const allowed = () =>
-  (process.env.LOOP_ALLOWED_RUNTIME_ORIGINS || "")
+  (process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS || "")
     .split(",")
     .map((s) => s.trim());
 function validate(value: string) {
@@ -62,8 +63,8 @@ export function runtimeEndpoint(
   }
   if (!hostId) {
     if (
-      !process.env.LOOP_RUNTIME_URL ||
-      (process.env.LOOP_RUNTIME_TOKEN?.length || 0) < 32
+      !process.env.LOOP55_RUNTIME_URL ||
+      (process.env.LOOP55_RUNTIME_TOKEN?.length || 0) < 32
     )
       throw new Problem(
         503,
@@ -71,8 +72,8 @@ export function runtimeEndpoint(
       );
     return {
       kind: "broker",
-      url: process.env.LOOP_RUNTIME_URL.replace(/\/$/, ""),
-      token: process.env.LOOP_RUNTIME_TOKEN!,
+      url: process.env.LOOP55_RUNTIME_URL.replace(/\/$/, ""),
+      token: process.env.LOOP55_RUNTIME_TOKEN!,
       fetch,
     };
   }
@@ -82,12 +83,12 @@ export function runtimeEndpoint(
   if (kind === "codex-app-server" && service !== "codex")
     throw new Problem(
       400,
-      "This machine only runs Codex agents. Choose a Loop runtime broker for Claude or command-based MCP servers.",
+      "This machine only runs Codex agents. Choose a Loop55 runtime broker for Claude or command-based MCP servers.",
     );
   if (kind === "native-host" && service === "broker")
     throw new Problem(
       400,
-      "Choose a Loop runtime broker to install workspace MCPs. Native host MCPs are managed in Codex or Claude Code.",
+      "Choose a Loop55 runtime broker to install workspace MCPs. Native host MCPs are managed in Codex or Claude Code.",
     );
   const privateOrigin = allowed().includes(new URL(url).origin);
   return {
@@ -142,7 +143,7 @@ routes.on(workspaceApi.runtimeHostCreate, async (req, res) => {
       400,
       d.kind === "codex-app-server"
         ? "Use a ws:// or wss:// address for Codex app-server."
-        : "Use an http:// or https:// address for a Loop runtime broker.",
+        : "Use an http:// or https:// address for a Loop55 runtime broker.",
     );
   const fetcher = allowed().includes(new URL(url).origin)
     ? fetch

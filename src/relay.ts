@@ -13,7 +13,7 @@ import type { Duplex } from "node:stream";
 export type Backend = { generation: number; path: string };
 type Active = Backend & { sockets: Set<Duplex>; requests: Set<ClientRequest> };
 
-// RFC 9110 connection-specific fields, plus Loop's private probe marker.
+// RFC 9110 connection-specific fields, plus Loop55's private probe marker.
 const HOP = new Set([
   "connection",
   "keep-alive",
@@ -25,7 +25,7 @@ const HOP = new Set([
   "transfer-encoding",
   "upgrade",
   "expect",
-  "x-loop-probe",
+  "x-loop55-probe",
 ]);
 function forwardable(headers: IncomingHttpHeaders) {
   const named = new Set(
@@ -41,7 +41,7 @@ function forwardable(headers: IncomingHttpHeaders) {
   return out;
 }
 
-const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="3"><title>Loop is reconnecting</title><style>body{font:16px system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f7f7f5;color:#222}main{max-width:22rem;padding:2rem;text-align:center}@media(prefers-color-scheme:dark){body{background:#151515;color:#eee}}</style></head><body><main><h1>Loop is reconnecting…</h1><p>Loop is restarting on your computer. This page retries automatically.</p></main></body></html>`;
+const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="3"><title>Loop55 is reconnecting</title><style>body{font:16px system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f7f7f5;color:#222}main{max-width:22rem;padding:2rem;text-align:center}@media(prefers-color-scheme:dark){body{background:#151515;color:#eee}}</style></head><body><main><h1>Loop55 is reconnecting…</h1><p>Loop55 is restarting on your computer. This page retries automatically.</p></main></body></html>`;
 
 /**
  * Stable public listener of the connection service. Forwards each request or
@@ -152,7 +152,7 @@ export class Relay {
       "Content-Type": page ? "text/html; charset=utf-8" : "application/json",
       "Cache-Control": "no-store",
       "Retry-After": "2",
-      "X-Loop-Unavailable": "restarting",
+      "X-Loop55-Unavailable": "restarting",
       "Content-Security-Policy":
         "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
       "Referrer-Policy": "no-referrer",
@@ -162,7 +162,7 @@ export class Relay {
       page
         ? PAGE
         : JSON.stringify({
-            error: "Loop is restarting. Try again in a moment.",
+            error: "Loop55 is restarting. Try again in a moment.",
             reconnecting: true,
           }),
     );
@@ -170,7 +170,7 @@ export class Relay {
   private http(req: IncomingMessage, res: ServerResponse) {
     const path = req.url ?? "";
     // Origin-form only; the private probe namespace never leaves the machine.
-    if (!path.startsWith("/") || path.startsWith("/__loop")) {
+    if (!path.startsWith("/") || path.startsWith("/__loop55")) {
       res.writeHead(404, {
         "Content-Type": "application/json",
         "Cache-Control": "no-store",
@@ -219,12 +219,12 @@ export class Relay {
       res.writeHead(502, {
         "Content-Type": "application/json",
         "Cache-Control": "no-store",
-        "X-Loop-Outcome": "unknown",
+        "X-Loop55-Outcome": "unknown",
       });
       res.end(
         JSON.stringify({
           error:
-            "Loop restarted before confirming this request. Its outcome is unknown; check before trying again.",
+            "Loop55 restarted before confirming this request. Its outcome is unknown; check before trying again.",
           outcome: "unknown",
         }),
       );
@@ -241,11 +241,11 @@ export class Relay {
     const refuse = () => {
       if (!socket.destroyed)
         socket.end(
-          "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 2\r\nX-Loop-Unavailable: restarting\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+          "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 2\r\nX-Loop55-Unavailable: restarting\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
         );
     };
     const path = req.url ?? "";
-    if (!backend || !path.startsWith("/") || path.startsWith("/__loop"))
+    if (!backend || !path.startsWith("/") || path.startsWith("/__loop55"))
       return refuse();
     socket.on("error", () => {});
     const upstream = connect(backend.path);
@@ -261,7 +261,7 @@ export class Relay {
       const lines = [`${req.method} ${path} HTTP/1.1`];
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
         const name = req.rawHeaders[i];
-        if (name.toLowerCase() === "x-loop-probe") continue;
+        if (name.toLowerCase() === "x-loop55-probe") continue;
         lines.push(`${name}: ${req.rawHeaders[i + 1]}`);
       }
       upstream.write(lines.join("\r\n") + "\r\n\r\n");

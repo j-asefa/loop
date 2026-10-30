@@ -187,7 +187,7 @@ export function FleetCamera({
           <p role="status">
             {state === "starting"
               ? "Starting camera…"
-              : "Point the camera at the Loop pairing code."}
+              : "Point the camera at the Loop55 pairing code."}
           </p>
           <button type="button" onClick={stop}>
             Stop camera

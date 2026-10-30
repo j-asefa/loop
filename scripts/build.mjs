@@ -1,3 +1,4 @@
+import "../deployment/environment.mjs";
 import { runSupervised } from "./heavy-command.mjs";
 import { cp, rm, mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,9 +11,9 @@ let metadata;
 try {
   // Only the image wrapper supplies this build-time input, from its immutable
   // context. Ordinary Git-less builds remain unknown. Never read it at runtime.
-  if (process.env.LOOP_BUILD_SOURCE_FILE) {
+  if (process.env.LOOP55_BUILD_SOURCE_FILE) {
     const identity = JSON.parse(
-      await readFile(process.env.LOOP_BUILD_SOURCE_FILE, "utf8"),
+      await readFile(process.env.LOOP55_BUILD_SOURCE_FILE, "utf8"),
     );
     if (
       !identity.clean ||
@@ -24,10 +25,10 @@ try {
       throw new Error("Invalid source archive identity");
     source.stamp = identity;
   }
-  metadata = await mkdtemp(join(tmpdir(), "loop-build-stamp-"));
+  metadata = await mkdtemp(join(tmpdir(), "loop55-build-stamp-"));
   const stampFile = join(metadata, "stamp.json");
   await writeFile(stampFile, JSON.stringify(source.stamp));
-  const env = { ...process.env, LOOP_BUILD_STAMP_FILE: stampFile };
+  const env = { ...process.env, LOOP55_BUILD_STAMP_FILE: stampFile };
   for (const args of [
     ["scripts/typecheck.mjs"],
     ["node_modules/vite/bin/vite.js", "build"],

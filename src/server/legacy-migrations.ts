@@ -139,7 +139,7 @@ export function translateLegacyMigrations(db: Database.Database) {
       .get()
   )
     throw new Error(
-      "Pre-unification databases are unsupported. Choose a fresh LOOP_DATA_DIR.",
+      "Pre-unification databases are unsupported. Choose a fresh LOOP55_DATA_DIR.",
     );
   // Both pre-merge branches used native_sessions and migration IDs 20/21.
   // Detect the actual schema, not the version number, and preserve both histories.

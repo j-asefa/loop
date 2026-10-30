@@ -2,9 +2,9 @@ import { afterAll, afterEach, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-const root = mkdtempSync(join(tmpdir(), "loop-native-recovery-"));
-process.env.LOOP_DATA_DIR = root;
-process.env.LOOP_PROFILE = "companion";
+const root = mkdtempSync(join(tmpdir(), "loop55-native-recovery-"));
+process.env.LOOP55_DATA_DIR = root;
+process.env.LOOP55_PROFILE = "companion";
 const probe = vi.hoisted(() => vi.fn());
 vi.mock("../src/host-control.js", () => ({ discover: probe }));
 const { db, id, now } = await import("../src/server/db");
@@ -34,7 +34,7 @@ function connection(name: string, status: string, retired = false) {
     name === "claude" ? "anthropic" : name,
     status,
     JSON.stringify({
-      loopHarness: name,
+      loop55Harness: name,
       authMode: "subscription",
       ...(retired ? { retiredDirectRuntime: true } : {}),
     }),
@@ -218,7 +218,7 @@ it("keeps an explicitly revoked damaged native connection disconnected on startu
         .get(),
     ).toEqual({ status: "disconnected", secret: "" });
     expect(JSON.parse(saved.metadata)).toEqual({
-      loopHarness: "codex",
+      loop55Harness: "codex",
       authMode: "subscription",
       permissionMode: "bogus",
     });

@@ -69,8 +69,8 @@ export function listenWorkspaceChanges(
     if (workspaceChangeAffects(event, surface, source, conversation))
       changed(event);
   };
-  window.addEventListener("loop-workspace-change", listener);
-  return () => window.removeEventListener("loop-workspace-change", listener);
+  window.addEventListener("loop55-workspace-change", listener);
+  return () => window.removeEventListener("loop55-workspace-change", listener);
 }
 
 /** Coalescing retains scopes per source without holding streamed payloads. */

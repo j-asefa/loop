@@ -1,3 +1,5 @@
+import { retainedPath } from "./name-upgrade.js";
+import "../deployment/environment.mjs";
 import { parseArgs, promisify } from "node:util";
 import { spawn, execFile } from "node:child_process";
 import { constants } from "node:fs";
@@ -63,16 +65,16 @@ const recordSchema = z
   .strict();
 type Record = z.infer<typeof recordSchema>;
 
-/** Do not inherit the running Loop's state, keys, service, tunnel or runtime. */
+/** Do not inherit the running Loop55's state, keys, service, tunnel or runtime. */
 export function previewEnvironment(
   env: NodeJS.ProcessEnv,
   mode: "design" | "working",
 ): NodeJS.ProcessEnv {
   const clean = Object.fromEntries(
     Object.entries(env).filter(([key]) => {
-      if (key.startsWith("LOOP_TEST_")) return env.NODE_ENV === "test";
+      if (key.startsWith("LOOP55_TEST_")) return env.NODE_ENV === "test";
       if (
-        /^(LOOP_|GIT_|BETTER_AUTH_|GITHUB_CLIENT_)/.test(key) ||
+        /^(LOOP55_|GIT_|BETTER_AUTH_|GITHUB_CLIENT_)/.test(key) ||
         ["PORT", "NODE_OPTIONS", "NODE_PATH"].includes(key)
       )
         return false;
@@ -130,16 +132,16 @@ async function sourceCheckout(path: string) {
   const source = await realpath(path);
   if ((await git(source, "rev-parse", "--show-toplevel")) !== source)
     throw new Error(
-      "Choose the root of a Loop Git checkout with --project PATH.",
+      "Choose the root of a Loop55 Git checkout with --project PATH.",
     );
   const pkg = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
   if (
-    pkg.name !== "loop" ||
+    pkg.name !== "loop55" ||
     !pkg.scripts?.build ||
     !(await exists(join(source, "src", "preview-context.ts")))
   )
     throw new Error(
-      "This checkout must contain Loop's preview launcher. Bring that change into the experiment branch first.",
+      "This checkout must contain Loop55's preview launcher. Bring that change into the experiment branch first.",
     );
   return source;
 }
@@ -231,7 +233,7 @@ function command(
 function launchPaths(dir: string, record: Record, build = record.build) {
   if (!build)
     throw new Error(
-      "This preview has no successful build. Run loop preview rebuild " +
+      "This preview has no successful build. Run loop55 preview rebuild " +
         record.name,
     );
   const stage = join(dir, "builds", z.string().uuid().parse(build));
@@ -260,8 +262,8 @@ async function launchEnvironment(
     throw new Error("Preview build identity does not match its registration.");
   return {
     ...previewEnvironment(process.env, record.mode),
-    LOOP_HOME: manifest.home,
-    LOOP_PREVIEW_MANIFEST: paths.manifest,
+    LOOP55_HOME: manifest.home,
+    LOOP55_PREVIEW_MANIFEST: paths.manifest,
   };
 }
 async function run(
@@ -387,26 +389,26 @@ function startArgs(record: Record) {
     ...(record.providers ? ["--providers", record.providers] : []),
   ];
 }
-const HELP = `Loop previews — experiment before merging
+const HELP = `Loop55 previews — experiment before merging
 
-loop preview create NAME [--from REF] [--project LOOP_CHECKOUT]
+loop55 preview create NAME [--from REF] [--project LOOP55_CHECKOUT]
                          Create a branch/worktree, build and start it.
-loop preview start NAME [--project LOOP_CHECKOUT]
+loop55 preview start NAME [--project LOOP55_CHECKOUT]
                          Start a saved preview, or preview this checkout including local edits.
-loop preview rebuild NAME [--force]  Build first, then replace this preview's application.
-loop preview open NAME               Print a fresh phone pairing link and QR code.
-loop preview status NAME [--json]
-loop preview list [--json]
-loop preview logs NAME [--follow]
-loop preview stop NAME               Stop this preview and its tunnel; retain data and code.
-loop preview discard NAME            Stop and remove preview state/builds; retain checkout/branch.
+loop55 preview rebuild NAME [--force]  Build first, then replace this preview's application.
+loop55 preview open NAME               Print a fresh phone pairing link and QR code.
+loop55 preview status NAME [--json]
+loop55 preview list [--json]
+loop55 preview logs NAME [--follow]
+loop55 preview stop NAME               Stop this preview and its tunnel; retain data and code.
+loop55 preview discard NAME            Stop and remove preview state/builds; retain checkout/branch.
 
 New previews: --mode design|working (default design), --local-only or --public-url URL,
               --providers LIST (working previews only).
 Design previews use sample data and simulated replies. Working previews use the host's harness sign-ins.
 The default phone tunnel keeps its address across rebuilds, but can change after stop.
-Preview storage: LOOP_PREVIEWS_DIR or ~/.local/state/loop-previews.
-No command installs globally, changes the everyday Loop service, merges, or deletes source code.`;
+Preview storage: LOOP55_PREVIEWS_DIR or ~/.local/state/loop55-previews.
+No command installs globally, changes the everyday Loop55 service, merges, or deletes source code.`;
 
 export async function previewCli(args: string[]) {
   const { values, positionals } = parseArgs({
@@ -444,7 +446,7 @@ export async function previewCli(args: string[]) {
     ].includes(action) ||
     positionals.length > (action === "list" ? 1 : 2)
   )
-    throw new Error("Unknown preview command. See loop preview --help.");
+    throw new Error("Unknown preview command. See loop55 preview --help.");
   if (action !== "list") previewName.parse(name);
   if (values["local-only"] && values["public-url"])
     throw new Error("Choose --local-only or --public-url.");
@@ -467,8 +469,12 @@ export async function previewCli(args: string[]) {
       "Source, mode and connection options apply only when creating a preview.",
     );
   const base = resolve(
-    process.env.LOOP_PREVIEWS_DIR ||
-      join(homedir(), ".local", "state", "loop-previews"),
+    process.env.LOOP55_PREVIEWS_DIR ||
+      retainedPath(
+        join(homedir(), ".local", "state"),
+        "loop55-previews",
+        "loop-previews",
+      ),
   );
   await privateDirectory(base);
   const registry = join(await realpath(base), "previews");
@@ -504,7 +510,7 @@ export async function previewCli(args: string[]) {
               (r) =>
                 `${r.name}: ${r.state}${"url" in r && r.url ? " · " + r.url : ""}`,
             )
-            .join("\n") || "No previews yet. Run loop preview create NAME.",
+            .join("\n") || "No previews yet. Run loop55 preview create NAME.",
     );
     return;
   }
@@ -630,7 +636,7 @@ export async function previewCli(args: string[]) {
           "The requested build is not confirmed as running. Inspect preview status and logs before retrying.",
         );
       console.log(
-        `Preview ${name}: ${observed.url}\nEdit: ${record.source}\nRebuild: loop preview rebuild ${name}`,
+        `Preview ${name}: ${observed.url}\nEdit: ${record.source}\nRebuild: loop55 preview rebuild ${name}`,
       );
       return;
     }

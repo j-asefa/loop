@@ -13,7 +13,7 @@ import {
   type WorkspaceEmission,
   type WorkspaceSubject,
 } from "../shared/workspace-events.js";
-export const db: Database.Database = new Database(join(config.data, "loop.db"));
+export const db: Database.Database = new Database(config.database);
 const subjects = eventSubjects(db);
 let wakeChanges = () => {};
 db.pragma("busy_timeout = 5000");
@@ -53,7 +53,7 @@ db.transaction(() => {
       .get() as { profile: string };
     if (stored.profile !== capabilities.profile)
       throw new Error(
-        `This data directory belongs to the ${stored.profile} profile. Choose a separate LOOP_DATA_DIR for ${capabilities.profile}.`,
+        `This data directory belongs to the ${stored.profile} profile. Choose a separate LOOP55_DATA_DIR for ${capabilities.profile}.`,
       );
   }).immediate();
   projectFeed(db, emit);

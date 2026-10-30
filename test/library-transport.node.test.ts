@@ -18,7 +18,7 @@ import { composeSourceId } from "../src/linked-docker.js";
 import { until } from "./helpers.js";
 
 test("typed multipart and runtime routes use the compiled app directly and through the paired Docker proxy without replaying writes", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "loop-library-transport-"));
+  const directory = await mkdtemp(join(tmpdir(), "loop55-library-transport-"));
   const originalFetch = globalThis.fetch;
   const originalPath = process.env.PATH;
   const originalLocation = Object.getOwnPropertyDescriptor(
@@ -27,7 +27,7 @@ test("typed multipart and runtime routes use the compiled app directly and throu
   );
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const environment = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")),
+    Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP55_")),
   );
   const { codexFixture, fixtureToken } = await import(
     resolve("test/helpers/codex-server.mjs")
@@ -42,11 +42,11 @@ test("typed multipart and runtime routes use the compiled app directly and throu
       env: {
         ...environment,
         NODE_ENV: "test",
-        LOOP_PROFILE: "server",
-        LOOP_ALLOWED_RUNTIME_ORIGINS: new URL(codex.url).origin,
-        LOOP_AUTH_MODE: "single-user",
-        LOOP_DATA_DIR: join(directory, "data"),
-        LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+        LOOP55_PROFILE: "server",
+        LOOP55_ALLOWED_RUNTIME_ORIGINS: new URL(codex.url).origin,
+        LOOP55_AUTH_MODE: "single-user",
+        LOOP55_DATA_DIR: join(directory, "data"),
+        LOOP55_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
         BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
       },
     },

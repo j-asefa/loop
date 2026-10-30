@@ -1,6 +1,6 @@
 // The workspace's standing approval level for native harness tool calls
 // (Settings → Permissions → Agent tool calls). Harnesses that accept a launch
-// mode start new sessions in it; Loop answers the others' one-call approvals.
+// mode start new sessions in it; Loop55 answers the others' one-call approvals.
 // A live session can still be changed from Session settings, which exposes
 // the harness's own raw modes.
 export const PERMISSION_MODES = [
@@ -34,7 +34,7 @@ export function supportsPermissionMode(harness?: string | null) {
   return !!harness && PERMISSION_MODE_HARNESSES.includes(harness);
 }
 /**
- * The choice Loop answers for the user, if any. "Never ask" approves single
+ * The choice Loop55 answers for the user, if any. "Never ask" approves single
  * tool calls on every harness; questions and forms requiring input still wait.
  */
 export function autoApproval(

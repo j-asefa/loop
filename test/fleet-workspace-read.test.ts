@@ -29,11 +29,11 @@ import {
 import type { FleetOperation } from "../src/shared/fleet.js";
 import { until } from "./helpers.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop-fleet-read-"));
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_DATA_DIR = join(root, "destination");
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-mkdirSync(process.env.LOOP_DATA_DIR);
+const root = mkdtempSync(join(tmpdir(), "loop55-fleet-read-"));
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = join(root, "destination");
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+mkdirSync(process.env.LOOP55_DATA_DIR);
 const { FleetCredentialHttpTransport } =
   await import("../src/server/fleet-credential-http.js");
 const { FleetWorkspaceHttpTransport } =
@@ -119,10 +119,10 @@ const pairing = new FleetPairing(
   db,
   destination,
   OWNER,
-  process.env.LOOP_DATA_DIR,
+  process.env.LOOP55_DATA_DIR,
 );
 const host = new Host(
-  process.env.LOOP_DATA_DIR,
+  process.env.LOOP55_DATA_DIR,
   {
     harness: "codex",
     version: "fixture",
@@ -166,7 +166,7 @@ beforeAll(async () => {
     [foreignAgent, foreignOwner],
   ])
     db.prepare(
-      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,?,?,'openai','fixture','fixture','loop',1)",
+      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,?,?,'openai','fixture','fixture','loop55',1)",
     ).run(id, owner, "Same name", id);
   db.prepare(
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture',?,'connected','[]','{}',1)",
@@ -207,7 +207,7 @@ function call(
           headers: {
             host: new URL(origin).host,
             "content-type": "application/json",
-            "x-loop-fleet-version": "1",
+            "x-loop55-fleet-version": "1",
             ...headers,
           },
         },
@@ -245,7 +245,7 @@ it("a read credential returns native models without refreshing registrations or 
   ).run(
     OWNER,
     JSON.stringify(models),
-    JSON.stringify({ loopHarness: "claude" }),
+    JSON.stringify({ loop55Harness: "claude" }),
   );
   db.prepare("INSERT INTO harnesses VALUES('claude',?,'{}','[]','{}',0)").run(
     JSON.stringify({
@@ -256,8 +256,8 @@ it("a read credential returns native models without refreshing registrations or 
       billing: "existing",
     }),
   );
-  const originalHarness = process.env.LOOP_TEST_HARNESS;
-  process.env.LOOP_TEST_HARNESS = "claude";
+  const originalHarness = process.env.LOOP55_TEST_HARNESS;
+  process.env.LOOP55_TEST_HARNESS = "claude";
   const before = {
     connections: db.prepare("SELECT * FROM connections ORDER BY id").all(),
     registrations: db.prepare("SELECT * FROM harnesses ORDER BY name").all(),
@@ -281,8 +281,8 @@ it("a read credential returns native models without refreshing registrations or 
   } finally {
     db.prepare("DELETE FROM connections WHERE id='native-claude'").run();
     db.prepare("DELETE FROM harnesses WHERE name='claude'").run();
-    if (originalHarness === undefined) delete process.env.LOOP_TEST_HARNESS;
-    else process.env.LOOP_TEST_HARNESS = originalHarness;
+    if (originalHarness === undefined) delete process.env.LOOP55_TEST_HARNESS;
+    else process.env.LOOP55_TEST_HARNESS = originalHarness;
   }
 });
 
@@ -296,7 +296,7 @@ it("the production peer reader verifies signed local projections and refuses for
     const url = new URL(String(input));
     expect(url.origin).toBe(origin);
     const headers = new Headers(init?.headers);
-    for (const name of ["cookie", "authorization", "origin", "x-loop-csrf"])
+    for (const name of ["cookie", "authorization", "origin", "x-loop55-csrf"])
       expect(headers.has(name)).toBe(false);
     const response = await call(
       JSON.parse(String(init?.body)),

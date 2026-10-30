@@ -33,7 +33,7 @@ test("saved HAPI launcher options migrate to native while retaining project and 
       "--project",
       "/project",
       "--public-url",
-      "https://loop.example",
+      "https://loop55.example",
     ]),
     [
       "start",
@@ -42,7 +42,7 @@ test("saved HAPI launcher options migrate to native while retaining project and 
       "--project",
       "/project",
       "--public-url",
-      "https://loop.example",
+      "https://loop55.example",
       "--execution",
       "native",
     ],

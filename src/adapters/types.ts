@@ -93,7 +93,7 @@ export const capabilities: Capabilities = {
 export function conflict(mode: Options["billing"], keys: string[]) {
   if (mode === "subscription" && keys.some((k) => !!process.env[k])) {
     throw new Error(
-      `Subscription mode conflicts with ${keys.filter((k) => !!process.env[k]).join(", ")}. Resolve in your native harness environment, or explicitly use --billing existing to retain that configuration. Loop did not change it.`,
+      `Subscription mode conflicts with ${keys.filter((k) => !!process.env[k]).join(", ")}. Resolve in your native harness environment, or explicitly use --billing existing to retain that configuration. Loop55 did not change it.`,
     );
   }
 }

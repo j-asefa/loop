@@ -18,7 +18,7 @@ import { existsSync, readdirSync, writeFileSync, readFileSync } from "node:fs";
 import { WebSocket } from "ws";
 import { markDisposableFixture } from "./helpers/disposable-fixture.mjs";
 const exec = promisify(execFile),
-  base = await mkdtemp(join(tmpdir(), "loop-package-"));
+  base = await mkdtemp(join(tmpdir(), "loop55-package-"));
 markDisposableFixture(base);
 let child, ws, tarball, bin, env;
 try {
@@ -66,7 +66,7 @@ try {
     [
       "--input-type=module",
       "-e",
-      'const { Acp } = await import("loop/dist/adapters/acp.js"); if (typeof Acp !== "function") throw new Error("Missing packaged ACP adapter");',
+      'const { Acp } = await import("loop55/dist/adapters/acp.js"); if (typeof Acp !== "function") throw new Error("Missing packaged ACP adapter");',
     ],
     { cwd: target, timeout: 10000 },
   );
@@ -77,7 +77,7 @@ try {
         [
           "--input-type=module",
           "-e",
-          'const { runningBuild, publicBuild } = await import("loop/dist/shared/build.js"); console.log(JSON.stringify(publicBuild(runningBuild)));',
+          'const { runningBuild, publicBuild } = await import("loop55/dist/shared/build.js"); console.log(JSON.stringify(publicBuild(runningBuild)));',
         ],
         { cwd: target, timeout: 10000 },
       )
@@ -88,11 +88,11 @@ try {
     JSON.parse(await readFile("dist/build-id.json", "utf8")).id,
   );
   assert.notEqual(identity.id, "development");
-  bin = join(target, "node_modules", ".bin", "loop");
+  bin = join(target, "node_modules", ".bin", "loop55");
   env = {
     ...process.env,
-    LOOP_HOME: join(base, "loop-state"),
-    LOOP_TEST_HARNESS: "codex",
+    LOOP55_HOME: join(base, "loop55-state"),
+    LOOP55_TEST_HARNESS: "codex",
   };
   const fixture = join(base, "fixture-harness");
   await copyFile("test/harness.mjs", fixture);
@@ -101,7 +101,7 @@ try {
     (await exec(bin, ["--version"], { env })).stdout.trim(),
     JSON.parse(await readFile("package.json", "utf8")).version,
   );
-  // `loop codex` shows the pairing code, then returns while the workspace keeps
+  // `loop55 codex` shows the pairing code, then returns while the workspace keeps
   // running in the background.
   const launch = async () => {
     const { stdout } = await exec(
@@ -165,7 +165,7 @@ try {
           headers: {
             Cookie: cookie,
             Origin: url.origin,
-            "x-loop-csrf": csrf,
+            "x-loop55-csrf": csrf,
             "Content-Type": "application/json",
           },
           body: body ? JSON.stringify(body) : undefined,
@@ -250,7 +250,7 @@ try {
   const history = await api("/conversations/" + run.conversation_id);
   assert(history.messages.some((m) => m.content === "Fixture done"));
   await stop();
-  // The very same installed distribution runs the full server with `loop server`.
+  // The very same installed distribution runs the full server with `loop55 server`.
   const reservation = createServer();
   await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
   const port = reservation.address().port;
@@ -261,11 +261,11 @@ try {
     env: {
       ...env,
       PORT: String(port),
-      LOOP_URL: serverOrigin,
-      LOOP_DATA_DIR: join(base, "server-state"),
-      LOOP_AUTH_MODE: "single-user",
+      LOOP55_URL: serverOrigin,
+      LOOP55_DATA_DIR: join(base, "server-state"),
+      LOOP55_AUTH_MODE: "single-user",
       BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-      LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+      LOOP55_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -308,14 +308,15 @@ try {
   );
   await exec(bin, ["uninstall"], { env });
   assert(
-    (await readFile(join(env.LOOP_HOME, "workspace", "loop.db"))).length > 0,
+    (await readFile(join(env.LOOP55_HOME, "workspace", "loop55.db"))).length >
+      0,
   );
   // The upgrade fixture installs its own package; release this first install
   // before npm temporarily keeps both old and new upgrade dependency trees.
   await rm(target, { recursive: true, force: true });
   await upgradeBehindConnection();
   console.log(
-    "Clean tarball install: original UI assets, pairing, native workspace run, duplicate CLI, restart persistence, stop, retained data, server profile, and loop upgrade between packed builds behind one connection service passed. Fixture tunnel only.",
+    "Clean tarball install: original UI assets, pairing, native workspace run, duplicate CLI, restart persistence, stop, retained data, server profile, and loop55 upgrade between packed builds behind one connection service passed. Fixture tunnel only.",
   );
 } finally {
   ws?.terminate();
@@ -326,7 +327,7 @@ try {
 }
 
 /**
- * `loop upgrade` from one packed build to a distinguishable second one, both
+ * `loop55 upgrade` from one packed build to a distinguishable second one, both
  * installed globally into a private prefix, with the fixture tunnel helper.
  * The connection service, its cloudflared and the address must survive; the
  * browser cookie must keep working; the new assets and release must serve.
@@ -340,11 +341,11 @@ async function upgradeBehindConnection() {
   const upgradeEnv = {
     ...process.env,
     npm_config_prefix: prefix,
-    LOOP_HOME: state,
-    LOOP_TEST_HARNESS: "codex",
-    LOOP_TEST_CLOUDFLARED: resolve("test/fixtures/fake-cloudflared.mjs"),
+    LOOP55_HOME: state,
+    LOOP55_TEST_HARNESS: "codex",
+    LOOP55_TEST_CLOUDFLARED: resolve("test/fixtures/fake-cloudflared.mjs"),
   };
-  await chmod(upgradeEnv.LOOP_TEST_CLOUDFLARED, 0o755);
+  await chmod(upgradeEnv.LOOP55_TEST_CLOUDFLARED, 0o755);
   // Build B: same code, new version and an asset marker the browser can see.
   const unpacked = join(base, "build-b");
   await mkdir(unpacked);
@@ -363,7 +364,7 @@ async function upgradeBehindConnection() {
     index,
     readFileSync(index, "utf8").replace(
       "</head>",
-      "<!-- loop-build-b --></head>",
+      "<!-- loop55-build-b --></head>",
     ),
   );
   const packed = JSON.parse(
@@ -386,7 +387,7 @@ async function upgradeBehindConnection() {
     },
   );
   const loop = (...args) =>
-    exec(join(prefix, "bin", "loop"), args, {
+    exec(join(prefix, "bin", "loop55"), args, {
       env: upgradeEnv,
       timeout: 300000,
       maxBuffer: 4000000,
@@ -447,7 +448,7 @@ async function upgradeBehindConnection() {
   );
   assert.equal((await send("GET", "/api/bootstrap")).status, 200);
   const devices = (await send("GET", "/api/workspace/devices")).body;
-  assert.doesNotMatch((await send("GET", "/")).body, /loop-build-b/);
+  assert.doesNotMatch((await send("GET", "/")).body, /loop55-build-b/);
   const service = join(state, "connection", "bin");
   const artifacts = readdirSync(service);
   assert.equal(artifacts.length, 1, "the service runs from an immutable copy");
@@ -460,7 +461,7 @@ async function upgradeBehindConnection() {
   assert.match(
     upgraded.stdout,
     new RegExp(
-      `Upgraded from Loop ${manifest.version.replace("-upgrade.1", "")} to ${nextVersion.replace(/\./g, "\\.")}`,
+      `Upgraded from Loop55 ${manifest.version.replace("-upgrade.1", "")} to ${nextVersion.replace(/\./g, "\\.")}`,
     ),
   );
   assert.match(upgraded.stdout, /Same address/);
@@ -488,7 +489,7 @@ async function upgradeBehindConnection() {
   assert.equal((await send("GET", "/api/workspace/devices")).body, devices);
   assert.match(
     (await send("GET", "/")).body,
-    /loop-build-b/,
+    /loop55-build-b/,
     "new assets at the old address",
   );
   assert.deepEqual(

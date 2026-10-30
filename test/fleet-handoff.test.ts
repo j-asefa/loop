@@ -20,10 +20,10 @@ import type {
 } from "../src/shared/fleet.js";
 import type { SignedFleetHandoffQuery } from "../src/shared/fleet-handoff.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop-fleet-handoff-"));
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_DATA_DIR = root;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop55-fleet-handoff-"));
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = root;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const databases: Database.Database[] = [];
 const scope: FleetOperation[] = ["read", "act", "events", "mail", "files"];

@@ -11,10 +11,10 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-snapshot-load-"));
-process.env.LOOP_DATA_DIR = join(dir, "data");
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-snapshot-load-"));
+process.env.LOOP55_DATA_DIR = join(dir, "data");
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db");
 const { captureSnapshot } = await import("../src/server/review-snapshot");
 afterAll(() => {
@@ -53,18 +53,18 @@ it("captures repository context with bounded Git processes and preserves byte-fr
   const log = join(dir, "git-calls.log");
   writeFileSync(
     join(bin, "git"),
-    '#!/bin/sh\nprintf "git\\n" >> "$LOOP_TEST_GIT_LOG"\nexec "$LOOP_TEST_REAL_GIT" "$@"\n',
+    '#!/bin/sh\nprintf "git\\n" >> "$LOOP55_TEST_GIT_LOG"\nexec "$LOOP55_TEST_REAL_GIT" "$@"\n',
     { mode: 0o755 },
   );
   const previous = {
     PATH: process.env.PATH,
-    LOOP_TEST_GIT_LOG: process.env.LOOP_TEST_GIT_LOG,
-    LOOP_TEST_REAL_GIT: process.env.LOOP_TEST_REAL_GIT,
+    LOOP55_TEST_GIT_LOG: process.env.LOOP55_TEST_GIT_LOG,
+    LOOP55_TEST_REAL_GIT: process.env.LOOP55_TEST_REAL_GIT,
   };
   Object.assign(process.env, {
     PATH: `${bin}:${process.env.PATH}`,
-    LOOP_TEST_GIT_LOG: log,
-    LOOP_TEST_REAL_GIT: realGit,
+    LOOP55_TEST_GIT_LOG: log,
+    LOOP55_TEST_REAL_GIT: realGit,
   });
   try {
     const snapshot = captureSnapshot(repo, "branch", "HEAD~1");

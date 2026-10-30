@@ -161,7 +161,7 @@ export function McpCatalog({
           <label>
             Runtime machine
             <select value={host} onChange={(e) => setHost(e.target.value)}>
-              <option value="">Loop server</option>
+              <option value="">Loop55 server</option>
               {hosts.map((h) => (
                 <option key={h.id} value={h.id}>
                   {h.name}

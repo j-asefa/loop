@@ -56,7 +56,7 @@ def guard(config, extra_bytes=0):
     for index, item in enumerate(config["budgets"]):
         path = Path(item["path"])
         if item.get("require_mount") and not path.is_mount():
-            raise RuntimeError("Loop state filesystem is not mounted")
+            raise RuntimeError("Loop55 state filesystem is not mounted")
         fs = os.statvfs(path)
         free = fs.f_bavail * fs.f_frsize
         minimum = int(item["minimum_free_gib"] * GIB) + (extra_bytes if index == 0 else 0)
@@ -65,7 +65,7 @@ def guard(config, extra_bytes=0):
         if free < minimum:
             raise RuntimeError(f"Storage budget: {path} has {free/GIB:.1f} GiB free; "
                                f"{minimum/GIB:.1f} GiB is required. Free build/cache space "
-                               "before starting more work; keep Loop state and user files.")
+                               "before starting more work; keep Loop55 state and user files.")
     return report
 
 
@@ -143,7 +143,7 @@ def release_directories(root):
 
 
 def archiver():
-    spec = importlib.util.spec_from_file_location("loop_backup_archiver",
+    spec = importlib.util.spec_from_file_location("loop55_backup_archiver",
                          Path(__file__).with_name("archive-backups.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -277,10 +277,10 @@ def cleanup_fixtures(root, days=7, now=None):
     now = time.time() if now is None else now
     removed = []
     root = root.resolve()
-    for p in root.glob("loop-package-*"):
+    for p in root.glob("loop55-package-*"):
         if p.is_symlink() or not p.is_dir() or p.resolve().parent != root:
             continue
-        marker = p / ".loop-disposable.json"
+        marker = p / ".loop55-disposable.json"
         try:
             regular(marker)
             m, s = json.loads(marker.read_text()), p.lstat()
@@ -413,7 +413,7 @@ def prune_builds(releases, config):
                 continue
             shutil.rmtree(modules)
             removed.append(str(modules))
-        package = p / "loop-0.1.0.tgz"
+        package = p / "loop55-0.1.0.tgz"
         if package.exists():
             regular(package)
             package.unlink()
@@ -529,5 +529,5 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-        print("Loop storage: " + str(error), file=sys.stderr)
+        print("Loop55 storage: " + str(error), file=sys.stderr)
         raise SystemExit(1)

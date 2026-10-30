@@ -4,7 +4,7 @@ import { expect } from "@playwright/test";
 export const signalCollection = (page, collection) =>
   page.evaluate((id) => {
     window.dispatchEvent(
-      new CustomEvent("loop-workspace-change", {
+      new CustomEvent("loop55-workspace-change", {
         detail: {
           sources: [""],
           changes: [

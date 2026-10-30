@@ -58,13 +58,13 @@ function ServerRuntimeHosts({
       ? `codex login
 umask 077
 mkdir -p "$HOME/.codex"
-test -f "$HOME/.codex/loop-app-server-token" || openssl rand -hex 32 > "$HOME/.codex/loop-app-server-token"
-codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file "$HOME/.codex/loop-app-server-token"`
+test -f "$HOME/.codex/loop55-app-server-token" || openssl rand -hex 32 > "$HOME/.codex/loop55-app-server-token"
+codex app-server --listen ws://127.0.0.1:4500 --ws-auth capability-token --ws-token-file "$HOME/.codex/loop55-app-server-token"`
       : `claude auth login
 umask 077
-mkdir -p "$HOME/.config/loop"
-test -f "$HOME/.config/loop/host-token" || openssl rand -hex 32 > "$HOME/.config/loop/host-token"
-LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/absolute/path/to/your/project" node runtime/host.mjs`;
+mkdir -p "$HOME/.config/loop55"
+test -f "$HOME/.config/loop55/host-token" || openssl rand -hex 32 > "$HOME/.config/loop55/host-token"
+LOOP55_RUNTIME_TOKEN_FILE="$HOME/.config/loop55/host-token" LOOP55_RUNTIME_WORKDIR="/absolute/path/to/your/project" node runtime/host.mjs`;
   async function load() {
     setHosts(await read(workspaceApi.runtimeHostList, {}));
   }
@@ -76,7 +76,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
       ? "Codex app-server"
       : kind === "native-host"
         ? "Native host · Codex & Claude Code"
-        : "Loop runtime broker";
+        : "Loop55 runtime broker";
   const guide =
     kind === "codex-app-server"
       ? {
@@ -103,7 +103,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
                     ? "Codex app-server"
                     : h.kind === "native-host"
                       ? "Native host"
-                      : "Loop runtime broker") +
+                      : "Loop55 runtime broker") +
                   " · " +
                   h.url
                 }
@@ -176,7 +176,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
             }}
             disabled={busy}
           >
-            <option value="broker">Loop runtime broker</option>
+            <option value="broker">Loop55 runtime broker</option>
             <option value="codex-app-server">Codex app-server</option>
             <option value="native-host">
               Native host · Codex & Claude Code
@@ -196,7 +196,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
                   <p>
                     {kind === "codex-app-server"
                       ? "Install Codex and open a terminal in the project directory on that machine."
-                      : "Install Node 24+ and Claude Code, then open a terminal in your Loop checkout."}
+                      : "Install Node 24+ and Claude Code, then open a terminal in your Loop55 checkout."}
                   </p>
                 </li>
                 <li>
@@ -237,21 +237,21 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
                 <div className="settings-card">
                   <p className="field-hint">
                     {kind === "codex-app-server"
-                      ? "Codex’s WebSocket transport is experimental. Agents have full native tool access, including commands, file edits and the MCPs configured on that host. Host administrator policies still apply, and your account stays signed in on that machine when you disconnect Loop."
-                      : "This grants agents access to your host’s shell, files, network, skills and configured MCPs. Your account stays signed in on that machine when you disconnect Loop."}
+                      ? "Codex’s WebSocket transport is experimental. Agents have full native tool access, including commands, file edits and the MCPs configured on that host. Host administrator policies still apply, and your account stays signed in on that machine when you disconnect Loop55."
+                      : "This grants agents access to your host’s shell, files, network, skills and configured MCPs. Your account stays signed in on that machine when you disconnect Loop55."}
                   </p>
                 </div>
               )}
               {detail === "network" && (
                 <div className="settings-card">
                   <p className="field-hint">
-                    Connect the machine to the Loop server using an SSH tunnel
+                    Connect the machine to the Loop55 server using an SSH tunnel
                     or a private encrypted proxy. The address below must be
-                    reachable from the Loop server, including its containers.
+                    reachable from the Loop55 server, including its containers.
                   </p>
                   <p className="field-hint">
                     Add the machine’s origin to{" "}
-                    <code>LOOP_ALLOWED_RUNTIME_ORIGINS</code> on the Loop
+                    <code>LOOP55_ALLOWED_RUNTIME_ORIGINS</code> on the Loop55
                     server, then restart the API and worker. The browser’s
                     localhost is not the remote machine.
                   </p>
@@ -313,7 +313,7 @@ LOOP_RUNTIME_TOKEN_FILE="$HOME/.config/loop/host-token" LOOP_RUNTIME_WORKDIR="/a
       </form>
       <p className="field-hint">
         Choose this machine under Run on when adding a subscription connection.
-        Command-based MCP servers require a Loop runtime broker.
+        Command-based MCP servers require a Loop55 runtime broker.
       </p>
     </Sheet>
   );

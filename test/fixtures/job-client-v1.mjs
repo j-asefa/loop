@@ -17,10 +17,10 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const quote = (value) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
 
 export async function queueConfiguration(
-  path = process.env.LOOP_JOB_QUEUE_CONFIG ||
+  path = process.env.LOOP55_JOB_QUEUE_CONFIG ||
     join(
       process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
-      "loop",
+      "loop55",
       "jobs.json",
     ),
 ) {
@@ -42,14 +42,14 @@ export async function queueConfiguration(
 }
 
 export function insideQueuedJob(config) {
-  if (process.env.LOOP_JOB_ACTIVE) return true;
-  // Test fixtures intentionally clear LOOP_* settings. Ownership survives that
+  if (process.env.LOOP55_JOB_ACTIVE) return true;
+  // Test fixtures intentionally clear LOOP55_* settings. Ownership survives that
   // sanitization: otherwise an inner check could wait behind its own parent.
   if (process.platform === "linux") {
     try {
       if (
         readFileSync("/proc/self/cgroup", "utf8").includes(
-          "/loop-agents-jobs.slice/",
+          "/loop55-agents-jobs.slice/",
         )
       )
         return true;
@@ -126,7 +126,7 @@ export async function cancelQueuedJob(config, identity) {
       identity,
     )
   )
-    throw new Error("Use the job ID printed by loop-job status.");
+    throw new Error("Use the job ID printed by loop55-job status.");
   let control;
   try {
     control = JSON.parse(
@@ -195,11 +195,11 @@ export async function runQueuedJob(command, args, options = {}) {
   if (!initial.groups?.[config.group])
     throw new Error("The configured job queue group is missing.");
   // A killed caller cannot remove its finished task. Retain orphaned logs for
-  // a day, then prune only Loop-owned completed jobs on the next submission.
+  // a day, then prune only Loop55-owned completed jobs on the next submission.
   for (const task of Object.values(initial.tasks || {})) {
     if (
       task.group === config.group &&
-      /^loop:[a-f0-9-]{36}:/.test(task.label || "") &&
+      /^loop(?:55)?:[a-f0-9-]{36}:/.test(task.label || "") &&
       taskState(task) === "Done" &&
       Date.parse(task.status.Done.end) < Date.now() - 86400000
     )
@@ -209,7 +209,7 @@ export async function runQueuedJob(command, args, options = {}) {
     .replace(/[\r\n\x00-\x1f]/g, " ")
     .slice(0, 100);
   const identity = randomUUID();
-  const taskLabel = "loop:" + identity + ":" + name;
+  const taskLabel = "loop55:" + identity + ":" + name;
   const key = randomBytes(32).toString("hex");
   let directory,
     taskId,
@@ -273,7 +273,7 @@ export async function runQueuedJob(command, args, options = {}) {
                 command,
                 args,
                 cwd,
-                env: { ...env, LOOP_JOB_ACTIVE: identity },
+                env: { ...env, LOOP55_JOB_ACTIVE: identity },
                 stdio,
                 label: name,
               },
@@ -341,7 +341,7 @@ export async function runQueuedJob(command, args, options = {}) {
         identity +
         ": " +
         name +
-        ". Inspect with loop-job status; cancel with loop-job cancel " +
+        ". Inspect with loop55-job status; cancel with loop55-job cancel " +
         identity +
         ".",
     );
@@ -421,7 +421,7 @@ export async function runQueuedJob(command, args, options = {}) {
       await Promise.race([following, delay(1500)]);
     }
     if (directory) await rm(directory, { recursive: true, force: true });
-    // Completed output already reached Loop's command trace. Remove only this
+    // Completed output already reached Loop55's command trace. Remove only this
     // invocation's task so persisted queue logs cannot grow without a bound.
     if (completed && taskId) {
       try {

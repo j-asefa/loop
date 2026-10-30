@@ -318,14 +318,14 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       }),
     );
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-later-change")),
+      window.dispatchEvent(new Event("loop55-later-change")),
     );
     await Promise.all([inboxStarted, ...remoteReads]);
     discoveryFailed = true;
     sourceFailed = true;
     await page.evaluate(() => {
-      window.dispatchEvent(new Event("loop-source-refresh"));
-      window.dispatchEvent(new Event("loop-later-change"));
+      window.dispatchEvent(new Event("loop55-source-refresh"));
+      window.dispatchEvent(new Event("loop55-later-change"));
     });
     // Discovery and then source metadata each exhaust the existing 2s/4s
     // transient retries before the combined projection publishes its warning.
@@ -387,7 +387,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
         r.url().includes("/api/feed?filter=queued"),
       );
       await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop-later-change")),
+        window.dispatchEvent(new Event("loop55-later-change")),
       );
       await updated;
       await page.evaluate(
@@ -470,7 +470,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     assert.equal(creations[0].idempotencyKey, creations[1].idempotencyKey);
 
     await sheet.getByRole("button", { name: "Close", exact: true }).click();
-    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
 
     // A connected Codex account must not hide setup for another provider on
     // that same remote source. Follow the real navigation and return to creation.
@@ -551,7 +551,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     ).toBeVisible();
     discoveryHung = true;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await expect.poll(() => hung.length).toBe(1);
     discoveryHung = false;
@@ -559,7 +559,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     discoveryMissing = true;
     await expect(async () => {
       await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop-source-refresh")),
+        window.dispatchEvent(new Event("loop55-source-refresh")),
       );
       await expect(
         strip.getByRole("button", { name: /@remote-0/ }),

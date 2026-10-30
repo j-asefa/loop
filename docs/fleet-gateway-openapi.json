@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Loop local fleet command receipts",
+    "title": "Loop55 local fleet command receipts",
     "version": "1",
     "description": "Receipt lookup for a paired device on this gateway. The immutable destination, command ID, route and payload digest select an original receipt; no action body is retained or replayed. Bodies are bounded to 4 KiB, with 16 active requests and a 45-second deadline."
   },
@@ -9,8 +9,8 @@
     "/api/fleet/commands/receipt": {
       "post": {
         "operationId": "fleetGatewayReceipt",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -305,12 +305,12 @@
       "LocalDevice": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "__Host-loop"
+        "name": "__Host-loop55"
       },
       "LocalCSRF": {
         "type": "apiKey",
         "in": "header",
-        "name": "X-Loop-CSRF"
+        "name": "X-Loop55-CSRF"
       }
     }
   }

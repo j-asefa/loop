@@ -217,12 +217,12 @@ export async function conversationLiveSmoke(page, capture) {
     await page.route(path, holdFirst);
     update("live-final", latestText + " The build passed.");
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-workspace-change")),
+      window.dispatchEvent(new Event("loop55-workspace-change")),
     );
     await expect.poll(() => captured).toBe(true);
     for (let i = 0; i < 5; i++) {
       await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop-workspace-change")),
+        window.dispatchEvent(new Event("loop55-workspace-change")),
       );
     }
     release();

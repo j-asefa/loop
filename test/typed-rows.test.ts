@@ -11,10 +11,10 @@ import {
   RunPayload,
   SealedEnvelope,
 } from "../src/server/row-schemas.js";
-const dir = mkdtempSync(join(tmpdir(), "loop-typed-rows-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "server";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-typed-rows-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_PROFILE = "server";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db.js");
 const { seal } = await import("../src/server/secrets.js");
 const { createAgent, ownedRun, ownedConnection, ownedMessage, ownedArtifact } =
@@ -135,9 +135,9 @@ it.each([
 );
 
 it.each([
-  ["loopHarness", false],
-  ["loopHarness", null],
-  ["loopHarness", "unknown"],
+  ["loop55Harness", false],
+  ["loop55Harness", null],
+  ["loop55Harness", "unknown"],
   ["permissionMode", "allow-everything"],
   ["runtimeHostId", {}],
   ["runtimeKind", "other-host"],
@@ -223,7 +223,7 @@ it("can interrupt a native run with malformed saved identity without replaying o
   const { owner, connection, run } = fixture(),
     before = effects;
   db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-    JSON.stringify({ loopHarness: "codex" }),
+    JSON.stringify({ loop55Harness: "codex" }),
     connection,
   );
   db.prepare("UPDATE runs SET state='running',payload=? WHERE id=?").run(

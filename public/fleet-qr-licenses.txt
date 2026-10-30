@@ -1,4 +1,4 @@
-Loop camera QR decoder notices
+Loop55 camera QR decoder notices
 
 The bundled reader uses zxing-wasm 3.1.6 and ZXing-C++ commit
 2c3dcfeffa7878950a58c1703c86774a428b0c91. The decoder is loaded locally

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { workspaceApi } from "../src/shared/workspace-api";
-const root = mkdtempSync(join(tmpdir(), "loop-runtime-contract-"));
+const root = mkdtempSync(join(tmpdir(), "loop55-runtime-contract-"));
 const bin = join(root, "bin");
 mkdirSync(bin);
 // Explicit native-protocol fixtures. Never installed into a production image.
@@ -20,7 +20,7 @@ const fake = `#!/usr/bin/env node
 const fs=require('node:fs'),path=require('node:path'),rl=require('node:readline');
 const provider=path.basename(process.argv[1]), home=process.env.HOME, args=process.argv.slice(2);
 const auth=path.join(home,'fixture-auth'), log=path.join(home,'calls');
-fs.appendFileSync(log,JSON.stringify({provider,args,native:process.env.LOOP_RUNTIME_MODE==='host',cwd:process.cwd(),toolToken:process.env.FIXTURE_MCP_TOKEN||null,githubToken:process.env.GH_TOKEN||null,apiKey:process.env.OPENAI_API_KEY||process.env.ANTHROPIC_API_KEY||process.env.CLAUDE_CODE_OAUTH_TOKEN||null})+'\\n');
+fs.appendFileSync(log,JSON.stringify({provider,args,native:process.env.LOOP55_RUNTIME_MODE==='host',cwd:process.cwd(),toolToken:process.env.FIXTURE_MCP_TOKEN||null,githubToken:process.env.GH_TOKEN||null,apiKey:process.env.OPENAI_API_KEY||process.env.ANTHROPIC_API_KEY||process.env.CLAUDE_CODE_OAUTH_TOKEN||null})+'\\n');
 const send=m=>{
  if(provider==='codex'&&(m.method?.startsWith('item/')||m.method?.startsWith('turn/'))){
   const turnId=m.params?.turn?.id||(global.model==='steering'?'active-fixture':'turn-fixture');
@@ -142,9 +142,9 @@ function invoke(
       env: {
         PATH: bin + ":" + process.env.PATH,
         HOME: home,
-        LOOP_RUNTIME_MODE: native ? "host" : "container",
+        LOOP55_RUNTIME_MODE: native ? "host" : "container",
         FIXTURE_MCP_TOKEN: "host-tool-credential",
-        LOOP_RUNTIME_WORKDIR: home,
+        LOOP55_RUNTIME_WORKDIR: home,
         OPENAI_API_KEY: "must-not-inherit",
         ANTHROPIC_API_KEY: "must-not-inherit",
         CLAUDE_CODE_OAUTH_TOKEN: "must-not-inherit",
@@ -716,7 +716,7 @@ it("rejects off-provider sign-in URLs and unauthorized tool names", async () => 
     messages: [{ role: "user", content: "Inspect the pull request" }],
     tools: [
       {
-        name: "loop_tool_32",
+        name: "loop55_tool_32",
         description: "Read a pull request",
         inputSchema: { type: "object" },
       },
@@ -725,7 +725,7 @@ it("rejects off-provider sign-in URLs and unauthorized tool names", async () => 
   expect(nativeResponseSchema(input)).toMatchObject({
     properties: {
       kind: { enum: ["answer", "tool"] },
-      tool: { enum: [null, "loop_tool_32"] },
+      tool: { enum: [null, "loop55_tool_32"] },
     },
   });
   const prompt = turnPrompt(input, true);
@@ -759,9 +759,9 @@ it("creates isolated containers without host credentials, sockets or privileged 
   const path = resolve("runtime/container.ts");
   const { containerArgs } = await import(path);
   const args = containerArgs(
-    "loop-test",
+    "loop55-test",
     "a".repeat(64),
-    "loop-runtime:0.2",
+    "loop55-runtime:0.2",
     "test-operation",
   );
   expect(args).toContain("--read-only");
@@ -769,13 +769,13 @@ it("creates isolated containers without host credentials, sockets or privileged 
   expect(args).toContain("--user=1000:1000");
   expect(args.join(" ")).not.toContain("--tmpfs=/work");
   expect(args).toContain(
-    `type=volume,source=loop-test-${"a".repeat(64)},target=/home/node`,
+    `type=volume,source=loop55-test-${"a".repeat(64)},target=/home/node`,
   );
   expect(args.join(" ")).not.toMatch(
     /docker.sock|--privileged|type=bind|API_KEY/,
   );
   expect(() =>
-    containerArgs("loop-test", "../../escape", "image", "operation"),
+    containerArgs("loop55-test", "../../escape", "image", "operation"),
   ).toThrow();
 });
 
@@ -820,7 +820,7 @@ it("discovers native commands without a model turn and dispatches Claude slash p
     "/fixture-command verify the project",
   );
   const initialization = run.calls.find(
-    (c) => c.control?.request_id === "loop-command",
+    (c) => c.control?.request_id === "loop55-command",
   ).control;
   expect(initialization.request.appendSystemPrompt).toContain("Be clear");
   expect(
@@ -925,7 +925,7 @@ it("streams long command history through stdin instead of an oversized process a
   );
   expect(result.code).toBe(0);
   expect(
-    result.calls.find((c) => c.control?.request_id === "loop-command").control
+    result.calls.find((c) => c.control?.request_id === "loop55-command").control
       .request.appendSystemPrompt,
   ).toContain(history);
   expect(result.calls.find((c) => c.prompt)?.prompt).toBe(

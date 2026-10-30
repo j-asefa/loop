@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.stubGlobal("window", { dispatchEvent: vi.fn() });
   vi.stubGlobal("history", { replaceState });
   vi.stubGlobal("location", {
-    href: "https://loop.test/?source=docker:one",
+    href: "https://loop55.test/?source=docker:one",
     reload,
     assign,
   });
@@ -28,7 +28,7 @@ it.each(["pair", "fleet"])(
   "discards a %s link when an existing device session bypasses pairing",
   async (kind) => {
     vi.stubGlobal("location", {
-      href: `https://loop.test/?page=feed#${kind}=one-time-capability`,
+      href: `https://loop55.test/?page=feed#${kind}=one-time-capability`,
     });
     fetcher.mockResolvedValueOnce(
       Response.json({ user: { id: "owner", name: "Owner" } }),
@@ -41,12 +41,12 @@ it.each(["pair", "fleet"])(
 );
 
 it("preserves anonymous pairing and unrelated shared fragments for their owning flow", async () => {
-  vi.stubGlobal("location", { href: "https://loop.test/#fleet=capability" });
+  vi.stubGlobal("location", { href: "https://loop55.test/#fleet=capability" });
   fetcher.mockResolvedValueOnce(Response.json(null));
   await createSessionCheck({ setSession })();
   expect(replaceState).not.toHaveBeenCalled();
   vi.stubGlobal("location", {
-    href: "https://loop.test/#share=shared-content",
+    href: "https://loop55.test/#share=shared-content",
   });
   fetcher.mockResolvedValueOnce(
     Response.json({ user: { id: "owner", name: "Owner" } }),

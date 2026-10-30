@@ -309,7 +309,7 @@ export function listLater(owner: string) {
       message_id: target?.message_id ?? null,
       agent_name: target?.agent_name ?? null,
       project_name: project?.name ?? null,
-      // A saved story lives outside Loop, so Later needs its address to open
+      // A saved story lives outside Loop55, so Later needs its address to open
       // it; everything else is opened by its conversation or result.
       url: item.kind === "story" ? (target?.url ?? null) : null,
     };

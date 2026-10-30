@@ -80,7 +80,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
   };
   await expect(status("All")).toHaveAttribute("aria-pressed", "true");
   await choose(agents[0]);
@@ -288,7 +288,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   remoteSummary.working = 5;
   await page.evaluate((source) => {
     window.dispatchEvent(
-      new CustomEvent("loop-workspace-change", {
+      new CustomEvent("loop55-workspace-change", {
         detail: { sources: [source] },
       }),
     );

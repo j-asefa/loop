@@ -1,5 +1,5 @@
 services:
-  loop-companion:
-    image: loop-ci-companion:validation
-  loop-connection:
-    image: loop-ci-connection:validation
+  loop55-companion:
+    image: loop55-ci-companion:validation
+  loop55-connection:
+    image: loop55-ci-connection:validation

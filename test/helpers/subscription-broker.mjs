@@ -126,7 +126,9 @@ createServer(async (req, res) => {
       send({ error: "Not signed in" });
       return;
     }
-    const tools = d.input.tools?.filter((t) => t.name.startsWith("loop_tool_"));
+    const tools = d.input.tools?.filter((t) =>
+      t.name.startsWith("loop55_tool_"),
+    );
     if (tools?.length && !d.input.messages.some((m) => m.role === "tool"))
       res.write(
         JSON.stringify({
@@ -152,4 +154,4 @@ createServer(async (req, res) => {
   }
   res.statusCode = 400;
   send({ error: "Unsupported fixture action" });
-}).listen(Number(process.env.LOOP_FIXTURE_BROKER_PORT || 3109), "127.0.0.1");
+}).listen(Number(process.env.LOOP55_FIXTURE_BROKER_PORT || 3109), "127.0.0.1");

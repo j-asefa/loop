@@ -7,7 +7,7 @@ import { agentAppearance } from "./agentAppearance";
 export { agentAppearance as avatarIdentity } from "./agentAppearance";
 
 export function Avatar({
-  name = "Loop",
+  name = "Loop55",
   className = "",
   expandable = false,
 }: {

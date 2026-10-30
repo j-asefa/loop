@@ -25,7 +25,7 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
   fixture.db
     .prepare("UPDATE run_steering SET state='delivered' WHERE id=?")
     .run(steering.id);
-  // A harness publishes through loop_reply in the domain regression; here the
+  // A harness publishes through loop55_reply in the domain regression; here the
   // fixture supplies two committed publications for the browser to read.
   const publish = (body) => {
     const message = randomUUID(),
@@ -290,10 +290,10 @@ async function replyCompatibilitySmoke(page, fixture, capture) {
     const rows = page.locator(".inbox-results .inbox-card");
     const notice = page
       .getByRole("status")
-      .filter({ hasText: "Update Loop in" });
+      .filter({ hasText: "Update Loop55 in" });
     const refresh = () =>
       page.evaluate(() =>
-        window.dispatchEvent(new Event("loop-source-refresh")),
+        window.dispatchEvent(new Event("loop55-source-refresh")),
       );
     await page.goto(fixture.base + "/?filter=replies");
     await expect(rows).toHaveCount(replies.items.length);

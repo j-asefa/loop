@@ -71,7 +71,7 @@ export async function provisionOpencode(root, run = stage, bakedRoot) {
   if (cached) return cached;
   if (existsSync(destination))
     throw new Error(
-      "Incomplete guarded OpenCode cache; preserve it for diagnosis and retry with a new Loop home",
+      "Incomplete guarded OpenCode cache; preserve it for diagnosis and retry with a new Loop55 home",
     );
   mkdirSync(helpers, { recursive: true, mode: 0o700 });
   // Only a fully verified build is promoted; failures cannot poison a later retry.
@@ -160,6 +160,6 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  if (process.argv.length !== 3) throw new Error("Expected LOOP_HOME");
+  if (process.argv.length !== 3) throw new Error("Expected LOOP55_HOME");
   console.log(await provisionOpencode(process.argv[2]));
 }

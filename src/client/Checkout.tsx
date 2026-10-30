@@ -14,8 +14,8 @@ import {
 } from "../shared/checkout";
 
 /**
- * The checkout Loop observed for a run: one line on the card, the stored
- * patch a tap away. This is Loop's observation of the worktree, not the
+ * The checkout Loop55 observed for a run: one line on the card, the stored
+ * patch a tap away. This is Loop55's observation of the worktree, not the
  * agent's report of its edits, and nothing here applies or reverts anything.
  */
 export function CheckoutChip({
@@ -190,8 +190,8 @@ export function CheckoutSheet({
     if (detail.remote)
       notes.push(
         detail.remote.contains_head === null
-          ? `${detail.remote.ref} was found, but Git could not say whether it contained this checkout's HEAD when Loop looked on ${when(detail.remote.observed_at)}.`
-          : `${detail.remote.ref} ${detail.remote.contains_head ? "contained" : "did not contain"} this checkout's HEAD when Loop looked on ${when(detail.remote.observed_at)}. Loop reads the local remote-tracking ref and never fetches, so this is only as current as the last fetch, and it does not say which side is ahead.`,
+          ? `${detail.remote.ref} was found, but Git could not say whether it contained this checkout's HEAD when Loop55 looked on ${when(detail.remote.observed_at)}.`
+          : `${detail.remote.ref} ${detail.remote.contains_head ? "contained" : "did not contain"} this checkout's HEAD when Loop55 looked on ${when(detail.remote.observed_at)}. Loop55 reads the local remote-tracking ref and never fetches, so this is only as current as the last fetch, and it does not say which side is ahead.`,
       );
     else if (detail.state === "captured")
       notes.push("No remote-tracking ref for this branch was found locally.");
@@ -218,7 +218,7 @@ export function CheckoutSheet({
               )}
             </p>
             <p className="changes-meta">
-              Observed by Loop
+              Observed by Loop55
               {detail.ended_at
                 ? ` at ${when(detail.ended_at)}`
                 : ` from ${when(detail.started_at)}`}

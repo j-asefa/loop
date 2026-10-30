@@ -5,10 +5,10 @@ import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-gemini-native-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_TEST_GEMINI_LOG = join(dir, "requests");
+const dir = mkdtempSync(join(tmpdir(), "loop55-gemini-native-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_TEST_GEMINI_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
@@ -21,7 +21,7 @@ const sessions = new NativeSessions();
 afterAll(async () => {
   await sessions.close();
   db.close();
-  delete process.env.LOOP_TEST_GEMINI_LOG;
+  delete process.env.LOOP55_TEST_GEMINI_LOG;
   rmSync(dir, { recursive: true, force: true });
 });
 it("registers Gemini separately from custom ACP, creates an agent and resumes its generation-bound native session", async () => {
@@ -52,7 +52,7 @@ it("registers Gemini separately from custom ACP, creates an agent and resumes it
   ).toBe("Gemini CLI");
   expect(acceptsLiveInput(connection)).toBe(false);
   expect(connection.metadata).toMatchObject({
-    loopHarness: "gemini",
+    loop55Harness: "gemini",
     authMode: "native-existing",
     capabilities: { billingVerified: false },
   });
@@ -94,11 +94,11 @@ it("registers Gemini separately from custom ACP, creates an agent and resumes it
   await sessions.dispose(first);
   const resumed = await sessions.session(task);
   expect(resumed.generation).not.toBe(saved.generation);
-  expect(readFileSync(process.env.LOOP_TEST_GEMINI_LOG!, "utf8")).toContain(
+  expect(readFileSync(process.env.LOOP55_TEST_GEMINI_LOG!, "utf8")).toContain(
     '"method":"session/load"',
   );
   const requests = () =>
-    readFileSync(process.env.LOOP_TEST_GEMINI_LOG!, "utf8")
+    readFileSync(process.env.LOOP55_TEST_GEMINI_LOG!, "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
@@ -150,7 +150,7 @@ it("switches an existing Gemini conversation from an explicit model back to the 
     },
   });
   const prompts = () =>
-    readFileSync(process.env.LOOP_TEST_GEMINI_LOG!, "utf8")
+    readFileSync(process.env.LOOP55_TEST_GEMINI_LOG!, "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line))
@@ -161,8 +161,8 @@ it("switches an existing Gemini conversation from an explicit model back to the 
             "Model fixture instructions",
           ),
       );
-  process.env.LOOP_TEST_GEMINI_AUTO = "1";
-  process.env.LOOP_TEST_GEMINI_SESSION_ID = "gemini-model-session";
+  process.env.LOOP55_TEST_GEMINI_AUTO = "1";
+  process.env.LOOP55_TEST_GEMINI_SESSION_ID = "gemini-model-session";
   try {
     const selected = await sessions.session(task);
     await selected.adapter.prompt("Use selected model");
@@ -186,7 +186,7 @@ it("switches an existing Gemini conversation from an explicit model back to the 
     expect(prompts()[1].fixtureModelId).toBe("gemini-default-fixture");
     await sessions.dispose(defaultSession);
   } finally {
-    delete process.env.LOOP_TEST_GEMINI_AUTO;
-    delete process.env.LOOP_TEST_GEMINI_SESSION_ID;
+    delete process.env.LOOP55_TEST_GEMINI_AUTO;
+    delete process.env.LOOP55_TEST_GEMINI_SESSION_ID;
   }
 });

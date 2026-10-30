@@ -18,14 +18,14 @@ const options: Options = {
   version: "1.4.12",
 };
 function fixture(t: { after(fn: () => void): void }, state?: string) {
-  const dir = mkdtempSync(join(tmpdir(), "loop-muse-"));
-  process.env.LOOP_TEST_MUSE_DIR = dir;
-  process.env.LOOP_TEST_MUSE_LOG = join(dir, "requests");
+  const dir = mkdtempSync(join(tmpdir(), "loop55-muse-"));
+  process.env.LOOP55_TEST_MUSE_DIR = dir;
+  process.env.LOOP55_TEST_MUSE_LOG = join(dir, "requests");
   if (state)
     writeFileSync(join(dir, "muse-credential.json"), JSON.stringify({ state }));
   t.after(() => {
-    delete process.env.LOOP_TEST_MUSE_DIR;
-    delete process.env.LOOP_TEST_MUSE_LOG;
+    delete process.env.LOOP55_TEST_MUSE_DIR;
+    delete process.env.LOOP55_TEST_MUSE_LOG;
     rmSync(dir, { recursive: true, force: true });
   });
   return () =>
@@ -152,7 +152,7 @@ test("Muse streams a turn with instructions, workspace tools, model change and u
       assert.equal(adapter.activityCapabilities[feature].state, "unsupported");
     const start = requests().find((r) => r.method === "session/start");
     assert.equal(start.params.workspaceRoot, process.cwd());
-    assert.deepEqual(start.params.config.mcpServers.loop_workspace, {
+    assert.deepEqual(start.params.config.mcpServers.loop55_workspace, {
       transport: "streamableHttp",
       mode: "optional",
       url: "http://127.0.0.1:1234/mcp",
@@ -433,8 +433,8 @@ test("Muse reports a refused steer as undelivered and maps missing sessions to s
 
 test("Muse runs without workspace tools when the host withholds session MCP", async (t) => {
   const requests = fixture(t, "accountLogin");
-  process.env.LOOP_TEST_MUSE_NO_MCP = "1";
-  t.after(() => delete process.env.LOOP_TEST_MUSE_NO_MCP);
+  process.env.LOOP55_TEST_MUSE_NO_MCP = "1";
+  t.after(() => delete process.env.LOOP55_TEST_MUSE_NO_MCP);
   const events: AdapterEvent[] = [];
   const adapter = new Muse(
     {

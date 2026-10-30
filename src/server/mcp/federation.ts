@@ -103,7 +103,7 @@ export function revokeFederationPeer(
 }
 
 /** Sent only by the local source adapter on federation setup requests. */
-export const FEDERATION_SETUP_HEADER = "x-loop-source-setup";
+export const FEDERATION_SETUP_HEADER = "x-loop55-source-setup";
 
 export function federationUrl(raw: string) {
   let url: URL;
@@ -211,7 +211,7 @@ export function localFederationCatalog(owner: string) {
     description: binding.description,
     inputSchema: binding.inputSchema,
     _meta: {
-      loop: {
+      loop55: {
         github: binding.github,
         alwaysAsk: binding.alwaysAsk,
         sourceTool: binding.tool,
@@ -385,7 +385,7 @@ export async function handleFederationMcp(
 ) {
   const peer = authenticateFederationPeer(req);
   const server = new Server(
-    { name: "Loop shared tools", version: "1.0.0" },
+    { name: "Loop55 shared tools", version: "1.0.0" },
     { capabilities: { tools: {} } },
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -394,8 +394,8 @@ export async function handleFederationMcp(
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Each source run owns its request IDs. Never deduplicate two different
     // runs merely because their MCP clients both started at JSON-RPC id 1.
-    const runKey = req.headers["x-loop-run-id"];
-    const callKey = req.headers["x-loop-call-id"];
+    const runKey = req.headers["x-loop55-run-id"];
+    const callKey = req.headers["x-loop55-call-id"];
     if (typeof runKey !== "string" || !/^[a-f0-9-]{36}$/.test(runKey))
       throw new Problem(400, "Shared tool run identity required");
     if (typeof callKey !== "string" || !callKey || callKey.length > 200)

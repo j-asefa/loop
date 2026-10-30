@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { provisionOpencode } from "../native/provision-opencode.mjs";
 
 test("private provisioning promotes successful builds, reuses cache and detects tampering", async () => {
-  const root = mkdtempSync(join(tmpdir(), "loop-provision-test-"));
+  const root = mkdtempSync(join(tmpdir(), "loop55-provision-test-"));
   const calls: string[][] = [];
   try {
     const run = async (command: string, args: string[]) => {
@@ -55,7 +55,7 @@ test("private provisioning promotes successful builds, reuses cache and detects 
 });
 
 test("failed provisioning removes only its temporary build and preserves prior work", async () => {
-  const root = mkdtempSync(join(tmpdir(), "loop-provision-failure-"));
+  const root = mkdtempSync(join(tmpdir(), "loop55-provision-failure-"));
   try {
     mkdirSync(join(root, "helpers"));
     writeFileSync(join(root, "helpers", "prior-work"), "preserved");

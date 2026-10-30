@@ -57,7 +57,7 @@ it("keeps the literal Cards admission boundary when paths come from mounted cont
     "/api/v1/cards/changes/",
     "/api/V1/cards",
     "/api/v1/Cards",
-    "https://loop.example/api/v1/cards",
+    "https://loop55.example/api/v1/cards",
     "/api//v1/cards",
     "/api/v1/cards/../cards",
     "/api/v1/cards#fragment",

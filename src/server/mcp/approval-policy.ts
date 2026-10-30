@@ -66,7 +66,9 @@ export function setMcpApprovalMode(owner: string, mode: "ask" | "allow") {
             const tool = JSON.parse(approval.tools).find(
               (item: any) => item.name === approval.tool,
             );
-            alwaysAsk = !tool || tool._meta?.loop?.alwaysAsk === true;
+            alwaysAsk =
+              !tool ||
+              (tool._meta?.loop55 ?? tool._meta?.loop)?.alwaysAsk === true;
           } catch {
             // An unreadable catalog cannot authorize a queued effect.
           }

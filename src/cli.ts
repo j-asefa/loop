@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { retainedPath } from "./name-upgrade.js";
+import "../deployment/environment.mjs";
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
 import { openSync, closeSync, statSync, existsSync } from "node:fs";
@@ -51,13 +53,13 @@ const testWait = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
   return Number.isInteger(value) && value > 0 ? value : fallback;
 };
-const STOP_WAIT_MS = testWait("LOOP_TEST_STOP_WAIT_MS", 20000);
+const STOP_WAIT_MS = testWait("LOOP55_TEST_STOP_WAIT_MS", 20000);
 // How long a workspace that stopped answering gets to exit after SIGTERM.
-const stopGraceMs = () => testWait("LOOP_TEST_STOP_GRACE_MS", 5000);
+const stopGraceMs = () => testWait("LOOP55_TEST_STOP_GRACE_MS", 5000);
 const LOG_POLL_MS = 500;
-// Set only on the detached workspace process spawned by `loop start` or `loop <harness>`.
+// Set only on the detached workspace process spawned by `loop55 start` or `loop55 <harness>`.
 const daemonChild =
-  process.env.LOOP_DAEMON_CHILD === "1" && typeof process.send === "function";
+  process.env.LOOP55_DAEMON_CHILD === "1" && typeof process.send === "function";
 type Pair = { url: string; expiresIn: number };
 type Ready = {
   ready: true;
@@ -66,13 +68,13 @@ type Ready = {
   pair?: Pair;
   url?: string;
 };
-// Set by Loop's service definitions and the Docker companion: a service
+// Set by Loop55's service definitions and the Docker companion: a service
 // manager or sibling container owns the connection service.
-const externalConnection = process.env.LOOP_CONNECTION_MANAGED === "external";
+const externalConnection = process.env.LOOP55_CONNECTION_MANAGED === "external";
 const LAUNCH_RECORD = "launch.json";
 function showPair(pair: Pair) {
   console.log(
-    "\nScan with your phone's camera to open Loop in your browser, then choose Pair and open Loop. Use Share → Add to Home Screen to install it. Scan a new code to reconnect after a tunnel address change. This single-use code expires in 2 minutes.",
+    "\nScan with your phone's camera to open Loop55 in your browser, then choose Pair and open Loop55. Use Share → Add to Home Screen to install it. Scan a new code to reconnect after a tunnel address change. This single-use code expires in 2 minutes.",
   );
   qr.generate(pair.url, { small: true });
   console.log(pair.url);
@@ -81,13 +83,13 @@ function showPair(pair: Pair) {
 function showReady(ready: Ready, withCode = true) {
   console.log(
     (preview
-      ? `Loop preview ${preview.name} ready. `
-      : "Loop workspace ready. ") + ready.description,
+      ? `Loop55 preview ${preview.name} ready. `
+      : "Loop55 workspace ready. ") + ready.description,
   );
   console.log(
     preview
-      ? `Commands: loop preview open ${preview.name}, loop preview rebuild ${preview.name}, loop preview stop ${preview.name}.`
-      : "Create agents in Loop; multiple agents may use the same project. Commands: loop status, loop pair, loop logs, loop stop.",
+      ? `Commands: loop55 preview open ${preview.name}, loop55 preview rebuild ${preview.name}, loop55 preview stop ${preview.name}.`
+      : "Create agents in Loop55; multiple agents may use the same project. Commands: loop55 status, loop55 pair, loop55 logs, loop55 stop.",
   );
   if (ready.notice) console.log(ready.notice);
   if (withCode && ready.pair) showPair(ready.pair);
@@ -98,8 +100,8 @@ function showReady(ready: Ready, withCode = true) {
   else
     console.log(
       preview
-        ? `Run loop preview open ${preview.name} to show a pairing code.`
-        : "Run loop pair to show a pairing code.",
+        ? `Run loop55 preview open ${preview.name} to show a pairing code.`
+        : "Run loop55 pair to show a pairing code.",
     );
 }
 function report(message: Ready | { error: string }) {
@@ -108,7 +110,7 @@ function report(message: Ready | { error: string }) {
     if (process.connected) process.disconnect?.();
   });
 }
-// No terminal owns the background workspace, so `loop stop` escalates itself.
+// No terminal owns the background workspace, so `loop55 stop` escalates itself.
 // With no workspace (it crashed), this still stops its recorded native processes.
 export async function forceStop(
   dir: string,
@@ -136,7 +138,7 @@ export async function forceStop(
   if (unresolved.length) {
     await keepUnresolved(dir, unresolved);
     throw new Error(
-      `${unresolved.length} recorded native process(es) (${unresolved.map((r) => r.pid).join(", ")}) could not be confirmed as Loop's, or led a process group that outlived them, so they were left running. They stay on record: check them with ps, then run loop stop again.`,
+      `${unresolved.length} recorded native process(es) (${unresolved.map((r) => r.pid).join(", ")}) could not be confirmed as Loop55's, or led a process group that outlived them, so they were left running. They stay on record: check them with ps, then run loop55 stop again.`,
     );
   }
   // The worker is stopped. Hold its actual lock through final validation and
@@ -167,7 +169,7 @@ async function stopWorkspace(dir: string) {
     }
     if (recorded.state === "unknown")
       throw new Error(
-        `Workspace process ${recorded.pid} is not responding, and Loop can't confirm that PID still belongs to the workspace, so nothing was stopped. Check it (for example with ps) and stop it yourself.`,
+        `Workspace process ${recorded.pid} is not responding, and Loop55 can't confirm that PID still belongs to the workspace, so nothing was stopped. Check it (for example with ps) and stop it yourself.`,
       );
     if (recorded.state === "running")
       return forceStop(dir, recorded, "is not responding");
@@ -255,9 +257,9 @@ async function restartWorkspace(
   force: boolean,
   upgradedFrom?: string,
 ) {
-  if (process.env.LOOP_COMPANION_CONTAINER === "1")
+  if (process.env.LOOP55_COMPANION_CONTAINER === "1")
     throw new Error(
-      "In the Docker companion, restart the application container instead: docker compose -f compose.companion.yaml restart loop-companion",
+      "In the Docker companion, restart the application container instead: docker compose -f compose.companion.yaml restart loop55-companion",
     );
   const status = await control(dir, "status").catch(() => undefined);
   const service = await inspectConnection(connection);
@@ -268,23 +270,23 @@ async function restartWorkspace(
   // starting a detached application instead leaves the manager relaunching its
   // own copy, which then dies on the workspace lock, over and over.
   const { installedSupervisor } = await import("./service.js");
-  // LOOP_SERVICE can be inherited by a fixture or a second workspace. Its
+  // LOOP55_SERVICE can be inherited by a fixture or a second workspace. Its
   // status is not proof that the installed unit owns this root: only route
-  // through the manager when that unit's LOOP_HOME matches the request.
+  // through the manager when that unit's LOOP55_HOME matches the request.
   const supervisor = await installedSupervisor(root);
   if (!status) {
     const recorded = await recordedWorkspace(dir);
     if (recorded?.state === "unknown")
       throw new Error(
-        `Workspace process ${recorded.pid} is not responding and can't be confirmed as Loop's. Check it with ps.`,
+        `Workspace process ${recorded.pid} is not responding and can't be confirmed as Loop55's. Check it with ps.`,
       );
     hung = recorded?.state === "running";
     if (hung && !force)
       throw new Error(
-        "The application is not responding. Run loop restart --force to stop it (the connection and its address are kept).",
+        "The application is not responding. Run loop55 restart --force to stop it (the connection and its address are kept).",
       );
     if (!hung && !supervisor && service.state !== "running")
-      throw new Error("No workspace is running. Run loop start.");
+      throw new Error("No workspace is running. Run loop55 start.");
     if (supervisor)
       return restartService(
         dir,
@@ -300,14 +302,14 @@ async function restartWorkspace(
     const active = Number(status.activeRuns?.n ?? 0);
     if (active > 0 && !force)
       throw new Error(
-        `${active} run(s) are active. Wait for them to finish, or run loop restart --force: interrupted work is marked for review and never resent automatically.`,
+        `${active} run(s) are active. Wait for them to finish, or run loop55 restart --force: interrupted work is marked for review and never resent automatically.`,
       );
     if (supervisor)
       return restartService(dir, root, { ...status, supervisor }, upgradedFrom);
   }
   const args = await launchArgs(dir);
   if (status || hung) {
-    console.log("Restarting the Loop application…");
+    console.log("Restarting the Loop55 application…");
     // Application and runners only: the connection service is in its own
     // process group and absent from the application's ownership records.
     await stopWorkspace(dir);
@@ -332,6 +334,10 @@ async function restartService(
   upgradedFrom?: string,
 ) {
   const uid = process.getuid!();
+  const { installedServiceNames, SERVICES } = await import("./service.js");
+  const names =
+    (await installedServiceNames(root)) ??
+    (process.platform === "darwin" ? SERVICES.darwin : SERVICES.linux);
   // An upgrade installs the new build in npm's global prefix while the service
   // entry still names the build it was installed from, often a checkout.
   // Restarting that entry would relaunch the old code, so point it at this CLI
@@ -344,17 +350,17 @@ async function restartService(
       )
     : "unchanged";
   if (pointed === "repointed")
-    console.log("Pointed the Loop service at the newly installed build.");
+    console.log("Pointed the Loop55 service at the newly installed build.");
   else if (status.supervisor === "launchd")
     await runCommand(
       "launchctl",
-      ["kickstart", "-k", `gui/${uid}/dev.loop.workspace`],
+      ["kickstart", "-k", `gui/${uid}/${names.app}`],
       process.cwd(),
     );
   else
     await runCommand(
       "systemctl",
-      ["--user", "restart", "loop.service"],
+      ["--user", "restart", names.app],
       process.cwd(),
     );
   const end = Date.now() + STARTUP_TIMEOUT_MS;
@@ -375,8 +381,8 @@ async function restartService(
     ) {
       console.log(
         next.url
-          ? `Loop restarted under its service. Same address: ${next.url}. Paired devices stay signed in.`
-          : "Loop restarted under its service. Paired devices stay signed in.",
+          ? `Loop55 restarted under its service. Same address: ${next.url}. Paired devices stay signed in.`
+          : "Loop55 restarted under its service. Paired devices stay signed in.",
       );
       return;
     }
@@ -386,8 +392,8 @@ async function restartService(
           last?.pid &&
           last.pid !== status.pid &&
           last.release !== VERSION
-          ? `The service restarted Loop ${last.release}, not the installed ${VERSION}: its service entry launches a different installation. Run loop service install from the new build, then loop restart.`
-          : "The restarted service did not become ready. See loop logs.",
+          ? `The service restarted Loop55 ${last.release}, not the installed ${VERSION}: its service entry launches a different installation. Run loop55 service install from the new build, then loop55 restart.`
+          : "The restarted service did not become ready. See loop55 logs.",
       );
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -440,7 +446,7 @@ async function recoverConnection(
   const mode = found.state === "absent" ? fallback : found.record.mode;
   if (!mode) return;
   if (found.state !== "running")
-    console.log("The Loop connection service stopped; starting it again…");
+    console.log("The Loop55 connection service stopped; starting it again…");
   const service = await ensureConnection({
     root,
     dir: connection,
@@ -450,7 +456,7 @@ async function recoverConnection(
     external: externalConnection || !!running.supervisor,
     log: console.log,
   });
-  const end = Date.now() + testWait("LOOP_TEST_CONNECTION_WAIT_MS", 120000);
+  const end = Date.now() + testWait("LOOP55_TEST_CONNECTION_WAIT_MS", 120000);
   for (;;) {
     const current = await control(dir, "status").catch(() => undefined);
     if (
@@ -461,13 +467,13 @@ async function recoverConnection(
         console.log(
           "The public address changed to " +
             current.url +
-            ". Scan the new code from the Loop app to reconnect.",
+            ". Scan the new code from the Loop55 app to reconnect.",
         );
       return;
     }
     if (Date.now() > end)
       throw new Error(
-        "The running application did not reconnect to the connection service. Run loop restart (the address is kept).",
+        "The running application did not reconnect to the connection service. Run loop55 restart (the address is kept).",
       );
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -487,9 +493,9 @@ async function upgradeWorkspace(
   const active = Number(status?.activeRuns?.n ?? 0);
   if (active > 0 && !force)
     throw new Error(
-      `${active} run(s) are active. Wait for them to finish, or run loop upgrade --force.`,
+      `${active} run(s) are active. Wait for them to finish, or run loop55 upgrade --force.`,
     );
-  console.log(`Installing Loop from ${source}…`);
+  console.log(`Installing Loop55 from ${source}…`);
   await runCommand("npm", ["install", "-g", source], process.cwd());
   const prefix = (await execFileAsync("npm", ["prefix", "-g"])).stdout.trim();
   const cli = join(
@@ -505,10 +511,10 @@ async function upgradeWorkspace(
       timeout: 60000,
     })
   ).stdout.trim();
-  console.log(`Installed Loop ${installed}.`);
+  console.log(`Installed Loop55 ${installed}.`);
   const service = await inspectConnection(connection);
   if (!status && service.state !== "running") {
-    console.log("No workspace is running. Run loop start to open it.");
+    console.log("No workspace is running. Run loop55 start to open it.");
     return;
   }
   await runCommand(
@@ -535,9 +541,9 @@ async function daemonize(
         stdio: ["ignore", fd, fd, "ipc"],
         env: {
           ...process.env,
-          LOOP_DAEMON_CHILD: "1",
+          LOOP55_DAEMON_CHILD: "1",
           ...(restart && !restart.legacy
-            ? { LOOP_LAUNCH_REASON: "restart" }
+            ? { LOOP55_LAUNCH_REASON: "restart" }
             : {}),
         },
       },
@@ -552,7 +558,7 @@ async function daemonize(
     const ready = await new Promise<Ready>((resolve, reject) => {
       const timer = setTimeout(() => {
         child.kill("SIGTERM");
-        reject(new Error("Workspace startup timed out. See loop logs."));
+        reject(new Error("Workspace startup timed out. See loop55 logs."));
       }, STARTUP_TIMEOUT_MS);
       child.once("message", (m: any) => {
         clearTimeout(timer);
@@ -567,20 +573,22 @@ async function daemonize(
         clearTimeout(timer);
         reject(
           new Error(
-            `Workspace exited during startup${code ? ` (code ${code})` : ""}. See loop logs.`,
+            `Workspace exited during startup${code ? ` (code ${code})` : ""}. See loop55 logs.`,
           ),
         );
       });
     });
     if (restart?.legacy)
       console.log(
-        "This release keeps the public address across restarts. Moving the tunnel into its connection service changed the address once; scan the new code from the Loop app.",
+        "This release keeps the public address across restarts. Moving the tunnel into its connection service changed the address once; scan the new code from the Loop55 app.",
       );
     if (restart?.upgradedFrom)
-      console.log(`Upgraded from Loop ${restart.upgradedFrom} to ${VERSION}.`);
+      console.log(
+        `Upgraded from Loop55 ${restart.upgradedFrom} to ${VERSION}.`,
+      );
     showReady(ready);
     console.log(
-      "Loop keeps running in the background; you can close this terminal. Logs: loop logs",
+      "Loop55 keeps running in the background; you can close this terminal. Logs: loop55 logs",
     );
   } finally {
     process.off("SIGINT", abort);
@@ -682,55 +690,55 @@ async function main() {
     return;
   }
   if (values.help) {
-    console.log(`Loop ${VERSION} — one workspace for your native agents
+    console.log(`Loop55 ${VERSION} — one workspace for your native agents
 
-loop start              Start this computer and show a pairing QR code.
+loop55 start              Start this computer and show a pairing QR code.
                         Discovers installed harnesses and reuses their native sign-in.
-loop                    Alias for loop start.
-loop start [--providers installed|codex,claude,opencode,pi,antigravity,muse,grok]
+loop55                  Alias for loop55 start.
+loop55 start [--providers installed|codex,claude,opencode,pi,antigravity,muse,grok]
      [--execution native]
      [--project PATH] [--tunnel-name NAME --public-url https://HOST]
-loop server             Start the full server in the foreground.
-loop codex|claude|pi|opencode|antigravity|gemini|muse|grok [--project PATH] [--executable PATH]
+loop55 server             Start the full server in the foreground.
+loop55 codex|claude|pi|opencode|antigravity|gemini|muse|grok [--project PATH] [--executable PATH]
      [--billing subscription|existing] [--resume NATIVE_SESSION]
      [--local-only | --public-url https://stable-origin] [--foreground]
                         Start this computer's workspace with that harness,
                         show a pairing code, then keep running in the
                         background. If the workspace is already running, the
                         harness is added to it; no new pairing is required.
-loop acp --executable ABSOLUTE_PATH [--acp-arg ARG]...
+loop55 acp --executable ABSOLUTE_PATH [--acp-arg ARG]...
                         Add a local ACP v1 agent. Sign in with the agent's
                         own CLI first; its own account pays for model use.
-loop pair               Show a fresh pairing code. Scan it to pair a new
-                        device, or scan it from the Loop app to reconnect
+loop55 pair               Show a fresh pairing code. Scan it to pair a new
+                        device, or scan it from the Loop55 app to reconnect
                         after the tunnel address changed.
-loop restart [--force]  Restart the application into the installed build. The
+loop55 restart [--force]  Restart the application into the installed build. The
                         tunnel, its address and paired devices are kept.
                         Refuses while runs are active unless --force.
-loop upgrade [--from PACKAGE] [--force]
-                        Install remote main (or PACKAGE) while Loop keeps
+loop55 upgrade [--from PACKAGE] [--force]
+                        Install remote main (or PACKAGE) while Loop55 keeps
                         running, then restart into it with the same
                         projects, runtimes, billing and address.
-loop status [--json] | devices | devices revoke ID | doctor [--json]
-loop logs [--follow] | stop | uninstall
-loop stop               Stop Loop completely, including its tunnel. The next
+loop55 status [--json] | devices | devices revoke ID | doctor [--json]
+loop55 logs [--follow] | stop | uninstall
+loop55 stop               Stop Loop55 completely, including its tunnel. The next
                         start may get a new Quick Tunnel address.
-loop recover-execution [--stopped-generation UUID]
+loop55 recover-execution [--stopped-generation UUID]
                         Inspect a retained execution owner. After independently
                         confirming its prior host/container and processes stopped,
                         retire that namespace lifetime's records by generation.
-loop service install|uninstall  Start automatically at login
-loop preview --help      Create, open, rebuild and discard isolated experiments.
+loop55 service install|uninstall  Start automatically at login
+loop55 preview --help      Create, open, rebuild and discard isolated experiments.
 
 Every project and enabled harness shares one workspace host and tunnel.
 A separate connection service keeps the tunnel and its address while the
 application restarts or upgrades. Phone disconnection does not stop native
-work; loop stop does.
+work; loop55 stop does.
 Default billing is verified native subscription; existing mode retains your
 selected native configuration and can incur API charges. No API fallback.
 Native permissions, skills, plugins and project configuration are preserved.
-Quick Tunnel addresses change after loop stop, a reboot or a tunnel failure.
-When that happens, run loop pair and scan the code from the Loop app.
+Quick Tunnel addresses change after loop55 stop, a reboot or a tunnel failure.
+When that happens, run loop55 pair and scan the code from the Loop55 app.
 Cloudflare terminates TLS. macOS/Linux, Node >=22.19.
 --foreground keeps the workspace attached to this terminal (for service
 managers and debugging).
@@ -757,11 +765,11 @@ Uninstall removes the package separately; workspace/native history is retained.`
     ).find((k) => values[k] !== undefined);
     if (companion)
       throw new Error(
-        `--${companion} applies to loop start or loop codex|claude|pi|opencode|antigravity|gemini|muse|grok.`,
+        `--${companion} applies to loop55 start or loop55 codex|claude|pi|opencode|antigravity|gemini|muse|grok.`,
       );
     if (positionals.length > 1)
-      throw new Error("Unknown command. See loop --help.");
-    process.env.LOOP_PROFILE = "server";
+      throw new Error("Unknown command. See loop55 --help.");
+    process.env.LOOP55_PROFILE = "server";
     const { startServer } = await import("./server/serve.js");
     const { startWorker } = await import("./server/worker.js");
     const server = startServer();
@@ -780,7 +788,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
   if (!["darwin", "linux"].includes(process.platform))
     throw new Error("This release supports macOS and Linux.");
   const root = resolve(
-    process.env.LOOP_HOME ?? join(homedir(), ".local", "state", "loop"),
+    process.env.LOOP55_HOME ??
+      retainedPath(join(homedir(), ".local", "state"), "loop55", "loop"),
   );
   const dir = join(root, "workspace");
   privateDir(dir);
@@ -795,12 +804,12 @@ Uninstall removes the package separately; workspace/native history is retained.`
       : positionals[0];
   if (values["stopped-generation"] && action !== "recover-execution")
     throw new Error(
-      "--stopped-generation applies only to loop recover-execution.",
+      "--stopped-generation applies only to loop55 recover-execution.",
     );
   if (action === "recover-execution") {
     if (positionals.length !== 1)
       throw new Error(
-        "Use loop recover-execution [--stopped-generation UUID].",
+        "Use loop55 recover-execution [--stopped-generation UUID].",
       );
     const { recordedExecutionOwner, recoverStoppedExecution } =
       await import("./server/execution-ownership.js");
@@ -810,7 +819,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
         values["stopped-generation"],
       );
       console.log(
-        `Execution records archived at ${archive}. Workspace data is retained; run loop start when ready.`,
+        `Execution records archived at ${archive}. Workspace data is retained; run loop55 start when ready.`,
       );
     } else {
       const owner = recordedExecutionOwner(dir);
@@ -826,7 +835,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           }),
         );
         console.log(
-          "Only after independently confirming the prior host/container and every process in that namespace lifetime stopped, run loop recover-execution --stopped-generation " +
+          "Only after independently confirming the prior host/container and every process in that namespace lifetime stopped, run loop55 recover-execution --stopped-generation " +
             owner.generation +
             ". This also applies after an unclean host reboot. A free lock alone does not prove native children stopped.",
         );
@@ -836,7 +845,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   }
   if (preview && ["upgrade", "service", "uninstall"].includes(action))
     throw new Error(
-      "Manage experiments with loop preview. Preview builds cannot replace the global installation or login service.",
+      "Manage experiments with loop55 preview. Preview builds cannot replace the global installation or login service.",
     );
   if (action === "doctor") {
     const harnesses = await Promise.all(
@@ -871,11 +880,11 @@ Uninstall removes the package separately; workspace/native history is retained.`
     return;
   }
   if (action === "connection") {
-    // Run by Loop's service definitions and container: the connection service
+    // Run by Loop55's service definitions and container: the connection service
     // in the foreground, independent of the application's lifecycle.
     if (!values.foreground || positionals.length > 1)
       throw new Error(
-        "loop connection --foreground runs the connection service for a service manager. Use loop start instead.",
+        "loop55 connection --foreground runs the connection service for a service manager. Use loop55 start instead.",
       );
     const { runConnectionService } = await import("./connection-daemon.js");
     await runConnectionService([
@@ -905,7 +914,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       () => false,
     );
     if (positionals[1] === "install" && !preferences.project && !launched)
-      throw new Error("Run loop start once before installing the service.");
+      throw new Error("Run loop55 start once before installing the service.");
     // The installed services own a new connection service, so the current
     // one stops too; the Quick Tunnel address changes once.
     if (positionals[1] === "install")
@@ -913,7 +922,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
         if ((error as Error).message !== "No workspace is running.")
           throw error;
       });
-    // The service repeats the saved launch, as loop restart does.
+    // The service repeats the saved launch, as loop55 restart does.
     const launch = await launchArgs(dir);
     const option = (name: string) => {
       const i = launch.indexOf(name);
@@ -942,16 +951,16 @@ Uninstall removes the package separately; workspace/native history is retained.`
       launch,
     );
     console.log(
-      "Loop user service " +
+      "Loop55 user service " +
         positionals[1] +
-        " complete. Run loop pair when ready.",
+        " complete. Run loop55 pair when ready.",
     );
     return;
   }
   if (action === "logs") return logs(dir, !!values.follow);
   if (action === "upgrade") {
     if (positionals.length > 1)
-      throw new Error("Unknown command. See loop --help.");
+      throw new Error("Unknown command. See loop55 --help.");
     await upgradeWorkspace(
       dir,
       connection,
@@ -962,7 +971,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   }
   if (action === "restart") {
     if (positionals.length > 1)
-      throw new Error("Unknown command. See loop --help.");
+      throw new Error("Unknown command. See loop55 --help.");
     await restartWorkspace(
       dir,
       connection,
@@ -978,11 +987,11 @@ Uninstall removes the package separately; workspace/native history is retained.`
         (await control(dir, "status").catch(() => undefined)) ||
         (await inspectConnection(connection)).state === "running"
       )
-        throw new Error("Run loop stop first.");
+        throw new Error("Run loop55 stop first.");
       console.log(
         "Workspace and native history retained at " +
           root +
-          ". Remove the executable with npm uninstall -g loop. Back up this directory before manually removing workspace data.",
+          ". Remove the executable with npm uninstall -g loop55. Back up this directory before manually removing workspace data.",
       );
       return;
     }
@@ -990,19 +999,19 @@ Uninstall removes the package separately; workspace/native history is retained.`
       // A code is only useful at the tunnel's confirmed, current address. The
       // connection service can exit while its application keeps running, and
       // the application still reports the address it last held: without this
-      // check loop pair hands out a link to a tunnel that no longer exists.
+      // check loop55 pair hands out a link to a tunnel that no longer exists.
       // Local-only and user-managed proxy launches have no service to check.
       const service = await inspectConnection(connection);
       const running = await control(dir, "status").catch(() => undefined);
       const managed = ["quick", "named"].includes(running?.connection?.mode);
       if (managed && service.state !== "running")
         throw new Error(
-          "The Loop connection service is not running, so this workspace has no public address. Run loop start to restore it (the application keeps running), then run loop pair.",
+          "The Loop55 connection service is not running, so this workspace has no public address. Run loop55 start to restore it (the application keeps running), then run loop55 pair.",
         );
       if (service.state === "running") {
         if (service.hello.tunnel.state !== "ready")
           throw new Error(
-            "The tunnel is reconnecting, so its address isn't confirmed yet. Run loop pair again shortly.",
+            "The tunnel is reconnecting, so its address isn't confirmed yet. Run loop55 pair again shortly.",
           );
         // The application applies a changed address on its next heartbeat.
         let current = running;
@@ -1025,7 +1034,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           )
         )
           throw new Error(
-            "The application has not taken the connection service's address yet, so a code would point at an address it does not serve. Run loop start to reconnect it (or loop restart), then run loop pair.",
+            "The application has not taken the connection service's address yet, so a code would point at an address it does not serve. Run loop55 start to reconnect it (or loop55 restart), then run loop55 pair.",
           );
       }
     }
@@ -1043,20 +1052,20 @@ Uninstall removes the package separately; workspace/native history is retained.`
         const recorded = await recordedWorkspace(dir);
         const service = publicConnection(await inspectConnection(connection));
         const [state, message] = !recorded
-          ? ["stopped", "Run loop start to open this workspace."]
+          ? ["stopped", "Run loop55 start to open this workspace."]
           : recorded.state === "exited"
             ? [
                 "crashed",
-                "The workspace exited unexpectedly. Check loop logs, then run loop start again.",
+                "The workspace exited unexpectedly. Check loop55 logs, then run loop55 start again.",
               ]
             : recorded.state === "running"
               ? [
                   "unresponsive",
-                  "The workspace process is running but not responding. Run loop stop to terminate it.",
+                  "The workspace process is running but not responding. Run loop55 stop to terminate it.",
                 ]
               : [
                   "unknown",
-                  "A process has the workspace's recorded PID, but Loop can't confirm it is the workspace.",
+                  "A process has the workspace's recorded PID, but Loop55 can't confirm it is the workspace.",
                 ];
         // The tunnel can outlive the application: report its unchanged address.
         const serving = service.state === "running";
@@ -1067,14 +1076,14 @@ Uninstall removes the package separately; workspace/native history is retained.`
           logs: logPath,
           message:
             serving && state === "stopped"
-              ? "The application is stopped, but the connection service keeps its address. Run loop start or loop restart to serve it again."
+              ? "The application is stopped, but the connection service keeps its address. Run loop55 start or loop55 restart to serve it again."
               : message,
           ...(serving && "url" in service ? { url: service.url } : {}),
           serverReady: false,
           connection: service,
         };
       }
-      throw new Error("No responsive workspace host. Run loop start first.");
+      throw new Error("No responsive workspace host. Run loop55 start first.");
     });
     if (
       action === "status" &&
@@ -1095,7 +1104,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       action !== "laptop" &&
       !names.includes(action as Harness))
   )
-    throw new Error("Unknown command. See loop --help.");
+    throw new Error("Unknown command. See loop55 --help.");
   if (values["local-only"] && values["public-url"])
     throw new Error("Choose --local-only or --public-url.");
   const neutral = action === "start" || action === "laptop";
@@ -1107,7 +1116,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       values["acp-arg"]?.length)
   )
     throw new Error(
-      "Runtime options belong to loop codex|claude|pi|opencode|antigravity|gemini|muse|grok|acp. Use loop start without a runtime, then choose it in the app.",
+      "Runtime options belong to loop55 codex|claude|pi|opencode|antigravity|gemini|muse|grok|acp. Use loop55 start without a runtime, then choose it in the app.",
     );
   const preferencesPath = join(dir, "preferences.json");
   const preferences = await readFile(preferencesPath, "utf8")
@@ -1116,7 +1125,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   // --direct once opted out of the managed launcher. Every start is native now;
   // it is still accepted so existing service units and scripts keep working.
   if (values.direct && !neutral)
-    throw new Error("Use --direct with loop start.");
+    throw new Error("Use --direct with loop55 start.");
   const selected = (neutral ? "codex" : action) as Harness;
   const running = await control(dir, "status").catch(() => undefined);
   if (neutral && !values.project && preferences.project)
@@ -1124,7 +1133,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const execution = values.execution ?? "native";
   if (execution !== "native")
     throw new Error(
-      "Use docker compose -f compose.companion.yaml up -d for Docker execution. Local loop starts native harnesses.",
+      "Use docker compose -f compose.companion.yaml up -d for Docker execution. Local loop55 starts native harnesses.",
     );
   const { selectedHarnesses } = await import("./start-selection.js");
   const providers = selectedHarnesses(
@@ -1258,14 +1267,14 @@ Uninstall removes the package separately; workspace/native history is retained.`
         project !== (running.project ?? preferences.project)
       )
         throw new Error(
-          "Run loop stop before changing the running workspace's providers or project.",
+          "Run loop55 stop before changing the running workspace's providers or project.",
         );
       showPair(await control(dir, "pair"));
       return;
     }
     if (values.resume)
       throw new Error(
-        "Open native history in Loop, or stop the host before an explicit --resume handoff.",
+        "Open native history in Loop55, or stop the host before an explicit --resume handoff.",
       );
     const enabled = await control(dir, "enable", options);
     remember();
@@ -1281,7 +1290,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     return;
   }
   // The resolved launch (absolute project, executable and tunnel config):
-  // repeated by the background child, loop restart and loop upgrade from any
+  // repeated by the background child, loop55 restart and loop55 upgrade from any
   // working directory. A --resume handoff is one-time and not repeated.
   const launch = [
     neutral ? "start" : selected,
@@ -1317,7 +1326,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     version: VERSION,
   });
   const tunnelMode = tunnelModeOf(values);
-  const restarting = process.env.LOOP_LAUNCH_REASON === "restart";
+  const restarting = process.env.LOOP55_LAUNCH_REASON === "restart";
   let host: import("./workspace-host.js").WorkspaceHost | undefined;
   let lease: BackendLease | undefined,
     connectionCreated = false,
@@ -1336,7 +1345,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   };
   // Ending a terminal-owned foreground session stops what it started,
   // including the tunnel. Background and service-managed applications stop
-  // alone; loop stop ends the connection service separately.
+  // alone; loop55 stop ends the connection service separately.
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.once(signal, () => {
       void stop(
@@ -1347,8 +1356,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
       );
     });
   try {
-    process.env.LOOP_DATA_DIR = dir;
-    process.env.LOOP_PROFILE = "companion";
+    process.env.LOOP55_DATA_DIR = dir;
+    process.env.LOOP55_PROFILE = "companion";
     const { WorkspaceHost } = await import("./workspace-host.js");
     if (stopping) return;
     host = new WorkspaceHost(dir, options);
@@ -1356,8 +1365,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
     if (tunnelMode) {
       console.log(
         externalConnection
-          ? "Connecting to the Loop connection service…"
-          : "Preparing the Loop connection service and cloudflared tunnel…",
+          ? "Connecting to the Loop55 connection service…"
+          : "Preparing the Loop55 connection service and cloudflared tunnel…",
       );
       const found = await ensureConnection({
         root,
@@ -1376,7 +1385,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     host.statusExtras = () => ({
       release: VERSION,
       ...(publicPreview ? { preview: publicPreview } : {}),
-      supervisor: process.env.LOOP_SERVICE || undefined,
+      supervisor: process.env.LOOP55_SERVICE || undefined,
       connection: tunnelMode
         ? {
             mode: tunnelMode.kind,
@@ -1407,7 +1416,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           console.log(
             "Quick Tunnel address changed to " +
               origin +
-              ". Run loop pair and scan the code from the Loop app to reconnect.",
+              ". Run loop55 pair and scan the code from the Loop55 app to reconnect.",
           );
           if (interactive) showPair(gateway.pair());
         };
@@ -1477,7 +1486,7 @@ if (
     throw e;
   });
   main().catch((e) => {
-    console.error("Loop: " + e.message);
+    console.error("Loop55: " + e.message);
     report({ error: e.message });
     process.exitCode = 1;
   });

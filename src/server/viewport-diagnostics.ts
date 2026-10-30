@@ -6,6 +6,6 @@ const routes = registrar("viewportDiagnostics");
 export const viewportDiagnostics = routes.mount;
 routes.on(workspaceApi.viewportDiagnostics, (req, res) => {
   const sample = req.body;
-  console.info("loop-viewport-diagnostics", JSON.stringify(sample));
+  console.info("loop55-viewport-diagnostics", JSON.stringify(sample));
   res.status(204).end();
 });

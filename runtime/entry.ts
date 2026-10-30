@@ -1,3 +1,4 @@
+import "../deployment/environment.mjs";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { SessionRequest } from "./types.ts";
 import {
@@ -40,8 +41,8 @@ import {
   resultChunks,
   authorizationUrl,
 } from "./protocol.ts";
-const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
-let workdir = process.env.LOOP_RUNTIME_WORKDIR || process.cwd();
+const hostMode = process.env.LOOP55_RUNTIME_MODE === "host";
+let workdir = process.env.LOOP55_RUNTIME_WORKDIR || process.cwd();
 let githubToken: unknown;
 const clean = (data: unknown) =>
   redactValues(data, githubToken ? [githubToken] : []);
@@ -83,8 +84,8 @@ for (const key of [
   "CLAUDE_CODE_USE_BEDROCK",
   "CLAUDE_CODE_USE_VERTEX",
   "CLAUDE_CODE_USE_FOUNDRY",
-  "LOOP_RUNTIME_TOKEN",
-  "LOOP_RUNTIME_TOKEN_FILE",
+  "LOOP55_RUNTIME_TOKEN",
+  "LOOP55_RUNTIME_TOKEN_FILE",
 ])
   delete env[key];
 // Leave native defaults unset: a runtime may use the presence of a config-dir
@@ -95,7 +96,7 @@ if (!hostMode) {
 }
 const launch = (bin: string, args: string[]) => {
   child = spawn(
-    (hostMode && process.env.LOOP_RUNTIME_EXECUTABLE) || bin,
+    (hostMode && process.env.LOOP55_RUNTIME_EXECUTABLE) || bin,
     args,
     {
       cwd: workdir,
@@ -185,7 +186,7 @@ async function claude(request: SessionRequest) {
     // Read complete lines: a pipe chunk can end halfway through the OAuth URL.
     for (const stream of [p.stdout, p.stderr])
       createInterface({ input: stream }).on("line", capture);
-    // Forward the one-time code to the native CLI; never exchange/store OAuth tokens in Loop.
+    // Forward the one-time code to the native CLI; never exchange/store OAuth tokens in Loop55.
     void (async () => {
       for await (const line of iterator) {
         const m = JSON.parse(line);
@@ -333,7 +334,7 @@ async function claude(request: SessionRequest) {
       if (
         command &&
         m.type === "control_response" &&
-        m.response?.request_id === "loop-command" &&
+        m.response?.request_id === "loop55-command" &&
         !initialized
       ) {
         initialized = true;
@@ -366,7 +367,7 @@ async function claude(request: SessionRequest) {
     p.stdin.write(
       JSON.stringify({
         type: "control_request",
-        request_id: "loop-command",
+        request_id: "loop55-command",
         request: {
           subtype: "initialize",
           appendSystemPrompt: turnPrompt(
@@ -501,7 +502,7 @@ try {
     // them out of the user's project directory.
     emit({
       result: writeUploadChunk(
-        join(hostMode ? homedir() : workdir, ".loop", "uploads"),
+        join(hostMode ? homedir() : workdir, ".loop55", "uploads"),
         request,
       ),
     });

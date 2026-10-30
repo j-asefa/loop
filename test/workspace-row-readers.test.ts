@@ -7,9 +7,9 @@ import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { DEFINITION_EXAMPLES } from "../src/shared/agent-definitions";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-workspace-row-readers-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop55-workspace-row-readers-"));
+process.env.LOOP55_DATA_DIR = directory;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");

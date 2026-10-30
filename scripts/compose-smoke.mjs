@@ -71,5 +71,5 @@ for (const provider of ["codex", "claude"]) {
   }
 }
 console.log(
-  "PASS: Compose production build, personal workspace without a Loop login, API + worker health, both real native runtimes return unsigned status; Claude produces a complete official sign-in link and cancels without provider login or inference.",
+  "PASS: Compose production build, personal workspace without a Loop55 login, API + worker health, both real native runtimes return unsigned status; Claude produces a complete official sign-in link and cancels without provider login or inference.",
 );

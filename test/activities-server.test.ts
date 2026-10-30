@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import express from "express";
-const dir = mkdtempSync(join(tmpdir(), "loop-activities-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-activities-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -78,14 +78,14 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
       advertised = (input.tools || []).map((t: any) => t.name);
       instructions.push(input.instructions);
       planDescription =
-        input.tools?.find((t: any) => t.name === "loop_plan")?.description ||
+        input.tools?.find((t: any) => t.name === "loop55_plan")?.description ||
         "";
       const round = input.messages.filter((m) => m.role === "tool").length;
       if (round === 0)
         yield {
           toolCall: {
             id: "plan-1",
-            name: "loop_plan",
+            name: "loop55_plan",
             arguments: { steps: steps(["in_progress", "pending"]) },
           },
         };
@@ -93,7 +93,7 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
         yield {
           toolCall: {
             id: "diagram-1",
-            name: "loop_diagram",
+            name: "loop55_diagram",
             arguments: { title: "Flow", source: "graph TD; A-->B" },
           },
         };
@@ -101,7 +101,7 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
         yield {
           toolCall: {
             id: "plan-2",
-            name: "loop_plan",
+            name: "loop55_plan",
             arguments: {
               steps: steps(["completed", "completed"]),
               explanation: "Done",
@@ -113,7 +113,7 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
         yield {
           toolCall: {
             id: "plan-3",
-            name: "loop_plan",
+            name: "loop55_plan",
             arguments: {
               steps: steps(["completed", "completed"]),
               explanation: "Done",
@@ -129,14 +129,14 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
   } finally {
     restore();
   }
-  expect(advertised).toContain("loop_plan");
-  // The tool description says how to call loop_plan; the run instructions
+  expect(advertised).toContain("loop55_plan");
+  // The tool description says how to call loop55_plan; the run instructions
   // say when. This agent has no instructions of its own, so every provider
-  // round receives exactly Loop's plan guidance.
+  // round receives exactly Loop55's plan guidance.
   expect(planDescription).toMatch(/complete updated list/);
   expect(instructions).toHaveLength(5);
   expect(new Set(instructions)).toEqual(new Set([PLAN_GUIDANCE]));
-  expect(PLAN_GUIDANCE).toMatch(/loop_plan/);
+  expect(PLAN_GUIDANCE).toMatch(/loop55_plan/);
   const { status, body } = await get(
     `/conversations/${run.conversation_id}/activities`,
   );
@@ -156,7 +156,7 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
   expect(tools).toHaveLength(1);
   expect(tools[0].legacy).toBeUndefined();
   expect(tools[0].record.data).toMatchObject({
-    title: "loop_diagram",
+    title: "loop55_diagram",
     status: "completed",
     links: { broker: "diagram-1", trace: "tool:diagram-1" },
   });
@@ -188,18 +188,18 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
   ).toBe(404);
 });
 
-it("adds plan guidance only when loop_plan is advertised", () => {
-  const plan = { tool: "loop_plan", connectionId: "__loop__" };
+it("adds plan guidance only when loop55_plan is advertised", () => {
+  const plan = { tool: "loop55_plan", connectionId: "__loop__" };
   expect(runtimeInstructions("Cite sources.", [plan])).toBe(
     "Cite sources.\n\n" + PLAN_GUIDANCE,
   );
   expect(runtimeInstructions("  ", [plan])).toBe(PLAN_GUIDANCE);
   // Workflow runs get no tools; an MCP tool that happens to share the name is
-  // not Loop's plan tool.
+  // not Loop55's plan tool.
   expect(runtimeInstructions("Cite sources.", [])).toBe("Cite sources.");
   expect(
     runtimeInstructions("Cite sources.", [
-      { tool: "loop_plan", connectionId: "mcp-1" },
+      { tool: "loop55_plan", connectionId: "mcp-1" },
     ]),
   ).toBe("Cite sources.");
 });
@@ -208,9 +208,9 @@ it("does not offer or accept the plan tool on the native bridge path", async () 
   const a = agent();
   submit("alice", { agentId: a.id, input: "x", idempotencyKey: id() });
   const run = claim("bridge-worker")!;
-  expect(nativeBindings(run).map((b) => b.tool)).not.toContain("loop_plan");
+  expect(nativeBindings(run).map((b) => b.tool)).not.toContain("loop55_plan");
   const binding = nativeBindings(run, { plans: true }).find(
-    (b) => b.tool === "loop_plan",
+    (b) => b.tool === "loop55_plan",
   )!;
   // Bridge and HAPI callers do not pass { plans: true }, so a direct call is refused.
   await expect(

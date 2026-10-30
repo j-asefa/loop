@@ -31,7 +31,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true });
 });
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "loop-pi-custom-"));
+  const root = mkdtempSync(join(tmpdir(), "loop55-pi-custom-"));
   roots.push(root);
   const agent = join(root, "agent");
   const project = join(root, "project");
@@ -121,7 +121,7 @@ it("asks for trust again after any change below a trusted resource", () => {
   writeFileSync(join(shared, "review", "SKILL.md"), "v2 with more text");
   expect(print()).not.toBe(linked);
   // A symlink loop finishes.
-  symlinkSync("..", join(shared, "review", "loop"));
+  symlinkSync("..", join(shared, "review", "loop55"));
   expect(print()).toMatch(/^[a-f0-9]{64}$/);
 });
 

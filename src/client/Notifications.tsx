@@ -20,7 +20,7 @@ async function workerRegistration() {
           () =>
             reject(
               new Error(
-                "Loop’s notification service isn’t ready. Reload the app and try again.",
+                "Loop55’s notification service isn’t ready. Reload the app and try again.",
               ),
             ),
           10000,
@@ -112,13 +112,17 @@ export function Notifications() {
               waiting.state === "activated"
                 ? resolve()
                 : reject(
-                    new Error("Reload Loop to finish enabling notifications."),
+                    new Error(
+                      "Reload Loop55 to finish enabling notifications.",
+                    ),
                   );
             }
           };
           const timer = setTimeout(() => {
             waiting.removeEventListener("statechange", done);
-            reject(new Error("Reload Loop to finish enabling notifications."));
+            reject(
+              new Error("Reload Loop55 to finish enabling notifications."),
+            );
           }, 10000);
           waiting.addEventListener("statechange", done);
           done();
@@ -214,8 +218,8 @@ export function Notifications() {
       {!supported ? (
         <>
           <SettingsNote icon={Info} title="Not available in this browser">
-            On iPhone, add Loop to your Home Screen from the Share menu and open
-            it there. Other devices need a browser that supports web
+            On iPhone, add Loop55 to your Home Screen from the Share menu and
+            open it there. Other devices need a browser that supports web
             notifications.
           </SettingsNote>
         </>
@@ -225,7 +229,7 @@ export function Notifications() {
             <SettingsToggle
               icon={enabled ? BellOff : Bell}
               title="Enable notifications"
-              description={busy ? "Updating…" : "Even when Loop is closed"}
+              description={busy ? "Updating…" : "Even when Loop55 is closed"}
               checked={enabled}
               disabled={!ready || busy}
               onChange={() => void toggle()}
@@ -281,7 +285,7 @@ export function Notifications() {
               tone="attention"
               title="Blocked by this device"
             >
-              Allow notifications for Loop in your device’s notification
+              Allow notifications for Loop55 in your device’s notification
               settings, then turn this on again.
             </SettingsNote>
           )}

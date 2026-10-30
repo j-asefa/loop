@@ -1,4 +1,4 @@
-process.env.LOOP_PROFILE = "companion";
+process.env.LOOP55_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { workspaceLock } from "../src/lifecycle.js";
 test("workspace ownership is exclusive, recovers a proven stale owner, and never removes a replacement lock", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-lock-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-lock-"));
   try {
     const release = workspaceLock(dir);
     assert.throws(() => workspaceLock(dir), /starting or running/);
@@ -42,7 +42,7 @@ test("workspace ownership is exclusive, recovers a proven stale owner, and never
 
 for (const legacy of [false, true]) {
   test(`compiled macOS workspace lock preserves a live ${legacy ? "legacy" : "normalized"} owner across a timezone change`, () => {
-    const dir = mkdtempSync(join(tmpdir(), "loop-lock-mac-timezone-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop55-lock-mac-timezone-"));
     try {
       execFileSync(
         process.execPath,

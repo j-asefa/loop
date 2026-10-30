@@ -11,7 +11,7 @@ import {
 } from "./fleetCommand";
 import { viewGeneration, viewOwner } from "./viewCache";
 
-const showReceipts = "loop-fleet-command-recovery";
+const showReceipts = "loop55-fleet-command-recovery";
 export function showFleetCommandReceipts() {
   window.dispatchEvent(new Event(showReceipts));
 }

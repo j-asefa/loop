@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { createServer } from "node:http";
 import { writeSync, appendFileSync, existsSync } from "node:fs";
-const kind = process.env.LOOP_TEST_HARNESS ?? "codex";
+const kind = process.env.LOOP55_TEST_HARNESS ?? "codex";
 let threadId = randomUUID();
 let thinkingLevel = "medium";
 let elicitationChoice;
@@ -18,7 +18,7 @@ let count = 0,
   piQueue = [];
 if (process.argv.includes("--version")) {
   console.log(
-    process.env.LOOP_TEST_HARNESS_VERSION ??
+    process.env.LOOP55_TEST_HARNESS_VERSION ??
       {
         codex: "codex-cli 0.157.0",
         pi: "0.87.1",
@@ -31,26 +31,28 @@ if (process.argv.includes("--version")) {
 if (process.argv.includes("auth")) {
   console.log(
     JSON.stringify({
-      loggedIn: process.env.LOOP_TEST_CLAUDE_AUTH !== "none",
+      loggedIn: process.env.LOOP55_TEST_CLAUDE_AUTH !== "none",
       authMethod:
-        process.env.LOOP_TEST_CLAUDE_AUTH === "oauth" ? "claude.ai" : "api_key",
+        process.env.LOOP55_TEST_CLAUDE_AUTH === "oauth"
+          ? "claude.ai"
+          : "api_key",
       apiProvider: "firstParty",
-      apiKeySource: process.env.LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE || "none",
+      apiKeySource: process.env.LOOP55_TEST_CLAUDE_AUTH_KEY_SOURCE || "none",
     }),
   );
   process.exit();
 }
 if (kind === "claude" && process.argv.includes("--print")) {
-  if (process.env.LOOP_TEST_PROBE_AUDIT)
-    appendFileSync(process.env.LOOP_TEST_PROBE_AUDIT, "launch\n");
+  if (process.env.LOOP55_TEST_PROBE_AUDIT)
+    appendFileSync(process.env.LOOP55_TEST_PROBE_AUDIT, "launch\n");
   if (
-    process.env.LOOP_TEST_PROBE_FAIL_FILE &&
-    existsSync(process.env.LOOP_TEST_PROBE_FAIL_FILE)
+    process.env.LOOP55_TEST_PROBE_FAIL_FILE &&
+    existsSync(process.env.LOOP55_TEST_PROBE_FAIL_FILE)
   )
     process.exit(1);
-  if (process.env.LOOP_TEST_ARGV)
+  if (process.env.LOOP55_TEST_ARGV)
     appendFileSync(
-      process.env.LOOP_TEST_ARGV,
+      process.env.LOOP55_TEST_ARGV,
       JSON.stringify(process.argv.slice(2)) + "\n",
     );
   const permissionFlag = process.argv.indexOf("--permission-prompt-tool");
@@ -65,11 +67,11 @@ if (kind === "claude" && process.argv.includes("--print")) {
     process.exit(1);
   }
 }
-// Models a harness that keeps running after Loop's pipes close.
-if (process.env.LOOP_TEST_OUTLIVE_STDIN) setInterval(() => {}, 1 << 30);
+// Models a harness that keeps running after Loop55's pipes close.
+if (process.env.LOOP55_TEST_OUTLIVE_STDIN) setInterval(() => {}, 1 << 30);
 const audit = () => {
-  if (process.env.LOOP_TEST_AUDIT)
-    appendFileSync(process.env.LOOP_TEST_AUDIT, "prompt\n");
+  if (process.env.LOOP55_TEST_AUDIT)
+    appendFileSync(process.env.LOOP55_TEST_AUDIT, "prompt\n");
 };
 const note = (method, params) =>
   out({ method, params: { threadId, ...params } });
@@ -127,7 +129,7 @@ function finish(status = "completed") {
         cache_creation_input_tokens: 10,
         output_tokens: 30,
       },
-      ...(process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS
+      ...(process.env.LOOP55_TEST_CLAUDE_INJECTED_RESULTS
         ? { origin: { kind: "human" } }
         : {}),
     });
@@ -160,8 +162,8 @@ function finish(status = "completed") {
   held = false;
 }
 let piModel = { provider: "openai-codex", id: "fixture" };
-if (kind === "pi" && process.env.LOOP_TEST_PI_EXTENSION_MODELS) {
-  // Run Loop's real metadata extension against an aggregator-sized catalog
+if (kind === "pi" && process.env.LOOP55_TEST_PI_EXTENSION_MODELS) {
+  // Run Loop55's real metadata extension against an aggregator-sized catalog
   // and a full workspace tool list; Pi's thinking-level helper is stubbed.
   const { registerHooks } = await import("node:module");
   registerHooks({
@@ -175,20 +177,20 @@ if (kind === "pi" && process.env.LOOP_TEST_PI_EXTENSION_MODELS) {
   });
   const { default: extension } = await import("../src/pi-extension.mjs");
   const available = Array.from(
-    { length: Number(process.env.LOOP_TEST_PI_EXTENSION_MODELS) },
+    { length: Number(process.env.LOOP55_TEST_PI_EXTENSION_MODELS) },
     (_, i) => ({
       provider: "openrouter",
       id:
         `vendor-${i % 60}/model-${i}-` +
-        (process.env.LOOP_TEST_PI_EXTENSION_ID_TEXT || "x").repeat(24),
+        (process.env.LOOP55_TEST_PI_EXTENSION_ID_TEXT || "x").repeat(24),
     }),
   );
   available.push({ provider: "openai-codex", id: "fixture" });
   const tools = Array.from({ length: 150 }, (_, i) => ({
-    name: `loop_mcp_${String(i).padStart(20, "0")}`,
+    name: `loop55_mcp_${String(i).padStart(20, "0")}`,
     description: "d".repeat(300),
     sourceInfo: {
-      path: "/opt/loop/dist/pi-extension.mjs",
+      path: "/opt/loop55/dist/pi-extension.mjs",
       source: "extension",
       scope: "temporary",
       origin: "top-level",
@@ -224,7 +226,7 @@ if (kind === "pi" && process.env.LOOP_TEST_PI_EXTENSION_MODELS) {
     3,
     JSON.stringify({
       configured: true,
-      subscription: process.env.LOOP_TEST_PI_AUTH !== "api",
+      subscription: process.env.LOOP55_TEST_PI_AUTH !== "api",
       provider: "openai-codex",
       model: "fixture",
       modelEfforts: [
@@ -243,7 +245,7 @@ if (kind === "pi" && process.env.LOOP_TEST_PI_EXTENSION_MODELS) {
   );
 // Pi reads no RPC input until session_start handlers return, so an
 // extension's startup question blocks it.
-if (kind === "pi" && process.env.LOOP_TEST_PI_STARTUP_QUESTION) {
+if (kind === "pi" && process.env.LOOP55_TEST_PI_STARTUP_QUESTION) {
   process.stdout.write(
     JSON.stringify({
       type: "extension_ui_request",
@@ -278,13 +280,13 @@ if (kind !== "opencode") {
     if (type === "skills/list") return result({ data: [] });
     if (type === "get_commands")
       return result({
-        commands: process.env.LOOP_TEST_PI_LARGE_CATALOG
+        commands: process.env.LOOP55_TEST_PI_LARGE_CATALOG
           ? Array.from({ length: 120 }, (_, i) => ({
               name: `large-${i}`,
               source: "extension",
               description: "x".repeat(30_000),
             }))
-          : process.env.LOOP_TEST_PI_COMMAND_METADATA
+          : process.env.LOOP55_TEST_PI_COMMAND_METADATA
             ? [
                 {
                   name: "fixture-command",
@@ -301,7 +303,7 @@ if (kind !== "opencode") {
       });
     if (type === "model/list")
       return result({
-        data: process.env.LOOP_TEST_CODEX_NULL_MODEL
+        data: process.env.LOOP55_TEST_CODEX_NULL_MODEL
           ? [{ model: "fixture-default-model", isDefault: true }]
           : [],
       });
@@ -313,25 +315,28 @@ if (kind !== "opencode") {
           { provider: "openai-codex", id: "fixture", name: "Fixture" },
           { provider: "openai-codex", id: "plain", name: "Plain" },
           ...Array.from(
-            { length: Number(process.env.LOOP_TEST_PI_MODEL_COUNT || 0) },
+            { length: Number(process.env.LOOP55_TEST_PI_MODEL_COUNT || 0) },
             (_, i) => ({
               provider: "openai-codex",
               id:
-                i === 0 && process.env.LOOP_TEST_PI_LONG_MODEL_ID
+                i === 0 && process.env.LOOP55_TEST_PI_LONG_MODEL_ID
                   ? "custom-" + "x".repeat(250)
                   : `model-${i}`,
               name: i === 0 ? "Long model name ".repeat(60) : `Model ${i}`,
             }),
           ),
-          ...(process.env.LOOP_TEST_PI_API_MODEL
+          ...(process.env.LOOP55_TEST_PI_API_MODEL
             ? [{ provider: "openai", id: "fixture", name: "Fixture" }]
             : []),
         ],
       });
     if (type === "set_model") {
       piModel = { provider: m.provider, id: m.modelId };
-      if (process.env.LOOP_TEST_PI_MODEL_AUDIT)
-        appendFileSync(process.env.LOOP_TEST_PI_MODEL_AUDIT, piModel.id + "\n");
+      if (process.env.LOOP55_TEST_PI_MODEL_AUDIT)
+        appendFileSync(
+          process.env.LOOP55_TEST_PI_MODEL_AUDIT,
+          piModel.id + "\n",
+        );
       return result({});
     }
     if (type === "set_thinking_level") {
@@ -342,14 +347,14 @@ if (kind !== "opencode") {
       return result({
         config: {
           model_provider: "openai",
-          ...(process.env.LOOP_TEST_CODEX_NULL_MODEL ? { model: null } : {}),
+          ...(process.env.LOOP55_TEST_CODEX_NULL_MODEL ? { model: null } : {}),
         },
       });
     if (type === "thread/start" || type === "thread/resume") {
-      mailBridge = m.params?.config?.["mcp_servers.loop_workspace"];
+      mailBridge = m.params?.config?.["mcp_servers.loop55_workspace"];
       if (
         type === "thread/resume" &&
-        process.env.LOOP_TEST_REQUIRE_RESUME_CWD &&
+        process.env.LOOP55_TEST_REQUIRE_RESUME_CWD &&
         m.params.cwd !== process.cwd()
       )
         return out({
@@ -359,21 +364,24 @@ if (kind !== "opencode") {
             message: "Resume must select the bound workspace directory",
           },
         });
-      if (type === "thread/resume" && process.env.LOOP_TEST_CODEX_WRITER_BUSY)
+      if (type === "thread/resume" && process.env.LOOP55_TEST_CODEX_WRITER_BUSY)
         return out({
           id: m.id,
           error: {
             code: -32600,
             // Codex owns this wording: "reworded" stands in for an upstream
-            // change Loop must still recognise.
+            // change Loop55 must still recognise.
             message:
-              process.env.LOOP_TEST_CODEX_WRITER_BUSY === "reworded"
+              process.env.LOOP55_TEST_CODEX_WRITER_BUSY === "reworded"
                 ? `conversation ${m.params.threadId} already has an active writer (pid 4121); retry later.`
                 : `thread ${m.params.threadId} already has an active writer`,
           },
         });
       if (m.params?.threadId) threadId = m.params.threadId;
-      if (type === "thread/resume" && process.env.LOOP_TEST_LARGE_CODEX_HISTORY)
+      if (
+        type === "thread/resume" &&
+        process.env.LOOP55_TEST_LARGE_CODEX_HISTORY
+      )
         return result({
           thread: {
             id: threadId,
@@ -397,7 +405,7 @@ if (kind !== "opencode") {
       return result({
         thread: {
           id: threadId,
-          turns: process.env.LOOP_TEST_ASYNC_HISTORY
+          turns: process.env.LOOP55_TEST_ASYNC_HISTORY
             ? [
                 {
                   items: [
@@ -424,7 +432,7 @@ if (kind !== "opencode") {
         data: [
           {
             id: "external-thread",
-            cwd: process.env.LOOP_TEST_HISTORY_PROJECT || process.cwd(),
+            cwd: process.env.LOOP55_TEST_HISTORY_PROJECT || process.cwd(),
             preview: "External fixture history",
           },
         ],
@@ -449,7 +457,7 @@ if (kind !== "opencode") {
       });
     if (type === "get_state") {
       const state = {
-        sessionId: process.env.LOOP_TEST_PI_SESSION_ID || "pi-1",
+        sessionId: process.env.LOOP55_TEST_PI_SESSION_ID || "pi-1",
         model: piModel,
         thinkingLevel,
         isStreaming: !!active && !piQueue.length,
@@ -457,10 +465,10 @@ if (kind !== "opencode") {
       };
       // An extension question in the same chunk as Pi's first response.
       if (
-        process.env.LOOP_TEST_PI_LATE_QUESTION &&
-        !process.env.LOOP_TEST_PI_LATE_ASKED
+        process.env.LOOP55_TEST_PI_LATE_QUESTION &&
+        !process.env.LOOP55_TEST_PI_LATE_ASKED
       ) {
-        process.env.LOOP_TEST_PI_LATE_ASKED = "1";
+        process.env.LOOP55_TEST_PI_LATE_ASKED = "1";
         return process.stdout.write(
           JSON.stringify({
             type: "response",
@@ -498,13 +506,13 @@ if (kind !== "opencode") {
     if (type === "control_request") {
       if (
         m.request.subtype === "set_permission_mode" &&
-        process.env.LOOP_TEST_SETTING_AUDIT
+        process.env.LOOP55_TEST_SETTING_AUDIT
       ) {
         appendFileSync(
-          process.env.LOOP_TEST_SETTING_AUDIT,
+          process.env.LOOP55_TEST_SETTING_AUDIT,
           m.request.mode + "\n",
         );
-        if (m.request.mode === "plan" && process.env.LOOP_TEST_SETTING_DROP)
+        if (m.request.mode === "plan" && process.env.LOOP55_TEST_SETTING_DROP)
           process.exit(0);
       }
       out({
@@ -517,11 +525,11 @@ if (kind !== "opencode") {
               ? {
                   account: {
                     apiProvider:
-                      process.env.LOOP_TEST_CLAUDE_PROVIDER || "firstParty",
+                      process.env.LOOP55_TEST_CLAUDE_PROVIDER || "firstParty",
                     subscriptionType: "pro",
                     apiKeySource:
-                      process.env.LOOP_TEST_CLAUDE_KEY_SOURCE ||
-                      (process.env.LOOP_TEST_CLAUDE_AUTH === "oauth"
+                      process.env.LOOP55_TEST_CLAUDE_KEY_SOURCE ||
+                      (process.env.LOOP55_TEST_CLAUDE_AUTH === "oauth"
                         ? "none"
                         : "user"),
                   },
@@ -530,7 +538,7 @@ if (kind !== "opencode") {
         },
       });
       if (m.request.subtype === "interrupt") {
-        if (process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS)
+        if (process.env.LOOP55_TEST_CLAUDE_INJECTED_RESULTS)
           out({
             type: "result",
             is_error: false,
@@ -565,7 +573,7 @@ if (kind !== "opencode") {
       if (m.params.expectedTurnId !== active)
         throw new Error("Wrong turn was steered");
       if (
-        process.env.LOOP_TEST_ASYNC_ANSWER &&
+        process.env.LOOP55_TEST_ASYNC_ANSWER &&
         !m.params.input[0].text.includes('"Wait for active agents"')
       )
         throw new Error("Missing async question answer");
@@ -597,12 +605,12 @@ if (kind !== "opencode") {
         throw new Error("Fixture expected native confirm=false");
       if (kind === "claude" && m.response?.response?.behavior !== "deny")
         throw new Error("Fixture expected native deny behavior");
-      if (process.env.LOOP_TEST_DECISION_AUDIT)
-        appendFileSync(process.env.LOOP_TEST_DECISION_AUDIT, "answer\n");
-      if (held && !process.env.LOOP_TEST_DECISION_HOLD) finish();
+      if (process.env.LOOP55_TEST_DECISION_AUDIT)
+        appendFileSync(process.env.LOOP55_TEST_DECISION_AUDIT, "answer\n");
+      if (held && !process.env.LOOP55_TEST_DECISION_HOLD) finish();
       return;
     }
-    if (type === "prompt" && m.message === "/loop-status") {
+    if (type === "prompt" && m.message === "/loop55-status") {
       writeSync(
         3,
         JSON.stringify({
@@ -652,9 +660,9 @@ if (kind !== "opencode") {
         });
       }
       if (kind === "claude") {
-        if (process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS) {
+        if (process.env.LOOP55_TEST_CLAUDE_INJECTED_RESULTS) {
           if (m.origin?.kind !== "human")
-            throw new Error("Loop prompts must declare human origin");
+            throw new Error("Loop55 prompts must declare human origin");
           for (const origin of [
             "task-notification",
             "peer",
@@ -708,8 +716,8 @@ if (kind !== "opencode") {
         });
       }
       if (
-        process.env.LOOP_TEST_AGENT_MAIL &&
-        text.includes("To reply, call loop_message")
+        process.env.LOOP55_TEST_AGENT_MAIL &&
+        text.includes("To reply, call loop55_message")
       ) {
         // Exercise the production authenticated native bridge from a real
         // subprocess, without a provider/model request.
@@ -729,28 +737,28 @@ if (kind !== "opencode") {
           const catalog = await call({ method: "tools/list" });
           if (
             ![
-              "loop_agents",
-              "loop_message",
-              "loop_message_status",
-              "loop_handoff",
+              "loop55_agents",
+              "loop55_message",
+              "loop55_message_status",
+              "loop55_handoff",
             ].every((name) => catalog.tools.some((t) => t.name === name))
           )
             throw new Error("Missing mail catalog");
           const directory = await call({
             method: "tools/call",
             id: "discover",
-            name: "loop_agents",
+            name: "loop55_agents",
             arguments: {},
           });
           if (directory.isError) throw new Error("Discovery failed");
           const reply =
-            /To reply, call loop_message with to "([^"]+)" and threadId "([^"]+)"/.exec(
+            /To reply, call loop55_message with to "([^"]+)" and threadId "([^"]+)"/.exec(
               text,
             );
           const request = {
             method: "tools/call",
             id: "native-reply",
-            name: "loop_message",
+            name: "loop55_message",
             arguments: {
               to: reply[1],
               threadId: reply[2],
@@ -831,7 +839,7 @@ if (kind !== "opencode") {
       }
       if (
         kind === "codex" &&
-        process.env.LOOP_TEST_ASYNC_ANSWER &&
+        process.env.LOOP55_TEST_ASYNC_ANSWER &&
         !text.includes('"Wait for active agents"')
       )
         throw new Error("Missing async question answer");
@@ -866,7 +874,10 @@ if (kind !== "opencode") {
               input: { file_path: "README.md" },
             },
           });
-        if (kind === "claude" && process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS)
+        if (
+          kind === "claude" &&
+          process.env.LOOP55_TEST_CLAUDE_INJECTED_RESULTS
+        )
           out({
             type: "result",
             is_error: false,
@@ -918,7 +929,7 @@ if (kind !== "opencode") {
     if (
       req.headers.authorization !==
       "Basic " +
-        Buffer.from("loop:" + process.env.OPENCODE_SERVER_PASSWORD).toString(
+        Buffer.from("loop55:" + process.env.OPENCODE_SERVER_PASSWORD).toString(
           "base64",
         )
     ) {

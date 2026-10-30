@@ -44,10 +44,13 @@ try {
     }
     if (!selected) args.push("--file", await capturedFile("Dockerfile"));
     await writeFile(
-      join(source.directory, ".loop-build-source.json"),
+      join(source.directory, ".loop55-build-source.json"),
       JSON.stringify(source.stamp),
     );
-    args.push("--build-arg", "LOOP_BUILD_SOURCE_FILE=.loop-build-source.json");
+    args.push(
+      "--build-arg",
+      "LOOP55_BUILD_SOURCE_FILE=.loop55-build-source.json",
+    );
   }
   const result = spawnSync("docker", [...args, source.directory], {
     stdio: "inherit",

@@ -111,7 +111,7 @@ export class Claude implements Adapter {
         application: "live",
         provenance: "Claude control protocol",
         description:
-          "Changes the native harness permission mode. Loop workspace tool approvals remain governed by Loop.",
+          "Changes the native harness permission mode. Loop55 workspace tool approvals remain governed by Loop55.",
       },
       {
         id: "effort",
@@ -208,7 +208,7 @@ export class Claude implements Adapter {
               "--mcp-config",
               JSON.stringify({
                 mcpServers: {
-                  loop_workspace: {
+                  loop55_workspace: {
                     type: "http",
                     url: this.options.workspaceTools.url,
                     headers: {
@@ -385,7 +385,7 @@ export class Claude implements Adapter {
       response =
         answer.choice === "allow"
           ? { behavior: "allow", updatedInput: r.input }
-          : { behavior: "deny", message: "Denied by the user in Loop." };
+          : { behavior: "deny", message: "Denied by the user in Loop55." };
     beforeDispatch?.();
     this.requests.delete(id);
     await this.native.write({
@@ -406,7 +406,7 @@ export class Claude implements Adapter {
       // and `origin.kind` is an upstream protocol that keeps growing.
       if (foreign) {
         console.warn(
-          `Loop ignored a Claude result that is not this turn (${foreign}).`,
+          `Loop55 ignored a Claude result that is not this turn (${foreign}).`,
         );
         return;
       }
@@ -504,7 +504,7 @@ export class Claude implements Adapter {
             response: {
               subtype: "error",
               request_id: m.request_id,
-              error: "Unsupported Loop client control request",
+              error: "Unsupported Loop55 client control request",
             },
           })
           .catch(() => {});

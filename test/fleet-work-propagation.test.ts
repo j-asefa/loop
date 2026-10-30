@@ -17,10 +17,10 @@ import type { Run } from "../src/server/queue.js";
 import { gitProject } from "./git-project.js";
 import { fleetActor } from "./fleet-action-fixture.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop-fleet-propagation-"));
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_DATA_DIR = root;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop55-fleet-propagation-"));
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = root;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db.js");
 const secrets = await import("../src/server/secrets.js");
 const { createAgent, ownedRun } = await import("../src/server/domain.js");
@@ -178,7 +178,7 @@ async function blocked(run: Run) {
     await expect(executeAgent(run)).rejects.toMatchObject({ status: 403 });
     expect(providerCalls).toBe(0);
     const binding = nativeBindings(run).find(
-      (tool) => tool.tool === "loop_diagram",
+      (tool) => tool.tool === "loop55_diagram",
     );
     if (binding)
       await expect(
@@ -272,7 +272,7 @@ it.each(["creator", "editor"] as const)(
     editor.act(() => editQueuedRun(owner, parent.id, { input: "Edited work" }));
     parent = running(parent);
     const binding = nativeBindings(parent).find(
-      (tool) => tool.tool === "loop_delegate",
+      (tool) => tool.tool === "loop55_delegate",
     )!;
     await invokeNative(parent, binding, "delegate", {
       tasks: [{ agentId: childAgent.id, input: "Child work" }],
@@ -333,7 +333,7 @@ it("rolls back a delegated child if retaining its authorization fails", async ()
     ),
   );
   const binding = nativeBindings(parent).find(
-    (tool) => tool.tool === "loop_delegate",
+    (tool) => tool.tool === "loop55_delegate",
   )!;
   const before = stored("SELECT count(*) n FROM runs");
   db.exec(
@@ -441,7 +441,7 @@ it.each([
     expect(ownedRun(run.id, owner).state).toBe("running");
     sender.revoke();
     const local = nativeBindings(run).find(
-      (tool) => tool.tool === "loop_diagram",
+      (tool) => tool.tool === "loop55_diagram",
     )!;
     await expect(
       invokeNative(run, local, "after-peer-approval", {
@@ -544,7 +544,7 @@ it("workflow children retain the peer that resumed their parent", async () => {
     worker = agent(),
     workflow = randomUUID();
   const value = {
-    dsl: "loop.workflow/v1",
+    dsl: "loop55.workflow/v1",
     title: "Fixture",
     inputs: {},
     agents: { worker: worker.id },

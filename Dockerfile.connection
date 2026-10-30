@@ -7,18 +7,19 @@ COPY package*.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY tsconfig.json ./
 COPY src ./src
+COPY deployment/environment.mjs ./deployment/environment.mjs
 COPY scripts/build-connection.mjs ./scripts/
 RUN node scripts/build-connection.mjs
-RUN node dist/connection-daemon.bundle.mjs --install-helper /opt/loop-tunnel
+RUN node dist/connection-daemon.bundle.mjs --install-helper /opt/loop55-tunnel
 
 FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app/dist/connection-daemon.bundle.mjs /opt/loop-connection/connection.mjs
-COPY --from=build /opt/loop-tunnel /opt/loop-tunnel
-RUN chmod -R a+rX /opt/loop-connection /opt/loop-tunnel && mkdir -p /data/loop-connection && chown node:node /data/loop-connection && chmod 700 /data/loop-connection
-ENV NODE_ENV=production LOOP_BAKED_HELPERS=/opt/loop-tunnel
+COPY --from=build /app/dist/connection-daemon.bundle.mjs /opt/loop55-connection/connection.mjs
+COPY --from=build /opt/loop55-tunnel /opt/loop55-tunnel
+RUN chmod -R a+rX /opt/loop55-connection /opt/loop55-tunnel && mkdir -p /data/loop55-connection && chown node:node /data/loop55-connection && chmod 700 /data/loop55-connection
+ENV NODE_ENV=production LOOP55_BAKED_HELPERS=/opt/loop55-tunnel
 USER node
-WORKDIR /data/loop-connection
-VOLUME ["/data/loop-connection"]
-HEALTHCHECK --interval=15s --timeout=5s --start-period=90s CMD ["node", "/opt/loop-connection/connection.mjs", "--health", "--dir", "/data/loop-connection"]
-CMD ["node", "/opt/loop-connection/connection.mjs", "--dir", "/data/loop-connection"]
+WORKDIR /data/loop55-connection
+VOLUME ["/data/loop55-connection"]
+HEALTHCHECK --interval=15s --timeout=5s --start-period=90s CMD ["node", "/opt/loop55-connection/connection.mjs", "--health", "--dir", "/data/loop55-connection"]
+CMD ["node", "/opt/loop55-connection/connection.mjs", "--dir", "/data/loop55-connection"]

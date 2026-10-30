@@ -29,7 +29,7 @@ export async function cardRemindersSmoke(page, fixture, _engine, capture) {
     });
   const settled = async () => {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
   };
   const dismissToast = async () => {
     const toast = page.locator(".action-toast");

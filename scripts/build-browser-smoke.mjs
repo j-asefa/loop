@@ -1,3 +1,4 @@
+import "../deployment/environment.mjs";
 import { build } from "esbuild";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -30,7 +31,7 @@ for (const version of ["old", "new"]) {
     format: "esm",
     jsx: "automatic",
     define: {
-      __LOOP_BUILD__: JSON.stringify(identity(version)),
+      __LOOP55_BUILD__: JSON.stringify(identity(version)),
       "process.env.NODE_ENV": '"production"',
     },
   });
@@ -71,7 +72,8 @@ try {
     ["chromium", chromium],
     ["webkit", webkit],
   ]) {
-    if (process.env.LOOP_BROWSER && process.env.LOOP_BROWSER !== name) continue;
+    if (process.env.LOOP55_BROWSER && process.env.LOOP55_BROWSER !== name)
+      continue;
     loaded = "old";
     fail = false;
     const browser = await engine.launch({

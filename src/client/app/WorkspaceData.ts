@@ -62,7 +62,7 @@ export function useWorkspaceData(props: WorkspaceProps) {
     const message = !error
       ? ""
       : (error as { reconnecting?: boolean }).reconnecting
-        ? "Loop is reconnecting…"
+        ? "Loop55 is reconnecting…"
         : kind === "bootstrap"
           ? "Couldn’t refresh your agents and projects."
           : "Couldn’t refresh task status.";
@@ -264,7 +264,7 @@ export function useWorkspaceEvents(
         collections.clear();
       }, 250);
     };
-    window.addEventListener("loop-workspace-change", update);
+    window.addEventListener("loop55-workspace-change", update);
     const stopFallback = surfaceFallback(
       [executionSourceId()],
       "workspace",
@@ -286,7 +286,7 @@ export function useWorkspaceEvents(
       clearTimeout(timer);
       stopFallback();
       stopResultsFallback();
-      window.removeEventListener("loop-workspace-change", update);
+      window.removeEventListener("loop55-workspace-change", update);
     };
   }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);
 }

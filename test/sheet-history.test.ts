@@ -32,18 +32,18 @@ it("recovers when closing a sheet's history.back() never completes", async () =>
   vi.useFakeTimers();
   const unregister = registerSheet(() => {});
   await settle();
-  expect(history.state).toMatchObject({ loopSheet: true });
+  expect(history.state).toMatchObject({ loop55Sheet: true });
   unregister();
   await settle();
   expect(back).toHaveBeenCalledTimes(1);
   // popstate never arrives. After the watchdog, the sheet entry is released
   // in place instead of blocking every later sheet.
   vi.advanceTimersByTime(1000);
-  expect(history.state?.loopSheet).toBe(false);
+  expect(history.state?.loop55Sheet).toBe(false);
   // The next sheet gets its own history entry again.
   registerSheet(() => {});
   await settle();
-  expect(history.state).toMatchObject({ loopSheet: true });
+  expect(history.state).toMatchObject({ loop55Sheet: true });
   expect(entries).toHaveLength(3);
   // Only one back was ever requested: the app never steps out of itself.
   expect(back).toHaveBeenCalledTimes(1);

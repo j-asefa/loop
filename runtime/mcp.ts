@@ -40,7 +40,7 @@ export function mcpContainerArgs(
     "--name",
     name,
     "--label",
-    "loop.runtime=" + prefix,
+    "loop55.runtime=" + prefix,
     "--read-only",
     "--cap-drop=ALL",
     "--security-opt=no-new-privileges",

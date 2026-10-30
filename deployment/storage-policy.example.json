@@ -1,20 +1,20 @@
 {
-  "releases": "/home/loop/releases",
-  "lock": "/home/loop/setup/storage-maintenance.lock",
-  "deploy_lock": "/home/loop/setup/deploy.lock",
-  "deployed_tools": "/home/loop/setup/deployment-tools",
-  "process_inspector": "/usr/local/libexec/loop-storage-policy.py",
+  "releases": "/home/loop55/releases",
+  "lock": "/home/loop55/setup/storage-maintenance.lock",
+  "deploy_lock": "/home/loop55/setup/deploy.lock",
+  "deployed_tools": "/home/loop55/setup/deployment-tools",
+  "process_inspector": "/usr/local/libexec/loop55-storage-policy.py",
   "budgets": [
     {"path": "/", "minimum_free_gib": 20},
-    {"path": "/home/loop/.local/state/loop", "minimum_free_gib": 4, "require_mount": true}
+    {"path": "/home/loop55/.local/state/loop55", "minimum_free_gib": 4, "require_mount": true}
   ],
   "retention": {"daily": 7, "weekly": 4, "newest": 2},
   "temporary_root": "/tmp",
   "executables": {"npm": "/usr/local/bin/npm", "npx": "/usr/local/bin/npx", "docker": "/usr/bin/docker"},
   "backup_store": {
-    "host": "loop-backups",
-    "root": "/srv/loop-backups",
+    "host": "loop55-backups",
+    "root": "/srv/loop55-backups",
     "script": "/usr/local/libexec/storage-policy.py",
-    "ssh_config": "/home/loop/.ssh/loop-backups.config"
+    "ssh_config": "/home/loop55/.ssh/loop55-backups.config"
   }
 }

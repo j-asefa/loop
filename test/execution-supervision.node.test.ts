@@ -19,7 +19,7 @@ import { gitProject } from "./git-project.js";
 import { terminateWorkspace } from "../src/daemon.js";
 
 async function fixture(t: TestContext) {
-  const dir = mkdtempSync(join(tmpdir(), "loop-supervision-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-supervision-"));
   mkdirSync(join(dir, "project"));
   gitProject(join(dir, "project"));
   const host = fork(resolve("test/fixtures/execution-process-host.mjs"), [], {
@@ -27,10 +27,10 @@ async function fixture(t: TestContext) {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     env: {
       ...process.env,
-      LOOP_PROFILE: "companion",
-      LOOP_DATA_DIR: dir,
-      LOOP_TEST_HARNESS: "codex",
-      LOOP_TEST_SUPERVISION: dir,
+      LOOP55_PROFILE: "companion",
+      LOOP55_DATA_DIR: dir,
+      LOOP55_TEST_HARNESS: "codex",
+      LOOP55_TEST_SUPERVISION: dir,
       NODE_OPTIONS: `--import=${pathToFileURL(resolve("test/fixtures/execution-supervision-hooks.mjs")).href}`,
     },
   });
@@ -75,7 +75,7 @@ async function fixture(t: TestContext) {
   });
   await until(() => launched || host.exitCode !== null, 15_000);
   assert(launched, log);
-  db = new Database(join(dir, "loop.db"));
+  db = new Database(join(dir, "loop55.db"));
   const ask = async (action: string, extra: object = {}) => {
     const id = randomUUID();
     host.send({ id, action, ...extra });

@@ -32,7 +32,7 @@ function ServerAuth({ onDone }: { onDone: () => void }) {
         signup ? workspaceApi.authSignUpEmail : workspaceApi.authSignInEmail,
         {
           body: {
-            name: String(f.get("name") || "Loop user"),
+            name: String(f.get("name") || "Loop55 user"),
             email: String(f.get("email") || ""),
             password: String(f.get("password") || ""),
           },
@@ -51,7 +51,7 @@ function ServerAuth({ onDone }: { onDone: () => void }) {
       <div className="auth-story">
         <div className="wordmark">
           <Orbit />
-          loop
+          loop55
           <span className="wordmark-dot" />
         </div>
         <div>
@@ -73,7 +73,7 @@ function ServerAuth({ onDone }: { onDone: () => void }) {
         </span>
       </div>
       <section className="auth-form">
-        <span className="eyebrow">Welcome to Loop</span>
+        <span className="eyebrow">Welcome to Loop55</span>
         <h2>
           {signup ? "Make room for your ideas." : "Pick up where you left off."}
         </h2>

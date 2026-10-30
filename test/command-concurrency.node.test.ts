@@ -30,10 +30,10 @@ test(
   "test, browser and typecheck entrypoints run concurrently despite an unavailable queue and an occupied legacy slot",
   { skip: process.platform !== "linux" },
   async () => {
-    const root = mkdtempSync(join(tmpdir(), "loop-command-concurrency-"));
+    const root = mkdtempSync(join(tmpdir(), "loop55-command-concurrency-"));
     const children: ChildProcess[] = [];
     try {
-      const locks = join(root, "loop-typecheck");
+      const locks = join(root, "loop55-typecheck");
       mkdirSync(locks, { mode: 0o700 });
       const held = join(root, "held");
       const holder = spawn(
@@ -53,7 +53,7 @@ test(
       // assumption about compiler speed or the host's memory is needed.
       const release = join(root, "release");
       const fixture = `import { existsSync, writeFileSync } from 'node:fs';
-      writeFileSync(process.env.LOOP_TEST_STARTED, String(process.pid));
+      writeFileSync(process.env.LOOP55_TEST_STARTED, String(process.pid));
       while (!existsSync(${JSON.stringify(release)})) await new Promise(r => setTimeout(r, 20));`;
       mkdirSync(join(root, "scripts"));
       cpSync(
@@ -106,12 +106,12 @@ test(
           env: {
             ...process.env,
             XDG_RUNTIME_DIR: root,
-            LOOP_TEST_STARTED: markers[index],
-            LOOP_HEAVY_WAIT_SECONDS: "0",
-            LOOP_HEAVY_RESERVE_MB: "1099511627776",
-            LOOP_HEAVY_SCHEDULING: "on",
-            LOOP_JOB_QUEUE_CONFIG: join(root, "unavailable-queue.json"),
-            LOOP_JOB_ACTIVE: "",
+            LOOP55_TEST_STARTED: markers[index],
+            LOOP55_HEAVY_WAIT_SECONDS: "0",
+            LOOP55_HEAVY_RESERVE_MB: "1099511627776",
+            LOOP55_HEAVY_SCHEDULING: "on",
+            LOOP55_JOB_QUEUE_CONFIG: join(root, "unavailable-queue.json"),
+            LOOP55_JOB_ACTIVE: "",
           },
           stdio: ["ignore", "ignore", "pipe"],
         });
@@ -163,7 +163,10 @@ test("command status and cancellation remain observable without admission", asyn
     await runSupervised(process.execPath, ["-e", "process.exit(7)"], options),
     7,
   );
-  assert.equal(await runSupervised("/no-such-loop-command", [], options), 127);
+  assert.equal(
+    await runSupervised("/no-such-loop55-command", [], options),
+    127,
+  );
   const controller = new AbortController();
   controller.abort();
   assert.equal(
@@ -180,7 +183,7 @@ test(
   "cancelling one concurrent command cleans it up without stopping its sibling",
   { skip: process.platform !== "linux" },
   async () => {
-    const root = mkdtempSync(join(tmpdir(), "loop-command-cancel-"));
+    const root = mkdtempSync(join(tmpdir(), "loop55-command-cancel-"));
     const controllers = [new AbortController(), new AbortController()];
     const jobs = controllers.map((controller, i) =>
       runSupervised(

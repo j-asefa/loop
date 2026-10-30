@@ -7,10 +7,10 @@ import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { ArtifactMetadata } from "../src/server/row-schemas";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-workflow-save-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "server";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop55-workflow-save-"));
+process.env.LOOP55_DATA_DIR = directory;
+process.env.LOOP55_PROFILE = "server";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -32,7 +32,7 @@ const agent = createAgent("alice", {
   model: "fixture",
 });
 const spec = {
-  dsl: "loop.workflow/v1",
+  dsl: "loop55.workflow/v1",
   title: "Saved workflow",
   inputs: {},
   agents: { writer: agent.id },
@@ -150,7 +150,7 @@ it("rejects an unsupported workflow dialect through HTTP without storing a versi
   expect(
     (
       await save({
-        source: JSON.stringify({ ...spec, dsl: "loop.workflow/v2" }),
+        source: JSON.stringify({ ...spec, dsl: "loop55.workflow/v2" }),
       })
     ).status,
   ).toBe(400);

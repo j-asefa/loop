@@ -14,7 +14,7 @@ it("accounts for every production API registration through registry contracts ac
   ]);
   const seen = new Set<string>();
   for (const profile of ["server", "companion"]) {
-    const directory = mkdtempSync(join(tmpdir(), "loop-route-inventory-"));
+    const directory = mkdtempSync(join(tmpdir(), "loop55-route-inventory-"));
     try {
       const output = execFileSync(
         process.execPath,
@@ -25,13 +25,13 @@ it("accounts for every production API registration through registry contracts ac
           env: {
             ...Object.fromEntries(
               Object.entries(process.env).filter(
-                ([key]) => !key.startsWith("LOOP_"),
+                ([key]) => !key.startsWith("LOOP55_"),
               ),
             ),
             NODE_ENV: "test",
-            LOOP_PROFILE: profile,
-            LOOP_DATA_DIR: directory,
-            LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+            LOOP55_PROFILE: profile,
+            LOOP55_DATA_DIR: directory,
+            LOOP55_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
             BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
           },
         },

@@ -1,3 +1,4 @@
+import "../deployment/environment.mjs";
 import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-smoke.mjs";
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
 import { agentThreadFeedSmoke } from "./helpers/agent-thread-feed-smoke.mjs";
@@ -173,8 +174,8 @@ const scenarios = {
 };
 
 const screenshots =
-  process.env.LOOP_DESIGN_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+  process.env.LOOP55_DESIGN_SCREENSHOT_DIR ||
+  (process.env.CI ? join("docs", "loop55-v0", "evidence") : undefined);
 if (screenshots) mkdirSync(screenshots, { recursive: true });
 const scenario = process.argv[2] || "core";
 if (scenario !== "core" && !Object.hasOwn(scenarios, scenario))
@@ -854,7 +855,7 @@ for (const engine of selectedEngines()) {
         await close();
         await page.locator(".approval-summary").click();
         await capture("approval");
-        await expect(dialog()).toContainText("sample/loop #42");
+        await expect(dialog()).toContainText("sample/loop55 #42");
         const action = dialog().getByRole("button", {
           name: "Approve and continue",
           exact: true,
@@ -990,7 +991,7 @@ for (const engine of selectedEngines()) {
         ).toBeVisible();
         const projectRow = page
           .locator(".project-tile")
-          .filter({ has: page.locator("strong", { hasText: /^Loop$/ }) });
+          .filter({ has: page.locator("strong", { hasText: /^Loop55$/ }) });
         await expect(projectRow).toContainText("4 agents");
         await capture("projects");
         await projectRow.click();
@@ -1058,7 +1059,7 @@ for (const engine of selectedEngines()) {
         await collectionReadRecovery(page, {
           route: (url) => /^\/api\/v1\/cards(?:\/changes)?$/.test(url.pathname) && url.searchParams.get("view") === "results" && url.searchParams.get("project") === fixture.projects[0].id,
           scope: activity,
-          start: () => page.evaluate(() => window.dispatchEvent(new Event("loop-later-change"))),
+          start: () => page.evaluate(() => window.dispatchEvent(new Event("loop55-later-change"))),
         });
         await expect(oldest).toHaveCount(1);
         fixture.db
@@ -1082,7 +1083,7 @@ for (const engine of selectedEngines()) {
         ).toHaveText("Projects");
         await page.getByRole("button", { name: /Nested work/ }).click();
         await expect(page.locator(".file-row").first()).toBeVisible();
-        await expect(page.locator(".project-heading h2")).toHaveText("Loop");
+        await expect(page.locator(".project-heading h2")).toHaveText("Loop55");
         // Later shares your profile with messages, decision history, Files
         // and Social. Keep the full tab order covered as sections are added.
         await nav("Your profile");

@@ -9,10 +9,10 @@ import { initializeFleetIdentity } from "../src/server/fleet-identity.js";
 import { generateMachineKey } from "../src/server/fleet-crypto.js";
 import { fleetSourceId } from "../src/shared/fleet.js";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-fleet-identity-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop55-fleet-identity-"));
+process.env.LOOP55_DATA_DIR = directory;
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const databases: Database.Database[] = [];
 afterEach(() => {

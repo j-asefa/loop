@@ -118,8 +118,8 @@ export class ExecutionProcess
             execArgv: source ? ["--import", "tsx"] : [],
             env: {
               ...process.env,
-              LOOP_PROFILE: "companion",
-              LOOP_DATA_DIR: config.data,
+              LOOP55_PROFILE: "companion",
+              LOOP55_DATA_DIR: config.data,
             },
             detached: true,
             stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -193,7 +193,7 @@ export class ExecutionProcess
         reject(
           error ??
             new Error(
-              "Execution worker exited before readiness; inspect loop logs.",
+              "Execution worker exited before readiness; inspect loop55 logs.",
             ),
         );
         this.retry();

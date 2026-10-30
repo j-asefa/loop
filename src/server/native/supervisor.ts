@@ -378,7 +378,7 @@ export class NativeSessions {
     const current = this.live.get(conversation);
     const snapshot = agentPayload(run);
     const connection = ownedConnection(snapshot.connectionId, run.owner_id);
-    const harness = connection.metadata.loopHarness as Harness;
+    const harness = connection.metadata.loop55Harness as Harness;
     const registration = this.registration(harness);
     if (current?.closed) {
       await this.dispose(current);
@@ -397,7 +397,7 @@ export class NativeSessions {
       // checkout must not discard native context during a harness switch.
       previousWorkspace = boundWorkspace(binding, run.agent_id, run.owner_id);
       // A native session cannot move between harnesses. Start a fresh one
-      // on the new harness and carry Loop's transcript over as context.
+      // on the new harness and carry Loop55's transcript over as context.
       if (current && !current.closed) {
         await current.ready;
         if (current.run)
@@ -496,7 +496,7 @@ export class NativeSessions {
         .get(conversation) as Binding;
     } else boundWorkspace(binding, run.agent_id, run.owner_id);
     // What the checkout looked like before this run touched it. Recorded by
-    // Loop, never by the harness; a capture failure is recorded, not raised.
+    // Loop55, never by the harness; a capture failure is recorded, not raised.
     if (binding.worktree_source)
       await startCheckout(
         run,
@@ -523,7 +523,7 @@ export class NativeSessions {
       if (current && !current.closed) current.sessionMode = undefined;
     }
     // A harness launched in a permission mode restarts to change it, like a
-    // model change. Loop-side approval policy applies from the next turn.
+    // model change. Loop55-side approval policy applies from the next turn.
     const relaunch =
       !!current &&
       !current.closed &&
@@ -630,9 +630,11 @@ export class NativeSessions {
       { metadata: string } | undefined;
     if (
       connection &&
-      (harnessUpgrades.busy(JSON.parse(connection.metadata).loopHarness) ||
-        providerChangeInProgress(JSON.parse(connection.metadata).loopHarness) ||
-        nativeSignIns.inProgress(JSON.parse(connection.metadata).loopHarness))
+      (harnessUpgrades.busy(JSON.parse(connection.metadata).loop55Harness) ||
+        providerChangeInProgress(
+          JSON.parse(connection.metadata).loop55Harness,
+        ) ||
+        nativeSignIns.inProgress(JSON.parse(connection.metadata).loop55Harness))
     )
       throw new RunDeferred(
         "Wait for the runtime upgrade or provider change to finish before starting a run.",
@@ -879,7 +881,7 @@ export class NativeSessions {
     db.transaction(() => {
       const runs = db
         .prepare(
-          "SELECT r.id,r.owner_id FROM runs r LEFT JOIN native_dispatch d ON d.run_id=r.id LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') WHERE (d.run_id IS NOT NULL OR json_extract(c.metadata,'$.loopHarness') IS NOT NULL) AND (r.state IN ('running','pausing','awaiting_approval') OR (r.state='queued' AND d.run_id IS NOT NULL))",
+          "SELECT r.id,r.owner_id FROM runs r LEFT JOIN native_dispatch d ON d.run_id=r.id LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') WHERE (d.run_id IS NOT NULL OR json_extract(c.metadata,'$.loop55Harness') IS NOT NULL) AND (r.state IN ('running','pausing','awaiting_approval') OR (r.state='queued' AND d.run_id IS NOT NULL))",
         )
         .all() as Pick<Run, "id" | "owner_id">[];
       for (const run of runs) {

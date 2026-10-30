@@ -1,3 +1,4 @@
+import "../../deployment/environment.mjs";
 import type { QueryRow } from "./query-records.js";
 import { InvalidRow, requireSealedSecret } from "./row-schemas.js";
 import { ownedConnection } from "./domain.js";
@@ -24,7 +25,7 @@ export type SearchDoc = {
   provider?: string;
 };
 const modelDefault =
-  process.env.LOOP_EMBEDDING_MODEL || "text-embedding-3-small";
+  process.env.LOOP55_EMBEDDING_MODEL || "text-embedding-3-small";
 const hash = (d: SearchDoc) =>
   createHash("sha256")
     .update(d.title + "\n" + d.content)
@@ -227,7 +228,7 @@ export async function indexPending() {
           error instanceof InvalidRow
             ? error.message
             : c.embedding_model === localModel
-              ? "Local semantic indexing failed. Loop will retry automatically; keyword search is available."
+              ? "Local semantic indexing failed. Loop55 will retry automatically; keyword search is available."
               : "The embedding provider could not index your content. Check the API account in Search preferences; keyword search is available.",
         );
       }
@@ -363,7 +364,7 @@ export async function search(
       mode = "hybrid";
       detail =
         c.embedding_model === localModel
-          ? "Keyword + semantic results. Text stays on your Loop server."
+          ? "Keyword + semantic results. Text stays on your Loop55 server."
           : "Keyword + semantic results. Embeddings and this query go to your selected OpenAI API account.";
     } catch (error) {
       if (error instanceof InvalidRow)

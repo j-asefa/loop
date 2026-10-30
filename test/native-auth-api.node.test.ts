@@ -13,8 +13,8 @@ import { randomUUID } from "node:crypto";
 import { until } from "./helpers.js";
 await mkdir(".tmp", { recursive: true });
 const dir = await mkdtemp(resolve(".tmp/native-auth-api-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_PROFILE = "companion";
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db } = await import("../src/server/db.js");
 
@@ -25,7 +25,7 @@ test("paired provider authentication protects credentials, checks project owners
   for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse", "grok"]) {
     await writeFile(
       join(bin, name),
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP55_TEST_HARNESS=${name}\nexport LOOP55_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
   }
@@ -65,7 +65,7 @@ test("paired provider authentication protects credentials, checks project owners
         headers: {
           "Content-Type": "application/json",
           ...(authenticated ? { cookie, Origin: host.origin } : {}),
-          ...(validCsrf ? { "x-loop-csrf": csrf } : {}),
+          ...(validCsrf ? { "x-loop55-csrf": csrf } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
       });

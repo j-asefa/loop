@@ -6,7 +6,7 @@ import {
 } from "./linked-docker.js";
 import type { WebSocket } from "ws";
 
-/** An owner-visible Loop API that holds agents and their conversations. */
+/** An owner-visible Loop55 API that holds agents and their conversations. */
 export type AgentSource = { id: string; name: string; kind: string };
 
 export type SourceAdapter = {

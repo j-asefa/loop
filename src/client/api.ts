@@ -41,14 +41,14 @@ function retryDeadline(header: string | null) {
   return Date.now() + (Number.isFinite(delay) ? Math.max(1000, delay) : 1000);
 }
 /**
- * Loop's connection service answers this while the application restarts. The
- * request never reached Loop; nothing about pairing or the session changed.
+ * Loop55's connection service answers this while the application restarts. The
+ * request never reached Loop55; nothing about pairing or the session changed.
  */
 const restarting = (r: Response) =>
-  r.status === 503 && r.headers.get("x-loop-unavailable") === "restarting";
-export const RECONNECTING = "Loop is reconnecting… Work on your computer continues.";
+  r.status === 503 && r.headers.get("x-loop55-unavailable") === "restarting";
+export const RECONNECTING = "Loop55 is reconnecting… Work on your computer continues.";
 function reconnectingError() {
-  window.dispatchEvent(new Event("loop-reconnecting"));
+  window.dispatchEvent(new Event("loop55-reconnecting"));
   return Object.assign(new Error(RECONNECTING), {
     status: 503,
     reconnecting: true,
@@ -67,11 +67,11 @@ export async function authorize(signal?: AbortSignal) {
       if (!response.ok) {
         // Only a refusal ends the session; a server or relay failure doesn't.
         if (response.status < 500)
-          window.dispatchEvent(new Event("loop-auth-expired"));
+          window.dispatchEvent(new Event("loop55-auth-expired"));
         throw new Error(
           response.status < 500
             ? "Pair this device from the desktop."
-            : "Couldn’t reach Loop. Try again.",
+            : "Couldn’t reach Loop55. Try again.",
         );
       }
       csrf = (await response.json()).csrf;
@@ -107,7 +107,7 @@ async function sendRequest(path: string, init: RequestInit = {}, current: () => 
   const headers = new Headers(init.headers);
   if (!["GET", "HEAD"].includes(method.toUpperCase())) {
     await authorize(init.signal ?? undefined);
-    headers.set("x-loop-csrf", csrf);
+    headers.set("x-loop55-csrf", csrf);
   }
   current();
   dispatch();
@@ -160,7 +160,7 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
   }, command?.current, command?.dispatch).catch((error) => {
     if (error instanceof TypeError && !signal?.aborted)
       throw new Error(
-        "Couldn’t reach Loop. Check your connection and try again.",
+        "Couldn’t reach Loop55. Check your connection and try again.",
       );
     throw error;
   });
@@ -184,11 +184,11 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
     !(kind === "stream" && sameWorkspaceRedirect(r, url))
   ) {
     clearAuthorization();
-    window.dispatchEvent(new Event("loop-auth-expired"));
-    throw Object.assign(new Error("Sign in to Loop"), { redirected: true });
+    window.dispatchEvent(new Event("loop55-auth-expired"));
+    throw Object.assign(new Error("Sign in to Loop55"), { redirected: true });
   }
   // Multipart callers previously named the HTTP status when a tunnel or proxy
-  // returned an error page instead of Loop's JSON receipt.
+  // returned an error page instead of Loop55's JSON receipt.
   const uploadFailure = `Upload failed (HTTP ${r.status}${r.statusText ? " " + r.statusText : ""}). Try again.`;
   let parsed = true;
   const data = await (empty && r.status === 204 ? Promise.resolve(undefined) : r.ok && kind === "stream" ? r.blob() : r.json()).catch(() => {
@@ -198,7 +198,7 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
   if (!r.ok || !parsed) {
     if (r.status === 401 && (!sourceId || /Pair this device/i.test(data?.error || ""))) {
       clearAuthorization();
-      window.dispatchEvent(new Event("loop-auth-expired"));
+      window.dispatchEvent(new Event("loop55-auth-expired"));
     }
     // The status lets callers tell a refusal (4xx) from an uncertain outcome.
     throw Object.assign(
@@ -211,15 +211,15 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
       },
     );
   }
-  if (generation === viewGeneration() && verb.toUpperCase() === "GET" && r.headers.has("x-loop-next-deadline")) {
-    const next = r.headers.get("x-loop-next-deadline");
+  if (generation === viewGeneration() && verb.toUpperCase() === "GET" && r.headers.has("x-loop55-next-deadline")) {
+    const next = r.headers.get("x-loop55-next-deadline");
     const clock = WorkspaceClock.safeParse({
-      epoch: r.headers.get("x-loop-change-epoch"),
-      cursor: Number(r.headers.get("x-loop-change-cursor")),
-      serverNow: Number(r.headers.get("x-loop-server-now")),
+      epoch: r.headers.get("x-loop55-change-epoch"),
+      cursor: Number(r.headers.get("x-loop55-change-cursor")),
+      serverNow: Number(r.headers.get("x-loop55-server-now")),
       nextDeadline: next === "null" ? null : Number(next),
     });
-    if (clock.success) window.dispatchEvent(new CustomEvent("loop-workspace-clock", {
+    if (clock.success) window.dispatchEvent(new CustomEvent("loop55-workspace-clock", {
       detail: { source: decodeURIComponent(destination), generation, requestId, clock: clock.data },
     }));
   }
@@ -307,7 +307,7 @@ export async function callRoute<C extends ClientRouteContract>(contract: C, inpu
         if (command?.upload) {
           form.append("manifest", JSON.stringify(command.upload));
           // An unresolved upload only queries its receipt; do not send its bytes again.
-          if (command.headers["x-loop-receipt-only"] !== "1") form.append("file", upload.file, "upload");
+          if (command.headers["x-loop55-receipt-only"] !== "1") form.append("file", upload.file, "upload");
         } else {
           for (const [key, value] of Object.entries(input.body ?? {}))
             if (value !== undefined) form.append(key, String(value));

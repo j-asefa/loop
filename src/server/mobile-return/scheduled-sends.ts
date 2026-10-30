@@ -148,7 +148,7 @@ function scheduledSend(owner: string, sendId: string) {
 
 /**
  * Scheduled messages that still need you: waiting to send, or not sent
- * because Loop refused them when they were due. Owner-wide, or one thread's.
+ * because Loop55 refused them when they were due. Owner-wide, or one thread's.
  */
 const failedCursor = z.object({
   at: z.number(),

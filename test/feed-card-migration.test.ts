@@ -16,13 +16,17 @@ import { applyMigrations } from "../src/server/migrations";
 it.each([null, 118, 123])(
   "backfills before startup returns with concurrent database users (upgrade=%s)",
   async (upgrade) => {
-    const dir = mkdtempSync(join(tmpdir(), "loop-feed-migration-"));
-    const env = { ...process.env, LOOP_DATA_DIR: dir, LOOP_PROFILE: "server" };
+    const dir = mkdtempSync(join(tmpdir(), "loop55-feed-migration-"));
+    const env = {
+      ...process.env,
+      LOOP55_DATA_DIR: dir,
+      LOOP55_PROFILE: "server",
+    };
     const source = pathToFileURL(resolve("src/server/db.ts")).href;
     const children: ReturnType<typeof spawn>[] = [];
     try {
       if (upgrade !== null) {
-        const old = new Database(join(dir, "loop.db"));
+        const old = new Database(join(dir, "loop55.db"));
         old.pragma("foreign_keys=ON");
         old
           .transaction(() => {
@@ -107,7 +111,7 @@ it.each([null, 118, 123])(
           },
         ]);
       else expect(first.cards).toEqual([]);
-      const db = new Database(join(dir, "loop.db"));
+      const db = new Database(join(dir, "loop55.db"));
       try {
         expect(db.pragma("foreign_key_check")).toEqual([]);
         if (upgrade !== null)

@@ -4,11 +4,14 @@ import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
 const log = (value) => {
-  if (process.env.LOOP_TEST_AGY_LOG)
-    appendFileSync(process.env.LOOP_TEST_AGY_LOG, JSON.stringify(value) + "\n");
+  if (process.env.LOOP55_TEST_AGY_LOG)
+    appendFileSync(
+      process.env.LOOP55_TEST_AGY_LOG,
+      JSON.stringify(value) + "\n",
+    );
 };
 log({ args, pid: process.pid });
-const mode = process.env.LOOP_TEST_AGY_MODE;
+const mode = process.env.LOOP55_TEST_AGY_MODE;
 if (args[0] === "--version") {
   console.log("1.4.9");
   process.exit(0);
@@ -38,8 +41,8 @@ const resume = args.indexOf("--conversation");
 const conversation =
   resume >= 0
     ? args[resume + 1]
-    : process.env.LOOP_TEST_AGY_SESSION_ID || "agy-fixture-session";
-if (process.env.LOOP_TEST_AGY_SLOW_STOP) {
+    : process.env.LOOP55_TEST_AGY_SESSION_ID || "agy-fixture-session";
+if (process.env.LOOP55_TEST_AGY_SLOW_STOP) {
   setInterval(() => {}, 1000);
   let stopping = false;
   process.on("SIGTERM", () => {
