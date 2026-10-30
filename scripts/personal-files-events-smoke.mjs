@@ -2,6 +2,7 @@ import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { chromium, webkit, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
+import { temporaryPageRoute } from "./helpers/temporary-page-route.mjs";
 
 function publish(fixture, first, last) {
   const { db, owner } = fixture;
@@ -81,7 +82,44 @@ for (const engine of process.env.LOOP55_BROWSER
           exact: true,
         });
         await expect(rows).toHaveCount(40);
-        await more.click();
+        // A refresh between pointer press and release must not replace the
+        // button or discard the requested append. Hold that refresh so the
+        // click also exercises queueing behind an in-flight read.
+        let refreshHeld = false,
+          releaseRefresh;
+        const refreshGate = new Promise((resolve) => {
+          releaseRefresh = resolve;
+        });
+        const stopRefresh = await temporaryPageRoute(
+          page,
+          "**/api/me/files?*",
+          async (route) => {
+            if (
+              refreshHeld ||
+              new URL(route.request().url()).searchParams.has("before")
+            )
+              return route.fallback();
+            const response = await route.fetch();
+            refreshHeld = true;
+            await refreshGate;
+            await route.fulfill({ response });
+          },
+        );
+        await more.evaluate((button) =>
+          button.addEventListener(
+            "pointerdown",
+            () => window.dispatchEvent(new Event("loop55-refresh")),
+            { once: true },
+          ),
+        );
+        try {
+          await more.click({ delay: 150 });
+          await expect.poll(() => refreshHeld).toBe(true);
+          await expect(rows).toHaveCount(40);
+        } finally {
+          releaseRefresh();
+          await stopRefresh();
+        }
         await expect(rows).toHaveCount(80);
         await rows.nth(60).scrollIntoViewIfNeeded();
         const scroll = await page.evaluate(() => {
@@ -231,9 +269,33 @@ for (const engine of process.env.LOOP55_BROWSER
         for (const state of ["running", "completed"]) {
           db.prepare("UPDATE runs SET state=? WHERE id='run'").run(state);
           const thread = await context.newPage();
-          let runReads = 0;
+          await thread.addInitScript(() => {
+            window.__filesLastNotification = Date.now();
+            for (const name of [
+              "loop55-workspace-frame",
+              "loop55-workspace-change",
+            ])
+              window.addEventListener(name, () => {
+                window.__filesLastNotification = Date.now();
+              });
+          });
+          const pendingRunReads = new Set();
+          let lastRunRead = Date.now();
+          thread.on("request", (request) => {
+            if (new URL(request.url()).pathname !== "/api/runs/run/files")
+              return;
+            pendingRunReads.add(request);
+            lastRunRead = Date.now();
+          });
+          const finishRunRead = (request) => {
+            if (pendingRunReads.delete(request)) lastRunRead = Date.now();
+          };
+          thread.on("requestfinished", finishRunRead);
+          thread.on("requestfailed", finishRunRead);
+          let runReads = 0,
+            injectFailure = false;
           await thread.route("**/api/runs/run/files", (route) =>
-            ++runReads === 1
+            injectFailure && ++runReads === 1
               ? route.fulfill({
                   status: 503,
                   contentType: "text/html",
@@ -245,9 +307,6 @@ for (const engine of process.env.LOOP55_BROWSER
           await expect(thread.locator(".workspace-connection")).toHaveText(
             "Connected to workspace",
           );
-          // Settle initial reset/coalescing before testing a quiet read. A
-          // reset during retry legitimately queues one more reconciliation.
-          await thread.waitForTimeout(2500);
           await thread.evaluate(() => {
             const url = new URL(location.href);
             url.search = "?conversation=thread";
@@ -270,6 +329,54 @@ for (const engine of process.env.LOOP55_BROWSER
                 exact: true,
               }),
           ).toBeVisible({ timeout: 8000 });
+          // Opening detail changes a multiplex subscription and announces the
+          // source again. Let that bounded 3s coalescing window and its reads
+          // settle before injecting a failure into an otherwise quiet stream.
+          await expect
+            .poll(
+              async () =>
+                pendingRunReads.size === 0 &&
+                Date.now() - lastRunRead >= 3500 &&
+                (await thread.evaluate(
+                  () => Date.now() - window.__filesLastNotification >= 3500,
+                )),
+              { timeout: 10000 },
+            )
+            .toBe(true);
+          injectFailure = true;
+          await thread.evaluate(() =>
+            window.dispatchEvent(
+              new CustomEvent("loop55-workspace-change", {
+                detail: {
+                  sources: [""],
+                  changes: [
+                    {
+                      source: "",
+                      events: [
+                        {
+                          type: "invalidate",
+                          scope: { kind: "collection", id: "results" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              }),
+            ),
+          );
+          const readError = thread.locator(
+            ".conversation-sheet .published-files [role=alert]",
+          );
+          await expect(readError).toBeVisible();
+          await expect(readError).toHaveCount(0, { timeout: 8000 });
+          await expect(
+            thread
+              .locator(".conversation-sheet .published-files")
+              .getByRole("button", {
+                name: "Preview report-001.pdf",
+                exact: true,
+              }),
+          ).toBeVisible();
           assert.equal(
             runReads,
             2,

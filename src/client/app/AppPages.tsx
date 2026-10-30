@@ -1,3 +1,4 @@
+import { sessionDraft } from "../workspace-drafts";
 import { PersonalProfile } from "../PersonalProfile";
 import { PersonalFiles } from "../PersonalFiles";
 import { Social } from "../Social";
@@ -218,6 +219,12 @@ export function renderAppPages(
     dismissNotice,
     setDismissNotice,
   } = props;
+  const profileTabStorage = sessionDraft<string>(
+    session?.user?.id,
+    executionSourceId(),
+    "agent-tab",
+    profile?.id || "",
+  );
   return (
     <main className="workspace-content">
       {(pullRefresh.pull > 0 || pullRefresh.refreshing) && (
@@ -396,8 +403,7 @@ export function renderAppPages(
                 aria-pressed={view === v}
                 onClick={() => {
                   setView(v);
-                  if (profile)
-                    sessionStorage.setItem("loop55-agent-tab-" + profile.id, v);
+                  if (profile) profileTabStorage.write(v);
                 }}
               >
                 {label}

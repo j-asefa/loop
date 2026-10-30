@@ -721,13 +721,13 @@ test("a group whose leader exited before the stop is kept and reported, not sign
       JSON.parse(await readFile(join(dir, "stop-records.json"), "utf8")),
       [record],
     );
-    process.kill(member, "SIGKILL");
+    killFixtureProcess(member);
     await until(() => !alive(member));
     await forceStop(dir, undefined, "exited");
     for (const file of [registry, join(dir, "stop-records.json")])
       assert(!existsSync(file), "resolved once the group is empty");
   } finally {
-    if (member && alive(member)) process.kill(member, "SIGKILL");
+    if (member && alive(member)) killFixtureProcess(member);
     await rm(dir, { recursive: true, force: true });
   }
 });

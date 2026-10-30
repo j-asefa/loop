@@ -56,6 +56,14 @@ export class FleetPeerEvents {
   }
   async connect(socket: EventSocket, peer: string, query: URLSearchParams) {
     const target = this.target(peer);
+    const request = FleetEventSubscription.parse({
+      version: 1,
+      requestId: randomUUID(),
+      epoch: query.get("epoch") ?? "",
+      cursor: Number(query.get("cursor") ?? 0),
+      conversations: JSON.parse(query.get("conversations") ?? "[]"),
+      runs: JSON.parse(query.get("runs") ?? "[]"),
+    });
     if (this.active.size >= 24)
       throw new Problem(503, "Source event connections are busy.");
     const controller = new AbortController();
@@ -111,14 +119,6 @@ export class FleetPeerEvents {
         controller.signal,
       );
       current();
-      const request = FleetEventSubscription.parse({
-        version: 1,
-        requestId: randomUUID(),
-        epoch: query.get("epoch") ?? "",
-        cursor: Number(query.get("cursor") ?? 0),
-        conversations: JSON.parse(query.get("conversations") ?? "[]"),
-        runs: JSON.parse(query.get("runs") ?? "[]"),
-      });
       let sequence = 0,
         alive = true;
       upstream.on("pong", () => {

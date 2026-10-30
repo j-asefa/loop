@@ -248,6 +248,21 @@ it("subscribes with an events-only grant without acquiring read permission", asy
     transport,
   );
   try {
+    const invalidQueries: Record<string, string>[] = [
+      { runs: "[" },
+      { cursor: "-1" },
+    ];
+    for (const query of invalidQueries) {
+      await expect(
+        events.connect(
+          sink,
+          b.authority.identity.machineId,
+          new URLSearchParams(query),
+        ),
+      ).rejects.toThrow();
+      expect(operations).toEqual([]);
+      expect(server.clients.size).toBe(0);
+    }
     await events.connect(
       sink,
       b.authority.identity.machineId,

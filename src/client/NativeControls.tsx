@@ -15,7 +15,8 @@ import { watchWorkspaceEvents } from "./workspace-events";
 import { publishProjectionFrame, forgetProjectionSource, surfaceFallback } from "./workspace-projections";
 import { WorkspaceChangeQueue, listenWorkspaceChanges } from "./workspace-changes";
 import { PARTIAL_WORKSPACE_CAPABILITIES, type WorkspaceEvent } from "../shared/workspace-events";
-import { capabilities } from "./capabilities";
+import { capabilities, eventMultiplexing } from "./capabilities";
+import { multiplexWorkspaceSocket } from "./workspace-multiplex";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import {
   BuildIdentity,
@@ -65,6 +66,7 @@ export function WorkspaceConnection({
       url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       return watchWorkspaceEvents({
         url, source: sourceId,
+        ...(eventMultiplexing ? { socket: (url: URL) => multiplexWorkspaceSocket(url, sourceId) } : {}),
         read: (after, signal) =>
           readRoute(workspaceApi.events, { query: { after } }, sourceId, signal),
         changed: (events) => changed(sourceId, events),

@@ -40,36 +40,39 @@ const write = () =>
     },
     "",
   );
-const limited = (header = "8") =>
-  new Response("busy", { status: 429, headers: { "Retry-After": header } });
+const limited = (header = "8", status = 429) =>
+  new Response("busy", { status, headers: { "Retry-After": header } });
 
-it("surfaces Retry-After and backs off every read for only the rate-limited source", async () => {
-  fetcher.mockResolvedValueOnce(limited());
-  const error = await read("docker:one").catch((error) => error);
-  expect(error).toMatchObject({
-    status: 429,
-    retryAfterMs: 8000,
-    retryAt: Date.now() + 8000,
-  });
-  await vi.advanceTimersByTimeAsync(3000);
-  expect(retryAfter(error)).toBe(5000);
-  await expect(
-    callRoute(workspaceApi.events, { query: { after: 12 } }, "docker:one"),
-  ).rejects.toMatchObject({
-    status: 429,
-    retryAfterMs: 5000,
-  });
-  await expect(read("docker:one")).rejects.toMatchObject({ status: 429 });
-  expect(fetcher).toHaveBeenCalledTimes(1);
-  await read("docker:two");
-  await read();
-  fetcher.mockResolvedValueOnce(Response.json({ added: [], own: [] }));
-  await callRoute(workspaceApi.socialFeeds, {}, "docker:one"); // routed locally
-  expect(fetcher).toHaveBeenCalledTimes(4);
-  await vi.advanceTimersByTimeAsync(5000);
-  await read("docker:one");
-  expect(fetcher).toHaveBeenCalledTimes(5);
-});
+it.each([429, 502, 503])(
+  "HTTP %s backs off reads for only the affected source",
+  async (status) => {
+    fetcher.mockResolvedValueOnce(limited("8", status));
+    const error = await read("docker:one").catch((error) => error);
+    expect(error).toMatchObject({
+      status,
+      retryAfterMs: 8000,
+      retryAt: Date.now() + 8000,
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(retryAfter(error)).toBe(5000);
+    await expect(
+      callRoute(workspaceApi.events, { query: { after: 12 } }, "docker:one"),
+    ).rejects.toMatchObject({
+      status: 429,
+      retryAfterMs: 5000,
+    });
+    await expect(read("docker:one")).rejects.toMatchObject({ status: 429 });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await read("docker:two");
+    await read();
+    fetcher.mockResolvedValueOnce(Response.json({ added: [], own: [] }));
+    await callRoute(workspaceApi.socialFeeds, {}, "docker:one"); // routed locally
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(5000);
+    await read("docker:one");
+    expect(fetcher).toHaveBeenCalledTimes(5);
+  },
+);
 
 it("accepts HTTP dates and never replays a rejected mutation", async () => {
   fetcher.mockResolvedValueOnce(

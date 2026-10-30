@@ -1,6 +1,8 @@
+import { installEventStreamProbe } from "./helpers/event-stream-probe.mjs";
 import "../runtime/environment.mjs";
 import { pendingSourceRefreshSmoke } from "./helpers/feed-pending-refresh-smoke.mjs";
 import { sourceRetryFeedSmoke } from "./helpers/feed-source-retry-smoke.mjs";
+import { drainPageRoutes, temporaryPageRoute } from "./helpers/temporary-page-route.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -139,7 +141,7 @@ for (const engine of engines) {
         // Install interception before pages capture their WebSocket constructor.
         await context.routeWebSocket(
           (url) =>
-            url.pathname === "/ws" || url.pathname.endsWith("/events/ws"),
+            url.pathname === "/ws" || url.pathname.endsWith("/events/ws") || url.pathname === "/api/events/multiplex/ws",
           (socket) => {
             if (blockSockets) socket.close();
             else socket.connectToServer();
@@ -157,25 +159,13 @@ for (const engine of engines) {
             },
           ]);
         }
+        await context.addInitScript(installEventStreamProbe);
         await context.addInitScript(() => {
           // Exercise filters/cursors on browsers predating this optional API.
           Reflect.deleteProperty(URLSearchParams.prototype, "size");
-          const Original = window.WebSocket;
-          window.__eventSockets = [];
           window.__workspaceUpdates = 0;
           window.__workspaceResets = 0;
           window.__feedReconciledCursor = 0;
-          window.WebSocket = class extends Original {
-            constructor(...args) {
-              super(...args);
-              window.__eventSockets.push(this);
-              this.addEventListener("message", (event) => {
-                const frame = JSON.parse(event.data);
-                if (frame.v === 3) this.__eventCursor = frame.cursor;
-                if (frame.type === "reset") this.__resetFrame = frame;
-              });
-            }
-          };
           window.addEventListener(
             "loop55-workspace-change",
             event => {
@@ -184,8 +174,8 @@ for (const engine of engines) {
                 event.scope?.kind === "collection" && event.scope.id === "all"))) window.__workspaceResets++;
               if (event.detail?.changes?.some(change => change.source === "" && change.events.some(event =>
                 event.scope?.kind === "collection" && ["feed", "all"].includes(event.scope.id)))) {
-                const socket = window.__eventSockets.find(socket => ["/ws", "/api/events/ws"].includes(new URL(socket.url).pathname));
-                window.__feedReconciledCursor = Math.max(window.__feedReconciledCursor, socket?.__eventCursor ?? 0);
+                const stream = window.__sourceStream("");
+                window.__feedReconciledCursor = Math.max(window.__feedReconciledCursor, stream?.cursor ?? 0);
               }
             },
           );
@@ -198,20 +188,30 @@ for (const engine of engines) {
         let legacyBootstraps = 0, legacyFeeds = 0, legacyEvents;
         const legacySource = url => url.pathname.startsWith("/api/agent-sources/") && /\/(bootstrap|feed)$/.test(url.pathname);
         const legacyResponse = async route => {
-          const response = await route.fetch();
-          if (!response.ok()) return route.fulfill({ response });
-          const body = await response.json();
-          if (new URL(route.request().url()).pathname.endsWith("/bootstrap")) {
-            legacyBootstraps++;
-            for (const key of ["teams", "environmentName", "identityProviders", "capabilities"]) delete body[key];
-          } else {
-            legacyFeeds++;
-            for (const item of body.items) delete item.pull;
+          const sourcePage = route.request().frame().page();
+          try {
+            const response = await route.fetch();
+            if (!response.ok()) return await route.fulfill({ response });
+            const body = await response.json();
+            if (new URL(route.request().url()).pathname.endsWith("/bootstrap")) {
+              legacyBootstraps++;
+              for (const key of ["teams", "environmentName", "identityProviders", "capabilities"]) delete body[key];
+            } else {
+              legacyFeeds++;
+              for (const item of body.items) delete item.pull;
+            }
+            await route.fulfill({ response, json: body });
+          } catch (error) {
+            // A tab may close after fetch succeeds but before its intercepted
+            // response is fulfilled. Only that closed page or the existing
+            // upstream cancellation case may end this fixture handler quietly.
+            if (sourcePage.isClosed()) return;
+            if (!String(error).includes("ECONNRESET")) throw error;
+            await route.abort().catch(() => {});
           }
-          await route.fulfill({ response, json: body });
         };
         const installLegacySource = async page => {
-          if (remote) await page.route(legacySource, legacyResponse);
+          if (remote) await temporaryPageRoute(page, legacySource, legacyResponse);
         };
         // Keep asynchronous response transforms on the page that owns the
         // temporary routes. Removing the last page route can otherwise
@@ -219,10 +219,11 @@ for (const engine of engines) {
         const newPage = async () => {
           const page = await context.newPage();
           await installLegacySource(page);
-          if (legacyEvents) await page.route(/\/api\/(?:agent-sources\/[^/]+\/)?events\?/, legacyEvents);
+          if (legacyEvents) await temporaryPageRoute(page, /\/api\/(?:agent-sources\/[^/]+\/)?events\?/, legacyEvents);
           return page;
         };
         const closePage = async page => {
+          await drainPageRoutes(page);
           await page.unrouteAll({ behavior: "wait" });
           await page.close();
         };
@@ -258,7 +259,7 @@ for (const engine of engines) {
         let heldFeed = false, releaseFeed;
         const heldFeedGate = new Promise(resolve => {releaseFeed=resolve;});
         const workingQuery = url => url.pathname === "/api/feed" && url.searchParams.get("filter") === "working";
-        await working.route(workingQuery, async route => {
+        const stopResetRoute = await temporaryPageRoute(working, workingQuery, async route => {
           if (heldFeed) return route.continue();
           const response = await route.fetch(); heldFeed=true;
           await heldFeedGate;
@@ -275,15 +276,14 @@ for (const engine of engines) {
         });
         await expect.poll(() => heldFeed).toBe(true);
         await working.evaluate(clock => {
-          const socket=window.__eventSockets.find(socket=>["/ws","/api/events/ws"].includes(new URL(socket.url).pathname) && socket.__resetFrame);
-          socket.onmessage(new MessageEvent("message",{data:JSON.stringify({...socket.__resetFrame,...clock,type:"reset"})}));
+          window.__injectSourceReset("", clock);
         },resetClock);
         const resumedFeed = working.waitForResponse(response => workingQuery(new URL(response.url())));
         releaseFeed();
         await (await resumedFeed).finished();
         await working.waitForTimeout(700);
         assert.deepEqual(await working.evaluate(() => {window.__feedResetObserver.disconnect();return window.__feedResetErrors;}),[]);
-        await working.unroute(workingQuery);
+        await stopResetRoute();
         console.log(`PASS ${engine}/${mode} reset during Feed read does not report source failure`);
         if (remote) {
           await expect(row(working, "Remote task")).toHaveCount(1);
@@ -292,7 +292,7 @@ for (const engine of engines) {
           console.log(`PASS ${engine} linked legacy bootstrap metadata and unknown pull state remain readable`);
           const failedSource = await newPage();
           const unavailable = "**/api/agent-sources/*/feed?*";
-          await failedSource.route(unavailable, async route => {
+          const stopUnavailable = await temporaryPageRoute(failedSource, unavailable, async route => {
             if (await failedSource.evaluate(() => !!window.__feedManualRetry)) return route.fallback();
             return route.fulfill({status:403,json:{error:"Fixture source unavailable"}});
           });
@@ -327,7 +327,7 @@ for (const engine of engines) {
           }).toPass({timeout:30000});
           await expect(row(failedSource, "Remote task")).toHaveCount(1, {timeout:revisionTimeout});
           await expect(sourceError).toHaveCount(0);
-          await failedSource.unroute(unavailable);
+          await stopUnavailable();
           await closePage(failedSource);
           console.log(`PASS ${engine} scoped Feed refresh retains another source's failure until recovery`);
           // A single refresh can include a healthy and an unavailable source.
@@ -347,13 +347,10 @@ for (const engine of engines) {
           const remoteNeed = needsPage.locator(".needs-stack .inbox-card").filter({hasText:"Remote approval task"});
           await expect(remoteNeed).toHaveCount(1,{timeout:revisionTimeout});
           await needsPage.waitForTimeout(2500);
-          const sourceIds = await needsPage.evaluate(() => window.__eventSockets.map(socket => {
-            const match = new URL(socket.url).pathname.match(/\/agent-sources\/([^/]+)\//);
-            return match ? decodeURIComponent(match[1]) : "";
-          }));
+          const sourceIds = await needsPage.evaluate(() => [...new Set(window.__eventStreams.filter(stream => stream.readyState === WebSocket.OPEN).map(stream => stream.source))]);
           let failedNeeds = 0, localNeeds = 0;
           const needsRoute = url => url.pathname.endsWith("/feed") && url.searchParams.get("filter") === "needs";
-          await needsPage.route(needsRoute, route => {
+          const stopNeedsFailure = await temporaryPageRoute(needsPage, needsRoute, route => {
             if (new URL(route.request().url()).pathname.includes("agent-sources")) {
               failedNeeds++;
               return route.fulfill({status:403,json:{error:"Fixture Needs unavailable"}});
@@ -368,12 +365,12 @@ for (const engine of engines) {
           await expect.poll(() => localNeeds).toBeGreaterThan(0);
           await needsPage.waitForTimeout(800);
           await expect(remoteNeed).toHaveCount(1);
-          await needsPage.unroute(needsRoute);
+          await stopNeedsFailure();
           // A local refresh must not cancel an independent remote Needs read.
           // Hold a valid remote display response across the local completion.
           let remoteNeedsHeld = false, releaseRemoteNeeds;
           const remoteNeedsGate = new Promise(resolve => { releaseRemoteNeeds = resolve; });
-          await needsPage.route(needsRoute, async route => {
+          const stopNeedsHold = await temporaryPageRoute(needsPage, needsRoute, async route => {
             if (!new URL(route.request().url()).pathname.includes("agent-sources")) return route.continue();
             const response = await route.fetch();
             const body = await response.json();
@@ -408,12 +405,12 @@ for (const engine of engines) {
             await expect(needsPage.locator(".needs-stack .inbox-card").filter({ hasText: "Updated remote approval task" })).toHaveCount(1);
           } finally {
             releaseRemoteNeeds();
-            await needsPage.unroute(needsRoute);
+            await stopNeedsHold();
           }
           await closePage(needsPage);
-          await pendingSourceRefreshSmoke(newPage, fixture.origin, sourceIds.find(Boolean));
-          console.log(`PASS ${engine} local head refresh preserves queued remote Feed and Needs updates`);
-          await sourceRetryFeedSmoke(newPage, fixture.origin, sourceIds.find(Boolean));
+          await pendingSourceRefreshSmoke(newPage, fixture.origin, sourceIds.find(Boolean), closePage);
+          console.log(`PASS ${engine} slow local read allows remote Feed/Needs updates and retains its trailing notification`);
+          await sourceRetryFeedSmoke(newPage, fixture.origin, sourceIds.find(Boolean), closePage);
           console.log(`PASS ${engine} a retrying source preserves healthy Feed/Needs updates and recovers without another notification`);
           for (const source of [fixture,remote]) source.db.transaction(() => {
             source.db.prepare("DELETE FROM approvals WHERE id='needs-approval'").run();
@@ -425,13 +422,15 @@ for (const engine of engines) {
             working.evaluate(
               () =>
                 window.__eventSockets.filter(
-                  (socket) => new URL(socket.url).pathname === "/ws",
+                  (socket) => ["/ws", "/api/events/multiplex/ws"].includes(new URL(socket.url).pathname),
                 ).length,
             );
           await expect.poll(localSockets).toBe(1);
+          assert.equal(await working.evaluate(() => window.__eventSockets.filter(socket => socket.readyState === WebSocket.OPEN).length), 1,
+            "The companion page must share one browser socket across its sources");
           // A source disappearing and returning must only replace its own
           // watcher. Keep the healthy local socket, cursor and build baseline.
-          await working.route("**/api/agent-sources", (route) =>
+          const stopDiscovery = await temporaryPageRoute(working, "**/api/agent-sources", (route) =>
             route.fulfill({ json: [] }),
           );
           await working.evaluate(() =>
@@ -440,14 +439,14 @@ for (const engine of engines) {
           await expect
             .poll(() =>
               working.evaluate(() =>
-                window.__eventSockets
-                  .filter((socket) => new URL(socket.url).pathname !== "/ws")
-                  .every((socket) => socket.readyState === WebSocket.CLOSED),
+                window.__eventStreams
+                  .filter((stream) => stream.source !== "")
+                  .every((stream) => stream.readyState === WebSocket.CLOSED),
               ),
             )
             .toBe(true);
           assert.equal(await localSockets(), 1);
-          await working.unroute("**/api/agent-sources");
+          await stopDiscovery();
           await working.evaluate(() =>
             window.dispatchEvent(new Event("loop55-source-refresh")),
           );
@@ -455,10 +454,8 @@ for (const engine of engines) {
             .poll(() =>
               working.evaluate(
                 () =>
-                  window.__eventSockets.filter(
-                    (socket) =>
-                      new URL(socket.url).pathname !== "/ws" &&
-                      socket.readyState === WebSocket.OPEN,
+                  window.__eventStreams.filter(
+                    (stream) => stream.source !== "" && stream.readyState === WebSocket.OPEN,
                   ).length,
               ),
             )
@@ -466,7 +463,7 @@ for (const engine of engines) {
           assert.equal(await localSockets(), 1);
           // The last metadata signal must survive a source-specific cooldown.
           let limitedMetadata = false;
-          await working.route("**/api/agent-sources/*/bootstrap", route => {
+          const stopMetadataLimit = await temporaryPageRoute(working, "**/api/agent-sources/*/bootstrap", route => {
             if (limitedMetadata) return route.continue();
             limitedMetadata = true;
             return route.fulfill({status:429,headers:{"Retry-After":"2"},json:{error:"Fixture metadata cooldown"}});
@@ -474,26 +471,25 @@ for (const engine of engines) {
           remote.db.prepare("UPDATE agents SET name='Remote recovered' WHERE id='agent'").run();
           await expect.poll(() => limitedMetadata).toBe(true);
           await expect(working.getByRole("region", {name:"Your agents"})).toContainText("@Remote recovered", {timeout:revisionTimeout});
-          await working.unroute("**/api/agent-sources/*/bootstrap");
+          await stopMetadataLimit();
           // A successful run read cannot clear a failed metadata projection.
           // Discovery must keep retrying the source until bootstrap recovers.
           let failedMetadataReads = 0;
-          await working.route("**/api/agent-sources/*/bootstrap", route => {
+          const stopMetadataFailure = await temporaryPageRoute(working, "**/api/agent-sources/*/bootstrap", route => {
             failedMetadataReads++;
             return route.fulfill({status:403,json:{error:"Fixture metadata unavailable"}});
           });
           remote.db.prepare("UPDATE agents SET name='Remote metadata recovered' WHERE id='agent'").run();
-          const metadataWarning = working.getByRole("status").filter({hasText:"An environment is temporarily unavailable. Its last loaded agents are still shown."});
+          const metadataWarning = working.getByRole("status").filter({hasText:/temporarily unavailable\. Last loaded agents are still shown\./});
           await expect(metadataWarning).toBeVisible({timeout:revisionTimeout});
           const failedBeforeRuns = failedMetadataReads;
-          const linkedSource = await working.evaluate(() => decodeURIComponent(new URL(window.__eventSockets.find(socket =>
-            new URL(socket.url).pathname.includes("/agent-sources/")).url).pathname.split("/agent-sources/")[1].split("/")[0]));
+          const linkedSource = await working.evaluate(() => window.__eventStreams.find(stream => stream.source && stream.readyState === WebSocket.OPEN).source);
           await working.evaluate(source => window.dispatchEvent(new CustomEvent("loop55-workspace-change",{
             detail:{sources:[source],changes:[{source,events:[{type:"invalidate",scope:{kind:"collection",id:"runs"}}]}]},
           })),linkedSource);
           await expect.poll(() => failedMetadataReads,{timeout:revisionTimeout}).toBeGreaterThan(failedBeforeRuns);
           await expect(metadataWarning).toBeVisible();
-          await working.unroute("**/api/agent-sources/*/bootstrap");
+          await stopMetadataFailure();
           await expect(working.getByRole("region",{name:"Your agents"})).toContainText("@Remote metadata recovered",{timeout:35000});
           await expect(metadataWarning).toHaveCount(0);
           console.log(`PASS ${engine} run refresh preserves metadata failure and discovery recovers the source`);
@@ -505,7 +501,7 @@ for (const engine of engines) {
           let capturedDecision = false, releaseDecision, deliveredDecision;
           const decisionGate = new Promise(resolve => { releaseDecision = resolve; });
           const decisionDelivered = new Promise(resolve => { deliveredDecision = resolve; });
-          await working.route("**/api/native/decisions", async route => {
+          const stopDecision = await temporaryPageRoute(working, "**/api/native/decisions", async route => {
             if (capturedDecision) return route.continue();
             const response = await route.fetch();
             capturedDecision = true;
@@ -523,7 +519,7 @@ for (const engine of engines) {
             await expect(decision).toHaveCount(0);
           } finally {
             releaseDecision();
-            await working.unroute("**/api/native/decisions");
+            await stopDecision();
             fixture.db.prepare("DELETE FROM native_decisions WHERE id='late-decision'").run();
           }
           console.log(`PASS ${engine} native decision rejects an older pending snapshot after resolution`);
@@ -531,7 +527,7 @@ for (const engine of engines) {
             await working.evaluate(
               () =>
                 window.__eventSockets.find(
-                  (socket) => new URL(socket.url).pathname === "/ws",
+                  (socket) => ["/ws", "/api/events/multiplex/ws"].includes(new URL(socket.url).pathname),
                 ).readyState,
             ),
             1,
@@ -553,7 +549,7 @@ for (const engine of engines) {
         const headGate = new Promise((resolve) => {
           releaseHead = resolve;
         });
-        await working.route("**/api/feed?*", async (route) => {
+        const stopHead = await temporaryPageRoute(working, "**/api/feed?*", async (route) => {
           const query = new URL(route.request().url()).searchParams;
           if (
             headHeld ||
@@ -601,8 +597,7 @@ for (const engine of engines) {
           });
         } finally {
           releaseHead();
-          await working.unrouteAll({ behavior: "wait" });
-          await installLegacySource(working);
+          await stopHead();
         }
         await expect(row(working, "Local task")).toHaveCount(0, {
           timeout: 5000,
@@ -627,16 +622,16 @@ for (const engine of engines) {
         }
         // Retain the final notification when it arrives during a slower read.
         let held = false,
-          release;
+          release,
+          cardChangeReads = 0;
         const gate = new Promise((resolve) => {
           release = resolve;
         });
-        await done.route("**/api/v1/cards/changes?*", async (route) => {
-          if (
-            held ||
-            new URL(route.request().url()).searchParams.get("view") !== "done"
-          )
+        await temporaryPageRoute(done, "**/api/v1/cards/changes?*", async (route) => {
+          if (new URL(route.request().url()).searchParams.get("view") !== "done")
             return route.continue();
+          cardChangeReads++;
+          if (held) return route.continue();
           const response = await route.fetch();
           held = true;
           await gate;
@@ -661,6 +656,7 @@ for (const engine of engines) {
           .toBeGreaterThan(updates);
         await done.waitForTimeout(400); // App coalesces the notification before Feed sees it.
         release();
+        await expect.poll(() => cardChangeReads).toBeGreaterThan(1);
         await expect(row(done, "Final edit during refresh")).toHaveCount(1, {
           timeout: 5000,
         });
@@ -719,7 +715,7 @@ for (const engine of engines) {
           assert.equal(await thread.evaluate(() => window.__workspaceUpdates), quietUpdates,
             "the quiet measurement must not include a pending workspace invalidation");
           assert.equal(transcriptReads.length, 0, "streaming transcript must not refetch its snapshot");
-          const feedMode = await thread.evaluate(() => window.__eventSockets.find(socket => socket.__resetFrame?.v === 3)?.__resetFrame.capabilities.feed);
+          const feedMode = await thread.evaluate(() => window.__sourceStream("")?.reset?.capabilities.feed);
           assert.ok(["snapshot","delta"].includes(feedMode), "the source must declare its Feed delivery mode");
           // A snapshot Feed retains its 30s poll (two Feed reads and a Cards
           // change read). Once Feed advertises deltas, the strict total budget
@@ -750,9 +746,7 @@ for (const engine of engines) {
           const clock = (await (await fixture.request("/api/conversations/thread", {headers:fixture.browser})).json()).projection;
           const resetRead = thread.waitForResponse(response => new URL(response.url()).pathname === "/api/conversations/thread");
           await thread.evaluate(clock => {
-            const socket = window.__eventSockets.find(socket => socket.__resetFrame?.v === 3);
-            if (!socket?.onmessage) throw new Error("Missing reset-capable socket");
-            socket.onmessage(new MessageEvent("message", {data:JSON.stringify({...socket.__resetFrame,...clock,type:"reset"})}));
+            window.__injectSourceReset("", clock);
           }, clock);
           await (await resetRead).finished();
           await expect(thread.locator('[data-message-id="answer-0"]')).toHaveCount(0);
@@ -885,13 +879,7 @@ for (const engine of engines) {
           .poll(() =>
             replay.evaluate(
               () =>
-                window.__eventSockets
-                  .filter((socket) =>
-                    ["/ws", "/api/events/ws"].includes(
-                      new URL(socket.url).pathname,
-                    ),
-                  )
-                  .at(-1).__eventCursor,
+                window.__sourceStream("")?.cursor,
             ),
           )
           .toBe(cursor);
@@ -980,7 +968,10 @@ for (const engine of engines) {
         );
       } finally {
         process.env.PATH = priorPath;
-        for (const page of context?.pages() || []) await page.unrouteAll({ behavior: "wait" });
+        for (const page of context?.pages() || []) {
+          await drainPageRoutes(page);
+          await page.unrouteAll({ behavior: "wait" });
+        }
         await context?.unrouteAll({ behavior: "wait" });
         await context?.close();
         await fixture?.close();

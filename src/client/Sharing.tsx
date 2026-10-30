@@ -28,10 +28,6 @@ export type SharedDraft = {
 };
 export function initialShare(): SharedDraft {
   const q = new URLSearchParams(location.search);
-  let stored: any;
-  try {
-    stored = JSON.parse(sessionStorage.getItem("loop55-share") || "null");
-  } catch {}
   return q.has("share") || location.pathname === "/share"
     ? {
         url:
@@ -43,7 +39,7 @@ export function initialShare(): SharedDraft {
         question: q.get("question") || "",
         folderId: q.get("folder") || "",
       }
-    : stored || { url: "", title: "", excerpt: "", question: "", folderId: "" };
+    : { url: "", title: "", excerpt: "", question: "", folderId: "" };
 }
 export function SourceCard({
   source,

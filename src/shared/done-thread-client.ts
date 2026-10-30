@@ -23,6 +23,14 @@ function advance(seen: Set<string>, next: string | null) {
   return next ?? undefined;
 }
 
+function readFailure(error: unknown): never {
+  if ((error as { status?: number } | null)?.status === 413)
+    throw new Error(
+      "This result is too large to open here. Open its original conversation.",
+    );
+  throw error;
+}
+
 /** One transport retains its owning source and cancellation lifetime on every
  * page. A partial read never falls back to an unrelated unpaged snapshot. */
 export function contractDoneThreadReader(request: ThreadReadTransport) {
@@ -49,7 +57,7 @@ export function contractDoneThreadReader(request: ThreadReadTransport) {
               await request(workspaceApi.doneThreadList, { query }, signal),
             );
           }
-          throw error;
+          readFailure(error);
         }
         threads.push(...page.threads);
         cursor = advance(seen, page.next);
@@ -82,7 +90,7 @@ export function contractDoneThreadReader(request: ThreadReadTransport) {
               ),
             );
           }
-          throw error;
+          readFailure(error);
         }
         if (
           page.thread.id !== id ||

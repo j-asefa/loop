@@ -18,6 +18,11 @@ import { FleetWorkspaceActionHttpTransport } from "./fleet-workspace-action-http
 import { FleetWorkspaceFileHttpTransport } from "./fleet-workspace-file-http.js";
 import { FleetWorkspaceUploadHttpTransport } from "./fleet-workspace-upload-http.js";
 import { fleetAgentSource } from "./fleet-agent-source.js";
+import type { FleetCapacity } from "./fleet-capacity.js";
+import { FleetWorkspaceEvents } from "./fleet-workspace-events.js";
+import { FleetPeerEvents } from "./fleet-peer-events.js";
+import { FleetWorkspaceEventHttpTransport } from "./fleet-workspace-event-http.js";
+import type { connectWorkspaceEvents } from "./workspace-events.js";
 
 /** One companion's owner-bound services. Opening a workspace installs no peer
  * grants and starts no workspace polling; traffic requires a verified member,
@@ -27,6 +32,8 @@ export class FleetWorkspaceServices {
   readonly workspaceActions: FleetWorkspaceActions;
   readonly workspaceFiles: FleetWorkspaceFiles;
   readonly workspaceUploads: FleetWorkspaceUploads;
+  readonly workspaceEvents?: FleetWorkspaceEvents;
+  readonly events: FleetPeerEvents;
   readonly reads: FleetPeerReads;
   readonly actions: FleetPeerActions;
   readonly files: FleetPeerFiles;
@@ -42,6 +49,8 @@ export class FleetWorkspaceServices {
     secrets: ConstructorParameters<typeof FleetWorkspaceRead>[5],
     app: ConstructorParameters<typeof FleetWorkspaceApp>[0],
     applyUpload: typeof uploadFile,
+    connectEvents?: typeof connectWorkspaceEvents,
+    capacity?: FleetCapacity,
   ) {
     const bridge = new FleetWorkspaceApp(app, owner);
     this.workspaceActions = new FleetWorkspaceActions(
@@ -68,6 +77,15 @@ export class FleetWorkspaceServices {
       secrets,
       applyUpload,
     );
+    if (connectEvents)
+      this.workspaceEvents = new FleetWorkspaceEvents(
+        db,
+        authority,
+        credentials,
+        owner,
+        connectEvents,
+        secrets,
+      );
     this.workspaceRead = new FleetWorkspaceRead(
       db,
       authority,
@@ -79,33 +97,41 @@ export class FleetWorkspaceServices {
         actions: () => Object.keys(fleetActionRoutes),
         files: true,
         uploads: true,
+        events: !!this.workspaceEvents,
       },
     );
     this.reads = new FleetPeerReads(
       authority,
       leases,
       owner,
-      new FleetWorkspaceHttpTransport(),
+      new FleetWorkspaceHttpTransport(undefined, capacity),
+    );
+    this.events = new FleetPeerEvents(
+      authority,
+      leases,
+      owner,
+      this.reads,
+      new FleetWorkspaceEventHttpTransport(undefined, capacity),
     );
     this.actions = new FleetPeerActions(
       db,
       authority,
       leases,
       owner,
-      new FleetWorkspaceActionHttpTransport(),
+      new FleetWorkspaceActionHttpTransport(undefined, capacity),
     );
     this.files = new FleetPeerFiles(
       authority,
       leases,
       owner,
-      new FleetWorkspaceFileHttpTransport(),
+      new FleetWorkspaceFileHttpTransport(undefined, capacity),
     );
     this.uploads = new FleetPeerUploads(
       db,
       authority,
       leases,
       owner,
-      new FleetWorkspaceUploadHttpTransport(),
+      new FleetWorkspaceUploadHttpTransport(undefined, capacity),
     );
     this.source = fleetAgentSource(
       authority,
@@ -114,10 +140,13 @@ export class FleetWorkspaceServices {
       this.actions,
       this.files,
       this.uploads,
+      this.events,
     );
   }
 
   close() {
+    this.events.close();
+    this.workspaceEvents?.close();
     this.reads.close();
     this.actions.close();
     this.files.close();

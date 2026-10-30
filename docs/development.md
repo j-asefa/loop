@@ -154,6 +154,8 @@ LOOP55_BROWSER=webkit npm run smoke:journey
 
 `smoke:fleet-traces` drives the production trace panel against isolated HTTP fixtures with identical entity IDs on two sources. It exercises source-bound artifact reads, pagination and run downloads, including owner/source changes while a response or asynchronous Blob read is pending. It runs no provider or live tunnel.
 
+`node --import tsx scripts/fleet-feed-browser-smoke.mjs` checks the production source metadata loader, combined Feed and source-bound composer drafts with isolated HTTP fixtures. Set `LOOP55_BROWSER=webkit` for WebKit; Chromium is the default. The nine-source fixture holds one response while healthy sources render, then returns 503 and records request counts, bytes and partial-result timing. These measurements describe the fixture workload, not Internet latency or physical-phone performance. Native capacity and multiplex fixtures separately measure shared admission and upstream socket reuse.
+
 Use `npm run smoke:workspace -- --notifications-only` to check notification opt-in,
 category defaults and persistence in both browser engines without the other workspace journeys.
 

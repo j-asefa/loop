@@ -632,12 +632,6 @@ export function useComposerSend({
           sentReceipt!.key,
           null,
         );
-        settleStoredSend(
-          sessionStorage,
-          `loop55-draft-receipt:${actionSource || "laptop"}`,
-          sentReceipt!.key,
-          null,
-        );
         window.dispatchEvent(new Event("loop55-source-refresh"));
         window.dispatchEvent(new Event("loop55-later-change"));
       };
@@ -670,7 +664,6 @@ export function useComposerSend({
         if (!sameComposer()) return;
         setDraft("");
         setAttachments([]);
-        if (!actionSource) sessionStorage.removeItem("loop55-draft-receipt");
         setReplyContext(
           conversation && conversationTarget ? conversationTarget : null,
         );
@@ -725,7 +718,6 @@ export function useComposerSend({
         });
       setDraft("");
       setAttachments([]);
-      if (!actionSource) sessionStorage.removeItem("loop55-draft-receipt");
       if (conversationId) {
         saveThreadDraft(conversationId, "", []);
         sessionStorage.removeItem("loop55-receipt-" + draftId(conversationId));

@@ -24,7 +24,12 @@ import { belongsToProject } from "../../shared/projects";
 
 import { afterSheetsClose, closeTopSheet } from "../sheetHistory";
 import { restoreScroll, usePageHistory } from "../usePageHistory";
-import { setViewOwner } from "../viewCache";
+import { setViewOwner, viewGeneration } from "../viewCache";
+import {
+  sessionDraft,
+  emptySharedDraft,
+  type WorkspaceComposerDraft,
+} from "../workspace-drafts";
 import type { SendReceipt } from "../sendIntent";
 import { useSwipeBack } from "../useSwipeBack";
 import { usePullToRefresh } from "../usePullToRefresh";
@@ -124,9 +129,6 @@ export function useAppController() {
   const [environmentToOpen, setEnvironmentToOpen] = useState("");
   const [environmentSetupProvider, setEnvironmentSetupProvider] = useState("");
   const [shareAgent, setShareAgent] = useState<string | undefined>();
-  useEffect(() => {
-    sessionStorage.setItem("loop55-share", JSON.stringify(sharedDraft));
-  }, [sharedDraft]);
   const [session, setSession] = useState<any>(undefined),
     [data, setData] = useState<Bootstrap>({
       agents: [],
@@ -159,9 +161,7 @@ export function useAppController() {
     [items, setItems] = useState<any[]>([]),
     [next, setNext] = useState<string | number | null>(null),
     [runs, setRuns] = useState<Run[]>([]),
-    [selected, setSelected] = useState(
-      sessionStorage.getItem("loop55-draft-agent") || "",
-    ),
+    [selected, setSelected] = useState(""),
     [folder, setFolder] = useState(
       new URLSearchParams(location.search).get("folder") || "",
     ),
@@ -175,6 +175,8 @@ export function useAppController() {
       localStorage.getItem("loop55-theme") || "system",
     ),
     [query, setQuery] = useState("");
+  setDraftOwner(session?.user?.id);
+  setViewOwner(session?.user?.id);
   const [routePreview, setRoutePreview] = useState<any>(null),
     [contextArtifact, setContextArtifact] = useState<Artifact | null>(null),
     [filingResult, setFilingResult] = useState<any>(null);
@@ -199,21 +201,13 @@ export function useAppController() {
   const initialAgentId = useRef(
     new URLSearchParams(location.search).get("agent"),
   );
-  const [replyContext, setReplyContext] = useState<ComposerContext | null>(() =>
-    parse(sessionStorage.getItem("loop55-draft-context") || "", null),
+  const [replyContext, setReplyContext] = useState<ComposerContext | null>(
+    null,
   );
   const [conversationTarget, setConversationTarget] =
     useState<ComposerContext | null>(null);
   const [latestAgentMessage, setLatestAgentMessage] =
     useState<LatestAgentMessage | null>(null);
-  useEffect(() => {
-    if (replyContext)
-      sessionStorage.setItem(
-        "loop55-draft-context",
-        JSON.stringify(replyContext),
-      );
-    else sessionStorage.removeItem("loop55-draft-context");
-  }, [replyContext]);
   useEffect(() => {
     if (replyContext && selected !== replyContext.agentId)
       setReplyContext(null);
@@ -236,9 +230,6 @@ export function useAppController() {
   draftRef.current = draft;
   const [uploading, setUploading] = useState(false);
   const [composerError, setComposerError] = useState("");
-  useEffect(() => {
-    sessionStorage.setItem("loop55-draft-agent", selected);
-  }, [selected]);
   // A notice, optionally with one follow-up action (e.g. view what was scheduled).
   const [dismissNotice, setDismissNotice] = useState<
     string | { text: string; action: string; onAction: () => void }
@@ -335,6 +326,72 @@ export function useAppController() {
     contextArtifact,
     folderChoice,
   });
+  const shellDraftSource = executionSourceId();
+  const draftGeneration = viewGeneration();
+  const composerStorage = useMemo(
+    () =>
+      sessionDraft<WorkspaceComposerDraft>(
+        session?.user?.id,
+        shellDraftSource,
+        "composer",
+      ),
+    [session?.user?.id, shellDraftSource, draftGeneration],
+  );
+  const shareStorage = useMemo(
+    () =>
+      sessionDraft<SharedDraft>(session?.user?.id, shellDraftSource, "share"),
+    [session?.user?.id, shellDraftSource, draftGeneration],
+  );
+  const draftScope = JSON.stringify([composerStorage.key, draftGeneration]);
+  const [hydratedDraftScope, setHydratedDraftScope] = useState("");
+  const incomingShareClaimed = useRef(false);
+  useLayoutEffect(() => {
+    if (!session?.user?.id) return;
+    const saved = composerStorage.read();
+    const firstOwner = !incomingShareClaimed.current;
+    const incoming =
+      firstOwner &&
+      (new URLSearchParams(location.search).has("share") ||
+        location.pathname === "/share");
+    incomingShareClaimed.current = true;
+    const restored = {
+      selected: saved?.selected || "",
+      replyContext: saved?.replyContext || null,
+      folderChoice:
+        saved?.folderChoice ??
+        (firstOwner
+          ? (new URLSearchParams(location.search).get("folder") ?? undefined)
+          : undefined),
+      contextArtifact: null,
+    };
+    setSelected(restored.selected);
+    setReplyContext(restored.replyContext);
+    setFolderChoice(restored.folderChoice);
+    setContextArtifact(null);
+    setRoutePreview(null);
+    globalComposer.current = restored;
+    setSharedDraft(
+      incoming ? initialShare() : shareStorage.read() || emptySharedDraft(),
+    );
+    setHydratedDraftScope(draftScope);
+  }, [composerStorage, shareStorage, draftScope]);
+  useEffect(() => {
+    // The hydration render's stale values cannot overwrite the newly selected
+    // owner's slot. Thread controls are stored by their existing thread owner.
+    if (hydratedDraftScope !== draftScope || conversation) return;
+    composerStorage.write({ selected, replyContext, folderChoice });
+  }, [
+    composerStorage,
+    draftScope,
+    hydratedDraftScope,
+    conversation,
+    selected,
+    replyContext,
+    folderChoice,
+  ]);
+  useEffect(() => {
+    if (hydratedDraftScope === draftScope) shareStorage.write(sharedDraft);
+  }, [shareStorage, draftScope, hydratedDraftScope, sharedDraft]);
   function setConversation(
     id: string | null,
     message?: string,
@@ -1022,16 +1079,9 @@ export function useAppController() {
       key: receiptStorageKey,
       box: {
         current: parse<SendReceipt>(
-          sessionStorage.getItem(receiptStorageKey) ||
-            (actionSource === executionSourceId()
-              ? sessionStorage.getItem(
-                  `loop55-draft-receipt:${actionSource || "laptop"}`,
-                )
-              : "") ||
-            (!actionSource
-              ? sessionStorage.getItem("loop55-draft-receipt")
-              : "") ||
-            "",
+          session?.user?.id
+            ? sessionStorage.getItem(receiptStorageKey) || ""
+            : "",
           { signature: "", key: "" },
         ),
       },
@@ -1376,13 +1426,20 @@ export function useAppController() {
   }, [session?.user?.id]);
   useEffect(() => {
     if (!profile) return;
-    setView(sessionStorage.getItem("loop55-agent-tab-" + profile.id) || "all");
+    setView(
+      sessionDraft<string>(
+        session?.user?.id,
+        executionSourceId(),
+        "agent-tab",
+        profile.id,
+      ).read() || "all",
+    );
     if (!draft.trim()) {
       setSelected(profile.id);
       setFolderChoice(undefined);
       setFolder(profile.folder_id || "");
     }
-  }, [profile?.id]);
+  }, [profile?.id, session?.user?.id, shellDraftSource]);
   useEffect(() => {
     if (
       conversation ||

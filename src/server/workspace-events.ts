@@ -32,6 +32,7 @@ export function connectWorkspaceEvents(
   epoch: string,
   build?: string,
   contract = workspaceApi.channels.events,
+  project: (event: WorkspaceEvent) => WorkspaceEvent = (event) => event,
 ) {
   // Use the first v value as before; absent/other versions retain v2 replay.
   const v3 = contract.query.safeParse({ v: url.searchParams.get("v") }).success;
@@ -98,7 +99,7 @@ export function connectWorkspaceEvents(
       // page yields to another read instead of resetting past unread rows.
       let bytes = 4096;
       for (const row of events) {
-        let entry = { id: row.id, event: historicalEvent(row) };
+        let entry = { id: row.id, event: project(historicalEvent(row)) };
         if (Buffer.byteLength(JSON.stringify(entry)) > MAX_EVENT_BYTES)
           entry = { id: row.id, event: invalidate(entry.event.scope,
             entry.event.subject?.kind === "message" ? entry.event.subject : undefined) };

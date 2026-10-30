@@ -4,8 +4,20 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { request, type IncomingHttpHeaders } from "node:http";
+import {
+  request,
+  type ClientRequest,
+  type IncomingHttpHeaders,
+} from "node:http";
 import Database from "better-sqlite3";
+import { WebSocket } from "ws";
+import { once, EventEmitter } from "node:events";
+import { Response as PeerResponse, type fetch as PeerFetch } from "undici";
+import {
+  FLEET_EVENTS_PATH,
+  SignedFleetEventResponse,
+} from "../src/shared/fleet-workspace-events.js";
+import { WORKSPACE_MULTIPLEX_PATH } from "../src/shared/workspace-multiplex.js";
 
 // WorkspaceHost loads the real application: set its isolated profile first.
 const root = mkdtempSync(join(tmpdir(), "loop55-fleet-workspace-host-"));
@@ -30,7 +42,20 @@ const { fleetWorkspaceUploadApi } =
 const { fleetCredentialApi } =
   await import("../src/shared/fleet-credential-api.js");
 const { fleetGatewayApi } = await import("../src/shared/fleet-gateway-api.js");
-const { db } = await import("../src/server/db.js");
+const { db, changes } = await import("../src/server/db.js");
+const { FleetProof, verifyFleetProof } =
+  await import("../src/server/fleet-proof.js");
+const { FleetWorkspaceEventHttpTransport } =
+  await import("../src/server/fleet-workspace-event-http.js");
+const { FleetCapacity } = await import("../src/server/fleet-capacity.js");
+const { FleetCredentialLeases } =
+  await import("../src/server/fleet-credential-leases.js");
+const { FleetCredentialHttpTransport } =
+  await import("../src/server/fleet-credential-http.js");
+const { FleetWorkspaceHttpTransport } =
+  await import("../src/server/fleet-workspace-http.js");
+const { FleetPeerReads } = await import("../src/server/fleet-peer-reads.js");
+const { FleetPeerEvents } = await import("../src/server/fleet-peer-events.js");
 const { OWNER, nativeSessions } =
   await import("../src/server/native-sessions.js");
 const { closeExecution } = await import("../src/server/execution-client.js");
@@ -54,7 +79,7 @@ sourceDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const source = new FleetAuthority(sourceDb, secrets),
   sourceOwner = randomUUID();
 const sourceCredentials = new FleetCredentials(sourceDb, source, secrets);
-const scope = ["read", "act", "files"] as const;
+const scope = ["read", "act", "files", "events"] as const;
 const first = source.create(sourceOwner, {
   mutationId: randomUUID(),
   name: "Peer",
@@ -144,6 +169,13 @@ async function token(operation: (typeof scope)[number]) {
   assert.equal(issued.status, 200);
   return sourceCredentials.accept(sourceOwner, proof, issued.body).token;
 }
+async function waitFor(predicate: () => boolean) {
+  const end = Date.now() + 5000;
+  while (!predicate()) {
+    if (Date.now() > end) throw new Error("Fixture event did not settle");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device receipts", async (t) => {
   try {
@@ -182,6 +214,125 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
     db.prepare(
       "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,'Foreign','foreign','openai','fixture','untouched','loop55',0)",
     ).run(foreignAgent, foreignOwner);
+    await t.test(
+      "incomplete public capabilities requests cannot occupy authenticated capacity",
+      async () => {
+        const pending: ClientRequest[] = [];
+        let refused = 0;
+        try {
+          for (let i = 0; i < 161; i++) {
+            const req = request(
+              {
+                hostname: "127.0.0.1",
+                port: host.gateway.port,
+                path: "/api/capabilities",
+                method: "GET",
+                headers: {
+                  host: new URL(origin).host,
+                  "content-type": "application/json",
+                  "content-length": "10000",
+                },
+              },
+              (res) => {
+                if (res.statusCode === 503) refused++;
+                res.resume();
+              },
+            );
+            pending.push(req);
+            req.on("error", () => {});
+            req.write("{");
+          }
+          await waitFor(() => refused > 0);
+          assert.equal(host.fleetCapacity!.snapshot().browser, 0);
+          assert.equal(
+            (await http("/api/bootstrap", undefined, { origin, cookie }))
+              .status,
+            200,
+          );
+          assert.equal(
+            (
+              await protocol(fleetWorkspaceApi.catalog.path, {
+                version: 1,
+                requestId: randomUUID(),
+                credential: read,
+              })
+            ).status,
+            200,
+          );
+        } finally {
+          for (const req of pending) req.destroy();
+          await waitFor(() => host.fleetCapacity!.snapshot().total === 0);
+        }
+      },
+    );
+    await t.test(
+      "rejected token and peer upgrades leave authenticated reconnect capacity available",
+      async () => {
+        const sockets: WebSocket[] = [];
+        const open = (path: string, headers: Record<string, string>) => {
+          const ws = new WebSocket(
+            `ws://127.0.0.1:${host.gateway.port}${path}`,
+            {
+              headers: { host: new URL(origin).host, ...headers },
+            },
+          );
+          sockets.push(ws);
+          ws.on("error", () => {});
+          return ws;
+        };
+        try {
+          const rejected = await Promise.all(
+            Array.from({ length: 80 }, async (_, i) => {
+              const ws = open(
+                i % 2 ? FLEET_EVENTS_PATH : "/api/events/stream",
+                {
+                  authorization: "Bearer invalid",
+                  ...(i % 2 ? { "x-loop55-fleet-version": "1" } : {}),
+                },
+              );
+              const [, response] = await once(ws, "unexpected-response");
+              response.resume();
+              ws.terminate();
+              return response.statusCode;
+            }),
+          );
+          assert(
+            rejected.every((status) => status === 401 || status === 403),
+            "Authentication rejection must precede shared setup admission",
+          );
+          await waitFor(() => host.fleetCapacity!.snapshot().total === 0);
+          const bearer = createCardToken(OWNER, {
+            request_id: randomUUID(),
+            name: "Reconnect fixture",
+            secret: "loop_token_" + randomBytes(32).toString("base64url"),
+            scopes: ["read"],
+          });
+          const credential = await token("events");
+          for (const [path, headers] of [
+            [
+              "/api/events/stream",
+              { authorization: "Bearer " + bearer.secret },
+            ],
+            [WORKSPACE_MULTIPLEX_PATH, { origin, cookie }],
+            [
+              FLEET_EVENTS_PATH,
+              {
+                authorization: "Bearer " + credential,
+                "x-loop55-fleet-version": "1",
+              },
+            ],
+          ] as [string, Record<string, string>][]) {
+            const ws = open(path, headers);
+            await once(ws, "open");
+          }
+          assert.equal(host.fleetCapacity!.snapshot().browser, 2);
+          assert.equal(host.fleetCapacity!.snapshot().peer, 1);
+        } finally {
+          for (const ws of sockets) ws.terminate();
+          await waitFor(() => host.fleetCapacity!.snapshot().total === 0);
+        }
+      },
+    );
     await t.test(
       "workspace integration tokens cannot become peer or device credentials",
       async () => {
@@ -254,7 +405,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
         const catalog = await protocol(fleetWorkspaceApi.catalog.path, input);
         assert.equal(catalog.status, 200);
         assert.equal(catalog.body.catalog.files, true);
-        assert.equal(catalog.body.catalog.events, false);
+        assert.equal(catalog.body.catalog.events, true);
         assert(catalog.body.catalog.actions.includes("folderCreate"));
         assert(catalog.body.catalog.actions.includes("uploadCreate"));
         assert(!catalog.body.catalog.actions.includes("connectionCreate"));
@@ -527,6 +678,392 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
         assert(
           Buffer.from(downloaded.body.response.base64, "base64").equals(bytes),
         );
+      },
+    );
+    await t.test(
+      "gateway verifies original event payloads before normalizing newer events and rejects tampering or replay",
+      async () => {
+        const fetcher: typeof PeerFetch = async (url, options) => {
+          const target = new URL(String(url));
+          assert.equal(target.origin, origin);
+          const result = await http(
+            target.pathname,
+            JSON.parse(String(options!.body)),
+            { "x-loop55-fleet-version": "1" },
+          );
+          return new PeerResponse(JSON.stringify(result.body), {
+            status: result.status,
+            headers: { "content-type": "application/json" },
+          });
+        };
+        const budget = new FleetCapacity(() => true);
+        const leases = new FleetCredentialLeases(
+          source,
+          sourceCredentials,
+          sourceOwner,
+          new FleetCredentialHttpTransport(fetcher, budget),
+        );
+        const reads = new FleetPeerReads(
+          source,
+          leases,
+          sourceOwner,
+          new FleetWorkspaceHttpTransport(fetcher, budget),
+        );
+        let connection: WebSocket | undefined;
+        let signed: Buffer | undefined;
+        const transport = new FleetWorkspaceEventHttpTransport(
+          fetcher,
+          budget,
+          (_url, options) => {
+            const { lookup: _lookup, ...localOptions } = options;
+            signed = undefined;
+            connection = new WebSocket(
+              `ws://127.0.0.1:${host.gateway.port}${FLEET_EVENTS_PATH}`,
+              {
+                ...localOptions,
+                headers: { ...options.headers, host: new URL(origin).host },
+              },
+            );
+            connection.once("message", (raw) => {
+              signed = Buffer.from(raw as Buffer);
+            });
+            return connection;
+          },
+        );
+        const events = new FleetPeerEvents(
+          source,
+          leases,
+          sourceOwner,
+          reads,
+          transport,
+        );
+        class Sink extends EventEmitter {
+          readyState: number = WebSocket.OPEN;
+          bufferedAmount = 0;
+          frames: unknown[] = [];
+          send(text: string) {
+            this.frames.push(JSON.parse(text));
+          }
+          close() {
+            if (this.readyState === WebSocket.CLOSED) return;
+            this.readyState = WebSocket.CLOSED;
+            this.emit("close");
+          }
+        }
+        const sinks: Sink[] = [];
+        try {
+          const compatible = new Sink();
+          sinks.push(compatible);
+          await events.connect(
+            compatible,
+            host.fleet!.identity.machineId,
+            new URLSearchParams(),
+          );
+          await waitFor(() => compatible.frames.length > 0);
+          assert(signed);
+          const initial = JSON.parse(signed.toString()).response;
+          const future = {
+            ...initial,
+            sequence: initial.sequence + 1,
+            frame: {
+              v: 3,
+              type: "events",
+              epoch: initial.frame.epoch,
+              cursor: initial.frame.cursor + 1,
+              events: [
+                {
+                  id: initial.frame.cursor + 1,
+                  event: {
+                    type: "future.detail",
+                    scope: { kind: "conversation", id: "future-thread" },
+                    payload: { text: "FUTURE PRIVATE" },
+                  },
+                },
+              ],
+            },
+          };
+          const proof = new FleetProof(db, host.fleet!.identity, secrets);
+          connection!.emit(
+            "message",
+            Buffer.from(
+              JSON.stringify({
+                response: future,
+                signature: proof.sign("workspace-event", future),
+              }),
+            ),
+            false,
+          );
+          await waitFor(
+            () =>
+              compatible.frames.length === 2 ||
+              compatible.readyState === WebSocket.CLOSED,
+          );
+          assert.equal(
+            compatible.readyState,
+            WebSocket.OPEN,
+            "a valid newer signed event must retain the source connection",
+          );
+          assert.equal(compatible.frames.length, 2);
+          assert.deepEqual(compatible.frames[1], {
+            ...future.frame,
+            events: [
+              {
+                id: future.frame.cursor,
+                event: {
+                  type: "invalidate",
+                  scope: { kind: "collection", id: "all" },
+                },
+              },
+            ],
+          });
+          assert(!JSON.stringify(compatible.frames).includes("FUTURE PRIVATE"));
+          // Both bodies normalize to the same invalidation. Their signatures
+          // must still authenticate the original bytes' canonical JSON value.
+          future.sequence++;
+          future.frame.cursor++;
+          future.frame.events[0].id++;
+          const signature = proof.sign("workspace-event", future);
+          future.frame.events[0].event.payload.text = "TAMPERED PRIVATE";
+          connection!.emit(
+            "message",
+            Buffer.from(JSON.stringify({ response: future, signature })),
+            false,
+          );
+          await waitFor(
+            () =>
+              compatible.readyState === WebSocket.CLOSED &&
+              budget.snapshot().outbound === 0,
+          );
+          assert.equal(compatible.frames.length, 2);
+          for (const fault of ["signature", "replay"] as const) {
+            const sink = new Sink();
+            sinks.push(sink);
+            await events.connect(
+              sink,
+              host.fleet!.identity.machineId,
+              new URLSearchParams(),
+            );
+            await waitFor(() => sink.frames.length > 0);
+            assert.equal((sink.frames[0] as { type: string }).type, "reset");
+            assert.equal(budget.snapshot().outbound, 1);
+            const prior = sink.frames.length;
+            assert(signed);
+            // Feed captured, well-formed wire frames through the actual caller:
+            // changing a payload must fail the signature; unchanged old sequence
+            // numbers must not be forwarded a second time.
+            const forged = JSON.parse(signed.toString());
+            forged.response.sequence++;
+            forged.response.frame.cursor++;
+            connection!.emit(
+              "message",
+              fault === "replay" ? signed : Buffer.from(JSON.stringify(forged)),
+              false,
+            );
+            await waitFor(
+              () =>
+                sink.readyState === WebSocket.CLOSED &&
+                budget.snapshot().outbound === 0,
+            );
+            assert.equal(sink.frames.length, prior);
+          }
+        } finally {
+          for (const sink of sinks) sink.close();
+          events.close();
+          reads.close();
+          leases.close();
+          connection?.terminate();
+        }
+      },
+    );
+    await t.test(
+      "machine event admission, owner projection, replay and revocation use the actual gateway",
+      async () => {
+        const credential = await token("events");
+        const sockets: WebSocket[] = [];
+        const connect = (
+          headers: Record<string, string> = {},
+          path = FLEET_EVENTS_PATH,
+        ) => {
+          const ws = new WebSocket(
+            `ws://127.0.0.1:${host.gateway.port}${path}`,
+            {
+              headers: {
+                host: new URL(origin).host,
+                "x-loop55-fleet-version": "1",
+                authorization: `Bearer ${credential}`,
+                ...headers,
+              },
+            },
+          );
+          sockets.push(ws);
+          ws.on("error", () => {});
+          return ws;
+        };
+        try {
+          for (const [headers, path] of [
+            [{ authorization: `Bearer ${read}` }, FLEET_EVENTS_PATH],
+            [{ cookie }, FLEET_EVENTS_PATH],
+            [{ origin }, FLEET_EVENTS_PATH],
+            [{ "sec-fetch-site": "same-origin" }, FLEET_EVENTS_PATH],
+            [{}, FLEET_EVENTS_PATH + "?owner=" + foreignOwner],
+            [{}, "/api/events/ws"],
+          ] as [Record<string, string>, string][]) {
+            const ws = connect(headers, path);
+            const [, response] = await once(ws, "unexpected-response");
+            assert.equal(response.statusCode, 403);
+            ws.terminate();
+          }
+          for (const malformed of ["{", JSON.stringify({ version: 1 })]) {
+            const ws = connect();
+            await once(ws, "open");
+            let frames = 0;
+            ws.on("message", () => frames++);
+            const closed = once(ws, "close");
+            ws.send(malformed);
+            const [code] = await closed;
+            assert.equal(code, 1008);
+            assert.equal(frames, 0);
+            await waitFor(() => host.fleetCapacity!.snapshot().peer === 0);
+          }
+          const outboundBudget = new FleetCapacity(() => true);
+          let connections = 0;
+          const transport = new FleetWorkspaceEventHttpTransport(
+            undefined,
+            outboundBudget,
+            (url, options) => {
+              connections++;
+              assert.equal(
+                url.href,
+                origin.replace("https:", "wss:") + FLEET_EVENTS_PATH,
+              );
+              assert.equal(options.followRedirects, false);
+              assert.equal(options.perMessageDeflate, false);
+              assert.equal(typeof options.lookup, "function");
+              assert(!Object.hasOwn(options.headers!, "cookie"));
+              assert(!Object.hasOwn(options.headers!, "origin"));
+              // Explicit fixture adapter only: production keeps TLS and guarded DNS.
+              const { lookup: _lookup, ...localOptions } = options;
+              const socket = new WebSocket(
+                `ws://127.0.0.1:${host.gateway.port}${FLEET_EVENTS_PATH}`,
+                {
+                  ...localOptions,
+                  headers: { ...options.headers, host: new URL(origin).host },
+                },
+              );
+              sockets.push(socket);
+              return socket;
+            },
+          );
+          const abort = new AbortController();
+          await assert.rejects(async () =>
+            transport.connect("https://127.0.0.1", credential, abort.signal),
+          );
+          assert.equal(connections, 0);
+          await assert.rejects(transport.connect(origin, read, abort.signal), {
+            status: 403,
+          });
+          await waitFor(() => outboundBudget.snapshot().outbound === 0);
+          const ws = await transport.connect(origin, credential, abort.signal);
+          const frames: ReturnType<typeof SignedFleetEventResponse.parse>[] =
+            [];
+          ws.on("message", (data) =>
+            frames.push(
+              SignedFleetEventResponse.parse(JSON.parse(data.toString())),
+            ),
+          );
+          assert.equal(outboundBudget.snapshot().outbound, 1);
+          const request = {
+            version: 1,
+            requestId: randomUUID(),
+            epoch: "",
+            cursor: 0,
+            conversations: [] as string[],
+            runs: [] as string[],
+          };
+          ws.send(JSON.stringify(request));
+          await waitFor(() => frames.length > 0);
+          const first = frames[0].response.frame;
+          assert.equal(first.type, "reset");
+          assert.equal(host.fleetCapacity!.snapshot().peer, 1);
+          const insert = db.prepare(
+            "INSERT INTO events(owner_id,run_id,type,payload,subject_kind,subject_id,created_at) VALUES(?,NULL,'message.delta',?,'conversation',?,1)",
+          );
+          insert.run(
+            foreignOwner,
+            JSON.stringify({ messageId: "foreign", text: "FOREIGN PRIVATE" }),
+            "other-thread",
+          );
+          const closed = Number(
+            insert.run(
+              OWNER,
+              JSON.stringify({ messageId: "closed", text: "CLOSED PRIVATE" }),
+              "closed-thread",
+            ).lastInsertRowid,
+          );
+          changes.wake();
+          await waitFor(() =>
+            frames.some((entry) => entry.response.frame.cursor >= closed),
+          );
+          assert(!JSON.stringify(frames).includes("FOREIGN PRIVATE"));
+          assert(!JSON.stringify(frames).includes("CLOSED PRIVATE"));
+          assert(
+            frames
+              .flatMap((entry) =>
+                entry.response.frame.type === "events"
+                  ? entry.response.frame.events
+                  : [],
+              )
+              .some(
+                (entry) =>
+                  entry.id === closed && entry.event.type === "invalidate",
+              ),
+          );
+          for (const [sequence, entry] of frames.entries()) {
+            assert.equal(entry.response.sequence, sequence);
+            assert.equal(entry.response.requestId, request.requestId);
+            assert.equal(entry.response.peer, source.identity.machineId);
+            assert.equal(entry.response.directory, head);
+            assert(
+              verifyFleetProof(
+                host.fleet!.identity,
+                "workspace-event",
+                entry.response,
+                entry.signature,
+              ),
+            );
+          }
+          frames.length = 0;
+          const replay = {
+            ...request,
+            requestId: randomUUID(),
+            epoch: first.epoch,
+            cursor: first.cursor,
+            conversations: ["closed-thread"],
+          };
+          ws.send(JSON.stringify(replay));
+          await waitFor(() =>
+            frames.some((entry) => entry.response.frame.cursor >= closed),
+          );
+          assert(JSON.stringify(frames).includes("CLOSED PRIVATE"));
+          assert(!JSON.stringify(frames).includes("FOREIGN PRIVATE"));
+          assert.equal(frames[0].response.sequence, 0);
+          assert.equal(frames[0].response.requestId, replay.requestId);
+          // A committed directory change fences an open stream without waiting
+          // for a browser request, heartbeat, or ten-minute credential expiry.
+          const departed = source.revise(sourceOwner, {
+            mutationId: randomUUID(),
+            expected: head,
+            members: [directory.document.members[0]],
+          });
+          const ended = once(ws, "close");
+          host.fleet!.accept(OWNER, departed);
+          const [code] = await ended;
+          assert.equal(code, 4001);
+          await waitFor(() => host.fleetCapacity!.snapshot().peer === 0);
+          assert.equal(outboundBudget.snapshot().outbound, 0);
+        } finally {
+          for (const ws of sockets) ws.terminate();
+        }
       },
     );
     await host.close();

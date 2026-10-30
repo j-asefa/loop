@@ -169,20 +169,72 @@ read credential maps to the destination owner; callers cannot select another
 owner/source, arbitrary URLs or private native/provider endpoints. The in-memory
 bridge runs existing middleware and public projections. Signed responses bind
 the request, machine, grant, directory and source clock. Catalogs advertise only
-implemented capabilities within locally consented read/action scopes. Unknown
-operation names grant no local route and preserve compatible known reads. Destination reads have four slots and a 2 MiB limit;
+locally consented and mounted capabilities. Unknown
+operation names grant no local route and preserve compatible known reads.
+Destination reads have four slots and a 2 MiB limit;
 clients allow four requests per peer, sixteen overall, cancellation and a
 45-second deadline. The bridge holds its four read and four action slots until
 handlers finish, even after HTTP timeouts; expired middleware cannot start a
 handler. Commands deduplicate before admission, in-flight duplicates share their
 operation, and receipts remain readable during unrelated work. Rejection
 invalidates only the credential used. Verified directory changes trigger bounded
-history reconciliation without replaying the read. Companion startup mounts these services through
+history reconciliation without replaying the read. Companion startup mounts
+these services through
 [FleetWorkspaceServices](../src/server/fleet-workspace-services.ts) for its local
 owner. The same lifecycle mounts named actions, files, uploads and device-only
 receipt reconciliation, and closes pending services before stopping the gateway.
 Constructing a companion installs no peer grant and starts no workspace polling.
 Server profiles and isolated previews do not mount these services.
+
+The dedicated machine event socket requires an events-scoped credential in its
+authorization header and refuses browser credentials or URL parameters. It reuses
+the owner-scoped workspace replay, subscribing before reading. A subscription
+selects bounded conversation/run details; unopened transcripts become scoped
+invalidations while summary and decision projections retain their existing
+contract. Each frame signs the subscription UUID, sequence, directory and source
+identity. Credential expiry, changed authority or failed heartbeat closes the
+stream. Its receiving frame and outgoing buffer limits are 40 KiB and 2 MiB;
+workspace frames retain their 512 KiB bound before the signature envelope.
+The gateway's owner-bound multiplexer shares one demanded upstream per source
+among its viewers. It verifies every peer frame's signing key, request nonce,
+sequence, grant and directory head before forwarding; changes to authority close
+the old stream. Each source retains its own epoch, cursor and capability metadata.
+The last viewer releases that upstream. At most 24 peer event connections are
+active in one gateway; additional sources use the existing bounded read fallback.
+
+Companion pages negotiate `eventMultiplex` and open one authenticated browser
+socket at `/api/events/multiplex/ws`. Its source-qualified envelopes feed the
+existing client projections rather than another Feed store. The gateway keeps at
+most 128 source entries, 1,024 logical viewers and 128 subscriptions per browser.
+Each source replay ring holds at most 32 frames and 512 KiB. A gap produces a
+source reset at its current watermark so HTTP snapshots reconcile the missing
+facts. A browser above the 2 MiB outgoing buffer limit reconnects and reconciles.
+Subscription input is bounded to 40 KiB and rate limited; opened detail unions
+allow at most 16 conversations and 16 runs per source. Local and peer producers
+filter unopened transcript and trace payloads; legacy linked sources are filtered
+at the gateway. Older V2 sources retain invalidation fallback.
+
+The page releases its socket and pauses event polling while hidden, then resumes
+its independent source cursors on foreground. Fallback event reads share four
+active slots and a four-per-second token bucket with a burst of eight. Queued
+subscriptions coalesce by logical source subscription, with 32 initial tokens and
+16 replenished per second. Server-profile clients retain their existing event
+socket; preview multiplexers can access only their isolated local workspace.
+
+One companion shares its [capacity budget](../src/server/fleet-capacity.ts)
+across workspace HTTP, browser and integration-token sockets, peer HTTP/sockets
+and outbound peer transports. Direct integration clients use the existing
+workspace-client budget, including its single-machine behavior. A multi-member fleet admits at most 160 managed operations, including
+64 inbound peers and 32 outbound operations with four per destination. It reserves
+32 slots for browsers, which may borrow spare capacity. Public HTTP requests use
+a separate allowance of 16 requests with a 15-second deadline; paired devices and
+integration tokens authenticate before entering the browser budget. The peer HTTP
+parser retains its own 16-request limit and deadline. A fleet of one keeps
+existing browser admission. Socket handlers authenticate before spending shared
+connection setup tokens. Connection setup uses bounded token buckets; busy
+transports preserve a bounded Retry-After cooldown per destination across callers.
+Capacity hints are advisory. A 429/5xx response is not a command receipt, and no
+accepted mutation is cancelled or replayed to free capacity.
 
 The enrolled peer source adapter projects the verified catalog into source
 capabilities. Browser controls never inherit another machine's permissions.
@@ -312,7 +364,8 @@ callbacks, and the first commit dispatch rechecks membership and authority.
 Receipt reconciliation can use a repaired canonical origin for the same key
 while preserving the original operation, intent and signed query. Controller
 jobs use the authenticated local-device administration API described above;
-peers cannot administer them. Browser fleet screens remain separate integration.
+peers cannot administer them. The browser controls use that same local-device
+boundary; see [Add and manage machines](pairing.md#add-and-manage-machines).
 The dedicated fleet HTTP protocol and its admission limits are described in
 [pairing](pairing.md).
 
@@ -339,6 +392,38 @@ Application discovery, health, build identity, diagnostic runs and HTTP event po
 An agent belongs to one owner on one Loop55 API source and has a connection that selects its execution environment. The paired client reads each available source's owner-scoped agent, run and Feed projections and merges the Feed by activity time. Source IDs qualify agent, conversation and run identities in the client; source-scoped writes go only to the owning API. A late response from a prior signed-in owner is discarded. Project and team filters remain scoped to their source. The source's database, credentials and dispatch identities are never copied to the companion host. Opening a conversation on another source keeps the Feed mounted. The thread binds its reads, controls, uploads and file links to that source; the shell retains its original source. Drafts and pending send receipts include the owner, source and conversation, and late responses cannot overwrite the newly opened thread. Source failures appear in the thread with a retry action.
 
 [agent-sources.ts](../src/agent-sources.ts) maps opaque source IDs to adapters. Its current Docker adapter discovers only local loopback-published single-user Loop55 containers and forwards paired requests once. Unknown IDs cannot nominate a network destination. [MCP Docker sharing](../src/mcp-docker-sharing.ts) separately enrolls a discovered source after an explicit paired-device action. Source-owned tools are exposed through a token-scoped MCP endpoint or a reverse queue polled by the laptop; no companion API is bound beyond loopback for sharing. The calling broker applies its owner's approval preference; the owning source rechecks its tool catalog and schema. Both sides persist call identities and uncertain outcomes rather than replaying effects. Enrolled companions use the owner-bound peer adapter and remain visible during an outage; independently enrolled Docker companions are excluded from Docker server discovery to prevent duplicate sources. Remote runtime hosts connected to a Loop55 source are accessed through that source. The client uses the same source-keyed Feed and **Run on** form regardless of adapter kind.
+
+Linked-source metadata uses four concurrent source workers and publishes each
+completed projection immediately. A slow source does not delay another source's
+agents or creation choices. Failed sources retain their last loaded metadata and
+are named in the connection notice. Discovery requests and source-specific
+changes queued during a refresh both survive; hidden pages defer new metadata
+work until foreground. Source removal stops displaying that source's cached rows.
+
+Combined Feed head reads use four concurrent source workers with one active
+read and one coalesced trailing read per source. A source can publish another
+head update while another machine's read remains pending. Cold results appear
+before the roster has a complete paging window; pagination starts after that
+first window settles. An incomplete Working or Queued head retains its loaded
+history and cursor together until the pass settles or Load more supersedes it.
+An exhaustive response replaces that source immediately, including when all its
+rows disappear. If the last visible rows disappear while another source is
+pending, the view shows loading until that read settles; it does not claim a
+complete empty result. Owner and view generations reject obsolete reads and
+queued invalidations.
+
+Needs-you cards and operational counters publish each source's successful read
+independently of Done's selected agent and read filter. Needs reads share a
+separate four-source queue with one coalesced trailing read per source; failed
+sources retain their cached cards while healthy sources continue refreshing.
+
+Session composer choices, quoted context, shared-link drafts and agent tabs are
+qualified by authenticated owner, source and entity. They hydrate only after the
+owner is known; an obsolete view cannot write after that owner's generation
+changes. A fresh OS share URL belongs to the first authenticated owner opening
+it. Unattributed legacy session keys are not migrated into another owner's slot.
+Existing thread drafts and durable send identities retain their separate owning
+keys; old unqualified send-receipt keys are no longer used as automatic fallbacks.
 
 API connections use Loop55's model loop. Native connections dispatch through native adapters, and server subscription connections through their configured runtime. Native context belongs to its harness; Loop55 persists the display projection, dispatch identity, approvals and tool receipts. Codex, Claude Code, Pi and Muse Code support live input; OpenCode, Antigravity, legacy Gemini CLI, Grok Build and ACP queue follow-ups. Each native conversation has an independent session and serialized turns.
 
@@ -393,7 +478,7 @@ Explicit pre-dispatch refusals release the command for retry because no native e
 
 The webhook outbox records `run.stopped` deliveries with the run transition and its change-log ID in one transaction. Activated and failed subscriptions retain one delivery identity per transition; failed subscriptions keep accumulating a backlog. The worker’s maintenance pass shares scheduling with Web Push while each delivery path keeps its own tables, claims and retry policy. Webhooks use sealed signing secrets, fenced leases, installation-dependent destination checks, same-identity retry and visible exhaustion in Settings; [Integration API](cards-api.md#outbound-webhooks) defines activation, payloads and receiver verification.
 
-The signed-in UI subscribes to authenticated WebSockets for each execution source. The server profile exposes `/api/events/ws`; the paired host also retains `/ws` and forwards source event connections through its existing discovery and device authorization boundary. Integration tokens cannot open these connections. Owner-scoped change-log cursors notify projections when committed data changes, including saves, dismissals, metadata, mail, Social and pull-request state. The API observes the shared SQLite database so updates from a separate worker are included.
+The signed-in UI consumes an authenticated event stream for each execution source. Companion pages use the gateway multiplex transport described above when available; server-profile clients retain `/api/events/ws`. The paired host also retains `/ws` for older clients and forwards source event connections through its discovery and device authorization boundary. Integration tokens cannot open these connections. Owner-scoped change-log cursors notify projections when committed data changes, including saves, dismissals, metadata, mail, Social and pull-request state. The API observes the shared SQLite database so updates from a separate worker are included.
 
 Read integration tokens use the separate WebSocket channel `/api/events/stream` and the existing HTTP event page. The token socket shares the browser's v3 drain and frame serialization; each token persists only its confirmed epoch/cursor and the current connection identity. Offered frames remain connection-local until an acknowledgement on the same socket. Both listeners own and close their token sockets during shutdown, including the companion behind its Unix-socket relay. See [Integration API events](cards-api.md#event-pages-and-streaming) for replay, reset, byte limits and idle revocation.
 

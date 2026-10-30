@@ -4,16 +4,17 @@ import {
   proxyLinkedDocker,
   connectLinkedDockerEvents,
 } from "./linked-docker.js";
-import type { WebSocket } from "ws";
+import type { EventSocket } from "./event-socket.js";
 
 /** An owner-visible Loop55 API that holds agents and their conversations. */
 export type AgentSource = { id: string; name: string; kind: string };
 
 export type SourceAdapter = {
   kind: string;
+  current?: (resourceId: string) => string;
   discover: () => Promise<{ id: string; name: string }[]>;
   events: (
-    socket: WebSocket,
+    socket: EventSocket,
     resourceId: string,
     query: URLSearchParams,
   ) => Promise<void>;
@@ -77,13 +78,18 @@ export class AgentSources {
       result.status === "fulfilled" ? result.value : [],
     );
   }
-  async events(socket: WebSocket, id: string, query: URLSearchParams) {
+  async events(socket: EventSocket, id: string, query: URLSearchParams) {
     const source = this.source(id);
     if (!source) {
       socket.close(1008, "Execution source unavailable");
       return;
     }
     await source.adapter.events(socket, source.resource, query);
+  }
+  current(id: string) {
+    const source = this.source(id);
+    if (!source) throw new Error("Execution source unavailable");
+    return source.adapter.current?.(source.resource) ?? id;
   }
   async proxy(
     req: IncomingMessage,

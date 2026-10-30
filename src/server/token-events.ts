@@ -208,7 +208,12 @@ export function createTokenEventSockets(
   const streams = new Map<string, TokenEventConnection>();
   let closing = false;
   return {
-    upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
+    upgrade(
+      req: IncomingMessage,
+      socket: Duplex,
+      head: Buffer,
+      admit?: () => boolean,
+    ) {
       socket.on("error", () => socket.destroy());
       try {
         if (closing) throw new Problem(503, "Server is shutting down");
@@ -228,6 +233,7 @@ export function createTokenEventSockets(
           throw new Problem(403, "A read integration token is required");
         if (streams.size >= 256 && !streams.has(tokenId))
           throw new Problem(429, "Too many event connections");
+        if (admit && !admit()) return;
         sockets.handleUpgrade(req, socket, head, (ws) => {
           const stream = new TokenEventConnection(
             owner,

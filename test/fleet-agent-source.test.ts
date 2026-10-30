@@ -801,6 +801,15 @@ it("pages complete remote Done groups and destinations without crossing owners o
   expect((await reader.detail(group)).cards.map((card) => card.id)).toEqual(
     cards.slice(48, 99),
   );
+  // One indivisible result cannot fit a page: preserve a bounded 413 through
+  // the actual owning app, peer transport and paired gateway.
+  db.prepare("UPDATE messages SET content=? WHERE id=?").run(
+    "x".repeat(DONE_THREAD_PAGE_BYTES),
+    cards[48].slice("d:run:".length),
+  );
+  const oversized = await browser(prefix + `/feed/threads/${group}/page`);
+  expect(oversized.status).toBe(413);
+  expect(Buffer.byteLength(JSON.stringify(oversized.body))).toBeLessThan(1024);
 }, 15_000);
 
 it("loads, pages and refreshes remote Done cards through the paired gateway without exposing another owner", async () => {

@@ -141,6 +141,10 @@ export function useAgentSources(
     let active = true;
     let busy = false;
     let pending = false;
+    let queuedDiscovery = false;
+    let queuedFull = false;
+    let passGeneration = 0;
+    let refreshKnown: ((changes: Map<string, Set<string>>) => void) | undefined;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const previousDiscovery = discovered.owner === owner &&
       discovered.currentSourceId === currentSourceId ? discovered : null;
@@ -168,8 +172,11 @@ export function useAgentSources(
       }
       requests.clear();
     };
-    const readProjection = async <C extends RouteContract & { method: "GET" },>(contract: C, input: RouteInput<C>, source: string): Promise<RouteResponse<C>> => {
+    const readProjection = async <C extends RouteContract & { method: "GET" },>(contract: C, input: RouteInput<C>, source: string, cancellation?: AbortSignal): Promise<RouteResponse<C>> => {
       const controller = new AbortController();
+      const abort = () => controller.abort();
+      cancellation?.addEventListener("abort", abort, { once: true });
+      if (cancellation?.aborted) abort();
       const arm = (delay = 20_000) => {
         clearTimeout(requests.get(controller));
         requests.set(controller, setTimeout(() => controller.abort(), Math.min(2_147_483_647, delay)));
@@ -180,6 +187,7 @@ export function useAgentSources(
       } finally {
         clearTimeout(requests.get(controller));
         requests.delete(controller);
+        cancellation?.removeEventListener("abort", abort);
       }
     };
     const failedSources = new Set<string>();
@@ -187,18 +195,36 @@ export function useAgentSources(
     const queuedChanges = new Map<string, Set<string>>();
     const load = async (options: Refresh = {}) => {
       if (!active) return;
-      if (busy) { pending = true; return; }
+      if (busy && document.visibilityState !== "hidden" && options.changes && refreshKnown) {
+        refreshKnown(options.changes);
+        return;
+      }
+      if (busy || document.visibilityState === "hidden") {
+        pending = true;
+        if (options.changes)
+          for (const [source, kinds] of options.changes) {
+            const queued = queuedChanges.get(source) ?? new Set<string>();
+            for (const kind of kinds) queued.add(kind);
+            queuedChanges.set(source, queued);
+          }
+        else if (options.discovery) queuedDiscovery = true;
+        else queuedFull = true;
+        return;
+      }
       pending = false;
       busy = true;
       try {
         await pass(options);
       } finally {
         clearRequests();
+        refreshKnown = undefined;
         busy = false;
         if (active && pending) schedule();
       }
     };
     const pass = async (options: Refresh) => {
+      const generation = ++passGeneration;
+      const currentPass = () => active && generation === passGeneration;
       let linked = known;
       let error = "";
       try {
@@ -207,7 +233,7 @@ export function useAgentSources(
         known = linked;
         confirmed = true;
       } catch (failure) {
-        if (!active) return;
+        if (!currentPass()) return;
         // A 404 means this workspace has no linked sources: stop showing and
         // polling the ones it listed before.
         if ((failure as { status?: number }).status === 404) {
@@ -233,8 +259,14 @@ export function useAgentSources(
         source.capabilities ??= known.find(item => item.id === source.id)?.capabilities;
         if (source.id === currentSourceId) source.capabilities = capabilities;
       }
-      const publish = (error: string) => {
-        if (!active) return;
+      const unavailable = () => {
+        const failed = sources.filter(source => source.id !== currentSourceId && failedSources.has(source.id));
+        return error || (failed.length
+          ? `${failed.slice(0, 3).map(source => source.name).join(", ")}${failed.length > 3 ? ` and ${failed.length - 3} more` : ""} temporarily unavailable. Last loaded agents are still shown.`
+          : "");
+      };
+      const publish = () => {
+        if (!currentPass()) return;
         const loaded = sources
           .filter((source) => source.id !== currentSourceId)
           .flatMap((source) =>
@@ -244,71 +276,128 @@ export function useAgentSources(
         setState({
           owner,
           currentSourceId,
-          sources,
+          // Discovery can start Feed reads, but cannot advertise a provider
+          // setup destination before its own bootstrap has been observed.
+          sources: sources.filter(source => source.id === currentSourceId || snapshots.has(source.id))
+            .map(source => ({ ...source })),
           agents: loaded.flatMap((item) => item.agents),
           connections: loaded.flatMap((item) => item.connections),
           folders: loaded.flatMap((item) => item.folders),
           runs: loaded.flatMap((item) => item.runs),
-          error,
+          error: unavailable(),
         });
       };
-      if (!active) return;
+      if (!currentPass()) return;
       // Feed reads only need destinations. Creation choices still need their
       // connections, and outage warnings stay until the metadata retry settles.
       setDiscovered({ owner, currentSourceId, sources, ready: confirmed });
-      const settled = await Promise.allSettled(
-        sources
-          .filter((source) => source.id !== currentSourceId &&
-            (!options.changes || options.changes.has(source.id)) &&
-            (!options.discovery || !reactiveSource(source.id, "workspace") || !snapshots.has(source.id) || failedSources.has(source.id)))
-          .map(async (source) => {
-            const retryMetadata = failedSources.has(source.id);
-            failedSources.add(source.id);
-            const prior = snapshots.get(source.id);
-            // A run signal must not certify stale metadata after a failed
-            // bootstrap. Retry the full source until every part recovers.
-            if (prior && !retryMetadata && options.changes?.get(source.id)?.size === 1 && options.changes.get(source.id)?.has("runs")) {
-              const runs = await readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id);
-              return { source, data: { ...prior, runs: project(source, { agents: [], connections: [], folders: [], runs }).runs } };
-            }
+      // Publish the known source list and retained projections immediately.
+      // Four workers bound initial bootstrap fan-out; each source publishes as
+      // soon as it settles, without waiting for another source's timeout.
+      const pendingSources = sources.filter(source => source.id !== currentSourceId &&
+        (!options.changes || options.changes.has(source.id)) &&
+        (!options.discovery || !reactiveSource(source.id, "workspace") || !snapshots.has(source.id) || failedSources.has(source.id)));
+      publish();
+      const jobs = new Map<string, { source: AgentSource; changes?: Set<string> }>();
+      const running = new Set<string>();
+      let finish!: () => void;
+      const drained = new Promise<void>(resolve => { finish = resolve; });
+      const readSource = async (source: AgentSource, changes?: Set<string>) => {
+        const retryMetadata = failedSources.has(source.id);
+        const prior = snapshots.get(source.id);
+        const sourceRequest = new AbortController();
+        try {
+          // A run signal cannot certify metadata after a failed bootstrap.
+          let data: Projection;
+          if (prior && !retryMetadata && changes?.size === 1 && changes.has("runs")) {
+            const runs = await readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id, sourceRequest.signal);
+            data = { ...prior, runs: project(source, { agents: [], connections: [], folders: [], runs }).runs };
+          } else {
             const [bootstrap, runs, sourceCapabilities] = await Promise.all([
-              readProjection(workspaceApi.bootstrap, {}, source.id),
-              readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id),
-              source.id.startsWith("peer:") ? readProjection(workspaceApi.capabilities, {}, source.id) : Promise.resolve(undefined),
+              readProjection(workspaceApi.bootstrap, {}, source.id, sourceRequest.signal),
+              readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id, sourceRequest.signal),
+              source.id.startsWith("peer:") ? readProjection(workspaceApi.capabilities, {}, source.id, sourceRequest.signal) : Promise.resolve(undefined),
             ]);
+            if (!currentPass()) return;
             source.capabilities = sourceCapabilities;
             if (!source.id && bootstrap.environmentName) {
               source.name = bootstrap.environmentName;
               knownLocal = source;
             }
-            return { source, data: project(source, { ...bootstrap, runs }) };
-          }),
-      );
-      if (!active) return;
-      for (const item of settled)
-        if (item.status === "fulfilled") {
-          snapshots.set(item.value.source.id, item.value.data);
-          failedSources.delete(item.value.source.id);
+            data = project(source, { ...bootstrap, runs });
+          }
+          if (!currentPass()) return;
+          snapshots.set(source.id, data);
+          failedSources.delete(source.id);
+        } catch {
+          if (!currentPass()) return;
+          failedSources.add(source.id);
+        } finally {
+          sourceRequest.abort();
         }
-      publish(
-        error ||
-          (sources.some(source => source.id !== currentSourceId && failedSources.has(source.id))
-            ? "An environment is temporarily unavailable. Its last loaded agents are still shown."
-            : ""),
-      );
+        publish();
+      };
+      const pump = () => {
+        if (!currentPass()) jobs.clear();
+        while (running.size < 4 && jobs.size) {
+          const entry = [...jobs.entries()].find(([id]) => !running.has(id));
+          if (!entry) break;
+          const [id, job] = entry;
+          jobs.delete(id);
+          running.add(id);
+          void readSource(job.source, job.changes).finally(() => {
+            running.delete(id);
+            pump();
+          });
+        }
+        if (!running.size && !jobs.size) finish();
+      };
+      const enqueue = (source: AgentSource, changes?: Set<string>) => {
+        const prior = jobs.get(source.id);
+        jobs.set(source.id, {
+          source,
+          changes: prior
+            ? prior.changes && changes ? new Set([...prior.changes, ...changes]) : undefined
+            : changes ? new Set(changes) : undefined,
+        });
+      };
+      for (const source of pendingSources) enqueue(source, options.changes?.get(source.id));
+      // A slow source occupies only its own worker. Known healthy sources can
+      // consume invalidations while an initial/bootstrap read remains pending.
+      // Repeated notifications for one running source coalesce into one job.
+      refreshKnown = changes => {
+        if (!currentPass()) return;
+        for (const source of sources)
+          if (source.id !== currentSourceId && changes.has(source.id))
+            enqueue(source, changes.get(source.id));
+        pump();
+      };
+      pump();
+      await drained;
     };
     void load();
     // Docker/source discovery is external topology, not a database projection.
     // Complete known sources do not refetch metadata or runs on this probe.
     const timer = setInterval(() => void load({ discovery: true }), 30_000);
-    const retry = () => void load();
+    const retry = () => {
+      // Explicit retry supersedes outstanding metadata reads. Otherwise one
+      // source still in backoff can hold the failed source's retry indefinitely.
+      if (busy) {
+        passGeneration++;
+        clearRequests();
+      }
+      void load();
+    };
     const schedule = () => {
       if (refreshTimer) return;
       refreshTimer = setTimeout(() => {
         refreshTimer = undefined;
         const changes = new Map(queuedChanges);
         queuedChanges.clear();
-        void load(changes.size ? { changes } : {});
+        const options = queuedFull || (queuedDiscovery && changes.size)
+          ? {} : queuedDiscovery ? { discovery: true } : changes.size ? { changes } : {};
+        queuedFull = queuedDiscovery = false;
+        void load(options);
       }, 250);
     };
     const changed = (kind: "runs" | "metadata") => (event: Event) => {
@@ -320,6 +409,8 @@ export function useAgentSources(
       }
       if (queuedChanges.size) schedule();
     };
+    const visible = () => { if (document.visibilityState === "visible") schedule(); };
+    document.addEventListener("visibilitychange", visible);
     window.addEventListener("loop55-source-refresh", retry);
     // This projection includes active runs as well as source metadata.
     const stopChanges = listenWorkspaceChanges("runs", changed("runs"));
@@ -330,6 +421,7 @@ export function useAgentSources(
       clearInterval(timer);
       clearTimeout(refreshTimer);
       window.removeEventListener("loop55-source-refresh", retry);
+      document.removeEventListener("visibilitychange", visible);
       stopChanges();
       stopMetadata();
     };

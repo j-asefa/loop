@@ -41,5 +41,6 @@ export function profileCapabilities(profile: DeploymentProfile): Capabilities {
     personalDecisions: true,
     personalApprovalDetails: true,
     continuationStart: true,
+    eventMultiplex: companion,
   };
 }

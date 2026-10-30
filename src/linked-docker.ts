@@ -7,6 +7,7 @@ import {
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { WebSocket } from "ws";
+import type { EventSocket } from "./event-socket.js";
 
 const run = promisify(execFile);
 // `id` is stable across `docker compose up` recreating the container, so
@@ -124,7 +125,7 @@ async function inspect(id: string): Promise<LinkedDockerWorkspace | null> {
 // Only the discovered local server decides its owner. No browser credential,
 // URL, command or arbitrary header crosses this read-only source connection.
 export async function connectLinkedDockerEvents(
-  socket: WebSocket,
+  socket: EventSocket,
   sourceId: string,
   query: URLSearchParams,
 ) {

@@ -8,6 +8,11 @@ import {
 } from "../shared/workspace-events";
 import { viewGeneration } from "./viewCache";
 import { retryAfter } from "./api";
+import type { WorkspaceSocket } from "./workspace-multiplex";
+import {
+  acquireWorkspacePoll,
+  cancelWorkspacePoll,
+} from "./workspace-poll-budget";
 
 export type WorkspaceFrame =
   | WorkspaceFrameV3
@@ -38,6 +43,7 @@ export function watchWorkspaceEvents(options: {
   frame?: (frame: WorkspaceFrame) => void;
   connected?: (connected: boolean) => void;
   expired?: () => void;
+  socket?: (url: URL) => WorkspaceSocket;
 }) {
   let stopped = false,
     ready = false,
@@ -49,10 +55,11 @@ export function watchWorkspaceEvents(options: {
     attempt = 0;
   let lastRefresh = 0;
   let pollAfter = 0;
-  let socket: WebSocket | undefined;
+  let socket: WorkspaceSocket | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let request: AbortController | undefined;
   const ownerGeneration = viewGeneration();
+  const pollKey = Symbol();
   let deadlineGeneration = 0;
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   let deadlineClock: WorkspaceClock | undefined;
@@ -152,6 +159,7 @@ export function watchWorkspaceEvents(options: {
   const connect = () => {
     if (stopped) return;
     clearTimeout(retry);
+    if (document.visibilityState === "hidden") return;
     if (Date.now() < pollAfter) {
       retry = setTimeout(
         connect,
@@ -169,7 +177,9 @@ export function watchWorkspaceEvents(options: {
     url.searchParams.set("clock", "1");
     url.searchParams.set("projection", "1");
     let firstFrame = true;
-    const current = (socket = new WebSocket(url));
+    const current = (socket = options.socket
+      ? options.socket(url)
+      : new WebSocket(url));
     current.onmessage = (event) => {
       if (stopped || current !== socket || viewGeneration() !== ownerGeneration)
         return;
@@ -243,6 +253,7 @@ export function watchWorkspaceEvents(options: {
         attempt = 0;
         if (!ready) options.connected?.(true);
         ready = true;
+        cancelWorkspacePoll(pollKey);
         // Polling stops while push is healthy. Its last success cannot prove
         // connectivity after this socket subsequently disconnects.
         pollHealthy = false;
@@ -283,12 +294,17 @@ export function watchWorkspaceEvents(options: {
   const poll = async () => {
     if (
       stopped ||
+      document.visibilityState === "hidden" ||
       viewGeneration() !== ownerGeneration ||
       ready ||
       polling ||
       Date.now() < pollAfter
-    )
+    ) {
+      cancelWorkspacePoll(pollKey);
       return;
+    }
+    const releasePoll = acquireWorkspacePoll(pollKey);
+    if (!releasePoll) return;
     polling = true;
     const requestEpoch = epoch;
     const controller = (request = new AbortController());
@@ -321,6 +337,7 @@ export function watchWorkspaceEvents(options: {
         options.connected?.(false);
       }
     } finally {
+      releasePoll();
       clearTimeout(deadline);
       polling = false;
     }
@@ -333,6 +350,12 @@ export function watchWorkspaceEvents(options: {
   };
   const visible = () => {
     if (document.visibilityState === "visible") wake();
+    else {
+      cancelWorkspacePoll(pollKey);
+      request?.abort();
+      clearTimeout(retry);
+      socket?.close();
+    }
   };
   const restarting = () => {
     if (stopped || socket?.readyState === WebSocket.OPEN) return;
@@ -351,6 +374,7 @@ export function watchWorkspaceEvents(options: {
   document.addEventListener("visibilitychange", visible);
   function stop() {
     stopped = true;
+    cancelWorkspacePoll(pollKey);
     clearTimeout(retry);
     clearTimeout(deadlineTimer);
     deadlineGeneration++;

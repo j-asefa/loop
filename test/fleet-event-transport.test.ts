@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { once } from "node:events";
+import { createServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import { Response, type fetch as undiciFetch } from "undici";
@@ -143,3 +144,53 @@ it("honors peer HTTP backpressure without replaying or holding the failed reques
   ).rejects.toMatchObject({ status: 503 });
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it.each([429, 503])(
+  "releases a refused %i event handshake and defers the next connection",
+  async (status) => {
+    const capacity = new FleetCapacity(() => true);
+    let requests = 0;
+    const server = createServer((_req, res) => {
+      requests++;
+      res.writeHead(status, { "Retry-After": "5", Connection: "close" });
+      res.end();
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("Missing fixture port");
+    const transport = new FleetWorkspaceEventHttpTransport(
+      undefined,
+      capacity,
+      (_url, options) =>
+        new WebSocket(`ws://127.0.0.1:${address.port}`, {
+          ...options,
+          lookup: undefined,
+        }),
+    );
+    const token = randomBytes(32).toString("base64url");
+    try {
+      await expect(
+        transport.connect(
+          "https://source.example",
+          token,
+          new AbortController().signal,
+        ),
+      ).rejects.toMatchObject({ status, diagnostic: { retryAfterMs: 5000 } });
+      await until(() => capacity.snapshot().outbound === 0);
+      await expect(
+        transport.connect(
+          "https://source.example",
+          token,
+          new AbortController().signal,
+        ),
+      ).rejects.toMatchObject({ status: 503 });
+      expect(requests).toBe(1);
+      expect(capacity.snapshot().total).toBe(0);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  },
+);

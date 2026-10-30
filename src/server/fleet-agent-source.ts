@@ -22,6 +22,7 @@ import type { FleetPeerReads } from "./fleet-peer-reads.js";
 import type { FleetPeerActions } from "./fleet-peer-actions.js";
 import type { FleetPeerFiles } from "./fleet-peer-files.js";
 import type { FleetPeerUploads } from "./fleet-peer-uploads.js";
+import type { FleetPeerEvents } from "./fleet-peer-events.js";
 import { fleetUploadBody } from "./fleet-upload-body.js";
 import { fleetPayloadDigest } from "./fleet-crypto.js";
 import {
@@ -112,11 +113,13 @@ export function fleetAgentSource(
   actions?: FleetPeerActions,
   files?: FleetPeerFiles,
   uploads?: FleetPeerUploads,
+  events?: FleetPeerEvents,
 ): SourceAdapter {
   const uploading = new Map<string, number>();
   let activeUploads = 0;
   return {
     kind: "peer",
+    current: (peer) => reads.generation(peer),
     async discover() {
       const local = authority.status(owner),
         document = local.directory?.document;
@@ -132,8 +135,9 @@ export function fleetAgentSource(
         .filter((member) => member.machineId !== authority.identity.machineId)
         .map((member) => ({ id: member.machineId, name: member.name }));
     },
-    async events(socket) {
-      socket.close(1013, "Fleet event subscriptions are unavailable.");
+    async events(socket, peer, query) {
+      if (events) await events.connect(socket, peer, query);
+      else socket.close(1013, "Fleet event subscriptions are unavailable.");
     },
     async proxy(req, res, peer, apiPath, _prefix, current) {
       const controller = new AbortController();
@@ -413,7 +417,7 @@ export function fleetAgentSource(
                       (uploads && name === "uploadCreate"),
                   ),
                   files: !!files && catalog.files,
-                  events: catalog.events,
+                  events: !!events && catalog.events,
                 },
               }),
             );
@@ -473,6 +477,13 @@ export function fleetAgentSource(
         }
         res.removeHeader("content-length");
         res.removeHeader("content-disposition");
+        const delay =
+          error instanceof Problem ? error.diagnostic?.retryAfterMs : undefined;
+        if (typeof delay === "number" && Number.isFinite(delay) && delay > 0)
+          res.setHeader(
+            "Retry-After",
+            String(Math.ceil(Math.min(delay, 300_000) / 1000)),
+          );
         // Local validation or lost authorization cannot settle an older send.
         // Only the verified receipt path above may emit a terminal outcome.
         const refused = error instanceof ExecutionRefused || !forwarding;

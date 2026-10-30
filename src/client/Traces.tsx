@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { parse } from "./api";
 import { viewGeneration } from "./viewCache";
+import { watchWorkspaceDetail } from "./workspace-multiplex";
 import { Empty, RichText } from "./components";
 import type { Artifact } from "../shared/types";
 
@@ -42,6 +43,14 @@ function saveJson(name: string, data: unknown) {
 }
 export function Traces(props: Props) {
   const source = useSourceId();
+  const generation = viewGeneration();
+  useEffect(
+    () =>
+      props.runId
+        ? watchWorkspaceDetail(source, { run: props.runId })
+        : undefined,
+    [source, props.runId, generation],
+  );
   return (
     <TraceSearch
       key={JSON.stringify([

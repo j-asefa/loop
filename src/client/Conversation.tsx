@@ -57,6 +57,7 @@ import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { TranscriptHandoff, ProjectedMessage, type TranscriptEvent } from "../shared/transcript-projection";
 import { eventScopes } from "../shared/workspace-events";
 import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./workspace-projections";
+import { watchWorkspaceDetail } from "./workspace-multiplex";
 import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
 import { RunStatus } from "./RunStatus";
@@ -651,6 +652,7 @@ function ConversationView({
     const update = () => void load();
     const markMissing = (message: string, cursor: number) =>
       missingMessages.current.set(message, Math.max(cursor, missingMessages.current.get(message) ?? 0));
+    const stopDetail = watchWorkspaceDetail(sourceId, { conversation: id });
     const stopFrames = listenProjectionFrames(sourceId, (frame) => {
       if (frame.type === "reset") {
         missingMessages.current.clear();
@@ -715,6 +717,7 @@ function ConversationView({
       window.removeEventListener("loop55-refresh", update);
       stopFallback();
       stopFrames();
+      stopDetail();
       clearTimeout(retryTimer.current);
       stopChanges();
     };

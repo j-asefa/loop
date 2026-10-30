@@ -1,8 +1,15 @@
 import { expect } from "@playwright/test";
+import { temporaryPageRoute } from "./temporary-page-route.mjs";
 
 /** A rate-limited source must recover without holding healthy Feed/Needs reads. */
-export async function sourceRetryFeedSmoke(newPage, origin, remoteSource) {
+export async function sourceRetryFeedSmoke(
+  newPage,
+  origin,
+  remoteSource,
+  closePage,
+) {
   const page = await newPage();
+  let stopFeedRoute = async () => {};
   let refusing = true,
     localVersion = 1,
     remoteWorkingAttempts = 0;
@@ -35,7 +42,7 @@ export async function sourceRetryFeedSmoke(newPage, origin, remoteSource) {
     await expect(card(".inbox-results", "Remote task")).toHaveCount(1);
     await expect(card(".needs-stack", "Remote approval task")).toHaveCount(1);
     await page.waitForTimeout(2500);
-    await page.route(feedRoute, async (route) => {
+    stopFeedRoute = await temporaryPageRoute(page, feedRoute, async (route) => {
       const url = new URL(route.request().url());
       const remote = url.pathname.includes("/agent-sources/");
       const filter = url.searchParams.get("filter");
@@ -104,7 +111,7 @@ export async function sourceRetryFeedSmoke(newPage, origin, remoteSource) {
       page.getByText("Some environments could not refresh.", { exact: false }),
     ).toHaveCount(0);
   } finally {
-    await page.unrouteAll({ behavior: "wait" });
-    await page.close();
+    await stopFeedRoute();
+    await closePage(page);
   }
 }

@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { linkedDockerWorkspaces, proxyLinkedDocker } from "./linked-docker.js";
 import { AgentSources } from "./agent-sources.js";
+import type { EventSocket } from "./event-socket.js";
+import { WorkspaceMultiplex } from "./server/workspace-multiplex.js";
+import { WORKSPACE_MULTIPLEX_PATH } from "./shared/workspace-multiplex.js";
+import type { FleetCapacity } from "./server/fleet-capacity.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import {
@@ -78,13 +82,22 @@ export class Host {
     fleetCommandsHttp?: (req: IncomingMessage, res: ServerResponse) => void;
     /** Dedicated machine protocol; never forwards to the browser workspace API. */
     peerHttp?: (req: IncomingMessage, res: ServerResponse) => void;
+    peerUpgrade?: (
+      req: IncomingMessage,
+      socket: import("node:stream").Duplex,
+      head: Buffer,
+      admit: () => boolean,
+    ) => void;
     sources?: AgentSources;
+    /** Shared with this companion's inbound peers and outbound transports. */
+    fleetCapacity?: FleetCapacity;
     authorizeToken?: (req: IncomingMessage) => CardAuthorization;
     tokenEvents?: {
       upgrade: (
         req: IncomingMessage,
         socket: import("node:stream").Duplex,
         head: Buffer,
+        admit: () => boolean,
       ) => void;
       close: () => void;
     };
@@ -94,7 +107,7 @@ export class Host {
       sourceId?: string,
       action?: "connect" | "disconnect",
     ) => Promise<unknown>;
-    connect: (socket: WebSocket, url: URL) => () => void;
+    connect: (socket: EventSocket, url: URL) => () => void;
     originChanged: (origin: string) => void;
   };
   state: State;
@@ -109,6 +122,7 @@ export class Host {
   private promptPending = false;
   private stopped = false;
   private readonly sources = new AgentSources();
+  private multiplex?: WorkspaceMultiplex;
   private agentSources() {
     return this.workspace?.isolated
       ? this.sources
@@ -116,6 +130,7 @@ export class Host {
   }
   private originGeneration = 0;
   private active = 0;
+  private publicRequests = 0;
   private fleetRequests = new Map<
     ServerResponse,
     { req: IncomingMessage; deviceId: string }
@@ -224,6 +239,21 @@ export class Host {
     options: { socket?: string; probe?: (nonce: string) => string } = {},
   ) {
     this.publicServer.on("upgrade", (req, socket, head) => {
+      socket.on("error", () => socket.destroy());
+      if (req.url?.startsWith("/api/fleet/peer/")) {
+        if (
+          !this.validHost(req) ||
+          this.workspace?.isolated ||
+          !this.workspace?.peerUpgrade
+        ) {
+          socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+          return;
+        }
+        this.workspace.peerUpgrade(req, socket, head, () =>
+          this.admitSocket(socket, "peer"),
+        );
+        return;
+      }
       // Token sockets are a separate, contract-admitted channel. Browser/device
       // cookies never substitute for a bearer, and linked-source paths stay out.
       if (
@@ -236,13 +266,16 @@ export class Host {
           (req.headers.origin && !this.validOrigin(req)) ||
           req.headers["sec-fetch-site"] === "cross-site"
         ) {
-          socket.on("error", () => socket.destroy());
           socket.end(
             "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
           );
           return;
         }
-        return this.workspace.tokenEvents.upgrade(req, socket, head);
+        // The owning handler validates the bearer before spending shared
+        // connection tokens. Cookies never substitute for that authentication.
+        return this.workspace.tokenEvents.upgrade(req, socket, head, () =>
+          this.admitSocket(socket, "browser"),
+        );
       }
       const device = this.authenticate(req);
       if (
@@ -266,17 +299,49 @@ export class Host {
       const source = /^\/api\/agent-sources\/([^/]+)\/events\/ws$/.exec(
         url.pathname,
       );
+      const multiplex =
+        !!this.workspace &&
+        url.pathname === WORKSPACE_MULTIPLEX_PATH &&
+        !url.search;
       const local =
         url.pathname === workspaceApi.channels.events.pairedPath ||
         (!!this.workspace &&
           url.pathname === "/api" + workspaceApi.channels.events.path);
-      if (!local && !(source && this.workspace && !this.workspace.isolated)) {
+      if (
+        !local &&
+        !multiplex &&
+        !(source && this.workspace && !this.workspace.isolated)
+      ) {
         socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         return;
       }
+      if (!this.admitSocket(socket, "browser")) return;
       this.ws.handleUpgrade(req, socket, head, (ws) => {
         this.clients.set(ws, device.id);
-        const cleanup = local ? this.workspace?.connect(ws, url) : undefined;
+        if (multiplex && !this.multiplex)
+          this.multiplex = new WorkspaceMultiplex(
+            (logical, id, query) => {
+              if (!id)
+                return this.workspace!.connect(
+                  logical,
+                  new URL("/api/events/ws?" + query, this.origin),
+                );
+              if (this.workspace!.isolated)
+                throw new Error("Preview sources are isolated");
+              return this.agentSources().events(logical, id, query);
+            },
+            (id) => {
+              if (!id) return "local";
+              if (this.workspace!.isolated)
+                throw new Error("Preview sources are isolated");
+              return this.agentSources().current(id);
+            },
+          );
+        const cleanup = multiplex
+          ? this.multiplex!.connect(ws)
+          : local
+            ? this.workspace?.connect(ws, url)
+            : undefined;
         if (source) {
           try {
             void this.agentSources()
@@ -535,6 +600,74 @@ export class Host {
     });
     res.end(JSON.stringify(value));
   }
+  private admitSocket(
+    socket: import("node:stream").Duplex,
+    kind: "browser" | "peer",
+  ) {
+    const capacity = this.workspace?.fleetCapacity;
+    if (!capacity) return true;
+    const release = capacity.connection(kind)
+      ? capacity.acquire(kind)
+      : undefined;
+    if (!release) {
+      socket.end(
+        "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nConnection: close\r\n\r\n",
+      );
+      return false;
+    }
+    // Keep the slot from authenticated admission through socket closure,
+    // including an invalid or aborted WebSocket handshake.
+    socket.once("close", release);
+    return true;
+  }
+  private admitHttp(res: ServerResponse, kind: "browser" | "peer") {
+    const capacity = this.workspace?.fleetCapacity;
+    if (!capacity) return true;
+    const release = capacity.acquire(kind);
+    if (kind === "peer")
+      res.setHeader(
+        "X-Loop55-Fleet-Available",
+        String(capacity.availablePeers()),
+      );
+    if (!release) {
+      res.setHeader("Retry-After", "1");
+      this.json(res, 503, {
+        error: "This gateway is busy. Retry after capacity is available.",
+      });
+      return false;
+    }
+    res.once("finish", release);
+    res.once("close", release);
+    return true;
+  }
+  private admitPublic(req: IncomingMessage, res: ServerResponse) {
+    if (!this.workspace?.fleetCapacity?.snapshot().enabled) return true;
+    // Public assets, pairing and capabilities cannot borrow authenticated
+    // capacity. Keep their separate allowance below the remaining tunnel margin.
+    if (this.publicRequests >= 16) {
+      res.setHeader("Retry-After", "1");
+      this.json(res, 503, {
+        error: "Public requests are busy. Try again shortly.",
+      });
+      return false;
+    }
+    this.publicRequests++;
+    const timer = setTimeout(() => {
+      res.destroy();
+      req.destroy();
+    }, 15_000);
+    timer.unref();
+    let finished = false;
+    const release = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      this.publicRequests--;
+    };
+    res.once("finish", release);
+    res.once("close", release);
+    return true;
+  }
   private async http(req: IncomingMessage, res: ServerResponse) {
     this.active++;
     res.once("close", () => this.active--);
@@ -586,6 +719,7 @@ export class Host {
                 : "Integration authorization unavailable.",
           });
         }
+        if (!this.admitHttp(res, "browser")) return;
         this.workspace.http(req, res);
         return;
       }
@@ -594,10 +728,16 @@ export class Host {
           return this.json(res, 404, {
             error: "Fleet enrollment unavailable.",
           });
+        if (!this.admitHttp(res, "peer")) return;
         this.workspace.peerHttp(req, res);
         return;
       }
       const path = new URL(req.url!, this.origin).pathname;
+      const device = this.authenticate(req);
+      if (
+        !(device ? this.admitHttp(res, "browser") : this.admitPublic(req, res))
+      )
+        return;
       if (path === "/pair" && req.method === "POST") {
         this.attempts = this.attempts.filter((t) => Date.now() - t < 60000);
         if (this.attempts.length >= 20)
@@ -659,7 +799,6 @@ export class Host {
         return this.json(res, 200, { paired: true });
       }
       if (path === "/session" && req.method === "GET") {
-        const device = this.authenticate(req);
         if (!device)
           return this.json(res, 401, {
             error: "Pair this device from the desktop.",
@@ -678,7 +817,6 @@ export class Host {
         return;
       }
       if (this.workspace && path.startsWith("/api/")) {
-        const device = this.authenticate(req);
         if (!device)
           return this.json(
             res,
@@ -1048,6 +1186,7 @@ export class Host {
     }
   }
   async close() {
+    this.multiplex?.close();
     if (this.stopped) return;
     this.emit({ type: "status", status: "stopped" });
     this.stopped = true;

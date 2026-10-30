@@ -387,6 +387,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
   let workingHistory = false;
   let workingHold = null;
   let workingStarts = 0;
+  let workingRevision = 0;
   const workingEmptySources = new Set();
   const workingCursors = [];
   let pause = null;
@@ -507,7 +508,13 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
             {
               ...working.items[0],
               conversation_id: "working-page-" + index,
-              title: source.name + " page " + index,
+              title:
+                source.name +
+                " page " +
+                index +
+                (index === 1 && workingRevision
+                  ? " update " + workingRevision
+                  : ""),
               last_activity_at: working.items[0].last_activity_at - index,
             },
           ],
@@ -828,7 +835,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
       window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     const outage = page.getByText(
-      "An environment is temporarily unavailable. Its last loaded agents are still shown.",
+      /temporarily unavailable\. Last loaded agents are still shown\./,
       { exact: false },
     );
     // Metadata reads retry after two and four seconds before showing an outage.
@@ -914,6 +921,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
         !url.searchParams.has("before")
       );
     });
+    workingRevision = 1;
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop55-source-refresh")),
     );
@@ -924,6 +932,38 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
           requestAnimationFrame(() => requestAnimationFrame(resolve)),
         ),
     );
+    await expect(rows).toHaveCount(6);
+    // A cached healthy source publishes without the held source completing,
+    // and a later scoped invalidation can refresh it again in that same pass.
+    await expect(
+      rows.filter({ hasText: "First environment page 1 update 1" }),
+    ).toBeVisible({ timeout: 3000 });
+    workingRevision = 2;
+    await page.evaluate(
+      (source) =>
+        window.dispatchEvent(
+          new CustomEvent("loop55-workspace-change", {
+            detail: {
+              sources: [source],
+              changes: [
+                {
+                  source,
+                  events: [
+                    {
+                      type: "invalidate",
+                      scope: { kind: "collection", id: "feed" },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        ),
+      sources[0].id,
+    );
+    await expect(
+      rows.filter({ hasText: "First environment page 1 update 2" }),
+    ).toBeVisible({ timeout: 3000 });
     await expect(rows).toHaveCount(6);
     await loadMore.click();
     await expect(rows).toHaveCount(8);
@@ -936,8 +976,9 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
       workingCursors.slice(-2).sort((a, b) => a.source.localeCompare(b.source)),
     ).toEqual(sources.map((source) => ({ source: source.id, before: "3" })));
 
-    // An empty fast response cannot erase the last displayed result while
-    // another source's background refresh is still unresolved.
+    // A healthy source's exhaustive empty response removes its stale rows
+    // immediately. Until the other source settles, show pending work rather
+    // than claiming that the complete combined feed is empty.
     workingEmptySources.add(sources[1].id);
     workingHold.resolve();
     workingHold = null;
@@ -963,7 +1004,8 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
           requestAnimationFrame(() => requestAnimationFrame(resolve)),
         ),
     );
-    await expect(rows).toHaveCount(1);
+    await expect(rows).toHaveCount(0);
+    await expect(loading).toBeVisible();
     await expect(page.locator(".inbox-empty")).toHaveCount(0);
     workingHold.resolve();
     workingHold = null;

@@ -602,9 +602,8 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await status("Unread").click();
   await expect(card("Remote Filter result 0-83")).toContainText("Unread");
 
-  // Peers currently expose individual results, not saved groups. Inject a
-  // group anyway to cover stale/future data: the menu must still respect the
-  // destination's operation catalog instead of offering an unsupported write.
+  // This fixture grants individual-result unread but no group-unread action.
+  // The menu must respect that destination catalog for both kinds of result.
   await page.goto("about:blank");
   source = "peer:m_" + "b".repeat(64);
   prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
@@ -638,5 +637,6 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await page.waitForTimeout(150);
   assert.deepEqual(peerReadWrites, []);
   await closeReader();
+  // Finish background projection callbacks before the runner closes the page.
   await page.unrouteAll({ behavior: "wait" });
 }

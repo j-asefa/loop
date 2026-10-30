@@ -1,10 +1,17 @@
 import { expect } from "@playwright/test";
+import { temporaryPageRoute } from "./temporary-page-route.mjs";
 
-/** Hold the trailing-read window open so a second source-scoped read lands
- * inside it deterministically. Only timer delivery and display responses are
- * controlled; the real Feed listeners, requests and rendering run unchanged. */
-export async function pendingSourceRefreshSmoke(newPage, origin, remoteSource) {
+/** A held local response must not delay remote Feed/Needs updates. Another
+ * local notification must survive that read without replacing the remote rows.
+ * Only HTTP display responses are controlled; production scheduling runs. */
+export async function pendingSourceRefreshSmoke(
+  newPage,
+  origin,
+  remoteSource,
+  closePage,
+) {
   const page = await newPage();
+  let stopFeedRoute = async () => {};
   let releaseLocal;
   const localGate = new Promise((resolve) => {
     releaseLocal = resolve;
@@ -89,7 +96,7 @@ export async function pendingSourceRefreshSmoke(newPage, origin, remoteSource) {
         () => startupReads.size === 0 && Date.now() - lastFeedActivity >= 250,
       )
       .toBe(true);
-    await page.route(feedRoute, async (route) => {
+    stopFeedRoute = await temporaryPageRoute(page, feedRoute, async (route) => {
       const url = new URL(route.request().url());
       const remote = url.pathname.includes("/agent-sources/");
       const filter = url.searchParams.get("filter");
@@ -121,50 +128,26 @@ export async function pendingSourceRefreshSmoke(newPage, origin, remoteSource) {
       }
       await route.fulfill({ response, json: body });
     });
-    await page.evaluate(() => {
-      const set = window.setTimeout.bind(window),
-        clear = window.clearTimeout.bind(window);
-      const pending = new Map();
-      window.setTimeout = (callback, delay, ...args) => {
-        if (delay !== 100 || typeof callback !== "function")
-          return set(callback, delay, ...args);
-        // The production catch-up remains scheduled until production clears it.
-        const id = set(() => {
-          pending.delete(id);
-          callback(...args);
-        }, 60_000);
-        pending.set(id, () => callback(...args));
-        return id;
-      };
-      window.clearTimeout = (id) => {
-        pending.delete(id);
-        clear(id);
-      };
-      window.__pendingFeedTimers = pending;
-      window.__releaseFeedTimers = () => {
-        window.setTimeout = set;
-        window.clearTimeout = clear;
-        for (const [id, callback] of pending) {
-          clear(id);
-          set(callback, 0);
-        }
-        pending.clear();
-      };
-    });
     await refresh([""]);
     await expect.poll(() => localHeld).toBe(true);
     await refresh([remoteSource]);
-    releaseLocal();
-    await expect
-      .poll(() => page.evaluate(() => window.__pendingFeedTimers.size))
-      .toBeGreaterThan(0);
+    await expect(
+      page
+        .locator(".inbox-results .inbox-card")
+        .filter({ hasText: "Remote pending Feed update" }),
+    ).toHaveCount(1);
+    await expect(
+      page
+        .locator(".needs-stack .inbox-card")
+        .filter({ hasText: "Remote pending approval update" }),
+    ).toHaveCount(1);
     await refresh([""]);
+    releaseLocal();
     await expect(
       page
         .locator(".inbox-results .inbox-card")
         .filter({ hasText: "Local read two" }),
     ).toHaveCount(1);
-    await page.evaluate(() => window.__releaseFeedTimers());
     await expect(
       page
         .locator(".inbox-results .inbox-card")
@@ -177,7 +160,7 @@ export async function pendingSourceRefreshSmoke(newPage, origin, remoteSource) {
     ).toHaveCount(1);
   } finally {
     releaseLocal();
-    await page.unrouteAll({ behavior: "wait" });
-    await page.close();
+    await stopFeedRoute();
+    await closePage(page);
   }
 }

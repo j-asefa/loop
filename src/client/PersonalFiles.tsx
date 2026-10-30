@@ -38,6 +38,7 @@ export function PersonalFiles({
   const actions = useRef({ more: () => {}, retry: () => {} });
   const [page, setPage] = useState(empty);
   const [loading, setLoading] = useState(true);
+  const [appending, setAppending] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -50,6 +51,7 @@ export function PersonalFiles({
     const controller = new AbortController();
     let current = empty;
     let busy = false;
+    let appendPending = false;
     let pending = false;
     let urgent = false;
     let refreshAfter = 0;
@@ -76,12 +78,14 @@ export function PersonalFiles({
         urgent = false;
       }
       setLoading(true);
+      setAppending(!!before || appendPending);
       setError("");
       const boundary = before ? undefined : current.items.at(-1)?.cursor;
       let cursor = before;
       let result: PersonalFilesPage | undefined;
       const items: PersonalFilesPage["items"] = [];
       let reads = 0;
+      let complete = false;
       try {
         do {
           result = await call(
@@ -119,6 +123,7 @@ export function PersonalFiles({
           ],
         };
         setPage(current);
+        complete = true;
       } catch (error) {
         if (!controller.signal.aborted)
           setError(error instanceof Error ? error.message : String(error));
@@ -127,7 +132,14 @@ export function PersonalFiles({
         if (!before) refreshAfter = Date.now() + Math.max(5000, reads * 1800);
         if (!controller.signal.aborted) {
           setLoading(false);
-          if (pending) schedule();
+          setAppending(false);
+          // A click during refresh uses the newly reconciled cursor. Preserve
+          // it across a failed read until Retry succeeds; source/query changes
+          // abort this lifetime and discard its pending action.
+          const append = complete && appendPending ? current.next : null;
+          if (complete) appendPending = false;
+          if (append) void load(append);
+          else if (pending) schedule();
         }
       }
     };
@@ -144,7 +156,11 @@ export function PersonalFiles({
     };
     actions.current = {
       more: () => {
-        if (current.next) void load(current.next);
+        if (!current.next || controller.signal.aborted) return;
+        if (busy) {
+          appendPending = true;
+          setAppending(true);
+        } else void load(current.next);
       },
       retry: () => void load(retryBefore),
     };
@@ -250,7 +266,6 @@ export function PersonalFiles({
           </article>
         ))}
       </div>
-      {loading && <p role="status">Loading files…</p>}
       {error && (
         <div role="alert">
           <p>{error}</p>
@@ -264,9 +279,13 @@ export function PersonalFiles({
             : "No published files yet. Ask an agent to publish a file to Loop55 and it will appear here."}
         </p>
       )}
-      {!loading && !error && page.next && (
-        <button onClick={() => actions.current.more()}>Load more files</button>
+      {!error && page.next && (
+        <button disabled={appending} onClick={() => actions.current.more()}>
+          Load more files
+        </button>
       )}
+      {/* Refresh progress must not move the control during a pointer press. */}
+      {loading && <p role="status">Loading files…</p>}
     </section>
   );
 }

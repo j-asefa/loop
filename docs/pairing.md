@@ -57,9 +57,12 @@ and recovery rules are described in [architecture](architecture.md#source-map).
 Peer clients contact bare public HTTPS origins through connection-time DNS
 validation. They verify the confirmed machine identity before transmitting the
 enrollment capability and refuse redirects. Requests and responses are bounded
-to 4 MiB; peer transport has a 15-second deadline and does not retry
+to 4 MiB; peer HTTP transport has a 15-second deadline and does not retry
 uncertain effects. The companion admits at most 16 incomplete protocol
-requests at a time, separately from its browser routes. The companion's local
+requests at a time, within the shared [browser/peer capacity budget](architecture.md#source-map).
+Its separate machine event socket uses events-scoped credentials, signed frames,
+bounded buffers and expiry/heartbeat closure. Browser cookies never authenticate
+that machine connection. The companion's local
 `/api/fleet/admin/` API requires a paired device session and Origin/CSRF checks.
 It supports explicit create/recover, enrollment, removal, local address repair
 and controller handoff. Source jobs expose pending or uncertain outcomes;

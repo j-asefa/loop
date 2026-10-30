@@ -18,9 +18,9 @@ export function isExecutionRefused(error: unknown): boolean {
   return (error as { executionOutcome?: string } | null)?.executionOutcome === "refused";
 }
 
-export function isRateLimited(error: unknown): error is Error & { status: 429; retryAt: number } {
+export function isRateLimited(error: unknown): error is Error & { status: number; retryAt: number } {
   const value = error as { status?: number; retryAt?: number } | null;
-  return value?.status === 429 && Number.isFinite(value.retryAt);
+  return !!value && (value.status === 429 || (value.status !== undefined && value.status >= 500)) && Number.isFinite(value.retryAt);
 }
 /** Absolute deadlines avoid extending a server cooldown on every fallback tick. */
 export function retryAfter(error: unknown): number {
@@ -170,7 +170,7 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
   // durable request key still reconciles anything sent earlier.
   if (restarting(r)) throw reconnectingError();
   let deadline: number | undefined;
-  if (r.status === 429 && r.headers.has("retry-after")) {
+  if ((r.status === 429 || r.status >= 500) && r.headers.has("retry-after")) {
     deadline = retryDeadline(r.headers.get("retry-after"));
     // A late response from a previous owner cannot throttle the new owner.
     if (generation === viewGeneration() && generation === backoffGeneration)

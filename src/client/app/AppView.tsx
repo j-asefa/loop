@@ -1,3 +1,5 @@
+import { sessionDraft, type WorkspaceComposerDraft } from "../workspace-drafts";
+
 import { literalEntry, proseEntry } from "../textEntry";
 import { renderComposer, renderComposerSendSheets } from "./Composer";
 import { workspaceApi } from "../../shared/workspace-api";
@@ -250,6 +252,11 @@ export function renderApp(props: AppViewProps) {
     filingResult,
     setFilingResult,
   } = props;
+  const routedComposerStorage = sessionDraft<WorkspaceComposerDraft>(
+    session?.user?.id,
+    actionSource,
+    "composer",
+  );
   const nav = (
     <>
       {tabs.map((t) => (
@@ -1111,8 +1118,10 @@ export function renderApp(props: AppViewProps) {
                   [],
                   session?.user?.id,
                 );
-                sessionStorage.setItem("loop55-draft-agent", agentId);
-                sessionStorage.removeItem("loop55-draft-context");
+                routedComposerStorage.write({
+                  selected: agentId,
+                  replyContext: null,
+                });
                 location.assign(sourceUrl(actionSource, { agent: agentId }));
                 return;
               }

@@ -15,6 +15,8 @@ import { config } from "./server/config.js";
 import { nativeSessions, OWNER } from "./server/native-sessions.js";
 import { RegistrationOptions } from "./shared/execution-authority.js";
 import { connectWorkspaceEvents } from "./server/workspace-events.js";
+import { WorkspaceSelection } from "./shared/workspace-multiplex.js";
+import { fleetEventProjection } from "./shared/fleet-workspace-events.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DockerMcpSharing } from "./mcp-docker-sharing.js";
@@ -46,6 +48,7 @@ import { FleetEnrollmentHttpTransport } from "./server/fleet-enrollment-http.js"
 import { FleetLocalAdmin } from "./server/fleet-local-admin.js";
 import { createFleetAdminHttp } from "./server/fleet-admin-http.js";
 import { FleetWorkspaceServices } from "./server/fleet-workspace-services.js";
+import { FleetCapacity } from "./server/fleet-capacity.js";
 import { createFleetCommandsHttp } from "./server/fleet-commands-http.js";
 import { AgentSources, dockerSourceAdapter } from "./agent-sources.js";
 import { uploadFile } from "./server/uploads.js";
@@ -74,6 +77,8 @@ export class WorkspaceHost {
   readonly fleetCredentials?: FleetCredentials;
   readonly fleetLeases?: FleetCredentialLeases;
   readonly fleetWorkspace?: FleetWorkspaceServices;
+  readonly fleetCapacity?: FleetCapacity;
+  private stopCapacity?: () => void;
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
@@ -96,6 +101,18 @@ export class WorkspaceHost {
     // create fleet membership or grant peer access. The separate enrollment
     // protocol below verifies destination consent before installing a binding.
     if (!preview) this.fleet = new FleetAuthority(db, { seal, unseal });
+    if (this.fleet) {
+      let enabled = false;
+      const update = () => {
+        const state = this.fleet!.status(OWNER);
+        enabled =
+          state.state !== "removed" &&
+          (state.directory?.document.members.length ?? 0) > 1;
+      };
+      update();
+      this.stopCapacity = this.fleet.observe(OWNER, update);
+      this.fleetCapacity = new FleetCapacity(() => enabled);
+    }
     if (this.fleet) this.pairing = new FleetPairing(db, this.fleet, OWNER, dir);
     if (this.fleet) {
       this.fleetReconcile = new FleetDirectoryReconcile(
@@ -103,7 +120,7 @@ export class WorkspaceHost {
         this.fleet,
         OWNER,
         { seal, unseal },
-        new FleetDirectoryHttpTransport(),
+        new FleetDirectoryHttpTransport(undefined, this.fleetCapacity),
       );
       this.fleetCredentials = new FleetCredentials(db, this.fleet, {
         seal,
@@ -113,7 +130,7 @@ export class WorkspaceHost {
         this.fleet,
         this.fleetCredentials,
         OWNER,
-        new FleetCredentialHttpTransport(),
+        new FleetCredentialHttpTransport(undefined, this.fleetCapacity),
         undefined,
         { reconcile: () => this.fleetReconcile!.any() },
       );
@@ -150,7 +167,7 @@ export class WorkspaceHost {
         this.fleet,
         OWNER,
         { seal, unseal },
-        new FleetEnrollmentHttpTransport(),
+        new FleetEnrollmentHttpTransport(undefined, this.fleetCapacity),
       );
       this.fleetAdmin = new FleetLocalAdmin(
         db,
@@ -163,7 +180,7 @@ export class WorkspaceHost {
           this.fleet,
           OWNER,
           { seal, unseal },
-          new FleetHandoffHttpTransport(),
+          new FleetHandoffHttpTransport(undefined, this.fleetCapacity),
         ),
         OWNER,
         () => this.gateway.origin,
@@ -175,7 +192,7 @@ export class WorkspaceHost {
         this.fleet,
         OWNER,
         { seal, unseal },
-        new FleetDirectoryHttpTransport(),
+        new FleetDirectoryHttpTransport(undefined, this.fleetCapacity),
         undefined,
         { reconcile: this.fleetReconcile },
       );
@@ -189,9 +206,22 @@ export class WorkspaceHost {
         { seal, unseal },
         app,
         uploadFile,
+        connectWorkspaceEvents,
+        this.fleetCapacity,
       );
     this.gateway.workspace = {
       isolated: !!preview,
+      fleetCapacity: this.fleetCapacity,
+      peerUpgrade: this.fleetWorkspace?.workspaceEvents
+        ? (req, socket, head, admit) =>
+            this.fleetWorkspace!.workspaceEvents!.upgrade(
+              req,
+              socket,
+              head,
+              this.gateway.origin,
+              admit,
+            )
+        : undefined,
       http: app,
       sources: this.fleetWorkspace
         ? new AgentSources([dockerSourceAdapter, this.fleetWorkspace.source])
@@ -279,8 +309,32 @@ export class WorkspaceHost {
         config.url = origin;
         this.execution.setOrigin?.(origin);
       },
-      connect: (socket, url) =>
-        connectWorkspaceEvents(socket, url, OWNER, this.epoch, BUILD),
+      connect: (socket, url) => {
+        try {
+          const selected = url.searchParams.has("conversations")
+            ? WorkspaceSelection.parse({
+                conversations: JSON.parse(
+                  url.searchParams.get("conversations")!,
+                ),
+                runs: JSON.parse(url.searchParams.get("runs") ?? "[]"),
+              })
+            : undefined;
+          return connectWorkspaceEvents(
+            socket,
+            url,
+            OWNER,
+            this.epoch,
+            BUILD,
+            undefined,
+            selected
+              ? (event) => fleetEventProjection(event, selected)
+              : undefined,
+          );
+        } catch {
+          socket.close(1008, "Invalid source subscription");
+          return () => {};
+        }
+      },
     };
   }
   get port() {
@@ -370,6 +424,7 @@ export class WorkspaceHost {
   }
   async close() {
     this.closing = true;
+    this.stopCapacity?.();
     this.fleetDistribution?.close();
     this.fleetWorkspace?.close();
     this.fleetLeases?.close();
