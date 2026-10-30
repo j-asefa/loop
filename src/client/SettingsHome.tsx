@@ -98,7 +98,7 @@ export function SettingsHome({
               row(
                 "card-tokens",
                 "Integration tokens",
-                "Read-only access for scripts",
+                "Scripts and webhook receivers",
                 KeyRound,
               )}
             {(capabilities.runtimeHosts || capabilities.pairedDevices) &&

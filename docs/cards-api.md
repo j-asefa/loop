@@ -20,11 +20,11 @@ display it again. Keep it in a script's environment or secret store and send
 `Authorization: Bearer loop55_token_…`. The same Settings page lists nonsecret
 metadata and revokes tokens immediately.
 
-| Selectable scope | Current admission |
-| --- | --- |
-| `read` | Bootstrap; agent details, messages and traces; Feed pages; conversation and message reads; run and approval lists; companion native-decision lists; Results, artifacts and file downloads; Cards Results, Saved and Sent; event pages and stream |
-| `write` | Submit messages and replies; cancel or dismiss runs; reorder, withdraw or move queued runs |
-| `approvals:decide` | Decide API approvals and answer companion native decisions |
+| Selectable scope   | Current admission                                                                                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `read`             | Bootstrap; agent details, messages and traces; Feed pages; conversation and message reads; run and approval lists; companion native-decision lists; Results, artifacts and file downloads; Cards Results, Saved and Sent; event pages and stream |
+| `write`            | Submit messages and replies; cancel or dismiss runs; reorder, withdraw or move queued runs                                                                                                                                                       |
+| `approvals:decide` | Decide API approvals and answer companion native decisions                                                                                                                                                                                       |
 
 The generated [OpenAPI document](openapi.json) lists the exact admission values
 on each operation as `x-scopes`. An omitted admission means session-only access.
@@ -40,10 +40,10 @@ admits the separate GET/HEAD routes.
 
 Existing `loop55_card_…` credentials remain valid with their distinct legacy grants:
 
-| Legacy grant | Access |
-| --- | --- |
-| `results:read` | Eligible visible published Results through the three Cards routes |
-| `cards:read` | Cards Results, Saved (including messages and file descriptors), Sent and eligible details |
+| Legacy grant   | Access                                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| `results:read` | Eligible visible published Results through the three Cards routes                         |
+| `cards:read`   | Cards Results, Saved (including messages and file descriptors), Sent and eligible details |
 
 Settings labels these grants **legacy**. They cannot be edited or selected for a
 new integration token. Neither legacy grant expands to workspace or file reads.
@@ -205,6 +205,154 @@ remain for as long as the credential can authenticate.
 Pause, resume, retry, Later and scheduled sends remain session-only. Token
 management is available only through Settings and owner-session management routes.
 
+## Outbound webhooks
+
+In **Settings → Integration tokens → Webhooks**, add a receiver URL, copy its
+signing secret and configure that secret at the receiver. Loop first records a
+`pending_activation` subscription and an activation ping. Only a 2xx response
+within ten seconds activates it. If the receiver needs its secret configured
+first, leave the subscription pending, configure the secret, then select
+**Retry deliveries**. This reuses the original ping; it does not activate the
+subscription by itself. Secrets are sealed at rest and appear only in the
+creation workflow, including recovery of that same creation request.
+
+Management is session-only on the source that owns the subscription. Integration
+bearers, including `write` and `approvals:decide`, cannot manage webhooks or read
+delivery history. There is no webhook CLI or destination-policy setting.
+Creation and every management mutation carry a UUID `request_id`; an uncertain
+client retry must reuse the same identity and input. Changed input conflicts
+with 409. Updating kinds affects future stops, while already queued deliveries
+retain their identity and payload. To change a receiver URL, revoke it and add a
+new receiver. Revocation is terminal.
+
+| Installation       | Receiver destinations                                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Companion          | HTTP or HTTPS on any port for loopback, RFC 1918 and IPv6 unique-local addresses; public addresses require HTTPS |
+| Single-user server | Public HTTPS on port 443 only                                                                                    |
+| Multi-user server  | Public HTTPS on port 443 only                                                                                    |
+
+All installations reject embedded URL credentials, fragments, link-local,
+unspecified, multicast and other non-public special address classes. IPv4-mapped
+IPv6 addresses receive the IPv4 rule. Every resolved address must be permitted;
+each attempt resolves again and connects using only those checked addresses,
+with the URL hostname retained for TLS verification. Redirects are never
+followed. A destination that becomes forbidden is recorded as blocked and is
+not retried automatically. Retry first checks the destination policy again.
+Settings identifies local receivers and displays the rule supplied by the
+installation, not a caller-selected policy.
+
+The only event kind is `run.stopped`, version 1. The producer records its outbox
+rows in the transaction that changes the run state, independently of Feed
+visibility or filtering. `event_id` is that transition's committed change-log
+ID. Each activated subscription has one delivery for that event. A pause,
+resume and later completion produce two different events. The schema is
+[`WebhookStop`](../src/shared/webhooks.ts):
+
+```json
+{
+  "id": "131f3904-a727-4ec7-8f63-90e012943257",
+  "event_id": 123,
+  "kind": "run.stopped",
+  "version": 1,
+  "occurred_at": 1793260800000,
+  "reason": "finished",
+  "run_id": "run-id",
+  "conversation_id": "conversation-id",
+  "agent": { "id": "agent-id", "name": "opal" },
+  "title": "Conversation title",
+  "result_preview": "First 180 plain characters of a text result…",
+  "url": "https://loop.example/?conversation=conversation-id"
+}
+```
+
+| Destination run state                        | `reason`      |
+| -------------------------------------------- | ------------- |
+| `completed`                                  | `finished`    |
+| `failed`                                     | `failed`      |
+| `cancelled`, including a queued cancellation | `cancelled`   |
+| `interrupted`, including native recovery     | `interrupted` |
+| `paused`, from queued or pausing             | `paused`      |
+| `awaiting_approval`                          | `needs_input` |
+
+`needs_input` adds `needs: {kind: "approval" | "answer", id}` only when a durable
+pending approval or native decision exists. Other reasons omit it. `project_id`
+and `team_id` appear when present. Runs without an associated conversation or
+agent use null for those fields and link to the Feed. Titles are plain text,
+bounded to 240 characters; previews are bounded to 180 and can be empty. The
+payload has no owner ID, source database identity, native session context or
+credentials. The public link and display fields are captured at the transition;
+retries do not rewrite the body.
+
+Activation and **Test receiver** send control messages, not subscription event
+kinds. Their schema is `{id, type: "ping", sent_at}`; timestamps in JSON are Unix
+milliseconds. Both use the same durable outbox and signature headers as events.
+A successful test does not repair a failed subscription; use **Retry deliveries**
+to resume its event backlog.
+
+Each POST supplies `Content-Type: application/json` and these headers:
+
+- `X-Loop-Delivery`: the body's stable delivery `id`.
+- `X-Loop-Event`: `run.stopped` or `control`.
+- `X-Loop-Timestamp`: Unix seconds for this attempt.
+- `X-Loop-Signature`: `v1=` followed by a hex HMAC-SHA256 of
+  `<timestamp>.<raw body>`, using the displayed secret as a UTF-8 string.
+
+Verify the raw bytes before parsing or performing an effect. This Node example
+rejects stale timestamps, altered bodies and a mismatched delivery header:
+
+```js
+// webhook-verification
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verifyWebhook(secret, rawBody, headers, now = Date.now()) {
+  const timestamp = headers["x-loop-timestamp"];
+  const signature = headers["x-loop-signature"];
+  if (
+    typeof timestamp !== "string" ||
+    !/^\d+$/.test(timestamp) ||
+    Math.abs(Math.floor(now / 1000) - Number(timestamp)) > 300 ||
+    typeof signature !== "string" ||
+    !/^v1=[a-f0-9]{64}$/.test(signature)
+  )
+    throw new Error("Invalid webhook signature or timestamp");
+  const expected = createHmac("sha256", secret)
+    .update(timestamp + ".")
+    .update(rawBody)
+    .digest();
+  if (!timingSafeEqual(expected, Buffer.from(signature.slice(3), "hex")))
+    throw new Error("Invalid webhook signature");
+  const message = JSON.parse(Buffer.from(rawBody).toString("utf8"));
+  if (message.id !== headers["x-loop-delivery"])
+    throw new Error("Delivery identity does not match the signed body");
+  return message;
+}
+```
+
+Acknowledge an accepted or already processed delivery with any 2xx status. Store
+its `id` durably and deduplicate before executing your action. Delivery is at
+least once: a timeout cannot establish whether the receiver accepted it. The
+same body and ID are retried after 30 seconds, 60 seconds, 5 minutes, 15 minutes
+and 60 minutes; the signature timestamp is generated for each attempt. A lease
+prevents concurrent claims, and a reclaimed lease keeps the same delivery ID.
+An uncertain send is never replaced with a new identity. Stopping the worker
+before dispatch releases its claim without consuming a delivery attempt.
+
+After the sixth unsuccessful event attempt, the subscription is `failed`.
+Later stops still accumulate in its outbox, but are not sent until an explicit
+retry re-arms the pending rows and resets their attempt counters. Activation
+exhaustion instead leaves `pending_activation`. No event is recorded for a
+subscription before activation. Revocation cancels queued work and stops
+retries; an attempt already in flight can still reach the receiver. Its observed
+response, or uncertain outcome, remains in history and cannot activate or
+reschedule the revoked subscription.
+
+Settings shows activation attempts, failed state, and the fifty most recent
+delivery records. While a subscription remains failed, it preserves the error
+and attempt count of the event that paused its backlog. Later attempts retain
+their own outcomes in delivery history. Durable delivery identities
+and payloads are retained; they are not deleted by change-log pruning. Web Push
+subscriptions and delivery behavior are separate and unchanged.
+
 ## Cards collections and detail
 
 ```http
@@ -223,7 +371,7 @@ data is present in Saved entries; it is not a different content variant.
 
 | View                | Membership and order                                                                                                                                           | Supported filters                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| `done` | Session-only completed-run answers, imported answers and idle-thread fallbacks, ordered by completion time, conversation and dismissal key. | `project`, `agent`, `teams` |
+| `done`              | Session-only completed-run answers, imported answers and idle-thread fallbacks, ordered by completion time, conversation and dismissal key.                    | `project`, `agent`, `teams`      |
 | `results` (default) | Visible, unarchived published results of completed runs; no partials, uploads or traces. Newest publication sequence first.                                    | `project`, `agent`, `teams`      |
 | `saved`             | Unarchived pinned artifacts, including hidden results and files, plus message bookmarks. Newest save time, then ID.                                            | `project`, `agent`, `teams`, `q` |
 | `sent`              | Personally submitted user messages under the same provenance rules as [personal history](workspace.md#personal-prompt-history). Newest creation time, then ID. | `project`, `agent`, `teams`, `q` |
@@ -346,17 +494,17 @@ The shared projection in [cards.ts](../src/server/cards.ts) and the triggers in
 map. A change invalidates the affected public identity; the next read projects
 its current eligible representation or a selection-relative removal.
 
-| Mutable source | Fields, membership or ordering it affects |
-| --- | --- |
-| Artifacts and selected metadata | Body, title, format, version, timestamps, author/context references, visibility, snippet/upload/partial status, model, source, file and interactive-app display capabilities |
-| Messages and selected metadata | Body, role, personal provenance, creation order, source references and stored attachment descriptors |
-| Publication and artifact-bookmark relations | Results publication order, Saved membership/order and canonical save state |
-| Message bookmarks and saved labels | Saved membership, save time, labels and Saved search; old identities remain removable when a relation changes identity |
-| Runs, delegations and checkpoints | Completion eligibility, personal provenance, recipient, `payload.folderId` project context and native checkpoint eligibility |
-| Agents and conversations | Names/providers, conversation title, agent/recipient, team/project filtering and ownership boundaries |
-| Recorded model connections | Alias-only result model labels from the same owner's matching account/provider; catalog and ownership changes invalidate indexed dependents |
-| Folders and Workspace membership | Project names, descendant membership, folder-kind changes, subfolder moves and unfiled/default Workspace selection |
-| Referenced artifacts, objects and artifact-object relations | Attachment existence/authorization and source-relative file availability; indexed reverse references identify dependent cards |
+| Mutable source                                              | Fields, membership or ordering it affects                                                                                                                                    |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifacts and selected metadata                             | Body, title, format, version, timestamps, author/context references, visibility, snippet/upload/partial status, model, source, file and interactive-app display capabilities |
+| Messages and selected metadata                              | Body, role, personal provenance, creation order, source references and stored attachment descriptors                                                                         |
+| Publication and artifact-bookmark relations                 | Results publication order, Saved membership/order and canonical save state                                                                                                   |
+| Message bookmarks and saved labels                          | Saved membership, save time, labels and Saved search; old identities remain removable when a relation changes identity                                                       |
+| Runs, delegations and checkpoints                           | Completion eligibility, personal provenance, recipient, `payload.folderId` project context and native checkpoint eligibility                                                 |
+| Agents and conversations                                    | Names/providers, conversation title, agent/recipient, team/project filtering and ownership boundaries                                                                        |
+| Recorded model connections                                  | Alias-only result model labels from the same owner's matching account/provider; catalog and ownership changes invalidate indexed dependents                                  |
+| Folders and Workspace membership                            | Project names, descendant membership, folder-kind changes, subfolder moves and unfiled/default Workspace selection                                                           |
+| Referenced artifacts, objects and artifact-object relations | Attachment existence/authorization and source-relative file availability; indexed reverse references identify dependent cards                                                |
 
 User messages retain the legacy `prompt` revision entity; bookmarked non-user
 messages use `message`. Changes coalesce both into one `m:` identity. Ownership

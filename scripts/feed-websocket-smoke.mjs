@@ -163,6 +163,7 @@ for (const engine of engines) {
           const Original = window.WebSocket;
           window.__eventSockets = [];
           window.__workspaceUpdates = 0;
+          window.__workspaceResets = 0;
           window.__feedReconciledCursor = 0;
           window.WebSocket = class extends Original {
             constructor(...args) {
@@ -180,6 +181,8 @@ for (const engine of engines) {
             event => {
               window.__workspaceUpdates++;
               if (event.detail?.changes?.some(change => change.source === "" && change.events.some(event =>
+                event.scope?.kind === "collection" && event.scope.id === "all"))) window.__workspaceResets++;
+              if (event.detail?.changes?.some(change => change.source === "" && change.events.some(event =>
                 event.scope?.kind === "collection" && ["feed", "all"].includes(event.scope.id)))) {
                 const socket = window.__eventSockets.find(socket => ["/ws", "/api/events/ws"].includes(new URL(socket.url).pathname));
                 window.__feedReconciledCursor = Math.max(window.__feedReconciledCursor, socket?.__eventCursor ?? 0);
@@ -192,8 +195,9 @@ for (const engine of engines) {
           /\/api\/(?:agent-sources\/[^/]+\/)?events\?/,
           (route) => route.abort(),
         );
-        let legacyBootstraps = 0, legacyFeeds = 0;
-        if (remote) await context.route(url => url.pathname.startsWith("/api/agent-sources/") && /\/(bootstrap|feed)$/.test(url.pathname), async route => {
+        let legacyBootstraps = 0, legacyFeeds = 0, legacyEvents;
+        const legacySource = url => url.pathname.startsWith("/api/agent-sources/") && /\/(bootstrap|feed)$/.test(url.pathname);
+        const legacyResponse = async route => {
           const response = await route.fetch();
           if (!response.ok()) return route.fulfill({ response });
           const body = await response.json();
@@ -205,9 +209,25 @@ for (const engine of engines) {
             for (const item of body.items) delete item.pull;
           }
           await route.fulfill({ response, json: body });
-        });
-        const working = await context.newPage(),
-          done = await context.newPage();
+        };
+        const installLegacySource = async page => {
+          if (remote) await page.route(legacySource, legacyResponse);
+        };
+        // Keep asynchronous response transforms on the page that owns the
+        // temporary routes. Removing the last page route can otherwise
+        // continue a request still being fulfilled by a context callback.
+        const newPage = async () => {
+          const page = await context.newPage();
+          await installLegacySource(page);
+          if (legacyEvents) await page.route(/\/api\/(?:agent-sources\/[^/]+\/)?events\?/, legacyEvents);
+          return page;
+        };
+        const closePage = async page => {
+          await page.unrouteAll({ behavior: "wait" });
+          await page.close();
+        };
+        const working = await newPage(),
+          done = await newPage();
         const errors = [];
         for (const page of [working, done])
           page.on("pageerror", (e) => {
@@ -270,9 +290,12 @@ for (const engine of engines) {
           await expect(working.getByRole("region", { name: "Your agents" })).toContainText("@Remote");
           assert.ok(legacyBootstraps > 0 && legacyFeeds > 0, "Linked catalogs and Feed pages with omitted optional fields must both reach the UI");
           console.log(`PASS ${engine} linked legacy bootstrap metadata and unknown pull state remain readable`);
-          const failedSource = await context.newPage();
+          const failedSource = await newPage();
           const unavailable = "**/api/agent-sources/*/feed?*";
-          await failedSource.route(unavailable, route => route.fulfill({status:403,json:{error:"Fixture source unavailable"}}));
+          await failedSource.route(unavailable, async route => {
+            if (await failedSource.evaluate(() => !!window.__feedManualRetry)) return route.fallback();
+            return route.fulfill({status:403,json:{error:"Fixture source unavailable"}});
+          });
           await failedSource.goto(fixture.origin + "/?filter=working");
           const sourceError = failedSource.getByRole("alert").filter({hasText:"Some environments could not refresh. Showing their last loaded threads."});
           await expect(sourceError).toBeVisible({timeout:revisionTimeout});
@@ -288,11 +311,24 @@ for (const engine of engines) {
           await (await localRefresh).finished();
           await failedSource.waitForTimeout(400);
           await expect(sourceError).toBeVisible();
-          await failedSource.unroute(unavailable);
-          await sourceError.getByRole("button", {name:"Retry connection",exact:true}).click();
+          // Keep automatic reads failing until the real retry click, so they
+          // cannot recover and remove the button while Playwright targets it.
+          await failedSource.evaluate(() => {
+            document.addEventListener("click", event => {
+              if (event.target instanceof Element && event.target.closest("button")?.textContent?.trim() === "Retry connection")
+                window.__feedManualRetry = true;
+            }, {capture:true});
+          });
+          // Retry input only if no click arrived before a refresh replaced the button.
+          await expect(async () => {
+            if (!(await failedSource.evaluate(() => !!window.__feedManualRetry)))
+              await sourceError.getByRole("button", {name:"Retry connection",exact:true}).click({timeout:3000});
+            assert.equal(await failedSource.evaluate(() => window.__feedManualRetry), true);
+          }).toPass({timeout:30000});
           await expect(row(failedSource, "Remote task")).toHaveCount(1, {timeout:revisionTimeout});
           await expect(sourceError).toHaveCount(0);
-          await failedSource.close();
+          await failedSource.unroute(unavailable);
+          await closePage(failedSource);
           console.log(`PASS ${engine} scoped Feed refresh retains another source's failure until recovery`);
           // A single refresh can include a healthy and an unavailable source.
           // Only successful sources may replace their cached Needs rows.
@@ -306,7 +342,7 @@ for (const engine of engines) {
                 .run(source.owner,Date.now(),Date.now()+60_000);
             })();
           }
-          const needsPage = await context.newPage();
+          const needsPage = await newPage();
           await needsPage.goto(fixture.origin + "/?filter=working");
           const remoteNeed = needsPage.locator(".needs-stack .inbox-card").filter({hasText:"Remote approval task"});
           await expect(remoteNeed).toHaveCount(1,{timeout:revisionTimeout});
@@ -374,10 +410,10 @@ for (const engine of engines) {
             releaseRemoteNeeds();
             await needsPage.unroute(needsRoute);
           }
-          await needsPage.close();
-          await pendingSourceRefreshSmoke(context, fixture.origin, sourceIds.find(Boolean));
+          await closePage(needsPage);
+          await pendingSourceRefreshSmoke(newPage, fixture.origin, sourceIds.find(Boolean));
           console.log(`PASS ${engine} local head refresh preserves queued remote Feed and Needs updates`);
-          await sourceRetryFeedSmoke(context, fixture.origin, sourceIds.find(Boolean));
+          await sourceRetryFeedSmoke(newPage, fixture.origin, sourceIds.find(Boolean));
           console.log(`PASS ${engine} a retrying source preserves healthy Feed/Needs updates and recovers without another notification`);
           for (const source of [fixture,remote]) source.db.transaction(() => {
             source.db.prepare("DELETE FROM approvals WHERE id='needs-approval'").run();
@@ -566,6 +602,7 @@ for (const engine of engines) {
         } finally {
           releaseHead();
           await working.unrouteAll({ behavior: "wait" });
+          await installLegacySource(working);
         }
         await expect(row(working, "Local task")).toHaveCount(0, {
           timeout: 5000,
@@ -645,11 +682,14 @@ for (const engine of engines) {
           // A complete source applies real message identities in place. Leave
           // the stream quiet beyond both former five-second thread timers.
           fixture.db.prepare("UPDATE runs SET state='running' WHERE id='live'").run();
-          const thread = await context.newPage();
+          const thread = await newPage();
           await thread.goto(fixture.origin + "/?conversation=thread");
           const answer = thread.locator('[data-message-id="live-answer"]');
           await expect(answer).toContainText("Changed while disconnected");
-          await thread.waitForTimeout(2500);
+          // Initial broad reconciliation can be coalesced for three seconds.
+          // Finish that startup snapshot before measuring streamed updates.
+          await expect.poll(() => thread.evaluate(() => window.__workspaceResets), {timeout:revisionTimeout}).toBeGreaterThan(0);
+          await thread.waitForLoadState("networkidle");
           const transcriptReads = [], idleReads = [];
           let idle = false;
           const record = request => {
@@ -729,7 +769,7 @@ for (const engine of engines) {
           await expect(thread.locator('[data-message-id="snapshot-delete"]')).toHaveCount(0);
           await thread.evaluate(() => window.__eventSockets.forEach(socket => { socket.onmessage = socket.__forward; }));
           console.log(`PASS ${engine} transcript gap recovery and explicit-refresh deletion reconciliation`);
-          await thread.close();
+          await closePage(thread);
           fixture.db.transaction(() => {
             fixture.db.prepare("UPDATE runs SET state='completed' WHERE id='live'").run();
             fixture.db.prepare("UPDATE messages SET content='Changed while disconnected' WHERE id='live-answer'").run();
@@ -803,8 +843,8 @@ for (const engine of engines) {
 
         // Give HTTP fallback its own database/request budget after the many
         // navigation and streaming probes above; keep the real 600/min limit.
-        await working.close();
-        await done.close();
+        await closePage(working);
+        await closePage(done);
         await fixture.close();
         fixture = undefined;
         if (dockerDir) process.env.PATH = dockerDir + ":" + priorPath;
@@ -818,7 +858,7 @@ for (const engine of engines) {
         }
         await context.unroute(/\/api\/(?:agent-sources\/[^/]+\/)?events\?/);
         const legacyEventRows = new Set();
-        await context.route(/\/api\/(?:agent-sources\/[^/]+\/)?events\?/, async route => {
+        legacyEvents = async route => {
           const response = await route.fetch();
           if (!response.ok()) return route.fulfill({ response });
           const rows = await response.json();
@@ -832,8 +872,8 @@ for (const engine of engines) {
           }
           await route.fulfill({ response, json: rows });
           for (const id of localRows) legacyEventRows.add(id);
-        });
-        const replay = await context.newPage();
+        };
+        const replay = await newPage();
         replay.on("pageerror", e => { if (!isWebKitNavigationFetchError(engine,e,fixture.origin)) errors.push(e.message); });
         await replay.goto(fixture.origin + "/?filter=working");
         await expect(replay.locator(".workspace-connection")).toHaveText("Connected to workspace");
@@ -874,8 +914,8 @@ for (const engine of engines) {
           "Connected to workspace",
         );
         await expect(replay.locator(".connection-notice")).toHaveCount(0);
-        await replay.close();
-        const fallback = await context.newPage();
+        await closePage(replay);
+        const fallback = await newPage();
         const fallbackRequests = [];
         fallback.on("response", response => {
           const url = new URL(response.url());
@@ -940,6 +980,7 @@ for (const engine of engines) {
         );
       } finally {
         process.env.PATH = priorPath;
+        for (const page of context?.pages() || []) await page.unrouteAll({ behavior: "wait" });
         await context?.unrouteAll({ behavior: "wait" });
         await context?.close();
         await fixture?.close();

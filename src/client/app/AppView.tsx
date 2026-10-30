@@ -6,6 +6,7 @@ import { StartCodeReview } from "../CodeReview";
 import { FleetSettings } from "../FleetSettings";
 import { SettingsHome } from "../SettingsHome";
 import { CardTokens } from "../CardTokens";
+import { Webhooks } from "../Webhooks";
 import { AgentModelSettings } from "../AgentModelSettings";
 import { agentModelName } from "../modelChoices";
 import { capabilities } from "../capabilities";
@@ -765,6 +766,11 @@ export function renderApp(props: AppViewProps) {
         <Sheet title="Integration tokens" onClose={closeSheet}>
           <CardTokens
             key={session.user.id + ":" + executionSourceId()}
+            owner={session.user.id}
+            sourceId={executionSourceId()}
+          />
+          <Webhooks
+            key={"webhooks:" + session.user.id + ":" + executionSourceId()}
             owner={session.user.id}
             sourceId={executionSourceId()}
           />

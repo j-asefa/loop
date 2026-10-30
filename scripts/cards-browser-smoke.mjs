@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
+import { webhookSettingsReceiver } from "./helpers/webhook-settings-smoke.mjs";
 
 const browser = await chromium.launch({
   headless: true,
@@ -11,7 +12,12 @@ const browser = await chromium.launch({
 });
 try {
   for (const mode of ["server", "companion"]) {
-    const fixture = await cardsFixture(mode, true);
+    const receiver = await webhookSettingsReceiver();
+    const fixture = await cardsFixture(
+      mode,
+      true,
+      mode === "server" ? { webhookReceiver: receiver.url } : {},
+    );
     try {
       for (const width of [390, 1280]) {
         const context = await browser.newContext({
@@ -253,6 +259,7 @@ try {
           !noSecrets.includes(lostRequest.secret) &&
             !noSecrets.includes(pendingRequest.secret),
         );
+        await receiver.exercise(page, fixture, mode, width);
         // A linked source can return a transient 404 while reconnecting.
         await page
           .getByRole("dialog", { name: "Integration tokens", exact: true })
@@ -342,7 +349,28 @@ try {
       );
     } finally {
       await fixture.close();
+      await receiver.close();
     }
+  }
+  const receiver = await webhookSettingsReceiver();
+  const fixture = await cardsFixture("multi-user", true, {
+    webhookReceiver: receiver.url,
+  });
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    serviceWorkers: "block",
+  });
+  try {
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(fixture.origin);
+    await receiver.exerciseSession(page, fixture);
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+    await fixture.close();
+    await receiver.close();
   }
 } finally {
   await browser.close();

@@ -113,12 +113,14 @@ try {
             await route.fulfill({ response, json: body });
           });
           // Agent Results, full body, selected text and return to loaded range.
-          await page.route("**/api/v1/cards?*", (route) =>
-            route.fulfill({
+          await page.route("**/api/v1/cards?*", async (route) => {
+            if (await page.evaluate(() => !!window.__cardsManualRetry))
+              return route.fallback();
+            return route.fulfill({
               status: 503,
               json: { error: "Temporary Cards read failure" },
-            }),
-          );
+            });
+          });
           await page.goto(fixture.origin + "/?agent=writer");
           const cards = page.locator("[data-card-id]");
           // The existing read helper exhausts two- and four-second retries
@@ -131,13 +133,36 @@ try {
             name: "Retry connection",
             exact: true,
           });
-          // An overlapping automatic read may still be exhausting its retry
-          // budget. Wait until manual recovery is available before restoring
-          // the source, so it cannot recover and remove the button first.
+          // Keep automatic reads failing until the actual click. Restoring
+          // the route before clicking lets a background read remove the
+          // button between Playwright's visibility check and its input.
           await expect(retryCards).toBeEnabled({ timeout: 20000 });
-          await page.unroute("**/api/v1/cards?*");
-          await retryCards.click();
+          await page.evaluate(() => {
+            document.addEventListener(
+              "click",
+              (event) => {
+                if (
+                  event.target instanceof Element &&
+                  event.target.closest("button")?.textContent?.trim() ===
+                    "Retry connection"
+                )
+                  window.__cardsManualRetry = true;
+              },
+              { capture: true },
+            );
+          });
+          // A refresh can replace the button during input. Repeat only when
+          // no click reached the page; never repeat an observed action.
+          await expect(async () => {
+            if (!(await page.evaluate(() => !!window.__cardsManualRetry)))
+              await retryCards.click({ timeout: 3000 });
+            assert.equal(
+              await page.evaluate(() => window.__cardsManualRetry),
+              true,
+            );
+          }).toPass({ timeout: 30000 });
           await expect(cards).toHaveCount(40, { timeout: 20000 });
+          await page.unroute("**/api/v1/cards?*");
           await page
             .getByRole("button", { name: "Earlier results", exact: true })
             .click();

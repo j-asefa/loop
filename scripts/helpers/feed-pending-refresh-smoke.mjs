@@ -3,8 +3,8 @@ import { expect } from "@playwright/test";
 /** Hold the trailing-read window open so a second source-scoped read lands
  * inside it deterministically. Only timer delivery and display responses are
  * controlled; the real Feed listeners, requests and rendering run unchanged. */
-export async function pendingSourceRefreshSmoke(context, origin, remoteSource) {
-  const page = await context.newPage();
+export async function pendingSourceRefreshSmoke(newPage, origin, remoteSource) {
+  const page = await newPage();
   let releaseLocal;
   const localGate = new Promise((resolve) => {
     releaseLocal = resolve;

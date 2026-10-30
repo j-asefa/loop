@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, it, onTestFinished } from "vitest";
 import {
   createServer,
@@ -909,3 +910,48 @@ it("refuses unsafe destinations in each installation and never follows a receive
     await f.close();
   }
 }, 60000);
+
+it("verifies real deliveries with the documented snippet and rejects tampering", async () => {
+  const source = await readFile(
+    new URL("../docs/cards-api.md", import.meta.url),
+    "utf8",
+  );
+  const snippet = source.match(
+    /```js\n(\/\/ webhook-verification[\s\S]*?)```/,
+  )![1];
+  const { verifyWebhook } = await import(
+    "data:text/javascript;base64," + Buffer.from(snippet).toString("base64")
+  );
+  const { f, sink, destination } = await fixture("companion");
+  const created = await create(f, destination),
+    ping = sink.received[0];
+  expect(
+    verifyWebhook(created.secret, Buffer.from(ping.body), ping.req.headers)
+      .type,
+  ).toBe("ping");
+  expect(() =>
+    verifyWebhook(created.secret, ping.body + " ", ping.req.headers),
+  ).toThrow();
+  expect(() =>
+    verifyWebhook(created.secret, ping.body, {
+      ...ping.req.headers,
+      "x-loop-timestamp": String(
+        Number(ping.req.headers["x-loop-timestamp"]) + 1,
+      ),
+    }),
+  ).toThrow();
+  expect(() =>
+    verifyWebhook(created.secret, ping.body, {
+      ...ping.req.headers,
+      "x-loop-delivery": randomUUID(),
+    }),
+  ).toThrow();
+  expect(() =>
+    verifyWebhook(
+      created.secret,
+      ping.body,
+      ping.req.headers,
+      Date.now() + 301000,
+    ),
+  ).toThrow();
+}, 30000);

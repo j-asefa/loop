@@ -1,8 +1,8 @@
 import { expect } from "@playwright/test";
 
 /** A rate-limited source must recover without holding healthy Feed/Needs reads. */
-export async function sourceRetryFeedSmoke(context, origin, remoteSource) {
-  const page = await context.newPage();
+export async function sourceRetryFeedSmoke(newPage, origin, remoteSource) {
+  const page = await newPage();
   let refusing = true,
     localVersion = 1,
     remoteWorkingAttempts = 0;
