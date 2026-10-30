@@ -77,6 +77,7 @@ export class FleetPeerReads {
       live: () => void,
     ) => Promise<T>,
     current: () => void,
+    operation: "read" | "events" = "read",
   ) {
     current();
     const target = this.target(peer);
@@ -114,7 +115,10 @@ export class FleetPeerReads {
         stopped,
       ]);
       live();
-      credential = await Promise.race([this.leases.get(peer, "read"), stopped]);
+      credential = await Promise.race([
+        this.leases.get(peer, operation),
+        stopped,
+      ]);
       live();
       const value = await Promise.race([
         run(target, credential, lifetime, live),
@@ -127,7 +131,7 @@ export class FleetPeerReads {
       if (error instanceof Problem && [403, 409].includes(error.status)) {
         this.catalogs.delete(peer);
         if (error.status === 403 && credential)
-          this.leases.rejected(peer, "read", credential.token);
+          this.leases.rejected(peer, operation, credential.token);
         if (error.status === 409) this.leases.refreshDirectory();
       }
       throw error;
@@ -194,13 +198,19 @@ export class FleetPeerReads {
     });
     return reply.data.catalog;
   }
-  catalog(peer: string, signal?: AbortSignal, current: () => void = () => {}) {
+  catalog(
+    peer: string,
+    signal?: AbortSignal,
+    current: () => void = () => {},
+    operation: "read" | "events" = "read",
+  ) {
     return this.perform(
       peer,
       signal,
       (target, credential, lifetime, live) =>
         this.negotiate(target, credential, lifetime, live),
       current,
+      operation,
     );
   }
   read(

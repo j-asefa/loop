@@ -3,6 +3,8 @@ import { z } from "zod";
 import { FleetOrigin } from "../shared/fleet.js";
 import { Problem } from "../shared/problem.js";
 import { publicNetworkDispatcher, safeUrl } from "./mcp/network.js";
+import type { FleetCapacity } from "./fleet-capacity.js";
+import { fleetBackpressure, fleetRetryDelay } from "./fleet-backpressure.js";
 
 const limit = 4 * 1024 * 1024;
 const timeout = 15_000;
@@ -64,7 +66,10 @@ function target(origin: string, path: string) {
  * dispatcher, including every address returned by a mixed DNS answer. Effects
  * are sent once; durable job state owns uncertainty and receipt reconciliation. */
 export class FleetPeerHttpTransport {
-  constructor(private readonly fetcher: typeof undiciFetch = protocolRequest) {}
+  constructor(
+    private readonly fetcher: typeof undiciFetch = protocolRequest,
+    private readonly capacity?: FleetCapacity,
+  ) {}
 
   protected async exchange<I extends z.ZodType, O extends z.ZodType>(
     origin: string,
@@ -79,6 +84,9 @@ export class FleetPeerHttpTransport {
     const encoded = JSON.stringify(value.data);
     if (Buffer.byteLength(encoded) > limit)
       throw new Problem(413, "The fleet protocol request is too large.");
+    const release = this.capacity?.acquire("outbound", origin);
+    if (this.capacity && !release)
+      throw fleetBackpressure(this.capacity.retryAfter(origin));
     try {
       const response = await this.fetcher(url, {
         method: "POST",
@@ -97,11 +105,17 @@ export class FleetPeerHttpTransport {
       });
       if (response.status !== 200) {
         await response.body?.cancel();
+        const delay = fleetRetryDelay(response.headers.get("retry-after"));
+        if (response.status === 429 || response.status >= 500)
+          this.capacity?.defer(origin, delay);
         throw new Problem(
           response.status >= 400 && response.status < 500
             ? response.status
             : 502,
           "The fleet peer refused the protocol request.",
+          response.status === 429 || response.status >= 500
+            ? { retryAfterMs: delay }
+            : undefined,
         );
       }
       const length = response.headers.get("content-length");
@@ -138,6 +152,8 @@ export class FleetPeerHttpTransport {
       if (error instanceof Problem) throw error;
       // Do not expose URLs, raw bodies, headers, capabilities or upstream errors.
       throw new Problem(502, "The fleet peer response is unavailable.");
+    } finally {
+      release?.();
     }
   }
 }

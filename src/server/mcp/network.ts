@@ -34,27 +34,25 @@ export function safeUrl(value: string | URL) {
     );
   return url;
 }
+// HTTPS requests and fleet WebSockets use the same connection-time DNS guard.
+export const publicNetworkLookup = (
+  hostname: string,
+  options: any,
+  callback: any,
+) => {
+  lookup(hostname, { all: true, verbatim: true }, (error, addresses) => {
+    if (error) return callback(error);
+    if (!addresses.length || addresses.some((a) => !publicAddress(a.address)))
+      return callback(new Error("Private network addresses are not allowed"));
+    const selected =
+      addresses.find((a) => !options.family || a.family === options.family) ||
+      addresses[0];
+    if (options.all) callback(null, addresses);
+    else callback(null, selected.address, selected.family);
+  });
+};
 export const publicNetworkDispatcher = new Agent({
-  connect: {
-    lookup: (hostname: string, options: any, callback: any) => {
-      lookup(hostname, { all: true, verbatim: true }, (error, addresses) => {
-        if (error) return callback(error);
-        if (
-          !addresses.length ||
-          addresses.some((a) => !publicAddress(a.address))
-        )
-          return callback(
-            new Error("Private network addresses are not allowed"),
-          );
-        const selected =
-          addresses.find(
-            (a) => !options.family || a.family === options.family,
-          ) || addresses[0];
-        if (options.all) callback(null, addresses);
-        else callback(null, selected.address, selected.family);
-      });
-    },
-  },
+  connect: { lookup: publicNetworkLookup },
   headersTimeout: 20000,
   bodyTimeout: 30000,
   maxRedirections: 0,
