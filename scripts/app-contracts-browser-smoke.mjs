@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";

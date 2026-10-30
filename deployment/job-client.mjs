@@ -1,4 +1,4 @@
-import "./environment.mjs";
+import "../runtime/environment.mjs";
 // Pueue owns ordering and process state. Commands and credentials travel over a
 // private, live control connection, never in Pueue's persisted environment.
 import { execFile, execFileSync, spawn } from "node:child_process";

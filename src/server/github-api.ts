@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { fetch as undiciFetch } from "undici";
 import { db, now } from "./db.js";
 import { readSecret, type MCPConnection } from "./mcp/client.js";

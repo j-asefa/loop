@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-smoke.mjs";
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
 import { agentThreadFeedSmoke } from "./helpers/agent-thread-feed-smoke.mjs";

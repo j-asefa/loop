@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 const origin = process.env.LOOP55_URL || "http://localhost:3000";
 async function user() {

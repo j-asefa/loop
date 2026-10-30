@@ -1,4 +1,4 @@
-import "./deployment/environment.mjs";
+import "./runtime/environment.mjs";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";

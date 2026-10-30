@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { openAgentModelOptions } from "./helpers/agent-model-options.mjs";
 // Runtime-neutral onboarding through the real mobile-width UI and fixture adapter.
 process.env.LOOP55_PROFILE = "companion";

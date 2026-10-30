@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 /**
  * Shared records and private control protocol of the per-workspace connection
  * service. The service owns Cloudflared and a stable local relay; the Loop55

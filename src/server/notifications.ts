@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 import { plainPreview } from "../shared/text.js";

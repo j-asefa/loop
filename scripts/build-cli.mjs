@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { globSync, readdirSync, readFileSync } from "node:fs";
 import { build } from "esbuild";
 import { cp, chmod, rm, writeFile } from "node:fs/promises";

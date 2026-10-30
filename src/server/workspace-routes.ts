@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { passiveWorkspaceRead } from "./workspace-read-context.js";
 import { recordCardRead, tokenResultPage } from "./card-tokens.js";
 import { registrar, projectResponse } from "./registrar.js";

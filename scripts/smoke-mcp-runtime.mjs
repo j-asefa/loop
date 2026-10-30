@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // A real isolated MCP process through the broker; no model/provider credentials.
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";

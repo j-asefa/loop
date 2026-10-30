@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { expect } from "@playwright/test";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";

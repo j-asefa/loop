@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { build } from "esbuild";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";

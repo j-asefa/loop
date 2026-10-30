@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { chooseAgentConnection } from "./helpers/agent-model-options.mjs";
 // Full paired UI + production WorkspaceHost, SQLite, WS and adapter subprocesses.
 // Only the external harness protocols and a server-side network cut are fixtures.

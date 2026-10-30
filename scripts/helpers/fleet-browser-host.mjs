@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 // Isolated compiled companion used only by the fleet browser fixture. All peer
 // packets still cross the production Host/protocol handlers. This injected
 // loopback transport is not evidence of Internet DNS, TLS or tunnel behavior.

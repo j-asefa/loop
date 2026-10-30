@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { computerName } from "../computer-name.js";
 
 // Where an execution environment runs, recorded on connections so the client

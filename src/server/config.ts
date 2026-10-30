@@ -1,5 +1,5 @@
 import { retainedPath } from "../name-upgrade.js";
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import { assertPreviewDataDir } from "../preview-context.js";

@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import type { QueryRow } from "./query-records.js";

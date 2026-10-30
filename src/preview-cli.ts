@@ -1,5 +1,5 @@
 import { retainedPath } from "./name-upgrade.js";
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { parseArgs, promisify } from "node:util";
 import { spawn, execFile } from "node:child_process";
 import { constants } from "node:fs";

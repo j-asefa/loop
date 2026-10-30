@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "./environment.mjs";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { IncomingMessage, ServerResponse } from "node:http";
 type ActiveRuntime = {

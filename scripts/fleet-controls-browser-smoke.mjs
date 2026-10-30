@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Actual source context, native-question UI and typed browser transport against
 // an isolated deterministic HTTP fixture. No provider or user workspace is used.
 import { chromium, webkit, expect } from "@playwright/test";

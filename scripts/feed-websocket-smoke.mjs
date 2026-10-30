@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { pendingSourceRefreshSmoke } from "./helpers/feed-pending-refresh-smoke.mjs";
 import { sourceRetryFeedSmoke } from "./helpers/feed-source-retry-smoke.mjs";
 import assert from "node:assert/strict";

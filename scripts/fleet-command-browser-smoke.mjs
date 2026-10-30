@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Real browser storage, Web Locks and the production typed client transport.
 // The HTTP receipt server is a deterministic fixture, not a companion or a
 // provider. Production gateway/destination admission is covered by HTTP tests.

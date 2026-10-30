@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Each scenario owns its database, server and browser context. Child processes
 // also isolate helper-level environment mutations. Existing smoke:design stays full.
 import { runSupervised } from "./heavy-command.mjs";

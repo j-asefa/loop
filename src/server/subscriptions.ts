@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { SubscriptionCodeInput } from "../shared/companion-contract-schemas.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { projectResponse, registrar } from "./registrar.js";

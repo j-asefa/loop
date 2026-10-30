@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Disposable, uniquely named fixture volumes. Never operates on user projects.
 // Runs the shipped two-container companion with a real Quick Tunnel: the
 // connection container must survive replacement of the application container.

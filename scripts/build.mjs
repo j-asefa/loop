@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { runSupervised } from "./heavy-command.mjs";
 import { cp, rm, mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

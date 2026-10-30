@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { chooseAgentModel, openAgentModelOptions } from "./helpers/agent-model-options.mjs";
 process.env.LOOP55_PROFILE = "companion";
 import { chromium, webkit, expect } from "@playwright/test";

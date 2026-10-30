@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Opt-in live discovery against public, no-account catalog servers. No tool calls.
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";

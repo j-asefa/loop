@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Production routers and SQLite, with a deterministic in-process native adapter.
 // No route interception or canned conversation/activity/settings/catalog responses.
 import { createServer } from "vite";

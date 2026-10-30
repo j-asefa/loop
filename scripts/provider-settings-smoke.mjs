@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Run through heavy-command.mjs after building. Uses native protocol fixtures,
 // the paired API and the real settings UI; never contacts a model provider.
 import { chromium, webkit, expect } from "@playwright/test";

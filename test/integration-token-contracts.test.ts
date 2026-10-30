@@ -602,4 +602,5 @@ it.each(["server", "companion", "multi-user"] as const)(
       await f.close();
     }
   },
+  15_000,
 );

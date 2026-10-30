@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import "./environment.mjs";
+import "../runtime/environment.mjs";
 // Retire automatic queue wrappers without breaking PATHs held by live shells.
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";

@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { chromium, webkit, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";

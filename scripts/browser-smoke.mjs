@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { chooseAgentModel } from "./helpers/agent-model-options.mjs";
 import { architectureSettingsJourney } from "./architecture-settings-journey.mjs";
 import {

@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // A paired mobile browser across `loop55 restart`, through the shipped CLI, the
 // connection service and a local TLS edge standing in for Cloudflare. The
 // tunnel helper is the deterministic fixture; this is not live-network evidence.

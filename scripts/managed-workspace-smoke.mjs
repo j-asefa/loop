@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Real pinned runtime, production container boundaries, no model inference.
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";

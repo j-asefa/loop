@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { chromium, webkit } from "@playwright/test";
 
 // CI runs each engine in its own job; unset keeps both for local runs.

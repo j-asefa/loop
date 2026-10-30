@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import type { QueryRow } from "./query-records.js";
 import { InvalidRow, requireSealedSecret } from "./row-schemas.js";
 import { ownedConnection } from "./domain.js";

@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { control } from "../dist/host-control.js";
 import { join } from "node:path";
 try {

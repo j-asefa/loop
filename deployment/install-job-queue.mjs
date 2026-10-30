@@ -99,7 +99,7 @@ for (const [index, name] of ["pueue", "pueued"].entries()) {
 }
 const source = dirname(fileURLToPath(import.meta.url));
 const files = [
-  "environment.mjs",
+  "../runtime/environment.mjs",
   "job-client.mjs",
   "job-worker.mjs",
   "job-shim.mjs",
@@ -119,6 +119,7 @@ await mkdir(join(generationDir, "deployment"), {
   recursive: true,
   mode: 0o700,
 });
+await mkdir(join(generationDir, "runtime"), { recursive: true, mode: 0o700 });
 await mkdir(join(generationDir, "scripts"), { recursive: true, mode: 0o700 });
 for (const name of files)
   await copyFile(join(source, name), join(generationDir, "deployment", name));

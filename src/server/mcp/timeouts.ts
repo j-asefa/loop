@@ -1,4 +1,4 @@
-import "../../../deployment/environment.mjs";
+import "../../../runtime/environment.mjs";
 // Browser navigation and repository tools can take longer than a model request.
 // Operators can tune this without rebuilding; failed calls are never replayed.
 const configured = Number(process.env.LOOP55_MCP_TOOL_TIMEOUT_MS || 300000);

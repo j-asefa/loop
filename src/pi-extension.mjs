@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Loaded process-locally by `loop55 pi`. No credentials, model overrides or settings writes.
 import { writeSync } from "node:fs";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";

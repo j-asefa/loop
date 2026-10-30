@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { retainedPath } from "./name-upgrade.js";
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
 import { openSync, closeSync, statSync, existsSync } from "node:fs";

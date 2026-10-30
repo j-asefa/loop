@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar, projectResponse } from "./registrar.js";
 import { companionMode } from "./profile.js";

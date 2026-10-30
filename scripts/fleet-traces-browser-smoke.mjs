@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Real trace controls and typed browser transport against isolated HTTP fixtures.
 // No provider, user data or fleet credential is used by this browser regression.
 import { chromium, webkit, expect } from "@playwright/test";

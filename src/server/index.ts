@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import type { IncomingMessage } from "node:http";
 import type { z } from "zod";
 import { workspaceApi } from "../shared/workspace-api.js";

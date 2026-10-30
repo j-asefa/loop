@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 /**
  * Loop55's per-workspace connection service: owns Cloudflared, the stable relay
  * listener and the private control socket. It is bundled into one immutable

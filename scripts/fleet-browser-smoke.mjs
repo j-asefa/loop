@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "../runtime/environment.mjs";
 // Three compiled companions, mobile browser emulation and a local TLS edge.
 // QR decoding uses the bundled production worker/WASM with native detection
 // absent. Harness, camera frames and peer network routing are deterministic

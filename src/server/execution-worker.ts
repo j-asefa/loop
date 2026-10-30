@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { join, resolve } from "node:path";
 import {
   acquireExecutionOwnership,

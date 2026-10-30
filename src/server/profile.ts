@@ -1,4 +1,4 @@
-import "../../deployment/environment.mjs";
+import "../../runtime/environment.mjs";
 import { profileCapabilities } from "../shared/capabilities.js";
 const value = process.env.LOOP55_PROFILE || "server";
 if (value !== "server" && value !== "companion")

@@ -1,4 +1,4 @@
-import "../deployment/environment.mjs";
+import "./environment.mjs";
 import type { Steering } from "./types.ts";
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
