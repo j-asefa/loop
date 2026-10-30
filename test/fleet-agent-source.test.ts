@@ -203,6 +203,7 @@ function http(
   extra: Record<string, string> = {},
   signal?: AbortSignal,
 ): Promise<Reply> {
+  const payload = body === undefined ? undefined : JSON.stringify(body);
   return new Promise((resolve, reject) => {
     const req = request(
       {
@@ -214,6 +215,9 @@ function http(
         headers: {
           host: new URL(origin).host,
           "content-type": "application/json",
+          ...(payload === undefined
+            ? {}
+            : { "content-length": Buffer.byteLength(payload) }),
           ...extra,
         },
       },
@@ -235,7 +239,7 @@ function http(
       },
     );
     req.on("error", reject);
-    req.end(body === undefined ? undefined : JSON.stringify(body));
+    req.end(payload);
   });
 }
 let actionCalls = 0,
@@ -752,6 +756,46 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
   );
   expect((await markRead()).status).toBe(200);
   expect(await cards.detail("d:run:" + newer)).toEqual(readCard);
+  const unreadCommand = randomUUID();
+  const markUnread = () =>
+    browser(
+      prefix + `/feed/${newer}/read`,
+      "DELETE",
+      { cardKey: "run:" + newer },
+      { "x-loop-command-id": unreadCommand },
+    );
+  expect((await markUnread()).status).toBe(200);
+  const unreadCard = await cards.detail("d:run:" + newer);
+  expect(unreadCard.type === "done" && unreadCard.display.read_at).toBeNull();
+  expect(
+    (
+      await browser(
+        prefix + `/feed/${newer}/read`,
+        "PUT",
+        {
+          cardKey: "run:" + newer,
+        },
+        { "x-loop-command-id": randomUUID() },
+      )
+    ).status,
+  ).toBe(200);
+  const reopenedCard = await cards.detail("d:run:" + newer);
+  expect(reopenedCard.type === "done" && reopenedCard.display.read_at).toEqual(
+    expect.any(Number),
+  );
+  // Recovering the earlier command returns its receipt without overwriting
+  // the user's later read decision.
+  expect((await markUnread()).status).toBe(200);
+  expect(await cards.detail("d:run:" + newer)).toEqual(reopenedCard);
+  const refused = await browser(
+    prefix + `/feed/${privateRun}/read`,
+    "DELETE",
+    { cardKey: "run:" + privateRun },
+    { "x-loop-command-id": randomUUID() },
+  );
+  expect(refused.status).toBe(409);
+  expect(refused.headers["x-loop-command-state"]).toBe("refused");
+  expect(refused.body.executionOutcome).toBe("refused");
   expect(
     db
       .prepare("SELECT unread FROM feed_cards WHERE owner_id=? AND card_key=?")
@@ -762,7 +806,7 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
     expect.arrayContaining(["cardList", "cardChanges", "cardDetail"]),
   );
   expect(capabilities.body.fleet.actions).toEqual(
-    expect.arrayContaining(["feedRead"]),
+    expect.arrayContaining(["feedRead", "feedUnread"]),
   );
 });
 

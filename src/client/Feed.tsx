@@ -49,6 +49,7 @@ import {
   Laptop,
   MessageCircleQuestion,
   MessageSquare,
+  Mail,
   ShieldCheck,
   Pause,
   PencilLine,
@@ -2034,6 +2035,24 @@ export function Feed({
       if (owner === viewOwner()) setError((error as Error).message);
     }
   }
+  async function markUnread(item: FeedItem, thread?: SourcedDoneThread) {
+    const generation = viewGeneration();
+    try {
+      if (thread) {
+        await callRoute(workspaceApi.doneThreadUnread, { params: { id: thread.id } }, thread.source);
+      } else if (item.done_card_key) {
+        await callRoute(workspaceApi.feedUnread, {
+          params: { id: item.conversation_id }, body: { cardKey: item.done_card_key },
+        }, item.sourceId ?? scopedSource);
+      } else return;
+      if (generation === viewGeneration()) {
+        grouping.refresh();
+        await load();
+      }
+    } catch (error) {
+      if (generation === viewGeneration()) setError((error as Error).message);
+    }
+  }
   // Every way of opening a saved group reads its members.
   function openThread(thread: SourcedDoneThread) {
     setReadingThread({ ...thread, generation });
@@ -2160,6 +2179,13 @@ export function Feed({
     }
   }
   function actionsFor(item: FeedItem, thread?: SourcedDoneThread | null): Action[] {
+    // An open reader in the Unread selection retains its original card while
+    // the read write removes it from that selection. Allow marking it unread
+    // even when this retained snapshot still says it is unread.
+    const unread: Action[] = (thread ? thread.unread !== undefined : item.done_card_key && item.read_at !== undefined) ? [{
+      id: "mark-unread", label: "Mark unread", icon: <Mail size={20} />,
+      onSelect: () => void markUnread(item, thread ?? undefined),
+    }] : [];
     const key = thread ? JSON.stringify([thread.source, "thread", thread.id]) : feedItemKey(item, item.sourceId ?? scopedSource);
     const organize: Action[] = aggregatable(item) ? [
       { id: "select-cards", label: "Select cards", icon: <ListChecks size={20} />, onSelect: () => setSelectedCards([key]) },
@@ -2171,6 +2197,7 @@ export function Feed({
     ] : [];
     if (thread) return [
       { id: "open-thread", label: "Open thread", icon: <MessageSquare size={20} />, onSelect: () => openThread(thread) },
+      ...unread,
       ...organize,
       { id: "ungroup", label: "Ungroup cards", hint: "Return each card to Done", icon: <Layers size={20} />, onSelect: () => void ungroup(thread) },
     ];
@@ -2188,6 +2215,7 @@ export function Feed({
           ? onReply(item.conversation_id, source, feedReplyQuote(item) ?? undefined)
           : onOpen(item.conversation_id, item.last_message?.id, source),
       }] : []),
+      ...unread,
       ...(item.reply ? [{
         id: "archive-reply", label: "Archive reply", icon: <Archive size={20} />,
         onSelect: () => void dismissFeedCard(item),

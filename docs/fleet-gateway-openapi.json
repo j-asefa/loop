@@ -247,6 +247,7 @@
               "conversationPosition",
               "feedUpdate",
               "feedRead",
+              "feedUnread",
               "replyState",
               "messageSave",
               "messageUnsave",

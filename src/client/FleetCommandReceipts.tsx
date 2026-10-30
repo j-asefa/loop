@@ -30,6 +30,7 @@ const labels: Record<PendingFleetCommand["route"], string> = {
   conversationPosition: "Mark conversation position",
   feedUpdate: "Update Feed item",
   feedRead: "Mark Feed item read",
+  feedUnread: "Mark Feed item unread",
   replyState: "Update reply",
   messageSave: "Save message",
   messageUnsave: "Unsave message",

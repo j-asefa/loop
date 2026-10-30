@@ -148,6 +148,83 @@ it.each(["server", "companion", "multi-user"] as const)(
       expect(ids(await list({ read: "read", agent: "b" }))).toEqual([
         "d:run:b5",
       ]);
+      const markUnread = (id: string, conversation = id[0]) =>
+        request(`/api/feed/${conversation}/read`, {
+          method: "DELETE",
+          headers: browser,
+          body: { cardKey: "run:" + id },
+        });
+      const summary = async () => {
+        const response = await request("/api/feed?filter=done&agent=a", {
+          headers: browser,
+        });
+        expect(response.status).toBe(200);
+        return workspaceApi.feed.response.parse(await response.json()).summary;
+      };
+      const beforeUnread = await list({ read: "unread", agent: "a" });
+      const beforeRead = await list({ read: "read", agent: "a" });
+      const count = (await summary()).done_unread!;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await markUnread("a2");
+        expect(response.status).toBe(200);
+        expect(
+          workspaceApi.feedUnread.response.parse(await response.json()),
+        ).toEqual({ ok: true });
+      }
+      // The authoritative card stream moves the same result between both
+      // selections; a repeated unread action never increments the badge twice.
+      expect((await summary()).done_unread).toBe(count + 1);
+      expect(ids(await list({ read: "unread", agent: "a" }))).toEqual([
+        "d:run:a4",
+        "d:run:a2",
+        "d:run:a0",
+      ]);
+      expect(ids(await list({ read: "read", agent: "a" }))).toEqual([
+        "d:run:a5",
+        "d:run:a3",
+        "d:run:a1",
+      ]);
+      expect((await changes("read", beforeRead.revision)).removed).toContain(
+        "d:run:a2",
+      );
+      expect((await changes("unread", beforeUnread.revision)).items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            card: expect.objectContaining({
+              id: "d:run:a2",
+              display: expect.objectContaining({ read_at: null }),
+            }),
+          }),
+        ]),
+      );
+      // Reject other owners, mismatched conversations and missing results.
+      db.prepare(
+        "INSERT INTO done_card_reads VALUES('foreign','foreign','run:foreign0',42)",
+      ).run();
+      for (const [id, conversation] of [
+        ["foreign0", "foreign"],
+        ["a2", "b"],
+        ["missing", "a"],
+      ])
+        expect((await markUnread(id, conversation)).status).toBe(404);
+      expect(
+        db
+          .prepare(
+            "SELECT read_at FROM done_card_reads WHERE owner_id='foreign'",
+          )
+          .get(),
+      ).toEqual({ read_at: 42 });
+      expect(ids(await list({ read: "read", agent: "b" }))).toEqual([
+        "d:run:b5",
+      ]);
+      await fixture.restart();
+      expect(ids(await list({ read: "unread", agent: "a" }))).toContain(
+        "d:run:a2",
+      );
+      expect((await summary()).done_unread).toBe(count + 1);
+      // Opening it again still follows the existing read behavior.
+      expect((await read("a2")).status).toBe(200);
+      expect((await summary()).done_unread).toBe(count);
     } finally {
       await fixture.close();
     }

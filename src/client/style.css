@@ -5993,12 +5993,51 @@ select {
   padding: 6px 12px;
 }
 .done-agent-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  max-width: 100%;
-}
-.done-feed-filters .done-agent-filter select {
   min-height: 40px;
   max-width: min(260px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 14px;
+  background: var(--surface);
+}
+.done-agent-filter span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.done-agent-filter svg,
+.done-agent-options svg {
+  flex-shrink: 0;
+}
+.done-agent-picker .directory-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+}
+.done-agent-options {
+  display: grid;
+  gap: 4px;
+}
+.done-agent-options button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 12px;
+  text-align: left;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.done-agent-options button[aria-pressed="true"] {
+  color: var(--brass-text);
+  background: var(--surface);
 }
 .done-feed-filters > .text-button {
   min-height: 40px;

@@ -149,6 +149,40 @@ it.each(["server", "companion", "multi-user"] as const)(
         workspaceApi.doneThreadRead.response.parse(await opened.json()),
       ).toEqual({ ok: true });
       expect((await list())[0].unread).toBe(0);
+      // Marking a group unread clears only its members and is idempotent.
+      db.prepare(
+        "INSERT INTO done_card_reads VALUES(?, 'basil', 'message:imported', 42)",
+      ).run(owner);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await request(`${root}/${id}/read`, {
+          method: "DELETE",
+          headers: browser,
+        });
+        expect(response.status).toBe(200);
+        expect(
+          workspaceApi.doneThreadUnread.response.parse(await response.json()),
+        ).toEqual({ ok: true });
+      }
+      expect((await list())[0].unread).toBe(2);
+      expect(
+        (await detail(id)).cards.map(
+          (card) => card.type === "done" && card.display.read_at,
+        ),
+      ).toEqual([null, null]);
+      expect([unread("run:run0"), unread("run:run1")]).toEqual([
+        { unread: 1 },
+        { unread: 1 },
+      ]);
+      expect(unread("message:imported")).toEqual({ unread: 0 });
+      expect(
+        (
+          await request(`${root}/${id}/read`, {
+            method: "PUT",
+            headers: browser,
+            body: {},
+          })
+        ).status,
+      ).toBe(200);
       const readCards = (await detail(id)).cards;
       expect(
         readCards.map((card) => card.type === "done" && card.display.read_at),
@@ -317,6 +351,7 @@ it.each(["server", "companion", "multi-user"] as const)(
         [`${root}/${foreign}/cards/d%3Arun%3Arun6`, { method: "DELETE" }],
         [`${root}/${foreign}/cards`, { body: { cardIds: ["d:run:run2"] } }],
         [`${root}/${foreign}/read`, { method: "PUT", body: {} }],
+        [`${root}/${foreign}/read`, { method: "DELETE" }],
         [
           root,
           {

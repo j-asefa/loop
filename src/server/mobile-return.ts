@@ -227,12 +227,12 @@ export function setDoneCardHidden(
     })
     .immediate();
 }
-/** Record that the owner opened a Done result. Reading is idempotent and
- * keeps the first time, as Replies does. */
-export function markDoneCardRead(
+/** Set a Done result's read state. Repeated reads keep the first read time. */
+export function setDoneCardRead(
   owner: string,
   conversation: string,
   body: unknown,
+  read: boolean,
 ) {
   const { cardKey } = DoneReadInput.parse(body);
   return db
@@ -244,9 +244,14 @@ export function markDoneCardRead(
         )
         .get(owner, conversation, cardKey);
       if (!card) throw new Problem(404, "Done card not found");
-      db.prepare(
-        "INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at) VALUES(?,?,?,?)",
-      ).run(owner, conversation, cardKey, now());
+      if (read)
+        db.prepare(
+          "INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at) VALUES(?,?,?,?)",
+        ).run(owner, conversation, cardKey, now());
+      else
+        db.prepare(
+          "DELETE FROM done_card_reads WHERE owner_id=? AND conversation_id=? AND card_key=?",
+        ).run(owner, conversation, cardKey);
       return { ok: true };
     })
     .immediate();

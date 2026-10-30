@@ -8,7 +8,7 @@ import { feedProjection } from "./feed-projection.js";
 import { setReplyState } from "./steering-replies.js";
 import type { z } from "zod";
 import { teamFilter } from "./teams.js";
-import { listDoneThreads, readDoneThread, createDoneThread, moveDoneThreadCards, removeDoneThread, markDoneThreadRead } from "./done-threads.js";
+import { listDoneThreads, readDoneThread, createDoneThread, moveDoneThreadCards, removeDoneThread, setDoneThreadRead } from "./done-threads.js";
 import { listAgentThreads, readAgentThread } from "./agent-thread-feed.js";
 import {
   awaySummary,
@@ -36,7 +36,7 @@ import {
   setSaved,
   setSavedLabel,
   setDoneCardHidden,
-  markDoneCardRead,
+  setDoneCardRead,
   snoozeLater,
   withdrawQueuedRun,
 } from "./mobile-return.js";
@@ -52,7 +52,8 @@ routes.on(workspaceApi.agentThreadDetail, (req, res) => res.json(readAgentThread
 routes.on(workspaceApi.doneThreadDetail, (req, res) => res.json(readDoneThread(res.locals.owner, req.params.id)));
 routes.on(workspaceApi.doneThreadCreate, (req, res) => res.json(createDoneThread(res.locals.owner, req.body)));
 routes.on(workspaceApi.doneThreadMove, (req, res) => res.json(moveDoneThreadCards(res.locals.owner, req.params.id, req.body.cardIds)));
-routes.on(workspaceApi.doneThreadRead, (req, res) => res.json(markDoneThreadRead(res.locals.owner, req.params.id)));
+routes.on(workspaceApi.doneThreadRead, (req, res) => res.json(setDoneThreadRead(res.locals.owner, req.params.id, true)));
+routes.on(workspaceApi.doneThreadUnread, (req, res) => res.json(setDoneThreadRead(res.locals.owner, req.params.id, false)));
 routes.on(workspaceApi.doneThreadRemove, (req, res) => res.json(removeDoneThread(res.locals.owner, req.params.id)));
 routes.on(workspaceApi.doneThreadRemoveCard, (req, res) => res.json(removeDoneThread(res.locals.owner, req.params.id, req.params.card)));
 routes.on(workspaceApi.conversationPosition, (req, res) =>
@@ -68,7 +69,10 @@ routes.on(workspaceApi.feedUpdate, (req, res) =>
   res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),
 );
 routes.on(workspaceApi.feedRead, (req, res) =>
-  res.json(markDoneCardRead(res.locals.owner, req.params.id, req.body)),
+  res.json(setDoneCardRead(res.locals.owner, req.params.id, req.body, true)),
+);
+routes.on(workspaceApi.feedUnread, (req, res) =>
+  res.json(setDoneCardRead(res.locals.owner, req.params.id, req.body, false)),
 );
 routes.on(workspaceApi.replyState, (req, res) =>
   res.json(setReplyState(res.locals.owner, req.params.id, req.body)),

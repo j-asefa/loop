@@ -123,18 +123,27 @@ export function readDoneThread(owner: string, id: string): DoneThreadDetail {
     };
   })();
 }
-/** Opening a thread reads every member result, as opening a card reads it. */
-export function markDoneThreadRead(owner: string, id: string) {
+/** A saved thread's read state applies to every member result. */
+export function setDoneThreadRead(owner: string, id: string, read: boolean) {
   return db
     .transaction(() => {
       owned(owner, id);
-      db.prepare(
-        `INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at)
+      if (read)
+        db.prepare(
+          `INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at)
         SELECT m.owner_id,m.conversation_id,substr(m.card_id,3),? FROM done_thread_members m
         JOIN feed_cards p ON p.owner_id=m.owner_id AND p.conversation_id=m.conversation_id
           AND p.kind='result' AND p.card_key=substr(m.card_id,3)
         WHERE m.owner_id=? AND m.thread_id=?`,
-      ).run(now(), owner, id);
+        ).run(now(), owner, id);
+      else
+        db.prepare(
+          `DELETE FROM done_card_reads WHERE owner_id=? AND EXISTS (
+          SELECT 1 FROM done_thread_members m WHERE m.owner_id=done_card_reads.owner_id
+          AND m.thread_id=? AND m.conversation_id=done_card_reads.conversation_id
+          AND m.card_id='d:'||done_card_reads.card_key
+        )`,
+        ).run(owner, id);
       return { ok: true };
     })
     .immediate();
