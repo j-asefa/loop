@@ -304,10 +304,16 @@ export async function callRoute<C extends ClientRouteContract>(contract: C, inpu
         // types do not narrow together with their contract's marker.
         const upload = input as RouteInput<C> & { file: Blob; filename?: string };
         const form = new FormData();
-        for (const [key, value] of Object.entries(input.body ?? {}))
-          if (value !== undefined) form.append(key, String(value));
-        if (upload.filename === undefined) form.append("file", upload.file);
-        else form.append("file", upload.file, upload.filename);
+        if (command?.upload) {
+          form.append("manifest", JSON.stringify(command.upload));
+          // An unresolved upload only queries its receipt; do not send its bytes again.
+          if (command.headers["x-loop-receipt-only"] !== "1") form.append("file", upload.file, "upload");
+        } else {
+          for (const [key, value] of Object.entries(input.body ?? {}))
+            if (value !== undefined) form.append(key, String(value));
+          if (upload.filename === undefined) form.append("file", upload.file);
+          else form.append("file", upload.file, upload.filename);
+        }
         body = form;
       }
       const value = response(contract, await requestInWorkspace<unknown>(path, sourceId, body, contract.method, signal, contract.kind === "stream" ? "stream" : undefined, contract.multipart, contract.status === 204, guarded));

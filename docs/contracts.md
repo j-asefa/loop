@@ -24,6 +24,14 @@ existing workspace contracts' projections. Durable actions and receipt reads
 preserve the originating machine, original command and current grant through
 destination receipts and generation checks.
 
+`fleetWorkspaceFileApi` and `fleetWorkspaceUploadApi` also use `peer:workspace`
+admission with destination-issued `files` credentials. Bounded transfers recheck
+the grant on each chunk and bind signed metadata to the request and content
+digest; uploads retain their command identity through staging and owning commit.
+`fleetGatewayApi` receipt lookups use `device:fleet`: the serving host requires
+its current paired-device session and CSRF before owner-bound, bodyless receipt
+reconciliation. Neither boundary accepts arbitrary paths or caller-selected owners.
+
 ## Responses are projections
 
 - Response schemas describe what the caller receives, never a storage row. Never import `row-schemas.ts`, `query-records.ts`, `db.ts` or any credential schema into `src/shared`. The existing `Public*` schemas are the pattern: add to them, extend them, or add a sibling.

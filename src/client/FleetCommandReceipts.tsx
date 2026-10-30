@@ -17,6 +17,7 @@ export function showFleetCommandReceipts() {
 }
 
 const labels: Record<PendingFleetCommand["route"], string> = {
+  uploadCreate: "Upload file",
   agentCreate: "Create agent",
   agentUpdate: "Update agent",
   submit: "Send message",

@@ -274,7 +274,8 @@
               "artifactCreate",
               "artifactUpdate",
               "artifactMove",
-              "operationUndo"
+              "operationUndo",
+              "uploadCreate"
             ]
           },
           "payloadDigest": {

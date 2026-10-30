@@ -2903,6 +2903,766 @@
           }
         }
       }
+    },
+    "/api/fleet/peer/v1/workspace/upload/prepare": {
+      "post": {
+        "operationId": "workspaceUploadPrepare",
+        "description": "Requires a files-scoped machine credential and a canonical upload manifest bound to its original command. Stages at most two files of up to 25 MiB for 30 idle or 120 total seconds. Staging is ephemeral, creates no workspace file or agent grant, and is not command acceptance. An existing durable command returns its receipt instead of a new staging area. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceUploadPrepareRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workspaceUploadPrepareResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/workspace/upload/chunk": {
+      "post": {
+        "operationId": "workspaceUploadChunk",
+        "description": "Requires the original files-scoped peer, grant, directory, command, payload digest and transfer. Appends at most 256 KiB at the exact expected offset. Signs the request digest and resulting offset. No workspace object is created. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceUploadChunkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workspaceUploadChunkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/workspace/upload/close": {
+      "post": {
+        "operationId": "workspaceUploadClose",
+        "description": "Requires the original files-scoped peer, command and payload digest. Deletes only its ephemeral staging area; a missing area is already closed. Never removes or changes a durable command receipt. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceUploadCloseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workspaceUploadCloseResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/workspace/upload/commit": {
+      "post": {
+        "operationId": "workspaceUploadCommit",
+        "description": "Requires complete staged bytes matching the original manifest's size and SHA-256. Persists the original command and digest before invoking the owning upload producer, which rechecks the current grant inside its file transaction. Repeated commits only return the durable receipt, including after restart. A lost reply does not authorize a new upload. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceUploadCommitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workspaceUploadCommitResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet/peer/v1/workspace/upload/receipt": {
+      "post": {
+        "operationId": "workspaceUploadReceipt",
+        "description": "Requires a files-scoped machine credential and the original command ID and payload digest. Returns a signed durable upload receipt without creating or committing a file. A missing receipt remains unknown to the gateway. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "parameters": [
+          {
+            "name": "X-Loop-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/workspaceUploadReceiptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/workspaceUploadReceiptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8104,6 +8864,995 @@
           "signature"
         ],
         "additionalProperties": false
+      },
+      "workspaceUploadPrepareRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "input": {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "string",
+                "const": "uploadCreate"
+              },
+              "params": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "body": {
+                "type": "object",
+                "properties": {
+                  "options": {
+                    "type": "object",
+                    "properties": {
+                      "folderId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "agentId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "file": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      },
+                      "mime": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 150,
+                        "pattern": "^[\\x20-\\x7e]+$"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 26214400
+                      },
+                      "checksum": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "mime",
+                      "size",
+                      "checksum"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "options",
+                  "file"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "route",
+              "params",
+              "body"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "commandId",
+          "credential",
+          "input"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceUploadPrepareResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "commandId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "peer": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "grantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "payloadDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "transferId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "nextOffset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 26214400
+              },
+              "chunkBytes": {
+                "type": "number",
+                "const": 262144
+              },
+              "receipt": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "commandId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "started",
+                          "completed",
+                          "unknown",
+                          "refused"
+                        ]
+                      },
+                      "result": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/workspaceUploadPrepareResponse/$defs/__schema0"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "commandId",
+                      "state",
+                      "result"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "requestId",
+              "commandId",
+              "machineId",
+              "peer",
+              "grantId",
+              "directory",
+              "requestDigest",
+              "payloadDigest",
+              "transferId",
+              "nextOffset",
+              "chunkBytes",
+              "receipt"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "response",
+          "signature"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/workspaceUploadPrepareResponse/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/workspaceUploadPrepareResponse/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "workspaceUploadChunkRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "transferId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "payloadDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 26214400
+          },
+          "base64": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 349528,
+            "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "commandId",
+          "credential",
+          "transferId",
+          "payloadDigest",
+          "offset",
+          "base64"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceUploadChunkResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "commandId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "peer": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "grantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "payloadDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "transferId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "nextOffset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 26214400
+              }
+            },
+            "required": [
+              "version",
+              "requestId",
+              "commandId",
+              "machineId",
+              "peer",
+              "grantId",
+              "directory",
+              "requestDigest",
+              "payloadDigest",
+              "transferId",
+              "nextOffset"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "response",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceUploadCloseRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "transferId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "payloadDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "commandId",
+          "credential",
+          "transferId",
+          "payloadDigest"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceUploadCloseResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "commandId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "peer": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "grantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "payloadDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "transferId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "closed": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": [
+              "version",
+              "requestId",
+              "commandId",
+              "machineId",
+              "peer",
+              "grantId",
+              "directory",
+              "requestDigest",
+              "payloadDigest",
+              "transferId",
+              "closed"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "response",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceUploadCommitRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "transferId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "input": {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "string",
+                "const": "uploadCreate"
+              },
+              "params": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "body": {
+                "type": "object",
+                "properties": {
+                  "options": {
+                    "type": "object",
+                    "properties": {
+                      "folderId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "agentId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "file": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      },
+                      "mime": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 150,
+                        "pattern": "^[\\x20-\\x7e]+$"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 26214400
+                      },
+                      "checksum": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "mime",
+                      "size",
+                      "checksum"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "options",
+                  "file"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "route",
+              "params",
+              "body"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "commandId",
+          "credential",
+          "transferId",
+          "input"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceUploadCommitResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "commandId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "peer": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "grantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "payloadDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "receipt": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "commandId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "started",
+                          "completed",
+                          "unknown",
+                          "refused"
+                        ]
+                      },
+                      "result": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/workspaceUploadCommitResponse/$defs/__schema0"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "commandId",
+                      "state",
+                      "result"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "requestId",
+              "commandId",
+              "machineId",
+              "peer",
+              "grantId",
+              "directory",
+              "requestDigest",
+              "payloadDigest",
+              "receipt"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "response",
+          "signature"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/workspaceUploadCommitResponse/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/workspaceUploadCommitResponse/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "workspaceUploadReceiptRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "payloadDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "commandId",
+          "credential",
+          "payloadDigest"
+        ],
+        "additionalProperties": false
+      },
+      "workspaceUploadReceiptResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "commandId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "peer": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "grantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "payloadDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "receipt": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "commandId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "started",
+                          "completed",
+                          "unknown",
+                          "refused"
+                        ]
+                      },
+                      "result": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/workspaceUploadReceiptResponse/$defs/__schema0"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "commandId",
+                      "state",
+                      "result"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "requestId",
+              "commandId",
+              "machineId",
+              "peer",
+              "grantId",
+              "directory",
+              "requestDigest",
+              "payloadDigest",
+              "receipt"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "response",
+          "signature"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/workspaceUploadReceiptResponse/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/workspaceUploadReceiptResponse/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
       }
     }
   }

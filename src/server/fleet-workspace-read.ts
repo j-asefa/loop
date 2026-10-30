@@ -29,6 +29,7 @@ export class FleetWorkspaceRead {
     private readonly options: {
       actions?: () => readonly string[];
       files?: boolean;
+      uploads?: boolean;
     } = {},
   ) {
     this.proof = new FleetProof(db, authority.identity, secrets);
@@ -89,7 +90,10 @@ export class FleetWorkspaceRead {
       requestDigest: fleetPayloadDigest({ requestId: request.requestId }),
       profile: "companion",
       reads: allowed("read") ? Object.keys(fleetReadRoutes) : [],
-      actions: allowed("act") ? (this.options.actions?.() ?? []) : [],
+      actions: [
+        ...(allowed("act") ? (this.options.actions?.() ?? []) : []),
+        ...(this.options.uploads && allowed("files") ? ["uploadCreate"] : []),
+      ],
       events: false,
       files: !!this.options.files && allowed("files"),
     });

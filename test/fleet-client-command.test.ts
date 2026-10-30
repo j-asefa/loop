@@ -99,6 +99,125 @@ beforeEach(async () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+it("journals one upload across JSON-equivalent options and checks its receipt without resending the file", async () => {
+  const file = new File(["private fixture bytes"], "résumé.txt", {
+    type: "text/plain",
+  });
+  const uploaded = {
+    id: randomUUID(),
+    objectId: randomUUID(),
+    name: file.name,
+    mime: file.type,
+    size: file.size,
+  };
+  const sent: { id: string; hasFile: boolean; receiptOnly: string | null }[] =
+    [];
+  beforeFetch = async (url, init) => {
+    if (url === "/session") return json({ csrf: "isolated-csrf" });
+    expect(url).toContain(encodeURIComponent(source));
+    const headers = new Headers(init.headers),
+      id = headers.get("x-loop-command-id")!;
+    const form = init.body as FormData;
+    const manifest = JSON.parse(String(form.get("manifest")));
+    expect(manifest.body.options).toEqual({});
+    expect(rows()).toMatchObject([
+      {
+        id,
+        route: "uploadCreate",
+        source,
+        payloadDigest: fleetPayloadDigest(manifest),
+      },
+    ]);
+    expect(manifest.body.file).toMatchObject({
+      name: file.name,
+      size: file.size,
+      mime: file.type,
+    });
+    const stored = [...storage.values()].join("");
+    expect(stored).not.toContain(file.name);
+    expect(stored).not.toContain("private fixture bytes");
+    sent.push({
+      id,
+      hasFile: form.has("file"),
+      receiptOnly: headers.get("x-loop-receipt-only"),
+    });
+    if (sent.length === 1) throw new TypeError("Fixture upload response lost");
+    return terminal(id, uploaded, "completed", 201);
+  };
+  await expect(
+    api.callRoute(
+      workspaceApi.uploadCreate,
+      { body: { folderId: undefined, agentId: undefined }, file },
+      source,
+    ),
+  ).rejects.toThrow();
+  expect(rows()).toHaveLength(1);
+  await page();
+  // Multipart JSON omits undefined fields. A retry with the same wire input
+  // must retain the earlier command even if the caller omitted those fields.
+  expect(
+    await api.callRoute(workspaceApi.uploadCreate, { body: {}, file }, source),
+  ).toEqual(uploaded);
+  expect(sent).toEqual([
+    { id: sent[0].id, hasFile: true, receiptOnly: null },
+    { id: sent[0].id, hasFile: false, receiptOnly: "1" },
+  ]);
+  expect(rows()).toEqual([]);
+});
+
+it("does not journal or forward a file whose owner changed while its bytes were being hashed", async () => {
+  const file = new File(["held bytes"], "held.txt", { type: "text/plain" });
+  let release!: (value: ArrayBuffer) => void;
+  file.arrayBuffer = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  const pending = api
+    .callRoute(workspaceApi.uploadCreate, { body: {}, file }, source)
+    .catch((error) => error);
+  await Promise.resolve();
+  views.setViewOwner("another-owner");
+  release(new TextEncoder().encode("held bytes").buffer);
+  expect(await pending).toBeInstanceOf(Error);
+  expect(rows()).toEqual([]);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("copies an upload's receipt without its bytes and reconciles it through another paired owner scope", async () => {
+  const file = new File(["only the digest survives"], "copy.txt", {
+    type: "text/plain",
+  });
+  beforeFetch = async (url) => {
+    if (url === "/session") return json({ csrf: "isolated-csrf" });
+    throw new TypeError("Unknown fixture upload");
+  };
+  await expect(
+    api.callRoute(workspaceApi.uploadCreate, { body: {}, file }, source),
+  ).rejects.toThrow();
+  const commands = await import("../src/client/fleetCommand");
+  const original = (await commands.pendingFleetCommands())[0];
+  const copy = await commands.exportFleetCommand(original);
+  expect(copy).not.toContain("only the digest survives");
+  expect(copy).not.toContain("copy.txt");
+  views.setViewOwner("new-paired-owner");
+  const retained = await commands.importFleetCommand(copy);
+  beforeFetch = async (url, init) => {
+    if (url === "/session") return json({ csrf: "isolated-csrf" });
+    expect(url).toBe("/api/fleet/commands/receipt");
+    expect(JSON.parse(String(init.body))).toEqual({
+      peer: source.slice(5),
+      commandId: original.id,
+      route: "uploadCreate",
+      payloadDigest: original.payloadDigest,
+    });
+    return json({ commandId: original.id, state: "completed", result: null });
+  };
+  expect(await commands.reconcileFleetCommand(retained)).toMatchObject({
+    state: "completed",
+    result: null,
+  });
+  expect(await commands.pendingFleetCommands()).toEqual([]);
+});
 it.each(["abort", "owner change"])(
   "releases only its unsent reservation after %s during a journal commit",
   async (cancel) => {

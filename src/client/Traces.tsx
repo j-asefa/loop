@@ -1,9 +1,13 @@
 import { literalEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import { runErrorText } from "../shared/run-errors";
-import { useSourceRoute } from "./SourceContext";
+import {
+  useSourceId,
+  useSourceOperation,
+  useSourceRoute,
+} from "./SourceContext";
 import type { RouteResponse } from "../shared/workspace-api";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Download,
@@ -12,8 +16,7 @@ import {
   Search,
 } from "lucide-react";
 import { parse } from "./api";
-import { callRoute } from "./workspace-api";
-import { executionSourceId } from "./sourceRouting";
+import { viewGeneration } from "./viewCache";
 import { Empty, RichText } from "./components";
 import type { Artifact } from "../shared/types";
 
@@ -38,6 +41,20 @@ function saveJson(name: string, data: unknown) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export function Traces(props: Props) {
+  const source = useSourceId();
+  return (
+    <TraceSearch
+      key={JSON.stringify([
+        source,
+        viewGeneration(),
+        props.agentId,
+        props.runId,
+      ])}
+      {...props}
+    />
+  );
+}
+function TraceSearch(props: Props) {
   const [query, setQuery] = useState("");
   const [q, setQ] = useState("");
   useEffect(() => {
@@ -77,10 +94,35 @@ function TraceList({
   query,
 }: Props & { query: string }) {
   const route = useSourceRoute();
+  const downloadReason = useSourceOperation(workspaceApi.agentTracesExport);
+  const artifactReason = useSourceOperation(workspaceApi.artifactDetail);
+  const generation = useRef(viewGeneration()).current;
+  const active = useRef(true);
+  const pending = useRef(new Set<AbortController>());
+  useLayoutEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      for (const request of pending.current) request.abort();
+      pending.current.clear();
+    };
+  }, []);
+  const current = () => active.current && generation === viewGeneration();
+  const request = () => {
+    const controller = new AbortController();
+    pending.current.add(controller);
+    return {
+      signal: controller.signal,
+      current: () => current() && !controller.signal.aborted,
+      done: () => pending.current.delete(controller),
+    };
+  };
   const [{ items, next }, setPage] = useState<Page>({ items: [], next: null });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [moreBusy, setMoreBusy] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const downloading = useRef(false);
   const merge = (page: Page, refresh = false) =>
     setPage((old) => {
       // A disjoint newest page creates an unloaded gap, even if the previous
@@ -105,7 +147,7 @@ function TraceList({
     // Finish paging before refreshing so an older response cannot overwrite
     // the cursor for a newly discovered gap.
     if (moreBusy) return;
-    let current = true;
+    let live = true;
     const request = new AbortController();
     void route(
       workspaceApi.agentTraces,
@@ -116,56 +158,100 @@ function TraceList({
       request.signal,
     )
       .then((page) => {
-        if (!current) return;
+        if (!live || !current()) return;
         merge(page, true);
         setError("");
       })
       .catch((e) => {
-        if (current) setError(e.message);
+        if (live && current()) setError(e.message);
       })
       .finally(() => {
-        if (current) setLoading(false);
+        if (live && current()) setLoading(false);
       });
     return () => {
-      current = false;
+      live = false;
       request.abort();
     };
-  }, [agentId, runId, query, revision, moreBusy]);
+  }, [agentId, runId, query, revision, moreBusy, route]);
   const earlier = async () => {
-    if (!next || moreBusy) return;
+    if (!next || moreBusy || !current()) return;
+    const operation = request();
     setMoreBusy(true);
     try {
-      const page = await route(workspaceApi.agentTraces, {
-        params: { id: agentId },
-        query: {
-          before: String(next),
-          run: runId || undefined,
-          q: query || undefined,
+      const page = await route(
+        workspaceApi.agentTraces,
+        {
+          params: { id: agentId },
+          query: {
+            before: String(next),
+            run: runId || undefined,
+            q: query || undefined,
+          },
         },
-      });
+        operation.signal,
+      );
+      if (!operation.current()) return;
       merge(page);
       setError("");
     } catch (e) {
-      setError((e as Error).message);
+      if (operation.current()) setError((e as Error).message);
     } finally {
-      setMoreBusy(false);
+      operation.done();
+      if (operation.current()) setMoreBusy(false);
     }
   };
-  const download = (trace: Trace) =>
-    saveJson(`loop-trace-${trace.run_id}-${trace.id}.json`, trace);
+  const download = (trace: Trace) => {
+    if (current())
+      saveJson(`loop-trace-${trace.run_id}-${trace.id}.json`, trace);
+  };
   const downloadRun = async (id: string) => {
+    if (!current() || downloadReason || downloading.current) return;
+    downloading.current = true;
+    setDownloadBusy(true);
+    const operation = request();
     try {
-      const file = await route(workspaceApi.agentTracesExport, {
-        params: { id: agentId },
-        query: { run: id },
-      });
-      saveJson(`loop-run-${id}-traces.json`, JSON.parse(await file.text()));
+      const file = await route(
+        workspaceApi.agentTracesExport,
+        { params: { id: agentId }, query: { run: id } },
+        operation.signal,
+      );
+      if (!operation.current()) return;
+      const text = await file.text();
+      if (operation.current())
+        saveJson(`loop-run-${id}-traces.json`, JSON.parse(text));
     } catch (e) {
-      setError((e as Error).message);
+      if (operation.current()) setError((e as Error).message);
+    } finally {
+      operation.done();
+      downloading.current = false;
+      if (operation.current()) setDownloadBusy(false);
+    }
+  };
+  const openArtifact = async (id: string) => {
+    if (!current() || artifactReason) return;
+    const operation = request();
+    try {
+      const artifact = await route(
+        workspaceApi.artifactDetail,
+        { params: { id } },
+        operation.signal,
+      );
+      if (operation.current()) onArtifact(artifact);
+    } catch (e) {
+      if (operation.current()) setError((e as Error).message);
+    } finally {
+      operation.done();
     }
   };
   return (
     <>
+      {[...new Set([downloadReason, artifactReason])]
+        .filter(Boolean)
+        .map((reason) => (
+          <p className="field-hint" key={reason} role="status">
+            {reason}
+          </p>
+        ))}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -204,13 +290,18 @@ function TraceList({
                 {group[0].conversation_id && (
                   <button
                     className="text-button"
-                    onClick={() => onConversation(group[0].conversation_id!)}
+                    onClick={() =>
+                      current() && onConversation(group[0].conversation_id!)
+                    }
                   >
                     Open conversation <ArrowUpRight size={15} />
                   </button>
                 )}
                 <button
                   className="text-button"
+                  disabled={!!downloadReason || downloadBusy}
+                  aria-busy={downloadBusy}
+                  title={downloadReason}
                   onClick={() => void downloadRun(groupRunId)}
                 >
                   <Download size={15} /> Download run
@@ -314,21 +405,9 @@ function TraceList({
                     </button>
                     {item.artifact_id && (
                       <button
-                        onClick={async () => {
-                          const artifactId = item.artifact_id;
-                          if (!artifactId) return;
-                          try {
-                            onArtifact(
-                              await callRoute(
-                                workspaceApi.artifactDetail,
-                                { params: { id: artifactId } },
-                                executionSourceId(),
-                              ),
-                            );
-                          } catch (e) {
-                            setError((e as Error).message);
-                          }
-                        }}
+                        disabled={!!artifactReason}
+                        title={artifactReason}
+                        onClick={() => void openArtifact(item.artifact_id!)}
                       >
                         View tool result <ArrowUpRight size={15} />
                       </button>

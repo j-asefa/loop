@@ -425,6 +425,7 @@ export function CreateAgent({
           <UploadButton
             menu
             sourceId={source}
+            capabilities={sourceCapabilities}
             folderId={
               availableFolders.some((folder) => folder.id === folderChoice)
                 ? folderChoice

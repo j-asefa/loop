@@ -26,7 +26,7 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
       "-e",
       `
       const { db } = await import('./src/server/db.ts');
-      let refused = false, lifecycle;
+      let refused = false, lifecycle, workspaceServices = false;
       if (process.env.LOOP_TEST_FLEET_IDENTITY_ONLY === '1') {
         const { initializeFleetIdentity } = await import('./src/server/fleet-identity.ts');
         const { seal, unseal } = await import('./src/server/secrets.ts');
@@ -39,6 +39,7 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
         };
         const host = new WorkspaceHost(process.env.LOOP_DATA_DIR, options,
           process.env.LOOP_TEST_FLEET_WORKER === '1' ? { open: async () => {}, schedule: async () => {}, close: async () => {} } : undefined);
+        workspaceServices = !!host.fleetWorkspace && !!host.gateway.workspace.sources && !!host.gateway.workspace.fleetCommandsHttp;
         if (process.env.LOOP_TEST_FLEET_WORKER === '1') {
           if (!host.fleetDistribution) throw new Error('Missing directory worker');
           // Stub unrelated Docker discovery; exercise the actual gateway start,
@@ -65,6 +66,7 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
         integrity: db.pragma('integrity_check'),
         workers: db.prepare('SELECT count(*) n FROM fleet_distribution_instances').get().n,
         lifecycle,
+        workspaceServices,
       }));
       db.close();
       process.exit(0);
@@ -109,6 +111,7 @@ test("companion gateway startup keeps machine identity across process and origin
     );
     assert.equal(first.identities.length, 1);
     assert.equal(first.workers, 1);
+    assert.equal(first.workspaceServices, true);
     assert.match(first.identities[0].machine_id, /^m_[a-f0-9]{64}$/);
     assert.deepEqual(
       await startup(directory, {
@@ -135,6 +138,7 @@ test("server profile and isolated preview startup never create fleet signing ide
     });
     assert.equal(server.refused, true);
     assert.equal(server.workers, 0);
+    assert.equal(server.workspaceServices, false);
     assert.deepEqual(server.identities, []);
     for (const mode of ["design", "working"]) {
       const home = join(directory, "preview-" + mode),
@@ -158,16 +162,13 @@ test("server profile and isolated preview startup never create fleet signing ide
       };
       const path = join(data, "preview-owner.json");
       writeFileSync(path, JSON.stringify(manifest));
-      assert.deepEqual(
-        (
-          await startup(data, {
-            LOOP_PREVIEW_MANIFEST: path,
-            LOOP_HOME: home,
-            LOOP_ENCRYPTION_KEY: "",
-          })
-        ).identities,
-        [],
-      );
+      const isolated = await startup(data, {
+        LOOP_PREVIEW_MANIFEST: path,
+        LOOP_HOME: home,
+        LOOP_ENCRYPTION_KEY: "",
+      });
+      assert.deepEqual(isolated.identities, []);
+      assert.equal(isolated.workspaceServices, false);
       assert.equal(existsSync(join(data, "encryption-key")), false);
     }
   } finally {

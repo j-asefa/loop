@@ -24,6 +24,10 @@ const previews = [],
   shared = [];
 let refusedSharedId;
 const fileRequests = [];
+const uploadRequests = [];
+let holdUpload = false,
+  releaseUpload,
+  loseFirstUpload = true;
 const objectId = randomUUID(),
   artifactId = randomUUID();
 let holdFile = false,
@@ -46,7 +50,7 @@ try {
     import { SourceProvider } from ${JSON.stringify(resolve("src/client/SourceContext.tsx"))};
     import { NativeDecisions } from ${JSON.stringify(resolve("src/client/NativeControls.tsx"))};
     import { ShareSheet } from ${JSON.stringify(resolve("src/client/Sharing.tsx"))};
-    import { AttachmentList } from ${JSON.stringify(resolve("src/client/Attachments.tsx"))};
+    import { AttachmentList, UploadButton } from ${JSON.stringify(resolve("src/client/Attachments.tsx"))};
     import { FileLink } from ${JSON.stringify(resolve("src/client/FilePreview.tsx"))};
     import { AgentModelSettings } from ${JSON.stringify(resolve("src/client/AgentModelSettings.tsx"))};
     import { CreateAgent } from ${JSON.stringify(resolve("src/client/CreateAgent.tsx"))};
@@ -78,6 +82,13 @@ try {
     window.filelink = (source=peer,owner="fixture-owner") => {
       setViewOwner(owner);
       root.render(React.createElement(FileLink,{url:"/api/agent-sources/"+encodeURIComponent(source)+"/objects/"+${JSON.stringify(objectId)},name:"linked-file.txt"},"Open linked file"));
+    };
+    window.uploads = (mode="enabled",source=peer,owner="fixture-upload-owner") => {
+      setViewOwner(owner);
+      root.render(React.createElement(SourceProvider,{sourceId:source,capabilities:{
+        profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
+        fleet:{version:1,machineId:source.slice(5),reads:[],actions:mode === "enabled" ? ["uploadCreate"] : [],files:true,events:false},
+      }},React.createElement(UploadButton,{onUploaded:file=>{window.uploadedFile=file}})));
     };
     window.models = () => root.render(React.createElement(SourceProvider, {sourceId:peer, capabilities:{
       profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
@@ -134,6 +145,50 @@ try {
     }
     if (req.url === "/session") {
       reply(200, { csrf: "fixture-only" });
+      return;
+    }
+    if (req.method === "POST" && req.url?.endsWith("/uploads")) {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const form = await new Request("http://fixture.invalid", {
+        method: "POST",
+        headers: req.headers,
+        body: Buffer.concat(chunks),
+      }).formData();
+      const manifest = JSON.parse(String(form.get("manifest")));
+      const id = req.headers["x-loop-command-id"],
+        receiptOnly = req.headers["x-loop-receipt-only"] === "1";
+      assert.match(id, /^[a-f0-9-]{36}$/);
+      assert.equal(req.headers["x-loop-csrf"], "fixture-only");
+      assert.equal(form.has("file"), !receiptOnly);
+      if (!receiptOnly)
+        assert.equal(form.get("file").size, manifest.body.file.size);
+      uploadRequests.push({ path: req.url, id, receiptOnly, manifest });
+      if (holdUpload)
+        await new Promise((resolve) => {
+          releaseUpload = resolve;
+        });
+      if (res.destroyed) return;
+      if (loseFirstUpload && !receiptOnly) {
+        reply(503, {
+          error: "Fixture upload outcome is unknown",
+          executionOutcome: "unknown",
+        });
+      } else
+        reply(
+          201,
+          {
+            id: artifactId,
+            objectId,
+            name: manifest.body.file.name,
+            mime: manifest.body.file.mime,
+            size: manifest.body.file.size,
+          },
+          {
+            "x-loop-command-id": id,
+            "x-loop-command-state": "completed",
+          },
+        );
       return;
     }
     if (req.method === "GET" && req.url?.endsWith("/objects/" + objectId)) {
@@ -543,6 +598,51 @@ try {
     5,
     "An owner change cannot reuse an open link",
   );
+  await page.evaluate(() => window.uploads("read-only"));
+  await expect(
+    page.getByRole("button", { name: "Attach files", exact: true }),
+  ).toBeDisabled();
+  assert.equal(uploadRequests.length, 0);
+  await page.evaluate(() => window.uploads());
+  const upload = page.getByLabel("Attach files", { exact: true });
+  const file = {
+    name: "résumé.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Original fixture upload"),
+  };
+  await upload.setInputFiles(file);
+  await expect(page.getByRole("alert")).toContainText("outcome is unknown");
+  assert.equal(uploadRequests.length, 1);
+  await upload.setInputFiles(file);
+  await expect
+    .poll(() => page.evaluate(() => window.uploadedFile?.name))
+    .toBe("résumé.txt");
+  assert.equal(uploadRequests.length, 2);
+  assert.equal(uploadRequests[0].id, uploadRequests[1].id);
+  assert.equal(uploadRequests[1].receiptOnly, true);
+  assert.deepEqual(uploadRequests[0].manifest, uploadRequests[1].manifest);
+  assert(uploadRequests[0].path.includes(encodeURIComponent(peer)));
+  holdUpload = true;
+  loseFirstUpload = false;
+  await page.evaluate(() => {
+    window.uploadedFile = undefined;
+  });
+  await upload.setInputFiles({ ...file, name: "held.txt" });
+  await expect.poll(() => uploadRequests.length).toBe(3);
+  await page.evaluate(() =>
+    window.uploads("enabled", "peer:m_" + "2".repeat(64), "changed-owner"),
+  );
+  releaseUpload();
+  holdUpload = false;
+  await expect(
+    page.getByRole("button", { name: "Attach files", exact: true }),
+  ).toBeEnabled();
+  assert.equal(await page.evaluate(() => window.uploadedFile), undefined);
+  assert.equal(
+    uploadRequests.length,
+    3,
+    "Changing owner/source must not replay a held upload",
+  );
   // The real creation UI retains the upstream model picker and saved catalog,
   // while destination capabilities gate execution and lost replies keep one ID.
   await page.evaluate(() => window.createFleetAgent("read-only"));
@@ -612,11 +712,12 @@ try {
   ).toBeVisible();
   assert.deepEqual(failures, []);
   console.log(
-    `PASS (${engine.name()}): actual question controls respect capabilities and durable storage, renew refused IDs and reconcile lost responses without a second effect; read-only sharing permits preview but disables send; shared sends renew confirmed refusals and retain their original identity on uncertainty; source changes abort held previews; file previews retain their source and close on owner/source changes. Deterministic HTTP fixture.`,
+    `PASS (${engine.name()}): question and upload controls respect capabilities; questions and shared sends renew confirmed refusals and retain uncertain identities; question reconciliation produces no second effect; sharing and uploads reconcile uncertain commands without resubmission; upload reconciliation omits file bytes; held requests and previews are fenced by owner/source changes. Deterministic HTTP fixture.`,
   );
 } finally {
   releasePreview?.();
   releaseFile?.();
+  releaseUpload?.();
   await browser?.close();
   if (server) {
     server.closeAllConnections();

@@ -31,7 +31,7 @@ type Snapshot = Admission & {
 /** On-demand workspace downloads, separate from an agent's published-file mail
  * grants. Opening uses the existing owning HTTP projection. At most two bounded
  * snapshots survive for 30 idle seconds / 120 total seconds; no file URL, path,
- * browser cookie or native context can select a transfer. Still opt-in. */
+ * browser cookie or native context can select a transfer. */
 export class FleetWorkspaceFiles {
   private readonly proof: FleetProof;
   private readonly snapshots = new Map<string, Snapshot>();

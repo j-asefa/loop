@@ -30,6 +30,16 @@ it("allows declared file reads without granting multipart uploads or unrelated s
   expect(
     fleetOperationReason(
       peer,
+      {
+        ...capabilities,
+        fleet: { ...capabilities.fleet, actions: ["uploadCreate"] },
+      },
+      workspaceApi.uploadCreate,
+    ),
+  ).toBeUndefined();
+  expect(
+    fleetOperationReason(
+      peer,
       { ...capabilities, fleet: { ...capabilities.fleet, files: false } },
       workspaceApi.objectFile,
     ),

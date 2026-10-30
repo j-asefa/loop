@@ -21,16 +21,9 @@ import type { FleetCredentialLeases } from "./fleet-credential-leases.js";
 import type { FleetAccessLease } from "./fleet-credential-lease.js";
 import type { FleetWorkspaceActionTransport } from "./fleet-workspace-action-http.js";
 
+import { FleetForwardedCommands } from "./fleet-forwarded-commands.js";
+
 type Receipt = z.infer<typeof FleetActionReceipt>;
-const Stored = z.object({
-  peer_id: MachineId,
-  fleet_id: z.string().uuid(),
-  grant_id: z.string().uuid(),
-  route: FleetActionInput.shape.route,
-  payload_digest: z.string().regex(/^[a-f0-9]{64}$/),
-  state: FleetActionReceipt.shape.state,
-  result: z.string().nullable(),
-});
 const unknown = (commandId: string): Receipt => ({
   commandId,
   state: "unknown",
@@ -52,13 +45,15 @@ export class FleetPeerActions {
   private readonly sending = new Set<string>();
   private readonly unobserve: () => void;
   private stopped = false;
+  private readonly journal: FleetForwardedCommands;
   constructor(
-    private readonly db: Database.Database,
+    db: Database.Database,
     private readonly authority: FleetAuthority,
     private readonly leases: FleetCredentialLeases,
     private readonly owner: string,
     private readonly transport: FleetWorkspaceActionTransport,
   ) {
+    this.journal = new FleetForwardedCommands(db, owner);
     this.unobserve = authority.observe(owner, () => {
       for (const controller of this.pending.keys()) controller.abort();
     });
@@ -87,97 +82,6 @@ export class FleetPeerActions {
       head: directoryDigest(document),
       fleetId: document.fleetId,
     };
-  }
-  private stored(commandId: string) {
-    const row = this.db
-      .prepare(
-        "SELECT * FROM fleet_forwarded_actions WHERE owner_id=? AND command_id=?",
-      )
-      .get(this.owner, commandId);
-    return row ? Stored.parse(row) : undefined;
-  }
-  private match(
-    row: z.infer<typeof Stored>,
-    target: ReturnType<FleetPeerActions["target"]>,
-    input: FleetActionReference,
-    digest: string,
-  ) {
-    if (
-      row.peer_id !== target.member.machineId ||
-      row.fleet_id !== target.fleetId ||
-      row.grant_id !== target.member.grantId ||
-      row.route !== input.route ||
-      row.payload_digest !== digest
-    )
-      throw new Problem(
-        409,
-        "This command belongs to another destination, grant or action. Keep its original receipt.",
-      );
-  }
-  private claim(
-    commandId: string,
-    target: ReturnType<FleetPeerActions["target"]>,
-    input: FleetActionReference,
-    digest: string,
-  ) {
-    return this.db
-      .transaction(() => {
-        const prior = this.stored(commandId);
-        if (prior) {
-          this.match(prior, target, input, digest);
-          return false;
-        }
-        const now = Date.now();
-        this.db
-          .prepare(
-            "INSERT INTO fleet_forwarded_actions VALUES(?,?,?,?,?,?,?,'unknown',NULL,?,?)",
-          )
-          .run(
-            this.owner,
-            commandId,
-            target.member.machineId,
-            target.fleetId,
-            target.member.grantId,
-            input.route,
-            digest,
-            now,
-            now,
-          );
-        return true;
-      })
-      .immediate();
-  }
-  private view(commandId: string, row: z.infer<typeof Stored>): Receipt {
-    return {
-      commandId,
-      state: row.state,
-      result:
-        row.result === null
-          ? null
-          : fleetActionRoutes[row.route].response.parse(JSON.parse(row.result)),
-    };
-  }
-  private save(commandId: string, receipt: Receipt) {
-    const json =
-      receipt.result === null ? null : JSON.stringify(receipt.result);
-    const result =
-      json !== null && Buffer.byteLength(json) <= 64 * 1024 ? json : null;
-    this.db
-      .transaction(() => {
-        // A delayed pending reply cannot downgrade an already final receipt.
-        this.db
-          .prepare(
-            "UPDATE fleet_forwarded_actions SET state=?,result=?,updated_at=? WHERE owner_id=? AND command_id=? AND state IN ('unknown','started')",
-          )
-          .run(receipt.state, result, Date.now(), this.owner, commandId);
-        this.db
-          .prepare(
-            `UPDATE fleet_forwarded_actions SET result=NULL WHERE owner_id=? AND result IS NOT NULL AND rowid NOT IN (SELECT rowid FROM fleet_forwarded_actions WHERE owner_id=? AND result IS NOT NULL ORDER BY updated_at DESC,rowid DESC LIMIT 64)`,
-          )
-          .run(this.owner, this.owner);
-      })
-      .immediate();
-    return this.view(commandId, this.stored(commandId)!);
   }
   private verify(
     reply: unknown,
@@ -341,14 +245,14 @@ export class FleetPeerActions {
       receiptOnly = !input;
     current();
     const target = this.target(peer),
-      prior = this.stored(commandId);
-    if (prior) this.match(prior, target, value, digest);
+      prior = this.journal.stored(commandId);
+    if (prior) this.journal.match(prior, target, value, digest);
     if (prior && ["completed", "refused"].includes(prior.state))
-      return this.view(commandId, prior);
+      return this.journal.view(commandId, prior);
     // Reserve the first attempt before asynchronous preparation: a concurrent
     // lookup must not consume its right to send. A lookup on a fresh gateway
     // reserves uncertainty instead, so a later action cannot replay that intent.
-    const first = this.claim(commandId, target, value, digest);
+    const first = this.journal.claim(commandId, target, value, digest);
     const query = receiptOnly || !first;
     // A local lookup must not retire an ID whose original send is still active.
     if (this.sending.has(commandId)) return unknown(commandId);
@@ -434,7 +338,7 @@ export class FleetPeerActions {
             })
           : undefined,
       );
-      const saved = this.save(commandId, receipt);
+      const saved = this.journal.save(commandId, receipt);
       live();
       return saved;
     } catch (error) {

@@ -1,6 +1,8 @@
 import { callRoute, routeUrl } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import { useSourceId } from "./SourceContext";
+import { useSourceId, useSourceCapabilities } from "./SourceContext";
+import { fleetOperationReason } from "./fleetCapabilities";
+import type { Capabilities } from "../shared/capabilities";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Paperclip, File, X, Plus, Camera, Image } from "lucide-react";
 import { Sheet } from "./components";
@@ -108,6 +110,7 @@ export function UploadButton({
   folderId,
   agentId,
   sourceId: requestedSource,
+  capabilities: requestedCapabilities,
   disabled,
   remaining,
   label = "Attach files",
@@ -118,6 +121,7 @@ export function UploadButton({
   folderId?: string | null;
   agentId?: string | null;
   sourceId?: string;
+  capabilities?: Capabilities;
   disabled?: boolean;
   remaining?: number;
   label?: string;
@@ -125,7 +129,16 @@ export function UploadButton({
 }) {
   const scopedSource = useSourceId();
   const sourceId = requestedSource ?? scopedSource;
+  const scopedCapabilities = useSourceCapabilities();
+  const reason = fleetOperationReason(
+    sourceId,
+    requestedCapabilities ?? scopedCapabilities,
+    workspaceApi.uploadCreate,
+  );
+  const blocked = disabled || !!reason;
+  const generation = viewGeneration();
   const destination = JSON.stringify([
+    generation,
     sourceId,
     agentId ?? null,
     folderId ?? null,
@@ -172,7 +185,7 @@ export function UploadButton({
   async function upload(element: HTMLInputElement) {
     const files = [...(element.files || [])];
     element.value = "";
-    if (locked.current || !files.length) return;
+    if (locked.current || !files.length || blocked) return;
     setOpen(false);
     if (remaining !== undefined && files.length > remaining) {
       setError(`Attach up to ${MAX_MESSAGE_FILES} files per message.`);
@@ -207,7 +220,8 @@ export function UploadButton({
     try {
       for (const original of files) {
         const file = await prepareImage(original);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || viewGeneration() !== generation)
+          return;
         if (file.size > MAX_UPLOAD_BYTES)
           throw new Error("Files can be up to 25 MB each.");
         let result: RouteResponse<typeof workspaceApi.uploadCreate>;
@@ -243,12 +257,17 @@ export function UploadButton({
           mounted.current &&
           pending.current === task &&
           destinationRef.current === destination &&
+          viewGeneration() === generation &&
           !controller.signal.aborted
         )
           onUploaded(result);
       }
     } catch (error) {
-      if (mounted.current && pending.current === task)
+      if (
+        mounted.current &&
+        pending.current === task &&
+        viewGeneration() === generation
+      )
         setError((error as Error).message);
     } finally {
       task.finish();
@@ -262,7 +281,7 @@ export function UploadButton({
         multiple
         hidden
         aria-label={label}
-        disabled={busy || disabled}
+        disabled={busy || blocked}
         onChange={(event) => void upload(event.currentTarget)}
       />
       {sourceMenu && (
@@ -274,7 +293,7 @@ export function UploadButton({
             multiple
             hidden
             aria-label="Choose photos"
-            disabled={busy || disabled}
+            disabled={busy || blocked}
             onChange={(event) => void upload(event.currentTarget)}
           />
           <input
@@ -284,7 +303,7 @@ export function UploadButton({
             capture="environment"
             hidden
             aria-label="Take a photo"
-            disabled={busy || disabled}
+            disabled={busy || blocked}
             onChange={(event) => void upload(event.currentTarget)}
           />
         </>
@@ -297,7 +316,8 @@ export function UploadButton({
         }
         aria-haspopup={sourceMenu ? "dialog" : undefined}
         aria-expanded={sourceMenu ? open : undefined}
-        disabled={busy || disabled || remaining === 0}
+        disabled={busy || blocked || remaining === 0}
+        title={reason}
         onPointerDown={(event) => {
           // Keep the focused prompt (and keyboard layout) until the click is
           // delivered. Blurring on pointerdown can move this button away from
@@ -339,6 +359,11 @@ export function UploadButton({
             </button>
           </div>
         </Sheet>
+      )}
+      {reason && (
+        <p className="field-hint" role="status">
+          {reason}
+        </p>
       )}
       {error && (
         <p role="alert" className="error upload-error">

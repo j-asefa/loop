@@ -177,10 +177,14 @@ handlers finish, even after HTTP timeouts; expired middleware cannot start a
 handler. Commands deduplicate before admission, in-flight duplicates share their
 operation, and receipts remain readable during unrelated work. Rejection
 invalidates only the credential used. Verified directory changes trigger bounded
-history reconciliation without replaying the read. Startup and source discovery
-leave these hooks unmounted until source-control integration is complete.
+history reconciliation without replaying the read. Companion startup mounts these services through
+[FleetWorkspaceServices](../src/server/fleet-workspace-services.ts) for its local
+owner. The same lifecycle mounts named actions, files, uploads and device-only
+receipt reconciliation, and closes pending services before stopping the gateway.
+Constructing a companion installs no peer grant and starts no workspace polling.
+Server profiles and isolated previews do not mount these services.
 
-The optional peer source adapter projects the verified catalog into source
+The enrolled peer source adapter projects the verified catalog into source
 capabilities. Browser controls never inherit another machine's permissions.
 A peer deep link keeps that source selected when it is unavailable and establishes
 its device session at the serving gateway. Typed and remaining legacy mutation
@@ -197,7 +201,8 @@ Their payload digest binds the parsed wire input before handler defaults and
 inner idempotency keys are supplied, so receipt queries use the same payload.
 A process exiting after dispatch leaves an uncertain receipt; reading or retrying
 it never submits the effect again. Directory/grant checks precede dispatch, and
-the owning native handler still enforces decision generations.
+the owning native handler still enforces decision generations. Named peer
+agent-action HTTP endpoints execute those same owning handlers.
 
 The browser commits its origin/owner command journal in IndexedDB transactions.
 It retains operation identities and semantic/payload digests, with no raw prompts,
@@ -333,7 +338,7 @@ Application discovery, health, build identity, diagnostic runs and HTTP event po
 
 An agent belongs to one owner on one Loop API source and has a connection that selects its execution environment. The paired client reads each available source's owner-scoped agent, run and Feed projections and merges the Feed by activity time. Source IDs qualify agent, conversation and run identities in the client; source-scoped writes go only to the owning API. A late response from a prior signed-in owner is discarded. Project and team filters remain scoped to their source. The source's database, credentials and dispatch identities are never copied to the companion host. Opening a conversation on another source keeps the Feed mounted. The thread binds its reads, controls, uploads and file links to that source; the shell retains its original source. Drafts and pending send receipts include the owner, source and conversation, and late responses cannot overwrite the newly opened thread. Source failures appear in the thread with a retry action.
 
-[agent-sources.ts](../src/agent-sources.ts) maps opaque source IDs to adapters. Its current Docker adapter discovers only local loopback-published single-user Loop containers and forwards paired requests once. Unknown IDs cannot nominate a network destination. [MCP Docker sharing](../src/mcp-docker-sharing.ts) separately enrolls a discovered source after an explicit paired-device action. Source-owned tools are exposed through a token-scoped MCP endpoint or a reverse queue polled by the laptop; no companion API is bound beyond loopback for sharing. The calling broker applies its owner's approval preference; the owning source rechecks its tool catalog and schema. Both sides persist call identities and uncertain outcomes rather than replaying effects. Other Loop hosts need an adapter with secure discovery/enrollment and owner authorization; remote runtime hosts connected to a Loop source are accessed through that source. The client uses the same source-keyed Feed and **Run on** form regardless of adapter kind.
+[agent-sources.ts](../src/agent-sources.ts) maps opaque source IDs to adapters. Its current Docker adapter discovers only local loopback-published single-user Loop containers and forwards paired requests once. Unknown IDs cannot nominate a network destination. [MCP Docker sharing](../src/mcp-docker-sharing.ts) separately enrolls a discovered source after an explicit paired-device action. Source-owned tools are exposed through a token-scoped MCP endpoint or a reverse queue polled by the laptop; no companion API is bound beyond loopback for sharing. The calling broker applies its owner's approval preference; the owning source rechecks its tool catalog and schema. Both sides persist call identities and uncertain outcomes rather than replaying effects. Enrolled companions use the owner-bound peer adapter and remain visible during an outage; independently enrolled Docker companions are excluded from Docker server discovery to prevent duplicate sources. Remote runtime hosts connected to a Loop source are accessed through that source. The client uses the same source-keyed Feed and **Run on** form regardless of adapter kind.
 
 API connections use Loop's model loop. Native connections dispatch through native adapters, and server subscription connections through their configured runtime. Native context belongs to its harness; Loop persists the display projection, dispatch identity, approvals and tool receipts. Codex, Claude Code, Pi and Muse Code support live input; OpenCode, Antigravity, legacy Gemini CLI, Grok Build and ACP queue follow-ups. Each native conversation has an independent session and serialized turns.
 

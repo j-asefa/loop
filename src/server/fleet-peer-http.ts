@@ -7,6 +7,8 @@ import type { FleetWorkspaceRead } from "./fleet-workspace-read.js";
 import type { FleetWorkspaceActions } from "./fleet-workspace-actions.js";
 import type { FleetWorkspaceFiles } from "./fleet-workspace-files.js";
 import { fleetWorkspaceFileApi } from "../shared/fleet-workspace-file-api.js";
+import type { FleetWorkspaceUploads } from "./fleet-workspace-uploads.js";
+import { fleetWorkspaceUploadApi } from "../shared/fleet-workspace-upload-api.js";
 import { fleetPeerApi } from "../shared/fleet-peer-api.js";
 import { fleetHandoffApi } from "../shared/fleet-handoff-api.js";
 import { fleetDirectoryApi } from "../shared/fleet-directory-api.js";
@@ -33,6 +35,7 @@ export function createFleetPeerHttp(
     workspaceRead?: FleetWorkspaceRead;
     workspaceActions?: FleetWorkspaceActions;
     workspaceFiles?: FleetWorkspaceFiles;
+    workspaceUploads?: FleetWorkspaceUploads;
   } = {},
 ) {
   const paths = new Set(
@@ -43,6 +46,9 @@ export function createFleetPeerHttp(
         ? Object.values(fleetWorkspaceActionApi)
         : []),
       ...(options.workspaceFiles ? Object.values(fleetWorkspaceFileApi) : []),
+      ...(options.workspaceUploads
+        ? Object.values(fleetWorkspaceUploadApi)
+        : []),
       ...(options.handoff ? Object.values(fleetHandoffApi) : []),
       ...(options.directory ? Object.values(fleetDirectoryApi) : []),
       ...(options.credentials ? Object.values(fleetCredentialApi) : []),
@@ -208,6 +214,30 @@ export function createFleetPeerHttp(
     );
     routes.on(fleetWorkspaceFileApi.close, ({ body }, res) =>
       res.json(files.release(body)),
+    );
+  }
+  if (options.workspaceUploads) {
+    const uploads = options.workspaceUploads;
+    routes.on(fleetWorkspaceUploadApi.prepare, ({ body }, res) => {
+      const controller = new AbortController();
+      const close = () => {
+        if (!res.writableFinished) controller.abort();
+      };
+      res.once("close", close);
+      res.once("finish", () => res.off("close", close));
+      res.json(uploads.prepare(body, controller.signal));
+    });
+    routes.on(fleetWorkspaceUploadApi.chunk, ({ body }, res) =>
+      res.json(uploads.chunk(body)),
+    );
+    routes.on(fleetWorkspaceUploadApi.close, ({ body }, res) =>
+      res.json(uploads.release(body)),
+    );
+    routes.on(fleetWorkspaceUploadApi.commit, async ({ body }, res) =>
+      res.json(await uploads.commit(body)),
+    );
+    routes.on(fleetWorkspaceUploadApi.receipt, ({ body }, res) =>
+      res.json(uploads.receipt(body)),
     );
   }
   app.use(routes.mount);

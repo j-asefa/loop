@@ -45,6 +45,10 @@ import { FleetEnrollmentSource } from "./server/fleet-enrollment-source.js";
 import { FleetEnrollmentHttpTransport } from "./server/fleet-enrollment-http.js";
 import { FleetLocalAdmin } from "./server/fleet-local-admin.js";
 import { createFleetAdminHttp } from "./server/fleet-admin-http.js";
+import { FleetWorkspaceServices } from "./server/fleet-workspace-services.js";
+import { createFleetCommandsHttp } from "./server/fleet-commands-http.js";
+import { AgentSources, dockerSourceAdapter } from "./agent-sources.js";
+import { uploadFile } from "./server/uploads.js";
 import { seal, unseal } from "./server/secrets.js";
 
 // Identifies the browser assets this launch serves. A reconnecting page
@@ -69,6 +73,7 @@ export class WorkspaceHost {
   readonly fleetReconcile?: FleetDirectoryReconcile;
   readonly fleetCredentials?: FleetCredentials;
   readonly fleetLeases?: FleetCredentialLeases;
+  readonly fleetWorkspace?: FleetWorkspaceServices;
   private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
@@ -174,15 +179,43 @@ export class WorkspaceHost {
         undefined,
         { reconcile: this.fleetReconcile },
       );
+    if (this.fleet && this.fleetCredentials && this.fleetLeases)
+      this.fleetWorkspace = new FleetWorkspaceServices(
+        db,
+        this.fleet,
+        this.fleetCredentials,
+        this.fleetLeases,
+        OWNER,
+        { seal, unseal },
+        app,
+        uploadFile,
+      );
     this.gateway.workspace = {
       isolated: !!preview,
       http: app,
+      sources: this.fleetWorkspace
+        ? new AgentSources([dockerSourceAdapter, this.fleetWorkspace.source])
+        : undefined,
+      fleetCommandsHttp:
+        this.fleetWorkspace && this.pairing
+          ? createFleetCommandsHttp(
+              this.pairing,
+              this.fleetWorkspace.actions,
+              this.fleetWorkspace.workspaceActions,
+              this.fleetWorkspace.uploads,
+              this.fleetWorkspace.workspaceUploads,
+            )
+          : undefined,
       fleetAdminHttp: this.fleetAdmin
         ? createFleetAdminHttp(this.fleetAdmin)
         : undefined,
       peerHttp: this.enrollment
         ? createFleetPeerHttp(this.enrollment, () => this.gateway.origin, {
             credentials: this.fleetCredentials,
+            workspaceRead: this.fleetWorkspace?.workspaceRead,
+            workspaceActions: this.fleetWorkspace?.workspaceActions,
+            workspaceFiles: this.fleetWorkspace?.workspaceFiles,
+            workspaceUploads: this.fleetWorkspace?.workspaceUploads,
             pendingDirectory: new FleetPendingDirectory(
               db,
               this.fleet!,
@@ -338,6 +371,7 @@ export class WorkspaceHost {
   async close() {
     this.closing = true;
     this.fleetDistribution?.close();
+    this.fleetWorkspace?.close();
     this.fleetLeases?.close();
     this.fleetReconcile?.close();
     this.stopObservation?.();

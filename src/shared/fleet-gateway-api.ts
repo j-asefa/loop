@@ -1,9 +1,7 @@
 import { z } from "zod";
 import { MachineId } from "./fleet.js";
-import {
-  FleetActionReceipt,
-  FleetActionReference,
-} from "./fleet-workspace-action-api.js";
+import { FleetActionReceipt } from "./fleet-workspace-action-api.js";
+import { FleetCommandReference } from "./fleet-command-api.js";
 import type { FleetRouteContract } from "./workspace-api.js";
 
 /** The local device checks an existing command, without its original body.
@@ -15,7 +13,7 @@ export const fleetGatewayApi = {
     access: "device:fleet",
     params: z.strictObject({}),
     query: z.strictObject({}),
-    body: FleetActionReference.extend({
+    body: FleetCommandReference.extend({
       peer: MachineId,
       commandId: z.string().uuid(),
     }),

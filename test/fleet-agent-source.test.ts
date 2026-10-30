@@ -19,6 +19,12 @@ import { FleetWorkspaceActions } from "../src/server/fleet-workspace-actions.js"
 import { FleetWorkspaceApp } from "../src/server/fleet-workspace-app.js";
 import { FleetWorkspaceFiles } from "../src/server/fleet-workspace-files.js";
 import { FleetPeerFiles } from "../src/server/fleet-peer-files.js";
+import { FleetWorkspaceUploads } from "../src/server/fleet-workspace-uploads.js";
+import { FleetPeerUploads } from "../src/server/fleet-peer-uploads.js";
+import {
+  FleetUploadInput,
+  fleetWorkspaceUploadApi,
+} from "../src/shared/fleet-workspace-upload-api.js";
 import { FleetProof } from "../src/server/fleet-proof.js";
 import {
   fleetWorkspaceFileApi,
@@ -58,6 +64,8 @@ const { FleetWorkspaceActionHttpTransport } =
   await import("../src/server/fleet-workspace-action-http.js");
 const { FleetWorkspaceFileHttpTransport } =
   await import("../src/server/fleet-workspace-file-http.js");
+const { FleetWorkspaceUploadHttpTransport } =
+  await import("../src/server/fleet-workspace-upload-http.js");
 const { app } = await import("../src/server/index.js");
 const { db } = await import("../src/server/db.js");
 const { OWNER, nativeSessions } =
@@ -118,7 +126,7 @@ const reads = new FleetWorkspaceRead(
   OWNER,
   bridge,
   secrets,
-  { actions: () => Object.keys(fleetActionRoutes), files: true },
+  { actions: () => Object.keys(fleetActionRoutes), files: true, uploads: true },
 );
 let fileClockOffset = 0;
 const files = new FleetWorkspaceFiles(
@@ -131,6 +139,15 @@ const files = new FleetWorkspaceFiles(
   () => performance.now() + fileClockOffset,
 );
 const fileProof = new FleetProof(db, destination.identity, secrets);
+const uploads = new FleetWorkspaceUploads(
+  db,
+  destination,
+  credentials,
+  OWNER,
+  secrets,
+  uploadFile,
+  () => performance.now() + fileClockOffset,
+);
 const initial = {
   harness: "codex" as const,
   version: "fixture",
@@ -167,6 +184,7 @@ host.workspace = {
       workspaceActions: actions,
       workspaceRead: reads,
       workspaceFiles: files,
+      workspaceUploads: uploads,
       credentials,
     },
   ),
@@ -233,10 +251,16 @@ let fileFault:
   | "capability"
   | "probe"
   | "next-probe"
+  | "upload-withdrawn"
   | undefined;
 const fileCalls: { path: string; offset?: number }[] = [];
 let holdChunk: Promise<void> | undefined,
   chunkStarted = false;
+let loseUploadReply = false,
+  uploadCommits = 0,
+  corruptUploadChunk = false;
+let holdUploadChunk: Promise<void> | undefined,
+  uploadChunkStarted = false;
 const fetcher: typeof undiciFetch = async (input, init) => {
   const url = new URL(String(input));
   expect(url.origin).toBe(origin);
@@ -262,6 +286,13 @@ const fetcher: typeof undiciFetch = async (input, init) => {
     chunkStarted = true;
     await holdChunk;
   }
+  if (
+    url.pathname === "/api" + fleetWorkspaceUploadApi.chunk.path &&
+    holdUploadChunk
+  ) {
+    uploadChunkStarted = true;
+    await holdUploadChunk;
+  }
   const response = await http(
     host.port,
     origin,
@@ -273,10 +304,28 @@ const fetcher: typeof undiciFetch = async (input, init) => {
   );
   if (action && loseReply)
     throw new TypeError("Fixture response lost after acceptance");
+  if (url.pathname === "/api" + fleetWorkspaceUploadApi.commit.path) {
+    uploadCommits++;
+    if (loseUploadReply)
+      throw new TypeError("Fixture upload reply lost after commit");
+  }
   if (response.status === 200) {
     const body = response.body;
+    if (
+      corruptUploadChunk &&
+      url.pathname === "/api" + fleetWorkspaceUploadApi.chunk.path
+    ) {
+      body.response.nextOffset++;
+      body.signature = fileProof.sign("workspace-upload-chunk", body.response);
+    }
     if (fileFault === "probe" && body.probe)
       body.signature = "a".repeat(85) + "A";
+    if (fileFault === "upload-withdrawn" && body.catalog) {
+      body.catalog.actions = body.catalog.actions.filter(
+        (action: string) => action !== "uploadCreate",
+      );
+      body.signature = fileProof.sign("workspace-catalog", body.catalog);
+    }
     if (fileFault === "capability" && body.catalog) {
       body.catalog.files = false;
       body.signature = fileProof.sign("workspace-catalog", body.catalog);
@@ -331,6 +380,13 @@ const peerFiles = new FleetPeerFiles(
   owner,
   new FleetWorkspaceFileHttpTransport(fetcher),
 );
+const peerUploads = new FleetPeerUploads(
+  sourceDb,
+  source,
+  leases,
+  owner,
+  new FleetWorkspaceUploadHttpTransport(fetcher),
+);
 const destinationLeases = new FleetCredentialLeases(
   destination,
   credentials,
@@ -348,6 +404,8 @@ host.workspace.fleetCommandsHttp = createFleetCommandsHttp(
   destinationPairing,
   destinationPeerActions,
   actions,
+  undefined,
+  uploads,
 );
 const sourceAdapter = fleetAgentSource(
   source,
@@ -355,6 +413,7 @@ const sourceAdapter = fleetAgentSource(
   peerReads,
   peerActions,
   peerFiles,
+  peerUploads,
 );
 const sourcePairing = new FleetPairing(
   sourceDb,
@@ -365,7 +424,12 @@ const sourcePairing = new FleetPairing(
 const gateway = new Host(join(root, "gateway"), initial, sourcePairing);
 let localCalls = 0;
 gateway.workspace = {
-  fleetCommandsHttp: createFleetCommandsHttp(sourcePairing, peerActions),
+  fleetCommandsHttp: createFleetCommandsHttp(
+    sourcePairing,
+    peerActions,
+    undefined,
+    peerUploads,
+  ),
   sources: new AgentSources([sourceAdapter]),
   http: (_req, res) => {
     localCalls++;
@@ -457,6 +521,73 @@ const fileSelection = (id: string) => ({
   params: { id },
   query: {},
 });
+const uploadManifest = (bytes: Buffer) =>
+  FleetUploadInput.parse({
+    route: "uploadCreate",
+    params: {},
+    body: {
+      options: {},
+      file: {
+        name: "résumé.txt",
+        mime: "text/plain",
+        size: bytes.length,
+        checksum: createHash("sha256").update(bytes).digest("hex"),
+      },
+    },
+  });
+async function browserUpload(
+  input: FleetUploadInput,
+  bytes: Buffer | undefined,
+  id: string,
+  extra: Record<string, string> = {},
+): Promise<Reply> {
+  const form = new FormData();
+  form.set("manifest", JSON.stringify(input));
+  if (bytes) form.set("file", new Blob([new Uint8Array(bytes)]), "upload");
+  const encoded = new Request("http://fixture.invalid", {
+    method: "POST",
+    body: form,
+  });
+  const body = Buffer.from(await encoded.arrayBuffer());
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        hostname: "127.0.0.1",
+        port: gateway.port,
+        path: prefix + "/uploads",
+        method: "POST",
+        headers: {
+          host: new URL(gatewayOrigin).host,
+          cookie,
+          origin: gatewayOrigin,
+          "x-loop-csrf": csrf,
+          "x-loop-command-id": id,
+          "content-type": encoded.headers.get("content-type")!,
+          "content-length": String(body.length),
+          ...extra,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("error", reject);
+        res.on("end", () => {
+          try {
+            resolve({
+              status: res.statusCode!,
+              headers: res.headers,
+              body: JSON.parse(Buffer.concat(chunks).toString()),
+            });
+          } catch (error) {
+            reject(error);
+          }
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end(body);
+  });
+}
 const object = (
   bytes: Buffer,
   mime = "application/octet-stream",
@@ -481,6 +612,8 @@ beforeAll(async () => {
   await pair();
 });
 afterAll(async () => {
+  peerUploads.close();
+  uploads.close();
   peerFiles.close();
   files.close();
   destinationPeerActions.close();
@@ -522,7 +655,7 @@ it("discovers only this Host's enrolled peers without contact and projects their
       machineId: peer,
       events: false,
       files: true,
-      actions: Object.keys(fleetActionRoutes),
+      actions: [...Object.keys(fleetActionRoutes), "uploadCreate"],
     },
   });
   expect(capabilities.body.fleet.reads).toContain("agentSuggestName");
@@ -1523,6 +1656,313 @@ it("sign-out aborts a receipt lookup before its result is exposed", async () => 
     await pair();
   }
 });
+
+it("a concurrent upload lookup cannot consume the first sender's preparation", async () => {
+  const bytes = Buffer.from("Concurrent upload receipt"),
+    input = uploadManifest(bytes),
+    id = randomUUID();
+  const probes = probeCalls,
+    commits = uploadCommits;
+  let release!: () => void;
+  holdProbe = new Promise((resolve) => {
+    release = resolve;
+  });
+  const original = browserUpload(input, bytes, id);
+  try {
+    await until(() => probeCalls > probes);
+    const lookup = browserUpload(input, undefined, id, {
+      "x-loop-receipt-only": "1",
+    });
+    expect((await lookup).headers["x-loop-command-state"]).toBe("unknown");
+    expect(probeCalls).toBe(probes + 1);
+    holdProbe = undefined;
+    release();
+    const [result] = await Promise.all([original, lookup]);
+    expect(result.status).toBe(201);
+    expect(uploadCommits).toBe(commits + 1);
+    expect(
+      (
+        await browserUpload(input, undefined, id, {
+          "x-loop-receipt-only": "1",
+        })
+      ).body,
+    ).toEqual(result.body);
+    expect(uploadCommits).toBe(commits + 1);
+  } finally {
+    holdProbe = undefined;
+    release();
+    await original.catch(() => {});
+  }
+});
+
+it("a failed upload preparation stays uncertain until destination reconciliation", async () => {
+  const bytes = Buffer.from("Refused upload"),
+    input = uploadManifest(bytes),
+    id = randomUUID();
+  const commits = uploadCommits,
+    calls = fileCalls.length;
+  fileFault = "probe";
+  try {
+    const result = await browserUpload(input, bytes, id);
+    expect(result.status).toBe(503);
+    expect(result.headers["x-loop-command-state"]).toBe("unknown");
+  } finally {
+    fileFault = undefined;
+  }
+  expect(uploadCommits).toBe(commits);
+  expect(
+    fileCalls
+      .slice(calls)
+      .filter((value) => /\/upload\/(prepare|chunk|commit)$/.test(value.path)),
+  ).toEqual([]);
+  expect(
+    (await browserUpload(input, undefined, id, { "x-loop-receipt-only": "1" }))
+      .headers["x-loop-command-state"],
+  ).toBe("refused");
+  expect((await browserUpload(input, bytes, randomUUID())).status).toBe(201);
+  expect(uploadCommits).toBe(commits + 1);
+});
+
+it("recovers a lost upload commit after uploads are withdrawn from the catalog without resending bytes", async () => {
+  const bytes = Buffer.from("Source upload fixture"),
+    input = uploadManifest(bytes),
+    id = randomUUID(),
+    before = uploadCommits;
+  loseUploadReply = true;
+  const unknown = await browserUpload(input, bytes, id);
+  loseUploadReply = false;
+  expect(unknown.status).toBe(503);
+  expect(unknown.body.executionOutcome).toBe("unknown");
+  expect(uploadCommits).toBe(before + 1);
+  expect(
+    sourceDb
+      .prepare(
+        "SELECT route,payload_digest,state FROM fleet_forwarded_actions WHERE owner_id=? AND command_id=?",
+      )
+      .get(owner, id),
+  ).toMatchObject({
+    route: "uploadCreate",
+    payload_digest: fleetPayloadDigest(input),
+    state: "unknown",
+  });
+  const calls = fileCalls.length;
+  fileFault = "upload-withdrawn";
+  let recovered: Reply;
+  try {
+    recovered = await browserUpload(input, undefined, id, {
+      "x-loop-receipt-only": "1",
+    });
+  } finally {
+    fileFault = undefined;
+  }
+  expect(recovered.status).toBe(201);
+  expect(recovered.body).toMatchObject({
+    name: "résumé.txt",
+    mime: "text/plain",
+    size: bytes.length,
+  });
+  expect(recovered.headers["x-loop-command-state"]).toBe("completed");
+  const object = db
+    .prepare("SELECT bytes,owner_id FROM objects WHERE id=?")
+    .get(recovered.body.objectId) as { bytes: Buffer; owner_id: string };
+  expect(object.owner_id).toBe(OWNER);
+  expect(object.bytes.equals(bytes)).toBe(true);
+  expect(
+    fileCalls
+      .slice(calls)
+      .filter((value) => /\/upload\/(prepare|chunk|commit)$/.test(value.path)),
+  ).toEqual([]);
+  expect(uploadCommits).toBe(before + 1);
+  expect(localCalls).toBe(0);
+});
+
+it("checks an upload receipt without its body and shares command identity with JSON actions", async () => {
+  const bytes = Buffer.from("Bodyless upload receipt"),
+    input = uploadManifest(bytes),
+    id = randomUUID();
+  const result = await browserUpload(input, bytes, id);
+  expect(result.status).toBe(201);
+  const calls = fileCalls.length;
+  const receipt = await browser("/api/fleet/commands/receipt", "POST", {
+    peer,
+    commandId: id,
+    route: "uploadCreate",
+    payloadDigest: fleetPayloadDigest(input),
+  });
+  expect(receipt.status).toBe(200);
+  expect(receipt.body).toMatchObject({
+    commandId: id,
+    state: "completed",
+    result: result.body,
+  });
+  expect(fileCalls.length).toBe(calls);
+  const before = actionCalls;
+  expect(
+    (
+      await browser(prefix + "/agents", "POST", createBody(), {
+        "x-loop-command-id": id,
+      })
+    ).status,
+  ).toBe(409);
+  expect(actionCalls).toBe(before);
+  expect(
+    (
+      await browserUpload(
+        uploadManifest(Buffer.from("changed")),
+        Buffer.from("changed"),
+        id,
+      )
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await browserUpload(input, bytes, randomUUID(), {
+        origin: "https://foreign.example",
+      })
+    ).status,
+  ).toBe(403);
+  expect((await browserUpload(input, bytes, "not-a-command")).status).toBe(400);
+});
+
+it("does not commit a malformed signed upload acknowledgement or replay the uncertain upload", async () => {
+  const bytes = Buffer.from("Uncertain upload acknowledgement"),
+    input = uploadManifest(bytes),
+    id = randomUUID(),
+    before = uploadCommits;
+  corruptUploadChunk = true;
+  try {
+    const response = await browserUpload(input, bytes, id);
+    expect(response.status).toBe(503);
+    expect(response.body.executionOutcome).toBe("unknown");
+  } finally {
+    corruptUploadChunk = false;
+  }
+  expect(uploadCommits).toBe(before);
+  const calls = fileCalls.length;
+  const missing = await browserUpload(input, undefined, id, {
+    "x-loop-receipt-only": "1",
+  });
+  expect(missing.status).toBe(409);
+  expect(missing.body.executionOutcome).toBe("refused");
+  expect(
+    fileCalls
+      .slice(calls)
+      .filter((value) => /\/upload\/(prepare|chunk|commit)$/.test(value.path)),
+  ).toEqual([]);
+  expect(uploadCommits).toBe(before);
+});
+
+it("sign-out prevents a staged commit and the destination later retires its ID", async () => {
+  const bytes = Buffer.from("held upload"),
+    input = uploadManifest(bytes),
+    id = randomUUID(),
+    before = uploadCommits;
+  let release!: () => void;
+  holdUploadChunk = new Promise((resolve) => {
+    release = resolve;
+  });
+  uploadChunkStarted = false;
+  const pending = browserUpload(input, bytes, id).catch((error) => error);
+  try {
+    await until(() => uploadChunkStarted);
+    expect((await browser("/api/auth/sign-out", "POST", {})).status).toBe(200);
+    expect(await pending).toBeInstanceOf(Error);
+    expect(uploadCommits).toBe(before);
+  } finally {
+    holdUploadChunk = undefined;
+    release();
+    await pair();
+  }
+  await expect
+    .poll(
+      async () =>
+        (
+          await browser("/api/fleet/commands/receipt", "POST", {
+            peer,
+            commandId: id,
+            route: "uploadCreate",
+            payloadDigest: fleetPayloadDigest(input),
+          })
+        ).body,
+    )
+    .toEqual({ commandId: id, state: "refused", result: null });
+  expect(uploadCommits).toBe(before);
+  expect((await browserUpload(input, bytes, randomUUID())).status).toBe(201);
+  expect(uploadCommits).toBe(before + 1);
+});
+
+it.each(["probe", "upload-withdrawn", "capacity"] as const)(
+  "a fresh upload forwarding journal preserves a completed receipt during %s",
+  async (failure) => {
+    const bytes = Buffer.from("Upload already committed"),
+      input = uploadManifest(bytes),
+      id = randomUUID();
+    const first = await browserUpload(input, bytes, id);
+    expect(first.status).toBe(201);
+    const commits = uploadCommits;
+    const journal = new Database(":memory:");
+    applyMigrations(journal);
+    const other = new FleetPeerUploads(
+      journal,
+      source,
+      leases,
+      owner,
+      new FleetWorkspaceUploadHttpTransport(fetcher),
+    );
+    const controllers: AbortController[] = [];
+    const occupied: Promise<unknown>[] = [];
+    let release: (() => void) | undefined;
+    try {
+      if (failure === "capacity") {
+        const probes = probeCalls;
+        holdProbe = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        for (let i = 0; i < 2; i++) {
+          const controller = new AbortController();
+          controllers.push(controller);
+          occupied.push(
+            other.upload(
+              peer,
+              randomUUID(),
+              input,
+              bytes,
+              () => {},
+              controller.signal,
+            ),
+          );
+        }
+        await until(() => probeCalls === probes + 2);
+      } else fileFault = failure;
+      expect(await other.upload(peer, id, input, bytes, () => {})).toEqual({
+        commandId: id,
+        state: "unknown",
+        result: null,
+      });
+      fileFault = undefined;
+      for (const controller of controllers) controller.abort();
+      await Promise.all(occupied);
+      holdProbe = undefined;
+      release?.();
+      expect(
+        await other.lookup(peer, id, fleetPayloadDigest(input), () => {}),
+      ).toEqual({
+        commandId: id,
+        state: "completed",
+        result: first.body,
+      });
+      expect(uploadCommits).toBe(commits);
+    } finally {
+      fileFault = undefined;
+      holdProbe = undefined;
+      for (const controller of controllers) controller.abort();
+      release?.();
+      await Promise.allSettled(occupied);
+      other.close();
+      journal.close();
+    }
+  },
+);
 
 it("keeps a completed command uncertain when its destination is removed before retry", async () => {
   const id = randomUUID(),

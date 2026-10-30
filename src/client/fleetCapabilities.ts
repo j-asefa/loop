@@ -4,7 +4,7 @@ import {
   fleetReadRoutes,
   isFleetReadContract,
 } from "../shared/fleet-workspace-api";
-import { fleetActionRoutes } from "../shared/fleet-workspace-action-api";
+import { fleetCommandRoutes } from "../shared/fleet-command-api";
 import { fleetFileRoutes } from "../shared/fleet-workspace-file-api";
 import { workspaceApi, type RouteContract } from "../shared/workspace-api";
 
@@ -71,7 +71,7 @@ export function fleetOperationReason(
       ? undefined
       : "This machine's files are unavailable through the fleet. Update or re-pair it with files access, or open its own workspace.";
   const read = isFleetReadContract(contract);
-  const collection = read ? fleetReadRoutes : fleetActionRoutes;
+  const collection = read ? fleetReadRoutes : fleetCommandRoutes;
   const name = Object.entries(collection).find(
     ([, item]) =>
       item.method === contract.method && item.path === contract.path,

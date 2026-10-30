@@ -15,6 +15,7 @@ import {
   Problem,
 } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
+import { assertFleetAction } from "./fleet-action-context.js";
 
 import type { ChatMessage } from "./providers.js";
 import {
@@ -30,6 +31,7 @@ export function uploadFile(
   file: { originalname: string; mimetype: string; buffer: Buffer },
   options: { folderId?: string; agentId?: string } = {},
 ): UploadedFile {
+  assertFleetAction(owner);
   if (file.buffer.length > MAX_UPLOAD_BYTES)
     throw new Problem(413, "Files can be up to 25 MB each");
   if (options.folderId) ownedFolder(options.folderId, owner);
@@ -57,6 +59,7 @@ export function uploadFile(
   };
   return db
     .transaction(() => {
+      assertFleetAction(owner);
       db.prepare("INSERT INTO objects VALUES(?,?,?,?,?,?)").run(
         objectId,
         owner,

@@ -1,9 +1,13 @@
 import { readFleetJournal, writeFleetJournal } from "./fleetCommandStorage";
 import { z } from "zod";
+import { FleetActionInput } from "../shared/fleet-workspace-action-api";
 import {
-  FleetActionInput,
-  fleetActionRoutes,
-} from "../shared/fleet-workspace-action-api";
+  FleetCommandRoute,
+  fleetCommandRoutes,
+} from "../shared/fleet-command-api";
+import { FleetUploadInput } from "../shared/fleet-workspace-upload-api";
+import { workspaceApi } from "../shared/workspace-api";
+import { MAX_UPLOAD_BYTES } from "../shared/uploads";
 import {
   fleetActionCommandPaths,
   fleetActionInput,
@@ -24,7 +28,7 @@ const Record = z.strictObject({
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
-  route: FleetActionInput.shape.route,
+  route: FleetCommandRoute,
 });
 const Journal = z.array(Record).max(256);
 const Transfer = z.strictObject({
@@ -100,7 +104,8 @@ function unavailable(message: string) {
     executionOutcome: "unknown" as const,
   });
 }
-function rebind(input: FleetActionInput, id: string) {
+function rebind(input: FleetActionInput | FleetUploadInput, id: string) {
+  if (input.route === "uploadCreate") return input;
   const value = structuredClone(input);
   for (const path of fleetActionCommandPaths(value)) {
     const body = value.body as { [key: string]: unknown };
@@ -120,11 +125,11 @@ function rebind(input: FleetActionInput, id: string) {
 export async function prepareFleetCommand(
   source: string,
   contract: RouteContract,
-  input: { params?: unknown; body?: unknown },
+  input: { params?: unknown; body?: unknown; file?: Blob; filename?: string },
   signal?: AbortSignal,
 ) {
   const { current, key, read } = journalScope(signal);
-  const route = Object.entries(fleetActionRoutes).find(
+  const route = Object.entries(fleetCommandRoutes).find(
     ([, item]) =>
       item.method === contract.method && item.path === contract.path,
   )?.[0];
@@ -135,13 +140,50 @@ export async function prepareFleetCommand(
       ),
       { status: 409, executionOutcome: "refused" },
     );
-  const raw = FleetActionInput.parse({
-    route,
-    params: input.params ?? {},
-    // Validate and hash the same optional-field representation sent as JSON.
-    body: JSON.parse(JSON.stringify(input.body ?? {})),
-  });
-  const supplied = fleetActionCommandPaths(raw)
+  let upload: FleetUploadInput | undefined;
+  if (route === "uploadCreate") {
+    if (!input.file || input.file.size > MAX_UPLOAD_BYTES)
+      throw Object.assign(new Error("Choose a file up to 25 MB."), {
+        status: 413,
+        executionOutcome: "refused",
+      });
+    const bytes = await input.file.arrayBuffer();
+    current();
+    const checksum = Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+    current();
+    upload = FleetUploadInput.parse({
+      route,
+      params: {},
+      body: {
+        options: workspaceApi.uploadCreate.body
+          .strict()
+          .parse(JSON.parse(JSON.stringify(input.body ?? {}))),
+        file: {
+          name:
+            input.filename ??
+            (input.file instanceof File ? input.file.name : "blob"),
+          mime: input.file.type || "application/octet-stream",
+          size: input.file.size,
+          checksum,
+        },
+      },
+    });
+  }
+  const raw =
+    upload ??
+    FleetActionInput.parse({
+      route,
+      params: input.params ?? {},
+      // Match JSON transport before hashing: optional form fields often exist
+      // with value undefined, which JSON omits from the destination's request.
+      body: JSON.parse(JSON.stringify(input.body ?? {})),
+    });
+  const supplied = (
+    raw.route === "uploadCreate" ? [] : fleetActionCommandPaths(raw)
+  )
     .map((path) => {
       let value: unknown = raw.body;
       for (const key of path)
@@ -156,7 +198,8 @@ export async function prepareFleetCommand(
     supplied === undefined
       ? crypto.randomUUID()
       : z.string().uuid().parse(supplied);
-  const normalized = fleetActionInput(raw, proposed);
+  const normalized =
+    raw.route === "uploadCreate" ? raw : fleetActionInput(raw, proposed);
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(
@@ -252,6 +295,7 @@ export async function prepareFleetCommand(
     get body() {
       return rebind(normalized, claim.id).body;
     },
+    upload,
     current,
     async run<T>(perform: () => Promise<T>): Promise<T> {
       for (;;) {
@@ -483,7 +527,7 @@ export async function reconcileFleetCommand(
     const result =
       receipt.result === null
         ? null
-        : fleetActionRoutes[command.route].response.parse(receipt.result);
+        : fleetCommandRoutes[command.route].response.parse(receipt.result);
     if (["completed", "refused"].includes(receipt.state)) {
       try {
         await navigator.locks.request(key, { signal }, async () => {

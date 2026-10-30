@@ -21,6 +21,9 @@ import type { FleetAuthority } from "./fleet-authority.js";
 import type { FleetPeerReads } from "./fleet-peer-reads.js";
 import type { FleetPeerActions } from "./fleet-peer-actions.js";
 import type { FleetPeerFiles } from "./fleet-peer-files.js";
+import type { FleetPeerUploads } from "./fleet-peer-uploads.js";
+import { fleetUploadBody } from "./fleet-upload-body.js";
+import { fleetPayloadDigest } from "./fleet-crypto.js";
 import {
   FleetFileSelection,
   fleetFileRoutes,
@@ -101,15 +104,17 @@ function jsonBody(
 
 /** The existing source router admits only declared local projections and
  * actions. Owner and destinations come from this Host's services, never from
- * request headers, cookies or a browser-supplied URL. Still opt-in until the
- * browser command journal and complete capability UI are wired. */
+ * request headers, cookies or a browser-supplied URL. */
 export function fleetAgentSource(
   authority: FleetAuthority,
   owner: string,
   reads: FleetPeerReads,
   actions?: FleetPeerActions,
   files?: FleetPeerFiles,
+  uploads?: FleetPeerUploads,
 ): SourceAdapter {
+  const uploading = new Map<string, number>();
+  let activeUploads = 0;
   return {
     kind: "peer",
     async discover() {
@@ -150,6 +155,31 @@ export function fleetAgentSource(
         });
         res.end(JSON.stringify(value));
       };
+      const commandReply = (
+        receipt: Awaited<ReturnType<FleetPeerUploads["lookup"]>>,
+        status: number,
+      ) => {
+        res.setHeader("x-loop-command-id", receipt.commandId);
+        res.setHeader("x-loop-command-state", receipt.state);
+        if (receipt.state === "completed" && receipt.result !== null) {
+          reply(status, receipt.result);
+        } else if (receipt.state === "refused") {
+          reply(409, {
+            error:
+              "This machine refused the command before execution. Refresh it before trying a new action.",
+            executionOutcome: "refused",
+          });
+        } else {
+          reply(503, {
+            error:
+              receipt.state === "completed"
+                ? "This command completed. Refresh the owning machine to see its result. Do not submit it again."
+                : "The command outcome is not yet known. Check its original receipt; do not submit a new command.",
+            executionOutcome:
+              receipt.state === "completed" ? "completed" : "unknown",
+          });
+        }
+      };
       try {
         current();
         if (apiPath.length > 16_384 || apiPath.includes("#"))
@@ -161,6 +191,74 @@ export function fleetAgentSource(
           separator < 0 ? "" : apiPath.slice(separator + 1),
         );
         const method = req.method ?? "GET";
+        if (method === "POST" && path === workspaceApi.uploadCreate.path) {
+          if (!uploads)
+            throw new ExecutionRefused(
+              409,
+              "This gateway does not support fleet uploads. Open the owning workspace.",
+            );
+          if (search.size)
+            throw new ExecutionRefused(
+              400,
+              "Uploads do not accept query options.",
+            );
+          const commandId = z
+            .string()
+            .uuid()
+            .parse(req.headers["x-loop-command-id"]);
+          const receiptOnly = req.headers["x-loop-receipt-only"] === "1";
+          if (req.headers["x-loop-receipt-only"] !== undefined && !receiptOnly)
+            throw new ExecutionRefused(
+              400,
+              "Choose the original upload or its receipt.",
+            );
+          if (activeUploads >= 4 || (uploading.get(peer) ?? 0) >= 2)
+            throw new ExecutionRefused(
+              503,
+              "Uploads are busy. Finish an upload and try again.",
+            );
+          activeUploads++;
+          uploading.set(peer, (uploading.get(peer) ?? 0) + 1);
+          try {
+            const uploadSignal = AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(120_000),
+            ]);
+            const received = await fleetUploadBody(
+              req,
+              res,
+              uploadSignal,
+              current,
+              receiptOnly,
+            );
+            current();
+            forwarding = true;
+            const receipt = receiptOnly
+              ? await uploads.lookup(
+                  peer,
+                  commandId,
+                  fleetPayloadDigest(received.input),
+                  current,
+                  uploadSignal,
+                )
+              : await uploads.upload(
+                  peer,
+                  commandId,
+                  received.input,
+                  received.bytes!,
+                  current,
+                  uploadSignal,
+                );
+            current();
+            commandReply(receipt, 201);
+          } finally {
+            activeUploads--;
+            const left = (uploading.get(peer) ?? 1) - 1;
+            if (left) uploading.set(peer, left);
+            else uploading.delete(peer);
+          }
+          return;
+        }
         if (method === "GET") {
           const route = match(getRoutes, method, path);
           if (route.contract.kind === "stream") {
@@ -306,11 +404,11 @@ export function fleetAgentSource(
                   reads: catalog.reads.filter((name) =>
                     Object.hasOwn(fleetReadRoutes, name),
                   ),
-                  actions: actions
-                    ? catalog.actions.filter((name) =>
-                        Object.hasOwn(fleetActionRoutes, name),
-                      )
-                    : [],
+                  actions: catalog.actions.filter(
+                    (name) =>
+                      (actions && Object.hasOwn(fleetActionRoutes, name)) ||
+                      (uploads && name === "uploadCreate"),
+                  ),
                   files: !!files && catalog.files,
                   events: catalog.events,
                 },
@@ -364,26 +462,7 @@ export function fleetAgentSource(
         current();
         // Only a verified destination receipt settles a command. A gateway's
         // failure before its own send cannot exclude an earlier remote effect.
-        res.setHeader("x-loop-command-id", receipt.commandId);
-        res.setHeader("x-loop-command-state", receipt.state);
-        if (receipt.state === "completed" && receipt.result !== null) {
-          reply(route.contract.status ?? 200, receipt.result);
-        } else if (receipt.state === "refused") {
-          reply(409, {
-            error:
-              "This machine refused the command before execution. Refresh it before trying a new action.",
-            executionOutcome: "refused",
-          });
-        } else {
-          reply(503, {
-            error:
-              receipt.state === "completed"
-                ? "This command completed. Refresh the owning machine to see its result. Do not submit it again."
-                : "The command outcome is not yet known. Check its original receipt; do not submit a new command.",
-            executionOutcome:
-              receipt.state === "completed" ? "completed" : "unknown",
-          });
-        }
+        commandReply(receipt, route.contract.status ?? 200);
       } catch (error) {
         if (res.headersSent) {
           res.destroy();

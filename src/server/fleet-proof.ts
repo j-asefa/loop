@@ -11,6 +11,10 @@ import type { initializeFleetIdentity } from "./fleet-identity.js";
 import { FLEET_READ_RESPONSE_BYTES } from "../shared/fleet-workspace-api.js";
 
 type Purpose =
+  | "workspace-upload-prepare"
+  | "workspace-upload-chunk"
+  | "workspace-upload-close"
+  | "workspace-upload-receipt"
   | "workspace-file-open"
   | "workspace-file-chunk"
   | "workspace-file-close"

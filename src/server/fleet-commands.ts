@@ -104,7 +104,7 @@ export class FleetCommands {
       .regex(/^[a-f0-9]{64}$/)
       .parse(digest);
     z.string().min(1).max(100).parse(tag);
-    if (context.operation !== "act")
+    if (!["act", "files"].includes(context.operation))
       throw new Problem(400, "Only workspace actions use this reconciliation.");
     return this.db
       .transaction(() => {
@@ -140,6 +140,7 @@ export class FleetCommands {
     commandId: string,
     digest: string,
     tag: string,
+    operation: "act" | "files" = "act",
   ): FleetCommandReceipt | null {
     z.string().uuid().parse(commandId);
     z.string()
@@ -148,7 +149,7 @@ export class FleetCommands {
     const row = this.row(owner, commandId);
     if (!row) return null;
     if (
-      row.operation !== "act" ||
+      row.operation !== operation ||
       row.payload_digest !== digest ||
       (row.command_tag !== null && row.command_tag !== tag)
     )

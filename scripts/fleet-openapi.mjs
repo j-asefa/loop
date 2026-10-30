@@ -3,6 +3,7 @@ import { z } from "zod";
 import { fleetWorkspaceApi } from "../src/shared/fleet-workspace-api.ts";
 import { fleetWorkspaceActionApi } from "../src/shared/fleet-workspace-action-api.ts";
 import { fleetWorkspaceFileApi } from "../src/shared/fleet-workspace-file-api.ts";
+import { fleetWorkspaceUploadApi } from "../src/shared/fleet-workspace-upload-api.ts";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.ts";
 import { fleetHandoffApi } from "../src/shared/fleet-handoff-api.ts";
 import { fleetDirectoryApi } from "../src/shared/fleet-directory-api.ts";
@@ -36,6 +37,16 @@ const responseNames = new Map([
 ]);
 
 const proof = {
+  workspaceUploadPrepare:
+    "Requires a files-scoped machine credential and a canonical upload manifest bound to its original command. Stages at most two files of up to 25 MiB for 30 idle or 120 total seconds. Staging is ephemeral, creates no workspace file or agent grant, and is not command acceptance. An existing durable command returns its receipt instead of a new staging area.",
+  workspaceUploadChunk:
+    "Requires the original files-scoped peer, grant, directory, command, payload digest and transfer. Appends at most 256 KiB at the exact expected offset. Signs the request digest and resulting offset. No workspace object is created.",
+  workspaceUploadClose:
+    "Requires the original files-scoped peer, command and payload digest. Deletes only its ephemeral staging area; a missing area is already closed. Never removes or changes a durable command receipt.",
+  workspaceUploadCommit:
+    "Requires complete staged bytes matching the original manifest's size and SHA-256. Persists the original command and digest before invoking the owning upload producer, which rechecks the current grant inside its file transaction. Repeated commits only return the durable receipt, including after restart. A lost reply does not authorize a new upload.",
+  workspaceUploadReceipt:
+    "Requires a files-scoped machine credential and the original command ID and payload digest. Returns a signed durable upload receipt without creating or committing a file. A missing receipt remains unknown to the gateway.",
   workspaceFileOpen:
     "Requires a files-scoped machine credential. Opens only a named owning workspace file projection, up to 25 MiB, with a signed byte count and SHA-256 checksum. At most two snapshots remain live for 30 idle seconds or 120 total seconds. The owner, grant and signed directory are rechecked before admission and after the owning handler.",
   workspaceFileChunk:
@@ -88,6 +99,11 @@ for (const [name, route] of Object.entries({
   workspaceFileOpen: fleetWorkspaceFileApi.open,
   workspaceFileChunk: fleetWorkspaceFileApi.chunk,
   workspaceFileClose: fleetWorkspaceFileApi.close,
+  workspaceUploadPrepare: fleetWorkspaceUploadApi.prepare,
+  workspaceUploadChunk: fleetWorkspaceUploadApi.chunk,
+  workspaceUploadClose: fleetWorkspaceUploadApi.close,
+  workspaceUploadCommit: fleetWorkspaceUploadApi.commit,
+  workspaceUploadReceipt: fleetWorkspaceUploadApi.receipt,
 })) {
   if (typeof route.access !== "string")
     throw new Error("Fleet routes cannot admit integration tokens");
@@ -119,7 +135,8 @@ for (const [name, route] of Object.entries({
           ? "public challenge; credential challenges require an active grant context"
           : name === "workspaceCatalog"
             ? "opaque machine credential in the strict JSON body; destination maps the owner and intersects capabilities with its current grant"
-            : name.startsWith("workspaceFile")
+            : name.startsWith("workspaceFile") ||
+                name.startsWith("workspaceUpload")
               ? "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
               : name === "workspaceAction" || name === "workspaceReceipt"
                 ? "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
