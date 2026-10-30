@@ -76,7 +76,7 @@ all linked machines together; old and new header protocols are not a rolling
 mixed-version fleet. Native harness sessions retain their own context, so an
 older transcript can still contain historical tool names.
 
-Provider-home Docker volume identities, signed fleet domain separators, dispatch IDs, issued secret bytes and pending
+The existing connection service’s private probe and socket identity, provider-home Docker volume identities, signed fleet domain separators, dispatch IDs, issued secret bytes and pending
 browser command journals retain their original bytes. In particular, the
 physical IndexedDB journal and its cross-tab lock namespace are shared with
 the old client. These are durable identities rather than new display names;

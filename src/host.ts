@@ -540,8 +540,8 @@ export class Host {
     res.once("close", () => this.active--);
     // Registration check from the connection service over the private socket.
     // The relay never forwards /__loop55 paths from the public listener.
-    if (this.probe && req.url?.startsWith("/__loop55/backend-probe?")) {
-      const nonce = new URL(req.url, "http://probe").searchParams.get("nonce");
+    if (this.probe && /^\/__loop(?:55)?\/backend-probe\?/.test(req.url ?? "")) {
+      const nonce = new URL(req.url!, "http://probe").searchParams.get("nonce");
       if (req.method !== "GET" || !nonce || !/^[\w-]{16,100}$/.test(nonce))
         return this.json(res, 400, { error: "Invalid probe" });
       return this.json(res, 200, { proof: this.probe(nonce) });

@@ -1,3 +1,4 @@
+import { retainedPath } from "./name-upgrade.js";
 import "../runtime/environment.mjs";
 /**
  * Shared records and private control protocol of the per-workspace connection
@@ -54,11 +55,9 @@ export function runDir(dir: string) {
     MAX_SOCKET_PATH
   )
     return local;
-  return join(
-    "/tmp",
-    `loop55-${process.getuid?.() ?? 0}`,
-    createHash("sha256").update(dir).digest("hex").slice(0, 16),
-  );
+  const key = createHash("sha256").update(dir).digest("hex").slice(0, 16);
+  const uid = process.getuid?.() ?? 0;
+  return retainedPath("/tmp", `loop55-${uid}/${key}`, `loop-${uid}/${key}`);
 }
 export function ensureRunDir(dir: string) {
   const run = runDir(dir);
@@ -299,7 +298,7 @@ export const probeProof = (
   nonce: string,
 ) =>
   createHmac("sha256", lease)
-    .update(`loop55-backend-probe\n${instance}\n${generation}\n${nonce}`)
+    .update(`loop-backend-probe\n${instance}\n${generation}\n${nonce}`)
     .digest("hex");
 
 /**

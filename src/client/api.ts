@@ -45,7 +45,7 @@ function retryDeadline(header: string | null) {
  * request never reached Loop55; nothing about pairing or the session changed.
  */
 const restarting = (r: Response) =>
-  r.status === 503 && r.headers.get("x-loop55-unavailable") === "restarting";
+  r.status === 503 && (r.headers.get("x-loop55-unavailable") ?? r.headers.get("x-loop-unavailable")) === "restarting";
 export const RECONNECTING = "Loop55 is reconnecting… Work on your computer continues.";
 function reconnectingError() {
   window.dispatchEvent(new Event("loop55-reconnecting"));

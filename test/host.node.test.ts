@@ -1,3 +1,4 @@
+import { probeProof } from "../src/connection.js";
 process.env.LOOP55_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -11,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID, createHash, createHmac } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { WebSocket } from "ws";
 import { Host } from "../src/host.js";
@@ -629,6 +630,46 @@ test("device renewal persists but cannot exceed its fixed maximum lifetime", asy
       ).status,
       401,
     );
+  } finally {
+    await host.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the private host accepts an existing connection service's probe and signed domain", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "loop55-probe-upgrade-"));
+  const socketPath = join(dir, "app.sock");
+  const host = new Host(dir, initial);
+  const nonce = "a".repeat(20);
+  try {
+    await host.listen({
+      socket: socketPath,
+      probe: (value) =>
+        probeProof("fixture-lease", "fixture-instance", 1, value),
+    });
+    for (const prefix of ["/__loop", "/__loop55"]) {
+      const response = await new Promise<{ status: number; body: string }>(
+        (resolve, reject) => {
+          const req = httpRequest(
+            { socketPath, path: prefix + "/backend-probe?nonce=" + nonce },
+            (res) => {
+              let body = "";
+              res.on("data", (part) => (body += part));
+              res.on("end", () => resolve({ status: res.statusCode!, body }));
+            },
+          );
+          req.on("error", reject);
+          req.end();
+        },
+      );
+      assert.equal(response.status, 200);
+      assert.equal(
+        JSON.parse(response.body).proof,
+        createHmac("sha256", "fixture-lease")
+          .update(`loop-backend-probe\nfixture-instance\n1\n${nonce}`)
+          .digest("hex"),
+      );
+    }
   } finally {
     await host.close();
     await rm(dir, { recursive: true, force: true });

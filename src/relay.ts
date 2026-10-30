@@ -26,6 +26,7 @@ const HOP = new Set([
   "upgrade",
   "expect",
   "x-loop55-probe",
+  "x-loop-probe",
 ]);
 function forwardable(headers: IncomingHttpHeaders) {
   const named = new Set(
@@ -170,7 +171,7 @@ export class Relay {
   private http(req: IncomingMessage, res: ServerResponse) {
     const path = req.url ?? "";
     // Origin-form only; the private probe namespace never leaves the machine.
-    if (!path.startsWith("/") || path.startsWith("/__loop55")) {
+    if (!path.startsWith("/") || path.startsWith("/__loop")) {
       res.writeHead(404, {
         "Content-Type": "application/json",
         "Cache-Control": "no-store",
@@ -245,7 +246,7 @@ export class Relay {
         );
     };
     const path = req.url ?? "";
-    if (!backend || !path.startsWith("/") || path.startsWith("/__loop55"))
+    if (!backend || !path.startsWith("/") || path.startsWith("/__loop"))
       return refuse();
     socket.on("error", () => {});
     const upstream = connect(backend.path);
@@ -261,7 +262,8 @@ export class Relay {
       const lines = [`${req.method} ${path} HTTP/1.1`];
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
         const name = req.rawHeaders[i];
-        if (name.toLowerCase() === "x-loop55-probe") continue;
+        if (["x-loop55-probe", "x-loop-probe"].includes(name.toLowerCase()))
+          continue;
         lines.push(`${name}: ${req.rawHeaders[i + 1]}`);
       }
       upstream.write(lines.join("\r\n") + "\r\n\r\n");

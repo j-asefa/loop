@@ -94,7 +94,8 @@ async function backend(
         host: req.headers.host,
         cookie: req.headers.cookie ?? null,
         path: req.url,
-        probe: req.headers["x-loop55-probe"] ?? null,
+        probe:
+          req.headers["x-loop55-probe"] ?? req.headers["x-loop-probe"] ?? null,
         upgrade: req.headers.upgrade ?? null,
         te: req.headers["transfer-encoding"] ?? null,
       }),
@@ -307,6 +308,7 @@ test("the relay preserves Host and cookies, strips private and hop-by-hop fields
       headers: {
         cookie: "__Host-loop55=abc",
         "x-loop55-probe": "1",
+        "x-loop-probe": "legacy",
         connection: "keep-alive, x-drop",
         "x-drop": "1",
       },
@@ -319,6 +321,8 @@ test("the relay preserves Host and cookies, strips private and hop-by-hop fields
     for (const path of [
       "/__loop55/backend-probe?nonce=" + "a".repeat(20),
       "/__loop55",
+      "/__loop/backend-probe?nonce=" + "a".repeat(20),
+      "/__loop",
     ])
       assert.equal((await relay(port, s.origin, "GET", path)).status, 404);
     assert.deepEqual(app.seen, ["GET /api/echo?q=1"]);
