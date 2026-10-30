@@ -19,10 +19,6 @@ export function spawnNative(
       "LOOP_NATIVE_LAUNCHER must be an absolute executable path.",
     );
   const env = { ...(options.env ?? process.env) };
-  delete env.LOOP_SERVICE;
-  // Descendants already inherit the resource group. A nested fixture workspace
-  // must not take over the host's service or create a second resource scope.
-  delete env.LOOP_NATIVE_LAUNCHER;
   // Old service settings must not restore automatic host-wide test admission.
   const shims = [env.LOOP_JOB_SHIMS, process.env.LOOP_JOB_SHIMS].filter(
     (path): path is string => Boolean(path && isAbsolute(path)),
@@ -32,9 +28,20 @@ export function spawnNative(
       .split(delimiter)
       .filter((path) => !shims.some((shim) => resolve(path) === resolve(shim)))
       .join(delimiter);
-  delete env.LOOP_JOB_QUEUE_CONFIG;
-  delete env.LOOP_JOB_SHIMS;
-  delete env.LOOP_JOB_ACTIVE;
+  // A harness runs arbitrary project commands. Importing that project's server
+  // code must not inherit the host database, secrets or service identity and
+  // migrate live data. Keep only the adapter's scoped tool/billing settings and
+  // fixture controls, including both names during the Loop55 transition.
+  for (const key of Object.keys(env)) {
+    const setting = /^LOOP(?:55)?_(.*)$/.exec(key)?.[1];
+    if (
+      setting &&
+      !setting.startsWith("TEST_") &&
+      !["TOOLS_URL", "TOOLS_TOKEN", "BILLING_MODE"].includes(setting)
+    )
+      delete env[key];
+  }
+  delete env.BETTER_AUTH_SECRET;
   env.LOOP_HEAVY_SCHEDULING = "off";
   const child = spawn(
     launcher || command,

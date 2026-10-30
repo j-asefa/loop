@@ -69,6 +69,15 @@ launcher preserves protocol pipes (including metadata on descriptor 3), process
 identity, working directory and native credentials. Placement failure refuses
 the launch instead of running it without limits.
 
+Native harnesses do not inherit Loop's server environment: data directories,
+workspace home, service identity, encryption keys and server authentication
+settings are removed before launch, including their `LOOP55_*` aliases. Only
+scoped adapter tool/billing settings and explicit test controls pass through;
+provider credentials and native credential homes are preserved. Importing Loop
+source from an agent's checkout therefore cannot select the live database from
+an inherited setting. This prevents accidental configuration inheritance; it
+does not restrict filesystem access by processes running as the same OS user.
+
 For an 8 GiB, four-CPU host using the user service `loop.service`:
 
 ```sh
@@ -115,6 +124,10 @@ SQLite's write lock, the timestamp remains unchanged and the next timer tries
 again; stale observations still expire. Contention cannot terminate the server
 through those timer callbacks. Ordinary writes retain their normal timeout and
 error behavior.
+
+Periodic native display updates also defer on a busy database, retaining their
+pending output for the next tick. They do not block the worker or retry native
+commands. Completion and other authoritative writes retain their normal policy.
 
 ## Queue commands explicitly
 

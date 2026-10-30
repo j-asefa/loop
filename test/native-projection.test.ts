@@ -1,6 +1,7 @@
 import type { Live } from "../src/server/native-sessions";
 import type { Item } from "../src/protocol";
 import { Codex } from "../src/adapters/codex";
+import Database from "better-sqlite3";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -96,7 +97,34 @@ it("flushes dirty native items and completes after exceeding the display window"
     event({ id: "two", kind: "assistant", text: "updated" });
     await vi.advanceTimersByTimeAsync(999);
     expect(db.prepare("SELECT * FROM aggregate_writes").all()).toEqual([]);
-    await vi.advanceTimersByTimeAsync(1);
+    const writer = new Database(join(dir, "loop.db"));
+    const busyTimeout = db.pragma("busy_timeout", { simple: true });
+    writer.exec("BEGIN IMMEDIATE");
+    try {
+      const started = performance.now();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(performance.now() - started).toBeLessThan(1000);
+      expect(db.pragma("busy_timeout", { simple: true })).toBe(busyTimeout);
+      expect(live.items.dirty.has("two")).toBe(true);
+      expect(live.flush).toBeDefined();
+      expect(
+        db
+          .prepare(
+            "SELECT content FROM messages WHERE update_key='native-message:two'",
+          )
+          .get(),
+      ).toEqual({ content: "second" });
+      expect(
+        db.prepare("SELECT state FROM runs WHERE id=?").get(run.id),
+      ).toEqual({ state: "running" });
+    } finally {
+      writer.exec("ROLLBACK");
+      writer.close();
+    }
+    // No new native event is needed after the lock clears; retained display
+    // output is retried, without invoking the harness again.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(live.items.dirty.size).toBe(0);
     expect(db.prepare("SELECT * FROM aggregate_writes").all()).toHaveLength(0);
     expect(
       db
