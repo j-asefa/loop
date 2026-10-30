@@ -157,3 +157,22 @@ it("upgrades harness metadata and notification triggers without changing owners,
     db.close();
   }
 });
+
+it("keeps both generations of workspace settings and credentials out of test subprocesses", () => {
+  const module = pathToFileURL(resolve("scripts/test-runner.mjs")).href;
+  const output = execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `const { testEnvironment } = await import(${JSON.stringify(module)}); console.log(JSON.stringify(testEnvironment({ PATH: "fixture", LOOP_HOME: "old-workspace", LOOP55_HOME: "new-workspace", LOOP_ENCRYPTION_KEY: "old-fixture-secret", LOOP55_ENCRYPTION_KEY: "new-fixture-secret", LOOP_TEST_FLAG: "old-test", LOOP55_TEST_FLAG: "new-test" }, "vitest")));`,
+    ],
+    { encoding: "utf8" },
+  );
+  expect(JSON.parse(output)).toEqual({
+    PATH: "fixture",
+    LOOP_TEST_FLAG: "old-test",
+    LOOP55_TEST_FLAG: "new-test",
+    LOOP55_PROFILE: "server",
+  });
+});

@@ -18,6 +18,7 @@ import { compiledServerFixture } from "./helpers/compiled-server";
 // Actual sockets below run the unmocked compiled production graph in children.
 vi.mock("../src/server/access", () => ({}));
 vi.mock("../src/server/workspace-events", () => ({}));
+vi.mock("../src/server/token-events", () => ({}));
 
 const channel = workspaceApi.channels.events;
 const document = JSON.parse(readFileSync("docs/openapi-channels.json", "utf8"));

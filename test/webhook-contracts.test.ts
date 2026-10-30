@@ -513,7 +513,7 @@ it("keeps credentials and unrelated query data out of the public conversation li
   const created = await create(f, destination);
   await stop(f, records, "running", "completed", {
     publicUrl:
-      "https://name:never-export@loop.example/old?secret=never-export#private",
+      "https://name:never-export@loop55.example/old?secret=never-export#private",
   });
   const [event] = payloads(f, created.subscription.id);
   expect(event.url).toBe(
