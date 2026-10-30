@@ -97,7 +97,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     event({ id: "two", kind: "assistant", text: "updated" });
     await vi.advanceTimersByTimeAsync(999);
     expect(db.prepare("SELECT * FROM aggregate_writes").all()).toEqual([]);
-    const writer = new Database(join(dir, "loop.db"));
+    const writer = new Database(join(dir, "loop55.db"));
     const busyTimeout = db.pragma("busy_timeout", { simple: true });
     writer.exec("BEGIN IMMEDIATE");
     try {

@@ -764,7 +764,7 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
       prefix + `/feed/${newer}/read`,
       "DELETE",
       { cardKey: "run:" + newer },
-      { "x-loop-command-id": unreadCommand },
+      { "x-loop55-command-id": unreadCommand },
     );
   expect((await markUnread()).status).toBe(200);
   const unreadCard = await cards.detail("d:run:" + newer);
@@ -781,7 +781,7 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
               ? unreadCard.display.unread_version
               : undefined,
         },
-        { "x-loop-command-id": randomUUID() },
+        { "x-loop55-command-id": randomUUID() },
       )
     ).status,
   ).toBe(200);
@@ -797,10 +797,10 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
     prefix + `/feed/${privateRun}/read`,
     "DELETE",
     { cardKey: "run:" + privateRun },
-    { "x-loop-command-id": randomUUID() },
+    { "x-loop55-command-id": randomUUID() },
   );
   expect(refused.status).toBe(409);
-  expect(refused.headers["x-loop-command-state"]).toBe("refused");
+  expect(refused.headers["x-loop55-command-state"]).toBe("refused");
   expect(refused.body.executionOutcome).toBe("refused");
   expect(
     db
