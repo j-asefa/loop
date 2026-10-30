@@ -2029,12 +2029,13 @@ export function Feed({
     }
   }
   async function markDoneRead(item: FeedItem) {
+    // Opening again is a later read choice even while an unread write is pending.
     const cardKey = item.done_card_key;
     if (item.read_at === undefined || !cardKey) return;
     const generation = viewGeneration(), source = item.sourceId ?? scopedSource;
     if (fleetOperationReason(source, allSources.find(entry => entry.id === source)?.capabilities, workspaceApi.feedRead)) return;
     try {
-      await writeDoneReadState(source, ["d:" + cardKey], () =>
+      await writeDoneReadState(source, () =>
         callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey } }, source));
       if (generation === viewGeneration()) await load();
     } catch (error) {
@@ -2046,10 +2047,10 @@ export function Feed({
     const cardKey = item.done_card_key, source = item.sourceId ?? scopedSource;
     try {
       if (thread) {
-        await writeDoneReadState(thread.source, thread.cardIds, () =>
+        await writeDoneReadState(thread.source, () =>
           callRoute(workspaceApi.doneThreadUnread, { params: { id: thread.id } }, thread.source));
       } else if (cardKey) {
-        await writeDoneReadState(source, ["d:" + cardKey], () =>
+        await writeDoneReadState(source, () =>
           callRoute(workspaceApi.feedUnread, {
             params: { id: item.conversation_id }, body: { cardKey },
           }, source));
@@ -2071,7 +2072,7 @@ export function Feed({
     const generation = viewGeneration();
     if (fleetOperationReason(thread.source, allSources.find(entry => entry.id === thread.source)?.capabilities, workspaceApi.doneThreadRead)) return;
     try {
-      await writeDoneReadState(thread.source, thread.cardIds, () =>
+      await writeDoneReadState(thread.source, () =>
         callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: {} }, thread.source));
       if (generation === viewGeneration()) { grouping.refresh(); await load(); }
     } catch (error) {

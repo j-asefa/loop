@@ -212,12 +212,17 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await capture("marked-unread");
   // Hold the initial read before the server sees it, then choose unread. The
   // later choice must wait for that read, including after closing a group.
-  const unreadDuringRead = async (title, path, insideReader) => {
+  const unreadDuringRead = async (
+    title,
+    path,
+    insideReader,
+    { unreadPath = path, unreadTitle = title, afterOpen } = {},
+  ) => {
     let release, started;
     const held = new Promise((resolve) => (release = resolve));
     const pending = new Promise((resolve) => (started = resolve));
     const applied = [];
-    const matches = (url) => url.pathname === path;
+    const matches = (url) => [path, unreadPath].includes(url.pathname);
     await page.route(matches, async (route) => {
       const method = route.request().method();
       if (method === "PUT") {
@@ -231,7 +236,8 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     const responseFor = (method) =>
       page.waitForResponse(
         (response) =>
-          new URL(response.url()).pathname === path &&
+          new URL(response.url()).pathname ===
+            (method === "PUT" ? path : unreadPath) &&
           response.request().method() === method,
       );
     const readResponse = responseFor("PUT");
@@ -239,6 +245,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     try {
       await card(title).getByRole("heading").click();
       await pending;
+      await afterOpen?.();
       if (insideReader)
         await page
           .locator(".feed-reading-sheet")
@@ -246,7 +253,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
           .click();
       else {
         await closeReader();
-        await openActions(title);
+        await openActions(unreadTitle);
       }
       await page
         .getByRole("menuitem", { name: "Mark unread", exact: true })
@@ -277,6 +284,34 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     `/api/feed/threads/${groupId}/read`,
     false,
   );
+  // Model another device adding the pending result to the group while this
+  // browser still has the previous membership list. The group action applies
+  // to current server membership and must also wait for that result's PUT.
+  const oldThreads = await fixture.api(`/feed/threads?agent=${agents[0].id}`);
+  const threadList = (url) => url.pathname === "/api/feed/threads";
+  await page.route(threadList, (route) => route.fulfill({ json: oldThreads }));
+  try {
+    await unreadDuringRead(
+      "Filter result 0-83",
+      `/api/feed/${agents[0].id}/read`,
+      false,
+      {
+        unreadPath: `/api/feed/threads/${groupId}/read`,
+        unreadTitle: "Mixed agent results",
+        afterOpen: () =>
+          fixture.api(`/feed/threads/${groupId}/cards`, {
+            cardIds: ["d:run:0-83"],
+          }),
+      },
+    );
+  } finally {
+    await fixture.api(
+      `/feed/threads/${groupId}/cards/${encodeURIComponent("d:run:0-83")}`,
+      undefined,
+      "DELETE",
+    );
+    await page.unroute(threadList);
+  }
   // Opening the cards again returns them to Read, including all group members.
   await card("Filter result 0-83").getByRole("heading").click();
   await closeReader();
