@@ -52,7 +52,7 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { parse, retryAfter, isRateLimited, RATE_LIMITED } from "./api";
+import { parse, retryAfter, isRateLimited, RATE_LIMITED, isExecutionRefused } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { TranscriptHandoff, ProjectedMessage, type TranscriptEvent } from "../shared/transcript-projection";
 import { eventScopes } from "../shared/workspace-events";
@@ -1691,6 +1691,7 @@ function ConversationView({
                               onSubmitted();
                               await load();
                             } catch (e) {
+                              if (isExecutionRefused(e)) retryKeys.current.delete(m.run_id!);
                               setError((e as Error).message);
                             } finally {
                               retryBusy.current = false;
@@ -1913,7 +1914,7 @@ function ConversationView({
                   const status = (e as { status?: number }).status;
                   // A refused retry says nothing about an earlier send whose
                   // response was lost. Keep its identity until reconciled.
-                  if (!pendingContinuation && status !== undefined && status < 500) clearPending();
+                  if (isExecutionRefused(e) || (!(e as { executionOutcome?: string }).executionOutcome && !pendingContinuation && status !== undefined && status < 500)) clearPending();
                   setError((e as Error).message);
                 } finally {
                   setBusy(false);

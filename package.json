@@ -36,6 +36,8 @@
     "smoke:pulls": "node scripts/heavy-command.mjs scripts/pull-requests-smoke.mjs",
     "smoke:social": "node scripts/heavy-command.mjs scripts/social-browser-smoke.mjs",
     "smoke:reconnect": "node scripts/heavy-command.mjs scripts/reconnect-browser-smoke.mjs",
+    "smoke:fleet-controls": "node scripts/heavy-command.mjs scripts/fleet-controls-browser-smoke.mjs",
+    "smoke:fleet-commands": "node scripts/heavy-command.mjs scripts/fleet-command-browser-smoke.mjs",
     "feeds:check": "node --import tsx scripts/feed-liveness.mjs",
     "openapi": "node --import tsx scripts/openapi.mjs",
     "openapi:check": "npm run openapi -- --check",

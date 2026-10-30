@@ -238,7 +238,7 @@ it("delivers snapshot clocks for the actual source and drops responses from a pr
   const old = read("docker:one");
   setViewOwner("bob");
   finish(response("obsolete"));
-  await old;
+  await expect(old).rejects.toThrow("unavailable response");
   expect(received).toHaveLength(2);
 });
 

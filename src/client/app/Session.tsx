@@ -25,7 +25,7 @@ export function createSessionCheck(props: {
       const result = await readRoute(
         workspaceApi.authSession,
         {},
-        source,
+        source.startsWith("peer:") ? "" : source,
         signal,
       );
       if (signal.aborted) return;
@@ -44,7 +44,7 @@ export function createSessionCheck(props: {
         location.reload();
         return;
       }
-      if (failure.status === 401 && source) {
+      if (failure.status === 401 && source && !source.startsWith("peer:")) {
         returnToLocalSource();
         return;
       }

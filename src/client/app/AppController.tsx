@@ -5,6 +5,8 @@ import {
   type RouteInput,
   type ResultItem,
 } from "../../shared/workspace-api";
+import { capabilities as shellCapabilities } from "../capabilities";
+import { fleetOperationReason } from "../fleetCapabilities";
 import { type WorkspaceCollection } from "../../shared/workspace-events";
 import { cardArtifact, type CardArtifact } from "../card-actions";
 import { CardPager } from "../card-pager";
@@ -287,6 +289,13 @@ export function useAppController() {
   const threadSource = useThreadSource(
     conversation ? conversationSource : null,
     session?.user?.id,
+  );
+  const composerUnavailable = fleetOperationReason(
+    actionSource,
+    actionSource === executionSourceId()
+      ? shellCapabilities
+      : threadSource.capabilities,
+    workspaceApi.submit,
   );
   const threadData =
     conversation && conversationSource !== executionSourceId()
@@ -1238,6 +1247,7 @@ export function useAppController() {
     ? quotesReply(replyContext, conversation, latestAgentMessage)
     : false;
   const send = useComposerSend({
+    composerUnavailable,
     replyQuoted,
     busy,
     uploading,
@@ -1571,6 +1581,7 @@ export function useAppController() {
     teamMessages,
     actionSource,
     threadSource,
+    composerUnavailable,
     modelAgent,
     editBusy,
     setEditBusy,

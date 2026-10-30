@@ -1,4 +1,8 @@
 import {
+  boundSourceCapabilities,
+  fleetOperationReason,
+} from "./fleetCapabilities";
+import {
   createContext,
   useContext,
   useEffect,
@@ -31,7 +35,10 @@ export function SourceProvider({
   children: ReactNode;
 }) {
   const value = useMemo(
-    () => ({ sourceId, capabilities }),
+    () => ({
+      sourceId,
+      capabilities: boundSourceCapabilities(sourceId, capabilities)!,
+    }),
     [sourceId, capabilities],
   );
   return (
@@ -43,6 +50,9 @@ export function useSourceId() {
 }
 export function useSourceCapabilities() {
   return useContext(SourceContext)?.capabilities ?? shellCapabilities;
+}
+export function useSourceOperation(contract: RouteContract) {
+  return fleetOperationReason(useSourceId(), useSourceCapabilities(), contract);
 }
 export function useSourcePath() {
   const source = useSourceId();

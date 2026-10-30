@@ -173,6 +173,7 @@ type ComposerProps = {
   sendNotice: SendNotice | null;
   sentRun: Run | undefined;
   composerError: string;
+  composerUnavailable?: string;
   threadWork: ThreadWork | null;
   threadNotice: string;
   sendMenu: boolean;
@@ -326,6 +327,7 @@ export function useComposerSend({
   setRoutePreview,
   activeAgent,
   setComposerError,
+  composerUnavailable,
   ownerRef,
   composerData,
   profile,
@@ -385,6 +387,7 @@ export function useComposerSend({
   | "setRoutePreview"
   | "activeAgent"
   | "setComposerError"
+  | "composerUnavailable"
   | "ownerRef"
   | "composerData"
   | "profile"
@@ -411,6 +414,10 @@ export function useComposerSend({
   | "setDismissNotice"
 >) {
   async function send(options: { queue?: boolean; sendAt?: number } = {}) {
+    if (composerUnavailable) {
+      setComposerError(composerUnavailable);
+      return;
+    }
     if (
       busy ||
       uploading ||
@@ -756,6 +763,7 @@ export function useComposerSend({
         const failed = settleFailure(
           sentReceipt,
           (e as { status?: number }).status,
+          (e as { executionOutcome?: string }).executionOutcome,
         );
         if (request.current.key === sentReceipt.key) request.current = failed;
         settleStoredSend(
@@ -819,6 +827,7 @@ export function renderComposer({
   setAttachments,
   composerError,
   setComposerError,
+  composerUnavailable,
   folderChoice,
   threadIdentity,
   setUploading,
@@ -878,6 +887,7 @@ export function renderComposer({
   | "setAttachments"
   | "composerError"
   | "setComposerError"
+  | "composerUnavailable"
   | "folderChoice"
   | "threadIdentity"
   | "setUploading"
@@ -909,8 +919,12 @@ export function renderComposer({
             ? "Send reply"
             : "Send message"
       }
-      title={threadMode ? undefined : "Hold for more send options"}
+      title={
+        composerUnavailable ||
+        (threadMode ? undefined : "Hold for more send options")
+      }
       disabled={
+        !!composerUnavailable ||
         busy ||
         uploading ||
         !draft.trim() ||
@@ -1209,6 +1223,11 @@ export function renderComposer({
                 setAttachments(attachments.filter((file) => file.id !== id))
               }
             />
+            {composerUnavailable && (
+              <p className="field-hint" role="status">
+                {composerUnavailable}
+              </p>
+            )}
             {composerError && (
               <div className="composer-error error" role="alert">
                 {composerError}

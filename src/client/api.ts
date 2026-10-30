@@ -5,12 +5,17 @@ import { WorkspaceClock } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import { viewGeneration } from "./viewCache";
+import { prepareFleetCommand } from "./fleetCommand";
 let csrf = "";
 let sessionRequest: Promise<void> | undefined;
 let backoffGeneration = -1;
 let clockRequestId = 0;
 const readBackoff = new Map<string, number>();
 export const RATE_LIMITED = "Updates are paused briefly. Retrying automatically…";
+
+export function isExecutionRefused(error: unknown): boolean {
+  return (error as { executionOutcome?: string } | null)?.executionOutcome === "refused";
+}
 
 export function isRateLimited(error: unknown): error is Error & { status: 429; retryAt: number } {
   const value = error as { status?: number; retryAt?: number } | null;
@@ -48,7 +53,8 @@ function reconnectingError() {
     reconnecting: true,
   });
 }
-export async function authorize() {
+export async function authorize(signal?: AbortSignal) {
+  signal?.throwIfAborted();
   if ((!capabilities.pairedDevices && !executionSourceId()) || csrf) return;
   if (!sessionRequest)
     sessionRequest = (async () => {
@@ -71,18 +77,39 @@ export async function authorize() {
     })().finally(() => {
       sessionRequest = undefined;
     });
-  await sessionRequest;
+  const pending = sessionRequest;
+  if (!signal) {
+    await pending;
+    return;
+  }
+  // A caller owns only its wait, not the shared session request. Cancelling an
+  // unsent command must release its Web Lock without aborting other callers.
+  await new Promise<void>((resolve, reject) => {
+    const aborted = () => {
+      signal.removeEventListener("abort", aborted);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", aborted, { once: true });
+    pending.then(
+      () => { signal.removeEventListener("abort", aborted); resolve(); },
+      (error) => { signal.removeEventListener("abort", aborted); reject(error); },
+    );
+    if (signal.aborted) aborted();
+  });
 }
 export function clearAuthorization() {
   csrf = "";
 }
-async function sendRequest(path: string, init: RequestInit = {}) {
+async function sendRequest(path: string, init: RequestInit = {}, current: () => void = () => {}, dispatch: () => void = () => {}) {
+  current();
   const method = init.method || "GET";
   const headers = new Headers(init.headers);
   if (!["GET", "HEAD"].includes(method.toUpperCase())) {
-    await authorize();
+    await authorize(init.signal ?? undefined);
     headers.set("x-loop-csrf", csrf);
   }
+  current();
+  dispatch();
   return fetch(path, {
     ...init,
     headers,
@@ -108,7 +135,7 @@ function sameWorkspaceRedirect(response: Response, requested: string) {
       source(target.pathname) === source(start.pathname);
   } catch { return false; }
 }
-async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal, kind?: "stream", multipart = false, empty = false): Promise<T> {
+async function requestInWorkspace<T>(path: string, sourceId: string, body?: unknown, method?: string, signal?: AbortSignal, kind?: "stream", multipart = false, empty = false, command?: Pick<Awaited<ReturnType<typeof prepareFleetCommand>>, "current" | "observe" | "dispatch"> & { headers?: Partial<Awaited<ReturnType<typeof prepareFleetCommand>>["headers"]> }): Promise<T> {
   const generation = viewGeneration();
   const requestId = ++clockRequestId;
   if (generation !== backoffGeneration) {
@@ -127,15 +154,17 @@ async function requestInWorkspace<T>(path: string, sourceId: string, body?: unkn
   const r = await sendRequest(url, {
     signal,
     method: verb,
-    headers: body && !multipart ? { "content-type": "application/json" } : undefined,
+    headers: { ...(body && !multipart ? { "content-type": "application/json" } : {}), ...command?.headers },
     body: multipart ? body as FormData : body ? JSON.stringify(body) : undefined,
-  }).catch((error) => {
+  }, command?.current, command?.dispatch).catch((error) => {
     if (error instanceof TypeError && !signal?.aborted)
       throw new Error(
         "Couldn’t reach Loop. Check your connection and try again.",
       );
     throw error;
   });
+  command?.current();
+  command?.observe(r);
   // Rejected before forwarding, so it is safe to try again; the caller's
   // durable request key still reconciles anything sent earlier.
   if (restarting(r)) throw reconnectingError();
@@ -250,20 +279,48 @@ function response<C extends RouteContract>(contract: C, value: unknown): RouteRe
 }
 export async function callRoute<C extends ClientRouteContract>(contract: C, input: RouteInput<C>, sourceId: string, signal?: AbortSignal): Promise<RouteResponse<C>> {
   if ((contract as RouteContract).method === "ALL") throw new Error("Protocol dispatch requires a concrete HTTP method");
+  const generation = viewGeneration();
   const path = routePath(contract, input);
-  let body: unknown = input.body;
-  if (contract.multipart && "file" in input) {
-    // routePath validated the part before transport; conditional generic input
-    // types do not narrow together with their contract's marker.
-    const upload = input as RouteInput<C> & { file: Blob; filename?: string };
-    const form = new FormData();
-    for (const [key, value] of Object.entries(input.body ?? {}))
-      if (value !== undefined) form.append(key, String(value));
-    if (upload.filename === undefined) form.append("file", upload.file);
-    else form.append("file", upload.file, upload.filename);
-    body = form;
-  }
-  return response(contract, await requestInWorkspace<unknown>(path, sourceId, body, contract.method, signal, contract.kind === "stream" ? "stream" : undefined, contract.multipart, contract.status === 204));
+  const routed = sourceApiPathAt("/api" + path, sourceId);
+  const destination = decodeURIComponent(/^\/api\/agent-sources\/([^/]+)\//.exec(routed)?.[1] ?? "");
+  const command = destination.startsWith("peer:") && contract.method !== "GET"
+    ? await prepareFleetCommand(destination, contract, input, signal) : undefined;
+  const perform = async () => {
+    const guarded = {
+      headers: command?.headers ?? {},
+      current() {
+        command?.current();
+        if (generation !== viewGeneration()) throw new UnavailableResponse();
+        signal?.throwIfAborted();
+      },
+      observe(r: Response) { command?.observe(r); },
+      dispatch() { command?.dispatch(); },
+    };
+    try {
+      let body: unknown = command?.body ?? input.body;
+      if (contract.multipart && "file" in input) {
+        // routePath validated the part before transport; conditional generic input
+        // types do not narrow together with their contract's marker.
+        const upload = input as RouteInput<C> & { file: Blob; filename?: string };
+        const form = new FormData();
+        for (const [key, value] of Object.entries(input.body ?? {}))
+          if (value !== undefined) form.append(key, String(value));
+        if (upload.filename === undefined) form.append("file", upload.file);
+        else form.append("file", upload.file, upload.filename);
+        body = form;
+      }
+      const value = response(contract, await requestInWorkspace<unknown>(path, sourceId, body, contract.method, signal, contract.kind === "stream" ? "stream" : undefined, contract.multipart, contract.status === 204, guarded));
+      guarded.current();
+      await command?.settle(true);
+      return value;
+    } catch (error) {
+      await command?.settle(false);
+      if (command && error instanceof Error)
+        Object.assign(error, { executionOutcome: command.executionOutcome });
+      throw error;
+    }
+  };
+  return command ? command.run(perform) : perform();
 }
 export async function readRoute<C extends RouteContract & { method: "GET" }>(contract: C, input: RouteInput<C>, sourceId: string, signal: AbortSignal, onRetry?: (error: unknown) => void, mode: ReadMode = "automatic"): Promise<RouteResponse<C>> {
   return response(contract, await readRequest<unknown>(routePath(contract, input), sourceId, signal, onRetry, contract.kind, mode));

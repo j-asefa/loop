@@ -1,4 +1,6 @@
 import { literalEntry, proseEntry } from "./textEntry";
+
+import { fleetOperationReason } from "./fleetCapabilities";
 import { workspaceApi } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
 import {
@@ -10,7 +12,7 @@ import type { ModelOption } from "../shared/models";
 import { capabilities } from "./capabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
-import { parse } from "./api";
+import { parse, isExecutionRefused } from "./api";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet, Avatar } from "./components";
 import type { Connection, CreatedAgent } from "../shared/types";
@@ -109,6 +111,14 @@ export function CreateAgent({
     connected.find((c) => connectionKey(c) === connection) ||
     (!connection ? connected[0] : undefined);
   const source = selected?.sourceId || "";
+  const sourceCapabilities =
+    sources.find((item) => item.id === source)?.capabilities ??
+    (source === executionSourceId() ? capabilities : undefined);
+  const creationUnavailable = fleetOperationReason(
+    source,
+    sourceCapabilities,
+    workspaceApi.agentCreate,
+  );
   const availableFolders = folders.filter(
     (item) => (item.sourceId || "") === source && !item.is_workspace,
   );
@@ -240,7 +250,10 @@ export function CreateAgent({
     !!effort &&
     !chosenModel?.effortLevels?.some((level) => level.value === effort);
   const setupSources = sources.filter(
-    (item) => item.id && item.id !== executionSourceId(),
+    (item) =>
+      item.id &&
+      !item.id.startsWith("peer:") &&
+      item.id !== executionSourceId(),
   );
   const currentSourceName =
     sources.find((item) => item.id === attachmentSource)?.name ||
@@ -251,6 +264,7 @@ export function CreateAgent({
     e.preventDefault();
     if (
       locked.current ||
+      !!creationUnavailable ||
       uploading ||
       !selected ||
       !name.trim() ||
@@ -291,6 +305,7 @@ export function CreateAgent({
       );
       await onCreated(a, data.folderId || "", source);
     } catch (e) {
+      if (isExecutionRefused(e)) request.current = { signature: "", key: "" };
       setError((e as Error).message);
     } finally {
       locked.current = false;
@@ -351,24 +366,32 @@ export function CreateAgent({
       dismissible={!busy}
       className="create-agent-sheet"
       footer={
-        <button
-          className="primary"
-          type="submit"
-          form={formId}
-          disabled={
-            busy ||
-            uploading ||
-            refreshingModels ||
-            !chosen ||
-            invalidEffort ||
-            !name.trim() ||
-            (!!attachments.length && !initialPrompt.trim()) ||
-            crossSource
-          }
-        >
-          {busy ? "Starting…" : "Start chatting"}
-          <ArrowRight size={18} />
-        </button>
+        <>
+          {creationUnavailable && (
+            <p role="status" className="field-hint">
+              {creationUnavailable}
+            </p>
+          )}
+          <button
+            className="primary"
+            type="submit"
+            form={formId}
+            disabled={
+              busy ||
+              !!creationUnavailable ||
+              uploading ||
+              refreshingModels ||
+              !chosen ||
+              invalidEffort ||
+              !name.trim() ||
+              (!!attachments.length && !initialPrompt.trim()) ||
+              crossSource
+            }
+          >
+            {busy ? "Starting…" : "Start chatting"}
+            <ArrowRight size={18} />
+          </button>
+        </>
       }
     >
       <div className="create-agent-welcome">

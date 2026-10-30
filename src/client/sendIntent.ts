@@ -72,7 +72,13 @@ export function omitsReplyTarget(
 export function settleFailure(
   receipt: SendReceipt,
   status?: number,
+  executionOutcome?: string,
 ): SendReceipt {
+  // Fleet IDs with terminal refusals cannot execute later. A new explicit
+  // send needs a fresh ID; HTTP status alone cannot settle an earlier send.
+  if (executionOutcome === "refused")
+    return { ...receipt, key: "", pending: false };
+  if (executionOutcome) return receipt;
   return status !== undefined && status < 500
     ? { ...receipt, pending: false }
     : receipt;

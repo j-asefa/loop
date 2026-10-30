@@ -6,11 +6,12 @@ import { useEffect, useState } from "react";
 import type { Agent, Connection, Folder, RunView as Run } from "../shared/types";
 import { retryAfter, parse } from "./api";
 import { capabilities } from "./capabilities";
+import type { Capabilities } from "../shared/capabilities";
 import { executionSourceId } from "./sourceRouting";
 import { connectionLocation } from "./modelChoices";
 
 // Local and not-yet-discovered view entries have no transport kind. Wire discovery requires it.
-export type AgentSource = Omit<RouteResponse<typeof workspaceApi.agentSources>[number], "kind"> & { kind?: string };
+export type AgentSource = Omit<RouteResponse<typeof workspaceApi.agentSources>[number], "kind"> & { kind?: string; capabilities?: Capabilities };
 export type EnvironmentAgent = Agent & {
   sourceId?: string;
   executionEnvironment?: string;
@@ -202,6 +203,7 @@ export function useAgentSources(
       let error = "";
       try {
         linked = options.changes ? known : await readProjection(workspaceApi.agentSources, {}, "");
+        linked = linked.map(source => ({...source, capabilities: known.find(item => item.id === source.id)?.capabilities}));
         known = linked;
         confirmed = true;
       } catch (failure) {
@@ -216,8 +218,8 @@ export function useAgentSources(
             ? "Connection check unavailable. Showing your last connected environments."
             : "Couldn’t connect to your execution environments. Check your connection and retry.";
       }
-      const sources = [
-        { ...knownLocal },
+      const sources: AgentSource[] = [
+        { ...knownLocal, capabilities: currentSourceId === "" ? capabilities : state.sources.find(source => source.id === "")?.capabilities },
         ...linked.filter((item) =>
           /^[a-z][a-z0-9-]{0,31}:[a-zA-Z0-9._~-]{1,128}$/.test(item.id),
         ),
@@ -227,6 +229,10 @@ export function useAgentSources(
         !sources.some((item) => item.id === currentSourceId)
       )
         sources.push({ id: currentSourceId, name: "Connected environment" });
+      for (const source of sources) {
+        source.capabilities ??= known.find(item => item.id === source.id)?.capabilities;
+        if (source.id === currentSourceId) source.capabilities = capabilities;
+      }
       const publish = (error: string) => {
         if (!active) return;
         const loaded = sources
@@ -234,6 +240,7 @@ export function useAgentSources(
           .flatMap((source) =>
             snapshots.has(source.id) ? [snapshots.get(source.id)!] : [],
           );
+        setDiscovered({owner, currentSourceId, sources: sources.map(source => ({...source})), ready: confirmed});
         setState({
           owner,
           currentSourceId,
@@ -264,10 +271,12 @@ export function useAgentSources(
               const runs = await readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id);
               return { source, data: { ...prior, runs: project(source, { agents: [], connections: [], folders: [], runs }).runs } };
             }
-            const [bootstrap, runs] = await Promise.all([
+            const [bootstrap, runs, sourceCapabilities] = await Promise.all([
               readProjection(workspaceApi.bootstrap, {}, source.id),
               readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id),
+              source.id.startsWith("peer:") ? readProjection(workspaceApi.capabilities, {}, source.id) : Promise.resolve(undefined),
             ]);
+            source.capabilities = sourceCapabilities;
             if (!source.id && bootstrap.environmentName) {
               source.name = bootstrap.environmentName;
               knownLocal = source;

@@ -11,6 +11,18 @@ const keys = () => {
   return () => "key-" + ++n;
 };
 
+it("starts a fresh fleet send only after a proven refusal, preserving uncertain choices", () => {
+  const newKey = keys(),
+    intent = { mode: "send" as const, sendAt: null };
+  const first = planSend({ signature: "", key: "" }, "message", intent, newKey);
+  const refused = settleFailure(first.receipt, 503, "refused");
+  expect(planSend(refused, "message", intent, newKey).receipt.key).not.toBe(
+    first.receipt.key,
+  );
+  for (const outcome of ["unknown", "completed"])
+    expect(settleFailure(first.receipt, 409, outcome)).toBe(first.receipt);
+});
+
 it("repeats an uncertain send exactly as first requested", () => {
   const newKey = keys();
   const first = planSend(

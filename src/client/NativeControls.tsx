@@ -1,9 +1,10 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { readRoute } from "./workspace-api";
 import { workspaceApi, type NativeDecision as Decision, type RouteInput } from "../shared/workspace-api";
-import { useSourceId, useSourceCapabilities, useSourceRoute, useProjectionRoute } from "./SourceContext";
+import { viewOwner, viewGeneration } from "./viewCache";
+import { useSourceOperation, useSourceId, useSourceCapabilities, useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { parse, clearAuthorization } from "./api";
+import { parse, clearAuthorization, isExecutionRefused } from "./api";
 import type { Request } from "../protocol";
 import { Check, X } from "lucide-react";
 import { SessionActivityControls } from "./SessionActivityControls";
@@ -230,6 +231,8 @@ function DecisionCard({
   onConversation?: (id: string) => void;
 }) {
   const call = useSourceRoute();
+  const sourceId = useSourceId();
+  const unavailable = useSourceOperation(workspaceApi.nativeAnswer);
   const request = parse<Request>(item.request, {} as Request);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false),
@@ -238,27 +241,30 @@ function DecisionCard({
   const lock = useRef(false);
   const [toolSettings, setToolSettings] = useState(false);
   async function answer(value: RouteInput<typeof workspaceApi.nativeAnswer>["body"]["answer"]) {
-    if (lock.current) return;
+    if (lock.current || unavailable) return;
     lock.current = true;
     setBusy(true);
     setError("");
-    const storage = "loop-decision-" + item.id;
-    // Retain the receipt identity across reloads, never secret question answers.
-    const signature = JSON.stringify(value);
-    const bytes = new Uint8Array(
-      await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(signature),
-      ),
-    );
-    const digest = Array.from(bytes)
-      .map((x) => x.toString(16).padStart(2, "0"))
-      .join("");
-    const old = parse<any>(sessionStorage.getItem(storage) || "", {});
-    const commandId =
-      old.digest === digest ? old.commandId : crypto.randomUUID();
-    sessionStorage.setItem(storage, JSON.stringify({ commandId, digest }));
+    const owner = viewOwner(), generation = viewGeneration();
+    const storage = "loop-decision-" + JSON.stringify([owner, sourceId, item.id]);
     try {
+      // Retain the receipt identity across reloads, never secret question answers.
+      const signature = JSON.stringify(value);
+      const bytes = new Uint8Array(
+        await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(signature),
+        ),
+      );
+      const digest = Array.from(bytes)
+        .map((x) => x.toString(16).padStart(2, "0"))
+        .join("");
+      if (generation !== viewGeneration() || owner !== viewOwner())
+        throw new Error("This workspace session changed. Reopen the owning conversation.");
+      const old = parse<any>(sessionStorage.getItem(storage) || "", {});
+      const commandId =
+        old.digest === digest ? old.commandId : crypto.randomUUID();
+      sessionStorage.setItem(storage, JSON.stringify({ commandId, digest }));
       const r = await call(workspaceApi.nativeAnswer, { params: { id: item.id }, body: {
         commandId,
         answer: value,
@@ -270,6 +276,9 @@ function DecisionCard({
       setDone(true);
       window.dispatchEvent(new Event("loop-workspace-change"));
     } catch (e) {
+      if (isExecutionRefused(e) && owner === viewOwner() && generation === viewGeneration()) {
+        try { sessionStorage.removeItem(storage); } catch { /* Retaining a refused ID is safe. */ }
+      }
       setError((e as Error).message);
     } finally {
       setBusy(false);
@@ -319,7 +328,7 @@ function DecisionCard({
                   key={choice}
                   className={allow ? "primary" : "secondary"}
                   data-decision={allow ? "allow" : deny ? "deny" : "other"}
-                  disabled={busy}
+                  disabled={busy || !!unavailable}
                   onClick={() => void answer({ choice })}
                 >
                   {allow ? (
@@ -368,7 +377,7 @@ function DecisionCard({
           }}
         >
           {request.questions?.map((q) => (
-            <fieldset key={q.id}>
+            <fieldset key={q.id} disabled={!!unavailable}>
               <legend>{q.title}</legend>
               {q.options?.map((option) => (
                 <label className="native-question-option" key={option}>
@@ -399,11 +408,12 @@ function DecisionCard({
               />
             </fieldset>
           ))}
-          <button className="primary" disabled={busy}>
+          <button className="primary" disabled={busy || !!unavailable}>
             Send response
           </button>
         </form>
       )}
+      {unavailable && <p className="field-hint" role="status">{unavailable}</p>}
       {error && (
         <p className="error" role="alert">
           {error}

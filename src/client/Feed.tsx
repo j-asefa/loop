@@ -1,4 +1,5 @@
 import { proseEntry } from "./textEntry";
+import { isExecutionRefused } from "./api";
 import type { CardReadTransport } from "../shared/card-client";
 import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
@@ -269,7 +270,9 @@ function FeedCard({
   groupCount,
   selected,
   onSelect,
+  sourceCapabilities,
 }: {
+  sourceCapabilities?: import("../shared/capabilities").Capabilities;
   item: FeedItem;
   agent?: EnvironmentAgent;
   model?: string;
@@ -295,7 +298,8 @@ function FeedCard({
   onSelect?: () => void;
 }) {
   const scopedSource = useSourceId();
-  const capabilities = useSourceCapabilities();
+  const inheritedCapabilities = useSourceCapabilities();
+  const capabilities = sourceCapabilities || inheritedCapabilities;
   const [reading, setReading] = useState(false);
   const [message, setMessage] = useState<{
     id: string;
@@ -941,6 +945,7 @@ function MoveQueued({
             onMoved(result.conversation_id ?? undefined);
             onClose();
           } catch (e) {
+            if (isExecutionRefused(e)) key.current = crypto.randomUUID();
             setError((e as Error).message);
           }
         }}
@@ -1115,7 +1120,7 @@ export function Feed({
     scope: selectionScope, read: "all", agent: "",
   });
   const combined = !!sources && !project && !teams && !scopedAgent;
-  const allSources = combined ? sources : [{ id: scopedSource, name: "" }];
+  const allSources: AgentSource[] = combined ? sources : [{ id: scopedSource, name: "" }];
   const needsSourceKey = JSON.stringify(allSources.map(source => source.id).sort());
   const doneAgents = agents.filter(item =>
     allSources.some(source => source.id === (item.sourceId ?? scopedSource)) &&
@@ -1142,7 +1147,7 @@ export function Feed({
     const read = (known?: string) => readSnapshot(source, { ...query, known }, "", manual);
     return reactiveSource(source, "feed") ? projectionPages.current.read(source, JSON.stringify(query), read) : read();
   };
-  const activeSources = doneAgent ? allSources.filter(source => source.id === (doneAgent.sourceId ?? scopedSource)) : allSources;
+  const activeSources: AgentSource[] = doneAgent ? allSources.filter(source => source.id === (doneAgent.sourceId ?? scopedSource)) : allSources;
   const sourceKey = JSON.stringify(
     activeSources.map((source) => source.id).sort(),
   );
@@ -2367,6 +2372,7 @@ export function Feed({
         aggregationId={!inNeeds && aggregatable(item) ? displayKey : undefined}
         dragSession={dragSession}
         onAggregate={combineCards}
+        sourceCapabilities={allSources.find(entry => entry.id === source)?.capabilities}
         readAsCard={!inNeeds && !thread && (
           ["done", "replies", "working", "queued"].includes(filter) ||
           (filter === "threads" && threadOutput)
@@ -2377,7 +2383,7 @@ export function Feed({
           source,
           connectionId,
           agent?.executionEnvironment ||
-            (source && activeSources.find(item => item.id === source)?.name) ||
+            (source && allSources.find(item => item.id === source)?.name) ||
             item.executionEnvironment,
         )}
         onRead={item.reply ? () => void markReplyRead(item) : item.read_at === null && !thread ? () => void markDoneRead(item) : undefined}

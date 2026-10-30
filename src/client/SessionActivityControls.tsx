@@ -1,8 +1,9 @@
 import { literalEntry } from "./textEntry";
+import { isExecutionRefused } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import type { SessionControls } from "../shared/session-controls";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceRoute, useSourceRouteRead } from "./SourceContext";
+import { useSourceOperation, useSourceId, useSourceRoute, useSourceRouteRead } from "./SourceContext";
 import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -24,6 +25,7 @@ export function SessionActivityControls({
   };
 }) {
   const call = useSourceRoute();
+  const unavailable = useSourceOperation(workspaceApi.setting);
   const read = useSourceRouteRead();
   const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
@@ -138,7 +140,7 @@ export function SessionActivityControls({
     }
   }
   async function change(id: string, value: SettingValue, newAttempt = false) {
-    if (!data || data.readOnly || !data.generation || writing.current) return;
+    if (unavailable || !data || data.readOnly || !data.generation || writing.current) return;
     const own = epoch.current;
     writing.current = true;
     ticket.current++;
@@ -164,6 +166,7 @@ export function SessionActivityControls({
       }
     } catch (e) {
       if (own === epoch.current) {
+        if (isExecutionRefused(e)) commands.current.delete(commandKey);
         setError((e as Error).message);
         setFailedChange({ id, value });
       }
@@ -202,12 +205,13 @@ export function SessionActivityControls({
               {failedChange.inspected && (
                 <button
                   type="button"
-                  disabled={!!pending || inspecting || !data || data.readOnly || !data.generation || data.capabilities.settings.state !== "supported" || !data.settings.options.find(option => option.id === failedChange.id)?.mutable}
+                  disabled={!!unavailable || !!pending || inspecting || !data || data.readOnly || !data.generation || data.capabilities.settings.state !== "supported" || !data.settings.options.find(option => option.id === failedChange.id)?.mutable}
                   onClick={() => void change(failedChange.id, failedChange.value, true)}
                 >Apply setting again</button>
               )}
             </p>
           )}
+          {unavailable && <p className="field-hint" role="status">{unavailable}</p>}
           {!data && !error && !readError && (
             <p role="status">Discovering session controls…</p>
           )}
@@ -228,6 +232,7 @@ export function SessionActivityControls({
                       <select
                         aria-label={option.label || option.id}
                         disabled={
+                          !!unavailable ||
                           data.readOnly ||
                           !!pending ||
                           !option.mutable ||
@@ -262,6 +267,7 @@ export function SessionActivityControls({
                         type="checkbox"
                         checked={option.confirmed === true}
                         disabled={
+                          !!unavailable ||
                           data.readOnly ||
                           !!pending ||
                           !option.mutable ||
@@ -279,6 +285,7 @@ export function SessionActivityControls({
                           option.requested ?? option.confirmed ?? "",
                         )}
                         disabled={
+                          !!unavailable ||
                           data.readOnly ||
                           !!pending ||
                           !option.mutable ||

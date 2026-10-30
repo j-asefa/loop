@@ -1,5 +1,6 @@
 import { workspaceApi, type Approval } from "../shared/workspace-api";
 import {
+  useSourceOperation,
   useSourceId,
   useSourceRoute,
   useSourceRouteRead,
@@ -49,6 +50,7 @@ export function Approvals({
   const call = useSourceRoute(),
     readContract = useSourceRouteRead();
   const sourceId = useSourceId();
+  const unavailable = useSourceOperation(workspaceApi.approval);
   const [items, setItems] = useState<Approval[]>([]);
   const [selected, setSelected] = useState<Approval | null>(null);
   const [error, setError] = useState("");
@@ -138,7 +140,8 @@ export function Approvals({
       !target ||
       !current ||
       target.expires_at <= Date.now() ||
-      locked.current
+      locked.current ||
+      !!unavailable
     )
       return;
     const detail = describeApproval(target.request);
@@ -212,14 +215,14 @@ export function Approvals({
                 <>
                   <button
                     className="primary"
-                    disabled={!!busy || !!dismissing}
+                    disabled={!!busy || !!dismissing || !!unavailable}
                     onClick={() => void decide("approve", item)}
                   >
                     <Check size={17} /> Approve
                   </button>
                   <button
                     className="secondary"
-                    disabled={!!busy || !!dismissing}
+                    disabled={!!busy || !!dismissing || !!unavailable}
                     onClick={() => void decide("reject", item)}
                   >
                     <X size={17} /> Deny
@@ -296,6 +299,11 @@ export function Approvals({
       {readError && (
         <p className="error" role="alert">
           {readError}
+        </p>
+      )}
+      {unavailable && (
+        <p className="field-hint" role="status">
+          {unavailable}
         </p>
       )}
       {error && !selected && (
@@ -395,7 +403,7 @@ export function Approvals({
             <div className="approval-actions">
               <button
                 className="primary"
-                disabled={!!busy || !active || expired}
+                disabled={!!busy || !active || expired || !!unavailable}
                 onClick={() => void decide("approve")}
               >
                 <Check size={18} />
@@ -403,7 +411,7 @@ export function Approvals({
               </button>
               <button
                 className="secondary"
-                disabled={!!busy || !active || expired}
+                disabled={!!busy || !active || expired || !!unavailable}
                 onClick={() => void decide("reject")}
               >
                 <X size={18} />

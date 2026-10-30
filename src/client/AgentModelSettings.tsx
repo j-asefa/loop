@@ -1,5 +1,5 @@
 import { literalEntry } from "./textEntry";
-import { useSourceRoute } from "./SourceContext";
+import { useSourceOperation, useSourceRoute } from "./SourceContext";
 import { workspaceApi } from "../shared/workspace-api";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
@@ -60,6 +60,7 @@ export function AgentModelSettings({
   onSaved: (agent: Agent) => void;
 }) {
   const route = useSourceRoute();
+  const unavailable = useSourceOperation(workspaceApi.agentUpdate);
   const [selected, setSelected] = useState(agent);
   const [catalog, setCatalog] = useState<Record<string, ModelOption[]>>({});
   const [error, setError] = useState(""),
@@ -119,7 +120,7 @@ export function AgentModelSettings({
     model: string,
     effort: string | null,
   ) {
-    if (locked.current) return;
+    if (locked.current || unavailable) return;
     if (
       connectionId === selected.connection_id &&
       model === selected.model &&
@@ -159,7 +160,7 @@ export function AgentModelSettings({
           className="effort-trigger"
           aria-expanded={effortOpen}
           aria-controls="model-effort-options"
-          disabled={!levels.length || busy}
+          disabled={!levels.length || busy || !!unavailable}
           onClick={() => setEffortOpen(!effortOpen)}
         >
           <strong>Effort</strong>
@@ -188,7 +189,7 @@ export function AgentModelSettings({
                 type="button"
                 role="radio"
                 aria-checked={(selected.effort || "") === level.value}
-                disabled={busy}
+                disabled={busy || !!unavailable}
                 key={level.value}
                 onClick={() =>
                   void save(
@@ -213,6 +214,11 @@ export function AgentModelSettings({
           </p>
         )}
       </div>
+      {unavailable && (
+        <p className="field-hint" role="status">
+          {unavailable}
+        </p>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -258,7 +264,7 @@ export function AgentModelSettings({
                       role="radio"
                       aria-label={`${modelOptionLabel(model)} · ${group.name} · ${group.connection.label}`}
                       aria-checked={active}
-                      disabled={busy}
+                      disabled={busy || !!unavailable}
                       key={model.id}
                       onClick={() => {
                         setEffortOpen(false);

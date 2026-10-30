@@ -4,6 +4,7 @@ export type AppViewProps = Pick<
   AppModel,
   | "bootstrapOwner"
   | "setBootstrapOwner"
+  | "composerUnavailable"
   | "composerOptions"
   | "setComposerOptions"
   | "composerFocusRequest"

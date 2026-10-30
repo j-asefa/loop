@@ -199,7 +199,20 @@ A process exiting after dispatch leaves an uncertain receipt; reading or retryin
 it never submits the effect again. Directory/grant checks precede dispatch, and
 the owning native handler still enforces decision generations.
 
-The gateway reserves the
+The browser commits its origin/owner command journal in IndexedDB transactions.
+It retains operation identities and semantic/payload digests, with no raw prompts,
+answers or credentials. These digests bind equality and receipt recovery; they do
+not encrypt low-entropy values whose other request fields are known.
+It reserves a per-command Web Lock before publishing an entry and holds it through
+authorization and response handling; concurrent tabs and
+bodyless lookups cannot overtake that first send. Acquiring a busy command lock
+releases the journal lock first, allowing earlier retries to settle. A new
+intent whose authorization or preparation fails before the action fetch is
+released without declaring a destination refusal or rotating the caller's ID;
+an existing uncertain intent remains receipt-only. Queued callers recheck the
+journal under their command lock. If an earlier caller removed the entry, an
+action reserves again with the same bound identity; the gateway reconciles any
+previous dispatch. A stale bodyless lookup sends nothing. The gateway reserves the
 command before asynchronous destination preparation. Existing receipt queries
 do not require the original action to remain advertised. Gateway failures remain
 uncertain: the same command may have executed through another gateway. Local
