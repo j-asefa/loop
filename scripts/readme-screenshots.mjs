@@ -8,7 +8,7 @@ mkdirSync(out, { recursive: true });
 const { designFixture } = await import(
   root + "/scripts/helpers/design-fixture.mjs"
 );
-const { chromium } = await import(
+const { chromium, expect } = await import(
   root + "/node_modules/@playwright/test/index.mjs"
 );
 const fixture = await designFixture();
@@ -295,9 +295,28 @@ try {
     colorScheme: "light",
   });
   const page = await context.newPage();
+  const capture = async (name) => {
+    const { summary } = await fixture.api("/feed?filter=needs");
+    const total =
+      summary.working +
+      summary.queued +
+      (summary.replies_unread || 0) +
+      (summary.done_unread || 0);
+    const badge = page
+      .locator(".mobile-nav")
+      .getByRole("button", { name: "Feed", exact: true })
+      .locator("small");
+    if (total)
+      await expect(badge).toHaveAttribute(
+        "aria-label",
+        `${total} ${total === 1 ? "item" : "items"} in Feed`,
+      );
+    else await expect(badge).toHaveCount(0);
+    await page.screenshot({ path: out + "/" + name + ".png" });
+  };
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   await page.waitForTimeout(1000);
-  await page.screenshot({ path: out + "/needs-you.png" });
+  await capture("needs-you");
   await page.evaluate(() => {
     const done = [...document.querySelectorAll("button, [role=tab]")].find(
       (b) => /Done/.test(b.textContent),
@@ -306,7 +325,7 @@ try {
     window.scrollBy(0, -12);
   });
   await page.waitForTimeout(800);
-  await page.screenshot({ path: out + "/feed.png" });
+  await capture("feed");
   await page.evaluate(() => window.scrollTo(0, 0));
   await page
     .locator(".your-agents .agent-strip button")
@@ -318,14 +337,14 @@ try {
     .locator(".profile-model")
     .filter({ hasText: "Claude Opus 5.5" })
     .waitFor();
-  await page.screenshot({ path: out + "/agent-profile.png" });
+  await capture("agent-profile");
   await page
     .locator(".mobile-nav")
     .getByRole("button", { name: "Your profile", exact: true })
     .click();
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(1000);
-  await page.screenshot({ path: out + "/your-profile.png" });
+  await capture("your-profile");
   await page.evaluate(() => window.scrollBy(0, 300));
   await page.waitForTimeout(600);
 
@@ -342,7 +361,7 @@ try {
   await page.waitForTimeout(800);
   await page.evaluate(() => window.scrollBy(0, 515));
   await page.waitForTimeout(500);
-  await page.screenshot({ path: out + "/saved.png" });
+  await capture("saved");
   await page.goto(fixture.base + "/?filter=done", { waitUntil: "networkidle" });
   await page
     .locator(".inbox-results .inbox-card")
@@ -352,7 +371,7 @@ try {
   const reader = page.locator("dialog.feed-reading-sheet[open]");
   await reader.waitFor();
   await page.waitForTimeout(1000);
-  await page.screenshot({ path: out + "/result.png" });
+  await capture("result");
 } finally {
   await browser.close();
   await fixture.close();

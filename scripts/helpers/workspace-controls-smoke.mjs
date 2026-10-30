@@ -73,70 +73,58 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     .get(created.id);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(fixture.base);
-  // The Feed tab carries the Running tab's badge: agents working right now.
   const inboxNav = page
     .locator(".mobile-nav")
     .getByRole("button", { name: "Feed", exact: true });
-  await expect(inboxNav.locator("small")).toHaveCount(1);
-  await expect(inboxNav.locator("small")).toHaveAttribute(
-    "aria-label",
-    "1 agent running",
-  );
-  const icon = await inboxNav.locator("svg").boundingBox();
-  const badge = await inboxNav.locator("small").boundingBox();
-  assert(badge.x > icon.x + icon.width / 2 && badge.y < icon.y);
-  const runs = await fixture.api("/runs?active=1");
-  const running = runs.find((run) => run.state === "running");
-  let navRuns = [
-    ...runs,
-    { ...running, id: "duplicate-active-run" },
-    {
-      ...running,
-      id: "still-pausing",
-      agent_id: fixture.agents[0].id,
-      state: "pausing",
-    },
-    {
-      ...running,
-      id: "waiting-for-children",
-      agent_id: fixture.agents[2].id,
-      state: "waiting_children",
-    },
-  ];
-  const runPattern = /\/api\/runs\?active=1(?:&|$)/;
-  const counts = (route) => route.fulfill({ json: navRuns });
-  await page.route(runPattern, counts);
+  const feedPattern = /\/api\/feed(?:\?|$)/;
+  let summary = { working: 2, queued: 3, replies_unread: 1, done_unread: 2 };
+  const counts = async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route
+      .fulfill({
+        response,
+        json: { ...body, summary: { ...body.summary, ...summary } },
+      })
+      .catch((error) => {
+        // Navigation can cancel an older snapshot while its fixture read finishes.
+        if (!/already handled|closed|disposed/i.test(error.message))
+          throw error;
+      });
+  };
+  await page.route(feedPattern, counts);
   try {
     await page.reload();
-    // Each agent counts once; running and pausing count, waiting does not.
-    await expect(inboxNav.locator("small")).toHaveCount(1);
-    await expect(inboxNav.locator("small")).toHaveText("2");
-    await capture("feed-running-badge");
-    // More than nine reads "9+".
-    const base = navRuns;
-    navRuns = [
-      ...base,
-      ...Array.from({ length: 9 }, (_, i) => ({
-        ...running,
-        id: "many-" + i,
-        agent_id: "many-agent-" + i,
-      })),
-    ];
+    await expect(inboxNav.locator("small")).toHaveText("8");
+    await expect(inboxNav.locator("small")).toHaveAttribute(
+      "aria-label",
+      "8 items in Feed",
+    );
+    const icon = await inboxNav.locator("svg").boundingBox();
+    const badge = await inboxNav.locator("small").boundingBox();
+    assert(badge.x > icon.x + icon.width / 2 && badge.y < icon.y);
+    await capture("feed-total-badge");
+    // Every category contributes; the accessible count remains exact above nine.
+    summary = { working: 2, queued: 3, replies_unread: 1, done_unread: 5 };
     await page.reload();
     await expect(inboxNav.locator("small")).toHaveText("9+");
     await expect(inboxNav.locator("small")).toHaveAttribute(
       "aria-label",
-      "11 agents running",
+      "11 items in Feed",
     );
-    navRuns = base.filter((run) => !["running", "pausing"].includes(run.state));
+    // The badge also loads when the app starts on another tab.
+    await page.goto(fixture.base + "/?page=projects");
+    await expect(inboxNav.locator("small")).toHaveAttribute(
+      "aria-label",
+      "11 items in Feed",
+    );
+    summary = { working: 0, queued: 0, replies_unread: 0, done_unread: 0 };
     await page.reload();
-    await expect(
-      page.locator(".inbox-results .inbox-card").first(),
-    ).toBeVisible();
     await expect(inboxNav.locator("small")).toHaveCount(0);
   } finally {
-    await page.unroute(runPattern, counts);
+    await page.unroute(feedPattern, counts);
   }
+  await page.goto(fixture.base);
   await page.reload();
   await page.locator(".composer-launch").click();
   await page

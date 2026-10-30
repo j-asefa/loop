@@ -19,7 +19,7 @@ export type AppViewProps = Pick<
   | "setProfile"
   | "setView"
   | "displayName"
-  | "runningAgentCount"
+  | "feedBadgeCount"
   | "session"
   | "error"
   | "check"

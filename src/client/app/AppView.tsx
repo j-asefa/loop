@@ -91,7 +91,7 @@ export function renderApp(props: AppViewProps) {
     setProfile,
     setView,
     displayName,
-    runningAgentCount,
+    feedBadgeCount,
     session,
     error,
     check,
@@ -290,12 +290,12 @@ export function renderApp(props: AppViewProps) {
             <t.icon size={21} />
           )}
           <span>{t.label}</span>
-          {t.id === "feed" && runningAgentCount > 0 && (
+          {t.id === "feed" && feedBadgeCount > 0 && (
             <small
               className="running-count"
-              aria-label={`${runningAgentCount} ${runningAgentCount === 1 ? "agent" : "agents"} running`}
+              aria-label={`${feedBadgeCount} ${feedBadgeCount === 1 ? "item" : "items"} in Feed`}
             >
-              {runningAgentCount > 9 ? "9+" : runningAgentCount}
+              {feedBadgeCount > 9 ? "9+" : feedBadgeCount}
             </small>
           )}
         </button>

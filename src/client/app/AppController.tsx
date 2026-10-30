@@ -1,3 +1,4 @@
+import { useFeedBadge } from "../useFeedBadge";
 import { useComposerDraft, useComposerSend } from "./Composer";
 import {
   workspaceApi,
@@ -1096,15 +1097,14 @@ export function useAppController() {
   );
   const profileWork = currentAgentWork(runs, profile?.id);
   const sentRun = runs.find((run) => run.id === sendNotice?.runId);
-  // The Feed tab's badge: how many agents are working right now.
-  const runningAgentCount = new Set(
-    (projectFilter || teamSelection.length ? scopedRuns : unified.runs)
-      .filter((r) => ["running", "pausing"].includes(r.state))
-      .map(
-        (r) =>
-          `${"sourceId" in r ? r.sourceId || "laptop" : executionSourceId() || "laptop"}:${r.agent_id}`,
-      ),
-  ).size;
+  const feedBadgeCount = useFeedBadge(
+    !!signedIn,
+    projectFilter || teamSelection.length
+      ? [executionSourceId()]
+      : unified.sources.map((source) => source.id),
+    projectFilter || undefined,
+    teamKey || undefined,
+  );
   const { draftKey, draftOwner, draftLoadedFor, pendingDraftSave } =
     useComposerDraft({
       draftId,
@@ -1418,7 +1418,7 @@ export function useAppController() {
     setProfile,
     setView,
     displayName,
-    runningAgentCount,
+    feedBadgeCount,
     session,
     error,
     check,
