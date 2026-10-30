@@ -13,9 +13,13 @@ import {
 // writes are deliberately absent. Streams have a separate bounded protocol.
 export const fleetReadRoutes = {
   capabilities: workspaceApi.capabilities,
+  agentSuggestName: workspaceApi.agentSuggestName,
   bootstrap: workspaceApi.bootstrap,
   feed: workspaceApi.feed,
   feedAway: workspaceApi.feedAway,
+  cardList: workspaceApi.cardList,
+  cardChanges: workspaceApi.cardChanges,
+  cardDetail: workspaceApi.cardDetail,
   runs: workspaceApi.runs,
   conversation: workspaceApi.conversation,
   conversationActivities: workspaceApi.conversationActivities,

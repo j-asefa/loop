@@ -21,6 +21,7 @@ export const fleetActionRoutes = {
   resultUpdate: workspaceApi.resultUpdate,
   conversationPosition: workspaceApi.conversationPosition,
   feedUpdate: workspaceApi.feedUpdate,
+  feedRead: workspaceApi.feedRead,
   replyState: workspaceApi.replyState,
   messageSave: workspaceApi.messageSave,
   messageUnsave: workspaceApi.messageUnsave,
@@ -69,6 +70,11 @@ export const FleetActionInput = z.strictObject({
   ),
 });
 export type FleetActionInput = z.infer<typeof FleetActionInput>;
+export const FleetActionReference = z.strictObject({
+  route: FleetActionRoute,
+  payloadDigest: FleetDigest,
+});
+export type FleetActionReference = z.infer<typeof FleetActionReference>;
 const Admission = z.strictObject({
   version: z.literal(1),
   requestId: z.string().uuid(),
@@ -112,6 +118,9 @@ export const fleetWorkspaceActionApi = {
   receipt: {
     ...base,
     path: "/fleet/peer/v1/workspace/receipt",
-    body: Admission.extend({ payloadDigest: FleetDigest }),
+    body: Admission.extend({
+      payloadDigest: FleetDigest,
+      route: FleetActionRoute.optional(),
+    }),
   },
 } as const satisfies Record<string, FleetRouteContract>;

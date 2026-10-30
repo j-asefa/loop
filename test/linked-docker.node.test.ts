@@ -110,6 +110,13 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       ),
     );
   });
+  // An independently paired/enrolled Docker companion is a peer source. Local
+  // Docker discovery must not also import its workspace as a server source.
+  const companionId = "d".repeat(64);
+  const companion = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ profile: "companion" }));
+  });
   let host: Host | undefined;
   const live = new WebSocketServer({ server: old });
   const eventRequests: {
@@ -132,6 +139,9 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     await new Promise<void>((resolve) => old.listen(0, "127.0.0.1", resolve));
     await new Promise<void>((resolve) =>
       second.listen(0, "127.0.0.1", resolve),
+    );
+    await new Promise<void>((resolve) =>
+      companion.listen(0, "127.0.0.1", resolve),
     );
     const port = (old.address() as { port: number }).port;
     const secondPort = (second.address() as { port: number }).port;
@@ -157,12 +167,26 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     secondInspect[0].Config.Labels["com.docker.compose.service"] = "loop";
     secondInspect[0].NetworkSettings.Ports["3000/tcp"][0].HostPort =
       String(secondPort);
+    const companionInspect = structuredClone(inspect);
+    companionInspect[0].Id = companionId;
+    companionInspect[0].Config.Labels["com.docker.compose.service"] =
+      "companion";
+    companionInspect[0].NetworkSettings.Ports["3000/tcp"][0].HostPort = String(
+      (companion.address() as { port: number }).port,
+    );
+    await writeFile(
+      join(dir, companionId + ".json"),
+      JSON.stringify(companionInspect),
+    );
     await writeFile(join(dir, containerId + ".json"), JSON.stringify(inspect));
     await writeFile(
       join(dir, secondId + ".json"),
       JSON.stringify(secondInspect),
     );
-    await writeFile(join(dir, "ids"), `${containerId}\n${secondId}\n`);
+    await writeFile(
+      join(dir, "ids"),
+      `${containerId}\n${secondId}\n${companionId}\n`,
+    );
     const docker = join(dir, "docker");
     await writeFile(
       docker,
@@ -442,7 +466,10 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       join(dir, replacementId + ".json"),
       JSON.stringify(inspect),
     );
-    await writeFile(join(dir, "ids"), `${replacementId}\n${secondId}\n`);
+    await writeFile(
+      join(dir, "ids"),
+      `${replacementId}\n${secondId}\n${companionId}\n`,
+    );
     const refreshed = await linkedDockerWorkspaces(true);
     assert.deepEqual(
       refreshed.map(({ id, name }) => ({ id, name })),
@@ -466,6 +493,7 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     if (host) await host.close();
     await new Promise<void>((resolve) => old.close(() => resolve()));
     await new Promise<void>((resolve) => second.close(() => resolve()));
+    await new Promise<void>((resolve) => companion.close(() => resolve()));
     await rm(dir, { recursive: true, force: true });
   }
 });

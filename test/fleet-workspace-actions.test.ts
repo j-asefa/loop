@@ -235,13 +235,18 @@ function command(
     input: { route, params, body },
   };
 }
-function query(commandId: string, payloadDigest = "f".repeat(64)) {
+function query(
+  commandId: string,
+  route: string,
+  payloadDigest = "f".repeat(64),
+) {
   return {
     version: 1,
     requestId: randomUUID(),
     commandId,
     credential: act,
     payloadDigest,
+    route,
   };
 }
 let ownAgent: string;
@@ -395,10 +400,20 @@ it("retains unknown writes after reply loss and replacement without invoking the
     "UPDATE agents SET instructions='Later local change' WHERE id=?",
   ).run(ownAgent);
   const receipt = await call(
-    query(input.commandId, fleetPayloadDigest(input.input)),
+    query(input.commandId, input.input.route, fleetPayloadDigest(input.input)),
     true,
   );
-  expect((await call(query(input.commandId), true)).status).toBe(409);
+  expect(
+    (await call(query(input.commandId, input.input.route), true)).status,
+  ).toBe(409);
+  expect(
+    (
+      await call(
+        query(input.commandId, "agentCreate", fleetPayloadDigest(input.input)),
+        true,
+      )
+    ).status,
+  ).toBe(409);
   expect(receipt.body.response.receipt.state).toBe("unknown");
   expect(
     (await call({ ...input, requestId: randomUUID() })).body.response.receipt
@@ -424,7 +439,7 @@ it("looks up a lost agent creation reply using the wire payload before defaults 
     loseReply = false;
   }
   const receipt = await call(
-    query(input.commandId, fleetPayloadDigest(input.input)),
+    query(input.commandId, "agentCreate", fleetPayloadDigest(input.input)),
     true,
   );
   expect(receipt.status).toBe(200);
@@ -579,5 +594,8 @@ it("bounds actual action handlers and refuses a grant revoked while internal mid
   expect(
     db.prepare("SELECT instructions FROM agents WHERE id=?").get(ownAgent),
   ).toEqual({ instructions: "Later local change" });
-  expect((await call(query(inputs[0].commandId), true)).status).toBe(403);
+  expect(
+    (await call(query(inputs[0].commandId, inputs[0].input.route), true))
+      .status,
+  ).toBe(403);
 });

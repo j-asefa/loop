@@ -169,7 +169,8 @@ read credential maps to the destination owner; callers cannot select another
 owner/source, arbitrary URLs or private native/provider endpoints. The in-memory
 bridge runs existing middleware and public projections. Signed responses bind
 the request, machine, grant, directory and source clock. Catalogs advertise only
-implemented capabilities. Destination reads have four slots and a 2 MiB limit;
+implemented capabilities within locally consented read/action scopes. Unknown
+operation names grant no local route and preserve compatible known reads. Destination reads have four slots and a 2 MiB limit;
 clients allow four requests per peer, sixteen overall, cancellation and a
 45-second deadline. The bridge holds its four read and four action slots until
 handlers finish, even after HTTP timeouts; expired middleware cannot start a
@@ -179,15 +180,40 @@ invalidates only the credential used. Verified directory changes trigger bounded
 history reconciliation without replaying the read. Startup and source discovery
 leave these hooks unmounted until source-control integration is complete.
 
+The optional peer source adapter projects the verified catalog into source
+capabilities. Browser controls never inherit another machine's permissions.
+A peer deep link keeps that source selected when it is unavailable and establishes
+its device session at the serving gateway. Typed and remaining legacy mutation
+helpers share the same fixed action contracts and browser command journal;
+unsupported paths refuse without falling back locally. Native decision receipt
+keys include the browser owner, machine and decision identity.
+
 Destination fleet command receipts retain their original identity across retries,
 gateway changes and restarts. They project responses through the owning public
 contract, bound cached response bodies, and retain compacted completion records.
+Pre-tag upgrade receipts expose their outcome without reinterpreting their stored
+result as a newer action response. They never repeat the accepted effect.
 Their payload digest binds the parsed wire input before handler defaults and
 inner idempotency keys are supplied, so receipt queries use the same payload.
 A process exiting after dispatch leaves an uncertain receipt; reading or retrying
 it never submits the effect again. Directory/grant checks precede dispatch, and
-the owning native handler still enforces decision generations. Peer agent-action
-HTTP endpoints are not registered yet.
+the owning native handler still enforces decision generations.
+
+The gateway reserves the
+command before asynchronous destination preparation. Existing receipt queries
+do not require the original action to remain advertised. Gateway failures remain
+uncertain: the same command may have executed through another gateway. Local
+validation or lost authorization also cannot settle an older command. Destination
+reconciliation returns its existing outcome or atomically retires an absent ID
+with a durable refusal, preventing delayed transports from executing it. Only that
+verified refusal permits a fresh intent. A lookup at the same gateway cannot
+overtake its active original send; an earlier lookup from another gateway may
+retire the command before it arrives. Older peers that return no receipt retain
+uncertainty. The v1 receipt contract keeps its action-name extension optional for
+older callers. When an older peer rejects that extension with HTTP 400, a gateway
+retries only the receipt read without it, verifies the legacy signed request
+digest, and exposes its outcome without an untyped result body. Actions are never
+retransmitted by this compatibility fallback.
 
 Fleet work retains its creator and every peer edit, resume or explicit scheduled
 retry in the owning transaction, including work created locally. Scheduled

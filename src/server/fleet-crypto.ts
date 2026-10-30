@@ -15,17 +15,10 @@ import {
 } from "../shared/fleet.js";
 import { Problem } from "../shared/problem.js";
 
-// All signing inputs are bounded, strict schemas. Sort object keys without
-// sorting arrays: array order is part of the signed document.
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value !== null && typeof value === "object")
-    return `{${Object.entries(value)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
-}
+import {
+  canonicalFleetJson as canonical,
+  fleetOperationBytes,
+} from "../shared/fleet-canonical.js";
 
 export function machineIdentity(publicKey: string): MachineIdentity {
   MachinePublicKey.parse(publicKey);
@@ -93,17 +86,8 @@ export function fleetPayloadDigest(
   input: unknown,
   maxBytes = 1024 * 1024,
 ): string {
-  const json = JSON.stringify(input);
-  if (
-    !Number.isSafeInteger(maxBytes) ||
-    maxBytes <= 0 ||
-    maxBytes > 4 * 1024 * 1024 ||
-    json === undefined ||
-    Buffer.byteLength(json) > maxBytes
-  )
-    throw new Problem(413, "Fleet operation input is too large.");
   return createHash("sha256")
-    .update(`loop:fleet:operation:v1\n${canonical(JSON.parse(json))}`)
+    .update(fleetOperationBytes(input, maxBytes))
     .digest("hex");
 }
 

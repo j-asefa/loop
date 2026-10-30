@@ -36,13 +36,13 @@ const responseNames = new Map([
 
 const proof = {
   workspaceCatalog:
-    "Requires the destination owner's read credential. Signs request identity and implemented local reads; absent actions/events/files confer no capability.",
+    "Requires a destination-owner machine credential. Signs request identity and configured capabilities intersected with its grant; absent capabilities confer no access.",
   workspaceRead:
     "Requires a read credential and allowlisted local projection. Runs destination middleware, projects bounded results and rechecks grant/directory before signing the input digest and result. No caller-selected URL, source, owner, headers, private admin/native/provider setup or recursive routing.",
   workspaceAction:
     "Requires an act credential and allowlisted local action. Records the command and parsed wire digest before its owning handler; defaults cannot change that digest. Rechecks grants and native generations at owning boundaries. Never replays uncertain work.",
   workspaceReceipt:
-    "Requires an act credential, original command ID and parsed wire digest. Returns the retained receipt without dispatch; missing or uncertain receipts do not prove an absent effect.",
+    "Requires an act credential, original command ID and parsed wire digest. The optional action name binds typed recovery and atomically retires an absent ID without dispatch. Legacy requests omit that name and only read existing receipts; a missing legacy receipt preserves uncertainty.",
   credentialChallenge:
     "Returns a signed, short-lived challenge only for a currently authorized destination grant, peer, directory and operation. A challenge grants no access and allocates no per-request nonce state.",
   credentialIssue:
@@ -107,11 +107,13 @@ for (const [name, route] of Object.entries({
       "x-loop-authentication":
         name === "enrollmentProbe" || name === "credentialChallenge"
           ? "public challenge; credential challenges require an active grant context"
-          : name === "workspaceCatalog" || name === "workspaceRead"
-            ? "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
-            : name === "workspaceAction" || name === "workspaceReceipt"
-              ? "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
-              : "signed request body; prepare also requires a one-time capability",
+          : name === "workspaceCatalog"
+            ? "opaque machine credential in the strict JSON body; destination maps the owner and intersects capabilities with its current grant"
+            : name === "workspaceRead"
+              ? "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
+              : name === "workspaceAction" || name === "workspaceReceipt"
+                ? "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
+                : "signed request body; prepare also requires a one-time capability",
       parameters: [
         {
           name: "X-Loop-Fleet-Version",

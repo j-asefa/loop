@@ -4,6 +4,7 @@ import {
   FleetActionInput,
   FleetActionRequest,
   FleetActionResponse,
+  FleetActionReference,
   fleetActionRoutes,
   fleetWorkspaceActionApi,
 } from "../shared/fleet-workspace-action-api.js";
@@ -18,60 +19,8 @@ import { withFleetAction } from "./fleet-action-context.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import type { FleetGrantContext } from "../shared/fleet.js";
 
-/** The outer durable identity also owns any existing inner receipt key. */
-export function fleetActionInput(
-  input: FleetActionInput,
-  commandId: string,
-): FleetActionInput {
-  z.string().uuid().parse(commandId);
-  const value = FleetActionInput.parse(input);
-  const body = structuredClone(value.body ?? {});
-  const bind = (key: string, target: unknown = body) => {
-    if (target === null || typeof target !== "object" || Array.isArray(target))
-      throw new Problem(400, "Choose a valid workspace action body.");
-    const record = target as Record<string, unknown>;
-    if (record[key] !== undefined && record[key] !== commandId)
-      throw new Problem(
-        409,
-        "The workspace action has a different command identity.",
-      );
-    record[key] = commandId;
-  };
-  if (
-    ["agentCreate", "submit", "scheduledSendCreate", "runMove"].includes(
-      value.route,
-    )
-  )
-    bind("idempotencyKey");
-  if (value.route === "runAction") {
-    if (
-      !["dismiss", "cancel", "pause", "resume", "retry"].includes(
-        value.params.action,
-      )
-    )
-      throw new Problem(400, "Choose a supported run action.");
-    if (value.params.action === "retry") bind("idempotencyKey");
-  }
-  if (["nativeAnswer", "setting"].includes(value.route)) bind("commandId");
-  if (
-    ["conversationContinue", "conversationContinueStart"].includes(
-      value.route,
-    ) &&
-    body &&
-    typeof body === "object" &&
-    !Array.isArray(body) &&
-    "start" in body
-  )
-    bind("idempotencyKey", body.start);
-  const contract = fleetActionRoutes[value.route];
-  const params = contract.params.parse(value.params) as Record<string, string>;
-  const parsedBody = contract.body.parse(body);
-  return FleetActionInput.parse({
-    route: value.route,
-    params,
-    body: parsedBody ?? {},
-  });
-}
+export { fleetActionInput } from "../shared/fleet-action-input.js";
+import { fleetActionInput } from "../shared/fleet-action-input.js";
 
 /** Machine credentials reach only declared local handlers, with their original
  * command ID. The destination stores a receipt before any handler or native IO.
@@ -251,6 +200,7 @@ export class FleetWorkspaceActions {
             ).result;
           },
         ),
+      value.route,
     );
     return this.signed(
       request,
@@ -265,15 +215,50 @@ export class FleetWorkspaceActions {
   receipt(input: unknown) {
     const request = fleetWorkspaceActionApi.receipt.body.parse(input);
     const context = this.authorize(request.credential);
+    const receipt = request.route
+      ? this.commands.reconcile(
+          context,
+          request.commandId,
+          request.payloadDigest,
+          request.route,
+        )
+      : this.commands.receipt(
+          context,
+          request.commandId,
+          request.payloadDigest,
+        );
     return this.signed(
       request,
-      this.commands.receipt(context, request.commandId, request.payloadDigest),
+      receipt,
       fleetPayloadDigest({
         requestId: request.requestId,
         commandId: request.commandId,
         payloadDigest: request.payloadDigest,
+        ...(request.route ? { route: request.route } : {}),
       }),
     );
+  }
+  get machineId() {
+    return this.authority.identity.machineId;
+  }
+  localReceipt(commandId: string, reference: FleetActionReference) {
+    this.active();
+    const value = FleetActionReference.parse(reference);
+    const receipt = this.commands.localReceipt(
+      this.owner,
+      commandId,
+      value.payloadDigest,
+      value.route,
+    );
+    return receipt
+      ? {
+          ...receipt,
+          result:
+            receipt.result === null
+              ? null
+              : fleetActionRoutes[value.route].response.parse(receipt.result),
+        }
+      : { commandId, state: "unknown" as const, result: null };
   }
   close() {
     this.stopped = true;

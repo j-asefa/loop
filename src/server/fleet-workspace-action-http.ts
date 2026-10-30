@@ -1,8 +1,18 @@
+import { Problem } from "../shared/problem.js";
 import type { z } from "zod";
 import { fleetWorkspaceActionApi } from "../shared/fleet-workspace-action-api.js";
 import { FleetPeerHttpTransport } from "./fleet-peer-transport.js";
+import { fleetWorkspaceApi } from "../shared/fleet-workspace-api.js";
+import { fleetPeerApi } from "../shared/fleet-peer-api.js";
+import type { FleetEnrollmentProbe } from "../shared/fleet-enrollment.js";
+import type { FleetIdentityTransport } from "./fleet-peer-identity.js";
 
-export interface FleetWorkspaceActionTransport {
+export interface FleetWorkspaceActionTransport extends FleetIdentityTransport {
+  catalog(
+    origin: string,
+    input: z.input<typeof fleetWorkspaceApi.catalog.body>,
+    signal: AbortSignal,
+  ): Promise<unknown>;
   action(
     origin: string,
     input: z.input<typeof fleetWorkspaceActionApi.action.body>,
@@ -18,6 +28,16 @@ export class FleetWorkspaceActionHttpTransport
   extends FleetPeerHttpTransport
   implements FleetWorkspaceActionTransport
 {
+  probe(origin: string, input: FleetEnrollmentProbe, signal: AbortSignal) {
+    return this.exchange(origin, fleetPeerApi.enrollmentProbe, input, signal);
+  }
+  catalog(
+    origin: string,
+    input: z.input<typeof fleetWorkspaceApi.catalog.body>,
+    signal: AbortSignal,
+  ) {
+    return this.exchange(origin, fleetWorkspaceApi.catalog, input, signal);
+  }
   action(
     origin: string,
     input: z.input<typeof fleetWorkspaceActionApi.action.body>,
@@ -25,16 +45,30 @@ export class FleetWorkspaceActionHttpTransport
   ) {
     return this.exchange(origin, fleetWorkspaceActionApi.action, input, signal);
   }
-  receipt(
+  async receipt(
     origin: string,
     input: z.input<typeof fleetWorkspaceActionApi.receipt.body>,
     signal: AbortSignal,
   ) {
-    return this.exchange(
-      origin,
-      fleetWorkspaceActionApi.receipt,
-      input,
-      signal,
-    );
+    try {
+      return await this.exchange(
+        origin,
+        fleetWorkspaceActionApi.receipt,
+        input,
+        signal,
+      );
+    } catch (error) {
+      // Older v1 peers reject the optional route field. The fallback only reads
+      // a receipt; it never resubmits an action or treats an HTTP error as proof.
+      if (!(error instanceof Problem) || error.status !== 400 || !input.route)
+        throw error;
+      const { route: _route, ...legacy } = input;
+      return this.exchange(
+        origin,
+        fleetWorkspaceActionApi.receipt,
+        legacy,
+        signal,
+      );
+    }
   }
 }

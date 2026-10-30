@@ -664,3 +664,4 @@ await import("./fleet-openapi.mjs");
 await import("./fleet-admin-openapi.mjs");
 
 await import("./openapi-channels.mjs");
+await import("./fleet-gateway-openapi.mjs");

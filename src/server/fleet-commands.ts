@@ -11,6 +11,7 @@ const ReceiptRow = z.object({
   grant_id: z.string(),
   operation: z.string(),
   payload_digest: z.string(),
+  command_tag: z.string().nullable(),
   state: z.enum(["started", "completed", "unknown", "refused"]),
   result: z.string().nullable(),
 });
@@ -48,11 +49,17 @@ export class FleetCommands {
   private view(
     commandId: string,
     row: z.infer<typeof ReceiptRow>,
+    tag?: string,
   ): FleetCommandReceipt {
     return {
       commandId,
       state: row.state,
-      result: row.result === null ? null : JSON.parse(row.result),
+      // An older row proves its outcome and digest, but not an action schema.
+      // Preserve reconciliation without relabelling or exposing its old result.
+      result:
+        row.result === null || (tag !== undefined && row.command_tag === null)
+          ? null
+          : JSON.parse(row.result),
     };
   }
 
@@ -60,6 +67,7 @@ export class FleetCommands {
     input: FleetGrantContext,
     commandId: string,
     expectedDigest?: string,
+    expectedTag?: string,
   ): FleetCommandReceipt | null {
     const context = FleetGrantContext.parse(input);
     z.string().uuid().parse(commandId);
@@ -70,19 +78,99 @@ export class FleetCommands {
       row.fleet_id !== context.fleetId ||
       row.grant_id !== context.grantId ||
       row.operation !== context.operation ||
-      (expectedDigest !== undefined && row.payload_digest !== expectedDigest)
+      (expectedDigest !== undefined && row.payload_digest !== expectedDigest) ||
+      (expectedTag !== undefined &&
+        row.command_tag !== null &&
+        row.command_tag !== expectedTag)
     )
       throw new Problem(
         409,
         "Fleet command belongs to another authorization context.",
       );
+    return this.observed(owner, commandId, row, expectedTag);
+  }
+
+  /** Reconciliation retires an absent action atomically with checking for its
+   * receipt. A delayed transport can now only observe this refusal, never run.
+   * Existing started/unknown effects remain uncertain and are never retired. */
+  reconcile(
+    input: FleetGrantContext,
+    commandId: string,
+    digest: string,
+    tag: string,
+  ): FleetCommandReceipt {
+    const context = FleetGrantContext.parse(input);
+    z.string()
+      .regex(/^[a-f0-9]{64}$/)
+      .parse(digest);
+    z.string().min(1).max(100).parse(tag);
+    if (context.operation !== "act")
+      throw new Problem(400, "Only workspace actions use this reconciliation.");
+    return this.db
+      .transaction(() => {
+        const prior = this.receipt(context, commandId, digest, tag);
+        if (prior) return prior;
+        const { owner } = this.authority.authorize(context);
+        const now = Date.now();
+        this.db
+          .prepare(
+            "INSERT INTO fleet_command_receipts(owner_id,peer_id,command_id,fleet_id,grant_id,operation,payload_digest,state,result,created_at,updated_at,command_tag) VALUES(?,?,?,?,?,?,?,'refused',NULL,?,?,?)",
+          )
+          .run(
+            owner,
+            context.peer,
+            commandId,
+            context.fleetId,
+            context.grantId,
+            context.operation,
+            digest,
+            now,
+            now,
+            tag,
+          );
+        return { commandId, state: "refused" as const, result: null };
+      })
+      .immediate();
+  }
+
+  /** Only a local owner facade may call this. It has no peer grant alternative:
+   * a paired user can inspect their own work even after leaving the fleet. */
+  localReceipt(
+    owner: string,
+    commandId: string,
+    digest: string,
+    tag: string,
+  ): FleetCommandReceipt | null {
+    z.string().uuid().parse(commandId);
+    z.string()
+      .regex(/^[a-f0-9]{64}$/)
+      .parse(digest);
+    const row = this.row(owner, commandId);
+    if (!row) return null;
+    if (
+      row.operation !== "act" ||
+      row.payload_digest !== digest ||
+      (row.command_tag !== null && row.command_tag !== tag)
+    )
+      throw new Problem(
+        409,
+        "This receipt belongs to a different command or action.",
+      );
+    return this.observed(owner, commandId, row, tag);
+  }
+  private observed(
+    owner: string,
+    commandId: string,
+    row: z.infer<typeof ReceiptRow>,
+    tag?: string,
+  ): FleetCommandReceipt {
     const key = JSON.stringify([owner, commandId]);
     // A surviving process may still be executing this request. A different
     // process cannot infer whether its external effect happened, even if the
     // original process has died. Reporting unknown never starts it again.
     if (row.state === "started" && !this.inflight.has(key))
       return { commandId, state: "unknown", result: null };
-    return this.view(commandId, row);
+    return this.view(commandId, row, tag);
   }
 
   async execute(
@@ -91,9 +179,11 @@ export class FleetCommands {
     request: unknown,
     output: z.ZodType,
     apply: (owner: string, originalCommandId: string) => Promise<unknown>,
+    tag: string | null = null,
   ): Promise<FleetCommandReceipt> {
     const context = FleetGrantContext.parse(input);
     z.string().uuid().parse(commandId);
+    z.string().min(1).max(100).nullable().parse(tag);
     if (!["act", "mail", "files"].includes(context.operation))
       throw new Problem(400, "This fleet operation is not a mutation.");
     const digest = fleetPayloadDigest(request);
@@ -106,7 +196,8 @@ export class FleetCommands {
             prior.fleet_id !== context.fleetId ||
             prior.grant_id !== context.grantId ||
             prior.operation !== context.operation ||
-            prior.payload_digest !== digest
+            prior.payload_digest !== digest ||
+            (prior.command_tag !== null && prior.command_tag !== tag)
           )
             throw new Problem(
               409,
@@ -121,7 +212,7 @@ export class FleetCommands {
           const now = Date.now();
           this.db
             .prepare(
-              "INSERT INTO fleet_command_receipts VALUES(?,?,?,?,?,?,?,'started',NULL,?,?)",
+              "INSERT INTO fleet_command_receipts(owner_id,peer_id,command_id,fleet_id,grant_id,operation,payload_digest,state,result,created_at,updated_at,command_tag) VALUES(?,?,?,?,?,?,?,'started',NULL,?,?,?)",
             )
             .run(
               owner,
@@ -133,6 +224,7 @@ export class FleetCommands {
               digest,
               now,
               now,
+              tag,
             );
         }
         return { owner, prior };
@@ -141,9 +233,12 @@ export class FleetCommands {
     const key = JSON.stringify([owner, commandId]);
     if (prior) {
       const current = this.inflight.get(key);
-      if (current) return current;
+      if (current)
+        return tag !== null && prior.command_tag === null
+          ? current.then((receipt) => ({ ...receipt, result: null }))
+          : current;
       if (prior.state === "completed" || prior.state === "refused")
-        return this.view(commandId, prior);
+        return this.view(commandId, prior, tag ?? undefined);
       return { commandId, state: "unknown", result: null };
     }
     const promise = Promise.resolve()

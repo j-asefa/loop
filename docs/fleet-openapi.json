@@ -1833,10 +1833,10 @@
     "/api/fleet/peer/v1/workspace/catalog": {
       "post": {
         "operationId": "workspaceCatalog",
-        "description": "Requires the destination owner's read credential. Signs request identity and implemented local reads; absent actions/events/files confer no capability. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "description": "Requires a destination-owner machine credential. Signs request identity and configured capabilities intersected with its grant; absent capabilities confer no access. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
         "x-loop-access": "peer:workspace",
-        "x-loop-authentication": "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-authentication": "opaque machine credential in the strict JSON body; destination maps the owner and intersects capabilities with its current grant",
         "parameters": [
           {
             "name": "X-Loop-Fleet-Version",
@@ -2289,7 +2289,7 @@
     "/api/fleet/peer/v1/workspace/receipt": {
       "post": {
         "operationId": "workspaceReceipt",
-        "description": "Requires an act credential, original command ID and parsed wire digest. Returns the retained receipt without dispatch; missing or uncertain receipts do not prove an absent effect. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "description": "Requires an act credential, original command ID and parsed wire digest. The optional action name binds typed recovery and atomically retires an absent ID without dispatch. Legacy requests omit that name and only read existing receipts; a missing legacy receipt preserves uncertainty. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
         "x-loop-access": "peer:workspace",
         "x-loop-authentication": "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
@@ -6581,9 +6581,13 @@
                 "type": "string",
                 "enum": [
                   "capabilities",
+                  "agentSuggestName",
                   "bootstrap",
                   "feed",
                   "feedAway",
+                  "cardList",
+                  "cardChanges",
+                  "cardDetail",
                   "runs",
                   "conversation",
                   "conversationActivities",
@@ -6875,6 +6879,7 @@
                   "resultUpdate",
                   "conversationPosition",
                   "feedUpdate",
+                  "feedRead",
                   "replyState",
                   "messageSave",
                   "messageUnsave",
@@ -7096,6 +7101,50 @@
           "payloadDigest": {
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
+          },
+          "route": {
+            "type": "string",
+            "enum": [
+              "agentCreate",
+              "agentUpdate",
+              "submit",
+              "runAction",
+              "approval",
+              "nativeAnswer",
+              "setting",
+              "resultUpdate",
+              "conversationPosition",
+              "feedUpdate",
+              "feedRead",
+              "replyState",
+              "messageSave",
+              "messageUnsave",
+              "savedLabel",
+              "laterCreate",
+              "laterFinish",
+              "laterSnooze",
+              "laterReopen",
+              "projectOpened",
+              "scheduledSendCreate",
+              "scheduledSendCancel",
+              "scheduledSendUpdate",
+              "scheduledSendRetry",
+              "runReorder",
+              "runUpdate",
+              "runWithdraw",
+              "runMove",
+              "conversationFork",
+              "conversationContinue",
+              "conversationContinueStart",
+              "folderCreate",
+              "folderUpdate",
+              "workspaceProjectCreate",
+              "workspaceProjectUpdate",
+              "artifactCreate",
+              "artifactUpdate",
+              "artifactMove",
+              "operationUndo"
+            ]
           }
         },
         "required": [

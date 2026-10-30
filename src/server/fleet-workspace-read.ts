@@ -26,10 +26,11 @@ export class FleetWorkspaceRead {
     private readonly owner: string,
     private readonly app: FleetWorkspaceApp,
     secrets: ConstructorParameters<typeof FleetProof>[2],
+    private readonly options: { actions?: () => readonly string[] } = {},
   ) {
     this.proof = new FleetProof(db, authority.identity, secrets);
   }
-  private authorize(credential: string) {
+  private authorize(credential: string, catalog = false) {
     if (
       this.stopped ||
       (
@@ -40,7 +41,11 @@ export class FleetWorkspaceRead {
     )
       throw new Problem(403, "This workspace does not admit fleet reads.");
     const accepted = this.credentials.authenticate(credential);
-    if (accepted.owner !== this.owner || accepted.context.operation !== "read")
+    if (
+      accepted.owner !== this.owner ||
+      (accepted.context.operation !== "read" &&
+        !(catalog && accepted.context.operation === "act"))
+    )
       throw new Problem(
         403,
         "This credential cannot read the local workspace.",
@@ -55,7 +60,22 @@ export class FleetWorkspaceRead {
   }
   catalog(input: unknown) {
     const request = fleetWorkspaceApi.catalog.body.parse(input);
-    const authorization = this.authorize(request.credential);
+    const authorization = this.authorize(request.credential, true);
+    const allowed = (operation: "read" | "act") => {
+      try {
+        this.authority.acceptedGrant(
+          this.owner,
+          authorization.context.peer,
+          authorization.context.fleetId,
+          authorization.context.grantId,
+          operation,
+        );
+        return true;
+      } catch (error) {
+        if (error instanceof Problem && error.status === 403) return false;
+        throw error;
+      }
+    };
     const catalog = FleetWorkspaceCatalog.parse({
       version: 1,
       requestId: request.requestId,
@@ -65,8 +85,8 @@ export class FleetWorkspaceRead {
       grantId: authorization.context.grantId,
       requestDigest: fleetPayloadDigest({ requestId: request.requestId }),
       profile: "companion",
-      reads: Object.keys(fleetReadRoutes),
-      actions: [],
+      reads: allowed("read") ? Object.keys(fleetReadRoutes) : [],
+      actions: allowed("act") ? (this.options.actions?.() ?? []) : [],
       events: false,
       files: false,
     });

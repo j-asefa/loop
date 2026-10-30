@@ -168,6 +168,7 @@ export async function proxyLinkedDocker(
   sourceId: string,
   apiPath: string,
   responsePrefix = `/api/linked/${sourceId}/`,
+  current: () => void = () => {},
 ) {
   // Federation enrollment returns a private service credential and must only
   // be driven by the local source adapter, never through a paired browser.
@@ -202,6 +203,7 @@ export async function proxyLinkedDocker(
     return;
   }
   const targetOrigin = `http://127.0.0.1:${workspace.port}`;
+  current();
   const headers: Record<string, string> = {
     host: `127.0.0.1:${workspace.port}`,
     origin: targetOrigin,

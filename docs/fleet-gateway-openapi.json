@@ -1,0 +1,315 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Loop local fleet command receipts",
+    "version": "1",
+    "description": "Receipt lookup for a paired device on this gateway. The immutable destination, command ID, route and payload digest select an original receipt; no action body is retained or replayed. Bodies are bounded to 4 KiB, with 16 active requests and a 45-second deadline."
+  },
+  "paths": {
+    "/api/fleet/commands/receipt": {
+      "post": {
+        "operationId": "fleetGatewayReceipt",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
+        "x-loop-access": "device:fleet",
+        "security": [
+          {
+            "LocalDevice": [],
+            "LocalCSRF": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "The serving companion's exact HTTPS origin."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/receiptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Original command receipt projected by its owning action contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/receiptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetGatewayError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetGatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetGatewayError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetGatewayError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetGatewayError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetGatewayError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetGatewayError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetGatewayError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe error. A lost response does not prove an effect was absent; inspect the existing operation before creating another.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetGatewayError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "FleetGatewayError": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "receiptResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "started",
+              "completed",
+              "unknown",
+              "refused"
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/__schema0"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "commandId",
+          "state",
+          "result"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "receiptRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "route": {
+            "type": "string",
+            "enum": [
+              "agentCreate",
+              "agentUpdate",
+              "submit",
+              "runAction",
+              "approval",
+              "nativeAnswer",
+              "setting",
+              "resultUpdate",
+              "conversationPosition",
+              "feedUpdate",
+              "feedRead",
+              "replyState",
+              "messageSave",
+              "messageUnsave",
+              "savedLabel",
+              "laterCreate",
+              "laterFinish",
+              "laterSnooze",
+              "laterReopen",
+              "projectOpened",
+              "scheduledSendCreate",
+              "scheduledSendCancel",
+              "scheduledSendUpdate",
+              "scheduledSendRetry",
+              "runReorder",
+              "runUpdate",
+              "runWithdraw",
+              "runMove",
+              "conversationFork",
+              "conversationContinue",
+              "conversationContinueStart",
+              "folderCreate",
+              "folderUpdate",
+              "workspaceProjectCreate",
+              "workspaceProjectUpdate",
+              "artifactCreate",
+              "artifactUpdate",
+              "artifactMove",
+              "operationUndo"
+            ]
+          },
+          "payloadDigest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "peer": {
+            "type": "string",
+            "pattern": "^m_[a-f0-9]{64}$"
+          },
+          "commandId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "route",
+          "payloadDigest",
+          "peer",
+          "commandId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "LocalDevice": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-loop"
+      },
+      "LocalCSRF": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Loop-CSRF"
+      }
+    }
+  }
+}

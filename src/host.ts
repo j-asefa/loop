@@ -9,11 +9,7 @@ import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { linkedDockerWorkspaces, proxyLinkedDocker } from "./linked-docker.js";
-import {
-  agentSources,
-  proxyAgentSource,
-  connectAgentSourceEvents,
-} from "./agent-sources.js";
+import { AgentSources } from "./agent-sources.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import {
@@ -79,8 +75,10 @@ export class Host {
     isolated?: boolean;
     http: (req: IncomingMessage, res: ServerResponse) => void;
     fleetAdminHttp?: (req: IncomingMessage, res: ServerResponse) => void;
+    fleetCommandsHttp?: (req: IncomingMessage, res: ServerResponse) => void;
     /** Dedicated machine protocol; never forwards to the browser workspace API. */
     peerHttp?: (req: IncomingMessage, res: ServerResponse) => void;
+    sources?: AgentSources;
     authorizeToken?: (req: IncomingMessage) => CardAuthorization;
     tokenEvents?: {
       upgrade: (
@@ -110,6 +108,12 @@ export class Host {
   private decisions = new Set<string>();
   private promptPending = false;
   private stopped = false;
+  private readonly sources = new AgentSources();
+  private agentSources() {
+    return this.workspace?.isolated
+      ? this.sources
+      : (this.workspace?.sources ?? this.sources);
+  }
   private originGeneration = 0;
   private active = 0;
   private fleetRequests = new Map<
@@ -275,13 +279,11 @@ export class Host {
         const cleanup = local ? this.workspace?.connect(ws, url) : undefined;
         if (source) {
           try {
-            void connectAgentSourceEvents(
-              ws,
-              decodeURIComponent(source[1]),
-              url.searchParams,
-            ).catch(() =>
-              ws.close(1013, "Execution source updates unavailable"),
-            );
+            void this.agentSources()
+              .events(ws, decodeURIComponent(source[1]), url.searchParams)
+              .catch(() =>
+                ws.close(1013, "Execution source updates unavailable"),
+              );
           } catch {
             ws.close(1008, "Invalid execution source");
           }
@@ -438,6 +440,33 @@ export class Host {
       res.destroy();
       request.req.destroy();
     }
+  }
+  private delegateFleetRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    device: Device,
+  ) {
+    const generation = this.originGeneration;
+    const authorization = {
+      deviceId: device.id,
+      active: true,
+      current: () =>
+        !this.stopped &&
+        generation === this.originGeneration &&
+        !!this.device(device.id),
+    };
+    (req as FleetDeviceRequest)[fleetDeviceAuthorization] = authorization;
+    this.fleetRequests.set(res, { req, deviceId: device.id });
+    const done = () => {
+      authorization.active = false;
+      this.fleetRequests.delete(res);
+    };
+    res.once("finish", done);
+    res.once("close", done);
+    return () => {
+      if (!authorization.active || !authorization.current())
+        throw new Problem(403, "This device can no longer access the source.");
+    };
   }
   private deviceList() {
     return this.trust ? this.trust.devices() : [...this.devices.values()];
@@ -654,8 +683,14 @@ export class Host {
           this.revoke(device.id);
           return this.json(res, 200, { ok: true });
         }
-        if (path.startsWith("/api/fleet/admin/")) {
-          if (this.workspace.isolated || !this.workspace.fleetAdminHttp)
+        if (
+          path.startsWith("/api/fleet/admin/") ||
+          path.startsWith("/api/fleet/commands/")
+        ) {
+          const service = path.startsWith("/api/fleet/admin/")
+            ? this.workspace.fleetAdminHttp
+            : this.workspace.fleetCommandsHttp;
+          if (this.workspace.isolated || !service)
             return this.json(res, 404, {
               error: "Fleet administration unavailable.",
             });
@@ -668,22 +703,8 @@ export class Host {
             return this.json(res, 403, {
               error: "Fleet administration authorization rejected.",
             });
-          const generation = this.originGeneration;
-          const authorization = {
-            deviceId: device.id,
-            active: true,
-            current: () =>
-              !this.stopped && generation === this.originGeneration,
-          };
-          (req as FleetDeviceRequest)[fleetDeviceAuthorization] = authorization;
-          this.fleetRequests.set(res, { req, deviceId: device.id });
-          const done = () => {
-            authorization.active = false;
-            this.fleetRequests.delete(res);
-          };
-          res.once("finish", done);
-          res.once("close", done);
-          this.workspace.fleetAdminHttp(req, res);
+          this.delegateFleetRequest(req, res, device);
+          service(req, res);
           return;
         }
         if (this.workspace.isolated) {
@@ -766,11 +787,12 @@ export class Host {
               Number(req.headers["content-length"] ?? 0) > 0 ||
               req.headers["transfer-encoding"] !== undefined;
             contract.body.parse(hasBody ? {} : undefined);
-            output = this.workspace.isolated
-              ? []
-              : contract === workspaceApi.agentSources
-                ? await agentSources()
-                : await this.workspace.shareTools!();
+            if (this.workspace.isolated) output = [];
+            else if (contract === workspaceApi.agentSources) {
+              const current = this.delegateFleetRequest(req, res, device);
+              output = await this.agentSources().discover();
+              current();
+            } else output = await this.workspace.shareTools!();
           }
           const projected = contract.response.safeParse(output);
           if (!projected.success)
@@ -782,12 +804,22 @@ export class Host {
         if (path.startsWith("/api/agent-sources/")) {
           const match = /^\/api\/agent-sources\/([^/]+)\/(.+)$/.exec(path);
           if (!match) return this.json(res, 404, { error: "Not found" });
+          if (
+            (req.headers.origin && !this.validOrigin(req)) ||
+            req.headers["sec-fetch-site"] === "cross-site" ||
+            req.headers["x-http-method-override"] !== undefined ||
+            req.headers["x-method-override"] !== undefined
+          )
+            return this.json(res, 403, {
+              error: "Source authorization rejected.",
+            });
           const query = new URL(req.url!, this.origin).search;
-          await proxyAgentSource(
+          await this.agentSources().proxy(
             req,
             res,
             decodeURIComponent(match[1]),
             match[2] + query,
+            this.delegateFleetRequest(req, res, device),
           );
           return;
         }

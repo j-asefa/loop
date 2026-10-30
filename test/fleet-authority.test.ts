@@ -17,7 +17,11 @@ import { initializeFleetIdentity } from "../src/server/fleet-identity.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetCommands } from "../src/server/fleet-commands.js";
 import { ExecutionRefused } from "../src/server/execution-refusal.js";
-import { directoryDigest, signDirectory } from "../src/server/fleet-crypto.js";
+import {
+  directoryDigest,
+  fleetPayloadDigest,
+  signDirectory,
+} from "../src/server/fleet-crypto.js";
 import type {
   FleetDirectory,
   FleetGrantContext,
@@ -839,6 +843,118 @@ it("bounds cached result bodies while retaining completed command identities", a
     ),
   ).toEqual({ commandId: ids[0], state: "completed", result: null });
   expect(effects).toBe(65);
+});
+
+it("binds local recovery to the owner and the action saved before execution, including after removal", async () => {
+  const { a, b, signed } = pair();
+  const commands = new FleetCommands(b.db, b.authority),
+    id = randomUUID();
+  const input = { route: "agentCreate", body: { name: "fixture" } };
+  const digest = fleetPayloadDigest(input);
+  let effects = 0;
+  const receipt = await commands.execute(
+    context(b, a, "act"),
+    id,
+    input,
+    z.object({ id: z.string() }),
+    async () => {
+      expect(
+        b.db
+          .prepare(
+            "SELECT state,command_tag,payload_digest FROM fleet_command_receipts WHERE owner_id=? AND command_id=?",
+          )
+          .get(b.owner, id),
+      ).toEqual({
+        state: "started",
+        command_tag: "agentCreate",
+        payload_digest: digest,
+      });
+      effects++;
+      return { id: "created" };
+    },
+    "agentCreate",
+  );
+  expect(commands.localReceipt(b.owner, id, digest, "agentCreate")).toEqual(
+    receipt,
+  );
+  expect(commands.localReceipt(a.owner, id, digest, "agentCreate")).toBeNull();
+  expect(() =>
+    commands.localReceipt(b.owner, id, digest, "agentUpdate"),
+  ).toThrow(/different command or action/);
+  await expect(
+    commands.execute(
+      context(b, a, "act"),
+      id,
+      input,
+      z.object({ id: z.string() }),
+      async () => {
+        effects++;
+        return { id: "duplicate" };
+      },
+      "agentUpdate",
+    ),
+  ).rejects.toMatchObject({ status: 409 });
+  const removed = revise(
+    a,
+    signed.document.members.filter(
+      (m) => m.machineId !== b.authority.identity.machineId,
+    ),
+  );
+  b.authority.accept(b.owner, removed);
+  expect(() =>
+    commands.receipt(context(b, a, "act"), id, digest, "agentCreate"),
+  ).toThrow();
+  expect(commands.localReceipt(b.owner, id, digest, "agentCreate")).toEqual(
+    receipt,
+  );
+  expect(effects).toBe(1);
+});
+
+it("upgrades old command receipts without inventing their action or losing uncertain outcomes", () => {
+  const previous = join(root, "pre-command-tags-migrations");
+  mkdirSync(previous);
+  const migrations = new URL("../migrations/", import.meta.url);
+  for (const name of readdirSync(migrations))
+    if (Number(name.split("-")[0]) < 137)
+      copyFileSync(new URL(name, migrations), join(previous, name));
+  const db = new Database(join(root, "old-commands.db"));
+  databases.push(db);
+  applyMigrations(db, previous);
+  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
+  const owner = randomUUID(),
+    id = randomUUID(),
+    digest = "a".repeat(64);
+  db.prepare(
+    "INSERT INTO fleet_command_receipts VALUES(?,?,?,?,?,? ,?,'unknown',NULL,1,1)",
+  ).run(owner, "old-peer", id, "old-fleet", "old-grant", "act", digest);
+  applyMigrations(db);
+  const commands = new FleetCommands(db, new FleetAuthority(db, secrets));
+  expect(commands.localReceipt(owner, id, digest, "agentCreate")).toEqual({
+    commandId: id,
+    state: "unknown",
+    result: null,
+  });
+  db.prepare(
+    "UPDATE fleet_command_receipts SET state='completed',result=? WHERE command_id=?",
+  ).run(JSON.stringify({ privateUntypedResult: "must not escape" }), id);
+  expect(commands.localReceipt(owner, id, digest, "agentCreate")).toEqual({
+    commandId: id,
+    state: "completed",
+    result: null,
+  });
+  expect(() =>
+    commands.localReceipt(owner, id, "b".repeat(64), "agentCreate"),
+  ).toThrow();
+  expect(
+    commands.localReceipt(randomUUID(), id, digest, "agentCreate"),
+  ).toBeNull();
+  expect(
+    db
+      .prepare(
+        "SELECT state,command_tag,payload_digest FROM fleet_command_receipts WHERE command_id=?",
+      )
+      .get(id),
+  ).toEqual({ state: "completed", command_tag: null, payload_digest: digest });
 });
 
 it("migrates an existing companion without changing its identity or workspace records", () => {
