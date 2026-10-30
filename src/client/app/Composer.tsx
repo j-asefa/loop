@@ -472,13 +472,14 @@ export function useComposerSend({
         const result = await threadApi(workspaceApi.routingPreview, {
           body: { input: draft, folderId: folder || undefined },
         });
+        if (!currentView() || !sameComposer()) return;
         setRoutePreview({
           ...result,
           signature: JSON.stringify([draft, folder]),
         });
         if (!result.agent) setSheet("create");
       } catch (e) {
-        setError((e as Error).message);
+        if (currentView() && sameComposer()) setError((e as Error).message);
       } finally {
         if (currentView()) setBusy(false);
       }
@@ -499,6 +500,7 @@ export function useComposerSend({
         const route = await threadApi(workspaceApi.sharePreview, {
           body: { question: draft },
         });
+        if (!currentView() || !sameComposer()) return;
         recipient = composerData.agents.find((a) => a.id === route.agent?.id)!;
         if (!recipient) throw new Error("Choose an accessible @agent.");
       }
@@ -773,7 +775,7 @@ export function useComposerSend({
           failed,
         );
       }
-      if (owner === ownerRef.current && currentView())
+      if (owner === ownerRef.current && currentView() && sameComposer())
         setComposerError((e as Error).message);
     } finally {
       if (currentView()) setBusy(false);

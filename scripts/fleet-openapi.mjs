@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { fleetWorkspaceApi } from "../src/shared/fleet-workspace-api.ts";
 import { fleetWorkspaceActionApi } from "../src/shared/fleet-workspace-action-api.ts";
+import { fleetWorkspaceFileApi } from "../src/shared/fleet-workspace-file-api.ts";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.ts";
 import { fleetHandoffApi } from "../src/shared/fleet-handoff-api.ts";
 import { fleetDirectoryApi } from "../src/shared/fleet-directory-api.ts";
@@ -35,10 +36,16 @@ const responseNames = new Map([
 ]);
 
 const proof = {
+  workspaceFileOpen:
+    "Requires a files-scoped machine credential. Opens only a named owning workspace file projection, up to 25 MiB, with a signed byte count and SHA-256 checksum. At most two snapshots remain live for 30 idle seconds or 120 total seconds. The owner, grant and signed directory are rechecked before admission and after the owning handler.",
+  workspaceFileChunk:
+    "Requires a files-scoped machine credential for the original peer, grant and directory. Returns at most 256 KiB of base64-encoded bytes signed together with the fresh request identity, transfer, checksum and offsets. Permission changes, deleted objects and expired transfers are refused.",
+  workspaceFileClose:
+    "Requires a files-scoped machine credential. Releases the original peer's bounded snapshot; a missing transfer is already closed. Does not publish files or grant agent-mail access.",
   workspaceCatalog:
     "Requires a destination-owner machine credential. Signs request identity and configured capabilities intersected with its grant; absent capabilities confer no access.",
   workspaceRead:
-    "Requires a read credential and allowlisted local projection. Runs destination middleware, projects bounded results and rechecks grant/directory before signing the input digest and result. No caller-selected URL, source, owner, headers, private admin/native/provider setup or recursive routing.",
+    "Requires a read credential and allowlisted local projection, including read-only routing/sharing previews. Runs destination middleware, projects bounded results and rechecks grant/directory before signing the input digest and result. No caller-selected URL, source, owner, headers, private admin/native/provider setup or recursive routing.",
   workspaceAction:
     "Requires an act credential and allowlisted local action. Records the command and parsed wire digest before its owning handler; defaults cannot change that digest. Rechecks grants and native generations at owning boundaries. Never replays uncertain work.",
   workspaceReceipt:
@@ -78,6 +85,9 @@ for (const [name, route] of Object.entries({
   workspaceRead: fleetWorkspaceApi.read,
   workspaceAction: fleetWorkspaceActionApi.action,
   workspaceReceipt: fleetWorkspaceActionApi.receipt,
+  workspaceFileOpen: fleetWorkspaceFileApi.open,
+  workspaceFileChunk: fleetWorkspaceFileApi.chunk,
+  workspaceFileClose: fleetWorkspaceFileApi.close,
 })) {
   if (typeof route.access !== "string")
     throw new Error("Fleet routes cannot admit integration tokens");
@@ -109,11 +119,13 @@ for (const [name, route] of Object.entries({
           ? "public challenge; credential challenges require an active grant context"
           : name === "workspaceCatalog"
             ? "opaque machine credential in the strict JSON body; destination maps the owner and intersects capabilities with its current grant"
-            : name === "workspaceRead"
-              ? "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
+            : name.startsWith("workspaceFile")
+              ? "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
               : name === "workspaceAction" || name === "workspaceReceipt"
                 ? "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
-                : "signed request body; prepare also requires a one-time capability",
+                : name === "workspaceRead"
+                  ? "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner"
+                  : "signed request body; prepare also requires a one-time capability",
       parameters: [
         {
           name: "X-Loop-Fleet-Version",
@@ -143,9 +155,20 @@ for (const [name, route] of Object.entries({
           },
         },
         ...Object.fromEntries(
-          [400, 403, 404, 405, 409, 413, 415, 500, 502, 503, 504].map(
-            (status) => [status, error],
-          ),
+          [
+            400,
+            403,
+            404,
+            405,
+            409,
+            413,
+            415,
+            ...(name === "workspaceFileChunk" ? [416] : []),
+            500,
+            502,
+            503,
+            504,
+          ].map((status) => [status, error]),
         ),
       },
     },

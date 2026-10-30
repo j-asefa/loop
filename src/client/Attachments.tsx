@@ -6,6 +6,7 @@ import { Paperclip, File, X, Plus, Camera, Image } from "lucide-react";
 import { Sheet } from "./components";
 import { FilePreview } from "./FilePreview";
 import { prepareImage, shouldPrepare } from "./imageUpload";
+import { viewGeneration } from "./viewCache";
 import {
   MAX_MESSAGE_FILES,
   MAX_UPLOAD_BYTES,
@@ -32,7 +33,23 @@ export function AttachmentList({
 }) {
   const scopedSource = useSourceId();
   const sourceId = requestedSource ?? scopedSource;
-  const [preview, setPreview] = useState<UploadedFile>();
+  const generation = viewGeneration();
+  const [opened, setOpened] = useState<{
+    file: UploadedFile;
+    source: string;
+    generation: number;
+  }>();
+  useEffect(() => {
+    setOpened((current) =>
+      current?.source === sourceId && current.generation === generation
+        ? current
+        : undefined,
+    );
+  }, [sourceId, generation]);
+  const preview =
+    opened?.source === sourceId && opened.generation === generation
+      ? opened.file
+      : undefined;
   if (!files.length) return null;
   return (
     <>
@@ -44,7 +61,7 @@ export function AttachmentList({
               type="button"
               className="attachment-open"
               aria-label={`Preview ${file.name}`}
-              onClick={() => setPreview(file)}
+              onClick={() => setOpened({ file, source: sourceId, generation })}
             >
               <span>{file.name}</span>
               <small>{size(file.size)}</small>
@@ -79,7 +96,7 @@ export function AttachmentList({
           }
           name={preview.name}
           mime={preview.mime}
-          onClose={() => setPreview(undefined)}
+          onClose={() => setOpened(undefined)}
         />
       )}
     </>

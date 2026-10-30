@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Download, File as FileIcon, Share2 } from "lucide-react";
 import { Sheet } from "./components";
 import { isHtmlFile } from "../shared/file-preview";
+import { viewGeneration } from "./viewCache";
 
 export function loopFileUrl(href?: string, source?: string, preview?: "html") {
   if (!href) return;
@@ -124,17 +125,24 @@ type ReadyFile = {
   truncated?: boolean;
 };
 
-export function FilePreview({
-  url,
-  name,
-  mime,
-  onClose,
-}: {
+export function FilePreview(props: FilePreviewProps) {
+  const identity = JSON.stringify([props.url, viewGeneration()]);
+  const [opened] = useState(identity);
+  const current = opened === identity;
+  useEffect(() => {
+    if (!current) props.onClose();
+  }, [current, props.onClose]);
+  // A mounted preview belongs to the file and owner that opened it. Closing
+  // also aborts the old read; changing sources never starts a replacement read.
+  return current ? <FilePreviewBody {...props} /> : null;
+}
+type FilePreviewProps = {
   url: string;
   name: string;
   mime?: string;
   onClose: () => void;
-}) {
+};
+function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
   const [ready, setReady] = useState<ReadyFile>(),
     [error, setError] = useState(""),
     [saveError, setSaveError] = useState(""),
@@ -143,6 +151,9 @@ export function FilePreview({
 
   useEffect(() => {
     const controller = new AbortController();
+    const generation = viewGeneration();
+    const current = () =>
+      !controller.signal.aborted && generation === viewGeneration();
     const urls: string[] = [];
     const objectUrl = (blob: Blob) => {
       const result = URL.createObjectURL(blob);
@@ -208,7 +219,7 @@ export function FilePreview({
               "application/yaml",
             ].includes(type));
         const content = text ? await file.slice(0, 100_000).text() : undefined;
-        if (controller.signal.aborted) return;
+        if (!current()) return;
         setReady({
           file,
           // HTML is a server-sandboxed document, never an app-origin blob or
@@ -227,7 +238,7 @@ export function FilePreview({
           ),
         });
       } catch (error) {
-        if (!controller.signal.aborted) setError((error as Error).message);
+        if (current()) setError((error as Error).message);
       }
     })();
     return () => {

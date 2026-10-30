@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request, type IncomingHttpHeaders } from "node:http";
@@ -17,6 +17,13 @@ import { FleetCredentialLeases } from "../src/server/fleet-credential-leases.js"
 import { FleetWorkspaceRead } from "../src/server/fleet-workspace-read.js";
 import { FleetWorkspaceActions } from "../src/server/fleet-workspace-actions.js";
 import { FleetWorkspaceApp } from "../src/server/fleet-workspace-app.js";
+import { FleetWorkspaceFiles } from "../src/server/fleet-workspace-files.js";
+import { FleetPeerFiles } from "../src/server/fleet-peer-files.js";
+import { FleetProof } from "../src/server/fleet-proof.js";
+import {
+  fleetWorkspaceFileApi,
+  FLEET_FILE_CHUNK_BYTES,
+} from "../src/shared/fleet-workspace-file-api.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetCredentials } from "../src/server/fleet-credentials.js";
 import { FleetPairing } from "../src/server/fleet-pairing.js";
@@ -49,6 +56,8 @@ const { FleetWorkspaceHttpTransport } =
   await import("../src/server/fleet-workspace-http.js");
 const { FleetWorkspaceActionHttpTransport } =
   await import("../src/server/fleet-workspace-action-http.js");
+const { FleetWorkspaceFileHttpTransport } =
+  await import("../src/server/fleet-workspace-file-http.js");
 const { app } = await import("../src/server/index.js");
 const { db } = await import("../src/server/db.js");
 const { OWNER, nativeSessions } =
@@ -56,6 +65,8 @@ const { OWNER, nativeSessions } =
 const { closeExecution } = await import("../src/server/execution-client.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
+const { uploadFile } = await import("../src/server/uploads.js");
+const { saveArtifact } = await import("../src/server/artifacts.js");
 const secrets = await import("../src/server/secrets.js");
 const sourceDb = new Database(join(root, "source.db"));
 applyMigrations(sourceDb);
@@ -72,7 +83,7 @@ const first = source.create(owner, {
   mutationId: randomUUID(),
   name: "Gateway",
   origin: gatewayOrigin,
-  scope: ["read", "act"],
+  scope: ["read", "act", "files"],
 });
 const directory = source.revise(owner, {
   mutationId: randomUUID(),
@@ -86,7 +97,7 @@ destination.approve(OWNER, {
   mutationId: randomUUID(),
   expected: null,
   kind: "enroll",
-  scope: ["read", "act"],
+  scope: ["read", "act", "files"],
   controller: source.identity,
   directory,
   grantId: directory.document.members[1].grantId,
@@ -107,8 +118,19 @@ const reads = new FleetWorkspaceRead(
   OWNER,
   bridge,
   secrets,
-  { actions: () => Object.keys(fleetActionRoutes) },
+  { actions: () => Object.keys(fleetActionRoutes), files: true },
 );
+let fileClockOffset = 0;
+const files = new FleetWorkspaceFiles(
+  db,
+  destination,
+  credentials,
+  OWNER,
+  bridge,
+  secrets,
+  () => performance.now() + fileClockOffset,
+);
+const fileProof = new FleetProof(db, destination.identity, secrets);
 const initial = {
   harness: "codex" as const,
   version: "fixture",
@@ -141,7 +163,12 @@ host.workspace = {
       () => origin,
     ),
     () => origin,
-    { workspaceActions: actions, workspaceRead: reads, credentials },
+    {
+      workspaceActions: actions,
+      workspaceRead: reads,
+      workspaceFiles: files,
+      credentials,
+    },
   ),
   status: () => ({}),
   admin: async () => ({}),
@@ -197,10 +224,25 @@ let actionCalls = 0,
   probeCalls = 0,
   loseReply = false,
   holdProbe: Promise<void> | undefined;
+let fileFault:
+  | "unsigned"
+  | "offset"
+  | "bytes"
+  | "hash"
+  | "request"
+  | "capability"
+  | "probe"
+  | "next-probe"
+  | undefined;
+const fileCalls: { path: string; offset?: number }[] = [];
+let holdChunk: Promise<void> | undefined,
+  chunkStarted = false;
 const fetcher: typeof undiciFetch = async (input, init) => {
   const url = new URL(String(input));
   expect(url.origin).toBe(origin);
   const headers = new Headers(init?.headers);
+  const sent = JSON.parse(String(init?.body));
+  fileCalls.push({ path: url.pathname, offset: sent.offset });
   for (const name of [
     "cookie",
     "authorization",
@@ -216,6 +258,10 @@ const fetcher: typeof undiciFetch = async (input, init) => {
     probeCalls++;
     if (holdProbe) await holdProbe;
   }
+  if (url.pathname === "/api" + fleetWorkspaceFileApi.chunk.path && holdChunk) {
+    chunkStarted = true;
+    await holdChunk;
+  }
   const response = await http(
     host.port,
     origin,
@@ -227,6 +273,34 @@ const fetcher: typeof undiciFetch = async (input, init) => {
   );
   if (action && loseReply)
     throw new TypeError("Fixture response lost after acceptance");
+  if (response.status === 200) {
+    const body = response.body;
+    if (fileFault === "probe" && body.probe)
+      body.signature = "a".repeat(85) + "A";
+    if (fileFault === "capability" && body.catalog) {
+      body.catalog.files = false;
+      body.signature = fileProof.sign("workspace-catalog", body.catalog);
+    }
+    const opened = url.pathname === "/api" + fleetWorkspaceFileApi.open.path;
+    const chunk = url.pathname === "/api" + fleetWorkspaceFileApi.chunk.path;
+    if ((opened || chunk) && body.response) {
+      if (fileFault === "hash") {
+        if (opened) body.response.file.checksum = "0".repeat(64);
+        else body.response.checksum = "0".repeat(64);
+      }
+      if (chunk && fileFault === "offset") body.response.offset++;
+      if (chunk && fileFault === "bytes") body.response.base64 = "YQ==";
+      if (chunk && fileFault === "request")
+        body.response.requestId = randomUUID();
+      if (fileFault && fileFault !== "unsigned")
+        body.signature = fileProof.sign(
+          opened ? "workspace-file-open" : "workspace-file-chunk",
+          body.response,
+        );
+      if (chunk && fileFault === "unsigned") body.response.base64 = "YQ==";
+      if (chunk && fileFault === "next-probe") fileFault = "probe";
+    }
+  }
   return new Response(JSON.stringify(response.body), {
     status: response.status,
     headers: { "content-type": "application/json" },
@@ -251,6 +325,12 @@ const peerActions = new FleetPeerActions(
   owner,
   new FleetWorkspaceActionHttpTransport(fetcher),
 );
+const peerFiles = new FleetPeerFiles(
+  source,
+  leases,
+  owner,
+  new FleetWorkspaceFileHttpTransport(fetcher),
+);
 const destinationLeases = new FleetCredentialLeases(
   destination,
   credentials,
@@ -269,7 +349,13 @@ host.workspace.fleetCommandsHttp = createFleetCommandsHttp(
   destinationPeerActions,
   actions,
 );
-const sourceAdapter = fleetAgentSource(source, owner, peerReads, peerActions);
+const sourceAdapter = fleetAgentSource(
+  source,
+  owner,
+  peerReads,
+  peerActions,
+  peerFiles,
+);
 const sourcePairing = new FleetPairing(
   sourceDb,
   source,
@@ -331,6 +417,51 @@ const browser = (
     "x-loop-csrf": csrf,
     ...headers,
   });
+type Download = {
+  status: number;
+  headers: IncomingHttpHeaders;
+  bytes: Buffer;
+  complete: boolean;
+};
+function download(path: string, signal?: AbortSignal): Promise<Download> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        hostname: "127.0.0.1",
+        port: gateway.port,
+        path: prefix + path,
+        method: "GET",
+        signal,
+        headers: { host: new URL(gatewayOrigin).host, cookie },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        const finish = (complete: boolean) =>
+          resolve({
+            status: res.statusCode!,
+            headers: res.headers,
+            bytes: Buffer.concat(chunks),
+            complete,
+          });
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => finish(true));
+        res.on("error", () => finish(false));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+const fileSelection = (id: string) => ({
+  route: "objectFile" as const,
+  params: { id },
+  query: {},
+});
+const object = (
+  bytes: Buffer,
+  mime = "application/octet-stream",
+  name = "fixture.bin",
+) => uploadFile(OWNER, { originalname: name, mimetype: mime, buffer: bytes });
 const createBody = () => ({
   name: "source-" + randomUUID().slice(0, 8),
   connectionId,
@@ -350,6 +481,8 @@ beforeAll(async () => {
   await pair();
 });
 afterAll(async () => {
+  peerFiles.close();
+  files.close();
   destinationPeerActions.close();
   destinationLeases.close();
   peerActions.close();
@@ -388,7 +521,7 @@ it("discovers only this Host's enrolled peers without contact and projects their
       version: 1,
       machineId: peer,
       events: false,
-      files: false,
+      files: true,
       actions: Object.keys(fleetActionRoutes),
     },
   });
@@ -498,6 +631,263 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
   expect(capabilities.body.fleet.actions).toEqual(
     expect.arrayContaining(["feedRead"]),
   );
+});
+
+it("streams verified owning bytes through the paired source and releases its snapshot", async () => {
+  const bytes = randomBytes(FLEET_FILE_CHUNK_BYTES * 2 + 17),
+    file = object(bytes);
+  const before = fileCalls.length,
+    received = await download("/objects/" + file.objectId);
+  expect(received).toMatchObject({ status: 200, complete: true });
+  expect(received.bytes.equals(bytes)).toBe(true);
+  expect(received.headers["content-length"]).toBe(String(bytes.length));
+  expect(received.headers["cache-control"]).toBe("private, no-store");
+  expect(received.headers).not.toHaveProperty("set-cookie");
+  const chunks = fileCalls
+    .slice(before)
+    .filter((value) => value.path.endsWith("/file/chunk"));
+  expect(chunks.map((value) => value.offset)).toEqual([
+    0,
+    FLEET_FILE_CHUNK_BYTES,
+    FLEET_FILE_CHUNK_BYTES * 2,
+  ]);
+  await until(() =>
+    fileCalls
+      .slice(before)
+      .some(
+        (value) => value.path === "/api" + fleetWorkspaceFileApi.close.path,
+      ),
+  );
+  expect(localCalls).toBe(0);
+});
+
+it("streams an owning publication through the download alias without redirects", async () => {
+  const bytes = Buffer.from("Published file fixture");
+  const published = saveArtifact(OWNER, {
+    title: "Published",
+    kind: "file",
+    content: "fixture",
+    metadata: { name: "published.txt", mime: "text/plain" },
+  });
+  const key = `objects/${"a".repeat(64)}/${randomUUID()}/${"b".repeat(64)}`;
+  const path = join(process.env.LOOP_DATA_DIR!, key);
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, bytes);
+  db.prepare("INSERT INTO artifact_objects VALUES(?,?,?,?,?,?,?,?)").run(
+    published,
+    OWNER,
+    randomUUID(),
+    randomUUID(),
+    key,
+    "text/plain",
+    bytes.length,
+    createHash("sha256").update(bytes).digest("base64"),
+  );
+  const alias = await download(`/artifacts/${published}/download`);
+  expect(alias).toMatchObject({ status: 200, complete: true, bytes });
+  expect(alias.headers["content-security-policy"]).toBe(
+    "default-src 'none'; sandbox",
+  );
+  expect(alias.headers).not.toHaveProperty("location");
+  expect(
+    (await download(`/artifacts/${published}/download?preview=html`)).status,
+  ).toBe(400);
+  expect(localCalls).toBe(0);
+});
+
+it("keeps HTML previews sandboxed and rejects foreign or invalid file selections", async () => {
+  const html = object(
+    Buffer.from("<button onclick='window.x=1'>Preview</button>"),
+    "text/html",
+    "preview.html",
+  );
+  const preview = await download(`/objects/${html.objectId}?preview=html`);
+  expect(preview.status).toBe(200);
+  expect(preview.headers["content-type"]).toBe("text/html; charset=utf-8");
+  expect(preview.headers["content-security-policy"]).toContain(
+    "sandbox allow-scripts",
+  );
+  expect(preview.headers["content-security-policy"]).not.toContain(
+    "allow-same-origin",
+  );
+  expect(preview.headers["content-security-policy"]).toContain(
+    "connect-src 'none'",
+  );
+  const raw = await download(`/objects/${html.objectId}`);
+  expect(raw.status).toBe(200);
+  expect(raw.headers["content-security-policy"]).toBe(
+    "default-src 'none'; sandbox",
+  );
+  const empty = object(Buffer.alloc(0));
+  expect(await download("/objects/" + empty.objectId)).toMatchObject({
+    status: 200,
+    complete: true,
+    bytes: Buffer.alloc(0),
+  });
+  const nonHtml = await download(`/objects/${empty.objectId}?preview=html`);
+  expect(nonHtml.status).toBe(200);
+  expect(nonHtml.headers["content-security-policy"]).toBe(
+    "default-src 'none'; sandbox",
+  );
+  const foreign = uploadFile(foreignOwner, {
+    originalname: "foreign",
+    mimetype: "text/plain",
+    buffer: Buffer.from("private"),
+  });
+  expect((await download("/objects/" + foreign.objectId)).status).toBe(404);
+  expect(
+    (await download(`/objects/${html.objectId}?preview=1&preview=html`)).status,
+  ).toBe(400);
+  expect(
+    (await download(`/objects/${html.objectId}?owner=${foreignOwner}`)).status,
+  ).toBe(400);
+  expect(localCalls).toBe(0);
+});
+
+it("rejects unsigned and signed malformed file chunks without emitting their bytes", async () => {
+  const file = object(randomBytes(FLEET_FILE_CHUNK_BYTES + 17));
+  try {
+    for (const fault of ["unsigned", "offset", "bytes", "request"] as const) {
+      fileFault = fault;
+      const received = await download("/objects/" + file.objectId);
+      expect(received.status).toBe(502);
+      expect(received.complete).toBe(true);
+      expect(JSON.parse(received.bytes.toString()).error).toContain("verified");
+    }
+  } finally {
+    fileFault = undefined;
+  }
+});
+
+it("withholds the final chunk when a signed manifest has the wrong whole-file checksum", async () => {
+  const bytes = randomBytes(FLEET_FILE_CHUNK_BYTES + 17),
+    file = object(bytes);
+  fileFault = "hash";
+  try {
+    const received = await download("/objects/" + file.objectId);
+    expect(received).toMatchObject({ status: 200, complete: false });
+    expect(
+      received.bytes.equals(bytes.subarray(0, FLEET_FILE_CHUNK_BYTES)),
+    ).toBe(true);
+    expect(received.bytes.length).toBeLessThan(
+      Number(received.headers["content-length"]),
+    );
+  } finally {
+    fileFault = undefined;
+  }
+});
+
+it("checks signed file capabilities and fresh destination identity before opening a transfer", async () => {
+  const file = object(Buffer.from("fixture"));
+  try {
+    fileFault = "capability";
+    let before = fileCalls.length;
+    expect((await download("/objects/" + file.objectId)).status).toBe(409);
+    expect(
+      fileCalls
+        .slice(before)
+        .some((value) => value.path.endsWith("/file/open")),
+    ).toBe(false);
+    fileFault = "probe";
+    before = fileCalls.length;
+    expect((await download("/objects/" + file.objectId)).status).toBe(403);
+    expect(fileCalls.slice(before).map((value) => value.path)).toEqual([
+      "/api" + fleetPeerApi.enrollmentProbe.path,
+    ]);
+  } finally {
+    fileFault = undefined;
+  }
+});
+
+it("rechecks destination identity between chunks without sending a credential to a replacement", async () => {
+  const file = object(randomBytes(FLEET_FILE_CHUNK_BYTES + 17));
+  const before = fileCalls.length;
+  fileFault = "next-probe";
+  try {
+    const received = await download("/objects/" + file.objectId);
+    expect(received).toMatchObject({ status: 200, complete: false });
+    expect(received.bytes.length).toBe(FLEET_FILE_CHUNK_BYTES);
+    const calls = fileCalls.slice(before),
+      chunk = calls.findIndex((value) => value.path.endsWith("/file/chunk"));
+    expect(calls.slice(chunk + 1).map((value) => value.path)).toEqual([
+      "/api" + fleetPeerApi.enrollmentProbe.path,
+    ]);
+  } finally {
+    fileFault = undefined;
+    // A failed identity probe deliberately sends no cleanup credential. Let the
+    // destination's normal idle expiry reclaim this unreachable snapshot before
+    // the next fixture checks its two-transfer capacity.
+    fileClockOffset += 30_001;
+  }
+});
+
+it("applies consumer backpressure and bounds concurrent file downloads", async () => {
+  const bytes = randomBytes(FLEET_FILE_CHUNK_BYTES + 1),
+    file = object(bytes);
+  let release!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = 0;
+  const receive = {
+    start: () => {},
+    write: async () => {
+      held++;
+      await paused;
+    },
+  };
+  const first = peerFiles.download(peer, fileSelection(file.objectId), receive);
+  const second = peerFiles.download(
+    peer,
+    fileSelection(file.objectId),
+    receive,
+  );
+  void first.catch(() => {});
+  void second.catch(() => {});
+  try {
+    await until(() => held === 2);
+    const before = fileCalls.length;
+    await expect(
+      peerFiles.download(peer, fileSelection(file.objectId), {
+        start: () => {},
+        write: () => {},
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(fileCalls.length).toBe(before);
+    expect(
+      fileCalls
+        .filter((value) => value.path.endsWith("/file/chunk"))
+        .slice(-2)
+        .every((value) => value.offset === 0),
+    ).toBe(true);
+  } finally {
+    release();
+    await Promise.all([first, second]);
+  }
+});
+
+it("sign-out aborts a held file chunk without exposing it and frees download capacity", async () => {
+  const file = object(Buffer.from("held fixture"));
+  let release!: () => void;
+  holdChunk = new Promise((resolve) => {
+    release = resolve;
+  });
+  chunkStarted = false;
+  const pending = download("/objects/" + file.objectId).catch((error) => error);
+  try {
+    await until(() => chunkStarted);
+    expect((await browser("/api/auth/sign-out", "POST", {})).status).toBe(200);
+    expect(await pending).toBeInstanceOf(Error);
+  } finally {
+    holdChunk = undefined;
+    release();
+    await pair();
+  }
+  expect(await download("/objects/" + file.objectId)).toMatchObject({
+    status: 200,
+    complete: true,
+    bytes: Buffer.from("held fixture"),
+  });
 });
 
 it("preserves one command through the browser source route, lost response and receipt reconciliation", async () => {
@@ -771,6 +1161,104 @@ it("a gateway origin change fences a prepared read without erasing another viewe
 });
 
 const receiptPath = "/api/fleet/commands/receipt";
+it("previews the remote recipient without a command and preserves one shared send through a lost reply", async () => {
+  const created = await browser(prefix + "/agents", "POST", createBody(), {
+    "x-loop-command-id": randomUUID(),
+  });
+  expect(created.status).toBe(201);
+  const agent = created.body;
+  const before = actionCalls,
+    localBefore = localCalls;
+  const rows = sourceDb
+    .prepare("SELECT count(*) n FROM fleet_forwarded_actions")
+    .get();
+  const suggested = await browser(prefix + "/routing/preview", "POST", {
+    input: "@" + agent.name + " find a recipient",
+  });
+  expect(suggested.status).toBe(200);
+  expect(suggested.body.agent.id).toBe(agent.id);
+  const body = {
+    question: "@" + agent.name + " inspect the shared content",
+    source: {
+      url: "https://example.invalid/unfetched",
+      title: "Fixture",
+      excerpt: "User-supplied text",
+    },
+  };
+  const preview = await browser(prefix + "/share/preview", "POST", body);
+  expect(preview.status).toBe(200);
+  expect(preview.body.agent.id).toBe(agent.id);
+  expect(preview.headers).not.toHaveProperty("x-loop-command-id");
+  expect(
+    sourceDb.prepare("SELECT count(*) n FROM fleet_forwarded_actions").get(),
+  ).toEqual(rows);
+  expect(actionCalls).toBe(before);
+  expect(localCalls).toBe(localBefore);
+  expect(
+    (
+      await browser(prefix + "/share/preview", "POST", {
+        ...body,
+        question: "x".repeat(200_000),
+      })
+    ).status,
+  ).toBe(413);
+  const id = randomUUID();
+  loseReply = true;
+  try {
+    expect(
+      (
+        await browser(prefix + "/share/send", "POST", body, {
+          "x-loop-command-id": id,
+        })
+      ).status,
+    ).toBe(503);
+  } finally {
+    loseReply = false;
+  }
+  const receipt = await browser(prefix + "/share/send", "POST", body, {
+    "x-loop-command-id": id,
+    "x-loop-receipt-only": "1",
+  });
+  expect(receipt.status).toBe(200);
+  expect(receipt.body.agent_id).toBe(agent.id);
+  expect(receipt.headers["x-loop-command-id"]).toBe(id);
+  expect(actionCalls - before).toBe(1);
+  expect(
+    db.prepare("SELECT count(*) n FROM runs WHERE agent_id=?").get(agent.id),
+  ).toEqual({ n: 1 });
+  expect(
+    db
+      .prepare(
+        "SELECT command_id FROM fleet_effect_authorizations WHERE effect_kind='run' AND effect_id=?",
+      )
+      .get(receipt.body.id),
+  ).toEqual({ command_id: id });
+  const conflict = await browser(
+    prefix + "/share/send",
+    "POST",
+    { ...body, question: "changed" },
+    { "x-loop-command-id": id },
+  );
+  expect(conflict.status).toBe(409);
+  expect(conflict.body.executionOutcome).toBe("unknown");
+  expect(conflict.headers).not.toHaveProperty("x-loop-command-state");
+  expect(
+    (
+      await browser(
+        prefix + "/share/send",
+        "POST",
+        { question: "Foreign recipient", newAgentId: foreignAgent },
+        { "x-loop-command-id": randomUUID() },
+      )
+    ).status,
+  ).toBe(409);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM runs WHERE agent_id=?")
+      .get(foreignAgent),
+  ).toEqual({ n: 0 });
+});
+
 it("recovers a committed command using only its original ID, route and digest through the paired Host", async () => {
   const id = randomUUID(),
     body = createBody(),
@@ -1057,24 +1545,80 @@ it("keeps a completed command uncertain when its destination is removed before r
       .prepare("SELECT state FROM fleet_command_receipts WHERE command_id=?")
       .get(id),
   ).toEqual({ state: "completed" });
-  const directory = source.directory(owner)!;
-  source.revise(owner, {
-    mutationId: randomUUID(),
-    expected: directoryDigest(directory.document),
-    members: directory.document.members.filter(
-      (item) => item.machineId !== peer,
-    ),
+  // Keep this authority transition isolated from the file-stream removal case.
+  const isolatedDb = new Database(sourceDb.serialize());
+  const isolated = new FleetAuthority(isolatedDb, secrets);
+  const isolatedActions = new FleetPeerActions(
+    isolatedDb,
+    isolated,
+    leases,
+    owner,
+    new FleetWorkspaceActionHttpTransport(fetcher),
+  );
+  const originalSources = gateway.workspace!.sources;
+  try {
+    gateway.workspace!.sources = new AgentSources([
+      fleetAgentSource(isolated, owner, peerReads, isolatedActions),
+    ]);
+    const directory = isolated.directory(owner)!;
+    isolated.revise(owner, {
+      mutationId: randomUUID(),
+      expected: directoryDigest(directory.document),
+      members: directory.document.members.filter(
+        (item) => item.machineId !== peer,
+      ),
+    });
+    const retry = await browser(prefix + "/agents", "POST", body, {
+      "x-loop-command-id": id,
+    });
+    expect(retry.status).toBe(403);
+    expect(retry.body.executionOutcome).toBe("unknown");
+    expect(retry.headers["x-loop-command-state"]).toBeUndefined();
+    expect(actionCalls).toBe(before + 1);
+    expect(
+      db
+        .prepare("SELECT count(*) n FROM agents WHERE owner_id=? AND name=?")
+        .get(OWNER, body.name),
+    ).toEqual({ n: 1 });
+  } finally {
+    gateway.workspace!.sources = originalSources;
+    isolatedActions.close();
+    isolatedDb.close();
+  }
+});
+
+it("a newly known removal stops an open file before its remaining chunks", async () => {
+  const file = object(randomBytes(FLEET_FILE_CHUNK_BYTES + 17));
+  let release!: () => void,
+    writes = 0;
+  const pause = new Promise<void>((resolve) => {
+    release = resolve;
   });
-  const retry = await browser(prefix + "/agents", "POST", body, {
-    "x-loop-command-id": id,
-  });
-  expect(retry.status).toBe(403);
-  expect(retry.body.executionOutcome).toBe("unknown");
-  expect(retry.headers["x-loop-command-state"]).toBeUndefined();
-  expect(actionCalls).toBe(before + 1);
-  expect(
-    db
-      .prepare("SELECT count(*) n FROM agents WHERE owner_id=? AND name=?")
-      .get(OWNER, body.name),
-  ).toEqual({ n: 1 });
+  const pending = peerFiles
+    .download(peer, fileSelection(file.objectId), {
+      start: () => {},
+      write: async () => {
+        writes++;
+        await pause;
+      },
+    })
+    .catch((error) => error);
+  try {
+    await until(() => writes === 1);
+    const current = source.directory(owner)!;
+    source.revise(owner, {
+      mutationId: randomUUID(),
+      expected: directoryDigest(current.document),
+      members: current.document.members.filter(
+        (value) => value.machineId !== peer,
+      ),
+    });
+    expect(await pending).toBeInstanceOf(Error);
+    expect(writes).toBe(1);
+    const before = fileCalls.length;
+    expect((await download("/objects/" + file.objectId)).status).toBe(403);
+    expect(fileCalls.length).toBe(before);
+  } finally {
+    release();
+  }
 });

@@ -26,7 +26,10 @@ export class FleetWorkspaceRead {
     private readonly owner: string,
     private readonly app: FleetWorkspaceApp,
     secrets: ConstructorParameters<typeof FleetProof>[2],
-    private readonly options: { actions?: () => readonly string[] } = {},
+    private readonly options: {
+      actions?: () => readonly string[];
+      files?: boolean;
+    } = {},
   ) {
     this.proof = new FleetProof(db, authority.identity, secrets);
   }
@@ -44,7 +47,7 @@ export class FleetWorkspaceRead {
     if (
       accepted.owner !== this.owner ||
       (accepted.context.operation !== "read" &&
-        !(catalog && accepted.context.operation === "act"))
+        !(catalog && ["act", "files"].includes(accepted.context.operation)))
     )
       throw new Problem(
         403,
@@ -61,7 +64,7 @@ export class FleetWorkspaceRead {
   catalog(input: unknown) {
     const request = fleetWorkspaceApi.catalog.body.parse(input);
     const authorization = this.authorize(request.credential, true);
-    const allowed = (operation: "read" | "act") => {
+    const allowed = (operation: "read" | "act" | "files") => {
       try {
         this.authority.acceptedGrant(
           this.owner,
@@ -88,7 +91,7 @@ export class FleetWorkspaceRead {
       reads: allowed("read") ? Object.keys(fleetReadRoutes) : [],
       actions: allowed("act") ? (this.options.actions?.() ?? []) : [],
       events: false,
-      files: false,
+      files: !!this.options.files && allowed("files"),
     });
     return {
       catalog,

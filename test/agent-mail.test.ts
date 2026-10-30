@@ -64,6 +64,7 @@ async function http(owner: string, path: string, body?: object) {
   return { status: response.status, data: await response.json() };
 }
 
+let agentSequence = 0;
 function agent(owner: string, name: string, metadata: object = {}) {
   const connection = id();
   db.prepare(
@@ -77,7 +78,7 @@ function agent(owner: string, name: string, metadata: object = {}) {
     now(),
   );
   return createAgent(owner, {
-    name: name + "-" + id().slice(0, 6),
+    name: name + "-" + ++agentSequence,
     connectionId: connection,
     model: "fixture",
     instructions: name,

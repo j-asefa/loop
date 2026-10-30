@@ -777,3 +777,186 @@ it("retains the original command for bodyless mutations while unsupported contra
   ).rejects.toThrow("remote operation is unavailable");
   expect(fetcher).toHaveBeenCalledTimes(count);
 });
+
+async function lostReceipt() {
+  beforeFetch = async (url) => {
+    throw new TypeError("Lost receipt after acceptance");
+  };
+  await expect(
+    api.callRoute(
+      workspaceApi.nativeAnswer,
+      {
+        params: { id: randomUUID() },
+        body: {
+          commandId: randomUUID(),
+          answer: { message: "private original reply" },
+        },
+      },
+      source,
+    ),
+  ).rejects.toThrow();
+  const commands = await import("../src/client/fleetCommand");
+  const pending = (await commands.pendingFleetCommands())[0];
+  return { pending, text: await commands.exportFleetCommand(pending) };
+}
+
+it("uses read-only POST previews without retaining a command, while shared sends keep their original identity", async () => {
+  const paths: string[] = [];
+  beforeFetch = async (url, init) => {
+    if (url === "/session") return json({ csrf: "isolated-csrf" });
+    paths.push(url);
+    expect(new Headers(init.headers).has("x-loop-command-id")).toBe(false);
+    expect(rows()).toEqual([]);
+    return url.endsWith("/routing/preview")
+      ? json({ agent: null, reason: "No fixture agent" })
+      : json({ mode: "create", agent: null });
+  };
+  expect(
+    await api.callRoute(
+      workspaceApi.routingPreview,
+      {
+        body: {
+          input: "Find a recipient",
+        },
+      },
+      source,
+    ),
+  ).toEqual({ agent: null, reason: "No fixture agent" });
+  expect(
+    await api.callRoute(
+      workspaceApi.sharePreview,
+      { body: { question: "Inspect shared content" } },
+      source,
+    ),
+  ).toEqual({ mode: "create", agent: null });
+  expect(paths).toEqual([
+    `/api/agent-sources/${encodeURIComponent(source)}/routing/preview`,
+    `/api/agent-sources/${encodeURIComponent(source)}/share/preview`,
+  ]);
+  const seen: { id: string; query: string | null }[] = [];
+  beforeFetch = async (url, init) => {
+    if (url === "/session") return json({ csrf: "isolated-csrf" });
+    expect(url).toBe(
+      `/api/agent-sources/${encodeURIComponent(source)}/share/send`,
+    );
+    const headers = new Headers(init.headers),
+      id = headers.get("x-loop-command-id")!;
+    expect(JSON.parse(String(init.body)).idempotencyKey).toBe(id);
+    seen.push({ id, query: headers.get("x-loop-receipt-only") });
+    expect(rows()[0].id).toBe(id);
+    throw new TypeError("Lost shared send receipt");
+  };
+  const id = randomUUID();
+  await expect(
+    api.callRoute(
+      workspaceApi.shareSend,
+      {
+        body: {
+          question: "Inspect shared content",
+          idempotencyKey: id,
+          source: undefined,
+          folderId: undefined,
+          newAgentId: undefined,
+        },
+      },
+      source,
+    ),
+  ).rejects.toThrow();
+  await page();
+  await expect(
+    api.callRoute(
+      workspaceApi.shareSend,
+      {
+        body: {
+          question: "Inspect shared content",
+          idempotencyKey: randomUUID(),
+        },
+      },
+      source,
+    ),
+  ).rejects.toThrow();
+  expect(seen).toEqual([
+    { id, query: null },
+    { id, query: "1" },
+  ]);
+});
+
+it("imports a copied metadata receipt at another origin without submitting work and checks only the original identity", async () => {
+  const { pending, text } = await lostReceipt();
+  expect(text).not.toContain("private original reply");
+  expect(text).not.toContain("fixture-owner");
+  expect(text).not.toContain("isolated-csrf");
+  vi.stubGlobal("location", {
+    href: "https://another-gateway.example/",
+    search: "",
+  });
+  storage = new Map();
+  await page("different-local-owner");
+  const commands = await import("../src/client/fleetCommand");
+  fetcher.mockClear();
+  expect(await commands.importFleetCommand(text)).toEqual(pending);
+  await commands.importFleetCommand(text);
+  expect(await commands.pendingFleetCommands()).toEqual([pending]);
+  expect(fetcher).not.toHaveBeenCalled();
+  beforeFetch = async (url, init) => {
+    expect(url).toBe("/api/fleet/commands/receipt");
+    expect(JSON.parse(String(init.body))).toEqual({
+      peer: source.slice(5),
+      commandId: pending.id,
+      route: pending.route,
+      payloadDigest: pending.payloadDigest,
+    });
+    return json({ commandId: pending.id, state: "unknown", result: null });
+  };
+  expect((await commands.reconcileFleetCommand(pending)).state).toBe("unknown");
+  expect(await commands.pendingFleetCommands()).toEqual([pending]);
+  await page("unrelated-owner");
+  const another = await import("../src/client/fleetCommand");
+  expect(await another.pendingFleetCommands()).toEqual([]);
+  await expect(another.exportFleetCommand(pending)).rejects.toThrow(
+    /no longer pending/,
+  );
+});
+
+it("rejects malformed, conflicting and unretained receipt imports before any network request", async () => {
+  const { pending, text } = await lostReceipt();
+  const commands = await import("../src/client/fleetCommand");
+  fetcher.mockClear();
+  for (const value of [
+    "{",
+    " ".repeat(2049),
+    JSON.stringify({ ...JSON.parse(text), credential: "not-allowed" }),
+    JSON.stringify({
+      version: 1,
+      command: { ...pending, source: "https://arbitrary.example" },
+    }),
+    JSON.stringify({
+      version: 1,
+      command: { ...pending, payloadDigest: undefined },
+    }),
+  ]) {
+    await expect(commands.importFleetCommand(value)).rejects.toThrow(
+      /unchanged receipt/,
+    );
+  }
+  for (const command of [
+    { ...pending, id: randomUUID() },
+    { ...pending, payloadDigest: "f".repeat(64) },
+  ])
+    await expect(
+      commands.importFleetCommand(JSON.stringify({ version: 1, command })),
+    ).rejects.toThrow(/different receipt/);
+  const fresh = JSON.stringify({
+    version: 1,
+    command: { ...pending, id: randomUUID(), signature: "e".repeat(64) },
+  });
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: () => {
+      throw new Error("Storage quota reached");
+    },
+  });
+  await expect(commands.importFleetCommand(fresh)).rejects.toThrow(/quota/);
+  expect(await commands.pendingFleetCommands()).toEqual([pending]);
+  expect(fetcher).not.toHaveBeenCalled();
+});

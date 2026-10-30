@@ -1,6 +1,11 @@
 import type { Response } from "express";
 import { isHtmlFile } from "../shared/file-preview.js";
 
+export const FILE_DOWNLOAD_POLICY = "default-src 'none'; sandbox";
+
+export const FILE_PREVIEW_POLICY =
+  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'; sandbox allow-scripts";
+
 // Serve a separate document so its policy does not inherit the app's CSP.
 // Never grant allow-same-origin: agent-authored scripts must not access Loop's
 // DOM, cookies or storage, even if the preview URL is opened outside the sheet.
@@ -19,10 +24,7 @@ export function sendHtmlPreview(
   res.setHeader("Cache-Control", "private, no-store");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader(
-    "Content-Security-Policy",
-    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'; sandbox allow-scripts",
-  );
+  res.setHeader("Content-Security-Policy", FILE_PREVIEW_POLICY);
   res.send(file.bytes);
   return true;
 }

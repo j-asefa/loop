@@ -27,6 +27,10 @@ const Record = z.strictObject({
   route: FleetActionInput.shape.route,
 });
 const Journal = z.array(Record).max(256);
+const Transfer = z.strictObject({
+  version: z.literal(1),
+  command: Record.extend({ payloadDigest: z.string().regex(/^[a-f0-9]{64}$/) }),
+});
 export type PendingFleetCommand = z.infer<typeof Record>;
 export const fleetCommandsChanged = "loop-fleet-commands";
 function changed() {
@@ -380,6 +384,57 @@ export async function pendingFleetCommands(
       "Existing command receipts cannot be read. Keep this browser's storage and open the owning machine to inspect its work.",
     );
   }
+}
+
+/** Explicitly move only a receipt reference across origins. It grants no access
+ * and contains no original prompt, answer, owner ID or reusable credential. */
+export async function exportFleetCommand(
+  input: PendingFleetCommand,
+  signal?: AbortSignal,
+) {
+  const { read, current } = journalScope(signal, false);
+  const command = Transfer.shape.command.parse(input);
+  if (!(await read()).some((entry) => matches(entry, command)))
+    throw unavailable("This receipt is no longer pending in this workspace.");
+  current();
+  return JSON.stringify({ version: 1, command });
+}
+
+export async function importFleetCommand(text: string, signal?: AbortSignal) {
+  const { key, read, current } = journalScope(signal);
+  let command: z.infer<typeof Transfer>["command"];
+  try {
+    if (text.length > 2048) throw new Error("Oversized receipt");
+    command = Transfer.parse(JSON.parse(text)).command;
+  } catch {
+    throw new Error(
+      "Paste an unchanged receipt copied from Loop's Actions to check.",
+    );
+  }
+  await navigator.locks.request(key, { signal }, async () => {
+    current();
+    const entries = await read();
+    if (entries.some((entry) => matches(entry, command))) return;
+    if (
+      entries.some(
+        (entry) =>
+          entry.id === command.id ||
+          (entry.source === command.source &&
+            entry.signature === command.signature),
+      )
+    )
+      throw new Error(
+        "A different receipt already identifies this action. Keep the original receipt.",
+      );
+    if (entries.length >= 256)
+      throw new Error("Check existing actions before adding more receipts.");
+    const value = JSON.stringify([...entries, command]);
+    current();
+    await writeFleetJournal(key, value);
+    changed();
+  });
+  current();
+  return command;
 }
 
 /** An explicit check can run after reload without retaining or reconstructing

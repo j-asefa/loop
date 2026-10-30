@@ -3,7 +3,7 @@
 // provider. Production gateway/destination admission is covered by HTTP tests.
 import { chromium, webkit, expect } from "@playwright/test";
 import { createServer } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -24,22 +24,34 @@ let dropped = false,
   heldCommand,
   releaseAction,
   releaseRetry,
+  releaseLookup,
+  holdLookup = false,
+  unknownLookup = false,
   browser,
-  server;
+  server,
+  alternateServer;
 try {
   const entry = join(dir, "entry.mjs");
   await writeFile(
     entry,
     [
+      `import React from ${JSON.stringify(resolve("node_modules/react/index.js"))};`,
+      `import {createRoot} from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};`,
+      `import {FleetCommandReceipts,showFleetCommandReceipts} from ${JSON.stringify(resolve("src/client/FleetCommandReceipts.tsx"))};`,
+      `export {showFleetCommandReceipts};`,
+      `import {setViewOwner as changeOwner} from ${JSON.stringify(resolve("src/client/viewCache.ts"))};`,
       `export {loadCapabilities} from ${JSON.stringify(resolve("src/client/capabilities.ts"))};`,
       `export {callRoute,clearAuthorization,authorize} from ${JSON.stringify(resolve("src/client/api.ts"))};`,
       `export {pendingFleetCommands,reconcileFleetCommand} from ${JSON.stringify(resolve("src/client/fleetCommand.ts"))};`,
       `export {workspaceApi} from ${JSON.stringify(resolve("src/shared/workspace-api.ts"))};`,
       `export {setViewOwner} from ${JSON.stringify(resolve("src/client/viewCache.ts"))};`,
       `export {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};`,
+      `function ReceiptHarness({owner,hasPeer,showOnCommit,onMounted}) {React.useLayoutEffect(()=>{if(showOnCommit)showFleetCommandReceipts();onMounted();});return React.createElement(FleetCommandReceipts,{owner,sources:hasPeer?[{id:${JSON.stringify(peer)},name:"Remote fixture",kind:"peer"}]:[]});}`,
+      `let root; export function renderReceipts(owner="fixture-owner", hasPeer=true, showOnCommit=false) {changeOwner(owner); root ??= createRoot(document.getElementById("root"));return new Promise(onMounted=>root.render(React.createElement(ReceiptHarness,{owner,hasPeer,showOnCommit,onMounted})));}`,
     ].join("\n"),
   );
   const { script, style: bundledStyle } = await browserFixtureBundle(entry);
+  const style = await readFile(resolve("src/client/fleetCommandReceipts.css"));
   const serve = async (req, res) => {
     const reply = (status, body, headers = {}) => {
       res.writeHead(status, {
@@ -55,8 +67,13 @@ try {
         "cache-control": "no-store",
       });
       res.end(
-        '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Isolated fleet command fixture</title><style>:root{--line:#999}body{font-family:system-ui;max-width:640px;margin:auto}textarea{box-sizing:border-box}</style><link rel="stylesheet" href="/client.css"><div id="root"></div>',
+        '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Isolated fleet command fixture</title><link rel="stylesheet" href="/receipts.css"><style>:root{--line:#999}body{font-family:system-ui;max-width:640px;margin:auto}textarea{box-sizing:border-box}</style><link rel="stylesheet" href="/client.css"><div id="root"></div>',
       );
+      return;
+    }
+    if (req.url === "/receipts.css") {
+      res.writeHead(200, { "content-type": "text/css" });
+      res.end(style);
       return;
     }
     if (req.url === "/client.css") {
@@ -133,11 +150,18 @@ try {
       assert.match(body.payloadDigest, /^[a-f0-9]{64}$/);
       assert.equal(req.headers["x-loop-command-id"], undefined);
       requests.push({ id: body.commandId, query: true, path: req.url });
+      if (holdLookup)
+        await new Promise((resolve) => {
+          releaseLookup = resolve;
+        });
       if (!receipts.has(body.commandId)) missing.add(body.commandId);
       reply(200, {
         commandId: body.commandId,
-        state: receipts.has(body.commandId) ? "completed" : "unknown",
-        result: receipts.get(body.commandId) ?? null,
+        state:
+          !unknownLookup && receipts.has(body.commandId)
+            ? "completed"
+            : "unknown",
+        result: unknownLookup ? null : (receipts.get(body.commandId) ?? null),
       });
       return;
     }
@@ -534,6 +558,114 @@ try {
   assert.equal(afterAbortRequests.length, 1);
   assert.equal(afterAbortRequests[0].receiptOnly, false);
   assert.equal(missing.has(cancelledId), false);
+  dropped = false;
+  const beforeTransfer = receipts.size;
+  const transferred = randomUUID();
+  assert((await send(first, randomUUID(), transferred)).error);
+  await first.reload();
+  async function mount(page) {
+    await page.bringToFront();
+    await page.evaluate(async () => {
+      const api = await import("/client.mjs");
+      api.setShellSource("");
+      await api.loadCapabilities();
+      api.renderReceipts();
+    });
+    await page.getByText(/^Actions to check/).click();
+  }
+  await mount(first);
+  await expect(
+    first.getByText("Actions to check (1)", { exact: true }),
+  ).toBeVisible();
+  await first.getByRole("button", { name: "Show receipt to copy" }).click();
+  const packet = await first
+    .getByLabel("Receipt to copy", { exact: true })
+    .inputValue();
+  assert(packet.includes(transferred));
+  assert(!packet.includes("fixture-private-answer"));
+  assert(!packet.includes("fixture-owner"));
+  alternateServer = createServer(serve);
+  await new Promise((resolve) =>
+    alternateServer.listen(0, "127.0.0.1", resolve),
+  );
+  const recovered = await (await browser.newContext(mobile)).newPage();
+  await recovered.goto(`http://localhost:${alternateServer.address().port}`);
+  await mount(recovered);
+  await expect(
+    recovered.getByText("No actions are waiting for a receipt here."),
+  ).toBeVisible();
+  const count = requests.length;
+  await recovered.getByLabel("Receipt from another gateway").fill(packet);
+  await recovered.getByRole("button", { name: "Keep receipt" }).click();
+  await expect(recovered.getByRole("status")).toContainText("Receipt retained");
+  await recovered.screenshot({
+    path: `/tmp/loop-fleet-receipt-ui-${engine.name()}.png`,
+    fullPage: true,
+  });
+  assert.equal(requests.length, count);
+  unknownLookup = true;
+  await recovered.getByRole("button", { name: "Check outcome" }).click();
+  await expect(recovered.getByRole("status")).toContainText("unknown outcome");
+  await expect(
+    recovered.getByText("Actions to check (1)", { exact: true }),
+  ).toBeVisible();
+  unknownLookup = false;
+  holdLookup = true;
+  const beforeHeld = requests.length;
+  await recovered.getByRole("button", { name: "Check outcome" }).click();
+  await expect.poll(() => requests.length).toBe(beforeHeld + 1);
+  await recovered.evaluate(async () =>
+    (await import("/client.mjs")).renderReceipts("unrelated-owner"),
+  );
+  await expect(recovered.locator(".fleet-command-receipts li")).toHaveCount(0);
+  releaseLookup();
+  holdLookup = false;
+  await recovered.getByText(/^Actions to check/).click();
+  await expect(recovered.getByRole("status")).toHaveCount(0);
+  await recovered.evaluate(async () =>
+    (await import("/client.mjs")).renderReceipts(),
+  );
+  await recovered.getByText(/^Actions to check/).click();
+  await expect(
+    recovered.getByText("Actions to check (1)", { exact: true }),
+  ).toBeVisible();
+  await recovered.getByRole("button", { name: "Check outcome" }).click();
+  await expect(recovered.getByRole("status")).toContainText("completed");
+  await expect(recovered.locator(".fleet-command-receipts li")).toHaveCount(0);
+  assert.equal(
+    requests.filter((request) => request.id === transferred && !request.query)
+      .length,
+    1,
+  );
+  assert.equal(receipts.size, beforeTransfer + 1);
+  // The original origin keeps its reference until it independently checks the
+  // outcome. A receipt never pretends storage/cookies are shared across origins.
+  await first.bringToFront();
+  await expect(
+    first.getByText("Actions to check (1)", { exact: true }),
+  ).toBeVisible();
+  await first.getByRole("button", { name: "Check outcome" }).click();
+  await expect(first.getByRole("status")).toContainText("completed");
+  await expect(first.locator(".fleet-command-receipts li")).toHaveCount(0);
+  await recovered.bringToFront();
+  await recovered.evaluate(async () =>
+    (await import("/client.mjs")).renderReceipts("standalone-owner", false),
+  );
+  await expect(recovered.locator(".fleet-command-receipts")).toHaveCount(0);
+  await recovered.evaluate(async () =>
+    (await import("/client.mjs")).showFleetCommandReceipts(),
+  );
+  await expect(
+    recovered.getByLabel("Receipt from another gateway", { exact: true }),
+  ).toBeVisible();
+  // An imperative request in the new owner's mount commit must reach the
+  // mounted panel before passive effects run.
+  await recovered.evaluate(async () =>
+    (await import("/client.mjs")).renderReceipts("commit-owner", false, true),
+  );
+  await expect(
+    recovered.getByLabel("Receipt from another gateway", { exact: true }),
+  ).toBeVisible();
   const beforeStorageFailure = requests.length;
   await first.evaluate(() => {
     window.savedOpen = IDBFactory.prototype.open;
@@ -554,16 +686,21 @@ try {
     });
   }
   console.log(
-    `PASS (${engine.name()}): lost responses and reloads reconcile one command; two tabs and bodyless lookup cannot overtake the first send during authorization; receipt queries never submit an absent command; overlapping explicit-ID retries release the journal so other commands can progress; queued retries recover an authorization failure without querying an absent receipt. Deterministic HTTP fixture.`,
+    `PASS (${engine.name()}): lost responses and reloads reconcile one command; two tabs and bodyless lookup cannot overtake the first send during authorization; receipt queries never submit an absent command; overlapping explicit-ID retries release the journal so other commands can progress; queued retries recover authorization failures without querying absent receipts; the visible panel transfers receipts across separate origins without action submission, retains uncertainty and rejects stale-owner results. Deterministic HTTP fixture.`,
   );
 } finally {
   releaseAuthorization?.();
   releaseAction?.();
   releaseRetry?.();
+  releaseLookup?.();
   await browser?.close();
   if (server) {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
+  }
+  if (alternateServer) {
+    alternateServer.closeAllConnections();
+    await new Promise((resolve) => alternateServer.close(resolve));
   }
   await rm(dir, { recursive: true, force: true });
 }

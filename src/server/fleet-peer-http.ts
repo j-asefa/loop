@@ -5,6 +5,8 @@ import { fleetWorkspaceApi } from "../shared/fleet-workspace-api.js";
 import { fleetWorkspaceActionApi } from "../shared/fleet-workspace-action-api.js";
 import type { FleetWorkspaceRead } from "./fleet-workspace-read.js";
 import type { FleetWorkspaceActions } from "./fleet-workspace-actions.js";
+import type { FleetWorkspaceFiles } from "./fleet-workspace-files.js";
+import { fleetWorkspaceFileApi } from "../shared/fleet-workspace-file-api.js";
 import { fleetPeerApi } from "../shared/fleet-peer-api.js";
 import { fleetHandoffApi } from "../shared/fleet-handoff-api.js";
 import { fleetDirectoryApi } from "../shared/fleet-directory-api.js";
@@ -30,6 +32,7 @@ export function createFleetPeerHttp(
     pendingDirectory?: FleetPendingDirectory;
     workspaceRead?: FleetWorkspaceRead;
     workspaceActions?: FleetWorkspaceActions;
+    workspaceFiles?: FleetWorkspaceFiles;
   } = {},
 ) {
   const paths = new Set(
@@ -39,6 +42,7 @@ export function createFleetPeerHttp(
       ...(options.workspaceActions
         ? Object.values(fleetWorkspaceActionApi)
         : []),
+      ...(options.workspaceFiles ? Object.values(fleetWorkspaceFileApi) : []),
       ...(options.handoff ? Object.values(fleetHandoffApi) : []),
       ...(options.directory ? Object.values(fleetDirectoryApi) : []),
       ...(options.credentials ? Object.values(fleetCredentialApi) : []),
@@ -186,6 +190,24 @@ export function createFleetPeerHttp(
     );
     routes.on(fleetWorkspaceActionApi.receipt, ({ body }, res) =>
       res.json(workspace.receipt(body)),
+    );
+  }
+  if (options.workspaceFiles) {
+    const files = options.workspaceFiles;
+    routes.on(fleetWorkspaceFileApi.open, async ({ body }, res) => {
+      const controller = new AbortController();
+      const close = () => {
+        if (!res.writableFinished) controller.abort();
+      };
+      res.once("close", close);
+      res.once("finish", () => res.off("close", close));
+      res.json(await files.open(body, controller.signal));
+    });
+    routes.on(fleetWorkspaceFileApi.chunk, ({ body }, res) =>
+      res.json(files.chunk(body)),
+    );
+    routes.on(fleetWorkspaceFileApi.close, ({ body }, res) =>
+      res.json(files.release(body)),
     );
   }
   app.use(routes.mount);

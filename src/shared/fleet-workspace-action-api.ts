@@ -14,6 +14,7 @@ export const fleetActionRoutes = {
   agentCreate: workspaceApi.agentCreate,
   agentUpdate: workspaceApi.agentUpdate,
   submit: workspaceApi.submit,
+  shareSend: workspaceApi.shareSend,
   runAction: workspaceApi.runAction,
   approval: workspaceApi.approval,
   nativeAnswer: workspaceApi.nativeAnswer,

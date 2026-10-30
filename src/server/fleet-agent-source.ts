@@ -7,6 +7,8 @@ import { matchFleetRoute as match } from "../shared/fleet-route-match.js";
 import {
   FleetReadInput,
   fleetReadRoutes,
+  isFleetReadContract,
+  FLEET_PREVIEW_INPUT_BYTES,
 } from "../shared/fleet-workspace-api.js";
 import {
   FLEET_ACTION_INPUT_BYTES,
@@ -18,14 +20,27 @@ import { fleetActionInput } from "./fleet-workspace-actions.js";
 import type { FleetAuthority } from "./fleet-authority.js";
 import type { FleetPeerReads } from "./fleet-peer-reads.js";
 import type { FleetPeerActions } from "./fleet-peer-actions.js";
+import type { FleetPeerFiles } from "./fleet-peer-files.js";
+import {
+  FleetFileSelection,
+  fleetFileRoutes,
+} from "../shared/fleet-workspace-file-api.js";
+import { workspaceApi } from "../shared/workspace-api.js";
+import { FILE_DOWNLOAD_POLICY, FILE_PREVIEW_POLICY } from "./file-preview.js";
 
-function jsonBody(req: IncomingMessage, signal: AbortSignal): Promise<unknown> {
+const getRoutes = {
+  ...fleetReadRoutes,
+  ...fleetFileRoutes,
+  artifactDownload: workspaceApi.artifactDownload,
+};
+
+function jsonBody(
+  req: IncomingMessage,
+  signal: AbortSignal,
+  limit = FLEET_ACTION_INPUT_BYTES,
+): Promise<unknown> {
   const length = Number(req.headers["content-length"] ?? 0);
-  if (
-    !Number.isSafeInteger(length) ||
-    length < 0 ||
-    length > FLEET_ACTION_INPUT_BYTES
-  )
+  if (!Number.isSafeInteger(length) || length < 0 || length > limit)
     throw new ExecutionRefused(413, "This workspace action is too large.");
   if (
     (req.headers["content-type"] ?? "application/json").split(";")[0].trim() !==
@@ -58,7 +73,7 @@ function jsonBody(req: IncomingMessage, signal: AbortSignal): Promise<unknown> {
     };
     const data = (chunk: Buffer) => {
       size += chunk.length;
-      if (size > FLEET_ACTION_INPUT_BYTES) {
+      if (size > limit) {
         clean();
         req.pause();
         reject(
@@ -93,6 +108,7 @@ export function fleetAgentSource(
   owner: string,
   reads: FleetPeerReads,
   actions?: FleetPeerActions,
+  files?: FleetPeerFiles,
 ): SourceAdapter {
   return {
     kind: "peer",
@@ -146,6 +162,96 @@ export function fleetAgentSource(
         );
         const method = req.method ?? "GET";
         if (method === "GET") {
+          const route = match(getRoutes, method, path);
+          if (route.contract.kind === "stream") {
+            if (!files)
+              throw new Problem(
+                409,
+                "This gateway does not support fleet downloads. Update it or open the owning workspace.",
+              );
+            const query: Record<string, string> = Object.create(null);
+            for (const [name, value] of search) {
+              if (Object.hasOwn(query, name))
+                throw new Problem(400, "Choose each file option once.");
+              query[name] = value;
+            }
+            if (route.name === "artifactDownload" && search.size)
+              throw new Problem(
+                400,
+                "Download links do not accept preview options.",
+              );
+            const selection = FleetFileSelection.parse({
+              route:
+                route.name === "artifactDownload" ? "artifactFile" : route.name,
+              params: route.params,
+              query,
+            });
+            await files.download(
+              peer,
+              selection,
+              {
+                start(file) {
+                  current();
+                  if (res.destroyed || controller.signal.aborted)
+                    throw new Problem(408, "The download was cancelled.");
+                  res.statusCode = 200;
+                  res.setHeader("Content-Length", file.size);
+                  res.setHeader("Content-Type", file.mediaType);
+                  res.setHeader("Content-Disposition", file.disposition);
+                  res.setHeader("Cache-Control", "private, no-store");
+                  res.setHeader("Referrer-Policy", "no-referrer");
+                  res.setHeader("X-Content-Type-Options", "nosniff");
+                  // Only an explicit HTML preview may run sandboxed scripts.
+                  // Never forward a peer's policy or relax ordinary downloads.
+                  const htmlPreview =
+                    selection.query.preview === "html" &&
+                    file.mediaType.split(";", 1)[0].trim().toLowerCase() ===
+                      "text/html";
+                  res.setHeader(
+                    "Content-Security-Policy",
+                    htmlPreview ? FILE_PREVIEW_POLICY : FILE_DOWNLOAD_POLICY,
+                  );
+                },
+                async write(bytes) {
+                  current();
+                  if (res.destroyed || controller.signal.aborted)
+                    throw new Problem(408, "The download was cancelled.");
+                  if (!res.write(bytes))
+                    await new Promise<void>((resolve, reject) => {
+                      const clean = () => {
+                        res.off("drain", drain);
+                        res.off("close", failed);
+                        res.off("error", failed);
+                        controller.signal.removeEventListener("abort", failed);
+                      };
+                      const drain = () => {
+                        clean();
+                        resolve();
+                      };
+                      const failed = () => {
+                        clean();
+                        reject(new Problem(408, "The download was cancelled."));
+                      };
+                      res.once("drain", drain);
+                      res.once("close", failed);
+                      res.once("error", failed);
+                      controller.signal.addEventListener("abort", failed, {
+                        once: true,
+                      });
+                      if (controller.signal.aborted || res.destroyed) failed();
+                    });
+                  current();
+                },
+              },
+              current,
+              controller.signal,
+            );
+            current();
+            res.end();
+            return;
+          }
+        }
+        if (method === "GET" || isFleetReadContract({ method, path })) {
           const route = match(fleetReadRoutes, method, path);
           const query: Record<string, string | string[]> = Object.create(null);
           for (const key of new Set(search.keys())) {
@@ -156,6 +262,17 @@ export function fleetAgentSource(
             route: route.name,
             params: route.params,
             query,
+            ...(method === "GET"
+              ? {}
+              : {
+                  body: route.contract.body.parse(
+                    await jsonBody(
+                      req,
+                      AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+                      FLEET_PREVIEW_INPUT_BYTES,
+                    ),
+                  ),
+                }),
           });
           route.contract.params.parse(input.params);
           route.contract.query.parse(input.query);
@@ -194,7 +311,7 @@ export function fleetAgentSource(
                         Object.hasOwn(fleetActionRoutes, name),
                       )
                     : [],
-                  files: catalog.files,
+                  files: !!files && catalog.files,
                   events: catalog.events,
                 },
               }),
@@ -268,10 +385,26 @@ export function fleetAgentSource(
           });
         }
       } catch (error) {
+        if (res.headersSent) {
+          res.destroy();
+          return;
+        }
+        res.removeHeader("content-length");
+        res.removeHeader("content-disposition");
         // Local validation or lost authorization cannot settle an older send.
         // Only the verified receipt path above may emit a terminal outcome.
         const refused = error instanceof ExecutionRefused || !forwarding;
-        reply(refused ? (error instanceof Problem ? error.status : 400) : 503, {
+        // A local identity conflict is a 409, but it cannot settle the original
+        // command's outcome. Only a verified receipt carries terminal headers.
+        const status =
+          error instanceof Problem && error.status === 409
+            ? 409
+            : refused
+              ? error instanceof Problem
+                ? error.status
+                : 400
+              : 503;
+        reply(status, {
           error:
             error instanceof Problem
               ? error.message

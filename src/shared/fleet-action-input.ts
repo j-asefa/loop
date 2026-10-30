@@ -9,9 +9,13 @@ import {
  * normalization. They are never inferred from arbitrary nested JSON keys. */
 export function fleetActionCommandPaths(input: FleetActionInput): string[][] {
   if (
-    ["agentCreate", "submit", "scheduledSendCreate", "runMove"].includes(
-      input.route,
-    ) ||
+    [
+      "agentCreate",
+      "submit",
+      "shareSend",
+      "scheduledSendCreate",
+      "runMove",
+    ].includes(input.route) ||
     (input.route === "runAction" && input.params.action === "retry")
   )
     return [["idempotencyKey"]];

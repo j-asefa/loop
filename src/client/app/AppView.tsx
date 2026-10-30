@@ -13,6 +13,11 @@ import { SourceProvider } from "../SourceContext";
 import { executionSourceId, sourceUrl } from "../sourceRouting";
 import { NativeHistory } from "../NativeHistory";
 import { AgentDirectory } from "../AgentDirectory";
+import {
+  FleetCommandReceipts,
+  showFleetCommandReceipts,
+} from "../FleetCommandReceipts";
+import "../fleetCommandReceipts.css";
 
 import { afterSheetsClose } from "../sheetHistory";
 import { TeamMessages, CreateTeam, TeamDirectory } from "../Teams";
@@ -527,6 +532,12 @@ export function renderApp(props: AppViewProps) {
             </button>
           </div>
         </header>
+        {!data.preview && (
+          <FleetCommandReceipts
+            owner={session.user.id}
+            sources={unified.sources}
+          />
+        )}
         {renderAppPages({
           ...props,
           projectScope,
@@ -579,6 +590,18 @@ export function renderApp(props: AppViewProps) {
             agents={data.agents}
             connections={data.connections}
           />
+          {capabilities.profile === "companion" && !data.preview && (
+            <button
+              className="text-button"
+              onClick={() => {
+                setSettingsParent(false);
+                setSheet("");
+                showFleetCommandReceipts();
+              }}
+            >
+              Check an action receipt
+            </button>
+          )}
           <footer className="drawer-account">
             <Avatar name={displayName} />
             <span>

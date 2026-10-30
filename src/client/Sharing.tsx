@@ -1,9 +1,14 @@
 import { literalEntry, proseEntry } from "./textEntry";
-import { useState, useRef } from "react";
+import { isExecutionRefused } from "./api";
+import { useState, useRef, useEffect } from "react";
 import { Check, Info, Share, WifiOff } from "lucide-react";
-import { callRoute } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import { executionSourceId } from "./sourceRouting";
+import {
+  useSourceId,
+  useSourceRoute,
+  useSourceOperation,
+} from "./SourceContext";
+import { viewGeneration } from "./viewCache";
 import { Sheet } from "./components";
 import {
   SettingsList,
@@ -75,16 +80,7 @@ export function SourceCard({
     </aside>
   );
 }
-export function ShareSheet({
-  draft,
-  setDraft,
-  folders,
-  agents,
-  newAgentId,
-  onCreate,
-  onClose,
-  onSent,
-}: {
+type ShareSheetProps = {
   draft: SharedDraft;
   setDraft: (d: SharedDraft) => void;
   folders: Folder[];
@@ -93,7 +89,53 @@ export function ShareSheet({
   onCreate: () => void;
   onClose: () => void;
   onSent: (run: Run) => void;
-}) {
+};
+export function ShareSheet(props: ShareSheetProps) {
+  const source = useSourceId();
+  return (
+    <ShareForm key={JSON.stringify([source, viewGeneration()])} {...props} />
+  );
+}
+function ShareForm({
+  draft,
+  setDraft,
+  folders,
+  agents,
+  newAgentId,
+  onCreate,
+  onClose,
+  onSent,
+}: ShareSheetProps) {
+  const call = useSourceRoute(),
+    generation = viewGeneration();
+  const previewUnavailable = useSourceOperation(workspaceApi.sharePreview);
+  const sendUnavailable = useSourceOperation(workspaceApi.shareSend);
+  const createUnavailable = useSourceOperation(workspaceApi.agentCreate);
+  const identity = JSON.stringify([draft, newAgentId]);
+  const latest = useRef(identity);
+  latest.current = identity;
+  const active = useRef<AbortController | null>(null);
+  useEffect(() => {
+    active.current?.abort();
+    setBusy(false);
+    setPreview(null);
+    setError("");
+    return () => {
+      active.current?.abort();
+    };
+  }, [identity]);
+  const begin = () => {
+    active.current?.abort();
+    const controller = new AbortController();
+    active.current = controller;
+    return {
+      signal: controller.signal,
+      current: () =>
+        !controller.signal.aborted &&
+        latest.current === identity &&
+        viewGeneration() === generation,
+    };
+  };
   const [preview, setPreview] = useState<RouteResponse<
       typeof workspaceApi.sharePreview
     > | null>(null),
@@ -114,17 +156,21 @@ export function ShareSheet({
     folderId: draft.folderId || undefined,
   };
   async function review() {
+    if (busy || previewUnavailable) return;
+    const request = begin();
+    setBusy(true);
     setError("");
     try {
-      setPreview(
-        await callRoute(
-          workspaceApi.sharePreview,
-          { body: payload },
-          executionSourceId(),
-        ),
+      const result = await call(
+        workspaceApi.sharePreview,
+        { body: payload },
+        request.signal,
       );
+      if (request.current()) setPreview(result);
     } catch (e) {
-      setError((e as Error).message);
+      if (request.current()) setError((e as Error).message);
+    } finally {
+      if (request.current()) setBusy(false);
     }
   }
   return (
@@ -186,7 +232,11 @@ export function ShareSheet({
           {error}
         </p>
       )}
-      <button onClick={review} disabled={!draft.question.trim() || busy}>
+      {previewUnavailable && <p className="field-hint">{previewUnavailable}</p>}
+      <button
+        onClick={review}
+        disabled={!draft.question.trim() || busy || !!previewUnavailable}
+      >
         Preview route
       </button>
       {preview && (
@@ -199,41 +249,57 @@ export function ShareSheet({
                 : "Create a new agent for this request. Your link, question and project will stay here."}
           </p>
           {!preview.agent && !chosen ? (
-            <button className="primary" onClick={onCreate}>
+            <button
+              className="primary"
+              onClick={onCreate}
+              disabled={!!createUnavailable}
+              title={createUnavailable}
+            >
               Choose provider & model
             </button>
           ) : (
             <button
               className="primary"
-              disabled={busy || !navigator.onLine}
+              disabled={busy || !navigator.onLine || !!sendUnavailable}
+              title={sendUnavailable}
               onClick={async () => {
+                if (busy || sendUnavailable) return;
+                const request = begin();
                 setBusy(true);
                 try {
                   const body = { ...payload, newAgentId },
                     signature = JSON.stringify(body);
                   if (key.current.signature !== signature)
                     key.current = { signature, key: crypto.randomUUID() };
-                  onSent(
-                    await callRoute(
-                      workspaceApi.shareSend,
-                      {
-                        body: {
-                          ...body,
-                          idempotencyKey: key.current.key,
-                        },
+                  const run = await call(
+                    workspaceApi.shareSend,
+                    {
+                      body: {
+                        ...body,
+                        idempotencyKey: key.current.key,
                       },
-                      executionSourceId(),
-                    ),
+                    },
+                    request.signal,
                   );
+                  if (request.current()) onSent(run);
                 } catch (e) {
-                  setError((e as Error).message);
+                  if (request.current()) {
+                    if (isExecutionRefused(e))
+                      key.current = { signature: "", key: "" };
+                    setError((e as Error).message);
+                  }
                 } finally {
-                  setBusy(false);
+                  if (request.current()) setBusy(false);
                 }
               }}
             >
               Send after review
             </button>
+          )}
+          {(preview.agent || chosen ? sendUnavailable : createUnavailable) && (
+            <p className="field-hint">
+              {preview.agent || chosen ? sendUnavailable : createUnavailable}
+            </p>
           )}
         </div>
       )}

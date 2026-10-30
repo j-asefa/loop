@@ -488,6 +488,125 @@ it("releases bounded peer requests on caller cancellation and close even when a 
   }
 });
 
+it.each(["routingPreview", "sharePreview"] as const)(
+  "keeps %s readable while the mutation pool is full",
+  async (route) => {
+    const release: (() => void)[] = [];
+    const busyBridge = new FleetWorkspaceApp((req, res) => {
+      if (req.url?.startsWith("/api/runs/")) release.push(() => app(req, res));
+      else app(req, res);
+    }, OWNER);
+    const pending: Promise<unknown>[] = [];
+    const mutation = {
+      route: "runAction" as const,
+      params: { id: randomUUID(), action: "cancel" },
+      body: {},
+    };
+    try {
+      for (let i = 0; i < 4; i++)
+        pending.push(
+          busyBridge.action(OWNER, mutation, () => {}).catch((error) => error),
+        );
+      expect(release).toHaveLength(4);
+      expect(() => busyBridge.action(OWNER, mutation, () => {})).toThrow(
+        "workspace is busy",
+      );
+      const preview = await busyBridge.read(
+        OWNER,
+        {
+          route,
+          params: {},
+          query: {},
+          body:
+            route === "routingPreview"
+              ? { input: "Suggest an agent" }
+              : { question: "Inspect a shared fixture" },
+        },
+        () => {},
+      );
+      expect(preview).toHaveProperty("result");
+    } finally {
+      for (const resume of release) resume();
+      await Promise.all(pending);
+    }
+  },
+);
+
+it("admits only the named read-only previews with read consent and checks their owning folder", async () => {
+  const body = {
+    question: "Inspect this shared fixture",
+    source: {
+      url: "https://example.invalid/fixture",
+      title: "Fixture",
+      excerpt: "Untrusted source text",
+    },
+  };
+  const command = {
+    ...input("sharePreview"),
+    input: { route: "sharePreview", params: {}, query: {}, body },
+  };
+  const before = db
+    .prepare("SELECT count(*) n FROM fleet_command_receipts")
+    .get();
+  const result = await call(command);
+  expect(result.status).toBe(200);
+  expect(result.body.response.result).toEqual({
+    mode: "create",
+    agent: null,
+    source: body.source,
+  });
+  expect(result.body.response.requestDigest).toBe(
+    fleetPayloadDigest({ requestId: command.requestId, input: command.input }),
+  );
+  expect(
+    (await call({ ...command, requestId: randomUUID(), credential: actToken }))
+      .status,
+  ).toBe(403);
+  const folderId = randomUUID();
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,NULL,'folder','Foreign fixture',1)",
+  ).run(folderId, foreignOwner);
+  expect(
+    (
+      await call({
+        ...command,
+        input: { ...command.input, body: { ...body, folderId } },
+      })
+    ).status,
+  ).toBe(404);
+  expect(
+    (
+      await call({
+        ...command,
+        input: {
+          ...command.input,
+          route: "routingPreview",
+          body: { input: "Suggest a local agent", folderId },
+        },
+      })
+    ).status,
+  ).toBe(404);
+  expect(
+    (
+      await call({
+        ...command,
+        input: { ...command.input, route: "bootstrap" },
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await call({
+        ...command,
+        input: { ...command.input, route: "shareSend" },
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    db.prepare("SELECT count(*) n FROM fleet_command_receipts").get(),
+  ).toEqual(before);
+});
+
 it("verifies the current destination before sending an existing credential to a reassigned origin", async () => {
   let reassigned = false,
     credentialRequests = 0;

@@ -17,6 +17,23 @@ import {
 } from "../shared/fleet-workspace-action-api.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { withPassiveWorkspaceRead } from "./workspace-read-context.js";
+import {
+  FleetFileSelection,
+  fleetFileRoutes,
+  FLEET_FILE_BYTES,
+} from "../shared/fleet-workspace-file-api.js";
+
+type WorkspaceInput = {
+  params: Record<string, string | number>;
+  query: Record<string, unknown>;
+  body?: unknown;
+};
+type WorkspaceResult = { result: unknown; clock?: WorkspaceClock };
+export type FleetWorkspaceFileContent = {
+  bytes: Buffer;
+  mediaType: string;
+  disposition: string;
+};
 
 /** Invoke the existing companion application's declared local route through a
  * bounded in-memory HTTP connection. It opens no listener and accepts neither
@@ -35,7 +52,7 @@ export class FleetWorkspaceApp {
     const value = FleetReadInput.parse(input);
     const contract: RouteContract = fleetReadRoutes[value.route];
     return withPassiveWorkspaceRead(owner, () =>
-      this.request(owner, contract, value, authorize),
+      this.request(owner, contract, value, authorize, false),
     );
   }
 
@@ -46,18 +63,49 @@ export class FleetWorkspaceApp {
       fleetActionRoutes[value.route],
       { ...value, query: {} },
       authorize,
+      true,
     );
+  }
+
+  file(
+    owner: string,
+    input: FleetFileSelection,
+    authorize: () => void,
+    signal?: AbortSignal,
+  ) {
+    const value = FleetFileSelection.parse(input);
+    const contract = fleetFileRoutes[value.route];
+    contract.params.parse(value.params);
+    contract.query.parse(value.query);
+    return this.request(owner, contract, value, authorize, false, true, signal);
   }
 
   private request(
     owner: string,
     contract: RouteContract,
-    input: {
-      params: Record<string, string | number>;
-      query: Record<string, unknown>;
-      body?: unknown;
-    },
+    input: WorkspaceInput,
     authorize: () => void,
+    mutation: boolean,
+    file: true,
+    signal?: AbortSignal,
+  ): Promise<FleetWorkspaceFileContent>;
+  private request(
+    owner: string,
+    contract: RouteContract,
+    input: WorkspaceInput,
+    authorize: () => void,
+    mutation: boolean,
+    file?: false,
+  ): Promise<WorkspaceResult>;
+
+  private request(
+    owner: string,
+    contract: RouteContract,
+    input: WorkspaceInput,
+    authorize: () => void,
+    mutation: boolean,
+    file = false,
+    signal?: AbortSignal,
   ) {
     if (owner !== this.owner)
       throw new ExecutionRefused(
@@ -70,14 +118,15 @@ export class FleetWorkspaceApp {
         ? undefined
         : JSON.stringify(input.body ?? null);
     authorize();
-    const kind = contract.method === "GET" ? "read" : "action";
+    const limit = file ? FLEET_FILE_BYTES : FLEET_READ_RESPONSE_BYTES;
+    const kind = mutation ? "action" : "read";
     if (this.pending[kind] >= 4)
       throw new ExecutionRefused(
         503,
         "The remote workspace is busy. Retry later.",
       );
     this.pending[kind]++;
-    return new Promise<{ result: unknown; clock?: WorkspaceClock }>(
+    return new Promise<WorkspaceResult | FleetWorkspaceFileContent>(
       (resolve, reject) => {
         const chunks: Buffer[] = [];
         let size = 0,
@@ -93,7 +142,7 @@ export class FleetWorkspaceApp {
           read() {},
           write(chunk, _encoding, done) {
             size += chunk.length;
-            if (size > FLEET_READ_RESPONSE_BYTES + 32 * 1024) {
+            if (size > limit + 32 * 1024) {
               done(new Error("Workspace projection exceeded its limit"));
             } else {
               chunks.push(Buffer.from(chunk));
@@ -119,7 +168,7 @@ export class FleetWorkspaceApp {
         req.url = path;
         req.headers = {
           host: "loop.internal.invalid",
-          accept: "application/json",
+          accept: file ? "*/*" : "application/json",
           connection: "close",
           ...(body === undefined
             ? {}
@@ -145,11 +194,12 @@ export class FleetWorkspaceApp {
             // A post-effect refusal cannot certify that a mutation was never
             // dispatched. Its destination receipt is saved before the action
             // service rechecks whether it may return the result to this peer.
-            if (contract.method === "GET") authorize();
+            if (!mutation) authorize();
             if (
-              !/^application\/json(?:\s*;|$)/i.test(
-                String(res.getHeader("content-type") ?? ""),
-              ) ||
+              (!file &&
+                !/^application\/json(?:\s*;|$)/i.test(
+                  String(res.getHeader("content-type") ?? ""),
+                )) ||
               res.hasHeader("transfer-encoding")
             )
               throw new Error("Unexpected workspace projection");
@@ -158,12 +208,12 @@ export class FleetWorkspaceApp {
             if (
               start < 0 ||
               start > 32 * 1024 ||
-              bytes.length - start - 4 > FLEET_READ_RESPONSE_BYTES
+              bytes.length - start - 4 > limit
             )
               throw new Error("Invalid workspace projection");
-            const parsed = JSON.parse(
-              bytes.subarray(start + 4).toString("utf8"),
-            );
+            const parsed = file
+              ? undefined
+              : JSON.parse(bytes.subarray(start + 4).toString("utf8"));
             if (
               ![
                 contract.status ?? 200,
@@ -174,10 +224,7 @@ export class FleetWorkspaceApp {
                 res.statusCode >= 400 && res.statusCode < 500
                   ? res.statusCode
                   : 502;
-              if (
-                contract.method !== "GET" &&
-                parsed?.executionOutcome === "refused"
-              )
+              if (mutation && parsed?.executionOutcome === "refused")
                 throw new ExecutionRefused(
                   status,
                   "The workspace refused this action before dispatch.",
@@ -186,6 +233,18 @@ export class FleetWorkspaceApp {
                 status,
                 "The remote workspace item is unavailable.",
               );
+            }
+            if (file) {
+              resolve({
+                bytes: Buffer.from(bytes.subarray(start + 4)),
+                mediaType: String(
+                  res.getHeader("content-type") ?? "application/octet-stream",
+                ),
+                disposition: String(
+                  res.getHeader("content-disposition") ?? "attachment",
+                ),
+              });
+              return;
             }
             const result = projectResponse(contract, parsed);
             const epoch = res.getHeader("x-loop-change-epoch");
@@ -212,6 +271,7 @@ export class FleetWorkspaceApp {
                   ),
             );
           } finally {
+            signal?.removeEventListener("abort", aborted);
             // An async handler may outlive this HTTP response. Its registrar
             // releases capacity only when the handler has actually settled.
             if (!started) release();
@@ -227,6 +287,13 @@ export class FleetWorkspaceApp {
           12_000,
         );
         timer.unref();
+        const aborted = () =>
+          finish(new Problem(408, "The file request was cancelled."));
+        signal?.addEventListener("abort", aborted, { once: true });
+        if (signal?.aborted) {
+          aborted();
+          return;
+        }
         sink.once("error", finish);
         req.once("error", finish);
         res.once("error", finish);

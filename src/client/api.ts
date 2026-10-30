@@ -1,3 +1,4 @@
+import { isFleetReadContract } from "../shared/fleet-workspace-api";
 import { routePath } from "../shared/route-path";
 export { routePath } from "../shared/route-path";
 import type { RouteContract, ClientRouteContract, RouteInput, RouteResponse } from "../shared/workspace-api";
@@ -283,7 +284,7 @@ export async function callRoute<C extends ClientRouteContract>(contract: C, inpu
   const path = routePath(contract, input);
   const routed = sourceApiPathAt("/api" + path, sourceId);
   const destination = decodeURIComponent(/^\/api\/agent-sources\/([^/]+)\//.exec(routed)?.[1] ?? "");
-  const command = destination.startsWith("peer:") && contract.method !== "GET"
+  const command = destination.startsWith("peer:") && contract.method !== "GET" && !isFleetReadContract(contract)
     ? await prepareFleetCommand(destination, contract, input, signal) : undefined;
   const perform = async () => {
     const guarded = {

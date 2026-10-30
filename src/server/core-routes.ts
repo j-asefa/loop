@@ -11,7 +11,7 @@ import type { QueryRow } from "./query-records.js";
 import { projectionSnapshot } from "./projection-snapshot.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { localArtifact } from "./published-files.js";
-import { sendHtmlPreview } from "./file-preview.js";
+import { FILE_DOWNLOAD_POLICY, sendHtmlPreview } from "./file-preview.js";
 import {
   isNativeConnection,
   NATIVE_CONNECTION_SQL,
@@ -696,7 +696,7 @@ routes.on(workspaceApi.artifactFile, (req, res) => {
     `${inline ? "inline" : "attachment"}; filename*=UTF-8''${filename}`,
   );
   res.setHeader("Cache-Control", "private, no-store");
-  res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+  res.setHeader("Content-Security-Policy", FILE_DOWNLOAD_POLICY);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.send(file.bytes);
 });

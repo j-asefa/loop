@@ -14,6 +14,8 @@ import {
 export const fleetReadRoutes = {
   capabilities: workspaceApi.capabilities,
   agentSuggestName: workspaceApi.agentSuggestName,
+  routingPreview: workspaceApi.routingPreview,
+  sharePreview: workspaceApi.sharePreview,
   bootstrap: workspaceApi.bootstrap,
   feed: workspaceApi.feed,
   feedAway: workspaceApi.feedAway,
@@ -63,7 +65,18 @@ export const fleetReadRoutes = {
   definitionList: workspaceApi.definitionList,
   definitionRead: workspaceApi.definitionRead,
   prWatchList: workspaceApi.prWatchList,
-} as const satisfies Record<string, RouteContract & { method: "GET" }>;
+} as const satisfies Record<string, RouteContract & { method: "GET" | "POST" }>;
+// These two POST routes only select a local recipient. Classify by the fixed
+// owning contract, never by a caller-supplied read flag or arbitrary method.
+export function isFleetReadContract(contract: {
+  method: string;
+  path: string;
+}) {
+  return Object.values(fleetReadRoutes).some(
+    (route) => route.method === contract.method && route.path === contract.path,
+  );
+}
+export const FLEET_PREVIEW_INPUT_BYTES = 192 * 1024;
 export const FleetReadRoute = z.enum(
   Object.keys(fleetReadRoutes) as [
     keyof typeof fleetReadRoutes,
@@ -73,15 +86,35 @@ export const FleetReadRoute = z.enum(
 export type FleetReadRoute = z.infer<typeof FleetReadRoute>;
 const Name = z.string().regex(/^[a-z][a-zA-Z0-9]{0,63}$/);
 const Value = z.union([z.string().max(4096), z.number().finite()]);
-export const FleetReadInput = z.strictObject({
-  route: FleetReadRoute,
-  params: z
-    .record(Name, Value)
-    .refine((value) => Object.keys(value).length <= 8),
-  query: z
-    .record(Name, z.union([Value, z.array(Value).max(50)]))
-    .refine((value) => Object.keys(value).length <= 32),
-});
+export const FleetReadInput = z
+  .strictObject({
+    route: FleetReadRoute,
+    params: z
+      .record(Name, Value)
+      .refine((value) => Object.keys(value).length <= 8),
+    query: z
+      .record(Name, z.union([Value, z.array(Value).max(50)]))
+      .refine((value) => Object.keys(value).length <= 32),
+    body: z
+      .union([workspaceApi.routingPreview.body, workspaceApi.sharePreview.body])
+      .refine(
+        (value) =>
+          new TextEncoder().encode(JSON.stringify(value)).length <=
+          FLEET_PREVIEW_INPUT_BYTES,
+      )
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      (fleetReadRoutes[value.route].method === "GET") !==
+      (value.body === undefined)
+    )
+      context.addIssue({
+        code: "custom",
+        message:
+          "Only named preview reads accept a body; preview reads require one.",
+      });
+  });
 export type FleetReadInput = z.infer<typeof FleetReadInput>;
 const Admission = z.strictObject({
   version: z.literal(1),

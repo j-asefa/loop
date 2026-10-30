@@ -20,6 +20,16 @@ const createdAgentId = randomUUID(),
   createConnection = randomUUID();
 let modelReads = 0,
   creationEffects = 0;
+const previews = [],
+  shared = [];
+let refusedSharedId;
+const fileRequests = [];
+const objectId = randomUUID(),
+  artifactId = randomUUID();
+let holdFile = false,
+  releaseFile;
+let holdPreview = false,
+  releasePreview;
 let refusedId,
   effectId,
   effects = 0;
@@ -35,10 +45,15 @@ try {
     import { createRoot } from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};
     import { SourceProvider } from ${JSON.stringify(resolve("src/client/SourceContext.tsx"))};
     import { NativeDecisions } from ${JSON.stringify(resolve("src/client/NativeControls.tsx"))};
+    import { ShareSheet } from ${JSON.stringify(resolve("src/client/Sharing.tsx"))};
+    import { AttachmentList } from ${JSON.stringify(resolve("src/client/Attachments.tsx"))};
+    import { FileLink } from ${JSON.stringify(resolve("src/client/FilePreview.tsx"))};
     import { AgentModelSettings } from ${JSON.stringify(resolve("src/client/AgentModelSettings.tsx"))};
     import { CreateAgent } from ${JSON.stringify(resolve("src/client/CreateAgent.tsx"))};
     import { setViewOwner } from ${JSON.stringify(resolve("src/client/viewCache.ts"))};
     import { setShellSource } from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
+    import { readFleetJournal } from ${JSON.stringify(resolve("src/client/fleetCommandStorage.ts"))};
+    window.commandStorage = async () => (await readFleetJournal("loop:fleet-commands:v1:fixture-owner")) ?? "";
     const peer = ${JSON.stringify(peer)};
     setShellSource(peer); setViewOwner("fixture-owner");
     const root = createRoot(document.getElementById("root"));
@@ -48,6 +63,22 @@ try {
         reads:["nativeDecisions"], actions:mode === "read-only" ? [] : ["nativeAnswer"],files:false,events:false},
     }},React.createElement(NativeDecisions,{conversation:${JSON.stringify(conversation)}})));
     window.fixture("read-only");
+    let sharedDraft = {url:"",title:"",excerpt:"fixture-private-share",question:"@share-agent inspect",folderId:""};
+    window.share = (mode, source=peer) => root.render(React.createElement(SourceProvider, {sourceId:source, capabilities:{
+      profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
+      fleet:{version:1,machineId:source.slice(5),reads:["sharePreview"],actions:mode === "read-only" ? [] : ["shareSend","agentCreate"],files:false,events:false}
+    }},React.createElement(ShareSheet, {draft:sharedDraft,setDraft:next=>{sharedDraft=next;window.share(mode,source)},folders:[],agents:[],onCreate:()=>{},onClose:()=>{},onSent:()=>{window.sharedSent=true}})));
+    window.files = (source=peer,owner="fixture-owner") => {
+      setViewOwner(owner);
+      root.render(React.createElement(SourceProvider,{sourceId:source,capabilities:{
+        profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
+        fleet:{version:1,machineId:source.slice(5),reads:[],actions:[],files:true,events:false},
+      }},React.createElement(AttachmentList,{files:[{id:${JSON.stringify(artifactId)},objectId:${JSON.stringify(objectId)},name:"fleet-fixture.txt",mime:"text/plain",size:20}]})));
+    };
+    window.filelink = (source=peer,owner="fixture-owner") => {
+      setViewOwner(owner);
+      root.render(React.createElement(FileLink,{url:"/api/agent-sources/"+encodeURIComponent(source)+"/objects/"+${JSON.stringify(objectId)},name:"linked-file.txt"},"Open linked file"));
+    };
     window.models = () => root.render(React.createElement(SourceProvider, {sourceId:peer, capabilities:{
       profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
       fleet:{version:1,machineId:peer.slice(5),reads:[],actions:[],files:false,events:false},
@@ -103,6 +134,72 @@ try {
     }
     if (req.url === "/session") {
       reply(200, { csrf: "fixture-only" });
+      return;
+    }
+    if (req.method === "GET" && req.url?.endsWith("/objects/" + objectId)) {
+      fileRequests.push(req.url);
+      if (holdFile)
+        await new Promise((resolve) => {
+          releaseFile = resolve;
+        });
+      if (res.destroyed) return;
+      res.writeHead(200, {
+        "content-type": "text/plain",
+        "content-disposition": "attachment; filename*=UTF-8''fleet-fixture.txt",
+        "cache-control": "no-store",
+      });
+      res.end("Source-bound fixture file");
+      return;
+    }
+    if (
+      req.method === "POST" &&
+      /^\/api\/agent-sources\/peer%3Am_[a-f0-9]{64}\/share\/(preview|send)$/.test(
+        req.url,
+      )
+    ) {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.url.endsWith("/preview")) {
+        assert.equal(req.headers["x-loop-command-id"], undefined);
+        previews.push({ path: req.url, body });
+        if (holdPreview)
+          await new Promise((resolve) => {
+            releasePreview = resolve;
+          });
+        reply(200, {
+          mode: "queue",
+          agent: {
+            id: "share-fixture",
+            name: "share-agent",
+            provider: "openai",
+            model: "fixture",
+            effort: null,
+          },
+        });
+      } else {
+        assert.match(req.headers["x-loop-command-id"], /^[a-f0-9-]{36}$/);
+        assert.equal(body.idempotencyKey, req.headers["x-loop-command-id"]);
+        const id = req.headers["x-loop-command-id"],
+          receiptOnly = req.headers["x-loop-receipt-only"] === "1";
+        shared.push({ path: req.url, id, receiptOnly });
+        if (id === refusedSharedId || (id === shared[0].id && receiptOnly)) {
+          refusedSharedId = id;
+          reply(
+            409,
+            {
+              error: "Fixture shared command was confirmed absent",
+              executionOutcome: "refused",
+            },
+            { "x-loop-command-id": id, "x-loop-command-state": "refused" },
+          );
+          return;
+        }
+        reply(503, {
+          error: "Fixture shared receipt is unknown",
+          executionOutcome: "unknown",
+        });
+      }
       return;
     }
     const sourcePrefix = `/api/agent-sources/${encodeURIComponent(peer)}`;
@@ -292,11 +389,12 @@ try {
   assert.deepEqual(submissions[0].answer, {
     choice: ["fixture-private-answer"],
   });
-  const storage = await page.evaluate(() => ({
+  const storage = await page.evaluate(async () => ({
     keys: Object.keys(sessionStorage),
     contents:
       Object.values(sessionStorage).join("") +
-      Object.values(localStorage).join(""),
+      Object.values(localStorage).join("") +
+      (await window.commandStorage()),
   }));
   assert(
     storage.keys.some(
@@ -307,6 +405,144 @@ try {
     ),
   );
   assert(!storage.contents.includes("fixture-private-answer"));
+  await page.evaluate(() => window.share("read-only"));
+  await page
+    .getByRole("button", { name: "Preview route", exact: true })
+    .click();
+  const shareSend = page.getByRole("button", {
+    name: "Send after review",
+    exact: true,
+  });
+  await expect(shareSend).toBeDisabled();
+  assert.equal(previews.length, 1);
+  assert.equal(shared.length, 0);
+  await page.evaluate(() => window.share("writable"));
+  await expect(shareSend).toBeEnabled();
+  await shareSend.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Fixture shared receipt is unknown",
+  );
+  assert.equal(shared.length, 1);
+  const sharedStorage = await page.evaluate(() => window.commandStorage());
+  assert(sharedStorage.includes(shared[0].id));
+  assert(!sharedStorage.includes("fixture-private-share"));
+  await shareSend.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Fixture shared command was confirmed absent",
+  );
+  assert.equal(shared.length, 2);
+  assert.equal(shared[1].id, shared[0].id);
+  assert.equal(shared[1].receiptOnly, true);
+  await shareSend.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Fixture shared receipt is unknown",
+  );
+  assert.equal(shared.length, 3);
+  assert.notEqual(shared[2].id, shared[0].id);
+  assert.equal(shared[2].receiptOnly, false);
+  await shareSend.click();
+  await expect.poll(() => shared.length).toBe(4);
+  await expect(shareSend).toBeEnabled();
+  assert.equal(shared[3].id, shared[2].id);
+  assert.equal(shared[3].receiptOnly, true);
+  const retryStorage = await page.evaluate(() => window.commandStorage());
+  assert(retryStorage.includes(shared[2].id));
+  assert(!retryStorage.includes(shared[0].id));
+  holdPreview = true;
+  await page
+    .getByRole("button", { name: "Preview route", exact: true })
+    .click();
+  await expect.poll(() => previews.length).toBe(2);
+  await page.evaluate(() =>
+    window.share("writable", "peer:m_" + "2".repeat(64)),
+  );
+  await expect(shareSend).toHaveCount(0);
+  releasePreview();
+  holdPreview = false;
+  await expect(
+    page.getByRole("button", { name: "Preview route", exact: true }),
+  ).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Preview route", exact: true })
+    .click();
+  await expect(shareSend).toBeEnabled();
+  assert.equal(previews.length, 3);
+  assert(previews.at(-1).path.includes("2".repeat(64)));
+  assert.equal(shared.length, 4);
+  assert.equal(await page.evaluate(() => !!window.sharedSent), false);
+  await page.evaluate(() => window.files());
+  const previewFile = page.getByRole("button", {
+    name: "Preview fleet-fixture.txt",
+    exact: true,
+  });
+  await previewFile.click();
+  await expect(page.locator(".file-preview-content pre")).toHaveText(
+    "Source-bound fixture file",
+  );
+  assert(fileRequests.at(-1).includes(encodeURIComponent(peer)));
+  await page.evaluate(() => window.files("peer:m_" + "2".repeat(64)));
+  await expect(page.locator(".file-preview-content")).toHaveCount(0);
+  assert.equal(
+    fileRequests.length,
+    1,
+    "A source change must not reuse the prior source's object id",
+  );
+  await page.evaluate(async () => {
+    window.files();
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+  });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  assert.equal(
+    fileRequests.length,
+    1,
+    "Returning to a source must not reopen its previous preview",
+  );
+  await page.evaluate(async () => {
+    window.files("peer:m_" + "2".repeat(64));
+    await new Promise(requestAnimationFrame);
+  });
+  holdFile = true;
+  await previewFile.click();
+  await expect.poll(() => fileRequests.length).toBe(2);
+  await page.evaluate(() =>
+    window.files("peer:m_" + "2".repeat(64), "other-owner"),
+  );
+  await expect(page.locator(".file-preview-content")).toHaveCount(0);
+  releaseFile();
+  holdFile = false;
+  await previewFile.click();
+  await expect(page.locator(".file-preview-content pre")).toHaveText(
+    "Source-bound fixture file",
+  );
+  assert.equal(fileRequests.length, 3);
+  assert(fileRequests.at(-1).includes("2".repeat(64)));
+  await page.evaluate(() => window.filelink());
+  await page.getByRole("link", { name: "Open linked file" }).click();
+  await expect(page.locator(".file-preview-content pre")).toHaveText(
+    "Source-bound fixture file",
+  );
+  assert.equal(fileRequests.length, 4);
+  await page.evaluate(() => window.filelink("peer:m_" + "2".repeat(64)));
+  await expect(page.locator(".file-preview-content")).toHaveCount(0);
+  assert.equal(
+    fileRequests.length,
+    4,
+    "An open link cannot retarget its file read",
+  );
+  await page.getByRole("link", { name: "Open linked file" }).click();
+  await expect(page.locator(".file-preview-content pre")).toHaveText(
+    "Source-bound fixture file",
+  );
+  await page.evaluate(() =>
+    window.filelink("peer:m_" + "2".repeat(64), "another-owner"),
+  );
+  await expect(page.locator(".file-preview-content")).toHaveCount(0);
+  assert.equal(
+    fileRequests.length,
+    5,
+    "An owner change cannot reuse an open link",
+  );
   // The real creation UI retains the upstream model picker and saved catalog,
   // while destination capabilities gate execution and lost replies keep one ID.
   await page.evaluate(() => window.createFleetAgent("read-only"));
@@ -376,9 +612,11 @@ try {
   ).toBeVisible();
   assert.deepEqual(failures, []);
   console.log(
-    `PASS (${engine.name()}): actual question controls refuse read-only and wrong-source capabilities; a terminal refusal permits a fresh ID; a lost response retries receipt-only with one effect; storage refusal releases the lock without IO; identities include owner and machine. Deterministic HTTP fixture.`,
+    `PASS (${engine.name()}): actual question controls respect capabilities and durable storage, renew refused IDs and reconcile lost responses without a second effect; read-only sharing permits preview but disables send; shared sends renew confirmed refusals and retain their original identity on uncertainty; source changes abort held previews; file previews retain their source and close on owner/source changes. Deterministic HTTP fixture.`,
   );
 } finally {
+  releasePreview?.();
+  releaseFile?.();
   await browser?.close();
   if (server) {
     server.closeAllConnections();

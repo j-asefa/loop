@@ -974,6 +974,92 @@ it("exports a whole run's public traces, including its final answer", async () =
   for (const r of [run, other]) transition(r, "cancelled");
 });
 
+it.each(["traces", "messages"] as const)(
+  "exports a bounded truncated %s page without counting the omitted sentinel",
+  async (kind) => {
+    const a = agent(),
+      run = submit("alice", {
+        agentId: a.id,
+        input: "Bounded truncated export",
+        idempotencyKey: id(),
+      });
+    try {
+      const large = JSON.stringify({
+        progress: true,
+        unexported: "x".repeat(25 * 1024 * 1024),
+      });
+      // Reuse statements: thousands of individually prepared trigger-heavy
+      // writes can retain compiler allocations unrelated to the export bound.
+      const trace = db.prepare(
+        "INSERT INTO run_traces(owner_id,run_id,trace_key,kind,title,content,metadata,created_at) VALUES('alice',?,?,'tool','Fixture','Public trace',?,1)",
+      );
+      const message = db.prepare(
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','Public update',?,?)",
+      );
+      db.transaction(() => {
+        if (kind === "traces") {
+          for (let i = 0; i <= 5000; i++)
+            trace.run(run.id, `bounded-${i}`, i === 5000 ? large : "{}");
+        } else {
+          // submit already inserted the first user message. Progress metadata
+          // keeps these fixture writes from reordering every previous message.
+          for (let i = 1; i <= 5000; i++)
+            message.run(
+              id(),
+              run.conversation_id,
+              run.id,
+              i === 5000 ? large : '{"progress":true}',
+              i,
+            );
+        }
+      })();
+      const response = await fetch(
+        `${base}/agents/${a.id}/traces/export?run=${run.id}`,
+        { headers: { "x-owner": "alice" } },
+      );
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.truncated).toBe(true);
+      expect(data[kind]).toHaveLength(5000);
+      expect(data[kind].at(-1).metadata).not.toHaveProperty("unexported");
+    } finally {
+      transition(run, "cancelled");
+    }
+  },
+  30000,
+);
+
+it("refuses exports whose stored or escaped bytes exceed the download bound", async () => {
+  const a = agent(),
+    run = submit("alice", {
+      agentId: a.id,
+      input: "Bounded export",
+      idempotencyKey: id(),
+    });
+  try {
+    for (const content of [
+      "x".repeat(25 * 1024 * 1024),
+      "\u0001".repeat(5 * 1024 * 1024),
+    ]) {
+      recordTrace(run, "bounded", {
+        kind: "message",
+        title: "Update",
+        content,
+      });
+      const response = await fetch(
+        `${base}/agents/${a.id}/traces/export?run=${run.id}`,
+        { headers: { "x-owner": "alice" } },
+      );
+      expect(response.status).toBe(413);
+      expect(await response.json()).toMatchObject({
+        error: expect.stringContaining("paginated traces"),
+      });
+    }
+  } finally {
+    transition(run, "cancelled");
+  }
+});
+
 it("indexes traces saved before the search migration", () => {
   const legacy = new Database(":memory:");
   legacy.exec(

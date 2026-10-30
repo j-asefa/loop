@@ -6,7 +6,7 @@ import {
   type ResultItem,
 } from "../../shared/workspace-api";
 import { capabilities as shellCapabilities } from "../capabilities";
-import { fleetOperationReason } from "../fleetCapabilities";
+import { fleetComposerReason } from "../fleetCapabilities";
 import { type WorkspaceCollection } from "../../shared/workspace-events";
 import { cardArtifact, type CardArtifact } from "../card-actions";
 import { CardPager } from "../card-pager";
@@ -290,12 +290,13 @@ export function useAppController() {
     conversation ? conversationSource : null,
     session?.user?.id,
   );
-  const composerUnavailable = fleetOperationReason(
+  const composerUnavailable = fleetComposerReason(
     actionSource,
     actionSource === executionSourceId()
       ? shellCapabilities
       : threadSource.capabilities,
-    workspaceApi.submit,
+    draft,
+    selected,
   );
   const threadData =
     conversation && conversationSource !== executionSourceId()

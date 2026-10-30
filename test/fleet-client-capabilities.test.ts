@@ -5,6 +5,36 @@ import { fleetOperationReason } from "../src/client/fleetCapabilities";
 
 const peer = "peer:m_" + "1".repeat(64);
 const gateway = profileCapabilities("companion");
+it("allows declared file reads without granting multipart uploads or unrelated streams", () => {
+  const capabilities = {
+    ...gateway,
+    fleet: {
+      version: 1 as const,
+      machineId: peer.slice(5),
+      reads: [],
+      actions: [],
+      files: true,
+      events: false,
+    },
+  };
+  for (const contract of [
+    workspaceApi.artifactFile,
+    workspaceApi.objectFile,
+    workspaceApi.agentTracesExport,
+    workspaceApi.artifactDownload,
+  ])
+    expect(fleetOperationReason(peer, capabilities, contract)).toBeUndefined();
+  expect(
+    fleetOperationReason(peer, capabilities, workspaceApi.uploadCreate),
+  ).toContain("does not allow");
+  expect(
+    fleetOperationReason(
+      peer,
+      { ...capabilities, fleet: { ...capabilities.fleet, files: false } },
+      workspaceApi.objectFile,
+    ),
+  ).toContain("files are unavailable");
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -139,3 +169,36 @@ it.each([401, 403, 409, 503])(
   },
   15000,
 );
+
+it("distinguishes a read-only preview from permission to send its shared content", () => {
+  const capabilities = {
+    ...gateway,
+    fleet: {
+      version: 1 as const,
+      machineId: peer.slice(5),
+      reads: ["sharePreview", "routingPreview"],
+      actions: [],
+      files: false,
+      events: false,
+    },
+  };
+  expect(
+    fleetOperationReason(peer, capabilities, workspaceApi.sharePreview),
+  ).toBeUndefined();
+  expect(
+    fleetOperationReason(peer, capabilities, workspaceApi.routingPreview),
+  ).toBeUndefined();
+  expect(
+    fleetOperationReason(peer, capabilities, workspaceApi.shareSend),
+  ).toContain("does not allow");
+  expect(
+    fleetOperationReason(
+      peer,
+      {
+        ...capabilities,
+        fleet: { ...capabilities.fleet, reads: [], actions: ["sharePreview"] },
+      },
+      workspaceApi.sharePreview,
+    ),
+  ).toContain("does not allow");
+});
