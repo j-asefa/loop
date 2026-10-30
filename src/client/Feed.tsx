@@ -1,7 +1,7 @@
 import { proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
 import { fleetOperationReason } from "./fleetCapabilities";
-import { writeDoneReadState } from "./doneReadState";
+import { doneReadVersion, doneThreadReadVersions, writeDoneReadState, writeDoneUnreadState } from "./doneReadState";
 import type { CardReadTransport } from "../shared/card-client";
 import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
@@ -130,6 +130,7 @@ export type FeedItem = {
   done_card_key?: string;
   /** When a Done result was opened; null while unread. */
   read_at?: number | null;
+  unread_version?: number;
   reply_card_key?: string;
   reply?: { message_id: string; content: string; read_at: number | null };
   title: string;
@@ -2036,7 +2037,7 @@ export function Feed({
     if (fleetOperationReason(source, allSources.find(entry => entry.id === source)?.capabilities, workspaceApi.feedRead)) return;
     try {
       await writeDoneReadState(source, () =>
-        callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey } }, source));
+        callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey, unreadVersion: doneReadVersion(source, "d:" + cardKey, item.unread_version) } }, source));
       if (generation === viewGeneration()) await load();
     } catch (error) {
       if (generation === viewGeneration()) setError((error as Error).message);
@@ -2047,10 +2048,10 @@ export function Feed({
     const cardKey = item.done_card_key, source = item.sourceId ?? scopedSource;
     try {
       if (thread) {
-        await writeDoneReadState(thread.source, () =>
-          callRoute(workspaceApi.doneThreadUnread, { params: { id: thread.id } }, thread.source));
+        await writeDoneUnreadState(thread.source, () =>
+          callRoute(workspaceApi.doneThreadUnread, { params: { id: thread.id } }, thread.source), thread.id);
       } else if (cardKey) {
-        await writeDoneReadState(source, () =>
+        await writeDoneUnreadState(source, () =>
           callRoute(workspaceApi.feedUnread, {
             params: { id: item.conversation_id }, body: { cardKey },
           }, source));
@@ -2073,7 +2074,7 @@ export function Feed({
     if (fleetOperationReason(thread.source, allSources.find(entry => entry.id === thread.source)?.capabilities, workspaceApi.doneThreadRead)) return;
     try {
       await writeDoneReadState(thread.source, () =>
-        callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: {} }, thread.source));
+        callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: thread.unreadVersions === undefined ? {} : { unreadVersions: doneThreadReadVersions(thread.source, thread.id, thread.unreadVersions) } }, thread.source));
       if (generation === viewGeneration()) { grouping.refresh(); await load(); }
     } catch (error) {
       if (generation === viewGeneration()) setError((error as Error).message);

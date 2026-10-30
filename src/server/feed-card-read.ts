@@ -29,6 +29,7 @@ type RecordRow = {
   card_key: string;
   kind?: string;
   read_at?: number | null;
+  unread_version?: number;
   unread?: number;
 };
 const needs = "(t.needs_run OR COALESCE(t.approval_until,0)>@now)";
@@ -218,7 +219,8 @@ export function projectionDoneRows(
   const rows = db
     .prepare(
       `SELECT p.payload,t.payload thread_payload,p.sort_at,p.conversation_id,p.card_key,p.kind,
-      CASE WHEN p.kind='result' AND NOT p.unread THEN (SELECT d.read_at FROM done_card_reads d WHERE d.owner_id=p.owner_id AND d.conversation_id=p.conversation_id AND d.card_key=p.card_key) END read_at,p.unread
+      CASE WHEN p.kind='result' AND NOT p.unread THEN (SELECT d.read_at FROM done_card_reads d WHERE d.owner_id=p.owner_id AND d.conversation_id=p.conversation_id AND d.card_key=p.card_key) END read_at,p.unread,
+      COALESCE((SELECT v.version FROM done_card_unread_versions v WHERE v.owner_id=p.owner_id AND v.conversation_id=p.conversation_id AND v.card_key=p.card_key),0) unread_version
     FROM feed_cards p JOIN feed_cards t ON t.owner_id=p.owner_id AND t.conversation_id=p.conversation_id AND t.kind='thread'
     WHERE ${scope("p", params)} AND p.kind IN ('result','idle') AND (p.kind='result' OR (p.kind='idle' AND NOT EXISTS(SELECT 1 FROM feed_cards r WHERE r.owner_id=p.owner_id AND r.conversation_id=p.conversation_id AND r.kind='result') AND ${idle}))
       AND (@includeDismissed OR NOT p.hidden) AND (@detail OR @teams IS NOT NULL OR @agent IS NOT NULL OR NOT t.hide_results)
@@ -236,5 +238,6 @@ export function projectionDoneRows(
     ...display(row, "done", params.now, false, true),
     // Only results are read; an idle thread has no result to open.
     read_at: row.kind === "result" ? (row.read_at ?? null) : undefined,
+    unread_version: row.kind === "result" ? row.unread_version : undefined,
   }));
 }

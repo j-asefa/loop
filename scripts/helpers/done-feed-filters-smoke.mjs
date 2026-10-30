@@ -312,6 +312,51 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     );
     await page.unroute(threadList);
   }
+  // An independent client can mark unread while this tab's older read is held
+  // before dispatch. The server must reject that stale decision for both paths.
+  for (const [title, path, body] of [
+    [
+      "Filter result 0-83",
+      `/feed/${agents[0].id}/read`,
+      { cardKey: "run:0-83" },
+    ],
+    ["Mixed agent results", `/feed/threads/${groupId}/read`, undefined],
+  ]) {
+    let release, started;
+    const held = new Promise((resolve) => (release = resolve));
+    const pending = new Promise((resolve) => (started = resolve));
+    const matches = (url) => url.pathname === "/api" + path;
+    await page.route(matches, async (route) => {
+      if (route.request().method() === "PUT") {
+        started();
+        await held;
+      }
+      await route.fulfill({ response: await route.fetch() });
+    });
+    try {
+      const settled = page.waitForResponse(
+        (response) =>
+          matches(new URL(response.url())) &&
+          response.request().method() === "PUT",
+      );
+      await card(title).getByRole("heading").click();
+      await pending;
+      // This request bypasses the page and its module-level write queue.
+      await fixture.api(path, body, "DELETE");
+      release();
+      await settled;
+      assert.equal(
+        await unreadCount(),
+        beforeUnread + 2,
+        `${engine}: a delayed read cannot erase another client's unread`,
+      );
+      await closeReader();
+      await expect(card(title)).toContainText("Unread");
+    } finally {
+      release();
+      await page.unroute(matches);
+    }
+  }
   // Opening the cards again returns them to Read, including all group members.
   await card("Filter result 0-83").getByRole("heading").click();
   await closeReader();

@@ -39,11 +39,11 @@ it.each(["server", "companion", "multi-user"] as const)(
       db.prepare(
         "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('idle',?,'idle','user','A prompt without an answer',30)",
       ).run(owner);
-      const read = (id: string, conversation = id[0]) =>
+      const read = (id: string, conversation = id[0], unreadVersion?: number) =>
         request(`/api/feed/${conversation}/read`, {
           method: "PUT",
           headers: browser,
-          body: { cardKey: "run:" + id },
+          body: { cardKey: "run:" + id, unreadVersion },
         });
       for (const id of ["a5", "a3", "a1", "b5"])
         expect((await read(id)).status).toBe(200);
@@ -169,7 +169,14 @@ it.each(["server", "companion", "multi-user"] as const)(
         expect(response.status).toBe(200);
         expect(
           workspaceApi.feedUnread.response.parse(await response.json()),
-        ).toEqual({ ok: true });
+        ).toEqual({ ok: true, unreadVersions: { "d:run:a2": attempt + 1 } });
+        // Even an already-unread result publishes the new decision version.
+        const delta = await changes("unread", beforeUnread.revision);
+        expect(
+          delta.items.find((entry) => entry.card.id === "d:run:a2")?.card,
+        ).toMatchObject({
+          display: { read_at: null, unread_version: attempt + 1 },
+        });
       }
       // The authoritative card stream moves the same result between both
       // selections; a repeated unread action never increments the badge twice.
@@ -214,6 +221,13 @@ it.each(["server", "companion", "multi-user"] as const)(
           )
           .get(),
       ).toEqual({ read_at: 42 });
+      expect(
+        db
+          .prepare(
+            "SELECT 1 FROM done_card_unread_versions WHERE owner_id='foreign'",
+          )
+          .get(),
+      ).toBeUndefined();
       expect(ids(await list({ read: "read", agent: "b" }))).toEqual([
         "d:run:b5",
       ]);
@@ -222,8 +236,18 @@ it.each(["server", "companion", "multi-user"] as const)(
         "d:run:a2",
       );
       expect((await summary()).done_unread).toBe(count + 1);
-      // Opening it again still follows the existing read behavior.
-      expect((await read("a2")).status).toBe(200);
+      // Delayed reads from older tabs, including a missing legacy version,
+      // cannot erase the newer unread decision, even after a server restart.
+      for (const version of [undefined, 0, 1, 3]) {
+        expect((await read("a2", "a", version)).status).toBe(200);
+        expect((await summary()).done_unread).toBe(count + 1);
+      }
+      const latest = (await list({ agent: "a" })).items.find(
+        (entry) => entry.card.id === "d:run:a2",
+      )!.card;
+      expect(latest).toMatchObject({ display: { unread_version: 2 } });
+      // A deliberate reopen from the latest card snapshot reads it normally.
+      expect((await read("a2", "a", 2)).status).toBe(200);
       expect((await summary()).done_unread).toBe(count);
     } finally {
       await fixture.close();

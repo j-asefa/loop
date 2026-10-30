@@ -774,6 +774,10 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
         "PUT",
         {
           cardKey: "run:" + newer,
+          unreadVersion:
+            unreadCard.type === "done"
+              ? unreadCard.display.unread_version
+              : undefined,
         },
         { "x-loop-command-id": randomUUID() },
       )

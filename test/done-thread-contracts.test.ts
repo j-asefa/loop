@@ -149,7 +149,7 @@ it.each(["server", "companion", "multi-user"] as const)(
         workspaceApi.doneThreadRead.response.parse(await opened.json()),
       ).toEqual({ ok: true });
       expect((await list())[0].unread).toBe(0);
-      // Marking a group unread clears only its members and is idempotent.
+      // Repeated unread choices affect only members and keep the same count.
       db.prepare(
         "INSERT INTO done_card_reads VALUES(?, 'basil', 'message:imported', 42)",
       ).run(owner);
@@ -161,7 +161,13 @@ it.each(["server", "companion", "multi-user"] as const)(
         expect(response.status).toBe(200);
         expect(
           workspaceApi.doneThreadUnread.response.parse(await response.json()),
-        ).toEqual({ ok: true });
+        ).toEqual({
+          ok: true,
+          unreadVersions: {
+            "d:run:run0": attempt + 1,
+            "d:run:run1": attempt + 1,
+          },
+        });
       }
       expect((await list())[0].unread).toBe(2);
       expect(
@@ -174,12 +180,29 @@ it.each(["server", "companion", "multi-user"] as const)(
         { unread: 1 },
       ]);
       expect(unread("message:imported")).toEqual({ unread: 0 });
+      for (const unreadVersions of [
+        undefined,
+        { "d:run:run0": 1, "d:run:run1": 1 },
+      ]) {
+        expect(
+          (
+            await request(`${root}/${id}/read`, {
+              method: "PUT",
+              headers: browser,
+              body: { unreadVersions },
+            })
+          ).status,
+        ).toBe(200);
+        expect((await list())[0].unread).toBe(2);
+      }
+      const unreadVersions = (await list())[0].unreadVersions;
+      expect(unreadVersions).toEqual({ "d:run:run0": 2, "d:run:run1": 2 });
       expect(
         (
           await request(`${root}/${id}/read`, {
             method: "PUT",
             headers: browser,
-            body: {},
+            body: { unreadVersions },
           })
         ).status,
       ).toBe(200);
