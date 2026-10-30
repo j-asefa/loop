@@ -125,6 +125,7 @@ export class FleetWorkspaceActions {
       [
         "setting",
         "conversationPosition",
+        "feedUnread",
         "conversationFork",
         "conversationContinue",
         "conversationContinueStart",

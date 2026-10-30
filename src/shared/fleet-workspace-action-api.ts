@@ -23,6 +23,7 @@ export const fleetActionRoutes = {
   conversationPosition: workspaceApi.conversationPosition,
   feedUpdate: workspaceApi.feedUpdate,
   feedRead: workspaceApi.feedRead,
+  feedUnread: workspaceApi.feedUnread,
   replyState: workspaceApi.replyState,
   messageSave: workspaceApi.messageSave,
   messageUnsave: workspaceApi.messageUnsave,

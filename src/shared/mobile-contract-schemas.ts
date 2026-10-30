@@ -14,6 +14,20 @@ export const FeedUpdateInput = z.object({
 });
 export const DoneReadInput = z.object({
   cardKey: FeedUpdateInput.shape.cardKey,
+  // Missing versions can read original results, but never erase a later unread.
+  unreadVersion: z.number().int().nonnegative().safe().optional(),
+});
+// A stale group snapshot and its latest local unread response can each contain
+// up to 100 members. The server only acts on the group's current membership.
+export const DoneReadVersions = z
+  .record(
+    Text.regex(/^d:(run|message):.+$/).max(202),
+    z.number().int().nonnegative().safe(),
+  )
+  .refine((versions) => Object.keys(versions).length <= 200);
+export const DoneReadResult = z.object({
+  ok: z.boolean(),
+  unreadVersions: DoneReadVersions.optional(),
 });
 export const SavedLabelInput = z.object({
   key: Text.regex(/^[ma]:/)

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CardSelectionSchema, DoneCardSchema } from "./cards.js";
+import { DoneReadVersions } from "./mobile-contract-schemas.js";
 
 export const DoneThreadCardId = z
   .string()
@@ -30,6 +31,7 @@ export const DoneThreadSummary = DoneThread.extend({
   // Members not yet opened; opening the thread reads them all. Absent from
   // sources that do not record Done reads.
   unread: z.number().int().nonnegative().optional(),
+  unreadVersions: DoneReadVersions.optional(),
 });
 export const DoneThreadDetail = z.object({
   thread: DoneThread,

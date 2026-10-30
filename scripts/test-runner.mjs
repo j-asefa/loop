@@ -6,7 +6,9 @@ import { pathToFileURL } from "node:url";
 export function testEnvironment(env, suite) {
   const clean = Object.fromEntries(
     Object.entries(env).filter(
-      ([key]) => !/^LOOP(?:55)?_/.test(key) || /^LOOP(?:55)?_TEST_/.test(key),
+      ([key]) =>
+        key !== "BETTER_AUTH_SECRET" &&
+        (!/^LOOP(?:55)?_/.test(key) || /^LOOP(?:55)?_TEST_/.test(key)),
     ),
   );
   if (suite === "vitest") clean.LOOP55_PROFILE = "server";

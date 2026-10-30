@@ -62,18 +62,18 @@ The final runtime images do not need a TypeScript loader or build dependencies.
 
 ## Tests by boundary
 
-| Check                      | Purpose                                                                                                         |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`        | Root TypeScript                                                                                                 |
-| `npm run check`            | Convention gate before every PR: formatting, typecheck, `openapi:check`, source boundaries and route contracts  |
-| `npm test`                 | Vitest server/domain and shared client production logic in `test/`                                              |
-| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing                                   |
-| `npm run test:all`         | Both root suites                                                                                                |
+| Check                      | Purpose                                                                                                           |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`        | Root TypeScript                                                                                                   |
+| `npm run check`            | Convention gate before every PR: formatting, typecheck, `openapi:check`, source boundaries and route contracts    |
+| `npm test`                 | Vitest server/domain and shared client production logic in `test/`                                                |
+| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing                                     |
+| `npm run test:all`         | Both root suites                                                                                                  |
 | `npm run smoke:package`    | Tarball installation, CLI/host lifecycle and `loop55 upgrade` between packed builds behind one connection service |
-| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                                      |
-| `npm run feeds:check`      | Reads every Social catalog feed over the network; manual live check                                             |
+| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                                        |
+| `npm run feeds:check`      | Reads every Social catalog feed over the network; manual live check                                               |
 
-The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP55_*` runtime settings and credentials (except explicit `LOOP55_TEST_*` fixture controls) from its child environment. Vitest starts with `LOOP55_PROFILE=server`; individual companion fixtures still choose their own profile. Native fixtures choose their profiles independently. This prevents a companion-launched terminal from injecting live state or disabling memory tests. Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
+The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` and `LOOP55_*` runtime settings and `BETTER_AUTH_SECRET` from its child environment, preserving only explicit `LOOP_TEST_*` and `LOOP55_TEST_*` fixture controls. Vitest starts with `LOOP55_PROFILE=server`; individual companion fixtures still choose their own profile. Native fixtures choose their profiles independently. Native harness launches also remove host configuration before any project command runs; see [server environment isolation](server.md#keep-agent-workloads-from-exhausting-the-server). Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
 
 `feeds:check` is the exception to fixture-only testing: it fetches the checked-in [feed catalog](../src/shared/news.ts) through [feed-fetch.ts](../src/server/feed-fetch.ts), the same transport Social uses, and exits non-zero for any feed that no longer parses. Run it when changing the catalog and put its output in the PR. The Vitest suite never reaches a feed.
 

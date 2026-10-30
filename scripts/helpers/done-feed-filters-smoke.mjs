@@ -53,8 +53,9 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
       }
     }
   })();
+  const groupId = randomUUID();
   await fixture.api("/feed/threads", {
-    id: randomUUID(),
+    id: groupId,
     title: "Mixed agent results",
     cardIds: ["d:run:0-82", "d:run:1-1"],
   });
@@ -64,10 +65,26 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     exact: true,
   });
   const status = (name) => controls.getByRole("button", { name, exact: true });
-  const picker = controls.getByRole("combobox", {
+  const picker = controls.getByRole("button", {
     name: "Filter Done by agent",
   });
-  const choose = (agent) => picker.selectOption(JSON.stringify(["", agent.id]));
+  const agentSheet = page.getByRole("dialog", {
+    name: "Filter Done by agent",
+    exact: true,
+  });
+  const search = agentSheet.getByRole("searchbox", { name: "Search agents" });
+  const choose = async (agent, environment) => {
+    await picker.click();
+    await search.fill(`@${agent.name.toUpperCase()}`);
+    const options = agentSheet.getByRole("button", {
+      name: new RegExp(`^@${agent.name}(?: · |$)`),
+    });
+    await (
+      environment ? options.filter({ hasText: environment }) : options.first()
+    ).click();
+    await expect(agentSheet).toHaveCount(0);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
+  };
   const rows = page.locator(".inbox-results .inbox-row");
   const card = (title) =>
     rows.filter({
@@ -83,6 +100,27 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     await page.waitForFunction(() => history.state?.loop55Sheet !== true);
   };
   await expect(status("All")).toHaveAttribute("aria-pressed", "true");
+  await picker.click();
+  await search.fill("@FILTER-AL");
+  await expect(
+    agentSheet.getByRole("button", { name: /^@filter-alder/ }),
+  ).toBeVisible();
+  await expect(
+    agentSheet.getByRole("button", { name: /^@filter-birch/ }),
+  ).toHaveCount(0);
+  await search.fill("no-matching-agent");
+  await expect(agentSheet.getByRole("status")).toHaveText(
+    "No agents match your search.",
+  );
+  await expect(
+    agentSheet.getByRole("button", { name: "All agents", exact: true }),
+  ).toBeVisible();
+  // A native search input consumes Escape to clear a nonempty query first.
+  await search.fill("");
+  await search.press("Escape");
+  await expect(agentSheet).toHaveCount(0);
+  await expect(picker).toBeFocused();
+  await expect(picker).toHaveText("All agents");
   await choose(agents[0]);
   await status("Unread").click();
   await expect(card("Filter result 0-83")).toBeVisible();
@@ -138,6 +176,194 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await expect(card("Filter result 0-83")).toBeVisible();
   await expect(card("Mixed agent results")).toHaveCount(1);
   await expect(card("Filter result 0-81")).toHaveCount(0);
+  const unreadCount = () =>
+    fixture
+      .api("/feed?filter=done&agent=" + agents[0].id)
+      .then((feed) => feed.summary.done_unread);
+  const beforeUnread = await unreadCount();
+  const openActions = async (title) => {
+    await page
+      .locator(".inbox-results article")
+      .filter({
+        has: page.getByRole("heading", { name: title, exact: true }),
+      })
+      .getByRole("button", { name: "Thread actions" })
+      .click();
+  };
+  const markUnread = async (title) => {
+    await openActions(title);
+    await page
+      .getByRole("menuitem", { name: "Mark unread", exact: true })
+      .click();
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
+  };
+  await markUnread("Filter result 0-83");
+  await expect(card("Filter result 0-83")).toHaveCount(0);
+  await expect.poll(unreadCount).toBe(beforeUnread + 1);
+  await markUnread("Mixed agent results");
+  await expect(card("Mixed agent results")).toHaveCount(0);
+  await expect.poll(unreadCount).toBe(beforeUnread + 2);
+  await page.reload({ waitUntil: "networkidle" });
+  await choose(agents[0]);
+  await status("Unread").click();
+  await expect(card("Filter result 0-83")).toContainText("Unread");
+  await expect(card("Mixed agent results")).toContainText("Unread");
+  await capture("marked-unread");
+  // Hold the initial read before the server sees it, then choose unread. The
+  // later choice must wait for that read, including after closing a group.
+  const unreadDuringRead = async (
+    title,
+    path,
+    insideReader,
+    { unreadPath = path, unreadTitle = title, afterOpen } = {},
+  ) => {
+    let release, started;
+    const held = new Promise((resolve) => (release = resolve));
+    const pending = new Promise((resolve) => (started = resolve));
+    const applied = [];
+    const matches = (url) => [path, unreadPath].includes(url.pathname);
+    await page.route(matches, async (route) => {
+      const method = route.request().method();
+      if (method === "PUT") {
+        started();
+        await held;
+      }
+      const response = await route.fetch();
+      applied.push(method);
+      await route.fulfill({ response });
+    });
+    const responseFor = (method) =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname ===
+            (method === "PUT" ? path : unreadPath) &&
+          response.request().method() === method,
+      );
+    const readResponse = responseFor("PUT");
+    const unreadResponse = responseFor("DELETE");
+    try {
+      await card(title).getByRole("heading").click();
+      await pending;
+      await afterOpen?.();
+      if (insideReader)
+        await page
+          .locator(".feed-reading-sheet")
+          .getByRole("button", { name: "Thread actions" })
+          .click();
+      else {
+        await closeReader();
+        await openActions(unreadTitle);
+      }
+      await page
+        .getByRole("menuitem", { name: "Mark unread", exact: true })
+        .click();
+      // Give an incorrectly parallel DELETE time to overtake the held PUT.
+      await page.waitForTimeout(150);
+      release();
+      await Promise.all([readResponse, unreadResponse]);
+      assert.deepEqual(applied, ["PUT", "DELETE"]);
+      await expect.poll(unreadCount).toBe(beforeUnread + 2);
+      if (insideReader) {
+        await expect(page.locator(".feed-reading-sheet")).toBeVisible();
+        await closeReader();
+      }
+    } finally {
+      release();
+      await page.unroute(matches);
+    }
+  };
+  await unreadDuringRead(
+    "Filter result 0-83",
+    `/api/feed/${agents[0].id}/read`,
+    true,
+  );
+  await expect(card("Filter result 0-83")).toContainText("Unread");
+  await unreadDuringRead(
+    "Mixed agent results",
+    `/api/feed/threads/${groupId}/read`,
+    false,
+  );
+  // Model another device adding the pending result to the group while this
+  // browser still has the previous membership list. The group action applies
+  // to current server membership and must also wait for that result's PUT.
+  const oldThreads = await fixture.api(`/feed/threads?agent=${agents[0].id}`);
+  const threadList = (url) => url.pathname === "/api/feed/threads";
+  await page.route(threadList, (route) => route.fulfill({ json: oldThreads }));
+  try {
+    await unreadDuringRead(
+      "Filter result 0-83",
+      `/api/feed/${agents[0].id}/read`,
+      false,
+      {
+        unreadPath: `/api/feed/threads/${groupId}/read`,
+        unreadTitle: "Mixed agent results",
+        afterOpen: () =>
+          fixture.api(`/feed/threads/${groupId}/cards`, {
+            cardIds: ["d:run:0-83"],
+          }),
+      },
+    );
+  } finally {
+    await fixture.api(
+      `/feed/threads/${groupId}/cards/${encodeURIComponent("d:run:0-83")}`,
+      undefined,
+      "DELETE",
+    );
+    await page.unroute(threadList);
+  }
+  // An independent client can mark unread while this tab's older read is held
+  // before dispatch. The server must reject that stale decision for both paths.
+  for (const [title, path, body] of [
+    [
+      "Filter result 0-83",
+      `/feed/${agents[0].id}/read`,
+      { cardKey: "run:0-83" },
+    ],
+    ["Mixed agent results", `/feed/threads/${groupId}/read`, undefined],
+  ]) {
+    let release, started;
+    const held = new Promise((resolve) => (release = resolve));
+    const pending = new Promise((resolve) => (started = resolve));
+    const matches = (url) => url.pathname === "/api" + path;
+    await page.route(matches, async (route) => {
+      if (route.request().method() === "PUT") {
+        started();
+        await held;
+      }
+      await route.fulfill({ response: await route.fetch() });
+    });
+    try {
+      const settled = page.waitForResponse(
+        (response) =>
+          matches(new URL(response.url())) &&
+          response.request().method() === "PUT",
+      );
+      await card(title).getByRole("heading").click();
+      await pending;
+      // This request bypasses the page and its module-level write queue.
+      await fixture.api(path, body, "DELETE");
+      release();
+      await settled;
+      assert.equal(
+        await unreadCount(),
+        beforeUnread + 2,
+        `${engine}: a delayed read cannot erase another client's unread`,
+      );
+      await closeReader();
+      await expect(card(title)).toContainText("Unread");
+    } finally {
+      release();
+      await page.unroute(matches);
+    }
+  }
+  // Opening the cards again returns them to Read, including all group members.
+  await card("Filter result 0-83").getByRole("heading").click();
+  await closeReader();
+  await card("Mixed agent results").getByRole("heading").click();
+  await closeReader();
+  await expect.poll(unreadCount).toBe(beforeUnread);
+  await status("Read").click();
   await choose(agents[1]);
   await expect(card("Filter result 1-2")).toBeVisible();
   await expect(card("Filter result 0-83")).toHaveCount(0);
@@ -147,7 +373,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await capture("empty");
   await controls.getByRole("button", { name: "Clear filters" }).click();
   await expect(status("All")).toHaveAttribute("aria-pressed", "true");
-  await expect(picker).toHaveValue("");
+  await expect(picker).toHaveText("All agents");
   await expect(card("Filter result 0-83")).toBeVisible();
   await choose(agents[1]);
   await status("Unread").click();
@@ -158,7 +384,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await expect(rows.first()).toBeVisible();
   await tabs.getByRole("tab", { name: /^Done/ }).click();
   await expect(status("Unread")).toHaveAttribute("aria-pressed", "true");
-  await expect(picker).toHaveValue(JSON.stringify(["", agents[1].id]));
+  await expect(picker).toHaveText("@" + agents[1].name);
   await expect(page.getByText("No results match these filters.")).toBeVisible();
   // A response from a prior selection must never replace a newer one.
   let release;
@@ -192,12 +418,26 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     await controls.scrollIntoViewIfNeeded();
     await capture(`filters-${width}`);
     assert(await picker.isVisible(), `${engine}: agent filter at ${width}px`);
+    await picker.click();
+    await expect(search).toHaveValue("");
+    await search.fill("filter-");
+    await capture(`agent-search-${width}`);
+    assert(
+      await agentSheet.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+      `${engine}: agent picker fits at ${width}px`,
+    );
+    await closeReader();
   }
 
   // A linked-source fixture deliberately reuses local agent and card IDs.
   // Selecting it must address that source without mixing local cached pages.
-  const source = "docker:done-filters";
-  const prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
+  let source = "docker:done-filters";
+  let prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
+  let sourceKind = "docker";
+  let peerActions = ["feedUnread"];
+  const peerReadWrites = [];
   const localSummary = (await fixture.api("/feed?filter=needs")).summary;
   const remoteSummary = {
     ...localSummary,
@@ -219,6 +459,10 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   };
   await page.goto("about:blank");
   await page.route(
+    (url) => url.pathname === "/session",
+    (route) => route.fulfill({ json: { csrf: "filter-fixture" } }),
+  );
+  await page.route(
     (url) => url.pathname === "/api/capabilities",
     async (route) => {
       const response = await route.fetch();
@@ -232,7 +476,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     (url) => url.pathname === "/api/agent-sources",
     (route) =>
       route.fulfill({
-        json: [{ id: source, name: "Filter fixture", kind: "docker" }],
+        json: [{ id: source, name: "Filter fixture", kind: sourceKind }],
       }),
   );
   await page.route(
@@ -240,12 +484,36 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     async (route) => {
       const url = new URL(route.request().url());
       const path = url.pathname.slice(prefix.length);
-      if (path === "feed/threads") return route.fulfill({ json: [] });
+      if (
+        sourceKind === "peer" &&
+        /\/read$/.test(path) &&
+        ["PUT", "DELETE"].includes(route.request().method())
+      ) {
+        peerReadWrites.push(path);
+        return route.fulfill({ status: 409, json: { error: "Read only" } });
+      }
+      if (path === "feed/threads" && sourceKind !== "peer")
+        return route.fulfill({ json: [] });
       if (path === "feed/agent-threads")
         return route.fulfill({ json: { items: [], next: null } });
       url.pathname = "/api/" + path;
       if (path === "feed") url.searchParams.delete("known");
       const response = await route.fetch({ url: url.href });
+      if (path === "capabilities")
+        return route.fulfill({
+          response,
+          json: {
+            ...(await response.json()),
+            fleet: {
+              version: 1,
+              machineId: source.slice(5),
+              reads: ["feed", "cardList", "cardChanges", "cardDetail"],
+              actions: peerActions,
+              files: false,
+              events: false,
+            },
+          },
+        });
       if (path === "feed")
         return route.fulfill({
           response,
@@ -268,12 +536,18 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     },
   );
   await page.goto(fixture.base, { waitUntil: "networkidle" });
-  const remoteAgent = JSON.stringify([source, agents[0].id]);
+  await picker.click();
+  await search.fill("@filter-alder");
   await expect(
-    picker.locator("option").filter({ hasText: "@filter-alder" }),
+    agentSheet.getByRole("button", { name: /^@filter-alder/ }),
   ).toHaveCount(2);
+  await search.fill("Filter fixture");
+  await expect(
+    agentSheet.getByRole("button", { name: /^@filter-alder/ }),
+  ).toHaveCount(1);
+  await closeReader();
   await expectOperationalCounts();
-  await picker.selectOption(remoteAgent);
+  await choose(agents[0], "Filter fixture");
   await status("Unread").click();
   await expect(card("Remote Filter result 0-81")).toBeVisible();
   await expect(card("Filter result 0-81")).toHaveCount(0);
@@ -300,9 +574,63 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     `${(localSummary.scheduled_failed || 0) + remoteSummary.scheduled_failed} scheduled messages not sent`,
   );
   await needs.getByRole("button", { name: "Collapse", exact: true }).click();
-  await picker.selectOption(remoteAgent);
+  await choose(agents[0], "Filter fixture");
   await expect(card("Remote Filter result 0-1")).toHaveCount(1);
   await expect(card("Filter result 0-81")).toHaveCount(0);
   await expectOperationalCounts();
   await capture("source-isolation");
+  await status("Read").click();
+  const remoteUnread = page.waitForRequest(
+    (request) =>
+      request.method() === "DELETE" &&
+      new URL(request.url()).pathname === `${prefix}feed/${agents[0].id}/read`,
+  );
+  const [, unreadRequest] = await Promise.all([
+    markUnread("Remote Filter result 0-83"),
+    remoteUnread,
+  ]);
+  assert.deepEqual(unreadRequest.postDataJSON(), {
+    cardKey: "run:0-83",
+  });
+  await expect(card("Remote Filter result 0-83")).toHaveCount(0);
+  await status("Unread").click();
+  await expect(card("Remote Filter result 0-83")).toContainText("Unread");
+
+  // Peers currently expose individual results, not saved groups. Inject a
+  // group anyway to cover stale/future data: the menu must still respect the
+  // destination's operation catalog instead of offering an unsupported write.
+  await page.goto("about:blank");
+  source = "peer:m_" + "b".repeat(64);
+  prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
+  sourceKind = "peer";
+  await page.goto(fixture.base, { waitUntil: "networkidle" });
+  await choose(agents[0], "Filter fixture");
+  await openActions("Mixed agent results");
+  const unreadAction = page.getByRole("menuitem", {
+    name: "Mark unread",
+    exact: true,
+  });
+  await expect(unreadAction).toBeDisabled();
+  await expect(unreadAction).toContainText("does not allow this operation");
+  await closeReader();
+  await openActions("Remote Filter result 0-83");
+  await expect(unreadAction).toBeEnabled();
+  await closeReader();
+  // A read-only or older peer can still show results without allowing unread.
+  peerActions = [];
+  await page.reload({ waitUntil: "networkidle" });
+  await choose(agents[0], "Filter fixture");
+  await openActions("Remote Filter result 0-83");
+  await expect(unreadAction).toBeDisabled();
+  await expect(unreadAction).toContainText("does not allow this operation");
+  await capture("peer-unread-unavailable");
+  await closeReader();
+  await card("Remote Filter result 0-83").getByRole("heading").click();
+  await expect(page.locator(".feed-reading-sheet")).toContainText(
+    "Answer for filter result 0-83",
+  );
+  await page.waitForTimeout(150);
+  assert.deepEqual(peerReadWrites, []);
+  await closeReader();
+  await page.unrouteAll({ behavior: "wait" });
 }

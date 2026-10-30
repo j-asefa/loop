@@ -2,7 +2,8 @@ import { DoneReadInput, FeedUpdateInput, SavedLabelInput } from "../shared/mobil
 import { assertFeedApplied, projectionFeed, projectionDoneRows } from "./feed-card-read.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
 import { z } from "zod";
-import { db, now } from "./db.js";
+import { db, now, emit } from "./db.js";
+import { doneUnreadVersion, advanceDoneUnreadVersion } from "./done-read-state.js";
 import { ownedAgent, ownedFolder, ownedConversation, ownedMessage, owned, Problem } from "./domain.js";
 import { resultOutputSql, fileArtifactSql, projectFolders, resultUrl } from "./results.js";
 import { unreadCount } from "./news.js";
@@ -227,14 +228,14 @@ export function setDoneCardHidden(
     })
     .immediate();
 }
-/** Record that the owner opened a Done result. Reading is idempotent and
- * keeps the first time, as Replies does. */
-export function markDoneCardRead(
+/** Set a Done result's read state. Repeated reads keep the first read time. */
+export function setDoneCardRead(
   owner: string,
   conversation: string,
   body: unknown,
+  read: boolean,
 ) {
-  const { cardKey } = DoneReadInput.parse(body);
+  const { cardKey, unreadVersion = 0 } = DoneReadInput.parse(body);
   return db
     .transaction(() => {
       ownedConversation(conversation, owner);
@@ -244,9 +245,20 @@ export function markDoneCardRead(
         )
         .get(owner, conversation, cardKey);
       if (!card) throw new Problem(404, "Done card not found");
-      db.prepare(
-        "INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at) VALUES(?,?,?,?)",
-      ).run(owner, conversation, cardKey, now());
+      if (read) {
+        if (unreadVersion !== doneUnreadVersion(owner, conversation, cardKey))
+          return { ok: true };
+        db.prepare(
+          "INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at) VALUES(?,?,?,?)",
+        ).run(owner, conversation, cardKey, now());
+      } else {
+        db.prepare(
+          "DELETE FROM done_card_reads WHERE owner_id=? AND conversation_id=? AND card_key=?",
+        ).run(owner, conversation, cardKey);
+        const version = advanceDoneUnreadVersion(owner, conversation, cardKey);
+        emit(owner, { kind: "collection", id: "feed" }, "invalidate", { scope: { kind: "collection", id: "feed" } });
+        return { ok: true, unreadVersions: { ["d:" + cardKey]: version } };
+      }
       return { ok: true };
     })
     .immediate();

@@ -27,10 +27,10 @@ Direct subscription connections retired by migration 067 become eligible for nat
 
 ## Access configuration
 
-| Setting                      | Use                                                                                         |
-| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| Setting                        | Use                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
 | `LOOP55_AUTH_MODE=single-user` | Default personal workspace; direct access restricted to local requests or a trusted gateway |
-| `LOOP55_AUTH_MODE=multi-user`  | Loop55 sign-in and separate owner-scoped workspaces                                           |
+| `LOOP55_AUTH_MODE=multi-user`  | Loop55 sign-in and separate owner-scoped workspaces                                         |
 | `LOOP55_SINGLE_USER_EMAIL`     | Explicit owner selection when several existing accounts are present                         |
 | `LOOP55_URL`                   | Actual browser origin, used for access/origin checks                                        |
 | `LOOP55_LISTEN_HOST`           | Direct Node listener; defaults to `127.0.0.1`                                               |
@@ -68,6 +68,15 @@ the group, while the Loop55 API and execution coordinator stay outside it. The
 launcher preserves protocol pipes (including metadata on descriptor 3), process
 identity, working directory and native credentials. Placement failure refuses
 the launch instead of running it without limits.
+
+Native harnesses do not inherit Loop55's server environment: data directories,
+workspace home, service identity, encryption keys and server authentication
+settings are removed before launch, including their `LOOP55_*` aliases. Only
+scoped adapter tool/billing settings and explicit test controls pass through;
+provider credentials and native credential homes are preserved. Importing Loop55
+source from an agent's checkout therefore cannot select the live database from
+an inherited setting. This prevents accidental configuration inheritance; it
+does not restrict filesystem access by processes running as the same OS user.
 
 For an 8 GiB, four-CPU host using the user service `loop55.service`:
 
@@ -115,6 +124,10 @@ SQLite's write lock, the timestamp remains unchanged and the next timer tries
 again; stale observations still expire. Contention cannot terminate the server
 through those timer callbacks. Ordinary writes retain their normal timeout and
 error behavior.
+
+Periodic native display updates also defer on a busy database, retaining their
+pending output for the next tick. They do not block the worker or retry native
+commands. Completion and other authoritative writes retain their normal policy.
 
 ## Queue commands explicitly
 
@@ -189,7 +202,6 @@ journal records completion or verification failures.
 The restoration, retention, corruption, interruption and concurrency fixtures
 run with `node --test test/deployment-backups.node.test.ts` and are included in
 `npm run test:native`. They also require Python 3.9+ and `tar`.
-
 
 ## Protect live data from build disk pressure
 

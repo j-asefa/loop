@@ -100,6 +100,7 @@ export const DoneDisplaySchema = z.object({
   // When the owner opened this result; null while unread. Absent for idle
   // threads and for sources that do not record reads.
   read_at: time.nullable().optional(),
+  unread_version: z.number().int().nonnegative().safe().optional(),
   // Reading position belongs to the operational Feed contract.
   position_message_id: z.null().default(null),
   later: z

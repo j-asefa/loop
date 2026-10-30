@@ -149,6 +149,63 @@ it.each(["server", "companion", "multi-user"] as const)(
         workspaceApi.doneThreadRead.response.parse(await opened.json()),
       ).toEqual({ ok: true });
       expect((await list())[0].unread).toBe(0);
+      // Repeated unread choices affect only members and keep the same count.
+      db.prepare(
+        "INSERT INTO done_card_reads VALUES(?, 'basil', 'message:imported', 42)",
+      ).run(owner);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await request(`${root}/${id}/read`, {
+          method: "DELETE",
+          headers: browser,
+        });
+        expect(response.status).toBe(200);
+        expect(
+          workspaceApi.doneThreadUnread.response.parse(await response.json()),
+        ).toEqual({
+          ok: true,
+          unreadVersions: {
+            "d:run:run0": attempt + 1,
+            "d:run:run1": attempt + 1,
+          },
+        });
+      }
+      expect((await list())[0].unread).toBe(2);
+      expect(
+        (await detail(id)).cards.map(
+          (card) => card.type === "done" && card.display.read_at,
+        ),
+      ).toEqual([null, null]);
+      expect([unread("run:run0"), unread("run:run1")]).toEqual([
+        { unread: 1 },
+        { unread: 1 },
+      ]);
+      expect(unread("message:imported")).toEqual({ unread: 0 });
+      for (const unreadVersions of [
+        undefined,
+        { "d:run:run0": 1, "d:run:run1": 1 },
+      ]) {
+        expect(
+          (
+            await request(`${root}/${id}/read`, {
+              method: "PUT",
+              headers: browser,
+              body: { unreadVersions },
+            })
+          ).status,
+        ).toBe(200);
+        expect((await list())[0].unread).toBe(2);
+      }
+      const unreadVersions = (await list())[0].unreadVersions;
+      expect(unreadVersions).toEqual({ "d:run:run0": 2, "d:run:run1": 2 });
+      expect(
+        (
+          await request(`${root}/${id}/read`, {
+            method: "PUT",
+            headers: browser,
+            body: { unreadVersions },
+          })
+        ).status,
+      ).toBe(200);
       const readCards = (await detail(id)).cards;
       expect(
         readCards.map((card) => card.type === "done" && card.display.read_at),
@@ -317,6 +374,7 @@ it.each(["server", "companion", "multi-user"] as const)(
         [`${root}/${foreign}/cards/d%3Arun%3Arun6`, { method: "DELETE" }],
         [`${root}/${foreign}/cards`, { body: { cardIds: ["d:run:run2"] } }],
         [`${root}/${foreign}/read`, { method: "PUT", body: {} }],
+        [`${root}/${foreign}/read`, { method: "DELETE" }],
         [
           root,
           {

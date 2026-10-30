@@ -203,13 +203,7 @@ export class NativeProjector {
       if (!this.retainItem(live, item)) return;
     }
     if (event.type === "item" || event.type === "delta") {
-      if (!live.flush)
-        live.flush = setTimeout(() => {
-          live.flush = undefined;
-          this.context.projectOutput(live, true);
-          // Aggregate text is copied into several tables. Bound that write rate;
-          // terminal statuses still flush immediately through projectOutput.
-        }, 1000);
+      this.scheduleOutput(live);
       return;
     }
     if (event.type === "request") {
@@ -267,6 +261,37 @@ export class NativeProjector {
       generation: live.generation,
       event,
     });
+  }
+  private scheduleOutput(live: Live) {
+    if (live.flush || live.closed || !live.run) return;
+    const run = live.run;
+    live.flush = setTimeout(() => {
+      live.flush = undefined;
+      if (
+        live.closed ||
+        live.run !== run ||
+        this.context.live.get(live.binding.conversation_id) !== live
+      )
+        return;
+      const timeout = db.pragma("busy_timeout", { simple: true }) as number;
+      try {
+        // Display updates can wait for the next tick. A locked database must
+        // not block the event loop or escape this timer and kill every run.
+        db.pragma("busy_timeout = 0");
+        this.context.projectOutput(live, true);
+      } catch (error) {
+        const code = (error as { code?: string })?.code;
+        if (code !== "SQLITE_BUSY" && !code?.startsWith("SQLITE_BUSY_"))
+          throw error;
+        // projectOutput clears dirty items only after a successful commit.
+        // Retry this display projection, never a native command or prompt.
+        this.scheduleOutput(live);
+      } finally {
+        db.pragma(`busy_timeout = ${timeout}`);
+      }
+      // Aggregate text is copied into several tables. Bound that write rate;
+      // terminal statuses still flush immediately through projectOutput.
+    }, 1000);
   }
   // Trusted activity boundary. Adapters are untrusted display producers: the
   // server supplies owner, conversation, turn and generation, persists the

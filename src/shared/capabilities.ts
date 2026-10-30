@@ -22,6 +22,8 @@ export const Capabilities = z.object({
   personalApprovalDetails: z.boolean().optional(),
   /** Absent on sources without the idempotent continuation-start endpoint. */
   continuationStart: z.boolean().optional(),
+  /** Gateway-owned transport, independent of the selected execution source. */
+  eventMultiplex: z.boolean().optional(),
   /** Gateway projection of this enrolled machine's verified catalog. */
   fleet: FleetSourceCapabilities.optional(),
 });
