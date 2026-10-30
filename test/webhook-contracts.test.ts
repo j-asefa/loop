@@ -935,15 +935,15 @@ it("verifies real deliveries with the documented snippet and rejects tampering",
   expect(() =>
     verifyWebhook(created.secret, ping.body, {
       ...ping.req.headers,
-      "x-loop-timestamp": String(
-        Number(ping.req.headers["x-loop-timestamp"]) + 1,
+      "x-loop55-timestamp": String(
+        Number(ping.req.headers["x-loop55-timestamp"]) + 1,
       ),
     }),
   ).toThrow();
   expect(() =>
     verifyWebhook(created.secret, ping.body, {
       ...ping.req.headers,
-      "x-loop-delivery": randomUUID(),
+      "x-loop55-delivery": randomUUID(),
     }),
   ).toThrow();
   expect(() =>

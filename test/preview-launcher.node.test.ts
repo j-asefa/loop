@@ -58,7 +58,11 @@ function browser(
           res.on("end", () => {
             for (const header of res.headers["set-cookie"] || []) {
               const cookie = header.split(";")[0];
-              cookies.set(cookie.slice(0, cookie.indexOf("=")), cookie);
+              const name = cookie.slice(0, cookie.indexOf("="));
+              const maxAge = /(?:^|;)\s*max-age=(-?\d+)(?:;|$)/i.exec(header);
+              // Pairing expires the legacy name while setting the current one.
+              if (maxAge && Number(maxAge[1]) <= 0) cookies.delete(name);
+              else cookies.set(name, cookie);
             }
             let data: any;
             try {

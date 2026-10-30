@@ -88,7 +88,8 @@ describe("agent appearance", () => {
       );
     }
     for (const [name, character, background] of [
-      ["Loop55", "archer", "#c6ad92"],
+      // Historical name data must retain its original avatar after a rename.
+      ["Loop", "archer", "#c6ad92"],
       ["code-reviewer", "horizon", "#d8b544"],
       ["research-assistant", "blossom", "#b8adb7"],
       ["planner", "mercury", "#c6ad92"],

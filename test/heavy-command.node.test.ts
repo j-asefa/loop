@@ -31,15 +31,20 @@ after(() => {
 
 test("the design entrypoint preserves the first failure when cancelling siblings", async () => {
   const project = join(directory, "design-project");
-  mkdirSync(project);
+  mkdirSync(join(project, "scripts"), { recursive: true });
+  mkdirSync(join(project, "runtime"));
   writeFileSync(
-    join(project, "design-browser-smoke.mjs"),
+    join(project, "runtime", "environment.mjs"),
+    readFileSync(new URL("../runtime/environment.mjs", import.meta.url)),
+  );
+  writeFileSync(
+    join(project, "scripts", "design-browser-smoke.mjs"),
     readFileSync(
       new URL("../scripts/design-browser-smoke.mjs", import.meta.url),
     ),
   );
   writeFileSync(
-    join(project, "heavy-command.mjs"),
+    join(project, "scripts", "heavy-command.mjs"),
     `
     import { appendFileSync } from 'node:fs';
     export async function runSupervised(_command, args, { signal }) {
@@ -54,7 +59,7 @@ test("the design entrypoint preserves the first failure when cancelling siblings
     writeFileSync(join(project, "started"), "");
     const runner = spawn(
       process.execPath,
-      ["design-browser-smoke.mjs", "models", "clear-search", "core"],
+      ["scripts/design-browser-smoke.mjs", "models", "clear-search", "core"],
       {
         cwd: project,
         env: {

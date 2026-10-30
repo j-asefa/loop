@@ -99,6 +99,11 @@ it.each(["server", "companion"])(
           db.prepare("SELECT * FROM " + table + " ORDER BY owner_id").all(),
         );
       const before = sources();
+      expect(before[0]).toEqual(
+        owners.map((owner) =>
+          expect.objectContaining({ owner_id: owner, origin: "loop" }),
+        ),
+      );
       const start = async () => {
         const { stdout } = await exec(
           process.execPath,
@@ -151,7 +156,15 @@ it.each(["server", "companion"])(
           first[index].cards["d:run:" + owner + "-result"],
         ).toBeGreaterThanOrEqual(migratedAt);
       }
-      expect(sources()).toEqual(before);
+      // The later name migration updates only these conversation origins.
+      // Every other source field must survive the full production upgrade.
+      expect(sources()).toEqual([
+        before[0].map((row) => ({
+          ...(row as Record<string, unknown>),
+          origin: "loop55",
+        })),
+        ...before.slice(1),
+      ]);
       expect(
         db.prepare("SELECT count(*) n FROM feed_card_dirty").get(),
       ).toEqual({ n: 0 });

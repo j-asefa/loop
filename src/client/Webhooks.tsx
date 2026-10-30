@@ -346,8 +346,8 @@ export function Webhooks({
         {secret && (
           <>
             <SettingsNote title="Copy the signing secret now">
-              Use this secret to verify delivery signatures. Loop shows it only
-              during creation.
+              Use this secret to verify delivery signatures. Loop55 shows it
+              only during creation.
             </SettingsNote>
             <SettingsCommand
               title="Webhook signing secret"

@@ -208,7 +208,7 @@ management is available only through Settings and owner-session management route
 ## Outbound webhooks
 
 In **Settings → Integration tokens → Webhooks**, add a receiver URL, copy its
-signing secret and configure that secret at the receiver. Loop first records a
+signing secret and configure that secret at the receiver. Loop55 first records a
 `pending_activation` subscription and an activation ping. Only a 2xx response
 within ten seconds activates it. If the receiver needs its secret configured
 first, leave the subscription pending, configure the secret, then select
@@ -291,10 +291,10 @@ to resume its event backlog.
 
 Each POST supplies `Content-Type: application/json` and these headers:
 
-- `X-Loop-Delivery`: the body's stable delivery `id`.
-- `X-Loop-Event`: `run.stopped` or `control`.
-- `X-Loop-Timestamp`: Unix seconds for this attempt.
-- `X-Loop-Signature`: `v1=` followed by a hex HMAC-SHA256 of
+- `X-Loop55-Delivery`: the body's stable delivery `id`.
+- `X-Loop55-Event`: `run.stopped` or `control`.
+- `X-Loop55-Timestamp`: Unix seconds for this attempt.
+- `X-Loop55-Signature`: `v1=` followed by a hex HMAC-SHA256 of
   `<timestamp>.<raw body>`, using the displayed secret as a UTF-8 string.
 
 Verify the raw bytes before parsing or performing an effect. This Node example
@@ -305,8 +305,8 @@ rejects stale timestamps, altered bodies and a mismatched delivery header:
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export function verifyWebhook(secret, rawBody, headers, now = Date.now()) {
-  const timestamp = headers["x-loop-timestamp"];
-  const signature = headers["x-loop-signature"];
+  const timestamp = headers["x-loop55-timestamp"];
+  const signature = headers["x-loop55-signature"];
   if (
     typeof timestamp !== "string" ||
     !/^\d+$/.test(timestamp) ||
@@ -322,7 +322,7 @@ export function verifyWebhook(secret, rawBody, headers, now = Date.now()) {
   if (!timingSafeEqual(expected, Buffer.from(signature.slice(3), "hex")))
     throw new Error("Invalid webhook signature");
   const message = JSON.parse(Buffer.from(rawBody).toString("utf8"));
-  if (message.id !== headers["x-loop-delivery"])
+  if (message.id !== headers["x-loop55-delivery"])
     throw new Error("Delivery identity does not match the signed body");
   return message;
 }

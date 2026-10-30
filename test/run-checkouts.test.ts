@@ -100,7 +100,7 @@ it("records the worktree before and after a run, as Loop55 observed it", async (
   const started = checkoutDetail(owner, run.id)!;
   expect(started.state).toBe("started");
   expect(started.start_head).toBe(git(project, "rev-parse", "HEAD"));
-  expect(started.branch).toMatch(/^loop\/agent-/);
+  expect(started.branch).toMatch(/^loop55\/agent-/);
   expect(started.base_sha).toBe(git(project, "rev-parse", "HEAD"));
   expect(started.start_dirty).toBe(0);
   expect(started.generation).toBe("g1");

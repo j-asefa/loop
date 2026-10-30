@@ -204,7 +204,7 @@ export async function webhookSettingsReceiver() {
         .locator(".settings-command")
         .filter({ hasText: "Webhook signing secret" });
       const secret = await secretBox.locator("pre").textContent();
-      assert.match(secret, /^loop_hook_[\w-]{43}$/);
+      assert.match(secret, /^loop55_hook_[\w-]{43}$/);
       assert.equal(secret, creation.secret);
       assert.equal(posts, 1);
       assert.equal(
