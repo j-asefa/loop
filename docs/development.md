@@ -14,6 +14,14 @@ npm run build
 
 The root build typechecks, builds the Vite UI/service worker and bundles CLI/server modules. For source development run `npm run dev` and `npm run worker` in separate terminals. Optionally run `npm run ui` for Vite at port 5173 and set `LOOP_URL` consistently for browser-origin checks. `npm start` starts only the API and expects environment configuration already loaded.
 
+Typechecking uses an incremental cache at `.tmp/typecheck.tsbuildinfo`, local to
+each checkout. Repeated `npm run typecheck` and `npm run check` invocations reuse
+it; `npm run typecheck -- --watch` keeps a checker running during edits. The
+cache can be deleted to force a fresh check. Clean builds check an immutable
+temporary source archive, so their cache is temporary as well. Incremental
+checking reduces repeated work; it does not impose a hard memory limit or
+reduce the scope of the full check.
+
 For design or runtime experiments before merging, use [experiment previews](previews.md). `loop preview create NAME` creates a separate branch, build and paired workspace; design previews use sample data and simulated replies by default.
 
 ## Database migrations
