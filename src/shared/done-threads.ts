@@ -24,6 +24,12 @@ export const DoneThreadQuery = CardSelectionSchema.pick({
   agent: true,
   teams: true,
 }).strict();
+export const DoneThreadPageQuery = z
+  .object({ cursor: z.string().min(1).max(1024).optional() })
+  .strict();
+export const DoneThreadListPageQuery = DoneThreadQuery.extend(
+  DoneThreadPageQuery.shape,
+);
 export const DoneThreadSummary = DoneThread.extend({
   // Keep every destination available when organizing within a filtered feed.
   // Only threads with a matching preview appear in Done and Threads.
@@ -37,7 +43,19 @@ export const DoneThreadDetail = z.object({
   thread: DoneThread,
   cards: z.array(DoneCardSchema),
 });
+export const DoneThreadListPage = z.object({
+  threads: z.array(DoneThreadSummary),
+  next: z.string().min(1).max(1024).nullable(),
+});
+export const DoneThreadDetailPage = DoneThreadDetail.extend({
+  next: z.string().min(1).max(1024).nullable(),
+});
+// Leave room for the peer's signed envelope inside its 2 MiB response limit.
+export const DONE_THREAD_PAGE_BYTES = 1_900_000;
+export const DONE_THREAD_PAGE_ITEMS = 20;
 export type DoneThread = z.infer<typeof DoneThread>;
 export type DoneThreadQuery = z.infer<typeof DoneThreadQuery>;
 export type DoneThreadSummary = z.infer<typeof DoneThreadSummary>;
 export type DoneThreadDetail = z.infer<typeof DoneThreadDetail>;
+export type DoneThreadListPage = z.infer<typeof DoneThreadListPage>;
+export type DoneThreadDetailPage = z.infer<typeof DoneThreadDetailPage>;

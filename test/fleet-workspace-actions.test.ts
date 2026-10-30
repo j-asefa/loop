@@ -424,6 +424,106 @@ it("retains unknown writes after reply loss and replacement without invoking the
   ).toEqual({ instructions: "Later local change" });
 });
 
+it("routes Done grouping through a durable command and rechecks the grant inside each write", async () => {
+  const conversation = randomUUID();
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Results',1)",
+  ).run(conversation, OWNER, ownAgent);
+  const cardIds = Array.from({ length: 2 }, () => {
+    const run = randomUUID(),
+      message = randomUUID();
+    db.prepare(
+      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'Task','completed',?,1,2)",
+    ).run(run, OWNER, ownAgent, conversation, run);
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','A completed result','{}',2)",
+    ).run(message, OWNER, conversation, run);
+    return `d:run:${run}`;
+  });
+  const group = randomUUID();
+  const create = command(
+    "doneThreadCreate",
+    { id: group, title: "Combined results", cardIds },
+    {},
+    group,
+  );
+  const grouped = await call(create);
+  expect(grouped.status).toBe(200);
+  expect(grouped.body.response.receipt).toMatchObject({
+    state: "completed",
+    result: { id: group, cardIds: expect.arrayContaining(cardIds) },
+  });
+  expect((await call(create)).body.response.receipt).toEqual(
+    grouped.body.response.receipt,
+  );
+  expect(
+    (
+      await call(
+        command("doneThreadCreate", {
+          id: randomUUID(),
+          title: "Other",
+          cardIds,
+        }),
+      )
+    ).status,
+  ).toBe(409);
+  const { withFleetAction } =
+    await import("../src/server/fleet-action-context.js");
+  const {
+    createDoneThread,
+    moveDoneThreadCards,
+    removeDoneThread,
+    setDoneThreadRead,
+  } = await import("../src/server/done-threads.js");
+  const forbiddenGroup = randomUUID();
+  const before = db
+    .prepare(
+      "SELECT * FROM done_thread_members WHERE thread_id=? ORDER BY card_id",
+    )
+    .all(group);
+  for (const apply of [
+    () =>
+      createDoneThread(OWNER, {
+        id: forbiddenGroup,
+        title: "Forbidden",
+        cardIds,
+      }),
+    () => moveDoneThreadCards(OWNER, group, cardIds),
+    () => removeDoneThread(OWNER, group, cardIds[0]),
+    () => removeDoneThread(OWNER, group),
+    () => setDoneThreadRead(OWNER, group, true),
+    () => setDoneThreadRead(OWNER, group, false),
+  ]) {
+    let checks = 0;
+    expect(() =>
+      withFleetAction(
+        {
+          owner: OWNER,
+          commandId: randomUUID(),
+          grant: credentials.authenticate(act).context,
+        },
+        () => {
+          if (++checks > 1) throw new Error("grant changed before commit");
+        },
+        () => apply(),
+      ),
+    ).toThrow("grant changed before commit");
+  }
+  expect(
+    db.prepare("SELECT 1 FROM done_threads WHERE id=?").get(forbiddenGroup),
+  ).toBeUndefined();
+  expect(
+    db.prepare("SELECT 1 FROM done_threads WHERE id=?").get(group),
+  ).toBeDefined();
+  expect(
+    db
+      .prepare(
+        "SELECT * FROM done_thread_members WHERE thread_id=? ORDER BY card_id",
+      )
+      .all(group),
+  ).toEqual(before);
+});
+
 it("looks up a lost agent creation reply using the wire payload before defaults and idempotency binding", async () => {
   const input = command("agentCreate", {
     name: "fleet-lost-create-fixture",

@@ -13,6 +13,12 @@ import {
 export const fleetActionRoutes = {
   agentCreate: workspaceApi.agentCreate,
   agentUpdate: workspaceApi.agentUpdate,
+  doneThreadCreate: workspaceApi.doneThreadCreate,
+  doneThreadMove: workspaceApi.doneThreadMove,
+  doneThreadRemove: workspaceApi.doneThreadRemove,
+  doneThreadRemoveCard: workspaceApi.doneThreadRemoveCard,
+  doneThreadRead: workspaceApi.doneThreadRead,
+  doneThreadUnread: workspaceApi.doneThreadUnread,
   submit: workspaceApi.submit,
   shareSend: workspaceApi.shareSend,
   runAction: workspaceApi.runAction,

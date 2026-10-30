@@ -1,5 +1,4 @@
 import { useLayoutEffect, useId, useRef, useState } from "react";
-import { literalEntry } from "./textEntry";
 import type { AgentSource } from "./agentSources";
 import {
   exportFleetCommand,
@@ -10,6 +9,7 @@ import {
   type PendingFleetCommand,
 } from "./fleetCommand";
 import { viewGeneration, viewOwner } from "./viewCache";
+import { literalEntry } from "./textEntry";
 
 const showReceipts = "loop55-fleet-command-recovery";
 export function showFleetCommandReceipts() {
@@ -20,6 +20,12 @@ const labels: Record<PendingFleetCommand["route"], string> = {
   uploadCreate: "Upload file",
   agentCreate: "Create agent",
   agentUpdate: "Update agent",
+  doneThreadCreate: "Create Done group",
+  doneThreadMove: "Move Done cards",
+  doneThreadRemove: "Remove Done group",
+  doneThreadRemoveCard: "Remove Done card from group",
+  doneThreadRead: "Mark Done group read",
+  doneThreadUnread: "Mark Done group unread",
   submit: "Send message",
   shareSend: "Send shared content",
   runAction: "Control run",

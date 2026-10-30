@@ -14,6 +14,7 @@ import type {
   DoneThreadQuery,
 } from "../shared/done-threads";
 import { workspaceApi } from "../shared/workspace-api";
+import { contractDoneThreadReader } from "../shared/done-thread-client";
 import { callRoute, readRoute } from "./workspace-api";
 import { Sheet } from "./components";
 import { CardBody } from "./ContentCard";
@@ -75,12 +76,10 @@ export function useDoneThreads(
     void Promise.all(
       sources.map(async (source) => {
         try {
-          const result = await readRoute(
-            workspaceApi.doneThreadList,
-            { query },
-            source,
-            controller.signal,
+          const reader = contractDoneThreadReader((contract, input, signal) =>
+            readRoute(contract, input, source, signal ?? controller.signal),
           );
+          const result = await reader.list(query, controller.signal);
           if (controller.signal.aborted || generation !== viewGeneration())
             return;
           const values = result.map((thread) => ({ ...thread, source }));
@@ -403,12 +402,11 @@ export function DoneThreadReader({
   useEffect(() => {
     const controller = new AbortController();
     setError("");
-    void readRoute(
-      workspaceApi.doneThreadDetail,
-      { params: { id: thread.id } },
-      thread.source,
-      controller.signal,
-    )
+    const reader = contractDoneThreadReader((contract, input, signal) =>
+      readRoute(contract, input, thread.source, signal ?? controller.signal),
+    );
+    void reader
+      .detail(thread.id, controller.signal)
       .then((result) => {
         if (
           !controller.signal.aborted &&

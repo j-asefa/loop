@@ -24,6 +24,7 @@ import {
 } from "../src/shared/companion-contract-schemas.ts";
 import { ActivityRecordSchema } from "../src/agent-activities.ts";
 import { DoneDisplaySchema } from "../src/shared/done-card.ts";
+import { DoneThread, DoneThreadSummary } from "../src/shared/done-threads.ts";
 import { AgentThreadSummary } from "../src/shared/agent-thread-feed.ts";
 import { PublicMailMessage } from "../src/shared/agent-mail.ts";
 import { PublicMcpConnection } from "../src/shared/mcp-contract-schemas.ts";
@@ -53,6 +54,8 @@ import {
   PublicLaterView,
   PublicScheduledSend,
   PublicUploadDescriptor,
+  DoneReadResult,
+  DoneReadVersions,
 } from "../src/shared/mobile-contract-schemas.ts";
 import { NativeProviderView } from "../src/shared/native-providers.ts";
 import {
@@ -109,6 +112,10 @@ const publicProjections = {
     .unwrap()
     .shape.verification.unwrap(),
   DoneCard: DoneCardSchema,
+  DoneThread,
+  DoneThreadSummary,
+  DoneReadResult,
+  DoneReadVersions,
   ResultItem,
   PublicUploadDescriptor,
   PublicAwayItem,
@@ -241,6 +248,8 @@ const sharedManagementGroups = new Set([
   "social",
   "card-tokens",
   "webhooks",
+  "feed",
+  "conversations",
 ]);
 const managementOrigin = {
   name: "Origin",

@@ -23,7 +23,7 @@ import { PersonalDecisionsQuery, PersonalDecisionsPageSchema, PersonalApprovalSc
 import { ProfileInput, PublicProfile, PersonalPromptsQuery, PersonalPromptsPage } from "./personal-schemas.js";
 import { AgentCreateInput, AgentUpdateInput, ConnectionCreateInput, ConnectionReconnectInput, PublicModels, PublicConnectionRefresh, PublicHarnessCatalog, PublicPiConfiguration, PublicPiMutation, PublicPiInspection, PiTrustInput, PiFiltersInput, PiPreviewInput, PiInspectInput, PiRollbackInput, PiActionInput, PublicAgentMessages, PublicAgentTraces } from "./agent-contract-schemas.js";
 import { DoneDisplaySchema } from "./done-card.js";
-import { DoneThread, DoneThreadSummary, DoneThreadQuery, DoneThreadDetail, DoneThreadCreate, DoneThreadMembers, DoneThreadCardId } from "./done-threads.js";
+import { DoneThread, DoneThreadSummary, DoneThreadQuery, DoneThreadDetail, DoneThreadCreate, DoneThreadMembers, DoneThreadCardId, DoneThreadListPageQuery, DoneThreadPageQuery, DoneThreadListPage, DoneThreadDetailPage } from "./done-threads.js";
 import { WorkspaceClock, WorkspaceFrameV3, WorkspaceEvent, WorkspaceCapabilities, TokenEventAck } from "./workspace-events.js";
 import { ProjectedMessage } from "./transcript-projection.js";
 import { SessionControls } from "./session-controls.js";
@@ -417,10 +417,12 @@ export const workspaceRoutes = {
   conversationPosition: endpoint({ ...base, method: "PUT", path: "/conversations/:id/position", params: Id, body: mobile.PositionInput, response: z.object({ position_message_id: MaybeText }) }),
   feedUpdate: endpoint({ ...base, method: "PATCH", path: "/feed/:id", params: Id, body: mobile.FeedUpdateInput, response: Ok }),
   doneThreadList: endpoint({ ...base, method: "GET", path: "/feed/threads", query: DoneThreadQuery, response: z.array(DoneThreadSummary) }),
+  doneThreadListPage: endpoint({ ...base, method: "GET", path: "/feed/threads/page", query: DoneThreadListPageQuery, response: DoneThreadListPage }),
   agentThreadFeed: endpoint({ ...base, method: "GET", path: "/feed/agent-threads", query: AgentThreadQuery, response: AgentThreadPage }),
   agentThreadDetail: endpoint({ ...base, method: "GET", path: "/feed/agent-threads/:id", params: Id, query: AgentThreadMessagesQuery, response: AgentThreadDetail }),
   doneThreadCreate: endpoint({ ...base, method: "POST", path: "/feed/threads", body: DoneThreadCreate, response: DoneThread }),
   doneThreadDetail: endpoint({ ...base, method: "GET", path: "/feed/threads/:id", params: Id, response: DoneThreadDetail }),
+  doneThreadDetailPage: endpoint({ ...base, method: "GET", path: "/feed/threads/:id/page", params: Id, query: DoneThreadPageQuery, response: DoneThreadDetailPage }),
   doneThreadMove: endpoint({ ...base, method: "POST", path: "/feed/threads/:id/cards", params: Id, body: DoneThreadMembers, response: DoneThread }),
   doneThreadRead: endpoint({ ...base, method: "PUT", path: "/feed/threads/:id/read", params: Id, body: z.object({ unreadVersions: mobile.DoneReadVersions.optional() }).strict(), response: mobile.DoneReadResult }),
   doneThreadUnread: endpoint({ ...base, method: "DELETE", path: "/feed/threads/:id/read", params: Id, response: mobile.DoneReadResult }),

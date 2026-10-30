@@ -16,6 +16,7 @@ import {
   fleetActionRoutes,
 } from "../shared/fleet-workspace-action-api.js";
 import { ExecutionRefused } from "./execution-refusal.js";
+import { fleetActionBody } from "../shared/fleet-action-input.js";
 import { withPassiveWorkspaceRead } from "./workspace-read-context.js";
 import {
   FleetFileSelection,
@@ -61,7 +62,7 @@ export class FleetWorkspaceApp {
     return this.request(
       owner,
       fleetActionRoutes[value.route],
-      { ...value, query: {} },
+      { ...value, query: {}, body: fleetActionBody(value.route, value.body) },
       authorize,
       true,
     );
@@ -114,7 +115,7 @@ export class FleetWorkspaceApp {
       );
     const path = "/api" + routePath(contract, input);
     const body =
-      contract.method === "GET"
+      contract.method === "GET" || input.body === undefined
         ? undefined
         : JSON.stringify(input.body ?? null);
     authorize();

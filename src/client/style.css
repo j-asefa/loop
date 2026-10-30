@@ -273,6 +273,7 @@ small,
 }
 .topbar-actions {
   display: flex;
+  min-width: 0;
   gap: 13px;
   align-items: center;
 }
@@ -6222,12 +6223,15 @@ select {
   font-size: 28px;
   margin: 0;
 }
+.topbar-actions .scope-chip {
+  min-width: 0;
+}
 .scope-chip select {
   min-height: 36px;
   border-radius: 999px;
   font-size: 14px;
   padding: 6px 30px 6px 14px;
-  max-width: 190px;
+  max-width: min(190px, 100%);
   background-color: var(--surface);
 }
 .avatar-button {

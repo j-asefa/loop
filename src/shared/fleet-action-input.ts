@@ -8,6 +8,7 @@ import {
 /** The identity positions are shared by browser receipts and destination
  * normalization. They are never inferred from arbitrary nested JSON keys. */
 export function fleetActionCommandPaths(input: FleetActionInput): string[][] {
+  if (input.route === "doneThreadCreate") return [["id"]];
   if (
     [
       "agentCreate",
@@ -31,6 +32,20 @@ export function fleetActionCommandPaths(input: FleetActionInput): string[][] {
   )
     return [["start", "idempotencyKey"]];
   return [];
+}
+
+/** JSON receipts use an empty object for a route that has no HTTP body. Only
+ * that empty wire value may become an absent body at the owning handler. */
+export function fleetActionBody(
+  route: FleetActionInput["route"],
+  body: unknown,
+): unknown {
+  const schema = fleetActionRoutes[route].body;
+  if (schema instanceof z.ZodUndefined) {
+    z.strictObject({}).parse(body);
+    return undefined;
+  }
+  return schema.parse(body);
 }
 
 /** The outer durable identity also owns any existing inner receipt key. */
@@ -71,7 +86,7 @@ export function fleetActionInput(
   }
   const contract = fleetActionRoutes[value.route];
   const params = contract.params.parse(value.params) as Record<string, string>;
-  const parsedBody = contract.body.parse(body);
+  const parsedBody = fleetActionBody(value.route, body);
   return FleetActionInput.parse({
     route: value.route,
     params,

@@ -49,6 +49,8 @@ import { until } from "./helpers.js";
 import { DoneCardsReader } from "../src/client/feed-cards.js";
 import { contractCardReader } from "../src/shared/card-client.js";
 import { routePath } from "../src/shared/route-path.js";
+import { contractDoneThreadReader } from "../src/shared/done-thread-client.js";
+import { DONE_THREAD_PAGE_BYTES } from "../src/shared/done-threads.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop55-fleet-source-"));
 process.env.LOOP55_PROFILE = "companion";
@@ -675,6 +677,132 @@ it("discovers only this Host's enrolled peers without contact and projects their
   expect(localCalls).toBe(0);
 });
 
+it("pages complete remote Done groups and destinations without crossing owners or stale membership", async () => {
+  const agent = randomUUID(),
+    conversation = randomUUID(),
+    group = randomUUID();
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,'Large group',?,'openai','fixture',1)",
+  ).run(agent, OWNER, agent);
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Large group',1)",
+  ).run(conversation, OWNER, agent);
+  const content = "Complete result. ".repeat(1536);
+  const cards = Array.from({ length: 100 }, (_, index) => {
+    const run = randomUUID();
+    db.prepare(
+      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'Task','completed',?,?,?)",
+    ).run(run, OWNER, agent, conversation, run, index + 1, index + 2);
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
+    ).run(run, OWNER, conversation, run, content + index, index + 2);
+    return "d:run:" + run;
+  });
+  const created = await browser(
+    prefix + "/feed/threads",
+    "POST",
+    { id: group, title: "Large group", cardIds: cards },
+    { "x-loop55-command-id": group },
+  );
+  expect(created.status).toBe(200);
+  const pageRequests: string[] = [];
+  const reader = contractDoneThreadReader(async (contract, input, signal) => {
+    signal?.throwIfAborted();
+    const path = routePath(contract, input);
+    pageRequests.push(path);
+    const response = await browser(prefix + path);
+    expect(response.status).toBe(200);
+    expect(
+      Buffer.byteLength(JSON.stringify(response.body)),
+    ).toBeLessThanOrEqual(DONE_THREAD_PAGE_BYTES);
+    return response.body;
+  });
+  const detail = await reader.detail(group);
+  expect(pageRequests.length).toBeGreaterThan(1);
+  expect(detail.cards.map((card) => card.id)).toEqual(cards);
+  expect(detail.cards.map((card) => card.content)).toEqual(
+    cards.map((_, index) => content + index),
+  );
+  // A small member count can still exceed the byte budget. Preserve each
+  // complete card while stopping the page before that budget is crossed.
+  const larger = content.repeat(25);
+  for (let index = 0; index < 3; index++)
+    db.prepare("UPDATE messages SET content=? WHERE id=?").run(
+      larger + index,
+      cards[index].slice("d:run:".length),
+    );
+  const bytePage = await browser(prefix + `/feed/threads/${group}/page`);
+  expect(bytePage.status).toBe(200);
+  expect(bytePage.body.cards.length).toBeLessThan(20);
+  expect(Buffer.byteLength(JSON.stringify(bytePage.body))).toBeLessThanOrEqual(
+    DONE_THREAD_PAGE_BYTES,
+  );
+  const largerDetail = await reader.detail(group);
+  expect(largerDetail.cards.map((card) => card.content)).toEqual(
+    cards.map((_, index) => (index < 3 ? larger : content) + index),
+  );
+  const first = await browser(prefix + `/feed/threads/${group}/page`);
+  expect(first.status).toBe(200);
+  expect(first.body.next).toEqual(expect.any(String));
+  const destinations = [group];
+  for (let index = 0; index < 24; index++) {
+    const id = randomUUID();
+    destinations.push(id);
+    expect(
+      (
+        await browser(
+          prefix + "/feed/threads",
+          "POST",
+          {
+            id,
+            title: "Destination " + index,
+            cardIds: cards.slice(index * 2, index * 2 + 2),
+          },
+          { "x-loop55-command-id": id },
+        )
+      ).status,
+    ).toBe(200);
+  }
+  const stale = await browser(
+    prefix +
+      `/feed/threads/${group}/page?cursor=${encodeURIComponent(first.body.next)}`,
+  );
+  expect(stale.status).toBe(409);
+  expect(
+    (await browser(prefix + `/feed/threads/${group}/page?cursor=invalid`))
+      .status,
+  ).toBe(400);
+  const privateGroup = randomUUID();
+  db.prepare(
+    "INSERT INTO done_threads(id,owner_id,title,created_at) VALUES(?,?,'Private',1)",
+  ).run(privateGroup, foreignOwner);
+  expect(
+    (await browser(prefix + `/feed/threads/${privateGroup}/page`)).status,
+  ).toBe(404);
+  const listStart = pageRequests.length;
+  const listed = await reader.list();
+  expect(pageRequests.length - listStart).toBeGreaterThan(1);
+  expect(listed.map((thread) => thread.id).sort()).toEqual(destinations.sort());
+  expect(JSON.stringify(listed)).not.toContain(privateGroup);
+  expect(listed.find((thread) => thread.id === group)?.cardIds).toHaveLength(
+    52,
+  );
+  expect(
+    (
+      await browser(
+        prefix +
+          `/feed/threads/${group}/cards/${encodeURIComponent(cards[99])}`,
+        "DELETE",
+        undefined,
+        { "x-loop55-command-id": randomUUID() },
+      )
+    ).status,
+  ).toBe(200);
+  expect((await reader.detail(group)).cards.map((card) => card.id)).toEqual(
+    cards.slice(48, 99),
+  );
+}, 15_000);
+
 it("loads, pages and refreshes remote Done cards through the paired gateway without exposing another owner", async () => {
   const agent = randomUUID(),
     privateAgent = randomUUID();
@@ -758,6 +886,106 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
   );
   expect((await markRead()).status).toBe(200);
   expect(await cards.detail("d:run:" + newer)).toEqual(readCard);
+  const createGroup = (id: string) =>
+    browser(
+      prefix + "/feed/threads",
+      "POST",
+      {
+        id,
+        title: "Remote done group",
+        cardIds: ["d:run:" + older, "d:run:" + newer],
+      },
+      { "x-loop55-command-id": id },
+    );
+  const group = randomUUID();
+  expect((await createGroup(group)).status).toBe(200);
+  expect(
+    (
+      await browser(
+        prefix + `/feed/threads/${group}/read`,
+        "PUT",
+        {},
+        { "x-loop55-command-id": randomUUID() },
+      )
+    ).status,
+  ).toBe(200);
+  const groupRead = await browser(prefix + `/feed/threads/${group}`);
+  expect(groupRead.status).toBe(200);
+  expect(
+    groupRead.body.cards.map(
+      (card: { display: { read_at: unknown } }) => card.display.read_at,
+    ),
+  ).toEqual([expect.any(Number), expect.any(Number)]);
+  const groupUnreadCommand = randomUUID();
+  const invalidUnread = await browser(
+    prefix + `/feed/threads/${group}/read`,
+    "DELETE",
+    { unexpected: true },
+    { "x-loop55-command-id": randomUUID() },
+  );
+  expect(invalidUnread.status).toBe(400);
+  expect((await browser(prefix + `/feed/threads/${group}`)).body).toEqual(
+    groupRead.body,
+  );
+  const markGroupUnread = () =>
+    browser(prefix + `/feed/threads/${group}/read`, "DELETE", undefined, {
+      "x-loop55-command-id": groupUnreadCommand,
+    });
+  const unreadGroup = await markGroupUnread();
+  expect(unreadGroup.status).toBe(200);
+  expect(
+    (await browser(prefix + `/feed/threads/${group}`)).body.cards.map(
+      (card: { display: { read_at: unknown } }) => card.display.read_at,
+    ),
+  ).toEqual([null, null]);
+  expect(
+    (
+      await browser(
+        prefix + `/feed/threads/${group}/read`,
+        "PUT",
+        { unreadVersions: unreadGroup.body.unreadVersions },
+        { "x-loop55-command-id": randomUUID() },
+      )
+    ).status,
+  ).toBe(200);
+  const reopenedGroup = await browser(prefix + `/feed/threads/${group}`);
+  expect(
+    reopenedGroup.body.cards.map(
+      (card: { display: { read_at: unknown } }) => card.display.read_at,
+    ),
+  ).toEqual([expect.any(Number), expect.any(Number)]);
+  // An earlier unread receipt cannot overwrite the user's later group read.
+  expect((await markGroupUnread()).body).toEqual(unreadGroup.body);
+  expect((await browser(prefix + `/feed/threads/${group}`)).body).toEqual(
+    reopenedGroup.body,
+  );
+  const removeMember = () =>
+    browser(
+      prefix +
+        `/feed/threads/${group}/cards/${encodeURIComponent("d:run:" + older)}`,
+      "DELETE",
+      undefined,
+      { "x-loop55-command-id": removeMemberId },
+    );
+  const removeMemberId = randomUUID();
+  const removedMember = await removeMember();
+  expect(removedMember.status).toBe(200);
+  expect((await removeMember()).body).toEqual(removedMember.body);
+  // Groups with fewer than two members dissolve through the owning handler.
+  expect((await browser(prefix + `/feed/threads/${group}`)).status).toBe(404);
+  const groupToRemove = randomUUID();
+  expect((await createGroup(groupToRemove)).status).toBe(200);
+  const removeGroupId = randomUUID();
+  const removeGroup = () =>
+    browser(prefix + `/feed/threads/${groupToRemove}`, "DELETE", undefined, {
+      "x-loop55-command-id": removeGroupId,
+    });
+  const removedGroup = await removeGroup();
+  expect(removedGroup.status).toBe(200);
+  expect((await removeGroup()).body).toEqual(removedGroup.body);
+  expect(
+    (await browser(prefix + `/feed/threads/${groupToRemove}`)).status,
+  ).toBe(404);
   const unreadCommand = randomUUID();
   const markUnread = () =>
     browser(
@@ -812,7 +1040,12 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
     expect.arrayContaining(["cardList", "cardChanges", "cardDetail"]),
   );
   expect(capabilities.body.fleet.actions).toEqual(
-    expect.arrayContaining(["feedRead", "feedUnread"]),
+    expect.arrayContaining([
+      "feedRead",
+      "feedUnread",
+      "doneThreadRead",
+      "doneThreadUnread",
+    ]),
   );
 });
 

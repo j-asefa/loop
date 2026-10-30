@@ -287,8 +287,10 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   // Model another device adding the pending result to the group while this
   // browser still has the previous membership list. The group action applies
   // to current server membership and must also wait for that result's PUT.
-  const oldThreads = await fixture.api(`/feed/threads?agent=${agents[0].id}`);
-  const threadList = (url) => url.pathname === "/api/feed/threads";
+  const oldThreads = await fixture.api(
+    `/feed/threads/page?agent=${agents[0].id}`,
+  );
+  const threadList = (url) => url.pathname === "/api/feed/threads/page";
   await page.route(threadList, (route) => route.fulfill({ json: oldThreads }));
   try {
     await unreadDuringRead(
@@ -492,6 +494,10 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
         peerReadWrites.push(path);
         return route.fulfill({ status: 409, json: { error: "Read only" } });
       }
+      // Model an older linked source: the initial page route is absent,
+      // while its legacy destination list remains readable.
+      if (path === "feed/threads/page" && sourceKind !== "peer")
+        return route.fulfill({ status: 404, json: { error: "Not found" } });
       if (path === "feed/threads" && sourceKind !== "peer")
         return route.fulfill({ json: [] });
       if (path === "feed/agent-threads")
