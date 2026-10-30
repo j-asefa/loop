@@ -8,9 +8,9 @@ import { join } from "node:path";
 it.each(["main", "native-preview", "fresh"])(
   "preserves presets and recovery when upgrading %s's migration 70",
   (branch) => {
-    const dir = mkdtempSync(join(tmpdir(), "loop-preset-native-migration-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop55-preset-native-migration-"));
     try {
-      const db = new Database(join(dir, "loop.db"));
+      const db = new Database(join(dir, "loop55.db"));
       db.exec(
         "CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)",
       );
@@ -34,7 +34,7 @@ it.each(["main", "native-preview", "fresh"])(
       db.prepare(
         "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('native','owner','codex','Native','','disconnected',?,0)",
       ).run(
-        JSON.stringify({ loopHarness: "codex", retiredDirectRuntime: true }),
+        JSON.stringify({ loop55Harness: "codex", retiredDirectRuntime: true }),
       );
       db.close();
       for (let restart = 0; restart < 2; restart++) {
@@ -57,7 +57,11 @@ it.each(["main", "native-preview", "fresh"])(
         `,
           ],
           {
-            env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+            env: {
+              ...process.env,
+              LOOP55_PROFILE: "server",
+              LOOP55_DATA_DIR: dir,
+            },
             encoding: "utf8",
             timeout: 30_000,
           },

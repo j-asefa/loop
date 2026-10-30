@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 import { closeSheets, openSettings } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
@@ -129,7 +130,7 @@ export async function approvalJourney(page, api) {
       assert.ok((await approve.boundingBox()).height >= 44);
       await dialog.locator(".sheet-body").evaluate((el) => (el.scrollTop = 0));
       await page.screenshot({
-        path: join(tmpdir(), `loop-approval-${width}-${theme}.png`),
+        path: join(tmpdir(), `loop55-approval-${width}-${theme}.png`),
       });
     }
   }
@@ -246,8 +247,10 @@ export async function chatDismissJourney(page, api) {
       dialog.evaluate((el) => el.style.getPropertyValue("--sheet-drag-y")),
     )
     .toBe("");
-  await page.screenshot({ path: join(tmpdir(), "loop-chat-drag-handle.png") });
-  if (process.env.LOOP_BROWSER !== "webkit") {
+  await page.screenshot({
+    path: join(tmpdir(), "loop55-chat-drag-handle.png"),
+  });
+  if (process.env.LOOP55_BROWSER !== "webkit") {
     const cdp = await page.context().newCDPSession(page);
     const heading = await grip.boundingBox();
     const x = heading.x + 30,
@@ -337,7 +340,7 @@ export async function semanticStatusJourney(page) {
       ...status,
       state: "error",
       detail:
-        "Local semantic indexing failed. Loop will retry automatically; keyword search is available.",
+        "Local semantic indexing failed. Loop55 will retry automatically; keyword search is available.",
     };
     await expect(banner).toContainText("Semantic search needs attention");
     await expect(banner).toContainText("keyword search is available");
@@ -350,7 +353,9 @@ export async function semanticStatusJourney(page) {
     };
     await expect(banner).toContainText("Semantic search ready");
     await expect(banner).not.toContainText("waiting");
-    await page.screenshot({ path: join(tmpdir(), "loop-semantic-status.png") });
+    await page.screenshot({
+      path: join(tmpdir(), "loop55-semantic-status.png"),
+    });
     await closeSheets(page);
   } finally {
     await page.unroute("**/api/search/status", route);

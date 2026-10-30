@@ -52,7 +52,7 @@ const fixtureFetch = async (input, init) => {
   );
   const target = new URL(
     url.pathname + url.search,
-    process.env.LOOP_TEST_WEBHOOK_RECEIVER,
+    process.env.LOOP55_TEST_WEBHOOK_RECEIVER,
   );
   return undici.fetch(target, { ...init, dispatcher: undefined });
 };

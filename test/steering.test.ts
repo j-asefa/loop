@@ -7,9 +7,9 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { ChatMessage } from "../src/server/providers";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-steering-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-steering-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now, changes } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -250,7 +250,7 @@ it("includes a follow-up racing with completion in the same run and starts fresh
         });
       } else {
         expect(input.messages.at(-1)?.content).toContain("Also check tests");
-        expect(input.messages.at(-1)?.content).toContain("loop_reply");
+        expect(input.messages.at(-1)?.content).toContain("loop55_reply");
         yield { text: "Tests checked" };
       }
     },
@@ -322,7 +322,7 @@ it("steers the current harness after changing the agent's provider for future ru
   transition(next.data, "cancelled");
 });
 
-it("continues a conversation on the agent's new provider with Loop's transcript", async () => {
+it("continues a conversation on the agent's new provider with Loop55's transcript", async () => {
   const { agent, run } = start();
   const restoreOpenAI = withTestAdapter("openai", {
     async models() {
@@ -408,7 +408,7 @@ it("steers a running Pi turn, which takes live input", async () => {
     connection,
     seal("fixture", "alice"),
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify({ loopHarness: "pi" }),
+    JSON.stringify({ loop55Harness: "pi" }),
     now(),
   );
   const agent = createAgent("alice", {
@@ -444,7 +444,7 @@ it.each(["opencode", "acp"])(
       connection,
       seal("fixture", "alice"),
       JSON.stringify([{ id: "fixture" }]),
-      JSON.stringify({ loopHarness: harness }),
+      JSON.stringify({ loop55Harness: harness }),
       now(),
     );
     const agent = createAgent("alice", {
@@ -484,7 +484,7 @@ function harnessConnection(harness: string | null) {
     connection,
     seal("fixture", "alice"),
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify(harness ? { loopHarness: harness } : {}),
+    JSON.stringify(harness ? { loop55Harness: harness } : {}),
     now(),
   );
   return connection;

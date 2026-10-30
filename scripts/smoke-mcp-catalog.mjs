@@ -1,12 +1,13 @@
+import "../runtime/environment.mjs";
 // Opt-in live discovery against public, no-account catalog servers. No tool calls.
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-const data = mkdtempSync(join(tmpdir(), "loop-catalog-live-"));
-process.env.LOOP_DATA_DIR = data;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const data = mkdtempSync(join(tmpdir(), "loop55-catalog-live-"));
+process.env.LOOP55_DATA_DIR = data;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db.ts");
 const { catalog } = await import("../src/server/mcp/catalog-data.ts");
 const { installCatalog } = await import("../src/server/mcp/catalog.ts");

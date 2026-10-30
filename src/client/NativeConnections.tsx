@@ -37,7 +37,7 @@ export function NativeConnections({
           {connections
             .filter((c) => c.status !== "connected")
             .map((connection) => {
-              const harness = parse<any>(connection.metadata, {}).loopHarness;
+              const harness = parse<any>(connection.metadata, {}).loop55Harness;
               return (
                 <section key={connection.id} className="native-decision">
                   <h4>{connection.label}</h4>
@@ -46,7 +46,7 @@ export function NativeConnections({
                     type="button"
                     onClick={() => setTab(harness ? "harnesses" : "api")}
                   >
-                    {harness ? "Open Harnesses" : "Open Loop runtime API"}
+                    {harness ? "Open Harnesses" : "Open Loop55 runtime API"}
                   </button>
                   <button
                     type="button"
@@ -91,7 +91,7 @@ export function NativeConnections({
           aria-pressed={tab === "api"}
           onClick={() => setTab("api")}
         >
-          Loop runtime API
+          Loop55 runtime API
         </button>
       </div>
       {tab === "harnesses" && (
@@ -100,12 +100,12 @@ export function NativeConnections({
       {tab === "api" && (
         <>
           <p className="settings-intro">
-            Provider keys for Loop’s own agent runtime. API charges apply.
+            Provider keys for Loop55’s own agent runtime. API charges apply.
           </p>
           {connections
             .filter((c) => {
               const m = parse<any>(c.metadata, {});
-              return !m.loopHarness;
+              return !m.loop55Harness;
             })
             .map((c) => (
               <section key={c.id} className="native-decision">
@@ -135,7 +135,7 @@ export function NativeConnections({
               </section>
             ))}
           <button className="text-button" onClick={() => setApiForm(!apiForm)}>
-            Connect an API key for Loop's own agent runtime
+            Connect an API key for Loop55's own agent runtime
           </button>
           {apiForm && (
             <form
@@ -167,7 +167,7 @@ export function NativeConnections({
               }}
             >
               <p className="note">
-                This explicitly uses API billing and Loop's own agent runtime.
+                This explicitly uses API billing and Loop55's own agent runtime.
                 It does not inherit a desktop harness session.
               </p>
               <label>

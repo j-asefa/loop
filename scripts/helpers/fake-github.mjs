@@ -351,7 +351,7 @@ export async function fakeGithub() {
       )
         return send({ message: "Not Found" }, 404);
       state.reads = (state.reads || 0) + 1;
-      // GitHub's own type is never trusted; Loop chooses what to serve.
+      // GitHub's own type is never trusted; Loop55 chooses what to serve.
       res.writeHead(200, { "content-type": "text/html" });
       return res.end(body);
     }

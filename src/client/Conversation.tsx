@@ -260,7 +260,7 @@ function ConversationView({
   const sourceId = useSourceId();
   const owner = viewOwner();
   const cacheKey = "thread:" + JSON.stringify([sourceId, id]);
-  const continuationKey = "loop-continuation:" + JSON.stringify([owner, sourceId, id]);
+  const continuationKey = "loop55-continuation:" + JSON.stringify([owner, sourceId, id]);
   const [pendingContinuation, setPendingContinuation] = useState(() => storedContinuation(continuationKey));
   const [continuationUnavailable, setContinuationUnavailable] = useState(false);
   const [savedContinuations, setSavedContinuations] = useState(() => storedContinuations(continuationKey));
@@ -704,7 +704,7 @@ function ConversationView({
       hydrated.current = false;
       void load(true);
     } else if (missingMessages.current.size || transcriptHandoff.current.projection.needsLatest()) void load();
-    window.addEventListener("loop-refresh", update);
+    window.addEventListener("loop55-refresh", update);
     const stopFallback = surfaceFallback([sourceId], "transcript", 5000, update);
     const stopChanges = listenWorkspaceChanges("thread", (event) => {
       if (!reactiveSource(sourceId, "transcript") || broadWorkspaceChange(event)) update();
@@ -712,7 +712,7 @@ function ConversationView({
     return () => {
       generation.current++;
       readController.current?.abort();
-      window.removeEventListener("loop-refresh", update);
+      window.removeEventListener("loop55-refresh", update);
       stopFallback();
       stopFrames();
       clearTimeout(retryTimer.current);
@@ -736,13 +736,13 @@ function ConversationView({
         })
         .catch(() => {});
     };
-    window.addEventListener("loop-refresh", refresh);
+    window.addEventListener("loop55-refresh", refresh);
     const stopChanges = listenWorkspaceChanges("usage", () => void refresh(), sourceId, id);
     const stopFallback = surfaceFallback([sourceId], "workspace", 5000, () => void refresh());
     void refresh();
     return () => {
       active = false;
-      window.removeEventListener("loop-refresh", refresh);
+      window.removeEventListener("loop55-refresh", refresh);
       stopFallback();
       stopChanges();
     };
@@ -879,7 +879,7 @@ function ConversationView({
     await call(saved ? workspaceApi.messageSave : workspaceApi.messageUnsave, {
       params: { id: messageId }, body: saved ? {} : undefined,
     });
-    window.dispatchEvent(new Event("loop-later-change"));
+    window.dispatchEvent(new Event("loop55-later-change"));
   }
   /**
    * Save at once, with Undo removing that save. Unsaving waits for the

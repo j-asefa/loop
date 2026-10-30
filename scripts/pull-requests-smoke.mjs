@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -14,8 +15,8 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 const github = await fakeGithub();
 const fixture = await designFixture({ githubApi: github.base });
 const evidence =
-  process.env.LOOP_PULLS_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+  process.env.LOOP55_PULLS_SCREENSHOT_DIR ||
+  (process.env.CI ? join("docs", "loop55-v0", "evidence") : undefined);
 if (evidence) mkdirSync(evidence, { recursive: true });
 const MOVED = "1".repeat(40);
 try {

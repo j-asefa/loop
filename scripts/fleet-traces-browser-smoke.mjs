@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 // Real trace controls and typed browser transport against isolated HTTP fixtures.
 // No provider, user data or fleet credential is used by this browser regression.
 import { chromium, webkit, expect } from "@playwright/test";
@@ -8,8 +9,8 @@ import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 
-const dir = await mkdtemp(join(tmpdir(), "loop-fleet-traces-"));
-const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
+const dir = await mkdtemp(join(tmpdir(), "loop55-fleet-traces-"));
+const engine = process.env.LOOP55_BROWSER === "webkit" ? webkit : chromium;
 const peerA = "peer:m_" + "1".repeat(64),
   peerB = "peer:m_" + "2".repeat(64);
 const calls = [];
@@ -177,7 +178,7 @@ try {
   await download.click();
   await expect
     .poll(() => page.evaluate(() => window.downloads))
-    .toEqual(["loop-run-same-run-traces.json"]);
+    .toEqual(["loop55-run-same-run-traces.json"]);
   assert.equal(calls.at(-1).source, peerA);
 
   // The HTTP response has completed, but the asynchronous browser Blob read has

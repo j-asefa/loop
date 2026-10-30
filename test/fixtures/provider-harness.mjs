@@ -10,8 +10,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-const name = process.env.LOOP_TEST_HARNESS;
-const dir = process.env.LOOP_TEST_PROVIDER_DIR;
+const name = process.env.LOOP55_TEST_HARNESS;
+const dir = process.env.LOOP55_TEST_PROVIDER_DIR;
 const file = join(dir, name + "-auth.json");
 const read = () =>
   existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};

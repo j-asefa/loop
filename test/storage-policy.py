@@ -36,7 +36,7 @@ class LocalTransport:
 
 class StoragePolicy(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="loop-storage-policy-")
+        self.temp = tempfile.TemporaryDirectory(prefix="loop55-storage-policy-")
         self.root = Path(self.temp.name)
         self.releases = self.root / "releases"
         self.releases.mkdir()
@@ -53,7 +53,7 @@ class StoragePolicy(unittest.TestCase):
     def release(self, day):
         folder = self.releases / f"main-202610{day:02}T000000Z-abcdef1"
         (folder / "workspace-backup").mkdir(parents=True)
-        (folder / "workspace-backup/loop.db").write_bytes(bytes([day]) * 1000)
+        (folder / "workspace-backup/loop55.db").write_bytes(bytes([day]) * 1000)
         (folder / "after.json").write_text('{"serverReady":true}')
         return folder
 
@@ -81,7 +81,7 @@ class StoragePolicy(unittest.TestCase):
         (user / "work.txt").write_text("uncommitted work")
         result = p.maintain(self.config, store=self.store)
         self.assertEqual(len(result["expired_local_backups"]), 3)
-        self.assertTrue((releases[-1] / "workspace-backup/loop.db").exists())
+        self.assertTrue((releases[-1] / "workspace-backup/loop55.db").exists())
         self.assertTrue((releases[-1] / p.ARCHIVE).exists())
         self.assertFalse((releases[-2] / "workspace-backup").exists())
         self.assertTrue((releases[-2] / p.ARCHIVE).exists())
@@ -128,8 +128,8 @@ class StoragePolicy(unittest.TestCase):
         alias.mkdir()
         (alias / "workspace-backup").symlink_to(releases[1] / "workspace-backup")
         p.maintain(self.config, store=self.store)
-        self.assertTrue((releases[0] / "workspace-backup/loop.db").exists())
-        self.assertTrue((releases[1] / "workspace-backup/loop.db").exists())
+        self.assertTrue((releases[0] / "workspace-backup/loop55.db").exists())
+        self.assertTrue((releases[1] / "workspace-backup/loop55.db").exists())
 
     def test_guard_blocks_work_without_touching_existing_data(self):
         config = self.root / "policy.json"
@@ -154,7 +154,7 @@ class StoragePolicy(unittest.TestCase):
                               ("npx", ["vitest", "run"]), ("npm", ["--prefix", "/tmp/project", "ci"])]:
             self.assertTrue(p.needs_budget(program, args))
 
-    def fixture(self, name="loop-package-expired", live=False):
+    def fixture(self, name="loop55-package-expired", live=False, legacy=False):
         folder = self.root / "tmp" / name
         folder.mkdir()
         info = folder.stat()
@@ -163,7 +163,7 @@ class StoragePolicy(unittest.TestCase):
                   "inode": info.st_ino, "device": info.st_dev,
                   "pid": os.getpid() if live else 99999999,
                   "process_start": p.process_start(os.getpid()) if live else "not-running"}
-        (folder / ".loop-disposable.json").write_text(json.dumps(marker))
+        (folder / (".loop-disposable.json" if legacy else ".loop55-disposable.json")).write_text(json.dumps(marker))
         (folder / "generated.txt").write_text("fixture")
         for child in folder.iterdir():
             os.utime(child, (old, old))
@@ -171,34 +171,55 @@ class StoragePolicy(unittest.TestCase):
 
     def test_only_explicit_expired_fixture_is_removed(self):
         expired = self.fixture()
-        unmarked = self.root / "tmp/loop-package-user"
+        unmarked = self.root / "tmp/loop55-package-user"
         unmarked.mkdir()
         (unmarked / "notes.txt").write_text("user work")
-        live = self.fixture("loop-package-live", live=True)
-        recent = self.fixture("loop-package-recent-edit")
+        live = self.fixture("loop55-package-live", live=True)
+        recent = self.fixture("loop55-package-recent-edit")
         (recent / "generated.txt").write_text("new work")
         self.assertEqual(p.cleanup_fixtures(self.root / "tmp"), [str(expired)])
         self.assertTrue(unmarked.exists())
         self.assertTrue(live.exists())
         self.assertTrue(recent.exists())
 
+    def test_legacy_fixture_cleanup_retains_identity_and_liveness_checks(self):
+        expired = self.fixture("loop-package-expired", legacy=True)
+        live = self.fixture("loop-package-live", live=True, legacy=True)
+        copied = self.root / "tmp/loop-package-copied"
+        shutil.copytree(expired, copied)
+        self.assertEqual(p.cleanup_fixtures(self.root / "tmp"), [str(expired)])
+        self.assertTrue(live.exists())
+        self.assertTrue(copied.exists())
+
+    def test_reserved_volume_accepts_kernel_loop_device_and_checks_backing_file(self):
+        spec = importlib.util.spec_from_file_location("volume", ROOT / "deployment/reserved-volume.py")
+        volume = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(volume)
+        data = {"mountpoint": "/state", "uuid": "fixture", "image": "/image"}
+        output = json.dumps({"filesystems": [{"uuid": "fixture", "fstype": "ext4", "source": "/dev/loop0"}]})
+        with patch.object(volume, "command", side_effect=[output, "/image"]):
+            self.assertEqual(volume.mounted(data), "/dev/loop0")
+        with patch.object(volume, "command", side_effect=[output, "/foreign"]):
+            with self.assertRaisesRegex(RuntimeError, "wrong backing"):
+                volume.mounted(data)
+
     def test_copied_marker_and_symlink_do_not_authorize_cleanup(self):
         original = self.fixture()
-        copied = self.root / "tmp/loop-package-copied"
+        copied = self.root / "tmp/loop55-package-copied"
         shutil.copytree(original, copied)
-        link = self.root / "tmp/loop-package-link"
+        link = self.root / "tmp/loop55-package-link"
         link.symlink_to(original, target_is_directory=True)
         p.cleanup_fixtures(self.root / "tmp")
         self.assertTrue(copied.exists())
         self.assertTrue(link.is_symlink())
 
     def test_marker_helper_records_actual_fixture_identity(self):
-        folder = self.root / "tmp/loop-package-node"
+        folder = self.root / "tmp/loop55-package-node"
         folder.mkdir()
         code = "import {markDisposableFixture} from " + json.dumps(
             (ROOT / "scripts/helpers/disposable-fixture.mjs").as_uri()) + ";markDisposableFixture(process.argv[1]);"
         subprocess.run(["node", "--input-type=module", "-e", code, str(folder)], check=True)
-        marker = json.loads((folder / ".loop-disposable.json").read_text())
+        marker = json.loads((folder / ".loop55-disposable.json").read_text())
         self.assertEqual(marker["inode"], folder.stat().st_ino)
         self.assertEqual(marker["kind"], "package-smoke")
         self.assertEqual(p.cleanup_fixtures(self.root / "tmp"), [])
@@ -222,7 +243,8 @@ class StoragePolicy(unittest.TestCase):
         (source / "node_modules/pkg").mkdir(parents=True)
         shutil.copyfile(source / "package-lock.json", source / "node_modules/.package-lock.json")
         shutil.copyfile(source / "package-lock.json", source / "npm-shrinkwrap.json")
-        (release / "loop-0.1.0.tgz").write_bytes(b"generated package")
+        (release / "loop55-0.1.0.tgz").write_bytes(b"generated package")
+        (release / "loop-0.1.0.tgz").write_bytes(b"old generated package")
         return source
 
     def test_prunes_only_old_unmodified_inactive_release_artifacts(self):
@@ -232,6 +254,8 @@ class StoragePolicy(unittest.TestCase):
         with patch.object(p, "busy_sources", return_value=set()):
             removed = p.prune_builds(list(reversed(releases)), self.config)
         self.assertIn(str(sources[0] / "node_modules"), removed)
+        self.assertIn(str(releases[0] / "loop-0.1.0.tgz"), removed)
+        self.assertIn(str(releases[0] / "loop55-0.1.0.tgz"), removed)
         self.assertTrue((sources[0] / "package.json").exists())
         for source in sources[1:]:
             self.assertTrue((source / "node_modules").is_dir())

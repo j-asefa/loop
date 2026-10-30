@@ -1,8 +1,8 @@
 /**
  * A thread's pull request as its watch last observed it: which head GitHub
- * reported, what the checks concluded for which head, and when Loop last
+ * reported, what the checks concluded for which head, and when Loop55 last
  * looked. A card shows this as one line. It is what the watch read, as
- * fresh as its last poll; Loop never claims more than that.
+ * fresh as its last poll; Loop55 never claims more than that.
  */
 export type PullState = {
   repo_owner: string;

@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 // Three compiled companions, mobile browser emulation and a local TLS edge.
 // QR decoding uses the bundled production worker/WASM with native detection
 // absent. Harness, camera frames and peer network routing are deterministic
@@ -27,11 +28,11 @@ import {
   fleetEnrollmentFromLink,
 } from "../dist/shared/fleet-pairing.js";
 const exec = promisify(execFile);
-const base = await mkdtemp(join(tmpdir(), "loop-fleet-browser-"));
+const base = await mkdtemp(join(tmpdir(), "loop55-fleet-browser-"));
 const mapPath = join(base, "peers.json"),
   mapping = {},
   children = [];
-const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
+const engine = process.env.LOOP55_BROWSER === "webkit" ? webkit : chromium;
 let browser,
   edge,
   proxy,
@@ -60,9 +61,9 @@ async function machine(name) {
     silent: true,
     env: {
       ...testEnvironment(process.env, "native"),
-      LOOP_PROFILE: "companion",
-      LOOP_DATA_DIR: dir,
-      LOOP_TEST_HARNESS: "codex",
+      LOOP55_PROFILE: "companion",
+      LOOP55_DATA_DIR: dir,
+      LOOP55_TEST_HARNESS: "codex",
       FLEET_FIXTURE_ORIGIN: origin,
       FLEET_FIXTURE_PROJECT: project,
       FLEET_FIXTURE_MAP: mapPath,
@@ -150,7 +151,7 @@ async function openSettings(page) {
 }
 async function pair(page, url) {
   await page.goto(url);
-  await page.getByRole("button", { name: "Pair and open Loop" }).click();
+  await page.getByRole("button", { name: "Pair and open Loop55" }).click();
   await expect(
     page.getByRole("button", { name: "Open settings", exact: true }),
   ).toBeVisible();
@@ -807,7 +808,7 @@ try {
   await writeFile(mapPath, JSON.stringify(mapping));
   assert(
     !(await context.cookies(b.origin)).some(
-      (cookie) => cookie.name === "__Host-loop",
+      (cookie) => cookie.name === "__Host-loop55",
     ),
     "New origin has no inherited device cookie",
   );

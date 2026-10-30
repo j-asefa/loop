@@ -106,7 +106,7 @@ export const WebhookRequest = z
   .strict();
 export const WebhookCreate = WebhookRequest.extend({
   url: z.string().trim().min(1).max(2048),
-  secret: z.string().regex(/^loop_hook_[A-Za-z0-9_-]{43}$/),
+  secret: z.string().regex(/^loop(?:55)?_hook_[A-Za-z0-9_-]{43}$/),
   kinds: WebhookKinds,
 }).strict();
 export const WebhookUpdate = WebhookRequest.extend({
@@ -125,7 +125,7 @@ export function webhookRequest(
   kinds: z.infer<typeof WebhookKinds>,
 ) {
   const secret =
-    "loop_hook_" +
+    "loop55_hook_" +
     btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
       .replaceAll("+", "-")
       .replaceAll("/", "_")

@@ -1,5 +1,5 @@
 export const UNKNOWN_RUN_FAILURE =
-  "Loop could not complete this run. A specific cause was not recorded. Review any saved progress before retrying.";
+  "Loop55 could not complete this run. A specific cause was not recorded. Review any saved progress before retrying.";
 
 /** Older workers discarded the cause but promised details that did not exist. */
 export function runErrorText(error?: string | null) {

@@ -60,7 +60,7 @@ const versions = {
 
 test("harness discovery admits stable upgrades and rejects unsupported versions", async (t) => {
   await mkdir(".tmp", { recursive: true });
-  const dir = await mkdtemp(join(resolve(".tmp"), "loop-discovery-"));
+  const dir = await mkdtemp(join(resolve(".tmp"), "loop55-discovery-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const fixture = async (name: string, output: string, exitCode = 0) => {
     const executable = join(dir, name === "antigravity" ? "agy" : name);
@@ -158,7 +158,7 @@ test("harness discovery admits stable upgrades and rejects unsupported versions"
         {
           env: {
             ...process.env,
-            LOOP_HOME: join(dir, "state"),
+            LOOP55_HOME: join(dir, "state"),
             PATH: dir + ":" + process.env.PATH,
           },
           timeout: 15000,

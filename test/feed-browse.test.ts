@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-browse-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-browse-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { errorHandler } = await import("../src/server/error-handler");
 const { parseFeed } = await import("../src/server/syndication");
 const { news, withNewsFixture, feedStories } =
@@ -321,7 +321,7 @@ it("lets an explicit unread mark outlive mark-all-read", async () => {
   expect((await call("/social", "GET", undefined, "yves")).data.unread).toBe(0);
 });
 
-it("serves a feed's picture through Loop, not from the publisher", async () => {
+it("serves a feed's picture through Loop55, not from the publisher", async () => {
   db.exec("DELETE FROM feed_subscriptions");
   const png = Buffer.from(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489",

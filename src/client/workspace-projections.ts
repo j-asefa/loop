@@ -30,10 +30,11 @@ export function publishProjectionFrame(source: string, frame: WorkspaceFrame) {
     const changed =
       JSON.stringify(sources.get(source)) !== JSON.stringify(capabilities);
     sources.set(source, capabilities);
-    if (changed) window.dispatchEvent(new Event("loop-workspace-capabilities"));
+    if (changed)
+      window.dispatchEvent(new Event("loop55-workspace-capabilities"));
   }
   window.dispatchEvent(
-    new CustomEvent<ProjectionFrame>("loop-workspace-frame", {
+    new CustomEvent<ProjectionFrame>("loop55-workspace-frame", {
       detail: { source, generation, frame },
     }),
   );
@@ -41,7 +42,7 @@ export function publishProjectionFrame(source: string, frame: WorkspaceFrame) {
 export function forgetProjectionSource(source: string) {
   current();
   sources.delete(source);
-  window.dispatchEvent(new Event("loop-workspace-capabilities"));
+  window.dispatchEvent(new Event("loop55-workspace-capabilities"));
 }
 export function listenProjectionFrames(
   source: string,
@@ -57,8 +58,8 @@ export function listenProjectionFrames(
     )
       read(detail.frame);
   };
-  window.addEventListener("loop-workspace-frame", listener);
-  return () => window.removeEventListener("loop-workspace-frame", listener);
+  window.addEventListener("loop55-workspace-frame", listener);
+  return () => window.removeEventListener("loop55-workspace-frame", listener);
 }
 export type ReactiveSurface = "transcript" | "feed" | "results" | "workspace";
 // Workspace controls depend on the complete transcript/Results producers;
@@ -90,10 +91,10 @@ export function surfaceFallback(
     if (missing().length)
       timer = setInterval(() => read(missing()), milliseconds);
   };
-  window.addEventListener("loop-workspace-capabilities", reconcile);
+  window.addEventListener("loop55-workspace-capabilities", reconcile);
   reconcile();
   return () => {
     clearInterval(timer);
-    window.removeEventListener("loop-workspace-capabilities", reconcile);
+    window.removeEventListener("loop55-workspace-capabilities", reconcile);
   };
 }

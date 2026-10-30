@@ -19,7 +19,7 @@ function post(port: number, path = "/api/send") {
           res.on("end", () =>
             resolve({
               status: res.statusCode!,
-              outcome: res.headers["x-loop-outcome"] as string | undefined,
+              outcome: res.headers["x-loop55-outcome"] as string | undefined,
             }),
           );
         },
@@ -31,7 +31,7 @@ function post(port: number, path = "/api/send") {
 }
 
 test("the relay never pools a connection to the application", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-relay-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-relay-"));
   const socket = join(dir, "app.sock");
   let served = 0;
   let connections = 0;
@@ -71,7 +71,7 @@ test("the relay never pools a connection to the application", async () => {
 });
 
 test("a mutation the application already received is still reported as unknown", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-relay-unknown-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-relay-unknown-"));
   const socket = join(dir, "app.sock");
   let received = 0;
   // The application takes the request and dies before answering: it may have
@@ -98,7 +98,7 @@ test("a mutation the application already received is still reported as unknown",
 });
 
 test("a launch that recovers on its own generation keeps its live sockets", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-relay-ws-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop55-relay-ws-"));
   const socket = join(dir, "app.sock");
   const app = createServer();
   const sockets = new WebSocketServer({ server: app });

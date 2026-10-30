@@ -26,7 +26,7 @@ export async function designFixture({ githubApi } = {}) {
   const port = listener.address().port;
   await new Promise((resolve) => listener.close(resolve));
   const base = `http://127.0.0.1:${port}`;
-  const dir = mkdtempSync(join(tmpdir(), "loop-design-fixture-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-design-fixture-"));
   const key = randomBytes(32).toString("hex");
   const server = spawn(
     process.execPath,
@@ -37,20 +37,20 @@ export async function designFixture({ githubApi } = {}) {
       env: {
         ...process.env,
         NODE_ENV: "test",
-        LOOP_PROFILE: "server",
-        LOOP_AUTH_MODE: "single-user",
-        LOOP_DATA_DIR: dir,
+        LOOP55_PROFILE: "server",
+        LOOP55_AUTH_MODE: "single-user",
+        LOOP55_DATA_DIR: dir,
         PORT: String(port),
-        LOOP_URL: base,
-        LOOP_LISTEN_HOST: "127.0.0.1",
-        LOOP_ENCRYPTION_KEY: key,
+        LOOP55_URL: base,
+        LOOP55_LISTEN_HOST: "127.0.0.1",
+        LOOP55_ENCRYPTION_KEY: key,
         BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-        LOOP_SINGLE_USER_EMAIL: "",
-        LOOP_GATEWAY_TOKEN: "",
-        LOOP_RUNTIME_URL: "",
+        LOOP55_SINGLE_USER_EMAIL: "",
+        LOOP55_GATEWAY_TOKEN: "",
+        LOOP55_RUNTIME_URL: "",
         // Watched pull requests poll here and fail fast: no real GitHub.
-        LOOP_GITHUB_API_URL: githubApi || "http://127.0.0.1:9",
-        LOOP_RUNTIME_TOKEN: "",
+        LOOP55_GITHUB_API_URL: githubApi || "http://127.0.0.1:9",
+        LOOP55_RUNTIME_TOKEN: "",
       },
     },
   );
@@ -110,7 +110,7 @@ export async function designFixture({ githubApi } = {}) {
       return data;
     };
     const owner = (await api("/auth/get-session")).user.id;
-    db = new Database(dir + "/loop.db");
+    db = new Database(dir + "/loop55.db");
     installFixtureProjection(db);
     heartbeat = setInterval(
       () =>
@@ -149,7 +149,11 @@ export async function designFixture({ githubApi } = {}) {
       claude.id,
     );
     const projects = [];
-    for (const name of ["Loop", "Research and product development", "Personal"])
+    for (const name of [
+      "Loop55",
+      "Research and product development",
+      "Personal",
+    ])
       projects.push(await api("/folders", { name, kind: "project" }));
     const agents = [];
     for (const [i, name] of [
@@ -299,7 +303,7 @@ export async function designFixture({ githubApi } = {}) {
             server: "GitHub",
             arguments: {
               owner: "sample",
-              repo: "loop",
+              repo: "loop55",
               pullNumber: 42,
               event: "COMMENT",
               body: "Two issues need attention before this change is ready.",

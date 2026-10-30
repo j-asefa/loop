@@ -18,8 +18,8 @@ import type { AddressInfo } from "node:net";
 import { until } from "./helpers.js";
 
 test("paired runtime upgrade HTTP boundary fixes the executable, persists status and deduplicates reconnects", async (t) => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-upgrade-http-")));
-  process.env.LOOP_DATA_DIR = join(dir, "data");
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop55-upgrade-http-")));
+  process.env.LOOP55_DATA_DIR = join(dir, "data");
   const oldPath = process.env.PATH;
   const bin = join(dir, "bin");
   mkdirSync(bin);
@@ -44,9 +44,9 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
   process.env.npm_config_registry = "http://127.0.0.1:9/";
   process.env.PATH = bin + ":" + oldPath;
   const interruptedId = randomUUID();
-  mkdirSync(process.env.LOOP_DATA_DIR!, { recursive: true });
+  mkdirSync(process.env.LOOP55_DATA_DIR!, { recursive: true });
   writeFileSync(
-    join(process.env.LOOP_DATA_DIR!, "harness-upgrades.json"),
+    join(process.env.LOOP55_DATA_DIR!, "harness-upgrades.json"),
     JSON.stringify({
       [interruptedId]: {
         commandId: interruptedId,
@@ -152,8 +152,8 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-opencode','local-workspace','opencode','Fixture','','connected','[]',?,1)",
   ).run(
     JSON.stringify({
-      loopHarness: "opencode",
-      runtimeKind: "loop-local",
+      loop55Harness: "opencode",
+      runtimeKind: "loop55-local",
       authMode: "native-existing",
     }),
   );

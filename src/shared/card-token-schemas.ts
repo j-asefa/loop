@@ -10,13 +10,13 @@ const creation = {
 export const CreateCardTokenSchema = z.union([
   z.strictObject({
     ...creation,
-    secret: z.string().regex(/^loop_token_[A-Za-z0-9_-]{43}$/),
+    secret: z.string().regex(/^loop(?:55)?_token_[A-Za-z0-9_-]{43}$/),
     scopes: z.array(TokenScope).min(1).max(3),
   }),
   // Older clients keep their singular grant and creation receipt.
   z.strictObject({
     ...creation,
-    secret: z.string().regex(/^loop_card_[A-Za-z0-9_-]{43}$/),
+    secret: z.string().regex(/^loop(?:55)?_card_[A-Za-z0-9_-]{43}$/),
     scope: CardGrantSchema,
   }),
 ]);

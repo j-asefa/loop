@@ -31,7 +31,7 @@ it("does not infer billing from connection status or incomplete metadata", () =>
 it("shows reported billing and location without claiming a live sign-in check", () => {
   const html = render(
     JSON.stringify({
-      loopHarness: "codex",
+      loop55Harness: "codex",
       location: "docker",
       billing: { description: "Existing provider billing" },
     }),
@@ -40,7 +40,9 @@ it("shows reported billing and location without claiming a live sign-in check", 
   expect(html).toContain("Existing provider billing");
   expect(html).toContain("not a live sign-in or runtime");
   expect(
-    render(JSON.stringify({ loopHarness: "pi", billing: "Existing billing" })),
+    render(
+      JSON.stringify({ loop55Harness: "pi", billing: "Existing billing" }),
+    ),
   ).toContain("This computer");
 });
 

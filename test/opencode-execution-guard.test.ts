@@ -5,7 +5,7 @@ const model = () => ({
   headers: {},
 });
 const options = () => ({
-  baseURL: "loop-subscription-only://openai/v1",
+  baseURL: "loop55-subscription-only://openai/v1",
   apiKey: "opencode-oauth-dummy-key",
   fetch: () => {},
   headerTimeout: 300000,
@@ -19,7 +19,7 @@ const flags = () => ({
 });
 async function load(enabled = true) {
   vi.resetModules();
-  vi.stubEnv("LOOP_OPENCODE_SUBSCRIPTION_ONLY", enabled ? "1" : "0");
+  vi.stubEnv("LOOP55_OPENCODE_SUBSCRIPTION_ONLY", enabled ? "1" : "0");
   return import("../native/opencode-execution-guard");
 }
 afterEach(() => {
@@ -29,16 +29,16 @@ afterEach(() => {
 it("preserves native OAuth routing and captures enforcement before environment mutation", async () => {
   const guard = await load();
   expect(guard.executionGuardStatus()).toEqual({
-    revision: "loop-subscription-v1",
+    revision: "loop55-subscription-v1",
     active: true,
   });
   guard.guardRuntime(flags());
   guard.guardSDK(model(), provider(), options());
   guard.guardOAuth(
     { type: "oauth" },
-    "loop-subscription-only://openai/v1/responses",
+    "loop55-subscription-only://openai/v1/responses",
   );
-  vi.stubEnv("LOOP_OPENCODE_SUBSCRIPTION_ONLY", "0");
+  vi.stubEnv("LOOP55_OPENCODE_SUBSCRIPTION_ONLY", "0");
   expect(() =>
     guard.guardOAuth(
       { type: "api", key: "never report" },
@@ -111,13 +111,13 @@ it.each([
 ])("refuses auth loss before fallback", async (auth) => {
   const guard = await load();
   expect(() =>
-    guard.guardOAuth(auth, "loop-subscription-only://openai/v1/responses"),
+    guard.guardOAuth(auth, "loop55-subscription-only://openai/v1/responses"),
   ).toThrow("execution policy rejected");
 });
 it.each([
   "https://api.openai.com/v1/responses",
-  "loop-subscription-only://openai/v1/responses?redirect=x",
-  "loop-subscription-only://other/v1/responses",
+  "loop55-subscription-only://openai/v1/responses?redirect=x",
+  "loop55-subscription-only://other/v1/responses",
   "invalid",
 ])("rejects an unexpected request route", async (url) => {
   const guard = await load();

@@ -46,7 +46,7 @@ export async function inspectCodexAppServer({ endpoint, token, WebSocketCtor, ti
     await Promise.race([open, disconnected, timedOut]);
     connected = true;
     await Promise.race([
-      request("initialize", { clientInfo: { name: "loop-auth", version: "1" } }),
+      request("initialize", { clientInfo: { name: "loop55-auth", version: "1" } }),
       disconnected,
       timedOut,
     ]);

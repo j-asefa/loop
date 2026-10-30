@@ -331,7 +331,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await page.evaluate(
     ({ owner, agentId }) =>
       localStorage.setItem(
-        `loop-last-recipient:${JSON.stringify([owner, "laptop"])}`,
+        `loop55-last-recipient:${JSON.stringify([owner, "laptop"])}`,
         agentId,
       ),
     { owner: fixture.owner, agentId: fixture.agents[0].id },

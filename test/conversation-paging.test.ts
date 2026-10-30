@@ -5,8 +5,8 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import express from "express";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-conversation-paging-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop55-conversation-paging-"));
+process.env.LOOP55_DATA_DIR = dir;
 const { db, id } = await import("../src/server/db");
 const { conversationMessages, transcriptPageSql } =
   await import("../src/server/conversation-messages");

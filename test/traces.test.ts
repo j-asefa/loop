@@ -6,9 +6,9 @@ import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
 import express from "express";
 import { codexTrace, claudeTraces } from "../runtime/traces.ts";
-const dir = mkdtempSync(join(tmpdir(), "loop-traces-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-traces-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -102,7 +102,7 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
         yield {
           toolCall: {
             id: `source-${round}`,
-            name: "loop_diagram",
+            name: "loop55_diagram",
             arguments: { title: `Source ${round}`, source: "graph TD; A-->B" },
           },
         };
@@ -336,7 +336,7 @@ it("keeps cancellation effective after the old round limit", async () => {
       yield {
         toolCall: {
           id: "tool-" + round,
-          name: "loop_diagram",
+          name: "loop55_diagram",
           arguments: { title: "Working", source: "graph TD; A-->B" },
         },
       };
@@ -943,7 +943,7 @@ it("exports a whole run's public traces, including its final answer", async () =
     { headers: { "x-owner": "alice" } },
   );
   expect(response.headers.get("content-disposition")).toContain(
-    `loop-run-${run.id}-traces.json`,
+    `loop55-run-${run.id}-traces.json`,
   );
   const data = await response.json();
   expect(data).toMatchObject({
@@ -1087,7 +1087,7 @@ it("indexes traces saved before the search migration", () => {
   legacy.close();
 });
 
-it("shows Codex commentary wrapped in Loop's reply envelope as its text", () => {
+it("shows Codex commentary wrapped in Loop55's reply envelope as its text", () => {
   const messages = new Map();
   const envelope = (kind: string, text: string) =>
     JSON.stringify({
@@ -1205,7 +1205,7 @@ it("shows Codex commentary wrapped in Loop's reply envelope as its text", () => 
   ]);
 });
 
-it("unwraps updates saved as Loop's reply envelope", () => {
+it("unwraps updates saved as Loop55's reply envelope", () => {
   const legacy = new Database(":memory:");
   try {
     for (const file of readdirSync("migrations")
@@ -1233,7 +1233,7 @@ it("unwraps updates saved as Loop's reply envelope", () => {
       JSON.stringify({
         kind: "tool",
         text: "",
-        tool: "loop_read_file",
+        tool: "loop55_read_file",
         arguments: "{}",
       }),
     );
@@ -1290,7 +1290,7 @@ it("keeps native lifecycle events and tool rows out of conversation pages while 
   });
   const bodies = [
     { type: "ready" },
-    { type: "loop-turn", status: "completed", output: "Public answer" },
+    { type: "loop55-turn", status: "completed", output: "Public answer" },
     {
       type: "tool-call",
       name: "exec_command",

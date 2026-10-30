@@ -44,7 +44,7 @@ export async function architectureSettingsJourney(page) {
   await expect(page.getByText(/Revision 2/)).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
-    path: join(tmpdir(), "loop-architecture-memory-mobile.png"),
+    path: join(tmpdir(), "loop55-architecture-memory-mobile.png"),
   });
   await page
     .getByRole("button", { name: "Remove from shared memory" })

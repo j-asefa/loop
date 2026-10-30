@@ -88,7 +88,7 @@ describe("agent appearance", () => {
       );
     }
     for (const [name, character, background] of [
-      ["Loop", "archer", "#c6ad92"],
+      ["Loop55", "archer", "#c6ad92"],
       ["code-reviewer", "horizon", "#d8b544"],
       ["research-assistant", "blossom", "#b8adb7"],
       ["planner", "mercury", "#c6ad92"],

@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-usage-index-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop55-usage-index-"));
+process.env.LOOP55_DATA_DIR = dir;
 const { db, id, emit } = await import("../src/server/db");
 const { conversationUsage } = await import("../src/server/mobile-return");
 afterAll(() => {

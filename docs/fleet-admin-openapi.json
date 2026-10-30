@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Loop local fleet administration",
+    "title": "Loop55 local fleet administration",
     "version": "1",
     "description": "Local paired-device operations. Enrollment-only links are sensitive and returned only by the explicit mint operation. Directory administration stays on its controller; fresh recovery consent chooses a new local lineage. Bodies are bounded to 256 KiB, with 16 active requests and a 60-second deadline."
   },
@@ -10,7 +10,7 @@
       "get": {
         "operationId": "fleetAdminState",
         "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Reads explicit public fields for the local owner.",
-        "x-loop-access": "device:fleet",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": []
@@ -123,8 +123,8 @@
     "/api/fleet/admin/deliveries": {
       "post": {
         "operationId": "fleetAdminDeliveries",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -260,8 +260,8 @@
     "/api/fleet/admin/deliveries/retry": {
       "post": {
         "operationId": "fleetAdminRetryDelivery",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -397,8 +397,8 @@
     "/api/fleet/admin/create": {
       "post": {
         "operationId": "fleetAdminCreate",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -534,8 +534,8 @@
     "/api/fleet/admin/recover": {
       "post": {
         "operationId": "fleetAdminRecover",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -671,8 +671,8 @@
     "/api/fleet/admin/remove": {
       "post": {
         "operationId": "fleetAdminRemove",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -808,8 +808,8 @@
     "/api/fleet/admin/repair-self": {
       "post": {
         "operationId": "fleetAdminRepairSelf",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -945,8 +945,8 @@
     "/api/fleet/admin/enrollment-link": {
       "post": {
         "operationId": "fleetAdminMint",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -1082,8 +1082,8 @@
     "/api/fleet/admin/enrollment/begin": {
       "post": {
         "operationId": "fleetAdminBegin",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -1219,8 +1219,8 @@
     "/api/fleet/admin/enrollment/advance": {
       "post": {
         "operationId": "fleetAdminAdvance",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -1356,8 +1356,8 @@
     "/api/fleet/admin/enrollment/reconcile": {
       "post": {
         "operationId": "fleetAdminReconcile",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -1493,8 +1493,8 @@
     "/api/fleet/admin/enrollment/cancel": {
       "post": {
         "operationId": "fleetAdminCancel",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -1630,8 +1630,8 @@
     "/api/fleet/admin/enrollment/list": {
       "post": {
         "operationId": "fleetAdminList",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -1767,8 +1767,8 @@
     "/api/fleet/admin/pending": {
       "post": {
         "operationId": "fleetAdminPending",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -1904,8 +1904,8 @@
     "/api/fleet/admin/pending/cancel": {
       "post": {
         "operationId": "fleetAdminCancelPending",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -2041,8 +2041,8 @@
     "/api/fleet/admin/handoff/begin": {
       "post": {
         "operationId": "fleetAdminHandoffBegin",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -2178,8 +2178,8 @@
     "/api/fleet/admin/handoff/advance": {
       "post": {
         "operationId": "fleetAdminHandoffAdvance",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -2315,8 +2315,8 @@
     "/api/fleet/admin/handoff/reconcile": {
       "post": {
         "operationId": "fleetAdminHandoffReconcile",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -2452,8 +2452,8 @@
     "/api/fleet/admin/handoff/list": {
       "post": {
         "operationId": "fleetAdminHandoffList",
-        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host.",
-        "x-loop-access": "device:fleet",
+        "description": "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host.",
+        "x-loop55-access": "device:fleet",
         "security": [
           {
             "LocalDevice": [],
@@ -5615,12 +5615,12 @@
       "LocalDevice": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "__Host-loop"
+        "name": "__Host-loop55"
       },
       "LocalCSRF": {
         "type": "apiKey",
         "in": "header",
-        "name": "X-Loop-CSRF"
+        "name": "X-Loop55-CSRF"
       }
     }
   }

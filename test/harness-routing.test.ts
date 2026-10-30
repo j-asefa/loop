@@ -16,12 +16,14 @@ import express from "express";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-harness-routing-")));
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_HAPI_URL = "http://fixture";
-process.env.LOOP_HAPI_TOKEN = "fixture";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = realpathSync(
+  mkdtempSync(join(tmpdir(), "loop55-harness-routing-")),
+);
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_HAPI_URL = "http://fixture";
+process.env.LOOP55_HAPI_TOKEN = "fixture";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { core } = await import("../src/server/core-routes");
 const { nativeHistory } = await import("../src/server/native-history");
@@ -49,8 +51,8 @@ function connection(metadata: object, owner = OWNER) {
   ).run(cid, owner, JSON.stringify(metadata), now());
   return cid;
 }
-const codexConnection = connection({ loopHarness: "codex" });
-const piConnection = connection({ loopHarness: "pi" });
+const codexConnection = connection({ loop55Harness: "codex" });
+const piConnection = connection({ loop55Harness: "pi" });
 function agent(connectionId = piConnection) {
   const aid = id();
   db.prepare(
@@ -553,7 +555,7 @@ it.each(["native-fork", "import-transaction"])(
         workspace,
       });
       expect(
-        readdirSync(join(project, ".git", "loop-agent-worktrees")),
+        readdirSync(join(project, ".git", "loop55-agent-worktrees")),
       ).toHaveLength(1);
     } finally {
       db.exec("DROP TRIGGER IF EXISTS fail_fork_import");
@@ -685,7 +687,7 @@ it("ignores a stale execution connection on a non-managed chat", async () => {
 });
 
 it("reports a disconnected agent connection instead of probing a bound chat", async () => {
-  const disconnected = connection({ loopHarness: "codex" });
+  const disconnected = connection({ loop55Harness: "codex" });
   db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
     disconnected,
   );

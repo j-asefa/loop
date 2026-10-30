@@ -5,7 +5,7 @@ import { Problem } from "./domain.js";
 import { publicAddress, publicNetworkDispatcher } from "./mcp/network.js";
 import type { FeedEntry, NewsStory } from "../shared/news.js";
 
-// Reading one public feed over the network: the request Loop makes, which
+// Reading one public feed over the network: the request Loop55 makes, which
 // redirects it will follow, and how much of the body it will take. Kept apart
 // from news.ts so the liveness script (scripts/feed-liveness.mjs) checks the
 // catalog through the same code that serves it, without opening the database.
@@ -16,13 +16,13 @@ const TIMEOUT_MS = 10_000;
 // two megabytes, which is what the old cap silently excluded.
 const MAX_BYTES = 8_000_000;
 const MAX_REDIRECTS = 3;
-const AGENT = "Loop/1.0 (feed reader)";
+const AGENT = "Loop55/1.0 (feed reader)";
 // Items read from one feed. The parser keeps 50 and Social shows 20 of those,
 // so a feed that lists hundreds is cut off rather than downloaded whole.
 const MAX_ITEMS = 100;
-/** The longest feed or page address Loop will take. */
+/** The longest feed or page address Loop55 will take. */
 export const MAX_URL = 2048;
-/** A feed's picture, which Loop passes through rather than the browser. */
+/** A feed's picture, which Loop55 passes through rather than the browser. */
 const MAX_IMAGE_BYTES = 5_000_000;
 const IMAGE_TYPES = new Set([
   "image/png",
@@ -54,7 +54,7 @@ export function withFeedFetch(fetcher: NewsFetch) {
 }
 
 /**
- * A feed address Loop will request: public HTTPS, nothing embedded that a
+ * A feed address Loop55 will request: public HTTPS, nothing embedded that a
  * server could act on, and never an address inside this network. A hostname
  * that resolves to a private address is refused at connect time instead, by
  * the dispatcher, so this cannot be worked around with DNS.
@@ -72,7 +72,7 @@ export function feedUrl(value: string) {
   if (url.protocol !== "https:")
     throw refuse("Feeds are read over HTTPS. Use an https:// address.");
   if (url.username || url.password)
-    throw refuse("Loop can't read a feed that needs a username or password.");
+    throw refuse("Loop55 can't read a feed that needs a username or password.");
   if (
     url.hostname === "localhost" ||
     url.hostname.endsWith(".localhost") ||
@@ -80,7 +80,7 @@ export function feedUrl(value: string) {
     url.hostname.endsWith(".internal") ||
     (ipaddr.isValid(host) && !publicAddress(host))
   )
-    throw refuse("That address is on this network, so Loop won't read it.");
+    throw refuse("That address is on this network, so Loop55 won't read it.");
   url.hash = "";
   return url;
 }
@@ -143,7 +143,7 @@ export function redirectTarget(
 }
 
 /**
- * The body as text, stopping once the document holds the stories Loop is
+ * The body as text, stopping once the document holds the stories Loop55 is
  * going to use. An XML feed is read as a prefix: the scanner in
  * syndication.ts skips an opening tag with no closing tag, so cutting a
  * document after a closing </item> or </entry> parses to exactly the items
@@ -248,7 +248,7 @@ function lastClosing(text: string) {
  * An address a feed or a person supplied, with every destination checked
  * before it is requested. The dispatcher refuses a host that resolves to a
  * private address, but a literal IP never reaches a lookup — so a public page
- * must not be able to redirect Loop at something on this network.
+ * must not be able to redirect Loop55 at something on this network.
  */
 async function fetchValidated(
   url: string,

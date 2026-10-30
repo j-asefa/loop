@@ -94,7 +94,7 @@ export const RunEventPayload = z.strictObject({
 });
 export type RunEventPayload = z.infer<typeof RunEventPayload>;
 // Match NativeSessions ingress: provider IDs and list lengths are constrained
-// by the serialized request/event budget, not the internal Loop ID contract.
+// by the serialized request/event budget, not the internal Loop55 ID contract.
 export const MAX_NATIVE_REQUEST_BYTES = 64000;
 export const MAX_NATIVE_EVENT_BYTES = 256000;
 const NativeId = z.string().max(MAX_NATIVE_EVENT_BYTES);
@@ -225,7 +225,7 @@ const Payloads = {
   "approval.decided": z.strictObject({
     approvalId: Id,
     decision: z.enum(["approve", "reject"]),
-    origin: z.literal("loop"),
+    origin: z.enum(["loop55", "loop"]),
   }),
   "tool.failed": Tool,
   "tool.completed": Tool,

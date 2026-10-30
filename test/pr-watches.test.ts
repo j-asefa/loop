@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-pr-watch-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-pr-watch-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -81,7 +81,7 @@ const restoreGithub = withGithubFixture(async (url, init) => {
   const { pathname: path, searchParams } = new URL(url);
   const json = (value: unknown, status = github.status) =>
     new Response(JSON.stringify(value), { status, headers: github.headers });
-  if (path === "/user") return json({ login: "loop-bot" });
+  if (path === "/user") return json({ login: "loop55-bot" });
   if (path === "/repos/acme/api/pulls/42") {
     github.onPull?.();
     return json(github.pull);
@@ -284,7 +284,7 @@ it("stays quiet until CI finishes, then queues a failure into the thread once", 
 
 it("delivers others' comments and reviews as untrusted quotes, and skips its own", async () => {
   github.comments = [
-    { id: 10, user: { login: "loop-bot" }, body: "Pushed a fix." },
+    { id: 10, user: { login: "loop55-bot" }, body: "Pushed a fix." },
     {
       id: 11,
       user: { login: "alex" },

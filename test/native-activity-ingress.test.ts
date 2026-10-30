@@ -11,9 +11,9 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
 import { NativeOutput } from "../src/server/native-output";
-const dir = mkdtempSync(join(tmpdir(), "loop-activity-ingress-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-activity-ingress-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db");
 const { enqueue, claim, transition } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
@@ -417,7 +417,7 @@ it("persists native activity events through restarts and serves them to reloads 
       },
     ],
   );
-  // A replayed tool before a turn has no Loop turn and must not become work.
+  // A replayed tool before a turn has no Loop55 turn and must not become work.
   first.emit({
     type: "activity",
     activity: {

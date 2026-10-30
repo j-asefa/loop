@@ -4,6 +4,7 @@
 
 | Guide                                        | Scope                                                             |
 | -------------------------------------------- | ----------------------------------------------------------------- |
+| [Loop55 upgrade](name-upgrade.md) | Rename compatibility, existing data, services and integrations |
 | [Server operation](server.md)                | API/worker, Docker, authentication, runtime machines and backups  |
 | [Remote server runtimes](remote-runtimes.md) | Remote broker, native host and Codex app-server                   |
 | [Harnesses](harnesses.md)                    | Native discovery, sign-in, models, team handoffs and services |

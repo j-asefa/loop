@@ -136,8 +136,8 @@ export function MarkdownDefinitions({
     return (
       <Sheet title="Markdown definitions" onClose={onClose}>
         <p role="status">
-          Markdown definitions are unavailable in this workspace. Update Loop on
-          that computer to use them.
+          Markdown definitions are unavailable in this workspace. Update Loop55
+          on that computer to use them.
         </p>
         <button
           type="button"
@@ -165,7 +165,7 @@ export function MarkdownDefinitions({
       }
     >
       <p className="muted">
-        Save reusable {kind} definitions in this Loop workspace. Editing or
+        Save reusable {kind} definitions in this Loop55 workspace. Editing or
         deleting a definition leaves agents already created from it unchanged.
       </p>
       {error && (
@@ -411,10 +411,10 @@ export function CreateFromDefinition({
   const roles = spec.kind === "team" ? [spec.manager, ...spec.members] : [spec];
   const available = connections.filter((c) => c.status === "connected");
   const native = (connectionId: string) =>
-    !!parse<{ loopHarness?: string }>(
+    !!parse<{ loop55Harness?: string }>(
       available.find((c) => c.id === connectionId)?.metadata,
       {},
-    ).loopHarness;
+    ).loop55Harness;
   type Catalog = { models?: ModelOption[]; error?: string };
   const [catalogState, setCatalogState] = useState<{
     key: string;
@@ -547,7 +547,7 @@ export function CreateFromDefinition({
     >
       <p>{spec.description || spec.name}</p>
       <p className="muted">
-        Loop saves these agents with their own settings. Work starts when you
+        Loop55 saves these agents with their own settings. Work starts when you
         send a message.
       </p>
       <form

@@ -16,12 +16,12 @@ const options: Options = {
   version: "1.4.9",
 };
 function fixture(t: { after(fn: () => void): void }) {
-  const dir = mkdtempSync(join(tmpdir(), "loop-agy-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-agy-"));
   const path = join(dir, "requests");
-  process.env.LOOP_TEST_AGY_LOG = path;
+  process.env.LOOP55_TEST_AGY_LOG = path;
   t.after(() => {
-    delete process.env.LOOP_TEST_AGY_LOG;
-    delete process.env.LOOP_TEST_AGY_MODE;
+    delete process.env.LOOP55_TEST_AGY_LOG;
+    delete process.env.LOOP55_TEST_AGY_MODE;
     rmSync(dir, { recursive: true, force: true });
   });
   return () =>
@@ -141,7 +141,7 @@ test("Antigravity streams explicit turns, tools and per-turn usage and resumes o
 for (const mode of ["WAITING", "RUNNING", "ERROR", "INVALID", "disconnect"]) {
   test(`Antigravity ${mode} preserves partial output without completing or replaying work`, async (t) => {
     const requests = fixture(t);
-    process.env.LOOP_TEST_AGY_MODE = mode;
+    process.env.LOOP55_TEST_AGY_MODE = mode;
     const events: AdapterEvent[] = [];
     const adapter = new Antigravity(options, (e) => events.push(e));
     try {
@@ -166,7 +166,7 @@ for (const mode of ["WAITING", "RUNNING", "ERROR", "INVALID", "disconnect"]) {
 }
 test("Antigravity ignores foreign results and cancellation stops the process without another prompt", async (t) => {
   const requests = fixture(t);
-  process.env.LOOP_TEST_AGY_MODE = "foreign-result";
+  process.env.LOOP55_TEST_AGY_MODE = "foreign-result";
   const events: AdapterEvent[] = [];
   const adapter = new Antigravity(options, (e) => events.push(e));
   try {
@@ -191,7 +191,7 @@ test("Antigravity rejects subscription billing, failed authentication and a mism
     /--billing existing/,
   );
   for (const mode of ["auth-failure", "wrong-resume"]) {
-    process.env.LOOP_TEST_AGY_MODE = mode;
+    process.env.LOOP55_TEST_AGY_MODE = mode;
     const adapter = new Antigravity(
       { ...options, resume: "saved-session" },
       () => {},

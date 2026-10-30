@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useLongPress, useSwipe } from "./ThreadTools";
 
-const CARD_TYPE = "application/x-loop-done-card";
+const CARD_TYPE = "application/x-loop55-done-card";
 const controls = "a,button,summary,input,textarea,select,pre,.table-scroll";
 export type CardDragSession = {
   source: string;

@@ -67,7 +67,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     send({
       id: request.id,
       result: {
-        sessionId: process.env.LOOP_TEST_ACP_SESSION_ID || "fake-session",
+        sessionId: process.env.LOOP55_TEST_ACP_SESSION_ID || "fake-session",
         ...([
           "rich",
           "slow-setting",

@@ -1,3 +1,4 @@
+import { retainedPath } from "./name-upgrade.ts";
 type NpmEntry = {
   integrity: string;
   resolved?: string;
@@ -494,8 +495,10 @@ function discover(
         !entry.isDirectory() ||
         [
           ".git",
+          ".loop55",
           ".loop",
           ".loop-cleanup",
+          ".loop55-cleanup",
           ".cache",
           ".bun",
           ".npm",
@@ -604,9 +607,16 @@ function neededPayloads(home: string): Set<string> {
       throw new Error("Unverified workspace in reference scan");
     for (const entry of readdirSync(path, { withFileTypes: true })) {
       if (
-        [".git", ".loop", ".loop-cleanup", ".cache", ".npm", ".bun"].includes(
-          entry.name,
-        )
+        [
+          ".git",
+          ".loop55",
+          ".loop55-cleanup",
+          ".loop",
+          ".loop-cleanup",
+          ".cache",
+          ".npm",
+          ".bun",
+        ].includes(entry.name)
       )
         continue;
       const child = join(path, entry.name);
@@ -674,7 +684,7 @@ export function cleanupStorage({
     workspaceKeys.some((key) => !/^[a-f0-9]{64}$/.test(key))
   )
     throw new Error("Invalid cleanup workspaces");
-  const stateDir = join(home, ".loop-storage");
+  const stateDir = retainedPath(home, ".loop55-storage", ".loop-storage");
   if (
     stat(stateDir) &&
     (!stat(stateDir)!.isDirectory() || realpathSync(stateDir) !== stateDir)
@@ -767,7 +777,13 @@ export function cleanupStorage({
       const s = lstatSync(candidate.path);
       if (candidate.kind === "dependencies") {
         dependencies++;
-        const used = stat(join(candidate.workspace, ".loop-last-used"));
+        const used = stat(
+          retainedPath(
+            candidate.workspace,
+            ".loop55-last-used",
+            ".loop-last-used",
+          ),
+        );
         if (used && !used.isFile())
           throw new Error("Invalid workspace activity marker");
         if (used && used.mtimeMs > now - dependencyAgeMs)

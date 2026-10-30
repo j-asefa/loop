@@ -320,7 +320,7 @@ export function useAgentSources(
       }
       if (queuedChanges.size) schedule();
     };
-    window.addEventListener("loop-source-refresh", retry);
+    window.addEventListener("loop55-source-refresh", retry);
     // This projection includes active runs as well as source metadata.
     const stopChanges = listenWorkspaceChanges("runs", changed("runs"));
     const stopMetadata = listenWorkspaceChanges("metadata", changed("metadata"));
@@ -329,7 +329,7 @@ export function useAgentSources(
       clearRequests();
       clearInterval(timer);
       clearTimeout(refreshTimer);
-      window.removeEventListener("loop-source-refresh", retry);
+      window.removeEventListener("loop55-source-refresh", retry);
       stopChanges();
       stopMetadata();
     };

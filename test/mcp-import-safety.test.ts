@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-mcp-import-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-mcp-import-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { mcp } = await import("../src/server/mcp/routes");
@@ -92,7 +92,7 @@ it("keeps a tool's published name when another connection is added or disabled",
   const before = workspaceToolBindings(owner).find(
     (binding) => binding.connectionId === first,
   );
-  expect(before?.name).toMatch(/^loop_tool_[0-9a-f]{24}$/);
+  expect(before?.name).toMatch(/^loop55_tool_[0-9a-f]{24}$/);
   const second = insert(owner, [smallTool("lookup")]);
   expect(
     workspaceToolBindings(owner).find(
@@ -220,7 +220,7 @@ it("shares GitHub merges under the approval policy while retaining the head requ
   ).run(source);
   const catalog = localFederationCatalog(sourceOwner);
   expect(catalog).toHaveLength(1);
-  expect(catalog[0]._meta.loop).toEqual({
+  expect(catalog[0]._meta.loop55).toEqual({
     github: true,
     sourceTool: "merge_pull_request",
     alwaysAsk: false,
@@ -288,7 +288,7 @@ it("honors an older shared source's explicit alwaysAsk restriction even in Allow
     },
   ]);
   // Shared tools arrive over a federation connection, the only kind whose
-  // `_meta.loop` hints are trusted.
+  // `_meta.loop55` hints are trusted.
   db.prepare("UPDATE mcp_connections SET metadata=? WHERE id=?").run(
     JSON.stringify({
       transport: "federation",
@@ -669,20 +669,23 @@ it("keeps a refreshed shared catalog connected when Docker's tools would exceed 
 });
 
 it("trusts tool renaming and GitHub hints only from federation connections", async () => {
-  const { loopHints } = await import("../src/server/mcp/broker");
+  const { loop55Hints } = await import("../src/server/mcp/broker");
   const tool = {
     name: "delete_repo",
     _meta: {
       loop: { sourceTool: "list_files", github: true, alwaysAsk: true },
     },
   };
-  expect(loopHints({ metadata: "{}" }, tool)).toEqual({
+  expect(loop55Hints({ metadata: "{}" }, tool)).toEqual({
     sourceTool: undefined,
     github: false,
     alwaysAsk: true,
   });
   expect(
-    loopHints({ metadata: JSON.stringify({ transport: "federation" }) }, tool),
+    loop55Hints(
+      { metadata: JSON.stringify({ transport: "federation" }) },
+      tool,
+    ),
   ).toEqual({ sourceTool: "list_files", github: true, alwaysAsk: true });
 });
 

@@ -10,10 +10,10 @@ import { randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-reverse-share-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_MCP_TOOL_TIMEOUT_MS = "8000";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-reverse-share-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_MCP_TOOL_TIMEOUT_MS = "8000";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, changes } = await import("../src/server/db");
 const { config } = await import("../src/server/config");
 const { enqueue } = await import("../src/server/queue");
@@ -93,8 +93,8 @@ it("serves Docker-owned tools over a peer token without copying their credential
       requestInit: {
         headers: {
           authorization: `Bearer ${token}`,
-          "x-loop-run-id": id(),
-          "x-loop-call-id": "same-call",
+          "x-loop55-run-id": id(),
+          "x-loop55-call-id": "same-call",
         },
       },
     },
@@ -145,8 +145,8 @@ it("queues one source-scoped call and returns its durable answer to the Docker a
     requestInit: {
       headers: {
         authorization: `Bearer ${token}`,
-        "x-loop-run-id": run.id,
-        "x-loop-call-id": "call-1",
+        "x-loop55-run-id": run.id,
+        "x-loop55-call-id": "call-1",
       },
     },
   });
@@ -235,8 +235,8 @@ async function sharedFixture() {
         requestInit: {
           headers: {
             authorization: `Bearer ${token}`,
-            "x-loop-run-id": run.id,
-            "x-loop-call-id": "shared-request",
+            "x-loop55-run-id": run.id,
+            "x-loop55-call-id": "shared-request",
           },
         },
       }),
@@ -302,7 +302,7 @@ it.each([
         expect(response.status).toBe(200);
       } else if (cause === "revoke") revokeFederationPeer(f.owner, f.peerId);
       else if (cause.startsWith("foreign")) {
-        const foreign = new Database(join(dir, "loop.db"));
+        const foreign = new Database(join(dir, "loop55.db"));
         try {
           foreign
             .prepare(
@@ -387,7 +387,7 @@ it("settles an orphaned reverse call after its run is removed", async () => {
 
 it("commits a reverse result and notification before a competing run deletion", async () => {
   const f = await sharedFixture();
-  const foreign = new Database(join(dir, "loop.db"), { timeout: 20 });
+  const foreign = new Database(join(dir, "loop55.db"), { timeout: 20 });
   const prepare = db.prepare.bind(db);
   let attempted = false,
     deletion = "not attempted";

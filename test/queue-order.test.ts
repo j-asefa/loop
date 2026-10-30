@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-const dir = mkdtempSync(join(tmpdir(), "loop-queue-order-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-queue-order-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { enqueue, claim, transition } = await import("../src/server/queue");
@@ -139,7 +139,7 @@ it("keeps each thread's turns in the order they were sent", () => {
 });
 
 it("does not reorder per-conversation harness queues", () => {
-  const f = fixture({ loopHarness: "codex" });
+  const f = fixture({ loop55Harness: "codex" });
   const one = f.conversation(),
     two = f.conversation();
   const a = f.make(one, 10),

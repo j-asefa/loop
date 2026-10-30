@@ -5,6 +5,7 @@ import { SessionCapabilities } from "./session-controls.js";
 const Text = z.string();
 const reserved = new Set([
   "admin",
+  "loop55",
   "loop",
   "support",
   "system",

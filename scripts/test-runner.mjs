@@ -1,4 +1,4 @@
-// Tests choose their own profile/workspace. A live Loop-launched terminal must
+// Tests choose their own profile/workspace. A live Loop55-launched terminal must
 // not inject its database, disabled memory setting, daemon flags or credentials.
 import { runSupervised } from "./heavy-command.mjs";
 import { globSync } from "node:fs";
@@ -11,7 +11,7 @@ export function testEnvironment(env, suite) {
         (!/^LOOP(?:55)?_/.test(key) || /^LOOP(?:55)?_TEST_/.test(key)),
     ),
   );
-  if (suite === "vitest") clean.LOOP_PROFILE = "server";
+  if (suite === "vitest") clean.LOOP55_PROFILE = "server";
   return clean;
 }
 if (

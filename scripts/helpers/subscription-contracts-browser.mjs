@@ -1,3 +1,4 @@
+import "../../runtime/environment.mjs";
 import { expect } from "@playwright/test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -52,8 +53,8 @@ export async function subscriptionContractsBrowser({ browser }) {
   });
   await new Promise((resolve) => broker.listen(0, "127.0.0.1", resolve));
   const brokerUrl = `http://127.0.0.1:${broker.address().port}`;
-  const previousOrigins = process.env.LOOP_ALLOWED_RUNTIME_ORIGINS;
-  process.env.LOOP_ALLOWED_RUNTIME_ORIGINS = brokerUrl;
+  const previousOrigins = process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS;
+  process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS = brokerUrl;
   try {
     fixture = await designFixture();
     const host = await fixture.api("/runtime-hosts", {
@@ -148,7 +149,7 @@ export async function subscriptionContractsBrowser({ browser }) {
     assert(omitted.has("waiting") && omitted.has("failed"));
     await mkdir("test-results", { recursive: true });
     await page.screenshot({
-      path: `test-results/subscription-contracts-${process.env.LOOP_BROWSER || "chromium"}-expiry.png`,
+      path: `test-results/subscription-contracts-${process.env.LOOP55_BROWSER || "chromium"}-expiry.png`,
       fullPage: true,
     });
     const beforeRetry = logins;
@@ -166,7 +167,7 @@ export async function subscriptionContractsBrowser({ browser }) {
     await fixture?.close();
     await new Promise((resolve) => broker.close(resolve));
     if (previousOrigins === undefined)
-      delete process.env.LOOP_ALLOWED_RUNTIME_ORIGINS;
-    else process.env.LOOP_ALLOWED_RUNTIME_ORIGINS = previousOrigins;
+      delete process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS;
+    else process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS = previousOrigins;
   }
 }

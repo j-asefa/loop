@@ -1,8 +1,8 @@
-// Linux user systemd: `loop service install` with a real Quick Tunnel. The
-// application unit restarts (via loop restart and systemctl) while the
-// connection unit, its cloudflared and the address stay; loop stop stays
+// Linux user systemd: `loop55 service install` with a real Quick Tunnel. The
+// application unit restarts (via loop55 restart and systemctl) while the
+// connection unit, its cloudflared and the address stay; loop55 stop stays
 // stopped. Needs a user systemd manager (CI enables lingering) and installs
-// into a private npm prefix and LOOP_HOME. Uses the fixture harness.
+// into a private npm prefix and LOOP55_HOME. Uses the fixture harness.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { request } from "node:http";
@@ -24,9 +24,9 @@ await chmod(fixture, 0o755);
 const env = {
   ...process.env,
   npm_config_prefix: prefix,
-  LOOP_HOME: join(base, "state"),
+  LOOP55_HOME: join(base, "state"),
 };
-delete env.LOOP_TEST_CLOUDFLARED;
+delete env.LOOP55_TEST_CLOUDFLARED;
 const units = join(homedir(), ".config/systemd/user");
 const systemctl = (...args) => exec("systemctl", ["--user", ...args], { env });
 const mainPid = async (unit) =>
@@ -57,7 +57,7 @@ try {
     { env, maxBuffer: 1e6, timeout: 600000 },
   );
   loop = (...args) =>
-    exec(join(prefix, "bin", "loop"), args, { env, timeout: 300000 });
+    exec(join(prefix, "bin", "loop55"), args, { env, timeout: 300000 });
   const status = async () =>
     JSON.parse((await loop("status", "--json")).stdout);
   const ready = async (previous) => {
@@ -88,14 +88,14 @@ try {
   await loop("service", "install");
   const before = await ready();
   const service = before.connection.service;
-  assert.equal(await mainPid("loop.service"), before.pid);
-  assert.equal(await mainPid("loop-connection.service"), service.pid);
+  assert.equal(await mainPid("loop55.service"), before.pid);
+  assert.equal(await mainPid("loop55-connection.service"), service.pid);
   assert.match(
     cgroup(service.tunnel.pid),
-    /loop-connection\.service/,
+    /loop55-connection\.service/,
     "cloudflared lives in the connection unit",
   );
-  assert.doesNotMatch(cgroup(before.pid), /loop-connection\.service/);
+  assert.doesNotMatch(cgroup(before.pid), /loop55-connection\.service/);
   assert.equal(
     before.harnesses[0]?.name,
     "codex",
@@ -148,16 +148,16 @@ try {
   let previous = before.pid;
   for (const restart of [
     () => loop("restart"),
-    () => systemctl("restart", "loop.service"),
+    () => systemctl("restart", "loop55.service"),
   ]) {
     await restart();
     const after = await ready(previous);
-    assert.equal(await mainPid("loop.service"), after.pid);
+    assert.equal(await mainPid("loop55.service"), after.pid);
     assert(!alive(previous), "the previous application exited");
     assert.equal(after.url, before.url);
     assert.equal(after.connection.service.pid, service.pid);
     assert.equal(after.connection.service.tunnel.pid, service.tunnel.pid);
-    assert.equal(await mainPid("loop-connection.service"), service.pid);
+    assert.equal(await mainPid("loop55-connection.service"), service.pid);
     assert.equal(
       await send("GET", "/api/bootstrap"),
       200,
@@ -169,14 +169,14 @@ try {
   // A full stop stays stopped: restart-on-failure doesn't undo it.
   await loop("stop");
   await new Promise((r) => setTimeout(r, 5000));
-  assert.equal(await active("loop.service"), "inactive");
-  assert.equal(await active("loop-connection.service"), "inactive");
+  assert.equal(await active("loop55.service"), "inactive");
+  assert.equal(await active("loop55-connection.service"), "inactive");
   assert(!alive(service.tunnel.pid) && !alive(service.pid) && !alive(previous));
   await loop("service", "uninstall");
-  assert(!existsSync(join(units, "loop.service")));
-  assert(!existsSync(join(units, "loop-connection.service")));
+  assert(!existsSync(join(units, "loop55.service")));
+  assert(!existsSync(join(units, "loop55-connection.service")));
   console.log(
-    `PASS: systemd user units; loop restart and systemctl restart replaced only the application (cloudflared ${service.tunnel.pid} and the Quick Tunnel address kept, paired cookie valid); loop stop stayed stopped; uninstall removed both units`,
+    `PASS: systemd user units; loop55 restart and systemctl restart replaced only the application (cloudflared ${service.tunnel.pid} and the Quick Tunnel address kept, paired cookie valid); loop55 stop stayed stopped; uninstall removed both units`,
   );
 } finally {
   if (loop) await loop("service", "uninstall").catch(() => {});

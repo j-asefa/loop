@@ -43,10 +43,10 @@ export function codexTrace(
   };
 }
 /**
- * Loop's structured reply ({"kind":"answer"|"tool","text",...}): the answer
+ * Loop55's structured reply ({"kind":"answer"|"tool","text",...}): the answer
  * text, "" for a tool request, or undefined when the text isn't one.
  */
-export function loopEnvelope(value: unknown): string | undefined {
+export function loop55Envelope(value: unknown): string | undefined {
   const raw = String(value ?? "").trim();
   if (!raw.startsWith("{")) return undefined;
   try {
@@ -64,9 +64,9 @@ export function loopEnvelope(value: unknown): string | undefined {
 function publicMessage(item: any, streaming = false): Chunk["trace"] {
   const raw = String(item.text || "");
   // The final answer arrives separately. Some older hosts omit phase; there
-  // Loop's JSON envelope is the final answer, never progress.
+  // Loop55's JSON envelope is the final answer, never progress.
   if (item.phase === "final_answer") return;
-  const envelope = loopEnvelope(raw);
+  const envelope = loop55Envelope(raw);
   if (
     !item.phase &&
     (envelope !== undefined || raw.trimStart().startsWith("{"))
@@ -93,7 +93,7 @@ export function claudeTraces(
   return (
     Array.isArray(message.message?.content) ? message.message.content : []
   ).flatMap((block: any, index: number) => {
-    // --json-schema uses this internal tool to deliver Loop's envelope. Its
+    // --json-schema uses this internal tool to deliver Loop55's envelope. Its
     // acknowledgement is not an agent update or a successful external action.
     if (block.type === "tool_use" && block.name === "StructuredOutput") {
       internalToolIds.add(block.id);
@@ -102,10 +102,10 @@ export function claudeTraces(
     if (block.type === "tool_result" && internalToolIds.has(block.tool_use_id))
       return [];
     if (block.type === "text" && message.type === "assistant") {
-      // A model that writes Loop's envelope as text instead of through
+      // A model that writes Loop55's envelope as text instead of through
       // StructuredOutput: show only its text, as for Codex.
       const raw = typeof block.text === "string" ? block.text : "";
-      const content = loopEnvelope(raw) ?? raw;
+      const content = loop55Envelope(raw) ?? raw;
       if (!content.trim()) return [];
       return [
         {

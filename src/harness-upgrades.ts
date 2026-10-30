@@ -77,7 +77,7 @@ export function compareVersions(a: string, b: string) {
 const exact = (version: unknown): version is string =>
   typeof version === "string" && /^\d+\.\d+\.\d+$/.test(version);
 
-// Loop ships exact pins for its private helper tree, and an in-app upgrade
+// Loop55 ships exact pins for its private helper tree, and an in-app upgrade
 // rewrites that tree's manifest. Always restore the shipped manifest and
 // lockfile, so a bumped pin reaches existing installs, then reapply only the
 // upgrades still newer than their shipped pin: a deliberate upgrade is never
@@ -142,9 +142,9 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
       "Antigravity updates itself. Run agy update on the computer.",
     );
   const real = realpathSync(executable);
-  if (name === "opencode" && /loop-opencode|helpers\/opencode/.test(real))
+  if (name === "opencode" && /loop55-opencode|helpers\/opencode/.test(real))
     throw new Error(
-      "Managed OpenCode uses Loop’s guarded build. Update Loop and restart the workspace to update this runtime.",
+      "Managed OpenCode uses Loop55’s guarded build. Update Loop55 and restart the workspace to update this runtime.",
     );
   const brew = real.match(/^(.*)\/(Cellar|Caskroom)\/([^/]+)\//);
   if (brew) {
@@ -180,7 +180,7 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
               packages[name] + "@latest",
             ],
           };
-        // Only Loop's private helper tree may be mutated as a local install.
+        // Only Loop55's private helper tree may be mutated as a local install.
         if (base.endsWith("/helpers/native"))
           return {
             command: "npm",
@@ -251,7 +251,7 @@ export class HarnessUpgrades {
     for (const r of Object.values(this.records)) {
       if (r.state === "running" || (r.state as string) === "unknown") {
         r.state = "unconfirmed";
-        r.message = `The upgrade was interrupted. It was not retried or rolled back. Stop any remaining installer processes and check the installation on the computer, then confirm recovery in Loop.`;
+        r.message = `The upgrade was interrupted. It was not retried or rolled back. Stop any remaining installer processes and check the installation on the computer, then confirm recovery in Loop55.`;
         this.save();
       }
     }
@@ -277,7 +277,7 @@ export class HarnessUpgrades {
       record.state = reached ? "complete" : "unconfirmed";
       record.message = reached
         ? `The workspace restarted; ${version} is installed. ${READY}`
-        : `Loop restarted before the upgrade was confirmed${version ? `; ${version} is installed` : ""}. It was not retried or rolled back. Check the computer for a remaining package-manager process before upgrading again.`;
+        : `Loop55 restarted before the upgrade was confirmed${version ? `; ${version} is installed` : ""}. It was not retried or rolled back. Check the computer for a remaining package-manager process before upgrading again.`;
       this.reconciling.delete(record.name);
     }
     if (records.length) this.save();
@@ -337,7 +337,7 @@ export class HarnessUpgrades {
       );
     if (this.reconciling.size)
       throw new Error(
-        "Loop is confirming an interrupted upgrade. Try again shortly.",
+        "Loop55 is confirming an interrupted upgrade. Try again shortly.",
       );
     const token = {};
     this.lock = { name, token };
@@ -439,7 +439,7 @@ export class HarnessUpgrades {
       .catch(() => {
         record.state = "unconfirmed";
         record.message =
-          "Upgrade could not be confirmed. Stop remaining installer processes and check the installation on the computer, then confirm recovery in Loop.";
+          "Upgrade could not be confirmed. Stop remaining installer processes and check the installation on the computer, then confirm recovery in Loop55.";
       })
       .finally(() => {
         release();
@@ -478,7 +478,7 @@ export class HarnessUpgrades {
       if (!exact(record.target)) {
         record.target = undefined;
         record.state = "failed";
-        record.message = `Loop could not resolve the latest release, so nothing was changed. ${CHECK}`;
+        record.message = `Loop55 could not resolve the latest release, so nothing was changed. ${CHECK}`;
         return;
       }
       install = versioned(record.name, plan, record.target)!;
@@ -497,7 +497,7 @@ export class HarnessUpgrades {
       ) {
         record.state = "unconfirmed";
         record.message =
-          "The installer was interrupted. Its child processes may still be running, so no rollback was started. Stop remaining installer processes and check the installation on the computer, then confirm recovery in Loop.";
+          "The installer was interrupted. Its child processes may still be running, so no rollback was started. Stop remaining installer processes and check the installation on the computer, then confirm recovery in Loop55.";
         return;
       }
       failure = "the installer reported an error";
@@ -546,7 +546,7 @@ export class HarnessUpgrades {
         (error as { signal?: string })?.signal
       ) {
         record.state = "unconfirmed";
-        return "Rollback was interrupted and may have surviving installer processes. Stop them and check the installation on the computer, then confirm recovery in Loop.";
+        return "Rollback was interrupted and may have surviving installer processes. Stop them and check the installation on the computer, then confirm recovery in Loop55.";
       }
     }
     const version = await this.probe(record.executable!, env);

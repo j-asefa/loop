@@ -1,13 +1,14 @@
+import "./runtime/environment.mjs";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
-const stamp = process.env.LOOP_BUILD_STAMP_FILE
-  ? JSON.parse(readFileSync(process.env.LOOP_BUILD_STAMP_FILE, "utf8"))
+const stamp = process.env.LOOP55_BUILD_STAMP_FILE
+  ? JSON.parse(readFileSync(process.env.LOOP55_BUILD_STAMP_FILE, "utf8"))
   : null;
 export default defineConfig({
   plugins: [react()],
   define: {
-    __LOOP_BUILD__: JSON.stringify(stamp ? { ...stamp, ancestors: [] } : null),
+    __LOOP55_BUILD__: JSON.stringify(stamp ? { ...stamp, ancestors: [] } : null),
   },
   build: { outDir: "dist/client" },
   // Test files spawn fixture servers and native children of their own, so the

@@ -8,8 +8,8 @@ import { join } from "node:path";
 it.each(["main", "direct-mail preview"])(
   "upgrades populated %s mail with foreign keys enabled, preserving identities, row order and dependent records",
   (source) => {
-    const dir = mkdtempSync(join(tmpdir(), "loop-mail-upgrade-"));
-    const db = new Database(join(dir, "loop.db"));
+    const dir = mkdtempSync(join(tmpdir(), "loop55-mail-upgrade-"));
+    const db = new Database(join(dir, "loop55.db"));
     const request = JSON.stringify({
       to: "b",
       body: "Question",
@@ -92,7 +92,7 @@ it.each(["main", "direct-mail preview"])(
         "target",
       );
       db.prepare(
-        "INSERT INTO native_calls(run_id,call_id,tool,arguments,result) VALUES('source','old-call','loop_message',?,?)",
+        "INSERT INTO native_calls(run_id,call_id,tool,arguments,result) VALUES('source','old-call','loop55_message',?,?)",
       ).run(request, '{"receipt":"immutable"}');
       if (source === "direct-mail preview")
         db.transaction(() =>
@@ -133,8 +133,8 @@ it.each(["main", "direct-mail preview"])(
       const before = snapshot();
       const env = {
         ...process.env,
-        LOOP_PROFILE: "server",
-        LOOP_DATA_DIR: dir,
+        LOOP55_PROFILE: "server",
+        LOOP55_DATA_DIR: dir,
       };
       for (let i = 0; i < 2; i++)
         execFileSync(

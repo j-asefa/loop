@@ -65,7 +65,7 @@ export function omitsReplyTarget(
 }
 
 /**
- * After a failed send: a response from Loop below 500 means the request was
+ * After a failed send: a response from Loop55 below 500 means the request was
  * refused and nothing was accepted. Anything else (no response, a server
  * error) leaves it uncertain, so the receipt stays pending.
  */

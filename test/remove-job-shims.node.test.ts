@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -9,7 +15,7 @@ import { removeJobShims } from "../deployment/remove-job-shims.mjs";
 import { shimScript } from "../deployment/job-shim.mjs";
 
 test("retired wrappers run immediately with stale settings, preserving argv, PID and protocol pipes", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-retired-shims-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-retired-shims-"));
   const config = join(dir, "jobs.json");
   try {
     writeFileSync(
@@ -45,9 +51,9 @@ test("retired wrappers run immediately with stale settings, preserving argv, PID
           `
         const assert=require('assert/strict');
         assert.equal(process.argv[1], "space ' $literal");
-        for (const key of ['LOOP_JOB_QUEUE_CONFIG','LOOP_JOB_SHIMS','LOOP_JOB_ACTIVE'])
+        for (const key of ['LOOP55_JOB_QUEUE_CONFIG','LOOP55_JOB_SHIMS','LOOP55_JOB_ACTIVE'])
           assert.equal(process.env[key],undefined);
-        assert.equal(process.env.LOOP_HEAVY_SCHEDULING,'off');
+        assert.equal(process.env.LOOP55_HEAVY_SCHEDULING,'off');
         require('fs').writeSync(3,String(process.pid));
         process.exit(7);
       `,
@@ -56,10 +62,10 @@ test("retired wrappers run immediately with stale settings, preserving argv, PID
         {
           env: {
             ...process.env,
-            LOOP_JOB_QUEUE_CONFIG: "/missing/config.json",
-            LOOP_JOB_SHIMS: dir,
-            LOOP_JOB_ACTIVE: "old",
-            LOOP_HEAVY_SCHEDULING: "on",
+            LOOP55_JOB_QUEUE_CONFIG: "/missing/config.json",
+            LOOP55_JOB_SHIMS: dir,
+            LOOP55_JOB_ACTIVE: "old",
+            LOOP55_HEAVY_SCHEDULING: "on",
           },
           stdio: ["ignore", "ignore", "pipe", "pipe"],
         },
@@ -88,7 +94,7 @@ test("retired wrappers run immediately with stale settings, preserving argv, PID
 });
 
 test("wrapper retirement leaves custom commands and other wrappers untouched on validation failure", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-custom-shims-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-custom-shims-"));
   const config = join(dir, "jobs.json");
   try {
     writeFileSync(
@@ -119,3 +125,58 @@ test("wrapper retirement leaves custom commands and other wrappers untouched on 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+for (const passthrough of [false, true]) {
+  test(`retirement discovers legacy config and recognizes ${passthrough ? "passthrough" : "queue"} wrappers`, () => {
+    const dir = mkdtempSync(join(tmpdir(), "loop55-old-wrappers-"));
+    try {
+      const config = join(dir, "loop", "jobs.json");
+      mkdirSync(join(dir, "loop"));
+      const wrapper = join(dir, "node");
+      writeFileSync(
+        config,
+        JSON.stringify({ shims: dir, commands: { node: process.execPath } }),
+      );
+      const body = passthrough
+        ? "#!/bin/sh\n# Loop command passthrough; automatic queueing removed.\nexec node\n"
+        : shimScript(
+            config,
+            process.execPath,
+            resolve("deployment/job-shim.mjs"),
+            "node",
+            process.execPath,
+          )
+            .replaceAll("LOOP55_", "LOOP_")
+            .replaceAll("Loop55", "Loop");
+      writeFileSync(wrapper, body, { mode: 0o700 });
+      const result = spawnSync(
+        process.execPath,
+        [resolve("deployment/remove-job-shims.mjs")],
+        {
+          env: { PATH: process.env.PATH, XDG_CONFIG_HOME: dir },
+          encoding: "utf8",
+        },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const child = spawnSync(
+        wrapper,
+        [
+          "-e",
+          "for(const k of ['LOOP_JOB_QUEUE_CONFIG','LOOP_JOB_ACTIVE','LOOP55_JOB_QUEUE_CONFIG'])require('assert/strict').equal(process.env[k],undefined)",
+        ],
+        {
+          env: {
+            PATH: process.env.PATH,
+            LOOP_JOB_QUEUE_CONFIG: "stale",
+            LOOP_JOB_ACTIVE: "stale",
+            LOOP55_JOB_QUEUE_CONFIG: "stale",
+          },
+          encoding: "utf8",
+        },
+      );
+      assert.equal(child.status, 0, child.stderr);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}

@@ -11,10 +11,10 @@ import {
   type RouteContract,
 } from "../src/shared/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-social-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop55-social-contracts-"));
+process.env.LOOP55_DATA_DIR = directory;
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const { nativeSessions, OWNER: owner } =
@@ -298,7 +298,7 @@ it("socialOpmlExport returns only this owner's subscriptions as an XML download"
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toContain("application/xml");
   expect(response.headers.get("content-disposition")).toContain(
-    "loop-feeds.opml",
+    "loop55-feeds.opml",
   );
   const xml = await response.text();
   expect(xml).toContain("public.example/imported");

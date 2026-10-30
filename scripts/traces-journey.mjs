@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 import { closeSheets } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
@@ -19,7 +20,7 @@ export async function tracesJourney(page, api, base, dir) {
     model: JSON.parse(connection.models)[0].id,
     folderId: project.id,
   });
-  const db = new Database(join(dir, "loop.db"));
+  const db = new Database(join(dir, "loop55.db"));
   const conversation = crypto.randomUUID(),
     run = crypto.randomUUID(),
     message = crypto.randomUUID(),
@@ -223,7 +224,7 @@ export async function tracesJourney(page, api, base, dir) {
       await page.screenshot({
         path: join(
           tmpdir(),
-          `loop-running-preview-${process.env.LOOP_BROWSER || "chromium"}-${theme}.png`,
+          `loop55-running-preview-${process.env.LOOP55_BROWSER || "chromium"}-${theme}.png`,
         ),
       });
     }
@@ -288,7 +289,7 @@ export async function tracesJourney(page, api, base, dir) {
       await page.screenshot({
         path: join(
           tmpdir(),
-          `loop-message-reply-${process.env.LOOP_BROWSER || "chromium"}-${theme}.png`,
+          `loop55-message-reply-${process.env.LOOP55_BROWSER || "chromium"}-${theme}.png`,
         ),
       });
       assert(
@@ -346,7 +347,7 @@ export async function tracesJourney(page, api, base, dir) {
     await page.screenshot({
       path: join(
         tmpdir(),
-        `loop-agent-traces-${process.env.LOOP_BROWSER || "chromium"}.png`,
+        `loop55-agent-traces-${process.env.LOOP55_BROWSER || "chromium"}.png`,
       ),
     });
     // Refreshes after a backgrounded phone may jump past whole pages. Preserve

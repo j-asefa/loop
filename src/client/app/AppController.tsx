@@ -125,7 +125,7 @@ export function useAppController() {
   const [environmentSetupProvider, setEnvironmentSetupProvider] = useState("");
   const [shareAgent, setShareAgent] = useState<string | undefined>();
   useEffect(() => {
-    sessionStorage.setItem("loop-share", JSON.stringify(sharedDraft));
+    sessionStorage.setItem("loop55-share", JSON.stringify(sharedDraft));
   }, [sharedDraft]);
   const [session, setSession] = useState<any>(undefined),
     [data, setData] = useState<Bootstrap>({
@@ -160,7 +160,7 @@ export function useAppController() {
     [next, setNext] = useState<string | number | null>(null),
     [runs, setRuns] = useState<Run[]>([]),
     [selected, setSelected] = useState(
-      sessionStorage.getItem("loop-draft-agent") || "",
+      sessionStorage.getItem("loop55-draft-agent") || "",
     ),
     [folder, setFolder] = useState(
       new URLSearchParams(location.search).get("folder") || "",
@@ -172,7 +172,7 @@ export function useAppController() {
     ),
     [activeArtifact, setActiveArtifact] = useState<CardArtifact | null>(null),
     [theme, setTheme] = useState(
-      localStorage.getItem("loop-theme") || "system",
+      localStorage.getItem("loop55-theme") || "system",
     ),
     [query, setQuery] = useState("");
   const [routePreview, setRoutePreview] = useState<any>(null),
@@ -200,7 +200,7 @@ export function useAppController() {
     new URLSearchParams(location.search).get("agent"),
   );
   const [replyContext, setReplyContext] = useState<ComposerContext | null>(() =>
-    parse(sessionStorage.getItem("loop-draft-context") || "", null),
+    parse(sessionStorage.getItem("loop55-draft-context") || "", null),
   );
   const [conversationTarget, setConversationTarget] =
     useState<ComposerContext | null>(null);
@@ -209,10 +209,10 @@ export function useAppController() {
   useEffect(() => {
     if (replyContext)
       sessionStorage.setItem(
-        "loop-draft-context",
+        "loop55-draft-context",
         JSON.stringify(replyContext),
       );
-    else sessionStorage.removeItem("loop-draft-context");
+    else sessionStorage.removeItem("loop55-draft-context");
   }, [replyContext]);
   useEffect(() => {
     if (replyContext && selected !== replyContext.agentId)
@@ -237,7 +237,7 @@ export function useAppController() {
   const [uploading, setUploading] = useState(false);
   const [composerError, setComposerError] = useState("");
   useEffect(() => {
-    sessionStorage.setItem("loop-draft-agent", selected);
+    sessionStorage.setItem("loop55-draft-agent", selected);
   }, [selected]);
   // A notice, optionally with one follow-up action (e.g. view what was scheduled).
   const [dismissNotice, setDismissNotice] = useState<
@@ -497,8 +497,8 @@ export function useAppController() {
       setTab("profile");
       // Social reads the story from the address, as it does on a cold open.
       history.replaceState(null, "", url.pathname + url.search);
-      window.dispatchEvent(new Event("loop-social-open"));
-      window.dispatchEvent(new Event("loop-refresh"));
+      window.dispatchEvent(new Event("loop55-social-open"));
+      window.dispatchEvent(new Event("loop55-refresh"));
     } else if (target) {
       setProfile(null);
       setConversation(
@@ -519,7 +519,7 @@ export function useAppController() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const received = (event: MessageEvent) => {
-      if (event.data?.type !== "loop-open") return;
+      if (event.data?.type !== "loop55-open") return;
       const url = new URL(String(event.data.url), location.origin);
       if (url.origin === location.origin) openLink.current(url);
     };
@@ -712,11 +712,11 @@ export function useAppController() {
       text ??
       ((context.messageId &&
         sessionStorage.getItem(
-          "loop-message-reply-" + draftId(context.messageId, source),
+          "loop55-message-reply-" + draftId(context.messageId, source),
         )) ||
         (context.artifactId &&
           sessionStorage.getItem(
-            "loop-result-reply-" + draftId(context.artifactId, source),
+            "loop55-result-reply-" + draftId(context.artifactId, source),
           )) ||
         undefined);
     // Opening another thread loads that thread's own draft; seed it first.
@@ -885,7 +885,7 @@ export function useAppController() {
   );
   // Pull down at the top of any page to refresh what it shows.
   const pullRefresh = usePullToRefresh(Boolean(session?.user), async () => {
-    window.dispatchEvent(new Event("loop-refresh"));
+    window.dispatchEvent(new Event("loop55-refresh"));
     await changed();
   });
   useSwipeBack(Boolean(session?.user), () => {
@@ -1012,7 +1012,7 @@ export function useAppController() {
   // The name shown for you: your profile's, else the account's.
   const accountName: string = session?.user?.name?.trim() || "You";
   const displayName = myProfile?.display_name || accountName;
-  const receiptStorageKey = `loop-send:${threadIdentity}`;
+  const receiptStorageKey = `loop55-send:${threadIdentity}`;
   const receiptBox = useRef<{
     key: string;
     box: { current: SendReceipt };
@@ -1025,11 +1025,11 @@ export function useAppController() {
           sessionStorage.getItem(receiptStorageKey) ||
             (actionSource === executionSourceId()
               ? sessionStorage.getItem(
-                  `loop-draft-receipt:${actionSource || "laptop"}`,
+                  `loop55-draft-receipt:${actionSource || "laptop"}`,
                 )
               : "") ||
             (!actionSource
-              ? sessionStorage.getItem("loop-draft-receipt")
+              ? sessionStorage.getItem("loop55-draft-receipt")
               : "") ||
             "",
           { signature: "", key: "" },
@@ -1152,7 +1152,7 @@ export function useAppController() {
       teams: old.teams?.map((item) => (item.id === team.id ? team : item)),
     }));
     // Supersede any in-flight feed read so a saved preference takes effect now.
-    window.dispatchEvent(new Event("loop-source-refresh"));
+    window.dispatchEvent(new Event("loop55-source-refresh"));
   }
   const check = createSessionCheck({
     setSession,
@@ -1235,7 +1235,7 @@ export function useAppController() {
     loadResults,
   });
   useEffect(() => {
-    localStorage.setItem("loop-theme", theme);
+    localStorage.setItem("loop55-theme", theme);
     const media = matchMedia("(prefers-color-scheme: dark)");
     const update = () =>
       (document.documentElement.dataset.theme =
@@ -1376,7 +1376,7 @@ export function useAppController() {
   }, [session?.user?.id]);
   useEffect(() => {
     if (!profile) return;
-    setView(sessionStorage.getItem("loop-agent-tab-" + profile.id) || "all");
+    setView(sessionStorage.getItem("loop55-agent-tab-" + profile.id) || "all");
     if (!draft.trim()) {
       setSelected(profile.id);
       setFolderChoice(undefined);

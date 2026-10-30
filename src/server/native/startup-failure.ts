@@ -47,7 +47,7 @@ export function nativeStartupFailure(
     promptSent: false,
   };
   const action = resuming ? "reconnect to this conversation" : "start";
-  let reason = `${label} could not ${action}. Loop did not record a more specific startup cause.`;
+  let reason = `${label} could not ${action}. Loop55 did not record a more specific startup cause.`;
   let guidance = `Check ${label} in Provider connections, then retry this run.`;
   if (error instanceof NativeTransportError) {
     diagnostic.code = error.code;

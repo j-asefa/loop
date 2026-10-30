@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 import { globSync, readdirSync, readFileSync } from "node:fs";
 import { build } from "esbuild";
 import { cp, chmod, rm, writeFile } from "node:fs/promises";
@@ -21,8 +22,8 @@ await build({
   target: "node22",
   packages: "external",
   define: {
-    __LOOP_BUILD__: process.env.LOOP_BUILD_STAMP_FILE
-      ? readFileSync(process.env.LOOP_BUILD_STAMP_FILE, "utf8")
+    __LOOP55_BUILD__: process.env.LOOP55_BUILD_STAMP_FILE
+      ? readFileSync(process.env.LOOP55_BUILD_STAMP_FILE, "utf8")
       : "null",
   },
 });
@@ -45,8 +46,8 @@ await chmod("dist/cli.js", 0o755);
 await writeFile(
   "dist/build-id.json",
   JSON.stringify({
-    id: process.env.LOOP_BUILD_STAMP_FILE
-      ? JSON.parse(readFileSync(process.env.LOOP_BUILD_STAMP_FILE, "utf8")).id
+    id: process.env.LOOP55_BUILD_STAMP_FILE
+      ? JSON.parse(readFileSync(process.env.LOOP55_BUILD_STAMP_FILE, "utf8")).id
       : "development",
   }),
 );

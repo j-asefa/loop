@@ -3,7 +3,7 @@ import { NativeMemoryError } from "../native-memory.js";
 import type { Emit, Options } from "./types.js";
 import type { Billing } from "../protocol.js";
 
-/** Gemini owns sign-in, billing and context; Loop speaks its native ACP API. */
+/** Gemini owns sign-in, billing and context; Loop55 speaks its native ACP API. */
 export class Gemini extends Acp {
   protected override verifySessionOnProbe = true;
   constructor(

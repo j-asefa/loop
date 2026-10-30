@@ -90,7 +90,7 @@ export function decide(
         emit(owner, run.id, "approval.decided", {
           approvalId,
           decision,
-          origin: "loop",
+          origin: "loop55",
         });
       } else if (decision === "approve")
         transition(run, "queued", { approvalId });

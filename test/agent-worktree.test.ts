@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -29,7 +30,7 @@ function git(dir: string, ...args: string[]) {
   }).trim();
 }
 function fixture(branch = "main") {
-  const dir = mkdtempSync(join(tmpdir(), "loop-worktree-base-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-worktree-base-"));
   directories.push(dir);
   git(dir, "init", "-b", branch);
   git(dir, "config", "user.email", "fixture@example.com");
@@ -55,7 +56,7 @@ it.each(["missing", "foreign"])(
   "keeps ordinary folders direct with %s inherited Git metadata",
   async (mode) => {
     const foreign = fixture();
-    const project = mkdtempSync(join(tmpdir(), "loop-plain-workspace-"));
+    const project = mkdtempSync(join(tmpdir(), "loop55-plain-workspace-"));
     directories.push(project);
     const identity = {
       ownerId: "owner",
@@ -77,7 +78,7 @@ it.each(["missing", "foreign"])(
     await expect(
       verifyAgentWorkspace(project, project, identity, expected),
     ).resolves.toEqual(expected);
-    expect(existsSync(join(foreign, ".git", "loop-agent-worktrees"))).toBe(
+    expect(existsSync(join(foreign, ".git", "loop55-agent-worktrees"))).toBe(
       false,
     );
   },
@@ -108,7 +109,7 @@ it("creates and validates the selected repository's worktree despite inherited G
   expect(workspace.worktreeSource).toBe(project);
   expect(
     workspace.directory.startsWith(
-      join(project, ".git", "loop-agent-worktrees") + "/",
+      join(project, ".git", "loop55-agent-worktrees") + "/",
     ),
   ).toBe(true);
   expect(readFileSync(join(workspace.directory, "tracked.txt"), "utf8")).toBe(
@@ -120,7 +121,9 @@ it("creates and validates the selected repository's worktree despite inherited G
   await expect(
     verifyAgentWorkspace(project, project, identity, workspace),
   ).resolves.toEqual(workspace);
-  expect(existsSync(join(foreign, ".git", "loop-agent-worktrees"))).toBe(false);
+  expect(existsSync(join(foreign, ".git", "loop55-agent-worktrees"))).toBe(
+    false,
+  );
 });
 
 it.each(["count", "parameters", "file"])(
@@ -182,7 +185,9 @@ execFileSync("git-upload-pack", [process.argv[2]], { stdio: "inherit", env });
     });
     for (const directory of [first, second.directory]) {
       expect(
-        directory.startsWith(join(repo, ".git", "loop-agent-worktrees") + "/"),
+        directory.startsWith(
+          join(repo, ".git", "loop55-agent-worktrees") + "/",
+        ),
       ).toBe(true);
       expect(readFileSync(join(directory, "tracked.txt"), "utf8")).toBe(
         "authenticated remote content",
@@ -191,7 +196,7 @@ execFileSync("git-upload-pack", [process.argv[2]], { stdio: "inherit", env });
     vi.unstubAllEnvs();
     expect(git(repo, "rev-parse", "HEAD")).toBe(sourceHead);
     expect(git(foreign, "rev-parse", "HEAD")).toBe(foreignHead);
-    expect(existsSync(join(foreign, ".git", "loop-agent-worktrees"))).toBe(
+    expect(existsSync(join(foreign, ".git", "loop55-agent-worktrees"))).toBe(
       false,
     );
   },
@@ -267,4 +272,21 @@ it("fetches main from its configured upstream rather than origin", async () => {
   expect(git(imported.directory, "rev-parse", "HEAD")).toBe(
     git(upstream, "rev-parse", "HEAD"),
   );
+});
+
+it("retains a legacy registered worktree, branch and uncommitted native workspace", () => {
+  const repo = fixture();
+  const current = worktree(repo, "legacy");
+  const key = current.split("/").at(-1)!;
+  const storage = join(repo, ".git", "loop-agent-worktrees");
+  mkdirSync(storage);
+  const legacy = join(storage, key);
+  git(current, "branch", "-m", "loop/agent-" + key);
+  git(repo, "worktree", "move", current, legacy);
+  writeFileSync(join(legacy, "uncommitted.txt"), "original native workspace");
+  expect(worktree(repo, "legacy")).toBe(legacy);
+  expect(readFileSync(join(legacy, "uncommitted.txt"), "utf8")).toBe(
+    "original native workspace",
+  );
+  expect(git(legacy, "branch", "--show-current")).toBe("loop/agent-" + key);
 });

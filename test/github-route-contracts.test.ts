@@ -12,10 +12,10 @@ import {
 } from "../src/shared/workspace-api";
 import { readRoute } from "../src/client/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-github-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop55-github-contracts-"));
+process.env.LOOP55_DATA_DIR = directory;
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const { nativeSessions, OWNER: owner } =
@@ -213,7 +213,7 @@ it.each([64, "64"])(
     const dispatched: string[] = [];
     const browser = new EventTarget();
     const clocks: unknown[] = [];
-    browser.addEventListener("loop-workspace-clock", (event) =>
+    browser.addEventListener("loop55-workspace-clock", (event) =>
       clocks.push((event as CustomEvent).detail),
     );
     vi.stubGlobal("window", browser);

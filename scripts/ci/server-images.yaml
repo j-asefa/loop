@@ -1,5 +1,5 @@
 services:
-  loop:
-    image: loop-ci-server:validation
+  loop55:
+    image: loop55-ci-server:validation
   runtime-broker:
-    image: loop-ci-broker:validation
+    image: loop55-ci-broker:validation

@@ -1,10 +1,11 @@
+import "../runtime/environment.mjs";
 // Disposable, uniquely named fixture volumes. Never operates on user projects.
 // Runs the shipped two-container companion with a real Quick Tunnel: the
 // connection container must survive replacement of the application container.
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-const project = `loop-companion-smoke-${randomUUID().slice(0, 8)}`;
+const project = `loop55-companion-smoke-${randomUUID().slice(0, 8)}`;
 const prebuilt = process.argv.includes("--prebuilt");
 const args = [
   "compose",
@@ -35,7 +36,7 @@ const container = (service) => compose(["ps", "-q", service]).trim();
 const RELAY = `
 import { readFileSync } from "node:fs";
 import { request } from "node:http";
-const record = JSON.parse(readFileSync("/data/loop-connection/connection.json", "utf8"));
+const record = JSON.parse(readFileSync("/data/loop55-connection/connection.json", "utf8"));
 export function control(operation) {
   return new Promise((resolve, reject) => {
     const req = request({ socketPath: record.control, path: "/v1/" + operation, method: "POST",
@@ -60,7 +61,7 @@ export function relay(method, path, { cookie, origin, body } = {}) {
 `;
 const inConnection = (script) =>
   compose(
-    ["exec", "-T", "loop-connection", "node", "--input-type=module"],
+    ["exec", "-T", "loop55-connection", "node", "--input-type=module"],
     RELAY + script,
   );
 // Waits for the current application launch to finish registering.
@@ -89,27 +90,27 @@ try {
     undefined,
     1_500_000,
   );
-  compose(["exec", "-T", "loop-companion", "loop", "status", "--json"]);
+  compose(["exec", "-T", "loop55-companion", "loop55", "status", "--json"]);
   // No cloudflared, Docker socket, provider home or project in the connection container.
   inConnection(`
     import assert from "node:assert/strict";
     import { existsSync } from "node:fs";
-    for (const path of ["/var/run/docker.sock", "/data/loop", "/workspaces"])
+    for (const path of ["/var/run/docker.sock", "/data/loop55", "/workspaces"])
       assert.equal(existsSync(path), false, path);
     assert.equal(hello.tunnel.state, "ready");
     assert.equal(hello.backend.state, "ready");
     assert.match(hello.origin, /^https:\\/\\/[a-z0-9-]+\\.trycloudflare\\.com$/);
   `);
   const before = identity();
-  const app = container("loop-companion");
-  const connection = container("loop-connection");
+  const app = container("loop55-companion");
+  const connection = container("loop55-connection");
   // Pair with a one-time code from the application, redeemed through the relay.
   const code = compose(
-    ["exec", "-T", "loop-companion", "node", "--input-type=module"],
+    ["exec", "-T", "loop55-companion", "node", "--input-type=module"],
     `
     import { control } from "/app/dist/host-control.js";
     import { fleetDeviceFromLink } from "/app/dist/shared/fleet-pairing.js";
-    const dir = process.env.LOOP_HOME + "/workspace";
+    const dir = process.env.LOOP55_HOME + "/workspace";
     const first = await control(dir, "pair");
     console.log(fleetDeviceFromLink(first.url, new URL(first.url).origin).secret);
     `,
@@ -126,9 +127,9 @@ try {
     assert.equal((await redeem(hello.origin)).status, 403, "pairing codes are single-use");
     const bootstrap = await relay("GET", "/api/bootstrap", { cookie });
     assert.equal(bootstrap.status, 200);
-    assert.equal(JSON.parse(bootstrap.body).environmentName, ${JSON.stringify(`Docker · ${project}/loop-companion`)});
+    assert.equal(JSON.parse(bootstrap.body).environmentName, ${JSON.stringify(`Docker · ${project}/loop55-companion`)});
     // The private probe namespace is never forwarded from the public listener.
-    assert.equal((await relay("GET", "/__loop/backend-probe?nonce=" + "a".repeat(20))).status, 404);
+    assert.equal((await relay("GET", "/__loop55/backend-probe?nonce=" + "a".repeat(20))).status, 404);
     // Through Cloudflare itself (DNS for a new Quick Tunnel can lag briefly).
     let viaTunnel = 0;
     for (let i = 0; i < 45 && viaTunnel !== 200; i++) {
@@ -138,7 +139,7 @@ try {
     assert.equal(viaTunnel, 200, "paired request through the real Quick Tunnel");
     const session = JSON.parse((await relay("GET", "/session", { cookie })).body);
     // Disposable fixture credentials, kept only in this run's private volume.
-    await writeFile("/data/loop-connection/smoke-device.json", JSON.stringify({ cookie, id: session.device.id }), { mode: 0o600 });
+    await writeFile("/data/loop55-connection/smoke-device.json", JSON.stringify({ cookie, id: session.device.id }), { mode: 0o600 });
   `);
   // Replace only the application container, as an app-only update does.
   compose(
@@ -150,15 +151,15 @@ try {
       "--wait",
       "--wait-timeout",
       "240",
-      "loop-companion",
+      "loop55-companion",
     ],
     undefined,
     300_000,
   );
   const after = identity();
-  if (container("loop-companion") === app)
+  if (container("loop55-companion") === app)
     throw new Error("The application container was not replaced");
-  if (container("loop-connection") !== connection)
+  if (container("loop55-connection") !== connection)
     throw new Error(
       "Replacing the application recreated the connection container",
     );
@@ -174,7 +175,7 @@ try {
   inConnection(`
     import assert from "node:assert/strict";
     import { readFile } from "node:fs/promises";
-    const { cookie } = JSON.parse(await readFile("/data/loop-connection/smoke-device.json", "utf8"));
+    const { cookie } = JSON.parse(await readFile("/data/loop55-connection/smoke-device.json", "utf8"));
     assert.equal((await relay("GET", "/api/bootstrap", { cookie })).status, 200, "same paired browser after replacement");
     let viaTunnel = 0;
     for (let i = 0; i < 15 && viaTunnel !== 200; i++) {
@@ -184,13 +185,13 @@ try {
     assert.equal(viaTunnel, 200);
   `);
   // A stopped application leaves a truthful 503 at the same address.
-  compose(["stop", "--timeout", "40", "loop-companion"], undefined, 90_000);
+  compose(["stop", "--timeout", "40", "loop55-companion"], undefined, 90_000);
   inConnection(`
     import assert from "node:assert/strict";
     const down = await relay("GET", "/api/bootstrap");
     assert.equal(down.status, 503);
-    assert.equal(down.headers["x-loop-unavailable"], "restarting");
-    assert.doesNotMatch(down.body, /data|loop-connection|workspace/);
+    assert.equal(down.headers["x-loop55-unavailable"], "restarting");
+    assert.doesNotMatch(down.body, /data|loop55-connection|workspace/);
   `);
   compose(
     [
@@ -200,21 +201,25 @@ try {
       "--wait",
       "--wait-timeout",
       "240",
-      "loop-companion",
+      "loop55-companion",
     ],
     undefined,
     300_000,
   );
   // Revocation persists across an application restart; the connection stays.
   compose(
-    ["exec", "-T", "loop-companion", "node", "--input-type=module"],
+    ["exec", "-T", "loop55-companion", "node", "--input-type=module"],
     `
     import { control } from "/app/dist/host-control.js";
-    const devices = await control(process.env.LOOP_HOME + "/workspace", "devices");
-    for (const device of devices) await control(process.env.LOOP_HOME + "/workspace", "revoke", { id: device.id });
+    const devices = await control(process.env.LOOP55_HOME + "/workspace", "devices");
+    for (const device of devices) await control(process.env.LOOP55_HOME + "/workspace", "revoke", { id: device.id });
     `,
   );
-  compose(["restart", "--timeout", "40", "loop-companion"], undefined, 90_000);
+  compose(
+    ["restart", "--timeout", "40", "loop55-companion"],
+    undefined,
+    90_000,
+  );
   compose(
     [
       "up",
@@ -223,7 +228,7 @@ try {
       "--wait",
       "--wait-timeout",
       "240",
-      "loop-companion",
+      "loop55-companion",
     ],
     undefined,
     300_000,
@@ -231,19 +236,19 @@ try {
   inConnection(`
     import assert from "node:assert/strict";
     import { readFile, unlink } from "node:fs/promises";
-    const { cookie } = JSON.parse(await readFile("/data/loop-connection/smoke-device.json", "utf8"));
+    const { cookie } = JSON.parse(await readFile("/data/loop55-connection/smoke-device.json", "utf8"));
     let status = 0;
     for (let i = 0; i < 30 && status !== 401; i++) {
       status = (await relay("GET", "/api/bootstrap", { cookie })).status;
       if (status !== 401) await new Promise((r) => setTimeout(r, 1000));
     }
     assert.equal(status, 401, "a revoked device stays revoked");
-    await unlink("/data/loop-connection/smoke-device.json");
+    await unlink("/data/loop55-connection/smoke-device.json");
   `);
   if (identity().tunnel !== before.tunnel)
     throw new Error("cloudflared changed across application restarts");
   console.log(
-    `PASS: two-container companion with a real Quick Tunnel; app container replaced (${app.slice(0, 12)} -> ${container("loop-companion").slice(0, 12)}) while connection container ${connection.slice(0, 12)}, cloudflared PID ${before.tunnel} and its address stayed; paired cookie kept working through the relay and Cloudflare; 503 while stopped; pairing single-use; revocation durable`,
+    `PASS: two-container companion with a real Quick Tunnel; app container replaced (${app.slice(0, 12)} -> ${container("loop55-companion").slice(0, 12)}) while connection container ${connection.slice(0, 12)}, cloudflared PID ${before.tunnel} and its address stayed; paired cookie kept working through the relay and Cloudflare; 503 while stopped; pairing single-use; revocation durable`,
   );
 } finally {
   compose(["down", "--volumes", "--timeout", "40"], undefined, 90_000);

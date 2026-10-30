@@ -313,7 +313,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     };
     page.on("request", countRefresh);
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await expect(
       page.locator(
@@ -333,7 +333,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await swipe(row);
     await expect(row).toHaveCount(0);
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await expect(row).toHaveCount(0);
     await toast.getByRole("button", { name: "Undo", exact: true }).click();
@@ -635,7 +635,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     // reloading the SPA. Contract transitions must retain all loaded history.
     localLegacy = true;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await page.waitForLoadState("networkidle");
     await expect(history).toHaveCount(125);
@@ -655,7 +655,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     localLegacy = false;
     for (let i = 0; i < 4; i++) {
       await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop-source-refresh")),
+        window.dispatchEvent(new Event("loop55-source-refresh")),
       );
       await page.waitForLoadState("networkidle");
       await expect(history).toHaveCount(125);
@@ -666,7 +666,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     ).toHaveCount(0);
     localUnavailable = true;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await expect(
       page.getByText(
@@ -700,7 +700,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     ).toHaveText(String(workingCount + remoteWorking));
     remoteWorking = 2;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await expect(
       page.getByRole("tab", { name: /^Working/ }).locator(".chip-count"),
@@ -730,7 +730,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await expect(history).toHaveCount(119);
     localUnavailable = true;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await expect(
       page.getByText(
@@ -762,7 +762,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       }
     })();
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await expect(
       page.locator(
@@ -792,7 +792,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       return route.fallback();
     });
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await expect(history).toHaveCount(0);
     await expect(
@@ -808,7 +808,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     ).toBeVisible();
     freshUnavailable = false;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop-source-refresh")),
+      window.dispatchEvent(new Event("loop55-source-refresh")),
     );
     await expect(
       page.locator(

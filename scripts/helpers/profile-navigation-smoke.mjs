@@ -9,8 +9,8 @@ export async function profileNavigationSmoke(page, fixture, engine, capture) {
   const settled = async () => {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     // Closing a sheet schedules Back asynchronously. A document navigation
-    // before popstate can strand its loopSheet marker in the next document.
-    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    // before popstate can strand its loop55Sheet marker in the next document.
+    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
   };
   const close = async () => {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();

@@ -7,8 +7,8 @@ import { Acp } from "../src/adapters/acp";
 import { NativeOutput } from "../src/server/native-output";
 import type { Live } from "../src/server/native-sessions";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-acp-errors-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop55-acp-errors-"));
+process.env.LOOP55_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");

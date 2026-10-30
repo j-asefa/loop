@@ -11,7 +11,9 @@ import { workspaceApi } from "../src/shared/workspace-api.js";
 import { until } from "./helpers.js";
 
 test("typed companion auth uses compiled sockets without leaking credentials or replaying starts", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "loop-companion-transport-"));
+  const directory = await mkdtemp(
+    join(tmpdir(), "loop55-companion-transport-"),
+  );
   const originalFetch = globalThis.fetch;
   const originalPath = process.env.PATH;
   const originalLocation = Object.getOwnPropertyDescriptor(
@@ -20,7 +22,7 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
   );
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const environment = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")),
+    Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP55_")),
   );
   const project = join(directory, "project"),
     bin = join(directory, "bin");
@@ -29,7 +31,7 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
   for (const name of ["pi", "grok"]) {
     await writeFile(
       join(bin, name),
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${directory}'\nexec '${process.execPath}' '${process.cwd()}/test/auth-harness.mjs' "$@"\n`,
+      `#!/bin/sh\nexport LOOP55_TEST_HARNESS=${name}\nexport LOOP55_TEST_AUTH_DIR='${directory}'\nexec '${process.execPath}' '${process.cwd()}/test/auth-harness.mjs' "$@"\n`,
       { mode: 0o755 },
     );
   }
@@ -43,9 +45,9 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
         ...environment,
         NODE_ENV: "test",
         PATH: bin + ":" + (originalPath || ""),
-        LOOP_PROFILE: "companion",
-        LOOP_DATA_DIR: join(directory, "data"),
-        LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+        LOOP55_PROFILE: "companion",
+        LOOP55_DATA_DIR: join(directory, "data"),
+        LOOP55_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
         BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
       },
     },
@@ -143,7 +145,7 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
         };
         await assert.rejects(
           callRoute(workspaceApi.runtimeAuthStart, startInput, source),
-          /Couldn’t reach Loop/,
+          /Couldn’t reach Loop55/,
         );
         assert.equal(
           starts,

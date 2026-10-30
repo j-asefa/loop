@@ -19,7 +19,7 @@ if (
     .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='user'")
     .get()
 ) {
-  db.prepare("ATTACH DATABASE ? AS legacy").run(join(config.data, "loop.db"));
+  db.prepare("ATTACH DATABASE ? AS legacy").run(config.database);
   try {
     db.transaction(() => {
       for (const table of [
@@ -63,7 +63,7 @@ export const auth = betterAuth({
   session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
   advanced: {
     useSecureCookies: config.url.startsWith("https://"),
-    ipAddress: { ipAddressHeaders: ["x-loop-client-ip"] },
+    ipAddress: { ipAddressHeaders: ["x-loop55-client-ip"] },
   },
   rateLimit: { enabled: true, storage: "database" },
   user: { deleteUser: { enabled: false } },

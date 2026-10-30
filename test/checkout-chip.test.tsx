@@ -7,7 +7,7 @@ const summary: CheckoutSummary = {
   id: "checkout-1",
   state: "captured",
   branch:
-    "loop/agent-aaa95995d3c7ac663708fc2a33faabf46433f0de58e0b4161ec60cbd6e7f0246",
+    "loop55/agent-aaa95995d3c7ac663708fc2a33faabf46433f0de58e0b4161ec60cbd6e7f0246",
   base_ref: "main",
   ahead: 1,
   behind: 0,
@@ -29,7 +29,7 @@ it("names the agent branch without exposing its internal identifier", () => {
   expect(html).toContain(
     "the agent’s branch · 1 commit ahead · 5 files +99 −17 · on remote",
   );
-  expect(html).not.toContain("loop/agent-");
+  expect(html).not.toContain("loop55/agent-");
   expect(html).not.toContain(summary.branch);
 });
 
@@ -63,7 +63,7 @@ it("shows the run-scoped counts on feed cards", () => {
 it.each([
   "main",
   "feature/long-descriptive-branch-name",
-  "loop/agent-custom-branch",
+  "loop55/agent-custom-branch",
 ])("preserves the branch label %s", (branch) => {
   const html = renderToStaticMarkup(
     <CheckoutChip summary={{ ...summary, branch }} onOpen={() => {}} />,

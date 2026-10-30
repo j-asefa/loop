@@ -186,13 +186,13 @@ export function SettingsHome({
           {row(
             "import",
             "Import conversations",
-            "Bring your saved chats into Loop",
+            "Bring your saved chats into Loop55",
             Download,
           )}
           {row(
             "install",
             "Install on your phone",
-            "Add Loop to your home screen",
+            "Add Loop55 to your home screen",
             Smartphone,
           )}
         </div>

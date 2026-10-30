@@ -305,8 +305,8 @@ export function PiCustomizations({
       )}
       {!selected ? (
         <SettingsEmpty icon={Sparkles} title="No Pi agent yet">
-          Run <code>loop</code> or <code>loop pi</code>, then create a Pi agent
-          to discover its customizations.
+          Run <code>loop55</code> or <code>loop55 pi</code>, then create a Pi
+          agent to discover its customizations.
         </SettingsEmpty>
       ) : (
         <>
@@ -509,8 +509,8 @@ export function PiCustomizations({
                           setInstallAnyway(event.target.checked)
                         }
                       />{" "}
-                      I reviewed this source outside Loop and want Pi to install
-                      it
+                      I reviewed this source outside Loop55 and want Pi to
+                      install it
                     </label>
                   )}
                   <small>
@@ -779,7 +779,7 @@ export function PiCustomizations({
                     {resource.kind === "extension" && (
                       <small>
                         Mobile compatibility unverified. Terminal-only extension
-                        UI may be unavailable in Loop.
+                        UI may be unavailable in Loop55.
                       </small>
                     )}
                     {resource.token && onUse && resource.kind === "prompt" && (

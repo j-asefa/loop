@@ -32,7 +32,7 @@ function runSetup(root: string) {
 }
 
 test("setup keeps blame usable in a shallow clone and adds revisions after fetching history", () => {
-  const root = mkdtempSync(join(tmpdir(), "loop-setup-shallow-"));
+  const root = mkdtempSync(join(tmpdir(), "loop55-setup-shallow-"));
   const repository = join(root, "repository");
   const shallow = join(root, "shallow");
   try {
@@ -96,7 +96,7 @@ test("setup keeps blame usable in a shallow clone and adds revisions after fetch
 });
 
 test("setup preserves the environment and shared revision history across linked worktrees", async () => {
-  const root = mkdtempSync(join(tmpdir(), "loop-setup-git-"));
+  const root = mkdtempSync(join(tmpdir(), "loop55-setup-git-"));
   const repository = join(root, "repository");
   const oldWorktree = join(root, "old");
   try {
@@ -119,7 +119,7 @@ test("setup preserves the environment and shared revision history across linked 
     git(repository, "worktree", "add", "--detach", oldWorktree, initial);
     installSetup(repository);
     const environment =
-      "LOOP_RUNTIME_TOKEN=fixture-token\nCUSTOM_SETTING=preserved\n";
+      "LOOP55_RUNTIME_TOKEN=fixture-token\nCUSTOM_SETTING=preserved\n";
     writeFileSync(join(repository, ".env"), environment);
 
     assert.match(runSetup(repository), /Git blame ignores/);
@@ -132,7 +132,7 @@ test("setup preserves the environment and shared revision history across linked 
     );
     assert.equal(
       configured,
-      join(repository, ".git", "loop-blame-ignore-revs"),
+      join(repository, ".git", "loop55-blame-ignore-revs"),
     );
     const sharedRevisions = () =>
       new Set(readFileSync(configured, "utf8").trim().split(/\s+/));
@@ -188,7 +188,7 @@ test("setup preserves the environment and shared revision history across linked 
 });
 
 test("setup in a source archive creates local config without configuring its parent repository", () => {
-  const root = mkdtempSync(join(tmpdir(), "loop-setup-archive-"));
+  const root = mkdtempSync(join(tmpdir(), "loop55-setup-archive-"));
   try {
     git(root, "init", "-q");
     git(root, "config", "blame.ignoreRevsFile", "existing-parent-setting");
@@ -200,7 +200,7 @@ test("setup in a source archive creates local config without configuring its par
     );
     assert.match(runSetup(archive), /Created local configuration/);
     const environment = readFileSync(join(archive, ".env"), "utf8");
-    assert.match(environment, /^LOOP_RUNTIME_TOKEN=[a-f0-9]{64}$/m);
+    assert.match(environment, /^LOOP55_RUNTIME_TOKEN=[a-f0-9]{64}$/m);
     assert.equal(statSync(join(archive, ".env")).mode & 0o777, 0o600);
     assert.equal(
       git(root, "config", "blame.ignoreRevsFile"),

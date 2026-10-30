@@ -7,10 +7,10 @@ import express from "express";
 import { ZodError } from "zod";
 import { belongsToProject } from "../src/shared/projects";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-workspace-project-"));
-vi.stubEnv("LOOP_PROFILE", "server");
-vi.stubEnv("LOOP_DATA_DIR", dir);
-vi.stubEnv("LOOP_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
+const dir = mkdtempSync(join(tmpdir(), "loop55-workspace-project-"));
+vi.stubEnv("LOOP55_PROFILE", "server");
+vi.stubEnv("LOOP55_DATA_DIR", dir);
+vi.stubEnv("LOOP55_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
 const { db, id, now } = await import("../src/server/db");
 const { Problem } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
@@ -264,16 +264,16 @@ it("executes ordinary prompts without a brief and rejects retired tool receipts"
   const run = db
     .prepare("SELECT * FROM runs WHERE id=?")
     .get(submitted.id) as any;
-  expect(nativeBindings(run).map((t) => t.tool)).not.toContain("loop_brief");
+  expect(nativeBindings(run).map((t) => t.tool)).not.toContain("loop55_brief");
   const oldBinding = {
-    name: "loop_brief",
-    tool: "loop_brief",
+    name: "loop55_brief",
+    tool: "loop55_brief",
     connectionId: "__loop__",
     description: "Retired",
     inputSchema: {},
   };
   db.prepare(
-    "INSERT INTO native_calls(run_id,call_id,tool,arguments,result) VALUES(?,?,'loop_brief','{}',?)",
+    "INSERT INTO native_calls(run_id,call_id,tool,arguments,result) VALUES(?,?,'loop55_brief','{}',?)",
   ).run(
     run.id,
     "old-call",
@@ -287,7 +287,7 @@ it("executes ordinary prompts without a brief and rejects retired tool receipts"
     models: async () => [],
     async *stream(_secret, input) {
       prompts.push(input.messages.findLast((m) => m.role === "user")!.content);
-      expect(input.tools?.map((t) => t.name)).not.toContain("loop_brief");
+      expect(input.tools?.map((t) => t.name)).not.toContain("loop55_brief");
       yield { text: "Completed normally." };
     },
   });

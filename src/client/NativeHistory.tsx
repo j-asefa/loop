@@ -92,7 +92,7 @@ export function NativeHistory({
         value={source}
         onChange={setSource}
         options={[
-          { id: "managed", label: "Managed by Loop" },
+          { id: "managed", label: "Managed by Loop55" },
           { id: "external", label: "Other Codex" },
         ]}
       />
@@ -133,8 +133,8 @@ export function NativeHistory({
             />
           </SettingsList>
           <SettingsNote icon={Info} title="Read or fork only">
-            Loop cannot take over a session another process is running. Pi,
-            Claude and OpenCode currently expose Loop-managed history here.
+            Loop55 cannot take over a session another process is running. Pi,
+            Claude and OpenCode currently expose Loop55-managed history here.
           </SettingsNote>
           <SettingsList>
             {data.external.map((c) => (
@@ -193,7 +193,7 @@ export function NativeHistory({
             onClick={async () => {
               setBusy(true);
               setError("");
-              const key = "loop-fork-" + selected.id;
+              const key = "loop55-fork-" + selected.id;
               let commandId = sessionStorage.getItem(key);
               if (!commandId) {
                 commandId = crypto.randomUUID();
@@ -213,7 +213,7 @@ export function NativeHistory({
               }
             }}
           >
-            Fork into a new Loop conversation
+            Fork into a new Loop55 conversation
           </button>
         </section>
       )}

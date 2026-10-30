@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-const dir = mkdtempSync(join(tmpdir(), "loop-workflow-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-workflow-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -52,7 +52,7 @@ function agent(provider: string, name: string) {
 const a = agent("openai", "workflow-research"),
   b = agent("anthropic", "workflow-review");
 const spec = {
-  dsl: "loop.workflow/v1",
+  dsl: "loop55.workflow/v1",
   title: "Bounded chain",
   inputs: { topic: { description: "Topic" } },
   agents: { research: a.id, review: b.id },

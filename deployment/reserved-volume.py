@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mount an already formatted, fully allocated Loop state image on Linux.
+"""Mount an already formatted, fully allocated Loop55 state image on Linux.
 
 This never formats an image or copies application data. Provision and verify the
 image separately. Discard is disabled on the loop device: trimming the inner
@@ -48,7 +48,7 @@ def mounted(data):
         return None
     rows = result.get("filesystems", [])
     if len(rows) != 1 or rows[0]["uuid"] != data["uuid"] or rows[0]["fstype"] != "ext4":
-        raise RuntimeError("Unexpected filesystem at the Loop state mountpoint")
+        raise RuntimeError("Unexpected filesystem at the Loop55 state mountpoint")
     source = rows[0]["source"]
     if not source.startswith("/dev/loop"):
         raise RuntimeError("State filesystem is not on the configured loop device")
@@ -88,7 +88,7 @@ def verify(data):
     check_image(data)
     device = mounted(data)
     if device is None or discard_control(device).read_text().strip() != "0":
-        raise RuntimeError("Reserved Loop state is unavailable or permits discard")
+        raise RuntimeError("Reserved Loop55 state is unavailable or permits discard")
     print(json.dumps({"state": "ready", "reserved_bytes": data["bytes"],
                       "mountpoint": data["mountpoint"], "discard_disabled": True}))
 
@@ -106,4 +106,4 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
-        raise SystemExit("Loop state volume: " + str(error))
+        raise SystemExit("Loop55 state volume: " + str(error))

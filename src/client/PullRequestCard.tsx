@@ -16,7 +16,7 @@ import { openPull } from "./PullRequests";
 export type Watch = RouteResponse<
   typeof workspaceApi.prWatchList
 >["watches"][number];
-const WATCH_CHANGE = "loop-pr-watch-change";
+const WATCH_CHANGE = "loop55-pr-watch-change";
 
 // The thread's watches, kept current while a card shows them, with whether
 // the list is confirmed: an empty list while loading or after a failed

@@ -15,7 +15,7 @@ it can accept a new message. Deleting a team preserves its agents and history.
 Deletion uses one confirmation sheet, a bounded request and a retryable error state.
 
 Enable **Settings → Notifications → Enable notifications** on each device.
-On iPhone, first add Loop to the Home Screen and open it there. The system permission
+On iPhone, first add Loop55 to the Home Screen and open it there. The system permission
 request happens only after tapping Enable. This follows [WebKit's Home Screen Web
 Push requirements](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
 The app must be served over HTTPS (localhost is supported for development).
@@ -33,9 +33,9 @@ including while the app is closed. Notifications include the agent name and resu
 title; tapping one opens that result. Earlier history, tool calls, imports and
 uploaded files do not trigger result alerts. Subscriptions and durable delivery
 receipts live in the workspace database; private VAPID and subscription keys use
-Loop's existing encryption key. Preserve that key and the data volume on restart.
+Loop55's existing encryption key. Preserve that key and the data volume on restart.
 No third-party notification account or additional deployment secret is required.
-`LOOP_PUSH_CONTACT` can optionally set the VAPID contact URL or `mailto:` address.
+`LOOP55_PUSH_CONTACT` can optionally set the VAPID contact URL or `mailto:` address.
 
 Delivery has a lease, bounded retries and duplicate-replacing notification tags.
 Expired subscriptions are removed when a push service returns 404 or 410. Turning

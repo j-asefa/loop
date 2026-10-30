@@ -38,7 +38,7 @@ async function withListener(
   ) => Promise<void> | void,
   onConnect?: (socket: Socket, directory: string) => void,
 ) {
-  const directory = mkdtempSync(join(tmpdir(), "loop-job-control-"));
+  const directory = mkdtempSync(join(tmpdir(), "loop55-job-control-"));
   const identity = randomUUID(),
     key = randomBytes(32).toString("hex");
   const sockets = new Set<Socket>();
@@ -183,7 +183,7 @@ test("legacy workers and cancellation reject a different peer UID before sending
           const config = {
             pueue: "/unused",
             config: "/unused",
-            group: "loop-heavy",
+            group: "loop55-heavy",
             jobs: directory,
           };
           const child = spawn(
@@ -296,7 +296,7 @@ test("an old cancellation CLI cannot disclose a current job's signing key", asyn
           {
             pueue: "/unused",
             config: "/unused",
-            group: "loop-heavy",
+            group: "loop55-heavy",
             jobs: directory,
           },
           identity,
@@ -363,7 +363,7 @@ test("operator cancellation rejects an unauthenticated acknowledgement without d
           {
             pueue: "/unused",
             config: "/unused",
-            group: "loop-heavy",
+            group: "loop55-heavy",
             jobs: directory,
           },
           identity,
@@ -378,7 +378,7 @@ test("operator cancellation rejects an unauthenticated acknowledgement without d
 });
 
 test("reinstall discovers executable replacements and never selects its own shims", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "loop-job-executables-"));
+  const directory = mkdtempSync(join(tmpdir(), "loop55-job-executables-"));
   try {
     const bin = join(directory, "shims"),
       replacement = join(directory, "replacement"),

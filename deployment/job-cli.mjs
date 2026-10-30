@@ -15,7 +15,7 @@ try {
   if (action === "run") {
     const command = args[0] === "--" ? args.slice(1) : args;
     if (!command.length)
-      throw new Error("Usage: loop-job run -- COMMAND [ARGUMENTS]");
+      throw new Error("Usage: loop55-job run -- COMMAND [ARGUMENTS]");
     if (insideQueuedJob(config)) {
       // The outer admitted worker already owns supervision and cleanup. An
       // explicit nested job must finish in that slot, not wait behind itself.
@@ -49,8 +49,8 @@ try {
         state.groups[config.group]?.parallel_tasks,
     );
     for (const task of tasks) {
-      const label = task.label?.replace(/^loop:[a-f0-9-]+:/, "") || "check";
-      const identity = /^loop:([a-f0-9-]{36}):/.exec(task.label || "")?.[1];
+      const label = task.label?.replace(/^loop(?:55)?:[a-f0-9-]+:/, "") || "check";
+      const identity = /^loop(?:55)?:([a-f0-9-]{36}):/.exec(task.label || "")?.[1];
       console.log(
         (identity || "external:" + task.id) +
           "\t" +
@@ -61,12 +61,12 @@ try {
     }
     if (!tasks.length) console.log("No pending heavy checks.");
   } else if (action === "cancel") {
-    if (args.length !== 1) throw new Error("Usage: loop-job cancel JOB_ID");
+    if (args.length !== 1) throw new Error("Usage: loop55-job cancel JOB_ID");
     await cancelQueuedJob(config, args[0]);
     console.log("Cancellation requested for job " + args[0] + ".");
   } else {
     throw new Error(
-      "Usage: loop-job status | cancel JOB_ID | run -- COMMAND [ARGUMENTS]",
+      "Usage: loop55-job status | cancel JOB_ID | run -- COMMAND [ARGUMENTS]",
     );
   }
 } catch (error) {

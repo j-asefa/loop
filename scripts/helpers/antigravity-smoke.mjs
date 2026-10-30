@@ -107,7 +107,7 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
   const sheet = page.getByRole("dialog", { name: "Antigravity", exact: true });
   await expect(sheet.getByText(/Run agy on Fixture computer/)).toBeVisible();
   await expect(
-    sheet.getByText(/Headless runs cannot ask for approvals in Loop/),
+    sheet.getByText(/Headless runs cannot ask for approvals in Loop55/),
   ).toBeVisible();
   await expect(
     sheet.getByRole("button", { name: "Start sign-in", exact: true }),

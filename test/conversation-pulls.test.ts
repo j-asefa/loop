@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Run } from "../src/server/queue";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-conversation-pulls-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-conversation-pulls-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");
 const { core } = await import("../src/server/core-routes");
 const { seal } = await import("../src/server/secrets");

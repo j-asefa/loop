@@ -86,7 +86,7 @@ if (
   const snapshot = modelsSnapshot(
     readFileSync(new URL("./opencode-models.json.gz", import.meta.url)),
   );
-  const temporary = mkdtempSync(join(tmpdir(), "loop-opencode-build-"));
+  const temporary = mkdtempSync(join(tmpdir(), "loop55-opencode-build-"));
   // Do not inherit release/upload flags, model URLs, preload hooks or package-manager overrides.
   const env = Object.fromEntries(
     [

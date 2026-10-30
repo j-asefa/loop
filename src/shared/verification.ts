@@ -2,7 +2,7 @@ import { shellWords } from "./pr-command.js";
 
 /**
  * Which commands count as verification: tests, type checks and lints that
- * developers run on the code they touched. Loop records the ones an agent
+ * developers run on the code they touched. Loop55 records the ones an agent
  * ran and the exit it saw; it never runs them itself. The classifier is
  * conservative: only literal commands it recognises, never expansions.
  */

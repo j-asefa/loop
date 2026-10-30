@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 
 it("kills a stalled broker process despite heartbeats and releases the next queued turn", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-broker-idle-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-broker-idle-"));
   cpSync(resolve("runtime"), dir, { recursive: true });
   // Run the real broker over HTTP with real child processes. Only provider
   // execution and the clock scale are fixtures; queueing/cleanup stay real.
@@ -56,10 +56,10 @@ if (request.input.model === 'stall') {
     {
       env: {
         ...process.env,
-        LOOP_RUNTIME_MODE: "host",
-        LOOP_RUNTIME_WORKDIR: dir,
-        LOOP_RUNTIME_TOKEN: token,
-        LOOP_RUNTIME_TOKEN_FILE: "",
+        LOOP55_RUNTIME_MODE: "host",
+        LOOP55_RUNTIME_WORKDIR: dir,
+        LOOP55_RUNTIME_TOKEN: token,
+        LOOP55_RUNTIME_TOKEN_FILE: "",
       },
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     },

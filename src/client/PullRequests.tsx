@@ -58,10 +58,10 @@ export function pullFromKey(key: string): PullRequestRef | undefined {
   if (!match || !Number(match[3])) return;
   return { owner: match[1], repo: match[2], number: Number(match[3]) };
 }
-/** Opens a pull request in the Pull requests tab from anywhere in Loop. */
-export const OPEN_PULL = "loop-open-pull";
+/** Opens a pull request in the Pull requests tab from anywhere in Loop55. */
+export const OPEN_PULL = "loop55-open-pull";
 /** Tools closed: GitHub may have been connected or removed there. */
-export const TOOLS_CLOSED = "loop-tools-closed";
+export const TOOLS_CLOSED = "loop55-tools-closed";
 export function openPull(ref: PullRequestRef) {
   window.dispatchEvent(new CustomEvent(OPEN_PULL, { detail: pullKey(ref) }));
 }
@@ -161,11 +161,11 @@ function PullRequestInbox({
   const [filter, setFilterState] = useState<PullFilter>(
     () =>
       (PULL_FILTERS.find(
-        (f) => f.id === sessionStorage.getItem("loop-pull-filter"),
+        (f) => f.id === sessionStorage.getItem("loop55-pull-filter"),
       )?.id as PullFilter) || PULL_FILTERS[0].id,
   );
   const [repo, setRepo] = useState(
-    () => sessionStorage.getItem("loop-pull-repo") || "",
+    () => sessionStorage.getItem("loop55-pull-repo") || "",
   );
   const [terms, setTerms] = useState("");
   const [input, setInput] = useState("");
@@ -200,7 +200,7 @@ function PullRequestInbox({
   }, [key]);
   useEffect(() => {
     const refresh = () => void load();
-    window.addEventListener("loop-refresh", refresh);
+    window.addEventListener("loop55-refresh", refresh);
     window.addEventListener(TOOLS_CLOSED, refresh);
     const stopChanges = listenWorkspaceChanges(
       "pulls",
@@ -209,17 +209,17 @@ function PullRequestInbox({
     );
     return () => {
       stopChanges();
-      window.removeEventListener("loop-refresh", refresh);
+      window.removeEventListener("loop55-refresh", refresh);
       window.removeEventListener(TOOLS_CLOSED, refresh);
     };
   });
   const setFilter = (value: PullFilter) => {
     setFilterState(value);
-    sessionStorage.setItem("loop-pull-filter", value);
+    sessionStorage.setItem("loop55-pull-filter", value);
   };
   const chooseRepo = (value: string) => {
     setRepo(value);
-    sessionStorage.setItem("loop-pull-repo", value);
+    sessionStorage.setItem("loop55-pull-repo", value);
   };
   // One box: a pull request link opens it, owner/repo narrows the list to a
   // repository, and anything else filters by text.
@@ -258,7 +258,7 @@ function PullRequestInbox({
             </div>
           }
         >
-          Loop reads your open pull requests with the GitHub connection in
+          Loop55 reads your open pull requests with the GitHub connection in
           Tools. Reviews, comments and merges you make here are posted as your
           GitHub account.
         </Empty>
@@ -797,7 +797,7 @@ function PullRequestDetail({
   }, []);
   useEffect(() => {
     const refresh = () => void load();
-    window.addEventListener("loop-refresh", refresh);
+    window.addEventListener("loop55-refresh", refresh);
     const stopChanges = listenWorkspaceChanges(
       "pulls",
       refresh,
@@ -805,7 +805,7 @@ function PullRequestDetail({
     );
     return () => {
       stopChanges();
-      window.removeEventListener("loop-refresh", refresh);
+      window.removeEventListener("loop55-refresh", refresh);
     };
   });
   const name = `${pullRef.owner}/${pullRef.repo}#${pullRef.number}`;
@@ -838,7 +838,7 @@ function PullRequestDetail({
     );
   const open = pr.state === "open" || pr.state === "draft";
   const unresolved = pr.threads.filter((t) => !t.resolved).length;
-  // Past the threads Loop reads, the count is a lower bound.
+  // Past the threads Loop55 reads, the count is a lower bound.
   const someThreads = pr.threadsTotal > pr.threads.length;
   const failing = pr.checkRuns.filter((c) => c.state === "failure");
   const done = (message: string) => {
@@ -1297,7 +1297,7 @@ function ReviewSheet({
         <p className="field-hint">
           Posted to GitHub as @{pr.viewer.login} on commit{" "}
           <code>{pr.headSha.slice(0, 7)}</code>. If anything was pushed since
-          you opened this, Loop asks you to look at it first.
+          you opened this, Loop55 asks you to look at it first.
         </p>
         {error && (
           <p className="error" role="alert">
@@ -1463,7 +1463,7 @@ function MergeSheet({
         </label>
       ) : (
         <p className="error">
-          This repository allows no merge method Loop can use.
+          This repository allows no merge method Loop55 can use.
         </p>
       )}
       <p className="field-hint">

@@ -119,7 +119,7 @@ async function spawnConnection(
           child.kill("SIGTERM");
           reject(new Error("The tunnel did not start in time. See " + log));
         },
-        testWait("LOOP_TEST_CONNECTION_START_MS", 120000),
+        testWait("LOOP55_TEST_CONNECTION_START_MS", 120000),
       );
       child.once("message", (m: any) => {
         clearTimeout(timer);
@@ -168,7 +168,7 @@ export async function ensureConnection(options: {
 }): Promise<Connection> {
   const { root, dir, mode, release, external } = options;
   const deadline =
-    Date.now() + testWait("LOOP_TEST_CONNECTION_WAIT_MS", 180000);
+    Date.now() + testWait("LOOP55_TEST_CONNECTION_WAIT_MS", 180000);
   let created = false;
   let waiting = "";
   for (;;) {
@@ -177,29 +177,29 @@ export async function ensureConnection(options: {
     if (found.state === "running") {
       if (found.hello.protocol !== CONNECTION_PROTOCOL)
         throw new Error(
-          `The running connection service speaks protocol ${found.hello.protocol}; this Loop needs ${CONNECTION_PROTOCOL}. Run loop stop, then loop start to replace it (the Quick Tunnel address will change once).`,
+          `The running connection service speaks protocol ${found.hello.protocol}; this Loop55 needs ${CONNECTION_PROTOCOL}. Run loop55 stop, then loop55 start to replace it (the Quick Tunnel address will change once).`,
         );
       if (!sameMode(found.record.mode, mode))
         throw new Error(
-          "The running connection service uses different tunnel settings. Run loop stop first; the public address may change.",
+          "The running connection service uses different tunnel settings. Run loop55 stop first; the public address may change.",
         );
       if (found.hello.tunnel.state === "ready" && found.hello.origin)
         return { record: found.record, hello: found.hello, created };
       reason = "Waiting for the tunnel to reconnect…";
     } else if (found.state === "unknown")
       throw new Error(
-        `The connection service record names process ${found.record.pid}, which Loop can't confirm. Check it with ps; run loop stop once it is gone.`,
+        `The connection service record names process ${found.record.pid}, which Loop55 can't confirm. Check it with ps; run loop55 stop once it is gone.`,
       );
     else if (found.state === "unresponsive" && !external)
       throw new Error(
         found.local
-          ? `Connection service process ${found.record.pid} is not responding. Run loop stop to end it (the public address will change), then start again.`
+          ? `Connection service process ${found.record.pid} is not responding. Run loop55 stop to end it (the public address will change), then start again.`
           : "The connection service belongs to another container and is not responding. Restart that container.",
       );
     else if (external) reason = "Waiting for the connection service…";
     else if (created)
       throw new Error(
-        "The connection service exited after starting. See loop logs.",
+        "The connection service exited after starting. See loop55 logs.",
       );
     else {
       if (found.state === "exited") await clearStaleConnection(dir);
@@ -217,7 +217,7 @@ export async function ensureConnection(options: {
       throw new Error(
         external
           ? "The connection service did not become ready. Check its service manager or container."
-          : "The connection service did not become ready. See loop logs.",
+          : "The connection service did not become ready. See loop55 logs.",
       );
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -228,11 +228,11 @@ async function clearStaleConnection(dir: string) {
   const { unresolved, survivors } = await terminateWorkspace(
     dir,
     undefined,
-    testWait("LOOP_TEST_STOP_GRACE_MS", 5000),
+    testWait("LOOP55_TEST_STOP_GRACE_MS", 5000),
   );
   if (survivors.length || unresolved.length)
     throw new Error(
-      `A previous connection service left process(es) ${[...survivors, ...unresolved.map((r) => r.pid)].join(", ")} that Loop can't stop safely. Check them with ps, then retry.`,
+      `A previous connection service left process(es) ${[...survivors, ...unresolved.map((r) => r.pid)].join(", ")} that Loop55 can't stop safely. Check them with ps, then retry.`,
     );
   await Promise.all(
     [CONNECTION_RECORD, "children.json", "stop-records.json"].map((f) =>
@@ -259,12 +259,15 @@ export async function stopConnection(
   if (!found.local) return "external";
   if (found.state === "unknown")
     throw new Error(
-      `Connection service process ${found.record.pid} can't be confirmed as Loop's, so it was left running. Check it with ps, then run loop stop again.`,
+      `Connection service process ${found.record.pid} can't be confirmed as Loop55's, so it was left running. Check it with ps, then run loop55 stop again.`,
     );
   if (found.state === "running") {
     await connectionControl(found.record, "shutdown").catch(() => {});
     if (
-      await exited(found.record.pid, testWait("LOOP_TEST_STOP_WAIT_MS", 15000))
+      await exited(
+        found.record.pid,
+        testWait("LOOP55_TEST_STOP_WAIT_MS", 15000),
+      )
     ) {
       await clearStaleConnection(dir);
       return true;
@@ -274,7 +277,7 @@ export async function stopConnection(
     const { unresolved, survivors } = await terminateWorkspace(
       dir,
       { pid: found.record.pid, identity: found.record.identity },
-      testWait("LOOP_TEST_STOP_GRACE_MS", 5000),
+      testWait("LOOP55_TEST_STOP_GRACE_MS", 5000),
     );
     if (survivors.length || unresolved.length)
       throw new Error(

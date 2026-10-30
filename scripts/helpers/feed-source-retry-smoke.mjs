@@ -12,7 +12,7 @@ export async function sourceRetryFeedSmoke(context, origin, remoteSource) {
   const refresh = (sources) =>
     page.evaluate((sources) => {
       window.dispatchEvent(
-        new CustomEvent("loop-workspace-change", {
+        new CustomEvent("loop55-workspace-change", {
           detail: {
             sources,
             changes: sources.map((source) => ({

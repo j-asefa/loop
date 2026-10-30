@@ -18,20 +18,21 @@ import { compiledServerFixture } from "./helpers/compiled-server";
 // Actual sockets below run the unmocked compiled production graph in children.
 vi.mock("../src/server/access", () => ({}));
 vi.mock("../src/server/workspace-events", () => ({}));
+vi.mock("../src/server/token-events", () => ({}));
 
 const channel = workspaceApi.channels.events;
 const document = JSON.parse(readFileSync("docs/openapi-channels.json", "utf8"));
 const http = JSON.parse(readFileSync("docs/openapi.json", "utf8"));
 const validator = new Ajv2020({ strict: false, validateFormats: false });
-validator.addSchema(http, "https://loop.test/openapi.json");
-validator.addSchema(document, "https://loop.test/openapi-channels.json");
+validator.addSchema(http, "https://loop55.test/openapi.json");
+validator.addSchema(document, "https://loop55.test/openapi-channels.json");
 const validateFrame = validator.compile({
-  $ref: "https://loop.test/openapi-channels.json#/components/schemas/WorkspaceFrameV3",
+  $ref: "https://loop55.test/openapi-channels.json#/components/schemas/WorkspaceFrameV3",
 });
 const validateFallback = validator.compile({
   $ref: new URL(
     document["x-channels"].events.httpFallback.response.$ref,
-    "https://loop.test/openapi-channels.json",
+    "https://loop55.test/openapi-channels.json",
   ).href,
 });
 
@@ -102,7 +103,7 @@ it("publishes resolvable channel and HTTP fallback references with one event uni
       JSON.stringify({ const: type }).slice(1, -1),
     );
   const validateQuery = validator.compile({
-    $ref: "https://loop.test/openapi-channels.json#/components/schemas/WorkspaceEventsQuery",
+    $ref: "https://loop55.test/openapi-channels.json#/components/schemas/WorkspaceEventsQuery",
   });
   for (const query of [{ v: "3" }, {}, { v: "2" }, { v: 3 }])
     expect(validateQuery(query)).toBe(channel.query.safeParse(query).success);

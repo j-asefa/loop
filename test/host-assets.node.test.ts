@@ -15,7 +15,7 @@ import { build } from "esbuild";
 
 test("companion host serves replacement robots at current and legacy avatar URLs", async () => {
   await mkdir(".tmp", { recursive: true });
-  const dir = await mkdtemp(join(resolve(".tmp"), "loop-avatar-host-"));
+  const dir = await mkdtemp(join(resolve(".tmp"), "loop55-avatar-host-"));
   let host: import("../src/host.js").Host | undefined;
   try {
     // Compile the production host beside an isolated copy of its shipped assets.

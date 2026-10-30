@@ -18,7 +18,7 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
-/** Loop restarting or updated: shown on the page and inside open sheets. */
+/** Loop55 restarting or updated: shown on the page and inside open sheets. */
 export function ConnectionNotice() {
   const { reconnecting, updated } = useSyncExternalStore(
     subscribe,
@@ -28,7 +28,7 @@ export function ConnectionNotice() {
   return (
     <p className="connection-notice" role="status">
       {reconnecting
-        ? "Loop is reconnecting… Work continues."
+        ? "Loop55 is reconnecting… Work continues."
         : "This page and the running app use different builds."}
       {updated && !reconnecting && (
         // Never automatic: the reader chooses when, and drafts are kept.

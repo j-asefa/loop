@@ -9,7 +9,7 @@ export function harnessName(connection: Connection) {
   if (connection.provider === "codex") return "Codex";
   if (connection.provider === "anthropic")
     return metadata.authMode === "subscription" ||
-      metadata.loopHarness === "claude"
+      metadata.loop55Harness === "claude"
       ? "Claude Code"
       : "Claude API";
   return {
@@ -127,7 +127,7 @@ export function connectionLocation(
     };
   return {
     kind,
-    label: metadata.loopHarness ? "This computer" : "Server connection",
+    label: metadata.loop55Harness ? "This computer" : "Server connection",
   };
 }
 

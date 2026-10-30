@@ -38,8 +38,8 @@ export async function museHost(
   try {
     // Account and login methods are on Muse's experimental surface.
     const init = await native.request("initialize", {
-      clientInfo: { name: "loop", title: "Loop", version: "0.1.0" },
-      // Loop's workspace tools are added per session as an MCP server.
+      clientInfo: { name: "loop55", title: "Loop55", version: "0.1.0" },
+      // Loop55's workspace tools are added per session as an MCP server.
       capabilities: {
         experimentalApi: true,
         requestedCapabilities: ["sessionMcp"],
@@ -67,24 +67,24 @@ const credentials: Record<string, string> = {
 };
 
 // One Muse approval can need several decisions (a shell pipeline's stages).
-// Each stage is its own Loop request; the approval lives until resolved.
+// Each stage is its own Loop55 request; the approval lives until resolved.
 type Approval = {
   requestId: string;
   requirementId: unknown;
   choices: Map<string, string>;
   /** A decision for this request is in flight or was accepted. */
   answered: boolean;
-  /** Loop has reported this request resolved. */
+  /** Loop55 has reported this request resolved. */
   resolved: boolean;
 };
 
-/** Muse Code owns sign-in, billing and context; Loop speaks its native MSP API. */
+/** Muse Code owns sign-in, billing and context; Loop55 speaks its native MSP API. */
 export class Muse implements Adapter {
   private controlState?: DirectControls;
   private get displayControls() {
     if (!this.controlState) {
       this.controlState = new DirectControls("muse", this.emit);
-      // Muse tool calls appear as native traces; Loop does not yet derive
+      // Muse tool calls appear as native traces; Loop55 does not yet derive
       // structured tool, output, diff or plan activities from MSP items.
       for (const feature of ["tools", "output", "diffs", "plans"] as const)
         this.controlState.capabilities[feature] = {
@@ -239,16 +239,16 @@ export class Muse implements Adapter {
     };
     if (this.options.probeOnly) return billing;
     // Session MCP is a capability the host may withhold. Without it the
-    // session runs without Loop's workspace tools rather than failing.
+    // session runs without Loop55's workspace tools rather than failing.
     if (this.options.workspaceTools && !host.granted.has("sessionMcp"))
       this.notice =
-        "Muse Code did not grant session MCP, so Loop's workspace tools are unavailable in this session.";
+        "Muse Code did not grant session MCP, so Loop55's workspace tools are unavailable in this session.";
     const config =
       this.options.workspaceTools && host.granted.has("sessionMcp")
         ? {
             mcpServers: {
               // Optional: a workspace-tools outage must not fail the turn.
-              loop_workspace: {
+              loop55_workspace: {
                 transport: "streamableHttp",
                 mode: "optional",
                 url: this.options.workspaceTools.url,
@@ -260,7 +260,7 @@ export class Muse implements Adapter {
           }
         : undefined;
     const r = this.options.resume
-      ? // Muse keeps the full context; Loop already persists display history.
+      ? // Muse keeps the full context; Loop55 already persists display history.
         await this.native
           .request("session/resume", {
             commandId: uuidv7(),
@@ -275,7 +275,7 @@ export class Muse implements Adapter {
             )
               throw new NativeSetupError(
                 "native_session_in_use",
-                "This conversation is in use by another Muse Code client. Leave the session there, then retry in Loop. No prompt was sent.",
+                "This conversation is in use by another Muse Code client. Leave the session there, then retry in Loop55. No prompt was sent.",
               );
             if (
               error instanceof NativeRpcError &&
@@ -294,7 +294,7 @@ export class Muse implements Adapter {
           ...(config ? { config } : {}),
         });
     this.session = r.session.sessionId;
-    // Loop creates Muse sessions and its first prompt carries the
+    // Loop55 creates Muse sessions and its first prompt carries the
     // instructions, so a session with turns already has them.
     this.instructed = (r.session.turnCount ?? 0) > 0;
     this.model = r.session.modelId || this.options.model || fallback;
@@ -470,12 +470,12 @@ export class Muse implements Adapter {
     if (prior) this.resolve(prior);
     this.approvals.delete(p.approvalId);
     if (!choices.size) {
-      // Nothing Loop may offer (only session-wide or saved grants). Waiting
+      // Nothing Loop55 may offer (only session-wide or saved grants). Waiting
       // would strand the turn, so stop it and say why.
       this.emit({
         type: "error",
         message:
-          "Muse Code asked for an approval Loop can only grant in Muse itself. The turn was stopped; approve it in Muse Code or retry.",
+          "Muse Code asked for an approval Loop55 can only grant in Muse itself. The turn was stopped; approve it in Muse Code or retry.",
       });
       const turnId = p.turnId || this.turn;
       if (turnId)
@@ -552,7 +552,7 @@ export class Muse implements Adapter {
           text: JSON.stringify(item, null, 2),
         },
       });
-    // Live prompts already have a durable Loop item; reminders, reasoning
+    // Live prompts already have a durable Loop55 item; reminders, reasoning
     // and bookkeeping items are Muse's own.
   }
   private message(m: any) {
@@ -574,7 +574,7 @@ export class Muse implements Adapter {
                 id: m.id,
                 error: {
                   code: -32601,
-                  message: "Unsupported Loop client request",
+                  message: "Unsupported Loop55 client request",
                 },
               },
         )

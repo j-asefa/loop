@@ -1,5 +1,5 @@
-// Loop enables native tools in managed containers and paired hosts. Only
-// answer approvals for the thread created by this Loop operation.
+// Loop55 enables native tools in managed containers and paired hosts. Only
+// answer approvals for the thread created by this Loop55 operation.
 export function nativeReply(
   message: { method?: string; params?: any },
   threadId?: string,
@@ -11,7 +11,7 @@ export function nativeReply(
     return {
       error: {
         code: -32602,
-        message: "This request does not belong to this Loop thread.",
+        message: "This request does not belong to this Loop55 thread.",
       },
     };
   if (
@@ -33,7 +33,7 @@ export function nativeReply(
     error: {
       code: -32601,
       message:
-        "This client-side interaction is not available. Ask the user in your Loop reply; native host tools remain available.",
+        "This client-side interaction is not available. Ask the user in your Loop55 reply; native host tools remain available.",
     },
   };
 }

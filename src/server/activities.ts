@@ -273,7 +273,7 @@ export function setActivityCapabilities(
   const complete = Object.fromEntries(
     ACTIVITY_FEATURES.map((f) => [
       f,
-      capabilities[f] || { state: "undiscovered", source: "loop" },
+      capabilities[f] || { state: "undiscovered", source: "loop55" },
     ]),
   );
   const record = {
@@ -323,7 +323,7 @@ function legacyTools(
       FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
       WHERE t.owner_id=? AND t.kind='tool' AND (r.conversation_id=? OR 'run:'||r.id=?)
         -- Plan tool calls are represented by their plan activity.
-        AND t.title<>'loop_plan'
+        AND t.title NOT IN ('loop55_plan','loop_plan')
         AND ${publicTraceFilter}
         ${before === undefined ? "" : `AND ${unrepresentedTrace}`}
       AND t.id<? ORDER BY t.id ${before === undefined ? "ASC" : "DESC"} LIMIT ?`,
@@ -528,7 +528,7 @@ export function listActivities(
         .prepare(
           `SELECT 1 FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
       WHERE t.owner_id=? AND t.kind='tool' AND (r.conversation_id=? OR 'run:'||r.id=?)
-        AND t.title<>'loop_plan' AND ${publicTraceFilter}
+        AND t.title NOT IN ('loop55_plan','loop_plan') AND ${publicTraceFilter}
         AND ${unrepresentedTrace} LIMIT 1`,
         )
         .get(owner, conversation, conversation);

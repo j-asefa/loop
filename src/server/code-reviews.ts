@@ -25,7 +25,7 @@ function directory(owner: string, folderId: string) {
   if (!companionMode)
     throw new Problem(
       409,
-      "Local snapshot review requires a laptop workspace. Open the Loop workspace running beside your repository.",
+      "Local snapshot review requires a laptop workspace. Open the Loop55 workspace running beside your repository.",
     );
   ownedFolder(folderId, owner);
   const mapping = db
@@ -319,7 +319,7 @@ function agentReviewReport(
       report: {
         reviewId,
         state: record.state,
-        note: "Review is still running. Use loop_review_status with this reviewId later to retrieve the report. Do not submit another review of the same snapshot or busy-wait.",
+        note: "Review is still running. Use loop55_review_status with this reviewId later to retrieve the report. Do not submit another review of the same snapshot or busy-wait.",
       },
     };
   const status = reviewStatus(run.owner_id, reviewId);

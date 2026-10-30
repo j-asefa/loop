@@ -1,8 +1,9 @@
+import "../../runtime/environment.mjs";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export async function startSmokeTrace(context, name) {
-  const directory = process.env.LOOP_BROWSER_TRACE_DIR;
+  const directory = process.env.LOOP55_BROWSER_TRACE_DIR;
   if (!directory) return async () => {};
   mkdirSync(directory, { recursive: true });
   await context.tracing.start({ screenshots: true, snapshots: true });

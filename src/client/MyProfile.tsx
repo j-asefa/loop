@@ -92,12 +92,12 @@ export function MyProfile({
     const stopChanges = listenWorkspaceChanges("social", load, "");
     const stopFallback = surfaceFallback([""], "workspace", 30_000, load);
     void load();
-    window.addEventListener("loop-social-read", load);
+    window.addEventListener("loop55-social-read", load);
     return () => {
       controller.abort();
       stopChanges();
       stopFallback();
-      window.removeEventListener("loop-social-read", load);
+      window.removeEventListener("loop55-social-read", load);
     };
   }, []);
   const [tab, setTabState] = useState<ProfileTab>(() => {
@@ -125,11 +125,11 @@ export function MyProfile({
       if (section !== "all") setTab(section);
     };
     const social = () => setTabState("social");
-    window.addEventListener("loop-social-open", social);
+    window.addEventListener("loop55-social-open", social);
     window.addEventListener(SHOW_LATER, shown);
     return () => {
       window.removeEventListener(SHOW_LATER, shown);
-      window.removeEventListener("loop-social-open", social);
+      window.removeEventListener("loop55-social-open", social);
     };
   }, []);
   const [editing, setEditing] = useState(false);

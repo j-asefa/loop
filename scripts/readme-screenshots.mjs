@@ -37,13 +37,13 @@ for (const { name: table } of db
         ["code-reviewer", "orion"],
         ["gpt-6-sol", "gpt-5-codex"],
         ['"owner":"sample"', '"owner":"acme"'],
-        ['"repo":"loop"', '"repo":"storefront"'],
+        ['"repo":"loop55"', '"repo":"storefront"'],
       ])
         db.prepare(
           `UPDATE "${table}" SET "${col}"=replace("${col}",?,?) WHERE instr("${col}",?)>0`,
         ).run(a, b, a);
 for (const [from, to] of [
-  ["Loop", "Storefront"],
+  ["Loop55", "Storefront"],
   ["Research and product development", "Mobile app"],
 ])
   db.prepare("UPDATE folders SET name=? WHERE name=? AND kind='project'").run(

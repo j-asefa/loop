@@ -489,34 +489,44 @@ export class Host {
   }
   private get cookieName() {
     const name = this.origin.startsWith("https:")
-      ? "__Host-loop"
-      : "loop_local";
+      ? "__Host-loop55"
+      : "loop55_local";
     // Cookies ignore ports. Preview identities stay distinct across local hosts and rebuilds.
     return this.workspace?.isolated
       ? `${name}_${hash(resolve(this.dir)).slice(0, 24)}`
       : name;
   }
-  private cookie(token: string, expires: number) {
+  private get legacyCookieName() {
+    return this.cookieName
+      .replace("__Host-loop55", "__Host-loop")
+      .replace("loop55_local", "loop_local");
+  }
+  private cookie(token: string, expires: number, name = this.cookieName) {
     const secure = this.origin.startsWith("https:");
     const age = Math.max(0, Math.floor((expires - Date.now()) / 1000));
-    return `${this.cookieName}=${token}; HttpOnly; ${secure ? "Secure; " : ""}SameSite=Lax; Path=/; Max-Age=${age}`;
+    return `${name}=${token}; HttpOnly; ${secure ? "Secure; " : ""}SameSite=Lax; Path=/; Max-Age=${age}`;
   }
   private authenticate(req: IncomingMessage) {
-    const token = req.headers.cookie
-      ?.split(";")
-      .map((x) => x.trim())
-      .find((x) => x.startsWith(this.cookieName + "="))
-      ?.slice(this.cookieName.length + 1);
-    if (!token || token.length > 100) return;
-    if (this.trust) return this.trust.authenticate(hash(token));
-    const device = [...this.devices.values()].find(
-      (d) => equal(d.hash, hash(token)) && d.expires > Date.now(),
-    );
-    if (device && device.expires < Date.now() + 364 * 86400000) {
-      device.expires = Math.min(device.maxExpires, Date.now() + 365 * 86400000);
-      this.saveDevices();
+    const cookies = req.headers.cookie?.split(";").map((x) => x.trim()) ?? [];
+    for (const name of [this.cookieName, this.legacyCookieName]) {
+      const value = cookies.find((x) => x.startsWith(name + "="));
+      const token = value?.slice(value.indexOf("=") + 1);
+      if (!token || token.length > 100) continue;
+      const device = this.trust
+        ? this.trust.authenticate(hash(token))
+        : [...this.devices.values()].find(
+            (d) => equal(d.hash, hash(token)) && d.expires > Date.now(),
+          );
+      if (!device) continue;
+      if (!this.trust && device.expires < Date.now() + 364 * 86400000) {
+        device.expires = Math.min(
+          device.maxExpires,
+          Date.now() + 365 * 86400000,
+        );
+        this.saveDevices();
+      }
+      return device;
     }
-    return device;
   }
   private json(res: ServerResponse, status: number, value: unknown) {
     res.writeHead(status, {
@@ -529,9 +539,9 @@ export class Host {
     this.active++;
     res.once("close", () => this.active--);
     // Registration check from the connection service over the private socket.
-    // The relay never forwards /__loop paths from the public listener.
-    if (this.probe && req.url?.startsWith("/__loop/backend-probe?")) {
-      const nonce = new URL(req.url, "http://probe").searchParams.get("nonce");
+    // The relay never forwards /__loop55 paths from the public listener.
+    if (this.probe && /^\/__loop(?:55)?\/backend-probe\?/.test(req.url ?? "")) {
+      const nonce = new URL(req.url!, "http://probe").searchParams.get("nonce");
       if (req.method !== "GET" || !nonce || !/^[\w-]{16,100}$/.test(nonce))
         return this.json(res, 400, { error: "Invalid probe" });
       return this.json(res, 200, { proof: this.probe(nonce) });
@@ -608,7 +618,10 @@ export class Host {
               },
               this.origin,
             );
-            res.setHeader("Set-Cookie", this.cookie(token, expires));
+            res.setHeader("Set-Cookie", [
+              this.cookie(token, expires),
+              this.cookie("", 0, this.legacyCookieName),
+            ]);
             return this.json(res, 200, { paired: true });
           } catch (error) {
             if (error instanceof Problem)
@@ -621,7 +634,7 @@ export class Host {
         if (!expiry || expiry <= Date.now())
           return this.json(res, 403, {
             error:
-              "Pairing link expired, invalid or already used. Run loop pair on your desktop.",
+              "Pairing link expired, invalid or already used. Run loop55 pair on your desktop.",
           });
         this.pairs.delete(digest); // Single-use consume and credential creation happen without awaiting.
         if (this.devices.size >= 10)
@@ -639,7 +652,10 @@ export class Host {
         };
         this.devices.set(device.id, device);
         this.saveDevices();
-        res.setHeader("Set-Cookie", this.cookie(token, device.expires));
+        res.setHeader("Set-Cookie", [
+          this.cookie(token, device.expires),
+          this.cookie("", 0, this.legacyCookieName),
+        ]);
         return this.json(res, 200, { paired: true });
       }
       if (path === "/session" && req.method === "GET") {
@@ -674,13 +690,17 @@ export class Host {
         if (
           !["GET", "HEAD"].includes(req.method || "") &&
           (!this.validOrigin(req) ||
-            !equal(String(req.headers["x-loop-csrf"] || ""), device.csrf))
+            !equal(String(req.headers["x-loop55-csrf"] || ""), device.csrf))
         )
           return this.json(res, 403, {
             error: "Workspace authorization rejected.",
           });
         if (path === "/api/auth/sign-out" && req.method === "POST") {
           this.revoke(device.id);
+          res.setHeader("Set-Cookie", [
+            this.cookie("", 0),
+            this.cookie("", 0, this.legacyCookieName),
+          ]);
           return this.json(res, 200, { ok: true });
         }
         if (
@@ -716,7 +736,7 @@ export class Host {
             (path === "/api/mcp-sharing" && req.method !== "GET")
           )
             return this.json(res, 403, {
-              error: "Previews do not connect to other Loop workspaces.",
+              error: "Previews do not connect to other Loop55 workspaces.",
             });
         }
         if (path === "/api/linked-workspaces" && req.method === "GET") {

@@ -146,7 +146,7 @@ class CodexRpc {
         if (signal.aborted) fail();
       });
       await rpc.call("initialize", {
-        clientInfo: { name: "loop", title: "Loop", version: "0.2.0" },
+        clientInfo: { name: "loop55", title: "Loop55", version: "0.2.0" },
       });
       rpc.send({ method: "initialized", params: {} });
       signal.throwIfAborted();

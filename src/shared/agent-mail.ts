@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Messages Loop submits on your behalf, not typed by you: a watched pull
+// Messages Loop55 submits on your behalf, not typed by you: a watched pull
 // request, a Social feed digest, or another agent's message or delegated
 // result.
 export type Automation =

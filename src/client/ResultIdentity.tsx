@@ -14,7 +14,7 @@ export function ResultIdentity({
 }) {
   const content = (
     <>
-      <Avatar name={name || "Loop"} />
+      <Avatar name={name || "Loop55"} />
       <span className="result-author">
         <span className="result-author-name" role="heading" aria-level={2}>
           {name ? "@" + name : "Saved result"}

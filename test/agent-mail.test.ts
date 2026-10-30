@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { ownInstructions } from "./helpers/instructions";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-agent-mail-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-agent-mail-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent, Problem, ownedRun } = await import("../src/server/domain");
@@ -84,8 +84,8 @@ function agent(owner: string, name: string, metadata: object = {}) {
     instructions: name,
   });
 }
-const harness = (loopHarness: string) => ({ loopHarness });
-// A run the worker is executing: invokeNative and loop_message require it.
+const harness = (loop55Harness: string) => ({ loop55Harness });
+// A run the worker is executing: invokeNative and loop55_message require it.
 function running(
   owner: string,
   agentId: string,
@@ -109,11 +109,11 @@ function binding(run: Run, tool: string) {
 async function message(run: Run, args: Record<string, unknown>, call = id()) {
   const outcome = await invokeNative(
     run,
-    binding(run, "loop_message")!,
+    binding(run, "loop55_message")!,
     call,
     args,
   );
-  if (!("result" in outcome)) throw new Error("loop_message never waits");
+  if (!("result" in outcome)) throw new Error("loop55_message never waits");
   const text = outcome.result.content[0].text as string;
   return outcome.result.isError
     ? { error: text }
@@ -289,16 +289,16 @@ it("gives ordinary agents mail tools and keeps explicit team scope restricted", 
   const { manager, coder, piWorker, team } = mixedTeam(owner);
   const outsider = agent(owner, "outsider");
   const task = running(owner, coder.id, { teamId: team.id });
-  const tool = binding(task, "loop_message")!;
+  const tool = binding(task, "loop55_message")!;
   expect(tool).toBeTruthy();
-  expect(binding(task, "loop_message_status")).toBeTruthy();
+  expect(binding(task, "loop55_message_status")).toBeTruthy();
   expect(tool.description).toContain(manager.id);
   expect(tool.description).toContain(piWorker.id);
   expect(tool.description).not.toContain(`"agentId":"${coder.id}"`);
   expect(tool.description).toContain('"runtime":"Pi"');
   expect(tool.description).toContain('"role":"manager"');
   // Workers still don't delegate; only the manager does.
-  expect(binding(task, "loop_delegate")).toBeUndefined();
+  expect(binding(task, "loop55_delegate")).toBeUndefined();
 
   expect(
     await message(task, { to: outsider.id, body: "Hi", scope: "team" }),
@@ -309,9 +309,9 @@ it("gives ordinary agents mail tools and keeps explicit team scope restricted", 
     error: expect.stringContaining("can't message yourself"),
   });
   const solo = running(owner, outsider.id, {});
-  expect(binding(solo, "loop_message")).toBeTruthy();
-  expect(binding(solo, "loop_agents")).toBeTruthy();
-  expect(binding(solo, "loop_handoff")).toBeTruthy();
+  expect(binding(solo, "loop55_message")).toBeTruthy();
+  expect(binding(solo, "loop55_agents")).toBeTruthy();
+  expect(binding(solo, "loop55_handoff")).toBeTruthy();
   expect(() =>
     sendMail(solo, "call", { to: coder.id, body: "Hi", scope: "team" }),
   ).toThrow(/members of this team/);
@@ -320,12 +320,12 @@ it("gives ordinary agents mail tools and keeps explicit team scope restricted", 
     now(),
     piWorker.id,
   );
-  expect(binding(task, "loop_message")!.description).not.toContain(piWorker.id);
+  expect(binding(task, "loop55_message")!.description).not.toContain(piWorker.id);
   expect(await message(task, { to: piWorker.id, body: "Hi" })).toEqual({
     error: expect.stringContaining("retired"),
   });
   deleteTeam(owner, team.id);
-  expect(binding(task, "loop_message")).toBeTruthy();
+  expect(binding(task, "loop55_message")).toBeTruthy();
   expect(
     db.prepare("SELECT count(*) n FROM agent_mail WHERE owner_id=?").get(owner),
   ).toEqual({ n: 0 });
@@ -611,7 +611,7 @@ it("requeues a mid-task message its task ended without reading, once, and never 
   expect(mail(lost.messageId).requeued_run_id).toBeNull();
   const status = await invokeNative(
     lead,
-    binding(lead, "loop_message_status")!,
+    binding(lead, "loop55_message_status")!,
     id(),
     { threadId: steered.threadId },
   );
@@ -620,7 +620,7 @@ it("requeues a mid-task message its task ended without reading, once, and never 
   });
   const unconfirmed = await invokeNative(
     lead,
-    binding(lead, "loop_message_status")!,
+    binding(lead, "loop55_message_status")!,
     id(),
     { threadId: lost.threadId },
   );
@@ -629,7 +629,7 @@ it("requeues a mid-task message its task ended without reading, once, and never 
   ).toBe("unconfirmed");
 });
 
-it("passes a published file to a teammate, who reads it with loop_read_file", async () => {
+it("passes a published file to a teammate, who reads it with loop55_read_file", async () => {
   const owner = "files";
   const { manager, coder, team } = mixedTeam(owner);
   const task = running(owner, coder.id, { teamId: team.id });
@@ -755,7 +755,7 @@ it("lets a manager delegate without waiting, answer a worker mid-task, and get e
           yield {
             toolCall: {
               id: "answer",
-              name: "loop_message",
+              name: "loop55_message",
               arguments: { to: first.id, body: "Use v2.", threadId: thread },
             },
           };
@@ -764,7 +764,7 @@ it("lets a manager delegate without waiting, answer a worker mid-task, and get e
           yield {
             toolCall: {
               id: "fan-out",
-              name: "loop_delegate",
+              name: "loop55_delegate",
               arguments: {
                 wait: false,
                 tasks: [
@@ -1124,7 +1124,7 @@ it.each(["team", "direct"])(
       conversationId: team?.conversation_id ?? undefined,
     });
     const binding = nativeBindings(source).find(
-      (b) => b.tool === "loop_handoff",
+      (b) => b.tool === "loop55_handoff",
     )!;
     expect(binding).toBeDefined();
     const file = storePublishedFile(source, "handoff-design", {
@@ -1166,7 +1166,7 @@ it.each(["team", "direct"])(
       readRunFile(runOf(received.id), file.artifactId, 0, 1000, "utf8").content,
     ).toBe("Streaming parser design");
     const next = nativeBindings(received).find(
-      (b) => b.tool === "loop_handoff",
+      (b) => b.tool === "loop55_handoff",
     )!;
     await invokeNative(received, next, "handoff-2", {
       to: pi.id,
@@ -1270,8 +1270,8 @@ it.each([
       transition(received, state);
     }
     const later = running(owner, recipient.id, {});
-    const list = await toolResult(later, "loop_message_status");
-    const detail = await toolResult(later, "loop_message_status", {
+    const list = await toolResult(later, "loop55_message_status");
+    const detail = await toolResult(later, "loop55_message_status", {
       threadId: receipt.threadId,
     });
     expect(JSON.stringify([list, detail]).includes(body)).toBe(
@@ -1290,11 +1290,11 @@ it.each([
       preview: state === "completed" ? body : null,
     });
     expect(
-      JSON.stringify(await toolResult(source, "loop_message_status")),
+      JSON.stringify(await toolResult(source, "loop55_message_status")),
     ).toContain(body);
     expect(
       JSON.stringify(
-        await toolResult(source, "loop_message_status", {
+        await toolResult(source, "loop55_message_status", {
           threadId: receipt.threadId,
         }),
       ),
@@ -1318,7 +1318,7 @@ it("discovers a bounded searchable owner-local directory without prompts or conn
     c.connection_id,
   );
   const run = running(owner, a.id, {});
-  const page = await toolResult(run, "loop_agents", {
+  const page = await toolResult(run, "loop55_agents", {
     query: "MATCH",
     limit: 1,
   });
@@ -1326,7 +1326,7 @@ it("discovers a bounded searchable owner-local directory without prompts or conn
     agents: [{ agentId: b.id, runtime: "Codex", availability: "available" }],
     nextOffset: 1,
   });
-  const next = await toolResult(run, "loop_agents", {
+  const next = await toolResult(run, "loop55_agents", {
     query: "match",
     limit: 1,
     offset: page.nextOffset,
@@ -1430,7 +1430,7 @@ it("binds two direct participants across teams and keeps their original conversa
   ).toThrow(/conflicts/);
   await invokeNative(
     source,
-    binding(source, "loop_handoff")!,
+    binding(source, "loop55_handoff")!,
     "cross-team-handoff",
     {
       to: b.id,
@@ -1519,10 +1519,10 @@ it("validates explicit destinations, sender identity, scope and immutable call t
     "UPDATE runs SET payload=json_set(payload,'$.reviewId','snapshot') WHERE id=?",
   ).run(review.id);
   expect(nativeBindings(runOf(review.id)).map((t) => t.tool)).toEqual([
-    "loop_review_read",
+    "loop55_review_read",
   ]);
   await expect(
-    invokeNative(runOf(review.id), binding(source, "loop_message")!, "forged", {
+    invokeNative(runOf(review.id), binding(source, "loop55_message")!, "forged", {
       to: coder.id,
       body: "No",
     }),
@@ -1567,7 +1567,7 @@ it("retains disconnected mail through a fresh process sweep and does not release
       "-e",
       "const {sweepAgentMail}=await import('./src/server/agent-mail.ts');sweepAgentMail(Date.now()+600000);sweepAgentMail(Date.now()+1200000);",
     ],
-    { env: { ...process.env, LOOP_DATA_DIR: dir, LOOP_PROFILE: "companion" } },
+    { env: { ...process.env, LOOP55_DATA_DIR: dir, LOOP55_PROFILE: "companion" } },
   );
   expect(mail(sent.messageId).state).toBe("sent");
   expect(mail(held.messageId).state).toBe("held");
@@ -2449,8 +2449,8 @@ it("arbitrates mail claims between independent worker processes and never replay
             timeout: 5000,
             env: {
               ...process.env,
-              LOOP_DATA_DIR: dir,
-              LOOP_PROFILE: "companion",
+              LOOP55_DATA_DIR: dir,
+              LOOP55_PROFILE: "companion",
             },
           },
         );
@@ -2469,7 +2469,7 @@ it("arbitrates mail claims between independent worker processes and never replay
   sweepAgentMail(now() + 600000);
   sweepAgentMail(now() + 1200000);
   expect((await race()).filter(Boolean)).toEqual([]);
-  const statuses = await toolResult(source, "loop_message_status", {
+  const statuses = await toolResult(source, "loop55_message_status", {
     threadId: receipts[1].threadId,
   });
   expect(statuses.messages[0].status).toBe("unconfirmed");
@@ -2480,7 +2480,7 @@ it.each(["models", "secret", "metadata"] as const)("isolates damaged teammate %s
   const owner = id(), { manager, coder, piWorker, team } = mixedTeam(owner);
   const lead = running(owner, manager.id, { conversationId: team.conversation_id! });
   const bad = column === "models" ? '[{"id":"fixture","name":42}]'
-    : column === "secret" ? "bad-envelope" : '{"loopHarness":false}';
+    : column === "secret" ? "bad-envelope" : '{"loop55Harness":false}';
   db.prepare(`UPDATE connections SET ${column}=? WHERE id=?`).run(bad, coder.connection_id);
   const restore = withTestAdapter("openai", {
     async models() { return []; },
@@ -2488,7 +2488,7 @@ it.each(["models", "secret", "metadata"] as const)("isolates damaged teammate %s
   });
   try {
     expect(await executeAgent(lead)).toBe(true);
-    const page = await toolResult(lead, "loop_agents", {});
+    const page = await toolResult(lead, "loop55_agents", {});
     expect(page.agents).toEqual(expect.arrayContaining([
       expect.objectContaining({ agentId: coder.id, runtime: "unavailable", availability: "unavailable", reason: expect.stringContaining(coder.connection_id!) }),
       expect.objectContaining({ agentId: piWorker.id, availability: "available" }),

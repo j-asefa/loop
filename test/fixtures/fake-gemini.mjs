@@ -12,7 +12,7 @@ if (
   process.exit(91);
 const send = (value) =>
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...value }) + "\n");
-let sessionId = process.env.LOOP_TEST_GEMINI_SESSION_ID || "gemini-session";
+let sessionId = process.env.LOOP55_TEST_GEMINI_SESSION_ID || "gemini-session";
 const models = {
   currentModelId: "gemini-default-fixture",
   availableModels: [
@@ -34,9 +34,9 @@ const update = (text) =>
 let pending;
 for await (const line of readline.createInterface({ input: process.stdin })) {
   const req = JSON.parse(line);
-  if (process.env.LOOP_TEST_GEMINI_LOG)
+  if (process.env.LOOP55_TEST_GEMINI_LOG)
     appendFileSync(
-      process.env.LOOP_TEST_GEMINI_LOG,
+      process.env.LOOP55_TEST_GEMINI_LOG,
       JSON.stringify({
         ...req,
         ...(req.method === "session/prompt"
@@ -58,7 +58,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       },
     });
   else if (["session/new", "session/load"].includes(req.method)) {
-    if (process.env.LOOP_TEST_GEMINI_FAIL) {
+    if (process.env.LOOP55_TEST_GEMINI_FAIL) {
       send({
         id: req.id,
         error: { code: -32000, message: "private-credential-do-not-show" },
@@ -88,7 +88,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     models.currentModelId = req.params.modelId;
     send({ id: req.id, result: {} });
   } else if (req.method === "session/prompt") {
-    if (process.env.LOOP_TEST_GEMINI_AUTO) {
+    if (process.env.LOOP55_TEST_GEMINI_AUTO) {
       update("Fixture done");
       send({ id: req.id, result: { stopReason: "end_turn" } });
       continue;

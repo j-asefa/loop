@@ -509,10 +509,10 @@ async function deliverClaim(
       initial.payload,
       {
         "content-type": "application/json",
-        "x-loop-delivery": initial.id,
-        "x-loop-event": initial.kind,
-        "x-loop-timestamp": timestamp,
-        "x-loop-signature": webhookSignature(
+        "x-loop55-delivery": initial.id,
+        "x-loop55-event": initial.kind,
+        "x-loop55-timestamp": timestamp,
+        "x-loop55-signature": webhookSignature(
           secret,
           timestamp,
           initial.payload,

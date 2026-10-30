@@ -1,6 +1,6 @@
 # Integration API
 
-Loop's Integration API admits scoped bearer credentials through the mounted
+Loop55's Integration API admits scoped bearer credentials through the mounted
 [workspace contracts](contracts.md). Each admitted route declares `{ admits }`;
 a token may use it when at least one stored admission value matches. Session
 access keeps its existing rules. GET and HEAD share authorization; HEAD has no
@@ -15,9 +15,9 @@ Read workspace is selected by default. Send and control runs is optional;
 Answer approvals is unchecked and warns that the script can authorize tool
 calls and answer native decisions. Select it only when the script should make
 those decisions.
-Copy the secret when it appears; Loop stores its SHA-256 digest and cannot
+Copy the secret when it appears; Loop55 stores its SHA-256 digest and cannot
 display it again. Keep it in a script's environment or secret store and send
-`Authorization: Bearer loop_token_…`. The same Settings page lists nonsecret
+`Authorization: Bearer loop55_token_…`. The same Settings page lists nonsecret
 metadata and revokes tokens immediately.
 
 | Selectable scope | Current admission |
@@ -38,7 +38,7 @@ current run content, including when submit steers existing work, and withdraw
 returns the draft content. These responses do not require `read`; that scope
 admits the separate GET/HEAD routes.
 
-Existing `loop_card_…` credentials remain valid with their distinct legacy grants:
+Existing `loop55_card_…` credentials remain valid with their distinct legacy grants:
 
 | Legacy grant | Access |
 | --- | --- |
@@ -119,10 +119,10 @@ bearer responses still omit the automatic workspace-clock headers; granting
 legacy Cards access, `write`, or `approvals:decide` alone does not grant events.
 
 `/api/events/stream` is a token-only WebSocket endpoint. Send
-`Authorization: Bearer loop_token_…` in the upgrade request using a WebSocket
+`Authorization: Bearer loop55_token_…` in the upgrade request using a WebSocket
 client that supports headers; it needs no cookie. Use `wss:` for HTTPS origins
 and `ws:` for local HTTP. Tokens are never accepted in URLs. WebSockets support
-Loop's default Quick Tunnel connection; Cloudflare documents that
+Loop55's default Quick Tunnel connection; Cloudflare documents that
 [Quick Tunnels do not support SSE](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/#limitations).
 Each server text message is the canonical v3 frame from the same ordered committed change drain as
 the browser socket. This includes projected message content and decision payloads.
@@ -293,7 +293,7 @@ for replies; it does not attribute a system or unknown message to that agent.
 
 Attachment name, MIME type and size describe the stored attachment snapshot.
 Descriptors appear only for artifacts owned by the same owner. `href` opens
-Loop; nullable `download` is a protected file URL. File bytes require an owner session or a
+Loop55; nullable `download` is a protected file URL. File bytes require an owner session or a
 `read` integration token; a legacy Cards grant only admits the descriptor. Renaming a file does not rewrite the historical
 attachment description; deleting its target removes the descriptor through
 synchronization.

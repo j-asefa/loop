@@ -350,7 +350,7 @@ async function openCodeDriver(options: AuthOptions): Promise<AuthDriver> {
       stdio: "pipe",
       env: {
         ...(options.env ?? process.env),
-        OPENCODE_SERVER_USERNAME: "loop",
+        OPENCODE_SERVER_USERNAME: "loop55",
         OPENCODE_SERVER_PASSWORD: password,
       },
     },
@@ -395,7 +395,7 @@ async function openCodeDriver(options: AuthOptions): Promise<AuthDriver> {
       redirect: "error",
       headers: {
         Authorization:
-          "Basic " + Buffer.from("loop:" + password).toString("base64"),
+          "Basic " + Buffer.from("loop55:" + password).toString("base64"),
         "Content-Type": "application/json",
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -551,7 +551,7 @@ function geminiDriver(options: AuthOptions): AuthDriver {
     },
     async login(_provider, _method, io) {
       await cleanup();
-      workspace = await mkdtemp(join(tmpdir(), "loop-gemini-sign-in-"));
+      workspace = await mkdtemp(join(tmpdir(), "loop55-gemini-sign-in-"));
       await mkdir(join(workspace, ".gemini"));
       await writeFile(
         join(workspace, ".gemini", "settings.json"),
@@ -614,7 +614,7 @@ function geminiDriver(options: AuthOptions): AuthDriver {
             clearTimeout(cached);
             send(1, "initialize", {
               protocolVersion: PROTOCOL_VERSION,
-              clientInfo: { name: "Loop", version: "0.1.0" },
+              clientInfo: { name: "Loop55", version: "0.1.0" },
               clientCapabilities: {},
             });
           };
@@ -673,8 +673,8 @@ function geminiDriver(options: AuthOptions): AuthDriver {
               output = "";
               begin();
             } else if (phase === "acp") {
-              // A slow, signed-out start can open the sign-in screen after Loop
-              // assumed cached credentials. Gemini reads Loop's initialize
+              // A slow, signed-out start can open the sign-in screen after Loop55
+              // assumed cached credentials. Gemini reads Loop55's initialize
               // frame as a bad code and asks again with a new URL: relay that
               // second prompt so the person can still sign in.
               if (assumed) {
@@ -711,7 +711,7 @@ function geminiDriver(options: AuthOptions): AuthDriver {
           });
           // Gemini reports a rejected code on stderr, then asks again. End
           // the attempt rather than relaying a second authorization URL. (A
-          // late sign-in screen's rejection of Loop's frame is expected.)
+          // late sign-in screen's rejection of Loop55's frame is expected.)
           process.stderr!.on("data", (chunk: Buffer) => {
             if (io.signal.aborted) return;
             diagnostics = (diagnostics + chunk.toString()).slice(-20000);
@@ -764,7 +764,7 @@ function antigravityDriver(options: AuthOptions): AuthDriver {
     // script(1) runs the command with $SHELL; keep its syntax predictable.
     SHELL: "/bin/sh",
     TERM: (options.env ?? process.env).TERM || "xterm-256color",
-    LOOP_AGY: options.executable,
+    LOOP55_AGY: options.executable,
   };
   // Sign-in checks end with their attempt, never overlapping the next one.
   const checks = new Set<ChildProcess>();
@@ -808,7 +808,7 @@ function antigravityDriver(options: AuthOptions): AuthDriver {
       // A signed-in agy opens its chat screen instead of the sign-in menu.
       if (await signedIn()) return;
       if (io.signal.aborted) throw new Error("Sign-in cancelled");
-      const shell = 'stty cols 4000 rows 200 2>/dev/null; exec "$LOOP_AGY"';
+      const shell = 'stty cols 4000 rows 200 2>/dev/null; exec "$LOOP55_AGY"';
       const process = (child = spawn(
         "script",
         globalThis.process.platform === "darwin"
@@ -960,7 +960,7 @@ async function museDriver(options: AuthOptions): Promise<AuthDriver> {
       void native
         .write({
           id: m.id,
-          error: { code: -32601, message: "Unsupported Loop client request" },
+          error: { code: -32601, message: "Unsupported Loop55 client request" },
         })
         .catch(() => {});
   });

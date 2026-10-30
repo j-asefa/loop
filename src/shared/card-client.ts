@@ -69,7 +69,7 @@ export function createCardClient({
     base.hash ||
     base.pathname !== "/"
   )
-    throw new Error("Choose the origin URL of one Loop workspace");
+    throw new Error("Choose the origin URL of one Loop55 workspace");
   if (
     base.protocol !== "https:" &&
     !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname)

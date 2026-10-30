@@ -5,11 +5,11 @@ repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 cd "$repo_dir"
 
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  echo "Loop needs Node.js 24 and npm. Install them, then run bash install again." >&2
+  echo "Loop55 needs Node.js 24 and npm. Install them, then run bash install again." >&2
   exit 1
 fi
 if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 19) ? 0 : 1)'; then
-  echo "Loop needs Node.js 22.19 or newer (Node.js 24 recommended)." >&2
+  echo "Loop55 needs Node.js 22.19 or newer (Node.js 24 recommended)." >&2
   exit 1
 fi
 
@@ -21,8 +21,8 @@ npm run build
 
 # Prefer npm's global bin when it is already writable and on PATH. Otherwise
 # install a user-owned link without requiring sudo.
-if [[ -n "${LOOP_INSTALL_BIN:-}" ]]; then
-  bin_dir="$LOOP_INSTALL_BIN"
+if [[ -n "${LOOP55_INSTALL_BIN:-}" ]]; then
+  bin_dir="$LOOP55_INSTALL_BIN"
 else
   npm_bin="$(npm prefix -g)/bin"
   case ":$PATH:" in
@@ -47,7 +47,7 @@ fi
 mkdir -p "$bin_dir"
 bin_dir="$(cd "$bin_dir" && pwd -P)"
 target="$repo_dir/dist/cli.js"
-link="$bin_dir/loop"
+link="$bin_dir/loop55"
 if [[ -e "$link" || -L "$link" ]]; then
   resolved_link="$(node -e 'try { process.stdout.write(require("node:fs").realpathSync(process.argv[1])) } catch {}' "$link")"
   if [[ ! -L "$link" || "$resolved_link" != "$target" ]]; then
@@ -58,11 +58,11 @@ else
   ln -s "$target" "$link"
 fi
 
-echo "Installed loop at $link"
+echo "Installed loop55 at $link"
 case ":$PATH:" in
-  *":$bin_dir:"*) echo "Run: loop start" ;;
+  *":$bin_dir:"*) echo "Run: loop55 start" ;;
   *)
-    echo "Add $bin_dir to PATH before running loop in this shell:"
+    echo "Add $bin_dir to PATH before running loop55 in this shell:"
     printf '  export PATH="%s:$PATH"\n' "$bin_dir"
     echo "Add the same line to your shell profile for future terminals."
     ;;

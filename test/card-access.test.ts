@@ -57,7 +57,7 @@ it.each(["server", "companion"] as const)(
       };
       const results = await create("results:read"),
         all = await create("cards:read");
-      expect(results.secret).toMatch(/^loop_card_[\w-]{43}$/);
+      expect(results.secret).toMatch(/^loop55_card_[\w-]{43}$/);
       expect(results.secret).not.toBe(all.secret);
       const headers = (secret = results.secret) => ({
         authorization: "Bearer " + secret,
@@ -249,7 +249,7 @@ it.each(["server", "companion"] as const)(
       expect(usage()).toBe(firstUsed);
 
       // Authorization always wins over a valid or invalid browser session.
-      for (const cookie of [browser.cookie, "loop_local=invalid"])
+      for (const cookie of [browser.cookie, "loop55_local=invalid"])
         for (const authorization of ["Basic abc", "Bearer wrong", "Bearer", ""])
           expect(
             (
@@ -272,7 +272,7 @@ it.each(["server", "companion"] as const)(
           })
         ).status,
       ).toBe(403);
-      const wrong = "loop_card_" + randomBytes(32).toString("base64url");
+      const wrong = "loop55_card_" + randomBytes(32).toString("base64url");
       db.prepare(
         "INSERT INTO card_tokens(id,owner_id,name,digest,scope,created_at) VALUES('wrong','foreign','Wrong owner',?,json_array('cards:read'),1)",
       ).run(createHash("sha256").update(wrong).digest("hex"));
@@ -346,9 +346,9 @@ it.each(["server", "companion"] as const)(
           await request("/api/v1/cards", {
             headers: {
               authorization: "Bearer bad",
-              "x-loop-card-owner": owner,
-              "x-loop-card-scope": "cards:read",
-              "x-loop-card-authenticated": "1",
+              "x-loop55-card-owner": owner,
+              "x-loop55-card-scope": "cards:read",
+              "x-loop55-card-authenticated": "1",
             },
           })
         ).status,
@@ -375,8 +375,8 @@ it.each(["server", "companion"] as const)(
           (
             await request("/api/v1/cards", {
               headers: {
-                "x-loop-card-owner": owner,
-                "x-loop-card-scope": "cards:read",
+                "x-loop55-card-owner": owner,
+                "x-loop55-card-scope": "cards:read",
               },
             })
           ).status,
@@ -501,7 +501,7 @@ it("keeps bearer owner identity independent of real multi-user browser sessions"
     const bearer = {
       ...second,
       authorization: "Bearer " + secret,
-      "x-loop-card-owner": other,
+      "x-loop55-card-owner": other,
     };
     const response = await request("/api/v1/cards", { headers: bearer });
     expect(response.status).toBe(200);
@@ -556,7 +556,7 @@ it("preserves federation's independent bearer routing through the actual server"
   try {
     const { request, browser } = fixture;
     const enrollment = await request("/api/mcp/federation/enroll", {
-      headers: { ...browser, "x-loop-source-setup": "1" },
+      headers: { ...browser, "x-loop55-source-setup": "1" },
       body: { peerId: "cards:fixture" },
     });
     expect(enrollment.status).toBe(200);
@@ -590,7 +590,7 @@ it("preserves federation's independent bearer routing through the actual server"
         });
         expect(response.status, path).toBe(200);
         expect((await response.json()).result.serverInfo.name).toBe(
-          "Loop shared tools",
+          "Loop55 shared tools",
         );
         const denied = await request(path, {
           headers: { authorization: "Bearer " + secret },

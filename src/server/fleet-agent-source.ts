@@ -159,8 +159,8 @@ export function fleetAgentSource(
         receipt: Awaited<ReturnType<FleetPeerUploads["lookup"]>>,
         status: number,
       ) => {
-        res.setHeader("x-loop-command-id", receipt.commandId);
-        res.setHeader("x-loop-command-state", receipt.state);
+        res.setHeader("x-loop55-command-id", receipt.commandId);
+        res.setHeader("x-loop55-command-state", receipt.state);
         if (receipt.state === "completed" && receipt.result !== null) {
           reply(status, receipt.result);
         } else if (receipt.state === "refused") {
@@ -205,9 +205,12 @@ export function fleetAgentSource(
           const commandId = z
             .string()
             .uuid()
-            .parse(req.headers["x-loop-command-id"]);
-          const receiptOnly = req.headers["x-loop-receipt-only"] === "1";
-          if (req.headers["x-loop-receipt-only"] !== undefined && !receiptOnly)
+            .parse(req.headers["x-loop55-command-id"]);
+          const receiptOnly = req.headers["x-loop55-receipt-only"] === "1";
+          if (
+            req.headers["x-loop55-receipt-only"] !== undefined &&
+            !receiptOnly
+          )
             throw new ExecutionRefused(
               400,
               "Choose the original upload or its receipt.",
@@ -377,11 +380,11 @@ export function fleetAgentSource(
           const output = await reads.read(peer, input, signal, current);
           current();
           if (output.clock) {
-            res.setHeader("x-loop-change-epoch", output.clock.epoch);
-            res.setHeader("x-loop-change-cursor", output.clock.cursor);
-            res.setHeader("x-loop-server-now", output.clock.serverNow);
+            res.setHeader("x-loop55-change-epoch", output.clock.epoch);
+            res.setHeader("x-loop55-change-cursor", output.clock.cursor);
+            res.setHeader("x-loop55-server-now", output.clock.serverNow);
             res.setHeader(
-              "x-loop-next-deadline",
+              "x-loop55-next-deadline",
               String(output.clock.nextDeadline),
             );
           }
@@ -431,8 +434,8 @@ export function fleetAgentSource(
         const commandId = z
           .string()
           .uuid()
-          .parse(req.headers["x-loop-command-id"]);
-        const receiptOnly = req.headers["x-loop-receipt-only"];
+          .parse(req.headers["x-loop55-command-id"]);
+        const receiptOnly = req.headers["x-loop55-receipt-only"];
         if (receiptOnly !== undefined && receiptOnly !== "1")
           throw new ExecutionRefused(
             400,

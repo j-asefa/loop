@@ -36,7 +36,7 @@ const existingOnly = (name: string) =>
   name === "muse" ||
   name === "grok";
 function matchesRuntime(connection: Connection, runtime: Runtime) {
-  return parse<any>(connection.metadata, {}).loopHarness === runtime.name;
+  return parse<any>(connection.metadata, {}).loop55Harness === runtime.name;
 }
 export function RuntimeSetup({
   onEnabled,
@@ -322,7 +322,7 @@ export function RuntimeSetup({
           {runtimeSetupMessages[discovery.setup]}
         </p>
       )}
-      <p className="settings-intro">Use your coding accounts in Loop.</p>
+      <p className="settings-intro">Use your coding accounts in Loop55.</p>
       {error && (
         <div className="settings-error" role="alert">
           {error}
@@ -358,7 +358,7 @@ export function RuntimeSetup({
                   ? "Unavailable"
                   : "Not installed"
                 : runtime.enabled
-                  ? "Enabled in Loop"
+                  ? "Enabled in Loop55"
                   : signedIn
                     ? "Signed in"
                     : "Sign-in needed";
@@ -436,7 +436,7 @@ export function RuntimeSetup({
                   </small>
                 </div>
                 <span
-                  className={`settings-status${state === "Enabled in Loop" ? " connected" : ""}`}
+                  className={`settings-status${state === "Enabled in Loop55" ? " connected" : ""}`}
                 >
                   {state}
                 </span>
@@ -563,8 +563,8 @@ export function RuntimeSetup({
                           {runtime.name === "antigravity" && (
                             <p className="field-hint">
                               Antigravity uses its native permissions. Headless
-                              runs cannot ask for approvals in Loop; allow the
-                              tools you need in Antigravity settings. Loop
+                              runs cannot ask for approvals in Loop55; allow the
+                              tools you need in Antigravity settings. Loop55
                               workspace tools and team delegation are
                               unavailable.
                             </p>
@@ -626,7 +626,7 @@ export function RuntimeSetup({
           .filter((c) => {
             const metadata = parse<any>(c.metadata, {});
             return (
-              metadata.loopHarness &&
+              metadata.loop55Harness &&
               !discovery.runtimes.some((runtime) => matchesRuntime(c, runtime))
             );
           })
@@ -652,7 +652,7 @@ export function RuntimeSetup({
                       { params: { id: connection.id }, body: {} },
                       executionSourceId(),
                     );
-                    await onEnabled(metadata.loopHarness || metadata.flavor);
+                    await onEnabled(metadata.loop55Harness || metadata.flavor);
                   } catch (cause) {
                     setError((cause as Error).message);
                   } finally {

@@ -2,8 +2,8 @@ import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-const dir = mkdtempSync(join(tmpdir(), "loop-upgrade-queue-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop55-upgrade-queue-"));
+process.env.LOOP55_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim, deferUndispatched } =
   await import("../src/server/queue");
@@ -16,7 +16,7 @@ const { nativeSignIns } = await import("../src/server/native-auth");
 const { executeAgent } = await import("../src/server/agent-runtime");
 db.prepare(
   "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('codex','local-workspace','openai','fixture','','connected','[]',?,0)",
-).run(JSON.stringify({ loopHarness: "codex" }));
+).run(JSON.stringify({ loop55Harness: "codex" }));
 const outcome = (run: { id: string }) =>
   db
     .prepare("SELECT state,error,idempotency_key FROM runs WHERE id=?")

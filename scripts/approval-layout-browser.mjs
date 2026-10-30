@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -11,8 +12,8 @@ import { nativeQuestionLayoutSmoke } from "./helpers/native-question-layout-smok
 
 // Fixture-only: real UI, no native provider or external tool execution.
 const screenshots =
-  process.env.LOOP_DESIGN_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+  process.env.LOOP55_DESIGN_SCREENSHOT_DIR ||
+  (process.env.CI ? join("docs", "loop55-v0", "evidence") : undefined);
 if (screenshots) mkdirSync(screenshots, { recursive: true });
 for (const engine of selectedEngines()) {
   const fixture = await designFixture();
@@ -95,7 +96,7 @@ for (const engine of selectedEngines()) {
                       kind: "approval",
                       title: review
                         ? "Allow tool call?"
-                        : "Allow loop_delegate?",
+                        : "Allow loop55_delegate?",
                       choices: ["accept", "decline", "cancel"],
                       allow: "accept",
                       detail: JSON.stringify(
@@ -227,7 +228,7 @@ for (const engine of selectedEngines()) {
         );
         const card = page.locator(".conversation-sheet .native-decision");
         const detail = card.locator(".native-decision-detail");
-        await expect(detail.locator("strong")).toHaveText("loop_delegate");
+        await expect(detail.locator("strong")).toHaveText("loop55_delegate");
         await expect(
           detail.getByRole("heading", { name: "Tool arguments" }),
         ).toBeVisible();

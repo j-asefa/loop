@@ -6,9 +6,9 @@ import { randomBytes } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-const dir = mkdtempSync(join(tmpdir(), "loop-review-feedback-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-review-feedback-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -129,7 +129,7 @@ it.each(["query", "stdio", "import"])(
           yield {
             toolCall: {
               id: "diagnostic",
-              name: input.tools!.find((t) => t.name.startsWith("loop_tool_"))!
+              name: input.tools!.find((t) => t.name.startsWith("loop55_tool_"))!
                 .name,
               arguments: {},
             },
@@ -228,14 +228,14 @@ it("finishes reciprocal teams despite intervening queued tasks without overlappi
     },
     async *stream(_key, input) {
       if (
-        input.tools?.some((t) => t.name === "loop_delegate") &&
+        input.tools?.some((t) => t.name === "loop55_delegate") &&
         !input.messages.some((m) => m.role === "tool")
       ) {
         const manager = input.messages.find((m) => m.role === "user")!.content;
         yield {
           toolCall: {
             id: "delegate",
-            name: "loop_delegate",
+            name: "loop55_delegate",
             arguments: {
               tasks: [
                 {

@@ -135,7 +135,7 @@ export function PersonalFiles({
       const sources = (event as CustomEvent<{ sources?: string[] }>).detail
         ?.sources;
       if (sources && !sources.includes(source)) return;
-      if (event.type === "loop-refresh") {
+      if (event.type === "loop55-refresh") {
         urgent = true;
         clearTimeout(timer);
         timer = undefined;
@@ -150,12 +150,12 @@ export function PersonalFiles({
     };
     setPage(empty);
     void load();
-    window.addEventListener("loop-refresh", refresh);
+    window.addEventListener("loop55-refresh", refresh);
     const stopChanges = listenWorkspaceChanges("results", refresh, source);
     return () => {
       controller.abort();
       clearTimeout(timer);
-      window.removeEventListener("loop-refresh", refresh);
+      window.removeEventListener("loop55-refresh", refresh);
       stopChanges();
     };
   }, [call, query, source]);
@@ -261,7 +261,7 @@ export function PersonalFiles({
         <p>
           {Object.values(query).some((value) => value && value !== "all")
             ? "No files match your filters."
-            : "No published files yet. Ask an agent to publish a file to Loop and it will appear here."}
+            : "No published files yet. Ask an agent to publish a file to Loop55 and it will appear here."}
         </p>
       )}
       {!loading && !error && page.next && (

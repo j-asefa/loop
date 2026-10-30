@@ -66,7 +66,7 @@ export async function executionEnvironmentsSmoke(
     };
     await checkDestinations([[connection.id, computer]]);
 
-    computer = "Docker · research/loop";
+    computer = "Docker · research/loop5555";
     setEnvironment("docker", computer);
     const secondName = "Docker · research/app";
     const secondId = "second-docker";

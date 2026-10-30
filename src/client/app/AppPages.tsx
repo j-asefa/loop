@@ -397,7 +397,7 @@ export function renderAppPages(
                 onClick={() => {
                   setView(v);
                   if (profile)
-                    sessionStorage.setItem("loop-agent-tab-" + profile.id, v);
+                    sessionStorage.setItem("loop55-agent-tab-" + profile.id, v);
                 }}
               >
                 {label}
@@ -456,7 +456,7 @@ export function renderAppPages(
                 type="button"
                 className="text-button"
                 onClick={() =>
-                  window.dispatchEvent(new Event("loop-source-refresh"))
+                  window.dispatchEvent(new Event("loop55-source-refresh"))
                 }
               >
                 Retry connection

@@ -7,10 +7,10 @@ import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-workflow-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "companion";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop55-workflow-contracts-"));
+process.env.LOOP55_DATA_DIR = directory;
+process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent, ownedRun } = await import("../src/server/domain");
@@ -82,7 +82,7 @@ function fixture(who = owner) {
     model: "fixture",
   });
   const spec = {
-    dsl: "loop.workflow/v1",
+    dsl: "loop55.workflow/v1",
     title: "Contract workflow",
     inputs: { topic: { description: "Topic", default: "evidence" } },
     agents: { writer: agent.id },

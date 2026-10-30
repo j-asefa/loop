@@ -156,7 +156,7 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
       exact: true,
     });
     await expect(original.locator(".approval-target")).toHaveText(
-      "sample/loop #42",
+      "sample/loop55 #42",
     );
     await expect(original.locator(".approval-arguments")).toContainText(
       "Two issues need attention before this change is ready.",
@@ -315,11 +315,11 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
       await route.fulfill({ response });
     } else await route.continue();
   });
-  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await page.evaluate(() => window.dispatchEvent(new Event("loop55-refresh")));
   await read;
   seed(53);
   // An explicit refresh during a read must run as soon as that read finishes.
-  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await page.evaluate(() => window.dispatchEvent(new Event("loop55-refresh")));
   release();
   await expect(page.locator(".personal-decisions article")).toHaveCount(54, {
     timeout: 2500,
@@ -333,8 +333,8 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
     .run(run.conversation_id);
   // Pull-to-refresh must advance an already scheduled, throttled invalidation.
   await page.evaluate(() => {
-    window.dispatchEvent(new Event("loop-workspace-change"));
-    window.dispatchEvent(new Event("loop-refresh"));
+    window.dispatchEvent(new Event("loop55-workspace-change"));
+    window.dispatchEvent(new Event("loop55-refresh"));
   });
   await expect(
     page.locator(".personal-decisions article").first(),
@@ -376,7 +376,9 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
   await expect(page.locator(".personal-decisions article")).toHaveCount(50);
   for (const index of [54, 55, 56]) {
     seed(index);
-    await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("loop55-refresh")),
+    );
     await expect(page.locator(".personal-decisions article")).toHaveCount(
       index - 3,
       { timeout: 12000 },
@@ -417,7 +419,7 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
     });
     await expect(
       original.getByLabel("Original approval unavailable"),
-    ).toContainText("Update Loop on that workspace");
+    ).toContainText("Update Loop55 on that workspace");
     await expect(original).toContainText("Your choice: Approved");
     await expect(
       original.getByRole("button", { name: "Retry", exact: true }),
@@ -461,11 +463,11 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
   page.on("request", countHistory);
   await page.goto(fixture.base + "/?page=profile&profileTab=answers");
   await expect(page.getByLabel("Decision history unavailable")).toContainText(
-    "Update Loop",
+    "Update Loop55",
   );
   await page.getByRole("tab", { name: "Approvals", exact: true }).click();
   await expect(page.getByLabel("Decision history unavailable")).toBeVisible();
-  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await page.evaluate(() => window.dispatchEvent(new Event("loop55-refresh")));
   await page.evaluate(
     () =>
       new Promise((resolve) =>

@@ -15,9 +15,9 @@ import {
   pullRequestCard,
   summarizePullRequest,
 } from "../src/shared/github";
-const dir = mkdtempSync(join(tmpdir(), "loop-github-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-github-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -273,7 +273,7 @@ const githubFixture = async () => {
   );
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
-  const client = new Client({ name: "loop-github-fixture", version: "1" });
+  const client = new Client({ name: "loop55-github-fixture", version: "1" });
   await client.connect(b);
   return client;
 };
@@ -312,7 +312,7 @@ const resetProvider = withTestAdapter("openai", {
   },
   async *stream(_secret, input) {
     seenInstructions.push(input.instructions);
-    // Loop passes its bindings, which name the underlying MCP tool.
+    // Loop55 passes its bindings, which name the underlying MCP tool.
     const tool = (name: string) =>
       input.tools!.find((t) => (t as { tool?: string }).tool === name)!.name;
     const results = input.messages.filter((m) => m.role === "tool");

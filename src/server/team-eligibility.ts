@@ -3,10 +3,10 @@ import { Problem } from "./domain.js";
 import type { Connection } from "./row-schemas.js";
 
 export function assertTeamConnection(connection: Pick<Connection, "metadata">) {
-  if (connection.metadata.loopHarness === "antigravity")
+  if (connection.metadata.loop55Harness === "antigravity")
     throw new Problem(
       409,
-      "Antigravity does not expose Loop workspace tools. Choose another harness for team delegation and code reviews.",
+      "Antigravity does not expose Loop55 workspace tools. Choose another harness for team delegation and code reviews.",
     );
 }
 

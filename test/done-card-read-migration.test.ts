@@ -20,8 +20,10 @@ const owners = ["owner-one", "owner-two"];
 it.each(["server", "companion"])(
   "%s marks existing Done results read once, including dismissed and grouped cards",
   async (profile) => {
-    const directory = mkdtempSync(join(tmpdir(), "loop-done-read-migration-"));
-    const db = new Database(join(directory, "loop.db"));
+    const directory = mkdtempSync(
+      join(tmpdir(), "loop55-done-read-migration-"),
+    );
+    const db = new Database(join(directory, "loop55.db"));
     try {
       db.pragma("foreign_keys=ON");
       const oldMigrations = join(directory, "migrations");
@@ -126,8 +128,8 @@ it.each(["server", "companion"])(
           {
             env: {
               ...process.env,
-              LOOP_DATA_DIR: directory,
-              LOOP_PROFILE: profile,
+              LOOP55_DATA_DIR: directory,
+              LOOP55_PROFILE: profile,
             },
             timeout: 15000,
           },

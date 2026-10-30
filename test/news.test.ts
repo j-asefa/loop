@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-news-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-news-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { errorHandler } = await import("../src/server/error-handler");
 const { parseFeed } = await import("../src/server/syndication");
 const {
@@ -225,7 +225,7 @@ it("lists only public http(s) catalog feeds with unique ids", () => {
   const categories = new Set(feedCatalog.map((f) => f.category));
   for (const feed of feedCatalog) {
     expect(feed.url).toMatch(/^https:\/\//);
-    // Reddit's logged-out RSS answers 429: it is not a feed Loop can offer.
+    // Reddit's logged-out RSS answers 429: it is not a feed Loop55 can offer.
     expect(new URL(feed.url).hostname).not.toMatch(/(^|\.)reddit\.com$/);
     expect(feed.home).toBeTruthy();
     expect(feed.home).not.toMatch(/^www\./);
@@ -264,7 +264,7 @@ it("merges added feeds newest first, from one shared cache", async () => {
   const asked: string[] = [];
   restore = withNewsFixture(async (url, init) => {
     asked.push(url);
-    expect(new Headers(init.headers).get("user-agent")).toMatch(/Loop/);
+    expect(new Headers(init.headers).get("user-agent")).toMatch(/Loop55/);
     return new Response(url === LOBSTERS_RSS ? lobstersRss : officialRss);
   });
   for (const owner of ["dana", "erin"]) {
@@ -277,7 +277,7 @@ it("merges added feeds newest first, from one shared cache", async () => {
   expect(
     data.stories.map((s: any) => [s.feed, s.title, s.id.split(":")[0]]),
   ).toEqual([
-    // An undated story sorts by when Loop first read it, which is now.
+    // An undated story sorts by when Loop55 first read it, which is now.
     ["lobsters", "Undated musing", "lobsters"],
     ["lobsters", "Zig 0.15 released", "lobsters"],
     ["hackernews", "Run a 125B model at 100T/s & more", "hackernews"],

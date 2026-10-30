@@ -27,7 +27,7 @@ const saveStep = z
   .strict();
 export const workflowSchema = z
   .object({
-    dsl: z.literal("loop.workflow/v1"),
+    dsl: z.enum(["loop55.workflow/v1", "loop.workflow/v1"]),
     title: z.string().min(1).max(120),
     inputs: z.record(
       name,

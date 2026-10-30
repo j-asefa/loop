@@ -43,7 +43,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   const dialog = () => page.locator("dialog[open]").last();
   const settled = async () => {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
   };
   const close = async () => {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
@@ -457,7 +457,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     .click();
   await page
     .locator(".project-tile")
-    .filter({ has: page.locator("strong", { hasText: /^Loop$/ }) })
+    .filter({ has: page.locator("strong", { hasText: /^Loop55$/ }) })
     .click();
   await page
     .locator(".project-tabs")

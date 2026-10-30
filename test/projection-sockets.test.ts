@@ -81,7 +81,7 @@ it("replays bounded, whole append events after disconnect halfway through a larg
   const snapshot = await response.json();
   projection.install(snapshot.messages);
   expect(snapshot.projection.cursor).toBe(
-    Number(response.headers.get("x-loop-change-cursor")),
+    Number(response.headers.get("x-loop55-change-cursor")),
   );
   const text = "A" + '🙂中\n"\\'.repeat(100000);
   f.db.prepare("UPDATE messages SET content=? WHERE id='message'").run(text);
@@ -150,7 +150,7 @@ it("serves atomic per-page Feed deltas with upserts, removals, filter changes an
     expect(r.status).toBe(200);
     const body = await r.json();
     expect(body.projection.cursor).toBe(
-      Number(r.headers.get("x-loop-change-cursor")),
+      Number(r.headers.get("x-loop55-change-cursor")),
     );
     return body;
   };

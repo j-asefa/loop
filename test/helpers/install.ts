@@ -67,7 +67,7 @@ for (const provider of ["openai", "anthropic"] as const)
         yield {
           toolCall: {
             id: "fixture-delegation",
-            name: "loop_delegate",
+            name: "loop55_delegate",
             arguments: {
               tasks: [
                 {
@@ -114,7 +114,10 @@ withTestMcp(async (c) => {
     c.metadata,
     c.id,
   );
-  const server = new McpServer({ name: "Loop browser fixture", version: "1" });
+  const server = new McpServer({
+    name: "Loop55 browser fixture",
+    version: "1",
+  });
   server.registerTool(
     "metrics",
     {
@@ -156,7 +159,7 @@ withTestMcp(async (c) => {
   );
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
-  const client = new Client({ name: "loop-browser-test", version: "1" });
+  const client = new Client({ name: "loop55-browser-test", version: "1" });
   await client.connect(b);
   return client;
 });

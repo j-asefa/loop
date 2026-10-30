@@ -322,12 +322,12 @@ describe("later choices", () => {
     expect(new Date(tomorrow.dueAt!).getHours()).toBe(9);
     const withContext = laterChoices(now, {
       running: true,
-      project: { id: "p", name: "Loop" },
+      project: { id: "p", name: "Loop55" },
     });
     expect(withContext.at(-2)).toMatchObject({ condition: "run_finished" });
     expect(withContext.at(-1)).toMatchObject({
       condition: "project_open",
-      label: "Next time I open Loop",
+      label: "Next time I open Loop55",
     });
   });
   it("skips this evening once it is too close", () => {

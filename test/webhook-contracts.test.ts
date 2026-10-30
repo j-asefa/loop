@@ -162,15 +162,15 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
     const ping = sink.received[0],
       body = WebhookPayload.parse(JSON.parse(ping.body));
     expect("type" in body && body.type).toBe("ping");
-    const timestamp = String(ping.req.headers["x-loop-timestamp"]);
-    expect(ping.req.headers["x-loop-signature"]).toBe(
+    const timestamp = String(ping.req.headers["x-loop55-timestamp"]);
+    expect(ping.req.headers["x-loop55-signature"]).toBe(
       "v1=" +
         createHmac("sha256", created.secret)
           .update(timestamp + "." + ping.body)
           .digest("hex"),
     );
-    expect(ping.req.headers["x-loop-event"]).toBe("control");
-    expect(ping.req.headers["x-loop-delivery"]).toBe(body.id);
+    expect(ping.req.headers["x-loop55-event"]).toBe("control");
+    expect(ping.req.headers["x-loop55-delivery"]).toBe(body.id);
     expect((await createReplay(f, created.request)).subscription.id).toBe(id);
     expect(sink.received).toHaveLength(1);
     const visible = await list(f);
@@ -303,11 +303,11 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
     expect(payloads(f, subscription.id)).toHaveLength(before);
     await f.webhookFixture("deliver");
     for (const received of sink.received) {
-      expect(received.req.headers["x-loop-signature"]).toBe(
+      expect(received.req.headers["x-loop55-signature"]).toBe(
         "v1=" +
           createHmac("sha256", secret)
             .update(
-              received.req.headers["x-loop-timestamp"] + "." + received.body,
+              received.req.headers["x-loop55-timestamp"] + "." + received.body,
             )
             .digest("hex"),
       );
@@ -473,7 +473,7 @@ it("clears unrelated HTTP status when crash recovery exhausts an unconfirmed fin
   await f.webhookFixture("start-worker");
   await expect.poll(() => sink.received.length, { timeout: 8000 }).toBe(3);
   sink.received
-    .find((row) => row.req.headers["x-loop-delivery"] === second.id)!
+    .find((row) => row.req.headers["x-loop55-delivery"] === second.id)!
     .res.writeHead(204)
     .end();
   await expect
@@ -513,11 +513,11 @@ it("keeps credentials and unrelated query data out of the public conversation li
   const created = await create(f, destination);
   await stop(f, records, "running", "completed", {
     publicUrl:
-      "https://name:never-export@loop.example/old?secret=never-export#private",
+      "https://name:never-export@loop55.example/old?secret=never-export#private",
   });
   const [event] = payloads(f, created.subscription.id);
   expect(event.url).toBe(
-    "https://loop.example/?conversation=" +
+    "https://loop55.example/?conversation=" +
       encodeURIComponent(records.conversation),
   );
   expect(JSON.stringify(event)).not.toContain("never-export");
@@ -554,7 +554,7 @@ it("recovers creation after persistence but before its first ping can be sent", 
     .run(before.id);
   await f.webhookFixture("deliver");
   expect(sink.received).toHaveLength(1);
-  expect(sink.received[0].req.headers["x-loop-delivery"]).toBe(before.id);
+  expect(sink.received[0].req.headers["x-loop55-delivery"]).toBe(before.id);
   expect((await list(f)).subscriptions[0].state).toBe("active");
 }, 60000);
 
@@ -599,7 +599,7 @@ it("records the native supervisor's interrupted recovery transition", async () =
   f.db.prepare("UPDATE runs SET state='running' WHERE id=?").run(records.run);
   f.db
     .prepare(
-      "UPDATE connections SET metadata=json_set(metadata,'$.loopHarness','codex') WHERE id=?",
+      "UPDATE connections SET metadata=json_set(metadata,'$.loop55Harness','codex') WHERE id=?",
     )
     .run(records.connection);
   await f.webhookFixture("recover-native");
@@ -710,7 +710,7 @@ it("dead-letters on the sixth failure and retains new stops until an explicit re
   ).toBe(true);
   const ids = sink.received
     .slice(1)
-    .map((row) => row.req.headers["x-loop-delivery"]);
+    .map((row) => row.req.headers["x-loop55-delivery"]);
   expect(new Set(ids.slice(0, 6)).size).toBe(1);
   expect(ids.slice(6)).toContain(ids[0]);
 }, 60000);
@@ -737,7 +737,9 @@ it("rearms an exhausted activation without activating until its same-id ping suc
   await f.webhookFixture("deliver");
   expect((await list(f)).subscriptions[0].state).toBe("active");
   expect(
-    new Set(sink.received.map((entry) => entry.req.headers["x-loop-delivery"])),
+    new Set(
+      sink.received.map((entry) => entry.req.headers["x-loop55-delivery"]),
+    ),
   ).toEqual(new Set([original]));
 }, 60000);
 
@@ -757,7 +759,7 @@ it.each([204, 400])(
     const sending = f.webhookFixture("deliver");
     await expect.poll(() => sink.received.length).toBe(3);
     sink.received
-      .find((row) => row.req.headers["x-loop-delivery"] === first.id)!
+      .find((row) => row.req.headers["x-loop55-delivery"] === first.id)!
       .res.writeHead(503)
       .end();
     await expect
@@ -765,7 +767,7 @@ it.each([204, 400])(
       .toBe("failed");
     const firstFailure = (await list(f)).subscriptions[0];
     sink.received
-      .find((row) => row.req.headers["x-loop-delivery"] === second.id)!
+      .find((row) => row.req.headers["x-loop55-delivery"] === second.id)!
       .res.writeHead(status)
       .end();
     await sending;
@@ -800,7 +802,7 @@ it("reclaims a killed worker's lease with the same identity and cancels queued c
     .prepare("UPDATE webhook_deliveries SET leased_until=0 WHERE id=?")
     .run(claim.id);
   await f.webhookFixture("deliver");
-  expect(sink.received[1].req.headers["x-loop-delivery"]).toBe(claim.id);
+  expect(sink.received[1].req.headers["x-loop55-delivery"]).toBe(claim.id);
   sink.status(503);
   const test = await action(f, subscription.id, "test");
   expect(test.status).toBe(200);

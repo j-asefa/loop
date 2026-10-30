@@ -24,15 +24,15 @@ export async function composerJourney(page, api) {
     await api("/teams", { name, managerId: manager.id, members: [worker.id] });
   // Reproduce going offline after render but before the effect subscribes.
   await page.evaluate(() =>
-    sessionStorage.setItem("loop-test-offline-on-subscribe", "1"),
+    sessionStorage.setItem("loop55-test-offline-on-subscribe", "1"),
   );
   await page.addInitScript(() => {
-    if (sessionStorage.getItem("loop-test-offline-on-subscribe") !== "1")
+    if (sessionStorage.getItem("loop55-test-offline-on-subscribe") !== "1")
       return;
     const add = window.addEventListener;
     window.addEventListener = function (type, listener, options) {
       if (type === "offline") {
-        sessionStorage.removeItem("loop-test-offline-on-subscribe");
+        sessionStorage.removeItem("loop55-test-offline-on-subscribe");
         Object.defineProperty(navigator, "onLine", {
           configurable: true,
           value: false,
@@ -89,7 +89,7 @@ export async function composerJourney(page, api) {
     const list = page.locator(".team-options");
     assert.ok(await list.evaluate((el) => el.scrollHeight > el.clientHeight));
     await page.screenshot({
-      path: join(tmpdir(), `loop-team-picker-${width}.png`),
+      path: join(tmpdir(), `loop55-team-picker-${width}.png`),
     });
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await expect(picker).toHaveText("2 teams");
@@ -135,7 +135,7 @@ export async function composerJourney(page, api) {
         theme,
       );
       await page.screenshot({
-        path: join(tmpdir(), `loop-composer-${width}-${theme}.png`),
+        path: join(tmpdir(), `loop55-composer-${width}-${theme}.png`),
       });
     }
     await page.evaluate(() => {
@@ -156,7 +156,7 @@ export async function composerJourney(page, api) {
       "Composer fits above a 350px keyboard",
     );
     await page.screenshot({
-      path: join(tmpdir(), `loop-composer-keyboard-${width}.png`),
+      path: join(tmpdir(), `loop55-composer-keyboard-${width}.png`),
       clip: { x: 0, y: 0, width, height: 494 },
     });
     // iOS can leave visualViewport at its old keyboard height after blur.
@@ -179,7 +179,7 @@ export async function composerJourney(page, api) {
       "The collapsed composer returns directly above navigation after blur",
     );
     await page.screenshot({
-      path: join(tmpdir(), `loop-composer-dismissed-keyboard-${width}.png`),
+      path: join(tmpdir(), `loop55-composer-dismissed-keyboard-${width}.png`),
     });
 
     // Opening a picker while typing must clear the same stale keyboard inset.
@@ -304,7 +304,7 @@ export async function composerJourney(page, api) {
 export async function sendCollapseJourney(page, api, dir) {
   // This independent case must not inherit the earlier provider/composer
   // journeys' request budget when a faster runner fits them in one minute.
-  const limits = new Database(join(dir, "loop.db"));
+  const limits = new Database(join(dir, "loop55.db"));
   try {
     limits.pragma("busy_timeout = 10000");
     limits.prepare("DELETE FROM request_limits").run();
@@ -333,8 +333,8 @@ export async function sendCollapseJourney(page, api, dir) {
       ? "Collapse after this reply"
       : "Collapse after this message";
     const { user } = await api("/auth/get-session");
-    const storageKey = `loop-draft-text:${user.id}:${reply ? conversationId : "__global__"}`;
-    const receiptKey = `loop-send:${JSON.stringify([user.id, "", reply ? conversationId : null])}`;
+    const storageKey = `loop55-draft-text:${user.id}:${reply ? conversationId : "__global__"}`;
+    const receiptKey = `loop55-send:${JSON.stringify([user.id, "", reply ? conversationId : null])}`;
     await input.fill(prompt);
 
     // A lost acknowledgement must retain the draft and retry the same saved run.
@@ -384,18 +384,18 @@ export async function sendCollapseJourney(page, api, dir) {
             // Force the intentional legacy-receipt migration path instead of
             // leaving the current scoped receipt to satisfy this retry.
             sessionStorage.removeItem(receiptKey);
-            sessionStorage.removeItem("loop-draft-receipt:laptop");
-            sessionStorage.removeItem("loop-draft");
-            sessionStorage.removeItem("loop-draft-context");
-            sessionStorage.removeItem("loop-draft-receipt");
+            sessionStorage.removeItem("loop55-draft-receipt:laptop");
+            sessionStorage.removeItem("loop55-draft");
+            sessionStorage.removeItem("loop55-draft-context");
+            sessionStorage.removeItem("loop55-draft-receipt");
             // Thread drafts persist per signed-in owner and thread.
             const session = await (await fetch("/api/auth/get-session")).json();
             localStorage.setItem(
-              `loop-draft-text:${session.user.id}:${conversationId}`,
+              `loop55-draft-text:${session.user.id}:${conversationId}`,
               prompt,
             );
             sessionStorage.setItem(
-              "loop-receipt-" + conversationId,
+              "loop55-receipt-" + conversationId,
               JSON.stringify({
                 signature: JSON.stringify([
                   conversationId,
@@ -451,7 +451,7 @@ export async function sendCollapseJourney(page, api, dir) {
               (id) =>
                 Object.keys(localStorage).find(
                   (k) =>
-                    k.startsWith("loop-draft-text:") && k.endsWith(":" + id),
+                    k.startsWith("loop55-draft-text:") && k.endsWith(":" + id),
                 ) ?? null,
               conversationId,
             ),
@@ -510,7 +510,7 @@ export async function scheduledSendJourney(page, api, dir) {
   const base = new URL(page.url()).origin;
   // Earlier journeys share this fixture user's per-minute request budget.
   if (dir) {
-    const limits = new Database(join(dir, "loop.db"));
+    const limits = new Database(join(dir, "loop55.db"));
     limits.pragma("busy_timeout = 10000");
     limits.prepare("DELETE FROM request_limits").run();
     limits.close();

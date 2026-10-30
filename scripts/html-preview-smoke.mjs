@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -9,8 +10,8 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 const fixture = await designFixture();
 const evidence =
-  process.env.LOOP_HTML_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+  process.env.LOOP55_HTML_SCREENSHOT_DIR ||
+  (process.env.CI ? join("docs", "loop55-v0", "evidence") : undefined);
 if (evidence) mkdirSync(evidence, { recursive: true });
 try {
   for (const engine of selectedEngines()) {

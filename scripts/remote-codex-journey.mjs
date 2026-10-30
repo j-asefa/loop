@@ -20,7 +20,7 @@ export async function remoteCodexJourney(page, api, fixture) {
   await expect(page.getByRole("alert")).toContainText("Could not reach Codex");
   await page.getByLabel("Runtime access token").fill(fixture.token);
   await page.screenshot({
-    path: join(tmpdir(), "loop-remote-codex-setup.png"),
+    path: join(tmpdir(), "loop55-remote-codex-setup.png"),
   });
   await button("Test & add machine").click();
   await page.getByText("Existing remote Codex", { exact: true }).waitFor();
@@ -60,7 +60,7 @@ export async function remoteCodexJourney(page, api, fixture) {
     false,
   );
   await page.screenshot({
-    path: join(tmpdir(), "loop-remote-codex-provider.png"),
+    path: join(tmpdir(), "loop55-remote-codex-provider.png"),
   });
   await button("Connect remote ChatGPT").click();
   await page

@@ -33,7 +33,7 @@ The body contains: what changed and why; the decisions you made where the spec l
 
 ## Review loop
 
-The review team is the Loop "Review code changes" team, id `75e334bb-e16b-4d61-b16a-c6859d2337ad`, reached through `loop_request_review` with `scope: "branch"` and `base: "origin/main"`.
+The review team is the Loop55 "Review code changes" team, id `75e334bb-e16b-4d61-b16a-c6859d2337ad`, reached through `loop55_request_review` with `scope: "branch"` and `base: "origin/main"`.
 
 - **Request a review only on a commit whose checks are green.** Before calling the tool, record the branch head hash in the ledger's review history as the reviewed head.
 - **Do not issue a new tool call merely to poll.** Each model-issued call has a new call id and starts a new review; the first time someone retried, six duplicates ran. The tool waits for the consolidated report, which can take several minutes, and may time out before the team finishes. If it does, do not call again. Record the review id, fingerprint and the lead's `conversationId` from the review report. To check progress, call the authenticated status route `GET /api/reviews/conversation/:id` with that lead conversation id (not your own conversation); it derives the review from that conversation's latest run, so verify the returned review id and fingerprint match the review you requested, and if they do not, read `code_reviews` by the exact review id instead. Never read "the newest row": it can belong to another PR, another conversation or another owner.

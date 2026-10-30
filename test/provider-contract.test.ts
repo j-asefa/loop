@@ -2,8 +2,8 @@ import { it, expect, vi, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-const dir = mkdtempSync(join(tmpdir(), "loop-provider-contract-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop55-provider-contract-"));
+process.env.LOOP55_DATA_DIR = dir;
 const { adapter } = await import("../src/server/providers");
 const { db } = await import("../src/server/db");
 function sse(events: any[]) {
@@ -30,7 +30,7 @@ it("uses the actual OpenAI SDK to send selected model and decode text, tool call
         item: {
           type: "function_call",
           call_id: "tool-1",
-          name: "loop_tool_0",
+          name: "loop55_tool_0",
           arguments: '{"query":"latency"}',
         },
       },
@@ -61,7 +61,7 @@ it("uses the actual OpenAI SDK to send selected model and decode text, tool call
     signal: new AbortController().signal,
     tools: [
       {
-        name: "loop_tool_0",
+        name: "loop55_tool_0",
         description: "Fixture",
         inputSchema: { type: "object" },
       },
@@ -89,7 +89,7 @@ it("uses the actual OpenAI SDK to send selected model and decode text, tool call
   expect(chunks).toContainEqual({
     toolCall: {
       id: "tool-1",
-      name: "loop_tool_0",
+      name: "loop55_tool_0",
       arguments: { query: "latency" },
     },
   });
@@ -231,12 +231,12 @@ const { openaiToolSearch, anthropicToolSearch } =
   await import("../src/server/providers");
 const deferredTools = [
   {
-    name: "loop_plan",
-    description: "Loop's own tool",
+    name: "loop55_plan",
+    description: "Loop55's own tool",
     inputSchema: { type: "object" },
   },
   {
-    name: "loop_tool_abc",
+    name: "loop55_tool_abc",
     description: "Fixture MCP metrics: query latency",
     inputSchema: { type: "object" },
     deferLoading: true,
@@ -279,7 +279,9 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
     tool_use_id: "srvtoolu_1",
     content: {
       type: "tool_search_tool_search_result",
-      tool_references: [{ type: "tool_reference", tool_name: "loop_tool_abc" }],
+      tool_references: [
+        { type: "tool_reference", tool_name: "loop55_tool_abc" },
+      ],
     },
   };
   const start = {
@@ -368,7 +370,7 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
       content_block: {
         type: "tool_use",
         id: "tool-1",
-        name: "loop_tool_abc",
+        name: "loop55_tool_abc",
         input: {},
       },
     },
@@ -402,12 +404,12 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
   expect(bodies[0].tools).toEqual([
     { type: "tool_search_tool_bm25_20251119", name: "tool_search_tool_bm25" },
     {
-      name: "loop_plan",
-      description: "Loop's own tool",
+      name: "loop55_plan",
+      description: "Loop55's own tool",
       input_schema: { type: "object" },
     },
     {
-      name: "loop_tool_abc",
+      name: "loop55_tool_abc",
       description: "Fixture MCP metrics: query latency",
       input_schema: { type: "object" },
       defer_loading: true,
@@ -427,7 +429,7 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
     {
       type: "tool_use",
       id: "tool-1",
-      name: "loop_tool_abc",
+      name: "loop55_tool_abc",
       input: { query: "p99" },
     },
   ];
@@ -440,12 +442,12 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
       .map((c) => c.text)
       .join(""),
   ).toBe("Searching. Found it.");
-  // The search call is never surfaced as a tool call for Loop to execute.
+  // The search call is never surfaced as a tool call for Loop55 to execute.
   expect(chunks.filter((c) => c.toolCall)).toEqual([
     {
       toolCall: {
         id: "tool-1",
-        name: "loop_tool_abc",
+        name: "loop55_tool_abc",
         arguments: { query: "p99" },
       },
     },
@@ -457,7 +459,7 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
       role: "assistant",
       content: "Searching. Found it.",
       toolCalls: [
-        { id: "tool-1", name: "loop_tool_abc", arguments: { query: "p99" } },
+        { id: "tool-1", name: "loop55_tool_abc", arguments: { query: "p99" } },
       ],
       providerContent: content,
     },
@@ -512,7 +514,7 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
       content_block: {
         type: "tool_use",
         id: "tool-2",
-        name: "loop_plan",
+        name: "loop55_plan",
         input: {},
       },
     },
@@ -528,7 +530,7 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
     role: "assistant",
     content: "Searching. Found it.",
     toolCalls: [
-      { id: "tool-1", name: "loop_tool_abc", arguments: { query: "p99" } },
+      { id: "tool-1", name: "loop55_tool_abc", arguments: { query: "p99" } },
     ],
     providerContent: content,
   };
@@ -540,7 +542,12 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
   const followUp = [
     content[0],
     content[1],
-    { type: "tool_use", id: "tool-2", name: "loop_plan", input: { steps: [] } },
+    {
+      type: "tool_use",
+      id: "tool-2",
+      name: "loop55_plan",
+      input: { steps: [] },
+    },
   ];
   expect(chunks.filter((c) => c.providerContent)).toEqual([
     { providerContent: followUp },
@@ -553,7 +560,7 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
       role: "assistant",
       content: "",
       toolCalls: [
-        { id: "tool-2", name: "loop_plan", arguments: { steps: [] } },
+        { id: "tool-2", name: "loop55_plan", arguments: { steps: [] } },
       ],
       providerContent: followUp,
     },
@@ -577,7 +584,7 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
   expect(chunks.some((c) => c.providerContent || c.pauseTurn)).toBe(false);
   // A forced tool must already be loaded: projections defer nothing.
   await collect([{ role: "user", content: "Project" }], {
-    toolChoice: "loop_tool_abc",
+    toolChoice: "loop55_tool_abc",
   });
   expect(bodies[7].tools.map((t: any) => t.type)).toEqual([
     undefined,
@@ -593,12 +600,12 @@ it("defers connected MCP tools behind Anthropic tool search and replays the orde
   });
   expect(bodies[8].tools).toEqual([
     {
-      name: "loop_plan",
-      description: "Loop's own tool",
+      name: "loop55_plan",
+      description: "Loop55's own tool",
       input_schema: { type: "object" },
     },
     {
-      name: "loop_tool_abc",
+      name: "loop55_tool_abc",
       description: "Fixture MCP metrics: query latency",
       input_schema: { type: "object" },
     },
@@ -643,7 +650,7 @@ it("defers connected MCP tools behind OpenAI tool search on supporting models an
     call_id: "call_search",
     execution: "server",
     status: "completed",
-    tools: [{ type: "function", name: "loop_tool_abc" }],
+    tools: [{ type: "function", name: "loop55_tool_abc" }],
   };
   const message = {
     type: "message",
@@ -656,7 +663,7 @@ it("defers connected MCP tools behind OpenAI tool search on supporting models an
     type: "function_call",
     id: "fc_1",
     call_id: "tool-1",
-    name: "loop_tool_abc",
+    name: "loop55_tool_abc",
     arguments: '{"query":"p99"}',
     status: "completed",
   };
@@ -709,14 +716,14 @@ it("defers connected MCP tools behind OpenAI tool search on supporting models an
     { type: "tool_search" },
     {
       type: "function",
-      name: "loop_plan",
-      description: "Loop's own tool",
+      name: "loop55_plan",
+      description: "Loop55's own tool",
       parameters: { type: "object" },
       strict: false,
     },
     {
       type: "function",
-      name: "loop_tool_abc",
+      name: "loop55_tool_abc",
       description: "Fixture MCP metrics: query latency",
       parameters: { type: "object" },
       strict: false,
@@ -737,7 +744,11 @@ it("defers connected MCP tools behind OpenAI tool search on supporting models an
         role: "assistant",
         content: "Found it.",
         toolCalls: [
-          { id: "tool-1", name: "loop_tool_abc", arguments: { query: "p99" } },
+          {
+            id: "tool-1",
+            name: "loop55_tool_abc",
+            arguments: { query: "p99" },
+          },
         ],
         providerContent: items,
       },
@@ -761,7 +772,7 @@ it("defers connected MCP tools behind OpenAI tool search on supporting models an
     ...functionCall,
     id: "fc_2",
     call_id: "tool-2",
-    name: "loop_plan",
+    name: "loop55_plan",
     arguments: "{}",
   };
   const openai = async (events: any[], prompt: string) => {

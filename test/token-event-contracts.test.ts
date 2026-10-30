@@ -190,7 +190,7 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
       rows.every((row: { owner_id: string }) => row.owner_id === f.owner),
     ).toBe(true);
     expect(JSON.stringify(rows)).not.toContain(foreign.conversation);
-    expect(page.headers.get("x-loop-change-cursor")).toBeNull();
+    expect(page.headers.get("x-loop55-change-cursor")).toBeNull();
     expect(
       (await f.request("/api/events", { headers, method: "HEAD" })).status,
     ).toBe(200);
@@ -421,7 +421,7 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
       serverNow: expect.any(Number),
       nextDeadline: expires,
     });
-    for (const header of ["x-loop-server-now", "x-loop-next-deadline"])
+    for (const header of ["x-loop55-server-now", "x-loop55-next-deadline"])
       expect(page.headers.get(header)).toBeNull();
 
     const stream = await connect(f, reader.secret, `?after=${after}`),

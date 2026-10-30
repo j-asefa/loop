@@ -11,8 +11,8 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  define: { __LOOP_RELEASE__: JSON.stringify(version) },
+  define: { __LOOP55_RELEASE__: JSON.stringify(version) },
   banner: {
-    js: 'import { createRequire as loopRequire } from "node:module"; const require = loopRequire(import.meta.url);',
+    js: 'import { createRequire as loop55Require } from "node:module"; const require = loop55Require(import.meta.url);',
   },
 });

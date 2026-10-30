@@ -27,7 +27,7 @@ export function composeSourceId(project: string, service: string) {
     .digest("hex");
 }
 
-// Only locally published, single-user Loop server containers may be linked.
+// Only locally published, single-user Loop55 server containers may be linked.
 // The original server keeps its database, credentials, worker and dispatches.
 // Concurrent callers share one discovery, and results are reused briefly.
 export async function linkedDockerWorkspaces(fresh = false) {
@@ -82,7 +82,7 @@ async function inspect(id: string): Promise<LinkedDockerWorkspace | null> {
     if (
       typeof project !== "string" ||
       !project ||
-      !["app", "loop"].includes(service) ||
+      !["app", "loop55"].includes(service) ||
       !container?.State?.Running
     )
       return null;
@@ -233,10 +233,10 @@ export async function proxyLinkedDocker(
         "accept-ranges",
         "content-range",
         "retry-after",
-        "x-loop-change-epoch",
-        "x-loop-change-cursor",
-        "x-loop-server-now",
-        "x-loop-next-deadline",
+        "x-loop55-change-epoch",
+        "x-loop55-change-cursor",
+        "x-loop55-server-now",
+        "x-loop55-next-deadline",
         // The Docker server's own policy (sandbox, frame-ancestors) must
         // replace the Host page policy on proxied app and preview content.
         "content-security-policy",

@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-const root = mkdtempSync(join(tmpdir(), "loop-harness-smoke-"));
+const root = mkdtempSync(join(tmpdir(), "loop55-harness-smoke-"));
 for (const mode of ["host", "container"]) {
   for (const provider of ["codex", "claude"]) {
     const home = join(root, mode, provider);
@@ -13,20 +13,20 @@ for (const mode of ["host", "container"]) {
       home,
       provider === "codex" ? ".agents" : ".claude",
       "skills",
-      "loop-discovery-fixture",
+      "loop55-discovery-fixture",
     );
     mkdirSync(skill, { recursive: true });
     writeFileSync(
       join(skill, "SKILL.md"),
-      "---\nname: loop-discovery-fixture\ndescription: A harmless discovery fixture\n---\nSay hello.\n",
+      "---\nname: loop55-discovery-fixture\ndescription: A harmless discovery fixture\n---\nSay hello.\n",
     );
     const p = spawn(process.execPath, ["/runtime/entry.mjs"], {
       cwd: home,
       env: {
         PATH: process.env.PATH,
         HOME: home,
-        LOOP_RUNTIME_MODE: mode,
-        LOOP_RUNTIME_WORKDIR: home,
+        LOOP55_RUNTIME_MODE: mode,
+        LOOP55_RUNTIME_WORKDIR: home,
         DISABLE_AUTOUPDATER: "1",
       },
       stdio: ["pipe", "pipe", "pipe"],
@@ -49,7 +49,7 @@ for (const mode of ["host", "container"]) {
       .find((e) => e.result)?.result;
     assert.equal(result?.available, true);
     assert.ok(
-      result.commands.some((c) => c.name === "loop-discovery-fixture"),
+      result.commands.some((c) => c.name === "loop55-discovery-fixture"),
       provider + " discovers the isolated skill",
     );
     console.log(

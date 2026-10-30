@@ -9,9 +9,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { z } from "zod";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-mcp-errors-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop55-mcp-errors-"));
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now, changes } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -147,7 +147,7 @@ it.each(["ask", "allow"] as const)(
         yield {
           toolCall: {
             id: "review-" + results.length,
-            name: input.tools!.find((t) => t.name.startsWith("loop_tool_"))!
+            name: input.tools!.find((t) => t.name.startsWith("loop55_tool_"))!
               .name,
             arguments:
               results.length === 0

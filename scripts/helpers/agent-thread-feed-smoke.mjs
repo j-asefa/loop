@@ -67,7 +67,7 @@ export async function agentThreadFeedSmoke(page, fixture, _engine, capture) {
       );
   thread(first, "Navigation review");
   // One unbreakable word must not widen the other Done cards.
-  const longSubject = "Build question about loop_mcp_" + "a1b2c3d4".repeat(8);
+  const longSubject = "Build question about loop55_mcp_" + "a1b2c3d4".repeat(8);
   thread(separate, longSubject);
   thread(waiting, "Waiting exchange");
   const question = randomUUID(),
@@ -124,7 +124,7 @@ export async function agentThreadFeedSmoke(page, fixture, _engine, capture) {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await expect(sheet).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loopSheet !== true);
+    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
   };
   let sends = 0;
   page.on("request", (request) => {

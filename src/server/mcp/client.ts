@@ -76,7 +76,7 @@ export function oauthProvider(c: MCPConnection) {
     },
     get clientMetadata() {
       return {
-        client_name: "Loop",
+        client_name: "Loop55",
         redirect_uris: [String(this.redirectUrl)],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
@@ -172,9 +172,9 @@ export async function connect(
   else if (metadata.transport !== "stdio") safeUrl(c.url);
   const secret = readSecret(c),
     client = new Client(
-      { name: "loop", version: "0.1.0" },
+      { name: "loop55", version: "0.1.0" },
       {
-        // Loop's conversation flow cannot reliably present interactive MCP forms.
+        // Loop55's conversation flow cannot reliably present interactive MCP forms.
         // Negotiate ordinary tool results instead of the MCP Apps extension.
         capabilities: {},
       },
@@ -189,8 +189,8 @@ export async function connect(
     metadata.transport === "federation" && runId
       ? {
           ...headers,
-          "x-loop-run-id": runId,
-          ...(callId ? { "x-loop-call-id": callId } : {}),
+          "x-loop55-run-id": runId,
+          ...(callId ? { "x-loop55-call-id": callId } : {}),
         }
       : headers;
   const oauth = secret.type === "oauth" ? oauthProvider(c) : undefined;

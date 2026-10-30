@@ -57,7 +57,7 @@ export function requireProviderIdle(name: string) {
         `SELECT 1 FROM runs r JOIN connections c
           ON c.id=json_extract(r.payload,'$.connectionId') AND c.owner_id=r.owner_id
           WHERE r.owner_id=? AND r.state IN ('running','pausing','awaiting_approval')
-          AND json_extract(c.metadata,'$.loopHarness')=? LIMIT 1`,
+          AND json_extract(c.metadata,'$.loop55Harness')=? LIMIT 1`,
       )
       .get(OWNER, name)
   )
@@ -80,9 +80,9 @@ export function invalidateProviderConnection(name: string) {
         name,
         name === "pi" ? "Pi" : "OpenCode",
         JSON.stringify({
-          loopHarness: name,
+          loop55Harness: name,
           authMode: "native-existing",
-          runtimeKind: "loop-local",
+          runtimeKind: "loop55-local",
         }),
         now(),
       ),
@@ -202,12 +202,12 @@ async function syncModels(
       syncError: undefined,
     };
   } catch (error) {
-    // Specific setup guidance is Loop-authored (NativeSetupError), never
+    // Specific setup guidance is Loop55-authored (NativeSetupError), never
     // provider output; other startup failures keep the refresh hint.
     const syncError =
       error instanceof ExecutionRefused && error.status === 422
         ? error.message
-        : "Loop could not refresh the harness models. Check its configuration and saved billing policy, then refresh models.";
+        : "Loop55 could not refresh the harness models. Check its configuration and saved billing policy, then refresh models.";
     syncErrors.set(target.name, syncError);
     return {
       ...view,

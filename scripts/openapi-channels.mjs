@@ -53,7 +53,7 @@ const [fallbackId, fallbackRoute] = fallback;
 const document = {
   openapi: "3.1.0",
   info: {
-    title: "Loop workspace event channels",
+    title: "Loop55 workspace event channels",
     version: "3",
     description:
       "Companion to openapi.json. Event variants describe canonical decoded output; unknown or malformed events decode to invalidate. Serialized byte/depth bounds remain runtime constraints. Browser sockets accept no client writes; token sockets accept only delivery acknowledgements.",

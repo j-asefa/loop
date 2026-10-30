@@ -27,9 +27,9 @@ afterEach(() => {
 });
 
 function scopeFixture(child: ChildProcess) {
-  const dir = mkdtempSync(join(tmpdir(), "loop-memory-evidence-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop55-memory-evidence-"));
   const roots = { proc: join(dir, "proc"), cgroups: join(dir, "cgroup") };
-  const group = `/user.slice/loop-agents.slice/loop-agent-${child.pid}-${"a".repeat(32)}.scope`;
+  const group = `/user.slice/loop55-agents.slice/loop55-agent-${child.pid}-${"a".repeat(32)}.scope`;
   const scope = join(roots.cgroups, group.slice(1));
   const parent = join(scope, "..");
   const proc = join(roots.proc, String(child.pid));
@@ -96,7 +96,7 @@ it("does not blame another agent's OOM, allocation pressure, or SIGKILL on this 
 it("ignores the supervisor scope while the launcher moves into its own scope", async () => {
   const child = fakeChild();
   const f = scopeFixture(child);
-  writeFileSync(join(f.proc, "cgroup"), "0::/user.slice/loop-agents.slice\n");
+  writeFileSync(join(f.proc, "cgroup"), "0::/user.slice/loop55-agents.slice\n");
   const monitor = new memory.NativeMemoryMonitor(child, f.roots);
   expect(monitor.failure()).toBeUndefined();
   f.kill();
@@ -127,7 +127,7 @@ it("reports a tighter per-launch limit and expires old evidence", () => {
 function interceptScopes() {
   const original = memory.observeNativeMemory;
   const scopes = new Map<ChildProcess, ReturnType<typeof scopeFixture>>();
-  vi.stubEnv("LOOP_NATIVE_LAUNCHER", "/usr/bin/env");
+  vi.stubEnv("LOOP55_NATIVE_LAUNCHER", "/usr/bin/env");
   vi.spyOn(memory, "observeNativeMemory").mockImplementation((child) => {
     const f = scopeFixture(child);
     scopes.set(child, f);
@@ -175,7 +175,7 @@ it
   "%s exposes the memory diagnosis in the run's terminal status",
   async (harness) => {
     const scopes = interceptScopes();
-    vi.stubEnv("LOOP_TEST_HARNESS", harness);
+    vi.stubEnv("LOOP55_TEST_HARNESS", harness);
     const executable =
       harness === "acp" ? process.execPath : resolve("test/harness.mjs");
     if (harness !== "acp") chmodSync(executable, 0o755);

@@ -169,9 +169,9 @@ export type FeedItem = {
     queue_position: number | null;
     can_move_up?: boolean;
     can_move_down?: boolean;
-    /** What Loop observed in the agent's worktree; null for API agents. */
+    /** What Loop55 observed in the agent's worktree; null for API agents. */
     checkout?: CheckoutSummary | null;
-    /** Test, type-check and lint commands Loop observed, with their exits. */
+    /** Test, type-check and lint commands Loop55 observed, with their exits. */
     verification?: VerificationSummary | null;
   } | null;
   queued_runs?: {
@@ -242,7 +242,7 @@ export const feedFilters: { id: FeedFilter; label: string }[] = [
 const feedItemKey = (item: FeedItem, source = item.sourceId || "") =>
   JSON.stringify([source, item.conversation_id, item.reply_card_key ?? item.done_card_key ?? null]);
 
-const LAST_VISIT = "loop-last-visit";
+const LAST_VISIT = "loop55-last-visit";
 const AWAY_AFTER = 30 * 60_000;
 
 /**
@@ -407,7 +407,7 @@ function FeedCard({
           <button className="identity" disabled={!onAgent} onClick={onAgent}>
             <span className="inbox-avatar">
               <Avatar
-                name={name || "Loop"}
+                name={name || "Loop55"}
                 provider={(item.provider || agent?.provider) as any}
               />
             </span>
@@ -1603,7 +1603,7 @@ export function Feed({
               next: window.page.next, summary: operational.summary,
             };
           }
-          if (doneRead !== "all") throw new Error(`Update Loop in ${activeSources.find(item => item.id === source)?.name || "this workspace"} to filter Done by read status.`);
+          if (doneRead !== "all") throw new Error(`Update Loop55 in ${activeSources.find(item => item.id === source)?.name || "this workspace"} to filter Done by read status.`);
           fallbackTransition = !!cachedView<CardWindow>(cardKey);
           if (fallbackTransition) doneRefresh.current.sources.delete(source);
         }
@@ -1888,12 +1888,12 @@ export function Feed({
     // is in flight can leave a completed action or connection retry unseen.
     // The request ticket prevents the older response from replacing this one.
     const update = () => void load();
-    window.addEventListener("loop-later-change", update);
+    window.addEventListener("loop55-later-change", update);
     // Reading a story changes the Social chip's count.
-    window.addEventListener("loop-social-read", update);
+    window.addEventListener("loop55-social-read", update);
     // Source discovery and completed actions refresh the head with its normal
     // retry budget. Only this view's notice retries the failed operation once.
-    window.addEventListener("loop-source-refresh", update);
+    window.addEventListener("loop55-source-refresh", update);
     const stopChanges = listenWorkspaceChanges("feed", event => {
       const detail=(event as CustomEvent<WorkspaceChangeDetail>).detail;
       const affected=activeSources.filter(source=>workspaceChangeAffects(event,"feed",source.id) &&
@@ -1912,9 +1912,9 @@ export function Feed({
       if (needsOnly.length) void loadNeeds(needsOnly);
     });
     return () => {
-      window.removeEventListener("loop-later-change", update);
-      window.removeEventListener("loop-social-read", update);
-      window.removeEventListener("loop-source-refresh", update);
+      window.removeEventListener("loop55-later-change", update);
+      window.removeEventListener("loop55-social-read", update);
+      window.removeEventListener("loop55-source-refresh", update);
       stopFallback();
       stopChanges();
       clearTimeout(doneCatchup.current);
@@ -2130,7 +2130,7 @@ export function Feed({
     await callRoute(saved ? workspaceApi.messageSave : workspaceApi.messageUnsave, {
       params: { id: messageId }, body: saved ? {} : undefined,
     }, item.sourceId ?? scopedSource);
-    window.dispatchEvent(new Event("loop-later-change"));
+    window.dispatchEvent(new Event("loop55-later-change"));
   }
   /**
    * Save the card: its latest message, and the result card that message
@@ -2586,7 +2586,7 @@ export function Feed({
       )}
       {filter === "replies" && unsupportedReplySources.length > 0 && (
         <p role="status" className="field-hint">
-          Update Loop in {unsupportedReplySources.map(id =>
+          Update Loop55 in {unsupportedReplySources.map(id =>
             activeSources.find(source => source.id === id)?.name || (id ? "the selected environment" : "this workspace")
           ).join(", ")} to show replies from there.
         </p>

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+import "../runtime/environment.mjs";
 /**
- * Loop's per-workspace connection service: owns Cloudflared, the stable relay
+ * Loop55's per-workspace connection service: owns Cloudflared, the stable relay
  * listener and the private control socket. It is bundled into one immutable
  * file so a package upgrade cannot remove code it loads later. See
  * docs/pairing.md for the protocol and recovery rules.
@@ -31,13 +32,13 @@ import {
   type TunnelMode,
 } from "./connection.js";
 
-declare const __LOOP_RELEASE__: string | undefined;
+declare const __LOOP55_RELEASE__: string | undefined;
 // Set by the bundle build; a source checkout reports "development".
 const RELEASE =
-  typeof __LOOP_RELEASE__ === "string" ? __LOOP_RELEASE__ : "development";
+  typeof __LOOP55_RELEASE__ === "string" ? __LOOP55_RELEASE__ : "development";
 // A launch that stops heartbeating (hung or killed) stops receiving traffic.
 const LEASE_TIMEOUT_MS =
-  Number(process.env.LOOP_TEST_LEASE_TIMEOUT_MS) || 15000;
+  Number(process.env.LOOP55_TEST_LEASE_TIMEOUT_MS) || 15000;
 const equal = (a: string, b: string) =>
   a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
@@ -46,9 +47,9 @@ function probe(path: string, nonce: string) {
     const req = request(
       {
         socketPath: path,
-        path: "/__loop/backend-probe?nonce=" + nonce,
+        path: "/__loop55/backend-probe?nonce=" + nonce,
         method: "GET",
-        headers: { "x-loop-probe": "1" },
+        headers: { "x-loop55-probe": "1" },
         timeout: 3000,
       },
       (res) => {
@@ -341,7 +342,7 @@ export async function runConnectionService(
       if (reconnected)
         log(
           changed
-            ? `Tunnel reconnected with a new address ${next}. Run loop pair and scan the code from the Loop app.`
+            ? `Tunnel reconnected with a new address ${next}. Run loop55 pair and scan the code from the Loop55 app.`
             : "Tunnel reconnected at the same address.",
         );
     },
@@ -382,7 +383,7 @@ export async function runConnectionService(
     report({ ready: true, origin });
   } catch (error) {
     report({ error: (error as Error).message });
-    console.error("Loop connection service: " + (error as Error).message);
+    console.error("Loop55 connection service: " + (error as Error).message);
     await shutdown(1);
   }
 }
@@ -414,7 +415,7 @@ if (import.meta.url === self) {
         ? health(args.slice(1))
         : runConnectionService(args, send);
   main.catch((error) => {
-    console.error("Loop connection service: " + (error as Error).message);
+    console.error("Loop55 connection service: " + (error as Error).message);
     send({ error: (error as Error).message });
     process.exitCode = 1;
   });

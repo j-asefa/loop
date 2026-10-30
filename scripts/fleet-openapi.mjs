@@ -129,8 +129,8 @@ for (const [name, route] of Object.entries({
       // request schema and this extension describe the required authentication;
       // browser/session bearer schemes would be incorrect alternatives.
       security: [],
-      "x-loop-access": route.access,
-      "x-loop-authentication":
+      "x-loop55-access": route.access,
+      "x-loop55-authentication":
         name === "enrollmentProbe" || name === "credentialChallenge"
           ? "public challenge; credential challenges require an active grant context"
           : name === "workspaceCatalog"
@@ -145,7 +145,7 @@ for (const [name, route] of Object.entries({
                   : "signed request body; prepare also requires a one-time capability",
       parameters: [
         {
-          name: "X-Loop-Fleet-Version",
+          name: "X-Loop55-Fleet-Version",
           in: "header",
           required: true,
           schema: { type: "string", const: "1" },
@@ -194,7 +194,7 @@ for (const [name, route] of Object.entries({
 const document = {
   openapi: "3.1.0",
   info: {
-    title: "Loop companion fleet protocol",
+    title: "Loop55 companion fleet protocol",
     version: "1",
     description:
       "Dedicated machine-to-machine JSON protocol. Available on non-preview companions only. Each request/response is limited to 4 MiB; the transport does not follow redirects, accept private DNS destinations, forward cookies or automatically repeat uncertain effects. Read the protocol-specific proof requirements on each operation.",

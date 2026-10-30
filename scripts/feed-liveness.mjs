@@ -5,9 +5,9 @@ import { feedCatalog } from "../src/shared/news.ts";
 import { download } from "../src/server/feed-fetch.ts";
 
 const CONCURRENT = 4;
-// Reading stops once a feed has the stories Loop keeps, so size is only worth
+// Reading stops once a feed has the stories Loop55 keeps, so size is only worth
 // mentioning when a feed is enormous. This script measures the whole response,
-// which is more than Loop downloads.
+// which is more than Loop55 downloads.
 const WARN_BYTES = 6_000_000;
 
 let bytes = 0;

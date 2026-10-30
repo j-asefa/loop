@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 import {
   spawn,
   execFile,
@@ -56,9 +57,9 @@ export async function helper(root: string) {
   }
   // The companion image seeds an immutable helper. Verify against the same
   // release digest before copying into persistent state; never trust its manifest.
-  if (process.platform === "linux" && process.env.LOOP_BAKED_HELPERS) {
+  if (process.platform === "linux" && process.env.LOOP55_BAKED_HELPERS) {
     const bytes = await readFile(
-      join(process.env.LOOP_BAKED_HELPERS, "helpers", RELEASE, "cloudflared"),
+      join(process.env.LOOP55_BAKED_HELPERS, "helpers", RELEASE, "cloudflared"),
     ).catch(() => undefined);
     if (bytes && digest(bytes) === build[1]) {
       await writeFile(binary, bytes, { mode: 0o700 });
@@ -204,7 +205,7 @@ export async function namedTunnelConfig(
     );
   const config = join(root, "named-tunnel.yml");
   // Never expose the private runner or retain an old project's ingress rules.
-  // Keep the existing tunnel identity and point its sole public origin at Loop.
+  // Keep the existing tunnel identity and point its sole public origin at Loop55.
   const generated = {
     tunnel: named.name,
     ...(saved["credentials-file"]
@@ -232,7 +233,7 @@ export async function namedTunnelConfig(
  */
 function testHelper() {
   return process.env.NODE_ENV !== "production"
-    ? process.env.LOOP_TEST_CLOUDFLARED || undefined
+    ? process.env.LOOP55_TEST_CLOUDFLARED || undefined
     : undefined;
 }
 export class Tunnel {

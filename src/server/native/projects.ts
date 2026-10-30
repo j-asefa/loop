@@ -68,7 +68,7 @@ export class NativeProjects {
     if (!row)
       throw new Problem(
         409,
-        `Run loop ${name} on the desktop to enable this harness.`,
+        `Run loop55 ${name} on the desktop to enable this harness.`,
       );
     return JSON.parse(row.options);
   }
@@ -180,7 +180,7 @@ export class NativeProjects {
     if (models.length > MAX_NATIVE_MODELS)
       throw new ExecutionRefused(
         422,
-        `${labels[options.harness]} reported ${models.length} models; Loop accepts up to ${MAX_NATIVE_MODELS}. Remove a provider in ${labels[options.harness]} and refresh.`,
+        `${labels[options.harness]} reported ${models.length} models; Loop55 accepts up to ${MAX_NATIVE_MODELS}. Remove a provider in ${labels[options.harness]} and refresh.`,
       );
     const capabilities = {
       ...native.capabilities,
@@ -193,14 +193,14 @@ export class NativeProjects {
       history:
         options.harness === "codex"
           ? "native read/list/fork"
-          : "Loop-managed history; native resume",
+          : "Loop55-managed history; native resume",
       billingVerified: options.billing === "subscription",
     };
     const metadata = {
-      loopHarness: options.harness,
+      loop55Harness: options.harness,
       authMode:
         options.billing === "subscription" ? "subscription" : "native-existing",
-      runtimeKind: "loop-local",
+      runtimeKind: "loop55-local",
       location: hostLocation(),
       environmentName: hostEnvironmentName(),
       billing,
@@ -321,7 +321,7 @@ export class NativeProjects {
     if (c && c.agent_id !== agent.id)
       throw new Problem(400, "Conversation belongs to another agent");
     const harness = ownedConnection(agent.connection_id, OWNER).metadata
-      .loopHarness as Harness;
+      .loop55Harness as Harness;
     const binding = conversation
       ? (db
           .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")

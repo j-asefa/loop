@@ -1,14 +1,15 @@
+import "../runtime/environment.mjs";
 import { openAgentModelOptions } from "./helpers/agent-model-options.mjs";
 // Runtime-neutral onboarding through the real mobile-width UI and fixture adapter.
-process.env.LOOP_PROFILE = "companion";
+process.env.LOOP55_PROFILE = "companion";
 import { chromium, expect } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { resolve, join, basename } from "node:path";
 import assert from "node:assert/strict";
 await mkdir(".tmp", { recursive: true });
 const dir = await mkdtemp(resolve(".tmp/start-pair-browser-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_TEST_HARNESS = "codex";
+process.env.LOOP55_DATA_DIR = dir;
+process.env.LOOP55_TEST_HARNESS = "codex";
 const bin = join(dir, "bin");
 await mkdir(bin);
 await writeFile(
@@ -45,7 +46,7 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(host.pair().url);
-  await page.getByRole("button", { name: "Pair and open Loop" }).click();
+  await page.getByRole("button", { name: "Pair and open Loop55" }).click();
   await page
     .getByRole("button", { name: /^(New agent|Start chatting)$/ })
     .click();

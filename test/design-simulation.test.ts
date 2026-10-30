@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { until } from "./helpers";
 
-const home = mkdtempSync(join(tmpdir(), "loop-design-signals-"));
+const home = mkdtempSync(join(tmpdir(), "loop55-design-signals-"));
 const data = join(home, "workspace"),
   manifest = join(home, "preview.json");
 mkdirSync(data);
@@ -29,10 +29,10 @@ writeFileSync(
     },
   }),
 );
-vi.stubEnv("LOOP_HOME", home);
-vi.stubEnv("LOOP_DATA_DIR", data);
-vi.stubEnv("LOOP_PROFILE", "companion");
-vi.stubEnv("LOOP_PREVIEW_MANIFEST", manifest);
+vi.stubEnv("LOOP55_HOME", home);
+vi.stubEnv("LOOP55_DATA_DIR", data);
+vi.stubEnv("LOOP55_PROFILE", "companion");
+vi.stubEnv("LOOP55_PREVIEW_MANIFEST", manifest);
 const { db, changes } = await import("../src/server/db");
 const { seedDesignPreview, startDesignSimulation, designPreviewBoundary } =
   await import("../src/server/design-preview");

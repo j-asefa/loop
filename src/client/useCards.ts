@@ -112,14 +112,14 @@ export function useCards(selection: CardSelection, revision = 0) {
       refresh,
       source,
     );
-    window.addEventListener("loop-refresh", refresh);
-    window.addEventListener("loop-later-change", refresh);
+    window.addEventListener("loop55-refresh", refresh);
+    window.addEventListener("loop55-later-change", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
       stopFallback();
       stopChanges();
-      window.removeEventListener("loop-refresh", refresh);
-      window.removeEventListener("loop-later-change", refresh);
+      window.removeEventListener("loop55-refresh", refresh);
+      window.removeEventListener("loop55-later-change", refresh);
       document.removeEventListener("visibilitychange", refresh);
       // Invalidate even on unmount with the same owner/source.
       if (current.current === context) current.current = null;

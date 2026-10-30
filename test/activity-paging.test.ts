@@ -8,8 +8,8 @@ import {
   visibleActivities,
 } from "../src/client/activityView";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-activity-paging-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop55-activity-paging-"));
+process.env.LOOP55_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { activityRoutes, applyActivity, setActivityCapabilities } =
   await import("../src/server/activities");
@@ -197,7 +197,8 @@ it("offers older activity and legacy traces only when the reader would see them"
   db.transaction(() => {
     trace.run("native:envelope", "StructuredOutput", '{"native":true}');
     trace.run("native:envelope:result", "Tool result", '{"native":true}');
-    trace.run("plan:1", "loop_plan", "{}");
+    trace.run("plan:1", "loop55_plan", "{}");
+    trace.run("plan:old", "loop_plan", "{}");
   })();
   // Internal envelopes and plan calls are not history anyone can load.
   expect(

@@ -1,3 +1,4 @@
+import "../../runtime/environment.mjs";
 import { fetch as undiciFetch } from "undici";
 import { db, now } from "./db.js";
 import { readSecret, type MCPConnection } from "./mcp/client.js";
@@ -18,7 +19,7 @@ let githubFetch: GithubFetch = (url, init) =>
     init as Parameters<typeof undiciFetch>[1],
   ) as unknown as Promise<Response>;
 // Browser fixtures point this at a dead local address, never at GitHub.
-let githubApi = process.env.LOOP_GITHUB_API_URL || "https://api.github.com";
+let githubApi = process.env.LOOP55_GITHUB_API_URL || "https://api.github.com";
 /** Tests swap GitHub for a fixture (or only its address); returns a restore function. */
 export function withGithubFixture(
   fetcher: GithubFetch | undefined,
@@ -145,7 +146,7 @@ export async function githubRest<T>(
       accept: "application/vnd.github+json",
       authorization: "Bearer " + token,
       "x-github-api-version": "2022-11-28",
-      "user-agent": "Loop",
+      "user-agent": "Loop55",
       ...(init.body === undefined
         ? {}
         : { "content-type": "application/json" }),
@@ -201,7 +202,7 @@ export async function githubRaw(token: string, path: string, maxBytes: number) {
       accept: "application/vnd.github.raw+json",
       authorization: "Bearer " + token,
       "x-github-api-version": "2022-11-28",
-      "user-agent": "Loop",
+      "user-agent": "Loop55",
     },
     signal: AbortSignal.timeout(60_000),
   });

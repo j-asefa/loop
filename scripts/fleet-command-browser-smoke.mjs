@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 // Real browser storage, Web Locks and the production typed client transport.
 // The HTTP receipt server is a deterministic fixture, not a companion or a
 // provider. Production gateway/destination admission is covered by HTTP tests.
@@ -10,8 +11,8 @@ import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 
-const dir = await mkdtemp(join(tmpdir(), "loop-fleet-client-browser-"));
-const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
+const dir = await mkdtemp(join(tmpdir(), "loop55-fleet-client-browser-"));
+const engine = process.env.LOOP55_BROWSER === "webkit" ? webkit : chromium;
 const peer = "peer:m_" + "1".repeat(64);
 const receipts = new Map();
 const requests = [];
@@ -122,7 +123,7 @@ try {
           `/api/agent-sources/${encodeURIComponent(peer)}/native/decisions/`,
         )) ||
       req.method !== "POST" ||
-      req.headers["x-loop-csrf"] !== "fixture-only"
+      req.headers["x-loop55-csrf"] !== "fixture-only"
     ) {
       reply(403, { error: "Fixture route refused" });
       return;
@@ -148,7 +149,7 @@ try {
       assert.equal(body.peer, peer.slice(5));
       assert.equal(body.route, "nativeAnswer");
       assert.match(body.payloadDigest, /^[a-f0-9]{64}$/);
-      assert.equal(req.headers["x-loop-command-id"], undefined);
+      assert.equal(req.headers["x-loop55-command-id"], undefined);
       requests.push({ id: body.commandId, query: true, path: req.url });
       if (holdLookup)
         await new Promise((resolve) => {
@@ -165,8 +166,8 @@ try {
       });
       return;
     }
-    const id = req.headers["x-loop-command-id"],
-      receiptOnly = req.headers["x-loop-receipt-only"] === "1",
+    const id = req.headers["x-loop55-command-id"],
+      receiptOnly = req.headers["x-loop55-receipt-only"] === "1",
       // Like the gateway's durable journal, a previously recorded identity can
       // only reconcile, even when the browser no longer has a pending entry.
       query = receiptOnly || receipts.has(id) || missing.has(id);
@@ -201,8 +202,8 @@ try {
         else releaseAction = resolve;
       });
     reply(200, receipts.get(id), {
-      "x-loop-command-id": id,
-      "x-loop-command-state": "completed",
+      "x-loop55-command-id": id,
+      "x-loop55-command-state": "completed",
     });
   };
   server = createServer(serve);
@@ -599,7 +600,7 @@ try {
   await recovered.getByRole("button", { name: "Keep receipt" }).click();
   await expect(recovered.getByRole("status")).toContainText("Receipt retained");
   await recovered.screenshot({
-    path: `/tmp/loop-fleet-receipt-ui-${engine.name()}.png`,
+    path: `/tmp/loop55-fleet-receipt-ui-${engine.name()}.png`,
     fullPage: true,
   });
   assert.equal(requests.length, count);

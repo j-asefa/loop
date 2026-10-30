@@ -25,6 +25,7 @@ async function journal(key: string, value?: string): Promise<string | null> {
     );
     let open: IDBOpenDBRequest;
     try {
+      // Physical journal name is durable: retain pending command identities across upgrades.
       open = indexedDB.open("loop-fleet-commands", 1);
     } catch (error) {
       finish(error);

@@ -1,3 +1,4 @@
+import { retainedPath } from "./name-upgrade.ts";
 import {
   mkdirSync,
   writeFileSync,
@@ -23,7 +24,7 @@ export function managedWorkspace(
   const cwd = join(home, "workspaces", key || "default");
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
   if (recordUse) {
-    const temp = join(cwd, `.loop-last-used-${randomUUID()}`);
+    const temp = join(cwd, `.loop55-last-used-${randomUUID()}`);
     try {
       if (
         realpathSync(cwd) !==
@@ -31,7 +32,10 @@ export function managedWorkspace(
       )
         return cwd;
       writeFileSync(temp, "", { mode: 0o600, flag: "wx" });
-      renameSync(temp, join(cwd, ".loop-last-used"));
+      renameSync(
+        temp,
+        retainedPath(cwd, ".loop55-last-used", ".loop-last-used"),
+      );
     } catch {
       // Maintenance metadata must never prevent a user turn. An invalid marker
       // also makes cleanup preserve the workspace's dependencies.

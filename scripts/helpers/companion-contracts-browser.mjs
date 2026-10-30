@@ -1,3 +1,4 @@
+import "../../runtime/environment.mjs";
 import { expect } from "@playwright/test";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
@@ -23,7 +24,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
     // Match the main smoke's WebKit diagnostic for reads cancelled by navigation.
     if (
       !isWebKitNavigationFetchError(
-        process.env.LOOP_BROWSER,
+        process.env.LOOP55_BROWSER,
         error,
         host.origin,
       )
@@ -68,7 +69,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
   try {
     await page.goto(host.pair().url);
     await page
-      .getByRole("button", { name: "Pair and open Loop", exact: true })
+      .getByRole("button", { name: "Pair and open Loop55", exact: true })
       .click();
     const settings = async (name) => {
       await page
@@ -115,7 +116,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
     });
     await mkdir("test-results", { recursive: true });
     await page.screenshot({
-      path: `test-results/companion-contracts-${process.env.LOOP_BROWSER || "chromium"}-history.png`,
+      path: `test-results/companion-contracts-${process.env.LOOP55_BROWSER || "chromium"}-history.png`,
       fullPage: true,
     });
 
@@ -177,7 +178,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
       }),
     ).toHaveCount(0);
     await page.screenshot({
-      path: `test-results/companion-contracts-${process.env.LOOP_BROWSER || "chromium"}-activities.png`,
+      path: `test-results/companion-contracts-${process.env.LOOP55_BROWSER || "chromium"}-activities.png`,
       fullPage: true,
     });
     assert.deepEqual(errors, []);

@@ -1,3 +1,4 @@
+import "../runtime/environment.mjs";
 import { chooseAgentModel } from "./helpers/agent-model-options.mjs";
 import {
   closeSheets,
@@ -55,19 +56,19 @@ async function openNeeds(page) {
   const all = stack.getByRole("button", { name: "Show all" });
   if (await all.isVisible()) await all.click();
 }
-const dir = mkdtempSync(join(tmpdir(), "loop-journey-"));
+const dir = mkdtempSync(join(tmpdir(), "loop55-journey-"));
 const remoteCodex = await codexFixture();
 const env = {
     ...(await isolatedBrowserEnv()),
     NODE_ENV: "test",
-    LOOP_AUTH_MODE: "multi-user",
-    LOOP_RUNTIME_URL: "http://127.0.0.1:" + brokerPort,
-    LOOP_FIXTURE_BROKER_PORT: String(brokerPort),
-    LOOP_ALLOWED_RUNTIME_ORIGINS: `${remoteCodex.url},http://127.0.0.1:${brokerPort}`,
+    LOOP55_AUTH_MODE: "multi-user",
+    LOOP55_RUNTIME_URL: "http://127.0.0.1:" + brokerPort,
+    LOOP55_FIXTURE_BROKER_PORT: String(brokerPort),
+    LOOP55_ALLOWED_RUNTIME_ORIGINS: `${remoteCodex.url},http://127.0.0.1:${brokerPort}`,
     PORT: String(port),
-    LOOP_URL: base,
-    LOOP_RUNTIME_TOKEN: "fixture-broker-authentication-only-32chars",
-    LOOP_DATA_DIR: dir,
+    LOOP55_URL: base,
+    LOOP55_RUNTIME_TOKEN: "fixture-broker-authentication-only-32chars",
+    LOOP55_DATA_DIR: dir,
   },
   children = ["server", "worker"].map((name) =>
     spawn(process.execPath, ["--import", "tsx", `scripts/fixture-${name}.ts`], {
@@ -86,7 +87,7 @@ children.forEach((c) => c.stderr.on("data", (b) => (logs += b)));
 let browser, page;
 const errors = [];
 const recordPageError = (error) => {
-  if (!isWebKitNavigationFetchError(process.env.LOOP_BROWSER, error, base))
+  if (!isWebKitNavigationFetchError(process.env.LOOP55_BROWSER, error, base))
     errors.push(error.message);
 };
 try {
@@ -97,7 +98,7 @@ try {
     await new Promise((r) => setTimeout(r, 100));
   }
   browser =
-    process.env.LOOP_BROWSER === "webkit"
+    process.env.LOOP55_BROWSER === "webkit"
       ? await webkit.launch({ headless: true })
       : await chromium.launch({
           executablePath: process.env.CHROMIUM_PATH || undefined,
@@ -249,15 +250,15 @@ try {
   // then leaves.
   await page.goto(base);
   await page.evaluate(() =>
-    sessionStorage.setItem("loop-test-away-on-reload", "1"),
+    sessionStorage.setItem("loop55-test-away-on-reload", "1"),
   );
   // pagehide records the current visit during reload. Set the older visit
   // before the app mounts on the next page instead of letting pagehide erase it.
   await page.addInitScript(() => {
-    if (sessionStorage.getItem("loop-test-away-on-reload") === "1") {
-      sessionStorage.removeItem("loop-test-away-on-reload");
+    if (sessionStorage.getItem("loop55-test-away-on-reload") === "1") {
+      sessionStorage.removeItem("loop55-test-away-on-reload");
       localStorage.setItem(
-        "loop-last-visit",
+        "loop55-last-visit",
         String(Date.now() - 2 * 3600_000),
       );
     }
@@ -324,7 +325,7 @@ try {
   await page.getByText("Manage Deterministic MCP fixture").click();
   await page.getByText("Available to all agents · Ask every time").waitFor();
   await page.screenshot({
-    path: join(tmpdir(), "loop-workspace-mcp.png"),
+    path: join(tmpdir(), "loop55-workspace-mcp.png"),
     fullPage: true,
   });
   await closeSheets(page);
@@ -378,7 +379,7 @@ try {
     result.getByRole("img", { name: /Fixture latency, ms, 2 measured points/ }),
   ).toBeVisible();
   await expect(
-    result.locator('iframe[title="MCP app, isolated from Loop"]'),
+    result.locator('iframe[title="MCP app, isolated from Loop55"]'),
   ).toHaveCount(0);
   const chartResult = (await api("/artifacts")).items.find(
     (x) => x.kind === "chart",

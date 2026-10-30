@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 
-const workspace = mkdtempSync(join(tmpdir(), "loop-broker-file-"));
+const workspace = mkdtempSync(join(tmpdir(), "loop55-broker-file-"));
 afterAll(() => rmSync(workspace, { recursive: true, force: true }));
 
 it("reads a Codex workspace file through the broker, and says why it refuses one", async () => {
@@ -19,9 +19,9 @@ it("reads a Codex workspace file through the broker, and says why it refuses one
     cwd: process.cwd(),
     env: {
       ...process.env,
-      LOOP_RUNTIME_MODE: "host",
-      LOOP_RUNTIME_WORKDIR: workspace,
-      LOOP_RUNTIME_TOKEN: token,
+      LOOP55_RUNTIME_MODE: "host",
+      LOOP55_RUNTIME_WORKDIR: workspace,
+      LOOP55_RUNTIME_TOKEN: token,
       PORT: String(port),
     },
     stdio: "ignore",
@@ -83,7 +83,7 @@ it("reads a Codex workspace file through the broker, and says why it refuses one
     expect(await refuse("review.mp4")).toEqual({
       code: "file_rejected",
       error:
-        "This file is 49.0 MB; Loop publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.",
+        "This file is 49.0 MB; Loop55 publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.",
     });
     expect(await refuse("renders/missing.mp4")).toEqual({
       code: "file_rejected",

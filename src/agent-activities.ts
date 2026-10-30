@@ -60,11 +60,11 @@ const Path = z.string().min(1).max(ACTIVITY_LIMITS.path);
 
 export const ActivitySource = z
   .object({
-    // How Loop reached the harness. Independent of model provider/account.
+    // How Loop55 reached the harness. Independent of model provider/account.
     transport: z.enum(["native", "api", "acp"]),
     // Harness identity, e.g. "codex" or a configured ACP agent id.
     harness: z.string().max(200).optional(),
-    // Producer inside Loop, e.g. "broker", "loop_plan", "codex:item", "acp".
+    // Producer inside Loop55, e.g. "broker", "loop55_plan", "codex:item", "acp".
     origin: z.string().min(1).max(100),
   })
   .strict();
@@ -128,7 +128,7 @@ const ToolContent = z.discriminatedUnion("type", [
       title: z.string().max(ACTIVITY_LIMITS.title).optional(),
     })
     .strict(),
-  // An unavailable reference (e.g. an ACP terminal Loop cannot host).
+  // An unavailable reference (e.g. an ACP terminal Loop55 cannot host).
   z
     .object({
       type: z.literal("unavailable"),
@@ -224,9 +224,9 @@ const OutputPatch = z
     status: z.enum(["running", "exited", "failed", "unknown"]).optional(),
     exitCode: z.number().int().nullable().optional(),
     signal: z.string().max(40).nullable().optional(),
-    // Output a source could not deliver (e.g. an ACP terminal Loop does not host).
+    // Output a source could not deliver (e.g. an ACP terminal Loop55 does not host).
     unavailable: z.string().max(1000).nullable().optional(),
-    // The source itself dropped output before Loop received it.
+    // The source itself dropped output before Loop55 received it.
     upstreamTruncated: z.boolean().optional(),
   })
   .strict();
@@ -246,7 +246,7 @@ export type OutputData = {
   exitCode?: number;
   signal?: string;
   unavailable?: string;
-  // Loop's own retention drops (droppedBytes/Chunks, below `floor`) and
+  // Loop55's own retention drops (droppedBytes/Chunks, below `floor`) and
   // whether the source reported truncating output before delivery.
   truncated: {
     droppedBytes: number;
@@ -286,7 +286,7 @@ const Setting = z
       .optional(),
     // The authoritative runtime confirmed this value. Never set from a request.
     confirmed: SettingValue.nullable().optional(),
-    // A value Loop asked for that the runtime has not yet confirmed or rejected.
+    // A value Loop55 asked for that the runtime has not yet confirmed or rejected.
     requested: SettingValue.nullable().optional(),
     rejected: z.string().max(1000).nullable().optional(),
     application: z.enum(["live", "next-turn", "new-session"]).optional(),
@@ -525,7 +525,7 @@ export type ActivityCapabilityState =
   "supported" | "unsupported" | "undiscovered";
 export type ActivityCapability = {
   state: ActivityCapabilityState;
-  // Where this answer came from: "loop", "codex app-server 0.x", "acp initialize", ...
+  // Where this answer came from: "loop55", "codex app-server 0.x", "acp initialize", ...
   source: string;
   reason?: string;
 };
@@ -630,7 +630,7 @@ function boundFiles(files: FileEntry[]): FileEntry[] {
     return {
       ...rest,
       content: "oversized" as const,
-      reason: `Change is ${size} bytes; Loop retains up to ${ACTIVITY_LIMITS.diffBytes} bytes of diff text per activity.`,
+      reason: `Change is ${size} bytes; Loop55 retains up to ${ACTIVITY_LIMITS.diffBytes} bytes of diff text per activity.`,
     };
   });
 }
@@ -791,7 +791,7 @@ export function reduceActivity(
     case "plan": {
       const patch = update.patch as z.output<typeof PlanPatch>;
       const data = record.data;
-      // Re-delivering an identical list (a retried loop_plan call, a replayed
+      // Re-delivering an identical list (a retried loop55_plan call, a replayed
       // native frame) is not a replacement and must not bump the revision.
       if (
         patch.steps &&

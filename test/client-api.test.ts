@@ -25,14 +25,14 @@ it("fetches object downloads through their source-bound contract", async () => {
 });
 
 it.each([
-  "https://loop.test/login",
+  "https://loop55.test/login",
   "https://elsewhere.test/api/artifacts/file/file",
-  "https://loop.test/api/agent-sources/docker%3Atwo/artifacts/file/file",
-  "https://loop.test/api/artifacts/file/file",
+  "https://loop55.test/api/agent-sources/docker%3Atwo/artifacts/file/file",
+  "https://loop55.test/api/artifacts/file/file",
 ])(
   "does not accept a streamed redirect outside its source: %s",
   async (url) => {
-    vi.stubGlobal("location", { href: "https://loop.test/", search: "" });
+    vi.stubGlobal("location", { href: "https://loop55.test/", search: "" });
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     const response = new Response("<html>Sign in</html>", {
@@ -49,8 +49,8 @@ it.each([
         { params: { id: "file" } },
         "docker:one",
       ),
-    ).rejects.toThrow("Sign in to Loop");
-    expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
+    ).rejects.toThrow("Sign in to Loop55");
+    expect(dispatchEvent.mock.calls[0][0].type).toBe("loop55-auth-expired");
   },
 );
 
@@ -94,8 +94,8 @@ it("returns server proxy redirects to the auth screen", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
   await expect(
     callRoute(workspaceApi.workflowList, {}, executionSourceId()),
-  ).rejects.toThrow("Sign in to Loop");
-  expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
+  ).rejects.toThrow("Sign in to Loop55");
+  expect(dispatchEvent.mock.calls[0][0].type).toBe("loop55-auth-expired");
 });
 it("accepts JSON responses after a redirect", async () => {
   const response = Response.json([]);
@@ -201,12 +201,15 @@ it("still expires the session when an unauthorized response has no JSON body", a
   await expect(
     callRoute(workspaceApi.workflowList, {}, executionSourceId()),
   ).rejects.toThrow("Connection unavailable. Try again.");
-  expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
+  expect(dispatchEvent.mock.calls[0][0].type).toBe("loop55-auth-expired");
 });
 const restarting = () =>
   Response.json(
-    { error: "Loop is restarting. Try again in a moment.", reconnecting: true },
-    { status: 503, headers: { "x-loop-unavailable": "restarting" } },
+    {
+      error: "Loop55 is restarting. Try again in a moment.",
+      reconnecting: true,
+    },
+    { status: 503, headers: { "x-loop55-unavailable": "restarting" } },
   );
 it("treats the connection service's restart response as reconnecting, never as signed out", async () => {
   const dispatchEvent = vi.fn();
@@ -220,9 +223,9 @@ it("treats the connection service's restart response as reconnecting, never as s
   expect(error).toMatchObject({ status: 503, reconnecting: true });
   expect(error.message).toMatch(/reconnecting/);
   const events = dispatchEvent.mock.calls.map(([event]) => event.type);
-  expect(events).toEqual(["loop-reconnecting"]);
+  expect(events).toEqual(["loop55-reconnecting"]);
 });
-it("keeps a mutation's session and outcome uncertain while Loop restarts", async () => {
+it("keeps a mutation's session and outcome uncertain while Loop55 restarts", async () => {
   const dispatchEvent = vi.fn();
   vi.stubGlobal("window", { dispatchEvent });
   vi.stubGlobal("location", { search: "" });
@@ -237,6 +240,6 @@ it("keeps a mutation's session and outcome uncertain while Loop restarts", async
   expect(error.status).toBe(503);
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(dispatchEvent.mock.calls.map(([event]) => event.type)).not.toContain(
-    "loop-auth-expired",
+    "loop55-auth-expired",
   );
 });

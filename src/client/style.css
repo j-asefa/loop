@@ -16,7 +16,7 @@
   box-sizing: border-box;
 }
 html {
-  /* Loop's own pull-to-refresh replaces the browser's page reload. */
+  /* Loop55's own pull-to-refresh replaces the browser's page reload. */
   overscroll-behavior-y: contain;
 }
 body {
@@ -317,7 +317,7 @@ small,
   background: #f4e3d8;
   color: #9b522c;
 }
-.avatar.loop,
+.avatar.loop55,
 .avatar.user {
   background: #e8e3d0;
   color: #645124;
@@ -6163,7 +6163,7 @@ select {
   color: var(--green);
 }
 .status-chip.working::before {
-  animation: loop-pulse 1.4s ease-in-out infinite;
+  animation: loop55-pulse 1.4s ease-in-out infinite;
 }
 .status-chip.failed {
   background: color-mix(in srgb, var(--orange) 14%, var(--surface));
@@ -6177,7 +6177,7 @@ select {
 .status-chip.idle::before {
   display: none;
 }
-@keyframes loop-pulse {
+@keyframes loop55-pulse {
   50% {
     opacity: 0.3;
   }
@@ -9466,7 +9466,7 @@ html:has(.sheet.side-panel[open]) {
   background: var(--secondary);
   color: var(--text);
 }
-/* Public feed items in the Feed: result cards whose links leave Loop. */
+/* Public feed items in the Feed: result cards whose links leave Loop55. */
 .news-card .card-content {
   cursor: auto;
 }
@@ -10365,7 +10365,7 @@ label.settings-select-row,
   align-items: center;
   font-size: 13px;
 }
-/* Catalog filters: search and filters first, in Loop's own control shapes. */
+/* Catalog filters: search and filters first, in Loop55's own control shapes. */
 label.catalog-search {
   display: flex;
   flex-direction: row;
@@ -10611,7 +10611,7 @@ label.catalog-filter-chip {
   font-weight: 600;
 }
 
-/* Adding a feed Loop doesn't ship, at the top of the catalog. */
+/* Adding a feed Loop55 doesn't ship, at the top of the catalog. */
 .add-feed {
   display: grid;
   gap: 6px;
@@ -10722,7 +10722,7 @@ label.catalog-filter-chip {
 .personal-files-list .feed-card { min-width: 0; }
 .file-preview-content video { max-width: 100%; max-height: 65vh; }
 
-/* The checkout Loop observed for a run: a chip on cards, a sheet on tap. */
+/* The checkout Loop55 observed for a run: a chip on cards, a sheet on tap. */
 .checkout-chip span {
   font-weight: 500;
   overflow-wrap: anywhere;
@@ -10735,7 +10735,7 @@ label.catalog-filter-chip {
   padding-left: 20px;
 }
 
-/* Verification Loop observed: a chip beside the checkout, a sheet on tap. */
+/* Verification Loop55 observed: a chip beside the checkout, a sheet on tap. */
 .verification-chip.verification-failed .lucide { color: var(--diff-removed); }
 .verification-chip.verification-passed .lucide { color: var(--green); }
 .verification-chip.verification-none { opacity: 0.75; }
