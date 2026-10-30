@@ -725,6 +725,21 @@ for (const isolated of [false, true]) {
           ).status,
           200,
         );
+      const validLegacy = next.replace("loop55_local", "loop_local");
+      // The original current-name token was revoked at sign-out. It must not
+      // mask another valid legacy session in either header order.
+      for (const cookies of [
+        cookie + "; " + validLegacy,
+        validLegacy + "; " + cookie,
+      ])
+        assert.equal(
+          (
+            await fetch(host.origin + "/session", {
+              headers: { cookie: cookies },
+            })
+          ).status,
+          200,
+        );
       assert.equal(
         (await fetch(host.origin + "/session", { headers: { cookie: legacy } }))
           .status,

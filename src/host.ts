@@ -508,20 +508,25 @@ export class Host {
   }
   private authenticate(req: IncomingMessage) {
     const cookies = req.headers.cookie?.split(";").map((x) => x.trim()) ?? [];
-    const value =
-      cookies.find((x) => x.startsWith(this.cookieName + "=")) ??
-      cookies.find((x) => x.startsWith(this.legacyCookieName + "="));
-    const token = value?.slice(value.indexOf("=") + 1);
-    if (!token || token.length > 100) return;
-    if (this.trust) return this.trust.authenticate(hash(token));
-    const device = [...this.devices.values()].find(
-      (d) => equal(d.hash, hash(token)) && d.expires > Date.now(),
-    );
-    if (device && device.expires < Date.now() + 364 * 86400000) {
-      device.expires = Math.min(device.maxExpires, Date.now() + 365 * 86400000);
-      this.saveDevices();
+    for (const name of [this.cookieName, this.legacyCookieName]) {
+      const value = cookies.find((x) => x.startsWith(name + "="));
+      const token = value?.slice(value.indexOf("=") + 1);
+      if (!token || token.length > 100) continue;
+      const device = this.trust
+        ? this.trust.authenticate(hash(token))
+        : [...this.devices.values()].find(
+            (d) => equal(d.hash, hash(token)) && d.expires > Date.now(),
+          );
+      if (!device) continue;
+      if (!this.trust && device.expires < Date.now() + 364 * 86400000) {
+        device.expires = Math.min(
+          device.maxExpires,
+          Date.now() + 365 * 86400000,
+        );
+        this.saveDevices();
+      }
+      return device;
     }
-    return device;
   }
   private json(res: ServerResponse, status: number, value: unknown) {
     res.writeHead(status, {
