@@ -18,6 +18,7 @@ export async function cardsFixture(
     projectedWrites?: boolean;
     nodeEnv?: "test" | "production";
     relay?: boolean;
+    webhookReceiver?: string;
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "loop-card-access-"));
@@ -35,6 +36,15 @@ export async function cardsFixture(
     spawn(
       process.execPath,
       [
+        ...(options.webhookReceiver
+          ? [
+              "--experimental-test-module-mocks",
+              "--import",
+              fileURLToPath(
+                new URL("../fixtures/webhook-network.mjs", import.meta.url),
+              ),
+            ]
+          : []),
         "--import",
         "tsx",
         fileURLToPath(new URL("../fixtures/cards-server.ts", import.meta.url)),
@@ -54,6 +64,7 @@ export async function cardsFixture(
           LOOP_TEST_CARDS_COMPILED: compiled ? "1" : "0",
           LOOP_TEST_CARDS_SOURCE: typeof compiled === "string" ? compiled : "",
           LOOP_TEST_CARDS_RELAY: options.relay ? "1" : "0",
+          LOOP_TEST_WEBHOOK_RECEIVER: options.webhookReceiver || "",
           NODE_ENV: options.nodeEnv ?? "test",
           TEST: options.nodeEnv === "production" ? "" : process.env.TEST,
           LOOP_LISTEN_HOST: "127.0.0.1",
@@ -229,6 +240,23 @@ export async function cardsFixture(
     fixtureSecret: ready.fixtureSecret,
     request,
     browser,
+    async webhookFixture(
+      action: string,
+      input: Record<string, unknown> = {},
+    ): Promise<unknown> {
+      const reply = once(child, "message");
+      child.send({ type: "webhook-fixture", action, input });
+      const [result] = await reply;
+      if (result.error) throw new Error(result.error);
+      return result.result;
+    },
+    async webhookNetwork(addresses: string[], holdLookupAfter?: number) {
+      const reply = once(child, "message");
+      child.send({ type: "webhook-network", addresses, holdLookupAfter });
+      const [result] = await reply;
+      if (!result.network)
+        throw new Error("Webhook fixture network did not update");
+    },
     async restart() {
       const exited = once(child, "exit");
       child.kill("SIGKILL");

@@ -29,6 +29,7 @@ import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 import { indexMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
+import { deliverWebhooks } from "./webhooks.js";
 import { deliverScheduledSends, surfaceLater } from "./mobile-return.js";
 import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
 import { pollWatches } from "./pr-watches.js";
@@ -224,15 +225,20 @@ export function startWorker() {
     try {
       sweepAgentMail();
     } catch {}
-    void deliverNotifications()
+    const delivery = Promise.allSettled([
+      deliverNotifications(),
+      deliverWebhooks(cleanupController.signal),
+    ])
       .catch(() => {})
       .finally(() => {
+        inflight.delete(delivery);
         notifying = false;
         if (maintenanceDirty) {
           maintenanceDirty = false;
           wakeMaintenance();
         }
       });
+    inflight.add(delivery);
   };
   const wakeMaintenance = () => {
     if (stopping || maintenanceWake) return;

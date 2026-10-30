@@ -43,13 +43,26 @@ it.each(["server", "companion", "multi-user"] as const)(
           expect(scheme.in).toBe("header");
           headers[scheme.name] = credentials[name];
         }
-        for (const parameter of operation.parameters)
+        for (const entry of operation.parameters) {
+          // Parameter Object references carry the same header requirements
+          // as inline parameters in the generated OpenAPI document.
+          const parameter = entry.$ref
+            ? entry.$ref
+                .slice(2)
+                .split("/")
+                .reduce(
+                  (node: any, key: string) =>
+                    node[key.replaceAll("~1", "/").replaceAll("~0", "~")],
+                  spec,
+                )
+            : entry;
           if (
             parameter.in === "header" &&
             parameter.required &&
             parameter.name === "Origin"
           )
             headers.Origin = fixture.origin;
+        }
         return headers;
       };
       const createHeaders = managementHeaders("post", "/api/card-tokens");

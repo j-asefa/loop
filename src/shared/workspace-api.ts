@@ -31,6 +31,7 @@ import { AttachmentIds } from "./uploads.js";
 import { REPLY_EXCERPT_LIMIT } from "./replies.js";
 import { CardSchema, CardIdSchema, CardPageSchema, CardChangesSchema, CardListQuerySchema, CardChangesQuerySchema } from "./cards.js";
 import { CardTokenSchema, CreateCardTokenSchema } from "./card-token-schemas.js";
+import * as webhooks from "./webhooks.js";
 
 // Owner-session HTTP projections. Never import a storage row or credential schema here.
 const Text = z.string(), MaybeText = Text.nullable(), Time = z.number();
@@ -373,6 +374,13 @@ export const workspaceRoutes = {
   cardDetail: endpoint({ ...base, method: "GET", path: "/v1/cards/:id", params: z.object({ id: CardIdSchema }), query: z.strictObject({}, { error: "Card detail does not accept query parameters" }), response: CardSchema, access: { admits: ["read", "results:read", "cards:read"] } }),
   // Management handlers historically ignore query parameters.
   cardTokens: endpoint({ ...base, method: "GET", path: "/card-tokens", response: z.array(CardTokenSchema) }),
+  webhooks: endpoint({ ...base, method: "GET", path: "/webhooks", response: webhooks.WebhookList }),
+  webhookCreate: endpoint({ ...base, method: "POST", path: "/webhooks", body: webhooks.WebhookCreate, response: webhooks.WebhookCreated, status: 201 }),
+  webhookUpdate: endpoint({ ...base, method: "PATCH", path: "/webhooks/:id", params: Id, body: webhooks.WebhookUpdate, response: webhooks.WebhookSubscription }),
+  webhookTest: endpoint({ ...base, method: "POST", path: "/webhooks/:id/test", params: Id, body: webhooks.WebhookRequest, response: z.object({ subscription: webhooks.WebhookSubscription, delivery: webhooks.WebhookDelivery }) }),
+  webhookRetry: endpoint({ ...base, method: "POST", path: "/webhooks/:id/retry", params: Id, body: webhooks.WebhookRequest, response: webhooks.WebhookSubscription }),
+  webhookRevoke: endpoint({ ...base, method: "POST", path: "/webhooks/:id/revoke", params: Id, body: webhooks.WebhookRequest, response: webhooks.WebhookSubscription }),
+  webhookDeliveries: endpoint({ ...base, method: "GET", path: "/webhooks/:id/deliveries", params: Id, response: z.array(webhooks.WebhookDelivery) }),
   cardTokenCreate: endpoint({ ...base, method: "POST", path: "/card-tokens", body: CreateCardTokenSchema, response: CreatedCardTokenSchema, status: 201 }),
   cardTokenRevoke: endpoint({ ...base, method: "DELETE", path: "/card-tokens/:id", params: z.object({ id: Text.min(1) }), response: z.object({ ok: z.literal(true) }) }),
   connectionCreate: endpoint({ ...base, method: "POST", path: "/connections", body: ConnectionCreateInput, response: PublicConnection.pick({ id: true }).extend(PublicModels.shape) }),

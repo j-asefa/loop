@@ -26,6 +26,7 @@ import type {
 
 export type { Run } from "./row-schemas.js";
 import { RunState, legalRunTransition } from "../shared/run-state.js";
+import { enqueueStoppedWebhooks } from "./webhook-outbox.js";
 export function enqueue(
   owner: string,
   input: string,
@@ -222,7 +223,8 @@ function transitionState(
         db.prepare(
           "UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?",
         ).run(run.id);
-      emit(run.owner_id, run.id, state, payload);
+      const event = emit(run.owner_id, run.id, state, payload);
+      enqueueStoppedWebhooks(db, event);
       return true;
     })
     .immediate();

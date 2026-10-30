@@ -1,4 +1,8 @@
 import { SCOPE_CATALOG, isTokenMutation } from "../src/shared/token-scopes.ts";
+import {
+  WebhookSubscription,
+  WebhookDelivery,
+} from "../src/shared/webhooks.ts";
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import {
@@ -83,6 +87,8 @@ const jsonOptions = {
 // Reuse the actual public projections instead of copying them into every
 // endpoint. Stable per-route response names remain references to these schemas.
 const publicProjections = {
+  WebhookSubscription,
+  WebhookDelivery,
   Ok: workspaceRoutes.workspaceRevoke.response,
   PublicActivitySource: ActivityRecordSchema.options[0].shape.source,
   WorkspaceClock,
@@ -224,9 +230,30 @@ for (const [name, schema] of Object.entries(schemas)) {
 }
 const responses = {};
 const paths = {};
+// Extend reuse by route family so a new API does not rewrite every published
+// operation in the same review. References and inline forms have identical data.
+const sharedManagementGroups = new Set([
+  "memory",
+  "agents",
+  "teams",
+  "workspace",
+  "mcp",
+  "social",
+  "card-tokens",
+  "webhooks",
+]);
+const managementOrigin = {
+  name: "Origin",
+  in: "header",
+  required: true,
+  schema: { type: "string", format: "uri" },
+  description:
+    "Required for all management writes and must match the workspace origin. Browsers supply this header automatically.",
+};
 // Share standard errors by route family. Cards reads retain their
 // published operation objects, including route-specific errors.
 const sharedErrorGroups = new Set([
+  "webhooks",
   "memory",
   "workflows",
   "capabilities",
@@ -297,14 +324,11 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   if (tokenMutation)
     parameters.push({ $ref: "#/components/parameters/IntegrationWriteOrigin" });
   else if (writes && !transport)
-    parameters.push({
-      name: "Origin",
-      in: "header",
-      required: true,
-      schema: { type: "string", format: "uri" },
-      description:
-        "Required for all management writes and must match the workspace origin. Browsers supply this header automatically.",
-    });
+    parameters.push(
+      sharedManagementGroups.has(route.path.split("/")[1])
+        ? { $ref: "#/components/parameters/ManagementOrigin" }
+        : managementOrigin,
+    );
   if (route.query) {
     const query = z.toJSONSchema(route.query, jsonOptions);
     const input = z.toJSONSchema(route.query, {
@@ -373,6 +397,12 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   if (name === "cardTokenRevoke" || name === "personalApproval")
     errorStatuses.push(404);
   if (name === "tokenEvents") errorStatuses.push(503);
+  if (name.startsWith("webhook") && writes) errorStatuses.push(409);
+  if (
+    name.startsWith("webhook") &&
+    !["webhooks", "webhookCreate"].includes(name)
+  )
+    errorStatuses.push(404);
   const errors = Object.fromEntries(
     errorStatuses
       .sort((a, b) => a - b)
@@ -383,14 +413,16 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
             400: "Invalid request",
             401: "Invalid credential or expired session",
             403: "Insufficient scope or origin refused",
-            404:
-              name === "cardTokenRevoke"
+            404: name.startsWith("webhook")
+              ? "Webhook not found for this owner"
+              : name === "cardTokenRevoke"
                 ? "Token not found for this owner"
                 : name === "personalApproval"
                   ? "Approval history not found for this owner"
                   : "Card or selected object not available",
-            409:
-              name === "cardTokenCreate"
+            409: name.startsWith("webhook")
+              ? "Request identity conflicts, delivery is in flight, or lifecycle state refuses this action"
+              : name === "cardTokenCreate"
                 ? "Creation conflict, revoked identity or secret, or active-token limit"
                 : "Cursor no longer valid; reset selection",
             429: "Request limit reached",
@@ -564,6 +596,7 @@ const document = {
     schemas,
     responses,
     parameters: {
+      ManagementOrigin: managementOrigin,
       IntegrationWriteOrigin: {
         name: "Origin",
         in: "header",

@@ -101,6 +101,24 @@ process.on("message", (message) => {
     message &&
     typeof message === "object" &&
     "type" in message &&
+    message.type === "webhook-fixture" &&
+    "action" in message &&
+    "input" in message
+  ) {
+    void import("./webhooks.js")
+      .then(({ webhookFixture }) =>
+        webhookFixture(
+          String(message.action),
+          message.input as Record<string, unknown>,
+        ),
+      )
+      .then((result) => process.send?.({ result }))
+      .catch((error) => process.send?.({ error: String(error) }));
+  }
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
     message.type === "stop-listener"
   )
     void stopListening()

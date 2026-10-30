@@ -1,4 +1,5 @@
 import { assertFleetAction } from "../fleet-action-context.js";
+import { enqueueStoppedWebhooks } from "../webhook-outbox.js";
 import {
   assertFleetEffect,
   recordFleetEffectEdit,
@@ -889,7 +890,10 @@ export class NativeSessions {
           now(),
           run.id,
         );
-        emit(run.owner_id, run.id, "interrupted", { native: true });
+        const event = emit(run.owner_id, run.id, "interrupted", {
+          native: true,
+        });
+        enqueueStoppedWebhooks(db, event);
       }
       db.prepare(
         "UPDATE companion_sessions SET generation=NULL,state='disconnected'",
