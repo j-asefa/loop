@@ -1,5 +1,6 @@
 import { proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
+import { fleetOperationReason } from "./fleetCapabilities";
 import type { CardReadTransport } from "../shared/card-client";
 import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
@@ -1105,6 +1106,7 @@ export function Feed({
   sourcesLoading?: boolean;
 }) {
   const scopedSource = useSourceId();
+  const scopedCapabilities = useSourceCapabilities();
   // Browsable histories retain loaded pages while new activity arrives.
   const retainHistory = ["done", "replies", "threads"].includes(filter);
   type Shown = {
@@ -1128,7 +1130,7 @@ export function Feed({
     scope: selectionScope, read: "all", agent: "",
   });
   const combined = !!sources && !project && !teams && !scopedAgent;
-  const allSources: AgentSource[] = combined ? sources : [{ id: scopedSource, name: "" }];
+  const allSources: AgentSource[] = combined ? sources : [{ id: scopedSource, name: "", capabilities: scopedCapabilities }];
   const needsSourceKey = JSON.stringify(allSources.map(source => source.id).sort());
   const doneAgents = agents.filter(item =>
     allSources.some(source => source.id === (item.sourceId ?? scopedSource)) &&
@@ -2179,11 +2181,16 @@ export function Feed({
     }
   }
   function actionsFor(item: FeedItem, thread?: SourcedDoneThread | null): Action[] {
+    const unreadSource = thread?.source ?? item.sourceId ?? scopedSource;
+    const unreadReason = fleetOperationReason(unreadSource,
+      allSources.find(source => source.id === unreadSource)?.capabilities,
+      thread ? workspaceApi.doneThreadUnread : workspaceApi.feedUnread);
     // An open reader in the Unread selection retains its original card while
     // the read write removes it from that selection. Allow marking it unread
     // even when this retained snapshot still says it is unread.
     const unread: Action[] = (thread ? thread.unread !== undefined : item.done_card_key && item.read_at !== undefined) ? [{
       id: "mark-unread", label: "Mark unread", icon: <Mail size={20} />,
+      disabled: !!unreadReason, hint: unreadReason,
       onSelect: () => void markUnread(item, thread ?? undefined),
     }] : [];
     const key = thread ? JSON.stringify([thread.source, "thread", thread.id]) : feedItemKey(item, item.sourceId ?? scopedSource);

@@ -180,7 +180,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
       .api("/feed?filter=done&agent=" + agents[0].id)
       .then((feed) => feed.summary.done_unread);
   const beforeUnread = await unreadCount();
-  const markUnread = async (title) => {
+  const openActions = async (title) => {
     await page
       .locator(".inbox-results article")
       .filter({
@@ -188,6 +188,9 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
       })
       .getByRole("button", { name: "Thread actions" })
       .click();
+  };
+  const markUnread = async (title) => {
+    await openActions(title);
     await page
       .getByRole("menuitem", { name: "Mark unread", exact: true })
       .click();
@@ -297,8 +300,10 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
 
   // A linked-source fixture deliberately reuses local agent and card IDs.
   // Selecting it must address that source without mixing local cached pages.
-  const source = "docker:done-filters";
-  const prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
+  let source = "docker:done-filters";
+  let prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
+  let sourceKind = "docker";
+  let peerActions = ["feedUnread"];
   const localSummary = (await fixture.api("/feed?filter=needs")).summary;
   const remoteSummary = {
     ...localSummary,
@@ -337,7 +342,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     (url) => url.pathname === "/api/agent-sources",
     (route) =>
       route.fulfill({
-        json: [{ id: source, name: "Filter fixture", kind: "docker" }],
+        json: [{ id: source, name: "Filter fixture", kind: sourceKind }],
       }),
   );
   await page.route(
@@ -345,12 +350,28 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     async (route) => {
       const url = new URL(route.request().url());
       const path = url.pathname.slice(prefix.length);
-      if (path === "feed/threads") return route.fulfill({ json: [] });
+      if (path === "feed/threads" && sourceKind !== "peer")
+        return route.fulfill({ json: [] });
       if (path === "feed/agent-threads")
         return route.fulfill({ json: { items: [], next: null } });
       url.pathname = "/api/" + path;
       if (path === "feed") url.searchParams.delete("known");
       const response = await route.fetch({ url: url.href });
+      if (path === "capabilities")
+        return route.fulfill({
+          response,
+          json: {
+            ...(await response.json()),
+            fleet: {
+              version: 1,
+              machineId: source.slice(5),
+              reads: ["feed", "cardList", "cardChanges", "cardDetail"],
+              actions: peerActions,
+              files: false,
+              events: false,
+            },
+          },
+        });
       if (path === "feed")
         return route.fulfill({
           response,
@@ -432,4 +453,34 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await expect(card("Remote Filter result 0-83")).toHaveCount(0);
   await status("Unread").click();
   await expect(card("Remote Filter result 0-83")).toContainText("Unread");
+
+  // Peers currently expose individual results, not saved groups. Inject a
+  // group anyway to cover stale/future data: the menu must still respect the
+  // destination's operation catalog instead of offering an unsupported write.
+  await page.goto("about:blank");
+  source = "peer:m_" + "b".repeat(64);
+  prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
+  sourceKind = "peer";
+  await page.goto(fixture.base, { waitUntil: "networkidle" });
+  await choose(agents[0], "Filter fixture");
+  await openActions("Mixed agent results");
+  const unreadAction = page.getByRole("menuitem", {
+    name: "Mark unread",
+    exact: true,
+  });
+  await expect(unreadAction).toBeDisabled();
+  await expect(unreadAction).toContainText("does not allow this operation");
+  await closeReader();
+  await openActions("Remote Filter result 0-83");
+  await expect(unreadAction).toBeEnabled();
+  await closeReader();
+  // A read-only or older peer can still show results without allowing unread.
+  peerActions = [];
+  await page.reload({ waitUntil: "networkidle" });
+  await choose(agents[0], "Filter fixture");
+  await openActions("Remote Filter result 0-83");
+  await expect(unreadAction).toBeDisabled();
+  await expect(unreadAction).toContainText("does not allow this operation");
+  await capture("peer-unread-unavailable");
+  await closeReader();
 }
