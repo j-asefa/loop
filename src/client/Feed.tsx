@@ -1,5 +1,7 @@
 import { proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
+import { fleetOperationReason } from "./fleetCapabilities";
+import { doneReadVersion, doneThreadReadVersions, writeDoneReadState, writeDoneUnreadState } from "./doneReadState";
 import type { CardReadTransport } from "../shared/card-client";
 import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
@@ -49,6 +51,7 @@ import {
   Laptop,
   MessageCircleQuestion,
   MessageSquare,
+  Mail,
   ShieldCheck,
   Pause,
   PencilLine,
@@ -127,6 +130,7 @@ export type FeedItem = {
   done_card_key?: string;
   /** When a Done result was opened; null while unread. */
   read_at?: number | null;
+  unread_version?: number;
   reply_card_key?: string;
   reply?: { message_id: string; content: string; read_at: number | null };
   title: string;
@@ -1104,6 +1108,7 @@ export function Feed({
   sourcesLoading?: boolean;
 }) {
   const scopedSource = useSourceId();
+  const scopedCapabilities = useSourceCapabilities();
   // Browsable histories retain loaded pages while new activity arrives.
   const retainHistory = ["done", "replies", "threads"].includes(filter);
   type Shown = {
@@ -1127,7 +1132,7 @@ export function Feed({
     scope: selectionScope, read: "all", agent: "",
   });
   const combined = !!sources && !project && !teams && !scopedAgent;
-  const allSources: AgentSource[] = combined ? sources : [{ id: scopedSource, name: "" }];
+  const allSources: AgentSource[] = combined ? sources : [{ id: scopedSource, name: "", capabilities: scopedCapabilities }];
   const needsSourceKey = JSON.stringify(allSources.map(source => source.id).sort());
   const doneAgents = agents.filter(item =>
     allSources.some(source => source.id === (item.sourceId ?? scopedSource)) &&
@@ -2025,27 +2030,54 @@ export function Feed({
     }
   }
   async function markDoneRead(item: FeedItem) {
-    if (item.read_at !== null || !item.done_card_key) return;
-    const owner = viewOwner(), source = item.sourceId ?? scopedSource;
+    // Opening again is a later read choice even while an unread write is pending.
+    const cardKey = item.done_card_key;
+    if (item.read_at === undefined || !cardKey) return;
+    const generation = viewGeneration(), source = item.sourceId ?? scopedSource;
+    if (fleetOperationReason(source, allSources.find(entry => entry.id === source)?.capabilities, workspaceApi.feedRead)) return;
     try {
-      await callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey: item.done_card_key } }, source);
-      if (owner === viewOwner()) await load();
+      await writeDoneReadState(source, () =>
+        callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey, unreadVersion: doneReadVersion(source, "d:" + cardKey, item.unread_version) } }, source));
+      if (generation === viewGeneration()) await load();
     } catch (error) {
-      if (owner === viewOwner()) setError((error as Error).message);
+      if (generation === viewGeneration()) setError((error as Error).message);
+    }
+  }
+  async function markUnread(item: FeedItem, thread?: SourcedDoneThread) {
+    const generation = viewGeneration();
+    const cardKey = item.done_card_key, source = item.sourceId ?? scopedSource;
+    try {
+      if (thread) {
+        await writeDoneUnreadState(thread.source, () =>
+          callRoute(workspaceApi.doneThreadUnread, { params: { id: thread.id } }, thread.source), thread.id);
+      } else if (cardKey) {
+        await writeDoneUnreadState(source, () =>
+          callRoute(workspaceApi.feedUnread, {
+            params: { id: item.conversation_id }, body: { cardKey },
+          }, source));
+      } else return;
+      if (generation === viewGeneration()) {
+        grouping.refresh();
+        await load();
+      }
+    } catch (error) {
+      if (generation === viewGeneration()) setError((error as Error).message);
     }
   }
   // Every way of opening a saved group reads its members.
   function openThread(thread: SourcedDoneThread) {
     setReadingThread({ ...thread, generation });
-    if (thread.unread) void markThreadRead(thread);
+    if (thread.unread !== undefined) void markThreadRead(thread);
   }
   async function markThreadRead(thread: SourcedDoneThread) {
-    const owner = viewOwner();
+    const generation = viewGeneration();
+    if (fleetOperationReason(thread.source, allSources.find(entry => entry.id === thread.source)?.capabilities, workspaceApi.doneThreadRead)) return;
     try {
-      await callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: {} }, thread.source);
-      if (owner === viewOwner()) { grouping.refresh(); await load(); }
+      await writeDoneReadState(thread.source, () =>
+        callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: thread.unreadVersions === undefined ? {} : { unreadVersions: doneThreadReadVersions(thread.source, thread.id, thread.unreadVersions) } }, thread.source));
+      if (generation === viewGeneration()) { grouping.refresh(); await load(); }
     } catch (error) {
-      if (owner === viewOwner()) setError((error as Error).message);
+      if (generation === viewGeneration()) setError((error as Error).message);
     }
   }
   function markSaved(item: FeedItem, saved: boolean, active = true) {
@@ -2160,6 +2192,18 @@ export function Feed({
     }
   }
   function actionsFor(item: FeedItem, thread?: SourcedDoneThread | null): Action[] {
+    const unreadSource = thread?.source ?? item.sourceId ?? scopedSource;
+    const unreadReason = fleetOperationReason(unreadSource,
+      allSources.find(source => source.id === unreadSource)?.capabilities,
+      thread ? workspaceApi.doneThreadUnread : workspaceApi.feedUnread);
+    // An open reader in the Unread selection retains its original card while
+    // the read write removes it from that selection. Allow marking it unread
+    // even when this retained snapshot still says it is unread.
+    const unread: Action[] = (thread ? thread.unread !== undefined : item.done_card_key && item.read_at !== undefined) ? [{
+      id: "mark-unread", label: "Mark unread", icon: <Mail size={20} />,
+      disabled: !!unreadReason, hint: unreadReason,
+      onSelect: () => void markUnread(item, thread ?? undefined),
+    }] : [];
     const key = thread ? JSON.stringify([thread.source, "thread", thread.id]) : feedItemKey(item, item.sourceId ?? scopedSource);
     const organize: Action[] = aggregatable(item) ? [
       { id: "select-cards", label: "Select cards", icon: <ListChecks size={20} />, onSelect: () => setSelectedCards([key]) },
@@ -2171,6 +2215,7 @@ export function Feed({
     ] : [];
     if (thread) return [
       { id: "open-thread", label: "Open thread", icon: <MessageSquare size={20} />, onSelect: () => openThread(thread) },
+      ...unread,
       ...organize,
       { id: "ungroup", label: "Ungroup cards", hint: "Return each card to Done", icon: <Layers size={20} />, onSelect: () => void ungroup(thread) },
     ];
@@ -2188,6 +2233,7 @@ export function Feed({
           ? onReply(item.conversation_id, source, feedReplyQuote(item) ?? undefined)
           : onOpen(item.conversation_id, item.last_message?.id, source),
       }] : []),
+      ...unread,
       ...(item.reply ? [{
         id: "archive-reply", label: "Archive reply", icon: <Archive size={20} />,
         onSelect: () => void dismissFeedCard(item),
@@ -2393,7 +2439,7 @@ export function Feed({
             (source && allSources.find(item => item.id === source)?.name) ||
             item.executionEnvironment,
         )}
-        onRead={item.reply ? () => void markReplyRead(item) : item.read_at === null && !thread ? () => void markDoneRead(item) : undefined}
+        onRead={item.reply ? () => void markReplyRead(item) : item.read_at !== undefined && !thread ? () => void markDoneRead(item) : undefined}
         onReadingChange={!inNeeds && !thread && doneRead === "unread" ? open => setReadingCard(open ? { item, view: shownKey() } : null) : undefined}
         onQuestion={item.reply ? () => onOpen(item.conversation_id, item.reply!.message_id, source) : undefined}
         onOpen={() => thread ? openThread(thread) : onOpen(item.conversation_id, item.reply ? item.last_message?.id : undefined, source)}

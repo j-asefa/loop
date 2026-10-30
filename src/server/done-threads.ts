@@ -1,6 +1,10 @@
 import { db, now, emit } from "./db.js";
 import { ownedAgent, ownedFolder, Problem } from "./domain.js";
 import { doneCards } from "./done-cards.js";
+import {
+  advanceDoneUnreadVersion,
+  doneUnreadVersion,
+} from "./done-read-state.js";
 import { projectFolders } from "./results.js";
 import { teamFilter } from "./teams.js";
 import type {
@@ -102,6 +106,12 @@ export function listDoneThreads(
               preview,
               unread: visible.filter((card) => card.display.read_at === null)
                 .length,
+              unreadVersions: Object.fromEntries(
+                visible.map((card) => [
+                  card.id,
+                  card.display.unread_version ?? 0,
+                ]),
+              ),
             },
           ]
         : [];
@@ -123,18 +133,58 @@ export function readDoneThread(owner: string, id: string): DoneThreadDetail {
     };
   })();
 }
-/** Opening a thread reads every member result, as opening a card reads it. */
-export function markDoneThreadRead(owner: string, id: string) {
+/** A saved thread's read state applies to every member result. */
+export function setDoneThreadRead(
+  owner: string,
+  id: string,
+  read: boolean,
+  versions: Record<string, number> = {},
+) {
   return db
     .transaction(() => {
       owned(owner, id);
-      db.prepare(
-        `INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at)
-        SELECT m.owner_id,m.conversation_id,substr(m.card_id,3),? FROM done_thread_members m
+      const results = db
+        .prepare(
+          `SELECT m.card_id,m.conversation_id,p.card_key FROM done_thread_members m
         JOIN feed_cards p ON p.owner_id=m.owner_id AND p.conversation_id=m.conversation_id
           AND p.kind='result' AND p.card_key=substr(m.card_id,3)
         WHERE m.owner_id=? AND m.thread_id=?`,
-      ).run(now(), owner, id);
+        )
+        .all(owner, id) as {
+        card_id: string;
+        conversation_id: string;
+        card_key: string;
+      }[];
+      const insert = db.prepare(
+        "INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at) VALUES(?,?,?,?)",
+      );
+      const remove = db.prepare(
+        "DELETE FROM done_card_reads WHERE owner_id=? AND conversation_id=? AND card_key=?",
+      );
+      const unreadVersions: Record<string, number> = {};
+      const time = now();
+      for (const card of results) {
+        if (read) {
+          if (
+            (versions[card.card_id] ?? 0) ===
+            doneUnreadVersion(owner, card.conversation_id, card.card_key)
+          )
+            insert.run(owner, card.conversation_id, card.card_key, time);
+        } else {
+          remove.run(owner, card.conversation_id, card.card_key);
+          unreadVersions[card.card_id] = advanceDoneUnreadVersion(
+            owner,
+            card.conversation_id,
+            card.card_key,
+          );
+        }
+      }
+      if (!read) {
+        emit(owner, { kind: "collection", id: "feed" }, "invalidate", {
+          scope: { kind: "collection", id: "feed" },
+        });
+        return { ok: true, unreadVersions };
+      }
       return { ok: true };
     })
     .immediate();

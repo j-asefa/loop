@@ -151,6 +151,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
       "Reply",
       "Save",
       "Remind me",
+      "Mark unread",
       "Select cards",
       "Move to…",
       "Combine with another card",
@@ -299,7 +300,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
       name: "Threads",
       exact: true,
     });
-    const doneTab = filters.getByRole("tab", { name: "Done", exact: true });
+    const doneTab = filters.getByRole("tab", { name: /^Done/ });
     await threadsTab.click();
     await expect(grouped).toHaveCount(1);
     await page.reload({ waitUntil: "networkidle" });
