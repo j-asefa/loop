@@ -1,6 +1,7 @@
 import { proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
 import { fleetOperationReason } from "./fleetCapabilities";
+import { writeDoneReadState } from "./doneReadState";
 import type { CardReadTransport } from "../shared/card-client";
 import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
@@ -2028,24 +2029,30 @@ export function Feed({
     }
   }
   async function markDoneRead(item: FeedItem) {
-    if (item.read_at !== null || !item.done_card_key) return;
-    const owner = viewOwner(), source = item.sourceId ?? scopedSource;
+    const cardKey = item.done_card_key;
+    if (item.read_at === undefined || !cardKey) return;
+    const generation = viewGeneration(), source = item.sourceId ?? scopedSource;
+    if (fleetOperationReason(source, allSources.find(entry => entry.id === source)?.capabilities, workspaceApi.feedRead)) return;
     try {
-      await callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey: item.done_card_key } }, source);
-      if (owner === viewOwner()) await load();
+      await writeDoneReadState(source, ["d:" + cardKey], () =>
+        callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey } }, source));
+      if (generation === viewGeneration()) await load();
     } catch (error) {
-      if (owner === viewOwner()) setError((error as Error).message);
+      if (generation === viewGeneration()) setError((error as Error).message);
     }
   }
   async function markUnread(item: FeedItem, thread?: SourcedDoneThread) {
     const generation = viewGeneration();
+    const cardKey = item.done_card_key, source = item.sourceId ?? scopedSource;
     try {
       if (thread) {
-        await callRoute(workspaceApi.doneThreadUnread, { params: { id: thread.id } }, thread.source);
-      } else if (item.done_card_key) {
-        await callRoute(workspaceApi.feedUnread, {
-          params: { id: item.conversation_id }, body: { cardKey: item.done_card_key },
-        }, item.sourceId ?? scopedSource);
+        await writeDoneReadState(thread.source, thread.cardIds, () =>
+          callRoute(workspaceApi.doneThreadUnread, { params: { id: thread.id } }, thread.source));
+      } else if (cardKey) {
+        await writeDoneReadState(source, ["d:" + cardKey], () =>
+          callRoute(workspaceApi.feedUnread, {
+            params: { id: item.conversation_id }, body: { cardKey },
+          }, source));
       } else return;
       if (generation === viewGeneration()) {
         grouping.refresh();
@@ -2058,15 +2065,17 @@ export function Feed({
   // Every way of opening a saved group reads its members.
   function openThread(thread: SourcedDoneThread) {
     setReadingThread({ ...thread, generation });
-    if (thread.unread) void markThreadRead(thread);
+    if (thread.unread !== undefined) void markThreadRead(thread);
   }
   async function markThreadRead(thread: SourcedDoneThread) {
-    const owner = viewOwner();
+    const generation = viewGeneration();
+    if (fleetOperationReason(thread.source, allSources.find(entry => entry.id === thread.source)?.capabilities, workspaceApi.doneThreadRead)) return;
     try {
-      await callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: {} }, thread.source);
-      if (owner === viewOwner()) { grouping.refresh(); await load(); }
+      await writeDoneReadState(thread.source, thread.cardIds, () =>
+        callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: {} }, thread.source));
+      if (generation === viewGeneration()) { grouping.refresh(); await load(); }
     } catch (error) {
-      if (owner === viewOwner()) setError((error as Error).message);
+      if (generation === viewGeneration()) setError((error as Error).message);
     }
   }
   function markSaved(item: FeedItem, saved: boolean, active = true) {
@@ -2428,7 +2437,7 @@ export function Feed({
             (source && allSources.find(item => item.id === source)?.name) ||
             item.executionEnvironment,
         )}
-        onRead={item.reply ? () => void markReplyRead(item) : item.read_at === null && !thread ? () => void markDoneRead(item) : undefined}
+        onRead={item.reply ? () => void markReplyRead(item) : item.read_at !== undefined && !thread ? () => void markDoneRead(item) : undefined}
         onReadingChange={!inNeeds && !thread && doneRead === "unread" ? open => setReadingCard(open ? { item, view: shownKey() } : null) : undefined}
         onQuestion={item.reply ? () => onOpen(item.conversation_id, item.reply!.message_id, source) : undefined}
         onOpen={() => thread ? openThread(thread) : onOpen(item.conversation_id, item.reply ? item.last_message?.id : undefined, source)}

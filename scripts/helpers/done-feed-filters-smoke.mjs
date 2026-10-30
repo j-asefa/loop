@@ -53,8 +53,9 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
       }
     }
   })();
+  const groupId = randomUUID();
   await fixture.api("/feed/threads", {
-    id: randomUUID(),
+    id: groupId,
     title: "Mixed agent results",
     cardIds: ["d:run:0-82", "d:run:1-1"],
   });
@@ -209,21 +210,73 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await expect(card("Filter result 0-83")).toContainText("Unread");
   await expect(card("Mixed agent results")).toContainText("Unread");
   await capture("marked-unread");
-  // The reader retains the original unread card after opening marks it read.
-  // Its action menu must still let the user leave that result unread for later.
-  await card("Filter result 0-83").getByRole("heading").click();
-  await expect.poll(unreadCount).toBe(beforeUnread + 1);
-  await page
-    .locator(".feed-reading-sheet")
-    .getByRole("button", { name: "Thread actions" })
-    .click();
-  await page
-    .getByRole("menuitem", { name: "Mark unread", exact: true })
-    .click();
-  await expect.poll(unreadCount).toBe(beforeUnread + 2);
-  await expect(page.locator(".feed-reading-sheet")).toBeVisible();
-  await closeReader();
+  // Hold the initial read before the server sees it, then choose unread. The
+  // later choice must wait for that read, including after closing a group.
+  const unreadDuringRead = async (title, path, insideReader) => {
+    let release, started;
+    const held = new Promise((resolve) => (release = resolve));
+    const pending = new Promise((resolve) => (started = resolve));
+    const applied = [];
+    const matches = (url) => url.pathname === path;
+    await page.route(matches, async (route) => {
+      const method = route.request().method();
+      if (method === "PUT") {
+        started();
+        await held;
+      }
+      const response = await route.fetch();
+      applied.push(method);
+      await route.fulfill({ response });
+    });
+    const responseFor = (method) =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === path &&
+          response.request().method() === method,
+      );
+    const readResponse = responseFor("PUT");
+    const unreadResponse = responseFor("DELETE");
+    try {
+      await card(title).getByRole("heading").click();
+      await pending;
+      if (insideReader)
+        await page
+          .locator(".feed-reading-sheet")
+          .getByRole("button", { name: "Thread actions" })
+          .click();
+      else {
+        await closeReader();
+        await openActions(title);
+      }
+      await page
+        .getByRole("menuitem", { name: "Mark unread", exact: true })
+        .click();
+      // Give an incorrectly parallel DELETE time to overtake the held PUT.
+      await page.waitForTimeout(150);
+      release();
+      await Promise.all([readResponse, unreadResponse]);
+      assert.deepEqual(applied, ["PUT", "DELETE"]);
+      await expect.poll(unreadCount).toBe(beforeUnread + 2);
+      if (insideReader) {
+        await expect(page.locator(".feed-reading-sheet")).toBeVisible();
+        await closeReader();
+      }
+    } finally {
+      release();
+      await page.unroute(matches);
+    }
+  };
+  await unreadDuringRead(
+    "Filter result 0-83",
+    `/api/feed/${agents[0].id}/read`,
+    true,
+  );
   await expect(card("Filter result 0-83")).toContainText("Unread");
+  await unreadDuringRead(
+    "Mixed agent results",
+    `/api/feed/threads/${groupId}/read`,
+    false,
+  );
   // Opening the cards again returns them to Read, including all group members.
   await card("Filter result 0-83").getByRole("heading").click();
   await closeReader();
@@ -304,6 +357,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   let prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
   let sourceKind = "docker";
   let peerActions = ["feedUnread"];
+  const peerReadWrites = [];
   const localSummary = (await fixture.api("/feed?filter=needs")).summary;
   const remoteSummary = {
     ...localSummary,
@@ -350,6 +404,14 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     async (route) => {
       const url = new URL(route.request().url());
       const path = url.pathname.slice(prefix.length);
+      if (
+        sourceKind === "peer" &&
+        /\/read$/.test(path) &&
+        ["PUT", "DELETE"].includes(route.request().method())
+      ) {
+        peerReadWrites.push(path);
+        return route.fulfill({ status: 409, json: { error: "Read only" } });
+      }
       if (path === "feed/threads" && sourceKind !== "peer")
         return route.fulfill({ json: [] });
       if (path === "feed/agent-threads")
@@ -482,5 +544,12 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await expect(unreadAction).toBeDisabled();
   await expect(unreadAction).toContainText("does not allow this operation");
   await capture("peer-unread-unavailable");
+  await closeReader();
+  await card("Remote Filter result 0-83").getByRole("heading").click();
+  await expect(page.locator(".feed-reading-sheet")).toContainText(
+    "Answer for filter result 0-83",
+  );
+  await page.waitForTimeout(150);
+  assert.deepEqual(peerReadWrites, []);
   await closeReader();
 }
