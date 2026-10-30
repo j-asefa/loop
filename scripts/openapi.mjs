@@ -624,7 +624,8 @@ const document = {
       IntegrationBearer: {
         type: "http",
         scheme: "bearer",
-        bearerFormat: "loop55_token_… (legacy loop55_card_… accepted)",
+        bearerFormat:
+          "loop55_token_… (loop55_card_…, loop_token_… and loop_card_… accepted; preserve issued credentials verbatim)",
         description:
           "Owner/source-bound integration credential. Only contracts whose x-scopes intersect its grants admit it. Never send tokens in URLs. Every admitted write requires its x-request-identity body field. Identity is scoped to owner and token; changed validated input or operation conflicts. Completed requests replay the first status with the current result projection, without invoking the effect again. Pending outcomes are uncertain and replay as 409. Result data expires after 24 hours; permanent credential-lifetime markers refuse old keys with 409.",
         "x-scope-catalog": SCOPE_CATALOG,
@@ -632,7 +633,7 @@ const document = {
       CardBearer: {
         type: "http",
         scheme: "bearer",
-        bearerFormat: "loop55_card_…",
+        bearerFormat: "loop55_card_… or loop_card_…",
         description:
           "Compatibility alias for IntegrationBearer for one release. Legacy results:read and cards:read retain their existing Cards-only permissions.",
       },
@@ -648,7 +649,7 @@ const document = {
         in: "header",
         name: "Cookie",
         description:
-          "Complete Cookie header from the paired device session, including cookie names. Preserve the deployment's names and values (__Host-loop55 on HTTPS, loop55_local on local HTTP, with an installation suffix for isolated previews). Browsers attach their cookie jar automatically; non-browser clients supply the complete header value. Management writes also require PairedCsrf.",
+          "Complete Cookie header from the paired device session, including cookie names. Preserve the deployment's names and values (__Host-loop55 on HTTPS, loop55_local on local HTTP, with an installation suffix for isolated previews; existing __Host-loop and loop_local cookies remain accepted). Browsers attach their cookie jar automatically; non-browser clients supply the complete header value. Management writes also require PairedCsrf.",
       },
       PairedCsrf: {
         type: "apiKey",

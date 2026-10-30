@@ -277,10 +277,10 @@ def cleanup_fixtures(root, days=7, now=None):
     now = time.time() if now is None else now
     removed = []
     root = root.resolve()
-    for p in root.glob("loop55-package-*"):
+    for p in list(root.glob("loop55-package-*")) + list(root.glob("loop-package-*")):
         if p.is_symlink() or not p.is_dir() or p.resolve().parent != root:
             continue
-        marker = p / ".loop55-disposable.json"
+        marker = p / (".loop55-disposable.json" if p.name.startswith("loop55-package-") else ".loop-disposable.json")
         try:
             regular(marker)
             m, s = json.loads(marker.read_text()), p.lstat()
@@ -413,11 +413,12 @@ def prune_builds(releases, config):
                 continue
             shutil.rmtree(modules)
             removed.append(str(modules))
-        package = p / "loop55-0.1.0.tgz"
-        if package.exists():
-            regular(package)
-            package.unlink()
-            removed.append(str(package))
+        for name in ("loop55-0.1.0.tgz", "loop-0.1.0.tgz"):
+            package = p / name
+            if package.exists():
+                regular(package)
+                package.unlink()
+                removed.append(str(package))
     return removed
 
 

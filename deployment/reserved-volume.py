@@ -50,7 +50,7 @@ def mounted(data):
     if len(rows) != 1 or rows[0]["uuid"] != data["uuid"] or rows[0]["fstype"] != "ext4":
         raise RuntimeError("Unexpected filesystem at the Loop55 state mountpoint")
     source = rows[0]["source"]
-    if not source.startswith("/dev/loop55"):
+    if not source.startswith("/dev/loop"):
         raise RuntimeError("State filesystem is not on the configured loop device")
     backing = command("losetup", "--noheadings", "--output", "BACK-FILE", source)
     if backing != data["image"]:

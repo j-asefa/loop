@@ -4,7 +4,7 @@ Pairing belongs to the companion profile, running on a laptop or in Docker. The 
 
 ## Pair a device
 
-Start a workspace with `loop55 start` or `loop <harness>`, then scan the displayed code with your phone's camera. The link opens Loop55 in your mobile browser; confirm **Pair and open Loop55**, then use **Share → Add to Home Screen**. Run `loop55 pair` for a fresh code. Links are single-use and expire after two minutes; anyone holding one can gain control of the workspace.
+Start a workspace with `loop55 start` or `loop55 <harness>`, then scan the displayed code with your phone's camera. The link opens Loop55 in your mobile browser; confirm **Pair and open Loop55**, then use **Share → Add to Home Screen**. Run `loop55 pair` for a fresh code. Links are single-use and expire after two minutes; anyone holding one can gain control of the workspace.
 
 The browser installation uses an HttpOnly session cookie. Pairing issues cookies only; bearer device credentials are no longer issued or accepted. Cookie requests use Host/Origin and CSRF checks. Revoke the device on the computer if the phone is lost.
 
@@ -188,7 +188,7 @@ The paired app shows agents and conversations from the laptop and connected Loop
 
 Local agents, Feed badges and new-agent connection cards display the computer's name: the friendly **Computer Name** from macOS System Settings, or the OS hostname on Linux. Loop55 reads it on the execution computer and sends it through the authenticated workspace API. Restart Loop55 after renaming the computer. If the name cannot be read, Loop55 shows **This computer**.
 
-Connected Docker workspaces display **Docker · project/service**, so `research/app` and `research/loop5555` remain distinguishable within the same Compose project. A standalone Docker companion displays **Docker · name** using `LOOP55_ENVIRONMENT_NAME`, or its container hostname when unset. The supplied companion Compose file defaults that name to `COMPOSE_PROJECT_NAME/loop55-companion`, keeping it stable when the container is replaced. To choose a custom label or apply a changed value, run `LOOP55_ENVIRONMENT_NAME=research docker compose -f compose.companion.yaml up -d --no-deps loop55-companion`. This variable only changes display text; source and conversation IDs are unchanged. A container whose name cannot be read falls back to **Docker**.
+Connected Docker workspaces display **Docker · project/service**, so `research/app` and `research/loop55` remain distinguishable within the same Compose project. A standalone Docker companion displays **Docker · name** using `LOOP55_ENVIRONMENT_NAME`, or its container hostname when unset. The supplied companion Compose file defaults that name to `COMPOSE_PROJECT_NAME/loop55-companion`, keeping it stable when the container is replaced. To choose a custom label or apply a changed value, run `LOOP55_ENVIRONMENT_NAME=research docker compose -f compose.companion.yaml up -d --no-deps loop55-companion`. This variable only changes display text; source and conversation IDs are unchanged. A container whose name cannot be read falls back to **Docker**.
 
 **New agent → Model & connection** lists connected provider destinations across sources as account cards. Pick the laptop, a managed Docker runner or a connected older Docker server for that agent. The new agent and its conversations live on the selected source. Project choices are scoped to that source. Files uploaded to one source cannot be attached when creating an agent on another source. An online runner that needs a provider connection links to its sign-in setup; that connection must be verified before new work starts.
 
@@ -205,7 +205,7 @@ Browser and PWA installations on different origins still have separate device co
 With Docker and git installed, use the dedicated Compose file. It requires no host Node installation or `.env` and starts only the companion:
 
 ```sh
-git clone https://github.com/J-Asefa/loop55.git
+git clone https://github.com/j-asefa/loop.git
 cd loop
 docker compose -f compose.companion.yaml up --build -d
 docker compose -f compose.companion.yaml exec loop55-companion loop55 pair

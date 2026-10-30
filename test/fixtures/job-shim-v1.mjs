@@ -18,14 +18,14 @@ function packageAt(directory) {
     return undefined;
   }
 }
-function loop55Project(cwd) {
+function loopProject(cwd) {
   for (let dir = cwd; ; dir = dirname(dir)) {
     const pkg = packageAt(dir);
     const repository =
       typeof pkg?.repository === "string"
         ? pkg.repository
         : pkg?.repository?.url;
-    if (pkg?.name === "loop55" && /j-asefa\/loop55/.test(repository || ""))
+    if (pkg?.name === "loop" && /j-asefa\/loop/.test(repository || ""))
       return dir;
     if (dir === dirname(dir)) return undefined;
   }
@@ -112,7 +112,7 @@ function compiler7(path) {
 
 export function classifyCommand(program, original, cwd = process.cwd()) {
   const args = [...original];
-  const root = loop55Project(cwd),
+  const root = loopProject(cwd),
     aware = queueAware(root);
   let label,
     compiler = false;
@@ -200,7 +200,7 @@ export function shimScript(configPath, node, shim, program, command) {
   // Node execve closes descriptors above stderr. Classify in a subprocess;
   // the shell must exec native harnesses and their protocol FDs directly.
   return (
-    "#!/bin/sh\nexport LOOP55_JOB_QUEUE_CONFIG=" +
+    "#!/bin/sh\nexport LOOP_JOB_QUEUE_CONFIG=" +
     shell(configPath) +
     "\n" +
     invoke +
@@ -215,7 +215,7 @@ export function shimScript(configPath, node, shim, program, command) {
     "  1) exec " +
     shell(command) +
     ' "$@" ;;\n' +
-    "  *) echo 'Loop55 command queue configuration is unavailable; command not started.' >&2; exit 125 ;;\nesac\n"
+    "  *) echo 'Loop command queue configuration is unavailable; command not started.' >&2; exit 125 ;;\nesac\n"
   );
 }
 
@@ -242,7 +242,7 @@ if (
     else process.execve(command, [command, ...args], env);
   } catch {
     console.error(
-      "Loop55 could not start this command through its job queue. Check loop55-job status; the command was not replayed.",
+      "Loop could not start this command through its job queue. Check loop-job status; the command was not replayed.",
     );
     process.exitCode = probe ? 2 : 125;
   }

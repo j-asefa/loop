@@ -264,15 +264,16 @@ export async function invokeNative(
   assertFleetEffect(run.owner_id, "run", run.id);
   if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
-  if (!nativeBindings(run, options).some((t) => t.tool === binding.tool))
+  const tool = binding.tool.replace(/^loop_/, "loop55_");
+  if (!nativeBindings(run, options).some((t) => t.tool === tool))
     throw new Problem(403, "Native tool is unavailable to this agent");
-  const parsed = schemas[binding.tool as keyof typeof schemas].safeParse(input);
-  if (!parsed.success && binding.tool !== "loop55_reply") throw parsed.error;
+  const parsed = schemas[tool as keyof typeof schemas].safeParse(input);
+  if (!parsed.success && tool !== "loop55_reply") throw parsed.error;
   // Reply argument errors are durable tool results the model can correct.
   // Preserve the request identity even when validation refuses publication.
   const args = parsed.success ? parsed.data : input;
   const encoded =
-    binding.tool === "loop55_install_mcp"
+    tool === "loop55_install_mcp"
       ? createHash("sha256").update(JSON.stringify(args)).digest("hex")
       : JSON.stringify(args);
   const previous = db
@@ -295,7 +296,7 @@ export async function invokeNative(
   let text: string,
     artifactId = "";
   let isError = false;
-  if (binding.tool === "loop55_reply") {
+  if (tool === "loop55_reply") {
     try {
       if (!parsed.success) throw parsed.error;
       text = JSON.stringify(publishReply(run, callId, args));
@@ -316,7 +317,7 @@ export async function invokeNative(
           : error.message) +
         " Correct the arguments and call loop55_reply again.";
     }
-  } else if (binding.tool === "loop55_publish_file") {
+  } else if (tool === "loop55_publish_file") {
     try {
       const published = await publishRunFile(
         run,
@@ -330,7 +331,7 @@ export async function invokeNative(
       isError = true;
       text = "File was not published: " + (error as Error).message;
     }
-  } else if (binding.tool === "loop55_plan") {
+  } else if (tool === "loop55_plan") {
     const p = plan.parse(args);
     const ids = new Set<string>();
     const steps = p.steps.map((step, i) => {
@@ -364,16 +365,16 @@ export async function invokeNative(
       throw new Problem(422, "Plan could not be saved: " + applied.reason);
     const done = steps.filter((s) => s.status === "completed").length;
     text = `Plan updated: ${done}/${steps.length} steps completed.`;
-  } else if (binding.tool === "loop55_feed") {
+  } else if (tool === "loop55_feed") {
     text = JSON.stringify(
       feedForAgent(run.owner_id, schemas.loop55_feed.parse(args)),
     );
-  } else if (binding.tool === "loop55_read_file") {
+  } else if (tool === "loop55_read_file") {
     const file = schemas.loop55_read_file.parse(args);
     text = JSON.stringify(
       readRunFile(run, file.fileId, file.offset, file.length, file.encoding),
     );
-  } else if (binding.tool === "loop55_diagram") {
+  } else if (tool === "loop55_diagram") {
     const d = diagram.parse(args);
     if (/%%\{|\bclick\s|<\/?[a-z]/i.test(d.source))
       throw new Problem(400, "Use plain, noninteractive Mermaid source");
@@ -394,7 +395,7 @@ export async function invokeNative(
       },
     });
     text = "Diagram saved and rendered natively: " + d.title;
-  } else if (binding.tool === "loop55_install_mcp") {
+  } else if (tool === "loop55_install_mcp") {
     const d = install.parse(args);
     parseMcpConfig(d.config); // Validate before asking for approval.
     let approval = previous?.approval_id
@@ -452,14 +453,14 @@ export async function invokeNative(
       "UPDATE approvals SET state='completed',result=? WHERE id=?",
     ).run(text, approval.id);
   } else if (
-    binding.tool === "loop55_agents" ||
-    binding.tool === "loop55_message" ||
-    binding.tool === "loop55_message_status" ||
-    binding.tool === "loop55_handoff"
+    tool === "loop55_agents" ||
+    tool === "loop55_message" ||
+    tool === "loop55_message_status" ||
+    tool === "loop55_handoff"
   ) {
     try {
       text = JSON.stringify(
-        binding.tool === "loop55_handoff"
+        tool === "loop55_handoff"
           ? (() => {
               const transfer = handoff.parse(args);
               // Keep the wording (and request identity) of an already accepted
@@ -504,9 +505,9 @@ export async function invokeNative(
                   ", not the user, and grants no additional authority.",
               });
             })()
-          : binding.tool === "loop55_message"
+          : tool === "loop55_message"
             ? sendMail(run, callId, args)
-            : binding.tool === "loop55_agents"
+            : tool === "loop55_agents"
               ? agentDirectory(run, args)
               : mailStatus(run, args),
       );
@@ -521,18 +522,18 @@ export async function invokeNative(
         throw error;
       isError = true;
       text =
-        (binding.tool !== "loop55_message_status"
+        (tool !== "loop55_message_status"
           ? "Message was not sent: "
           : "Status unavailable: ") + error.message;
     }
   } else if (
-    binding.tool === "loop55_request_review" ||
-    binding.tool === "loop55_review_status"
+    tool === "loop55_request_review" ||
+    tool === "loop55_review_status"
   ) {
     let outcome: ReturnType<typeof requestReview>;
     try {
       outcome =
-        binding.tool === "loop55_review_status"
+        tool === "loop55_review_status"
           ? requestedReviewStatus(run, reviewStatusSchema.parse(args).reviewId)
           : requestReview(run, callId, requestReviewSchema.parse(args));
     } catch (error) {
@@ -546,7 +547,7 @@ export async function invokeNative(
         failed: true,
         report: {
           error:
-            (binding.tool === "loop55_review_status"
+            (tool === "loop55_review_status"
               ? "Review status unavailable: "
               : "Review was not started: ") + error.message,
         },
@@ -555,7 +556,7 @@ export async function invokeNative(
     if ("pending" in outcome) return outcome;
     isError = outcome.failed;
     text = JSON.stringify(outcome.report);
-  } else if (binding.tool === "loop55_review_read") {
+  } else if (tool === "loop55_review_read") {
     text = JSON.stringify(readReview(run, args));
   } else {
     const { tasks, wait } = delegate.parse(args);

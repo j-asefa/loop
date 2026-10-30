@@ -236,3 +236,11 @@ it("checks producer ownership and accepts deletion evidence only for its origina
     expect(db.prepare("SELECT run_id FROM events WHERE type='tombstone'").all()).toEqual([{ run_id: null }, { run_id: null }]);
   } finally { deadlines.close(); changes.close(); db.close(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); }
 });
+
+
+it("replays stored approval decisions from both product names without losing their payload", () => {
+  for (const origin of ["loop", "loop55"]) {
+    const payload = { approvalId: "approval", decision: "approve", origin };
+    expect(historicalEvent({run_id: "run", type: "approval.decided", payload: JSON.stringify(payload)})).toMatchObject({type: "approval.decided", payload});
+  }
+});

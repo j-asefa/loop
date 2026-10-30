@@ -650,6 +650,8 @@ test(
       { mode: 0o600 },
     );
     writeFileSync(configPath, JSON.stringify(config), { mode: 0o600 });
+    const savedLegacyConfig = process.env.LOOP_JOB_QUEUE_CONFIG;
+    process.env.LOOP_JOB_QUEUE_CONFIG = configPath;
     process.env.LOOP55_JOB_QUEUE_CONFIG = configPath;
     let daemon: ChildProcess;
     async function start() {
@@ -1286,7 +1288,9 @@ test(
               join(installed, "job-shim.mjs"),
               "node",
               process.execPath,
-            ),
+            )
+              .replaceAll("LOOP55_", "LOOP_")
+              .replaceAll("Loop55", "Loop"),
             { mode: 0o700 },
           );
           // Simulate the macOS ownership path in this child only; no cgroup
@@ -1397,6 +1401,9 @@ test(
         daemon!.kill("SIGTERM");
         await closed;
       }
+      if (savedLegacyConfig === undefined)
+        delete process.env.LOOP_JOB_QUEUE_CONFIG;
+      else process.env.LOOP_JOB_QUEUE_CONFIG = savedLegacyConfig;
       if (saved === undefined) delete process.env.LOOP55_JOB_QUEUE_CONFIG;
       else process.env.LOOP55_JOB_QUEUE_CONFIG = saved;
       rmSync(dir, { recursive: true, force: true });

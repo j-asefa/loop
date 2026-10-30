@@ -305,7 +305,7 @@ export function PiCustomizations({
       )}
       {!selected ? (
         <SettingsEmpty icon={Sparkles} title="No Pi agent yet">
-          Run <code>loop</code> or <code>loop55 pi</code>, then create a Pi
+          Run <code>loop55</code> or <code>loop55 pi</code>, then create a Pi
           agent to discover its customizations.
         </SettingsEmpty>
       ) : (

@@ -198,6 +198,7 @@ it("offers older activity and legacy traces only when the reader would see them"
     trace.run("native:envelope", "StructuredOutput", '{"native":true}');
     trace.run("native:envelope:result", "Tool result", '{"native":true}');
     trace.run("plan:1", "loop55_plan", "{}");
+    trace.run("plan:old", "loop_plan", "{}");
   })();
   // Internal envelopes and plan calls are not history anyone can load.
   expect(

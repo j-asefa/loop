@@ -225,7 +225,7 @@ const Payloads = {
   "approval.decided": z.strictObject({
     approvalId: Id,
     decision: z.enum(["approve", "reject"]),
-    origin: z.literal("loop55"),
+    origin: z.enum(["loop55", "loop"]),
   }),
   "tool.failed": Tool,
   "tool.completed": Tool,

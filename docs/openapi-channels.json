@@ -1558,7 +1558,10 @@
                   },
                   "origin": {
                     "type": "string",
-                    "const": "loop55"
+                    "enum": [
+                      "loop55",
+                      "loop"
+                    ]
                   }
                 },
                 "required": [

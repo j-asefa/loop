@@ -29,7 +29,7 @@ it("records Loop55's own process as Docker inside the companion container", () =
 it("names standalone Docker environments without changing their location", () => {
   process.env.LOOP55_COMPANION_CONTAINER = "1";
   process.env.LOOP55_ENVIRONMENT_NAME = "  research/loop55  ";
-  expect(hostEnvironmentName()).toBe("Docker · research/loop5555");
+  expect(hostEnvironmentName()).toBe("Docker · research/loop55");
   expect(hostLocation()).toBe("docker");
   process.env.LOOP55_ENVIRONMENT_NAME = "development";
   expect(hostEnvironmentName()).toBe("Docker · development");

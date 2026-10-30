@@ -1,4 +1,5 @@
 import "../runtime/environment.mjs";
+import { retainedPath } from "../runtime/name-upgrade.ts";
 import Database from "better-sqlite3";
 import { resolve } from "node:path";
 import { mkdirSync, chmodSync } from "node:fs";
@@ -6,7 +7,11 @@ const target = process.argv[2];
 if (!target)
   throw new Error("Supply a backup filename outside the live data directory");
 const db = new Database(
-  resolve(process.env.LOOP55_DATA_DIR || "data", "loop55.db"),
+  retainedPath(
+    resolve(process.env.LOOP55_DATA_DIR || "data"),
+    "loop55.db",
+    "loop.db",
+  ),
   { readonly: true, fileMustExist: true },
 );
 await db.backup(resolve(target));

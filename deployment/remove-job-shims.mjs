@@ -2,7 +2,7 @@
 import "../runtime/environment.mjs";
 // Retire automatic queue wrappers without breaking PATHs held by live shells.
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { existsSync, constants } from "node:fs";
 import {
   access,
   lstat,
@@ -16,15 +16,22 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const configRoot = () =>
+  process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+const defaultConfig = () => {
+  const current = join(configRoot(), "loop55/jobs.json");
+  const legacy = join(configRoot(), "loop/jobs.json");
+  if (existsSync(current) && existsSync(legacy))
+    throw new Error(
+      "Both Loop55 and legacy queue configurations exist; choose one explicitly.",
+    );
+  return existsSync(legacy) ? legacy : current;
+};
 const marker = "# Loop55 command passthrough; automatic queueing removed.";
 const shell = (value) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
 
 export async function removeJobShims(
-  configPath = process.env.LOOP55_JOB_QUEUE_CONFIG ||
-    join(
-      process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
-      "loop55/jobs.json",
-    ),
+  configPath = process.env.LOOP55_JOB_QUEUE_CONFIG || defaultConfig(),
 ) {
   let config;
   try {
@@ -55,10 +62,13 @@ export async function removeJobShims(
     const existing = await readFile(path, "utf8");
     if (
       !existing.startsWith("#!/bin/sh\n" + marker + "\n") &&
+      !existing.startsWith(
+        "#!/bin/sh\n# Loop command passthrough; automatic queueing removed.\n",
+      ) &&
       !(
-        existing.startsWith("#!/bin/sh\nexport LOOP55_JOB_QUEUE_CONFIG=") &&
+        /^#!\/bin\/sh\nexport LOOP(?:55)?_JOB_QUEUE_CONFIG=/.test(existing) &&
         existing.includes("job-shim.mjs") &&
-        existing.includes("Loop55 command queue configuration is unavailable")
+        /Loop(?:55)? command queue configuration is unavailable/.test(existing)
       )
     )
       throw new Error("Unrecognized command wrapper; left unchanged: " + path);
@@ -74,8 +84,8 @@ export async function removeJobShims(
     const body =
       "#!/bin/sh\n" +
       marker +
-      "\nunset LOOP55_JOB_QUEUE_CONFIG LOOP55_JOB_SHIMS LOOP55_JOB_ACTIVE\n" +
-      "export LOOP55_HEAVY_SCHEDULING=off\nexec " +
+      "\nunset LOOP_JOB_QUEUE_CONFIG LOOP_JOB_SHIMS LOOP_JOB_ACTIVE LOOP55_JOB_QUEUE_CONFIG LOOP55_JOB_SHIMS LOOP55_JOB_ACTIVE\n" +
+      "export LOOP_HEAVY_SCHEDULING=off LOOP55_HEAVY_SCHEDULING=off\nexec " +
       shell(command) +
       ' "$@"\n';
     if (body !== existing) updates.push({ name, path, body });

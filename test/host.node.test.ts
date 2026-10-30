@@ -675,3 +675,64 @@ test("the private host accepts an existing connection service's probe and signed
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+for (const isolated of [false, true]) {
+  test(`legacy pairing cookies survive rename and do not shadow re-pairing (isolated=${isolated})`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), "loop55-cookie-upgrade-"));
+    const host = new Host(dir, initial);
+    host.workspace = {
+      isolated,
+      http: (_req, res) => res.end("{}"),
+      status: () => ({}),
+      admin: async () => ({}),
+      connect: () => () => {},
+      originChanged: () => {},
+    };
+    try {
+      await host.listen();
+      const pair = async () => {
+        const secret = new URL(host.pair().url).hash.slice(6);
+        const response = await fetch(host.origin + "/pair", {
+          method: "POST",
+          headers: { Origin: host.origin, "Content-Type": "application/json" },
+          body: JSON.stringify({ secret }),
+        });
+        assert.equal(response.status, 200);
+        const cookies = response.headers.getSetCookie();
+        assert(cookies[1].includes("Max-Age=0"));
+        return cookies[0].split(";")[0];
+      };
+      const cookie = await pair();
+      const legacy = cookie.replace("loop55_local", "loop_local");
+      const session = await fetch(host.origin + "/session", {
+        headers: { cookie: legacy },
+      });
+      assert.equal(session.status, 200);
+      const { csrf } = (await session.json()) as any;
+      const signout = await fetch(host.origin + "/api/auth/sign-out", {
+        method: "POST",
+        headers: { cookie: legacy, Origin: host.origin, "x-loop55-csrf": csrf },
+      });
+      assert.equal(signout.status, 200);
+      assert.equal(signout.headers.getSetCookie().length, 2);
+      const next = await pair();
+      for (const cookies of [legacy + "; " + next, next + "; " + legacy])
+        assert.equal(
+          (
+            await fetch(host.origin + "/session", {
+              headers: { cookie: cookies },
+            })
+          ).status,
+          200,
+        );
+      assert.equal(
+        (await fetch(host.origin + "/session", { headers: { cookie: legacy } }))
+          .status,
+        401,
+      );
+    } finally {
+      await host.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}

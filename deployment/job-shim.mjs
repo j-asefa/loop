@@ -23,7 +23,10 @@ function loop55Project(cwd) {
       typeof pkg?.repository === "string"
         ? pkg.repository
         : pkg?.repository?.url;
-    if (pkg?.name === "loop55" && /j-asefa\/loop55/.test(repository || ""))
+    if (
+      pkg?.name === "loop55" &&
+      /j-asefa\/loop(?:55)?(?:\.git)?$/.test(repository || "")
+    )
       return dir;
     if (dir === dirname(dir)) return undefined;
   }

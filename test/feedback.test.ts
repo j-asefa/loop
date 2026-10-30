@@ -470,9 +470,14 @@ it("accepts the reported Playwright JSON, rejects invalid blocks, and requires a
   });
   const claimed = claim("installer")!;
   expect(claimed.id).toBe(run.id);
-  const binding = nativeBindings(claimed).find(
+  const currentBinding = nativeBindings(claimed).find(
     (b) => b.tool === "loop55_install_mcp",
   )!;
+  const binding = {
+    ...currentBinding,
+    name: "loop_install_mcp",
+    tool: "loop_install_mcp",
+  };
   const input = { config: JSON.stringify(config) };
   const pending = await invokeNative(claimed, binding, "installation", input);
   expect("pending" in pending).toBe(true);

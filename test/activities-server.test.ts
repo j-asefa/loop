@@ -376,3 +376,60 @@ it("keeps internal native envelopes and receipts out of legacy activities", asyn
     db.prepare("SELECT count(*) n FROM run_traces WHERE run_id=?").get(run.id),
   ).toEqual({ n: 4 });
 });
+
+it("resumes a stored legacy native tool binding through the API checkpoint caller", async () => {
+  const a = agent();
+  submit("alice", { agentId: a.id, input: "Plan", idempotencyKey: id() });
+  const run = claim("legacy-checkpoint")!;
+  let first = true;
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream() {
+      if (first) {
+        first = false;
+        yield {
+          toolCall: {
+            id: "legacy-plan",
+            name: "loop55_plan",
+            arguments: { steps: steps(["pending"]) },
+          },
+        };
+        transition(run, "pausing");
+      } else yield { text: "Recovered." };
+    },
+  });
+  try {
+    expect(await executeAgent(run)).toBe(false);
+    const checkpoint = db
+      .prepare("SELECT pending,stage FROM agent_checkpoints WHERE run_id=?")
+      .get(run.id) as any;
+    expect(checkpoint.stage).toBe("tools");
+    const pending = JSON.parse(checkpoint.pending);
+    pending[0].binding.tool = "loop_plan";
+    pending[0].binding.name = "loop_plan";
+    pending[0].call.name = "loop_plan";
+    db.prepare("UPDATE agent_checkpoints SET pending=? WHERE run_id=?").run(
+      JSON.stringify(pending),
+      run.id,
+    );
+    transition(run, "queued");
+    const resumed = claim("legacy-resume")!;
+    expect(resumed.id).toBe(run.id);
+    expect(await executeAgent(resumed)).toBe(true);
+    expect(
+      db
+        .prepare("SELECT call_id,tool FROM native_calls WHERE run_id=?")
+        .all(run.id),
+    ).toEqual([{ call_id: "legacy-plan", tool: "loop_plan" }]);
+    expect(
+      listActivities("alice", run.conversation_id!).items.some(
+        (item: any) => item.kind === "plan",
+      ),
+    ).toBe(true);
+    transition(resumed, "completed");
+  } finally {
+    restore();
+  }
+});

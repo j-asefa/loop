@@ -496,27 +496,22 @@ export class Host {
       ? `${name}_${hash(resolve(this.dir)).slice(0, 24)}`
       : name;
   }
-  private cookie(token: string, expires: number) {
+  private get legacyCookieName() {
+    return this.cookieName
+      .replace("__Host-loop55", "__Host-loop")
+      .replace("loop55_local", "loop_local");
+  }
+  private cookie(token: string, expires: number, name = this.cookieName) {
     const secure = this.origin.startsWith("https:");
     const age = Math.max(0, Math.floor((expires - Date.now()) / 1000));
-    return `${this.cookieName}=${token}; HttpOnly; ${secure ? "Secure; " : ""}SameSite=Lax; Path=/; Max-Age=${age}`;
+    return `${name}=${token}; HttpOnly; ${secure ? "Secure; " : ""}SameSite=Lax; Path=/; Max-Age=${age}`;
   }
   private authenticate(req: IncomingMessage) {
-    const token = req.headers.cookie
-      ?.split(";")
-      .map((x) => x.trim())
-      .find(
-        (x) =>
-          x.startsWith(this.cookieName + "=") ||
-          x.startsWith(
-            (this.cookieName === "__Host-loop55"
-              ? "__Host-loop"
-              : "loop_local") + "=",
-          ),
-      )
-      ?.split("=")
-      .slice(1)
-      .join("=");
+    const cookies = req.headers.cookie?.split(";").map((x) => x.trim()) ?? [];
+    const value =
+      cookies.find((x) => x.startsWith(this.cookieName + "=")) ??
+      cookies.find((x) => x.startsWith(this.legacyCookieName + "="));
+    const token = value?.slice(value.indexOf("=") + 1);
     if (!token || token.length > 100) return;
     if (this.trust) return this.trust.authenticate(hash(token));
     const device = [...this.devices.values()].find(
@@ -618,7 +613,10 @@ export class Host {
               },
               this.origin,
             );
-            res.setHeader("Set-Cookie", this.cookie(token, expires));
+            res.setHeader("Set-Cookie", [
+              this.cookie(token, expires),
+              this.cookie("", 0, this.legacyCookieName),
+            ]);
             return this.json(res, 200, { paired: true });
           } catch (error) {
             if (error instanceof Problem)
@@ -649,7 +647,10 @@ export class Host {
         };
         this.devices.set(device.id, device);
         this.saveDevices();
-        res.setHeader("Set-Cookie", this.cookie(token, device.expires));
+        res.setHeader("Set-Cookie", [
+          this.cookie(token, device.expires),
+          this.cookie("", 0, this.legacyCookieName),
+        ]);
         return this.json(res, 200, { paired: true });
       }
       if (path === "/session" && req.method === "GET") {
@@ -691,6 +692,10 @@ export class Host {
           });
         if (path === "/api/auth/sign-out" && req.method === "POST") {
           this.revoke(device.id);
+          res.setHeader("Set-Cookie", [
+            this.cookie("", 0),
+            this.cookie("", 0, this.legacyCookieName),
+          ]);
           return this.json(res, 200, { ok: true });
         }
         if (
