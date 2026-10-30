@@ -24,7 +24,6 @@ import {
   type JobConfiguration,
 } from "../deployment/job-client.mjs";
 import { classifyCommand, shimScript } from "../deployment/job-shim.mjs";
-import { runSupervised } from "../scripts/heavy-command.mjs";
 import { spawnNative } from "../src/native-spawn.js";
 import {
   runQueuedJob as runLegacyJob,
@@ -289,31 +288,30 @@ test("command shims preserve ordinary commands and classify old and current Loop
   }
 });
 
-test("ordinary commands retain the native PID and extra protocol descriptors through the host shim", async () => {
+test("native commands discard automatic queue settings and wrappers while preserving protocol descriptors", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-job-fds-"));
   const savedShims = process.env.LOOP_JOB_SHIMS;
   try {
     const shim = join(dir, "node");
-    // Ordinary harness startup does not depend on queue availability.
-    writeFileSync(
-      shim,
-      shimScript(
-        join(dir, "missing.json"),
-        process.execPath,
-        resolve("deployment/job-shim.mjs"),
-        "node",
-        process.execPath,
-      ),
-      { mode: 0o700 },
-    );
+    writeFileSync(shim, "#!/bin/sh\nexit 99\n", { mode: 0o700 });
     process.env.LOOP_JOB_SHIMS = dir;
     const child = spawnNative(
       "node",
       [
         "-e",
-        "require('fs').writeSync(3, String(process.pid)); process.exit(7)",
+        "const a=require('assert/strict'); for(const key of ['LOOP_JOB_QUEUE_CONFIG','LOOP_JOB_SHIMS','LOOP_JOB_ACTIVE']) a.equal(process.env[key],undefined); a.equal(process.env.LOOP_HEAVY_SCHEDULING,'off'); require('fs').writeSync(3, String(process.pid)); process.exit(7)",
       ],
-      { stdio: ["ignore", "ignore", "pipe", "pipe"] },
+      {
+        stdio: ["ignore", "ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          PATH: dir + "/:" + process.env.PATH,
+          LOOP_JOB_SHIMS: dir,
+          LOOP_JOB_QUEUE_CONFIG: join(dir, "missing.json"),
+          LOOP_JOB_ACTIVE: "stale",
+          LOOP_HEAVY_SCHEDULING: "on",
+        },
+      },
     );
     let protocol = "",
       errors = "";
@@ -500,7 +498,7 @@ test("watch classification follows Vitest parsing while preserving Node and Comm
   );
 });
 
-test("the test runner keeps Vitest watch flags separate from native pattern values", async () => {
+test("test runners forward watch and pattern options without consulting the queue", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-job-runner-options-"));
   try {
     const marker = join(dir, "watch-invoked");
@@ -509,17 +507,32 @@ test("the test runner keeps Vitest watch flags separate from native pattern valu
       join(dir, "node_modules/vitest/vitest.mjs"),
       "import {writeFileSync} from 'node:fs';writeFileSync(" +
         JSON.stringify(marker) +
-        ",'started');",
+        ",JSON.stringify(process.argv.slice(-2)));",
     );
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       LOOP_JOB_QUEUE_CONFIG: join(dir, "missing.json"),
     };
     delete env.LOOP_JOB_ACTIVE;
-    for (const [suite, option, expected] of [
-      ["vitest", "--testNamePattern", 0],
-      ["native", "--test-name-pattern", 125],
+    for (const [suite, option] of [
+      ["vitest", "--testNamePattern"],
+      ["native", "--test-name-pattern"],
     ] as const) {
+      const expected =
+        suite === "vitest"
+          ? 0
+          : spawnSync(
+              process.execPath,
+              [
+                "--import",
+                "tsx",
+                "--test",
+                "--test-concurrency=1",
+                option,
+                "--watch",
+              ],
+              { cwd: dir, env, stdio: "ignore" },
+            ).status;
       const child = spawn(
         process.execPath,
         [resolve("scripts/test-runner.mjs"), suite, option, "--watch"],
@@ -528,7 +541,13 @@ test("the test runner keeps Vitest watch flags separate from native pattern valu
       const [code] = await once(child, "close");
       assert.equal(code, expected);
       assert.equal(existsSync(marker), suite === "vitest");
-      if (existsSync(marker)) rmSync(marker);
+      if (existsSync(marker)) {
+        assert.deepEqual(JSON.parse(readFileSync(marker, "utf8")), [
+          option,
+          "--watch",
+        ]);
+        rmSync(marker);
+      }
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -561,7 +580,7 @@ test("the bounded compiler still rejects real TypeScript errors", () => {
   }
 });
 
-test("a configured unavailable queue never falls back to an unscheduled check", async () => {
+test("an explicit job fails when its queue is unavailable without running the command", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-job-offline-"));
   const saved = process.env.LOOP_JOB_QUEUE_CONFIG;
   const active = process.env.LOOP_JOB_ACTIVE;
@@ -578,23 +597,22 @@ test("a configured unavailable queue never falls back to an unscheduled check", 
       }),
     );
     process.env.LOOP_JOB_QUEUE_CONFIG = config;
-    // The test itself may already be admitted by the host's queue. Exercise
-    // submission failure independently, then the supervisor's invalid-config
-    // path with no inherited admission marker.
+    // Explicit submission still requires the queue; ordinary checks do not.
     await assert.rejects(
       runQueuedJob(process.execPath, ["-e", "process.exit(0)"], quiet),
     );
     process.env.LOOP_JOB_QUEUE_CONFIG = join(dir, "missing-config.json");
     delete process.env.LOOP_JOB_ACTIVE;
-    const code = await runSupervised(
-      process.execPath,
-      [
-        "-e",
-        "require('fs').writeFileSync(" + JSON.stringify(marker) + ",'bad')",
-      ],
-      { ...quiet, job: true },
+    await assert.rejects(
+      runQueuedJob(
+        process.execPath,
+        [
+          "-e",
+          "require('fs').writeFileSync(" + JSON.stringify(marker) + ",'bad')",
+        ],
+        quiet,
+      ),
     );
-    assert.equal(code, 125);
     assert.equal(existsSync(marker), false);
   } finally {
     if (saved === undefined) delete process.env.LOOP_JOB_QUEUE_CONFIG;

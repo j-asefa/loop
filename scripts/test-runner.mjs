@@ -1,7 +1,6 @@
 // Tests choose their own profile/workspace. A live Loop-launched terminal must
 // not inject its database, disabled memory setting, daemon flags or credentials.
 import { runSupervised } from "./heavy-command.mjs";
-import { checkOptions } from "../deployment/job-shim.mjs";
 import { globSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 export function testEnvironment(env, suite) {
@@ -47,8 +46,5 @@ if (
     label: `${suite} tests`,
     stdio: "inherit",
     env: testEnvironment(process.env, suite),
-    job: !checkOptions(extra, suite !== "vitest").some(
-      (arg) => arg === "-w" || /^--watch(?:=true)?$/.test(arg),
-    ),
   });
 }

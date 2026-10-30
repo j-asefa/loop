@@ -27,7 +27,7 @@ async function waitFor(condition: () => boolean) {
 }
 
 test(
-  "test, browser and typecheck entrypoints run concurrently despite legacy admission settings and an occupied slot",
+  "test, browser and typecheck entrypoints run concurrently despite an unavailable queue and an occupied legacy slot",
   { skip: process.platform !== "linux" },
   async () => {
     const root = mkdtempSync(join(tmpdir(), "loop-command-concurrency-"));
@@ -110,6 +110,8 @@ test(
             LOOP_HEAVY_WAIT_SECONDS: "0",
             LOOP_HEAVY_RESERVE_MB: "1099511627776",
             LOOP_HEAVY_SCHEDULING: "on",
+            LOOP_JOB_QUEUE_CONFIG: join(root, "unavailable-queue.json"),
+            LOOP_JOB_ACTIVE: "",
           },
           stdio: ["ignore", "ignore", "pipe"],
         });

@@ -1,5 +1,5 @@
-// Used only in native harness PATHs. A shell keeps ordinary commands' PID and
-// protocol descriptors intact; JavaScript handles known finite checks only.
+// Legacy automatic wrappers, retained for migration and compatibility fixtures.
+// Current installers and native harnesses no longer inject these into PATH.
 import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, resolve, join, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";

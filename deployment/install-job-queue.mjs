@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { queueCommand, queueStatus } from "./job-client.mjs";
-import { shimScript } from "./job-shim.mjs";
+import { removeJobShims } from "./remove-job-shims.mjs";
 import { underlyingCommand } from "./job-executables.mjs";
 
 const version = "4.0.4";
@@ -180,16 +180,7 @@ await writeFile(
 );
 await rename(configPath + ".partial", configPath);
 const shell = (value) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
-for (const name of ["node", "npm", "npx"]) {
-  const body = shimScript(
-    configPath,
-    commands.node,
-    join(generationDir, "deployment/job-shim.mjs"),
-    name,
-    commands[name],
-  );
-  await writeFile(join(bin, name), body, { mode: 0o700 });
-}
+await removeJobShims(configPath);
 await writeFile(
   join(bin, "loop-job"),
   "#!/bin/sh\nexport LOOP_JOB_QUEUE_CONFIG=" +
@@ -282,12 +273,10 @@ if (!ready)
   throw new Error("Queue service is not ready; Loop was not restarted.");
 if (!ready.groups[config.group])
   await queueCommand(config, ["group", "add", "--parallel", "1", config.group]);
-console.log("Heavy check queue is ready: " + configPath);
+console.log("Explicit job queue is ready: " + configPath);
 console.log("Inspect with: " + join(bin, "loop-job") + " status");
 console.log(
-  "Set LOOP_JOB_QUEUE_CONFIG=" +
-    configPath +
-    " and LOOP_JOB_SHIMS=" +
-    bin +
-    " for Loop, then restart it when ready.",
+  "Submit only the commands you want queued with: " +
+    join(bin, "loop-job") +
+    " run -- COMMAND ...",
 );

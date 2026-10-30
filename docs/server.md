@@ -78,8 +78,8 @@ systemctl --user restart loop.service
 ```
 
 The installer sets `LOOP_HEAVY_SCHEDULING=off` for new harnesses so tests in
-older worktrees bypass their removed shared-slot limiter. Checks can use the
-optional job queue below; see [command supervision](development.md#command-supervision).
+older worktrees bypass their removed shared-slot limiter. It also retires installed
+automatic queue wrappers and removes their service settings; see [command supervision](development.md#command-supervision).
 
 The installer copies the launcher and installs
 [loop-agents.slice](../deployment/loop-agents.slice): all native agent processes
@@ -116,26 +116,29 @@ again; stale observations still expire. Contention cannot terminate the server
 through those timer callbacks. Ordinary writes retain their normal timeout and
 error behavior.
 
-## Queue heavy builds and tests
+## Queue commands explicitly
 
-Install Loop's dedicated [Pueue](https://github.com/Nukesor/pueue) queue on Linux or macOS (Node 24, x64 or arm64):
+Tests, builds and typechecks do not wait for a shared host slot. Loop does not inject queue wrappers into native harness command PATHs. To retire wrappers installed by an earlier release on Linux or macOS, run:
+
+```sh
+node deployment/remove-job-shims.mjs
+```
+
+This replaces only recognized Loop `node`, `npm` and `npx` wrappers with direct shell execs, preserving paths still held by active terminals, their process IDs and protocol pipes. It clears obsolete admission settings for those commands. It does not stop or replay already submitted jobs. On Linux, the agent resource installer above performs this migration and removes the queue environment variables from the Loop service; restart Loop to refresh its environment. On macOS, remove old `LOOP_JOB_QUEUE_CONFIG` and `LOOP_JOB_SHIMS` assignments from the launch environment too.
+
+If you want to queue a particular command, the optional [Pueue](https://github.com/Nukesor/pueue) integration remains available on Linux and macOS (Node 24, x64 or arm64):
 
 ```sh
 node deployment/install-job-queue.mjs
+~/.local/lib/loop/job-queue/bin/loop-job run -- npm run check
+~/.local/lib/loop/job-queue/bin/loop-job status
 ```
 
-This downloads checksum-verified Pueue 4.0.4 binaries and starts a per-user daemon. It does not restart Loop. Configuration lives in `~/.config/loop/jobs.json` (or `$XDG_CONFIG_HOME/loop/jobs.json`); queue state and logs live in `~/.local/state/loop-jobs`. It leaves an existing personal Pueue installation alone.
+The installer downloads checksum-verified Pueue 4.0.4 binaries and starts a dedicated per-user daemon. It installs no automatic command wrappers and does not restart Loop. Configuration lives in `~/.config/loop/jobs.json` (or `$XDG_CONFIG_HOME/loop/jobs.json`); queue state and logs live in `~/.local/state/loop-jobs`. It leaves an existing personal Pueue installation alone. Only explicitly submitted commands share FIFO ordering and one running job by default.
 
-On Linux, rerun `bash deployment/install-agent-resources.sh loop.service`, then restart Loop when ready. The installer reads the queue configuration and sets `LOOP_JOB_QUEUE_CONFIG` and `LOOP_JOB_SHIMS` for new native harnesses. Pueue runs in `loop-agents-jobs.slice`, with a 3 GiB memory cap, 512 MiB swap and two CPUs, **within** the aggregate 5 GiB agent budget. Its service uses `OOMPolicy=continue`; an individual compiler or browser kill does not deliberately stop the owning native agent. A host can still exhaust the aggregate budget with many harnesses or commands outside the queue. Adjust the slice files for that host; upgrades preserve those capacity choices.
+On Linux, explicitly queued jobs run in `loop-agents-jobs.slice`, with a 3 GiB memory cap, 512 MiB swap and two CPUs, **within** the aggregate 5 GiB agent budget. Ordinary native checks inherit their agent's resource scope. The queue service uses `OOMPolicy=continue`. Adjust the slice files for that host; upgrades preserve those capacity choices. On macOS, the installer creates the `dev.loop.job-queue` LaunchAgent for the logged-in desktop user; Linux cgroup limits do not apply. A headless Mac needs a suitable launchd user domain configured by its operator.
 
-On macOS, the installer creates the `dev.loop.job-queue` LaunchAgent for the logged-in desktop user. Start Loop with the two environment assignments printed by the installer. The same queue ordering, visibility and cancellation apply; macOS does not get the Linux cgroup memory caps. A headless Mac needs a suitable launchd user domain configured by its operator.
-
-`LOOP_JOB_SHIMS` affects native harness command PATHs, not the Loop server's executable. It catches common `npm` build/test/install, `npx tsc`, `npx vitest run`, `npx playwright test`, raw Node TypeScript and repository browser checks, including older Loop worktrees. Explicit watch modes and Vite development servers stay outside the finite-check queue. Ordinary commands retain their native PID and extra protocol pipes. Current source schedules browser scenarios individually; older worktrees queue whole check invocations. Absolute executable paths, custom scripts and external services can bypass PATH wrappers; use `loop-job run -- COMMAND ...` for an explicit heavy job. Nested explicit jobs reuse their parent's admission. Keep long-running development servers and custom watch scripts outside this finite-check queue.
-
-Rerun the queue installer after updating Loop to refresh installed workers and shims. It uses the Node executable running the installer and replaces unavailable npm/npx paths from the current PATH. Existing admitted jobs keep their own generation.
-
-Use `loop-job status` to inspect jobs and `loop-job cancel ID` to cancel one. Outside a native terminal, the command is also at `~/.local/lib/loop/job-queue/bin/loop-job`. Inspect `systemctl --user status loop-job-queue.service` on Linux or `launchctl print gui/$(id -u)/dev.loop.job-queue` on macOS. A failed daemon does not silently replay commands. See [command supervision](development.md#command-supervision) for execution ownership, logs and credential handling.
-
+Use `loop-job cancel ID` to cancel an explicitly queued command. Inspect `systemctl --user status loop-job-queue.service` on Linux or `launchctl print gui/$(id -u)/dev.loop.job-queue` on macOS. A failed daemon does not silently replay commands. Keep long-running development servers and watch sessions outside this finite-command queue. See [command supervision](development.md#command-supervision) for ownership, logs and credential handling.
 
 ## Archive deployment backups
 

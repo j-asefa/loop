@@ -37,7 +37,6 @@ try {
     const status = await runSupervised(process.execPath, args, {
       label: `build ${args[0]}`,
       cwd: source.directory,
-      job: args[0] !== "scripts/typecheck.mjs",
       env,
       stdio: "inherit",
     });
