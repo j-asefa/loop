@@ -210,4 +210,32 @@ export async function feedReadingSmoke(page, fixture, capture) {
   await reader.getByRole("button", { name: "Reply", exact: true }).click();
   await expect(thread).toBeVisible();
   await expect(reader).toHaveCount(0);
+  await close(thread);
+  const draft = "An unsent follow-up.\n\n" + "Draft details. ".repeat(30);
+  await page.evaluate(
+    ({ owner, id, draft }) => {
+      localStorage.setItem(`loop-draft-text:${owner}:${id}`, draft);
+      localStorage.setItem(
+        `loop-draft-text:another-owner:${id}`,
+        "Private draft",
+      );
+    },
+    { owner: fixture.owner, id: done.id, draft },
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await page
+    .locator(".inbox-results .inbox-row")
+    .filter({ hasText: done.title })
+    .click();
+  const draftPreview = reader.getByRole("region", { name: "Draft message" });
+  await expect(draftPreview).toContainText(draft.replace(/\s+/g, " "));
+  await expect(reader).not.toContainText("Private draft");
+  await capture("feed-reading-draft");
+  await reader
+    .getByRole("button", { name: "Continue draft", exact: true })
+    .click();
+  await expect(reader).toHaveCount(0);
+  await expect(
+    thread.getByRole("textbox", { name: "Reply to agent" }),
+  ).toHaveValue(draft);
 }

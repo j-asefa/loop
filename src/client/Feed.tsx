@@ -660,13 +660,20 @@ function FeedCard({
                   </button>
                 )}
                 <ConversationPulls conversationId={item.conversation_id} />
+                {draft && (
+                  <section aria-label="Draft message">
+                    <p className="draft-label">Draft:</p>
+                    <RichText content={draft} />
+                  </section>
+                )}
               </div>
               <div className="result-edit-actions">
                 <button
                   className="primary"
                   onClick={() => leaveReading(onReply)}
                 >
-                  <MessageSquare size={18} /> Reply
+                  {draft ? <PencilLine size={18} /> : <MessageSquare size={18} />}
+                  {draft ? "Continue draft" : "Reply"}
                 </button>
               </div>
             </Sheet>
