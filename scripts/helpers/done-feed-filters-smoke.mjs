@@ -552,4 +552,5 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await page.waitForTimeout(150);
   assert.deepEqual(peerReadWrites, []);
   await closeReader();
+  await page.unrouteAll({ behavior: "wait" });
 }
