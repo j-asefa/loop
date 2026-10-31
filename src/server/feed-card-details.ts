@@ -1,3 +1,4 @@
+import * as watchQueries from "./sql/pr-watches.js";
 import type Database from "better-sqlite3";
 import { summarize, type VerificationItem } from "../shared/verification.js";
 import { pullStateFromWatch, type WatchRow } from "../shared/pull-state.js";
@@ -89,13 +90,7 @@ export function threadDetails(
     ORDER BY a.created_at,a.rowid`,
     )
     .all({ owner, conversation }) as ApprovalCandidate[];
-  const watches = db
-    .prepare(
-      `SELECT repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,
-    ci_pending,read_at,seen_ci_sha,seen_ci_conclusion,updated_at,created_at FROM pr_watches WHERE owner_id=? AND conversation_id=?
-    ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,created_at DESC`,
-    )
-    .all(owner, conversation) as WatchCandidate[];
+  const watches = watchQueries.threadDetails(db, owner, conversation);
   const queued = db
     .prepare(
       "SELECT * FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5",

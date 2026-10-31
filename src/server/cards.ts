@@ -1,3 +1,4 @@
+import * as watchQueries from "./sql/pr-watches.js";
 import { fullCardRead, type TokenAdmission } from "../shared/token-scopes.js";
 import { cardAttachments } from "./card-attachments.js";
 import { doneCards } from "./done-cards.js";
@@ -540,31 +541,13 @@ export function cardChanges(owner: string, input: unknown) {
     // skip those transitions or require an unbounded refresh.
     const remaining = 200 - changed.length;
     const expired = remaining
-      ? (db
-          .prepare(
-            `WITH expired_watches AS (
-      SELECT conversation_id,updated_at+604800000 at FROM pr_watches
-      WHERE owner_id=@owner AND state='stopped' AND updated_at+604800000>=@afterAt
-        AND updated_at+604800000<=@now
-    ), expiries AS (
-      SELECT approval_until at,
-        'd:'||COALESCE(NULLIF(card_key,''),'idle:'||conversation_id) key
-      FROM feed_cards WHERE owner_id=@owner AND kind='thread' AND approval_until>=@afterAt AND approval_until<=@now
-      UNION SELECT w.at,'d:run:'||r.id FROM expired_watches w JOIN runs r
-        ON r.conversation_id=w.conversation_id AND r.owner_id=@owner
-      UNION SELECT w.at,'d:message:'||m.id FROM expired_watches w JOIN messages m
-        ON m.conversation_id=w.conversation_id AND m.owner_id=@owner
-      UNION SELECT w.at,'d:idle:'||w.conversation_id FROM expired_watches w
-    ) SELECT key id,at,key FROM expiries WHERE (at,key)>(@afterAt,@afterId)
-      ORDER BY at,key LIMIT @limit`,
-          )
-          .all({
-            owner,
-            afterAt: expiryAt,
-            afterId: expiryId,
-            now: observedAt,
-            limit: remaining + 1,
-          }) as { id: string; at: number; key: string }[])
+      ? watchQueries.expiredCards(db, {
+          owner,
+          afterAt: expiryAt,
+          afterId: expiryId,
+          now: observedAt,
+          limit: remaining + 1,
+        })
       : [];
     const pendingExpiry = !remaining || expired.length > remaining;
     const page = expired.slice(0, remaining);

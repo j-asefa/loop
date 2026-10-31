@@ -26,6 +26,7 @@ Reviewers should identify the relevant evidence in the diff and PR:
 | Uncertain effects | Timeouts and disconnects preserve an uncertain outcome and do not automatically submit the effect again; a regression exercises the production retry/recovery caller. |
 | Native context and credentials | Browser responses and events expose explicit safe fields; harness-owned session context and credentials stay on their owning side of that boundary. |
 | Source and API boundaries | Imports obey the [source layers](docs/architecture.md); new routes use the typed registrar and named legacy inventories only shrink. |
+| SQL query modules | Domain SQL lives in [per-table modules](src/server/sql/); preparation is lazy, rows use existing schemas, and the [SQL inventory](test/sql-inventory.test.ts) file allowance only shrinks; migrated files have no direct SQL calls. Migration and projection infrastructure exemptions stay explicit. |
 | Formatting exceptions | The [formatting ignore list](.prettierignore) only loses entries, together with formatting the removed files; no new exemption or broader pattern is added. |
 | Verification claims | The PR records the submitted commit, commands, observed exits and relevant limitations. Fixture results are labelled separately from live provider, tunnel or device validation; a requested or timed-out review is not an approval. |
 

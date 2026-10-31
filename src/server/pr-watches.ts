@@ -1,13 +1,11 @@
+import type { QueryRow } from "./query-records.js";
+import * as watchQueries from "./sql/pr-watches.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { PrWatchInput } from "../shared/github-contract-schemas.js";
 import { registrar, projectResponse } from "./registrar.js";
 import { createdPullRequest } from "../shared/pr-command.js";
 import { linkCreatedPullRequest } from "./conversation-pulls.js";
-import {
-  pullStateFromWatch,
-  type PullState,
-  type WatchRow,
-} from "../shared/pull-state.js";
+import { pullStateFromWatch, type PullState } from "../shared/pull-state.js";
 import { createHash } from "node:crypto";
 
 import { db, id, now } from "./db.js";
@@ -34,33 +32,7 @@ import {
 // actions still follow the approval policy. Polling rather than webhooks: a
 // Quick Tunnel address changes on restart and webhooks need repository admin.
 
-export type PrWatch = {
-  id: string;
-  owner_id: string;
-  conversation_id: string;
-  agent_id: string;
-  repo_owner: string;
-  repo_name: string;
-  number: number;
-  state: "watching" | "paused" | "stopped";
-  ended_reason: string | null;
-  error: string | null;
-  login: string | null;
-  head_sha: string | null;
-  ci_sha: string | null;
-  ci_conclusion: string | null;
-  comment_cursor: number;
-  review_comment_cursor: number;
-  review_cursor: number;
-  since_at: number | null;
-  next_poll_at: number;
-  ci_pending: number;
-  read_at: number | null;
-  seen_ci_sha: string | null;
-  seen_ci_conclusion: string | null;
-  created_at: number;
-  updated_at: number;
-};
+export type PrWatch = QueryRow<"pr_watches">;
 
 export const POLL_MS = 60_000;
 const ERROR_POLL_MS = 5 * 60_000;
@@ -108,20 +80,14 @@ const repoPath = (w: Pick<PrWatch, "repo_owner" | "repo_name">) =>
 // Watches
 
 export function watchesFor(owner: string, conversation?: string) {
-  return db
-    .prepare(
-      `SELECT id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,seen_ci_sha,seen_ci_conclusion,created_at,updated_at
-      FROM pr_watches WHERE owner_id=? AND (? IS NULL OR conversation_id=?)
-        AND (state IN ('watching','paused') OR updated_at>?)
-      ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 100`,
-    )
-    .all(
-      owner,
-      conversation ?? null,
-      conversation ?? null,
-      // Recently ended watches stay listed so a card can say why it stopped.
-      now() - 7 * 24 * 3600_000,
-    );
+  return watchQueries.list(
+    db,
+    owner,
+    conversation ?? null,
+    conversation ?? null,
+    // Recently ended watches stay listed so a card can say why it stopped.
+    now() - 7 * 24 * 3600_000,
+  );
 }
 
 /**
@@ -133,15 +99,12 @@ export function pullStatus(
   owner: string,
   conversation: string,
 ): PullState | null {
-  const watch = db
-    .prepare(
-      `SELECT repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,seen_ci_sha,seen_ci_conclusion
-       FROM pr_watches WHERE owner_id=? AND conversation_id=?
-         AND (state IN ('watching','paused') OR updated_at>?)
-       ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 1`,
-    )
-    .get(owner, conversation, now() - 7 * 24 * 3600_000) as
-    WatchRow | undefined;
+  const watch = watchQueries.pullStatus(
+    db,
+    owner,
+    conversation,
+    now() - 7 * 24 * 3600_000,
+  );
   return watch ? pullStateFromWatch(watch) : null;
 }
 
@@ -151,33 +114,31 @@ export function watchCreatedPullRequest(
   pr: PullRequestRef & { headSha?: string; createdAt?: number },
 ) {
   linkCreatedPullRequest(run, pr);
-  if (!run.conversation_id || !run.agent_id || !githubToken(run.owner_id))
-    return;
+  // Narrowing does not reach the transaction callback, so bind the checked IDs.
+  const conversationId = run.conversation_id;
+  const agentId = run.agent_id;
+  if (!conversationId || !agentId || !githubToken(run.owner_id)) return;
   return db
     .transaction(() => {
-      const existing = db
-        .prepare(
-          "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? ORDER BY created_at DESC LIMIT 1",
-        )
-        .get(
-          run.owner_id,
-          run.conversation_id,
-          pr.owner,
-          pr.repo,
-          pr.number,
-        ) as PrWatch | undefined;
+      const existing = watchQueries.latestForPull(
+        db,
+        run.owner_id,
+        conversationId,
+        pr.owner,
+        pr.repo,
+        pr.number,
+      );
       // Automatic creation detection must also retain an explicit Stop watching.
       // A person can start a new watch from the card when they want to resume.
       if (existing) return existing;
       const time = now();
       const watchId = id();
-      db.prepare(
-        "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,head_sha,since_at,next_poll_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'watching',?,?,0,?,?)",
-      ).run(
+      watchQueries.insert(
+        db,
         watchId,
         run.owner_id,
-        run.conversation_id,
-        run.agent_id,
+        conversationId,
+        agentId,
         pr.owner,
         pr.repo,
         pr.number,
@@ -186,9 +147,7 @@ export function watchCreatedPullRequest(
         time,
         time,
       );
-      return db
-        .prepare("SELECT * FROM pr_watches WHERE id=?")
-        .get(watchId) as PrWatch;
+      return watchQueries.get(db, watchId)!;
     })
     .immediate();
 }
@@ -299,12 +258,14 @@ export function startWatch(owner: string, body: unknown) {
         throw new Problem(409, `This pull request is ${pr.state}.`);
       if (!githubToken(owner))
         throw new Problem(409, "Connect GitHub to watch pull requests.");
-      const existing = db
-        .prepare(
-          "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? AND state IN ('watching','paused')",
-        )
-        .get(owner, artifact.conversation_id, pr.owner, pr.repo, pr.number) as
-        PrWatch | undefined;
+      const existing = watchQueries.activeForPull(
+        db,
+        owner,
+        artifact.conversation_id,
+        pr.owner,
+        pr.repo,
+        pr.number,
+      );
       if (existing) return existing;
       const watchId = id(),
         time = now();
@@ -315,9 +276,8 @@ export function startWatch(owner: string, body: unknown) {
       const since = Number.isFinite(fetched)
         ? Math.min(time, Math.max(fetched, time - 7 * 24 * 3600_000))
         : time;
-      db.prepare(
-        "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,head_sha,since_at,next_poll_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'watching',?,?,0,?,?)",
-      ).run(
+      watchQueries.insert(
+        db,
         watchId,
         owner,
         artifact.conversation_id,
@@ -330,17 +290,13 @@ export function startWatch(owner: string, body: unknown) {
         time,
         time,
       );
-      return db
-        .prepare("SELECT * FROM pr_watches WHERE id=?")
-        .get(watchId) as PrWatch;
+      return watchQueries.get(db, watchId)!;
     })
     .immediate();
 }
 
 function ownedWatch(owner: string, watchId: string) {
-  const watch = db
-    .prepare("SELECT * FROM pr_watches WHERE id=? AND owner_id=?")
-    .get(watchId, owner) as PrWatch | undefined;
+  const watch = watchQueries.owned(db, watchId, owner);
   if (!watch) throw new Problem(404, "Watch not found");
   return watch;
 }
@@ -355,9 +311,7 @@ export function resumeWatch(owner: string, watchId: string) {
   const watch = ownedWatch(owner, watchId);
   if (watch.state !== "paused")
     throw new Problem(409, "Only a paused watch can be resumed");
-  db.prepare(
-    "UPDATE pr_watches SET state='watching',error=NULL,next_poll_at=0,updated_at=? WHERE id=?",
-  ).run(now(), watch.id);
+  watchQueries.resume(db, now(), watch.id);
   // A resumed watch starts a fresh hour.
   db.prepare("DELETE FROM pr_watch_deliveries WHERE watch_id=?").run(watch.id);
   return { ok: true };
@@ -366,14 +320,10 @@ export function resumeWatch(owner: string, watchId: string) {
 // Both leave a watch alone once it has moved on (for example you stopped it
 // while a poll was in flight), so a late result can't bring it back.
 function end(watch: PrWatch, reason: string) {
-  db.prepare(
-    "UPDATE pr_watches SET state='stopped',ended_reason=?,updated_at=? WHERE id=? AND state<>'stopped'",
-  ).run(reason, now(), watch.id);
+  watchQueries.end(db, reason, now(), watch.id);
 }
 function pause(watch: PrWatch, reason: string) {
-  db.prepare(
-    "UPDATE pr_watches SET state='paused',error=?,updated_at=? WHERE id=? AND state='watching'",
-  ).run(reason, now(), watch.id);
+  watchQueries.pause(db, reason, now(), watch.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -690,14 +640,9 @@ const hasNews = (u: Update) =>
  * one transaction, keyed by what it reports, so a retry cannot send twice.
  */
 export async function pollWatch(watchId: string, time = now()) {
-  const watch = db
-    .prepare("SELECT * FROM pr_watches WHERE id=? AND state='watching'")
-    .get(watchId) as PrWatch | undefined;
+  const watch = watchQueries.watching(db, watchId);
   if (!watch) return "skipped";
-  db.prepare("UPDATE pr_watches SET next_poll_at=? WHERE id=?").run(
-    time + POLL_MS,
-    watch.id,
-  );
+  watchQueries.schedule(db, time + POLL_MS, watch.id);
   // Hold updates while the agent is still on the last one: they arrive
   // together once it is done, and its own pushes cannot pile up turns.
   const busy = db
@@ -731,17 +676,13 @@ export async function pollWatch(watchId: string, time = now()) {
       error instanceof GithubError && error.retryAt
         ? Math.max(error.retryAt, time + POLL_MS)
         : time + ERROR_POLL_MS;
-    db.prepare(
-      "UPDATE pr_watches SET error=?,next_poll_at=?,updated_at=? WHERE id=? AND state='watching'",
-    ).run(message, retry, now(), watch.id);
+    watchQueries.retry(db, message, retry, now(), watch.id);
     return "error";
   }
   if ("ended" in result) {
     const reason = result.ended as string;
     db.transaction(() => {
-      const current = db
-        .prepare("SELECT 1 FROM pr_watches WHERE id=? AND state<>'stopped'")
-        .get(watch.id);
+      const current = watchQueries.notStopped(db, watch.id);
       if (!current) return;
       end(watch, reason);
     }).immediate();
@@ -750,9 +691,7 @@ export async function pollWatch(watchId: string, time = now()) {
   const { update, login } = result;
   return db
     .transaction(() => {
-      const current = db
-        .prepare("SELECT * FROM pr_watches WHERE id=? AND state='watching'")
-        .get(watch.id) as PrWatch | undefined;
+      const current = watchQueries.watching(db, watch.id);
       // Stopped or polled by someone else meanwhile: drop this read.
       const already = db.prepare(
         "SELECT 1 FROM pr_watch_seen WHERE watch_id=? AND kind=? AND item_id=?",
@@ -773,12 +712,8 @@ export async function pollWatch(watchId: string, time = now()) {
           "INSERT OR IGNORE INTO pr_watch_seen(watch_id,kind,item_id) VALUES(?,?,?)",
         );
         for (const item of update.seen) mark.run(watch.id, item.kind, item.id);
-        db.prepare(
-          `UPDATE pr_watches SET login=?,head_sha=?,
-            ci_sha=COALESCE(?,ci_sha),ci_conclusion=COALESCE(?,ci_conclusion),
-            seen_ci_sha=COALESCE(?,seen_ci_sha),seen_ci_conclusion=COALESCE(?,seen_ci_conclusion),
-            ci_pending=?,read_at=?,error=NULL,updated_at=? WHERE id=?`,
-        ).run(
+        watchQueries.advance(
+          db,
           login,
           update.head,
           update.ciState?.sha ?? null,
@@ -804,9 +739,8 @@ export async function pollWatch(watchId: string, time = now()) {
         // Record what this read observed (the head, its result, whether its
         // checks had finished, and when) apart from the delivered result and
         // the items, which still wait for Resume.
-        db.prepare(
-          "UPDATE pr_watches SET head_sha=?,seen_ci_sha=COALESCE(?,seen_ci_sha),seen_ci_conclusion=COALESCE(?,seen_ci_conclusion),ci_pending=?,read_at=? WHERE id=?",
-        ).run(
+        watchQueries.observe(
+          db,
           update.head,
           update.ciState?.sha ?? null,
           update.ciState?.conclusion ?? null,
@@ -875,17 +809,10 @@ export async function pollWatches(time = now()) {
   if (polling) return 0;
   polling = true;
   try {
-    const due = db
-      .prepare(
-        "SELECT id FROM pr_watches WHERE state='watching' AND next_poll_at<=? ORDER BY next_poll_at LIMIT 20",
-      )
-      .all(time) as { id: string }[];
+    const due = watchQueries.due(db, time);
     // Claim each watch first, so a second worker process can't poll it too.
-    const claim = db.prepare(
-      "UPDATE pr_watches SET next_poll_at=? WHERE id=? AND state='watching' AND next_poll_at<=?",
-    );
     for (const { id: watchId } of due)
-      if (claim.run(time + POLL_MS, watchId, time).changes === 1)
+      if (watchQueries.claim(db, time + POLL_MS, watchId, time).changes === 1)
         await pollWatch(watchId, time).catch(() => {});
     return due.length;
   } finally {

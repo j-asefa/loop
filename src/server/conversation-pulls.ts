@@ -1,3 +1,4 @@
+import * as watchQueries from "./sql/pr-watches.js";
 import { db, now } from "./db.js";
 import { ownedConversation, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
@@ -71,16 +72,13 @@ export function conversationPullRefs(owner: string, conversation: string) {
   // Keep confirmed creations and old watches even when watching ends, pauses,
   // is unavailable, or the agent omitted the URL from its final answer.
   const createdCandidates = new Set<string>();
-  for (const row of db
-    .prepare(
-      `SELECT repo_owner owner,repo_name repo,number,created_at FROM (
-    SELECT repo_owner,repo_name,number,created_at FROM conversation_pull_links WHERE owner_id=? AND conversation_id=?
-    UNION ALL SELECT repo_owner,repo_name,number,created_at FROM pr_watches WHERE owner_id=? AND conversation_id=?
-  ) ORDER BY created_at DESC`,
-    )
-    .iterate(owner, conversation, owner, conversation) as Iterable<
-    PullRequestRef & { created_at: number }
-  >) {
+  for (const row of watchQueries.createdPulls(
+    db,
+    owner,
+    conversation,
+    owner,
+    conversation,
+  )) {
     add(
       { owner: row.owner, repo: row.repo, number: row.number },
       row.created_at,
