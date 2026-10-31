@@ -32,6 +32,8 @@ export type Live = {
   ready: Promise<void>;
   bootstrapRun: Run;
   run?: Run;
+  /** The model the harness last reported for this session. */
+  reportedModel?: string;
   items: NativeOutput;
   requests: Map<string, Request>;
   finish?: (state: string) => void;

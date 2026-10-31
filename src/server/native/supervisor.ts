@@ -316,6 +316,9 @@ export class NativeSessions {
               "Native session changed; refresh and retry.",
             );
           assertFleetAction(live.bootstrapRun.owner_id);
+          // A model the harness reported earlier no longer describes the next
+          // turn; wait for the harness to report again.
+          if (setting === "model") live.reportedModel = undefined;
           if (activeRun)
             db.transaction(() => {
               assertFleetEffect(activeRun.owner_id, "run", activeRun.id);
@@ -656,6 +659,7 @@ export class NativeSessions {
     clearTimeout(live.idle);
     live.run = run;
     live.cancelling = false;
+    this.projector.recordModel(live);
     const snapshot = agentPayload(run);
     // The native session keeps the snapshot context after the first review turn.
     const opensReview =

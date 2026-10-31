@@ -2239,17 +2239,51 @@ pre {
   min-width: 0;
   margin: 0;
 }
+/* The sheet body scrolls; a nested scroller hid the selected team's panel. */
 .team-options {
-  overflow-y: auto;
-  max-height: min(
-    360px,
-    42dvh,
-    max(100px, calc(var(--visual-viewport-height, 100dvh) - 290px))
-  );
-  overscroll-behavior: contain;
   display: grid;
   gap: 8px;
   padding: 3px;
+}
+.team-option-group {
+  border-radius: 12px;
+}
+.team-option-group.expanded {
+  border: 1px solid var(--brass);
+  background: color-mix(in srgb, var(--brass) 6%, var(--surface));
+}
+.sheet .team-option-group.expanded > .team-option {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 12px 12px 0 0;
+}
+.team-option-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 6%, var(--surface));
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.team-option-panel {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.team-option-panel label.settings-toggle {
+  padding-inline: 0;
+}
+.team-option-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.team-option-actions .danger {
+  margin-left: auto;
 }
 .sheet .team-option {
   display: flex;
@@ -2281,7 +2315,7 @@ pre {
 .team-option svg {
   flex-shrink: 0;
 }
-.team-option span {
+.team-option > span:not(.team-option-badge) {
   display: grid;
   gap: 4px;
   min-width: 0;
@@ -2296,7 +2330,6 @@ pre {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-top: 16px;
 }
 .team-picker-actions .primary {
   min-width: 96px;

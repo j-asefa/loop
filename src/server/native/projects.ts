@@ -170,10 +170,23 @@ export class NativeProjects {
     if (this.context.isStopped())
       throw new ExecutionRefused(409, "Workspace is stopping");
     signal?.throwIfAborted();
+    // Harnesses that cannot report their default before a turn keep the model
+    // their last native-default run reported (see NativeProjector).
+    const observed = native.defaultModelOption
+      ? undefined
+      : (
+          db
+            .prepare(
+              "SELECT json_extract(value,'$.resolvedModel') model FROM connections,json_each(connections.models) WHERE connections.id=? AND connections.owner_id=? AND json_valid(connections.models) AND json_extract(value,'$.id')='native-default'",
+            )
+            .get("native-" + options.harness, OWNER) as
+            { model: string | null } | undefined
+        )?.model;
     const models = [
       native.defaultModelOption || {
         id: "native-default",
         name: "Use native default",
+        ...(observed ? { resolvedModel: observed } : {}),
       },
       ...(native.models || []).filter((m) => m.id && m.id !== "native-default"),
     ];

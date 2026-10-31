@@ -1039,3 +1039,30 @@ test("Claude subscription mode accepts native OAuth and rejects API or unverifie
     }
   }
 });
+
+test("Codex reports the model its turns dispatch, not the resumed thread's", async () => {
+  process.env.LOOP55_TEST_CODEX_NULL_MODEL = "1";
+  const events: AdapterEvent[] = [];
+  const adapter = new Codex(
+    {
+      harness: "codex",
+      project: process.cwd(),
+      executable,
+      billing: "existing",
+      version: "fixture",
+    },
+    (event) => events.push(event),
+  );
+  try {
+    // The fixture thread reports "fixture"; the catalog default differs.
+    await adapter.start();
+    const metadata = events.find((event) => event.type === "metadata");
+    assert.equal(
+      metadata?.type === "metadata" && metadata.billing?.model,
+      "fixture-default-model",
+    );
+  } finally {
+    delete process.env.LOOP55_TEST_CODEX_NULL_MODEL;
+    await adapter.dispose();
+  }
+});

@@ -136,11 +136,32 @@ export class NativeProjector {
       return;
     }
     if (event.type === "metadata") {
-      if (!event.nativeSession || event.nativeSession.length > 4096) return;
-      live.binding.native_id = event.nativeSession;
-      db.prepare(
-        "UPDATE companion_sessions SET native_id=?,updated_at=? WHERE conversation_id=?",
-      ).run(event.nativeSession, now(), live.binding.conversation_id);
+      if (event.nativeSession && event.nativeSession.length <= 4096) {
+        live.binding.native_id = event.nativeSession;
+        db.prepare(
+          "UPDATE companion_sessions SET native_id=?,updated_at=? WHERE conversation_id=?",
+        ).run(event.nativeSession, now(), live.binding.conversation_id);
+      }
+      const model =
+        typeof event.billing?.model === "string"
+          ? event.billing.model.trim()
+          : "";
+      const current = db
+        .prepare(
+          "SELECT generation FROM companion_sessions WHERE conversation_id=?",
+        )
+        .get(live.binding.conversation_id) as
+        { generation: string } | undefined;
+      if (
+        model &&
+        model.length <= 200 &&
+        current?.generation === live.generation
+      ) {
+        // Adapters may report the model while starting, before a turn is
+        // attached; the supervisor applies it when the run attaches.
+        live.reportedModel = model;
+        this.recordModel(live);
+      }
       return;
     }
     if ((event.type === "item" || event.type === "delta") && !live.run) {
@@ -261,6 +282,33 @@ export class NativeProjector {
       generation: live.generation,
       event,
     });
+  }
+  /** @internal Record the model the harness last reported on the attached
+   * run. A native-default choice also updates its catalog entry so agent
+   * labels name the model the harness last used instead of the alias. */
+  recordModel(live: Live) {
+    const run = live.run,
+      model = live.reportedModel;
+    // Only a native-default turn runs the session's reported model as-is;
+    // an explicit model may be applied at prompt time after the report, and
+    // its catalog entry already names it.
+    if (
+      !run ||
+      !model ||
+      run.payload.model !== "native-default" ||
+      run.payload.resolvedModel === model
+    )
+      return;
+    run.payload.resolvedModel = model;
+    db.transaction(() => {
+      db.prepare(
+        "UPDATE runs SET payload=json_set(payload,'$.resolvedModel',?) WHERE id=? AND owner_id=?",
+      ).run(model, run.id, run.owner_id);
+      if (run.payload.connectionId)
+        db.prepare(
+          "UPDATE connections SET models=(SELECT json_group_array(CASE WHEN json_extract(value,'$.id')='native-default' THEN json_set(value,'$.resolvedModel',?) ELSE json(value) END) FROM json_each(connections.models)) WHERE id=? AND owner_id=? AND json_valid(models)",
+        ).run(model, run.payload.connectionId, run.owner_id);
+    })();
   }
   private scheduleOutput(live: Live) {
     if (live.flush || live.closed || !live.run) return;

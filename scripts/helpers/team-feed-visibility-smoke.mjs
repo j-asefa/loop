@@ -11,7 +11,7 @@ export async function teamFeedVisibilitySmoke(page, fixture, engine, capture) {
   const dialog = () => page.locator("dialog[open]").last();
   const toggle = () =>
     dialog().getByRole("checkbox", {
-      name: /^Show results and threads in feed/,
+      name: /^Show in All teams/,
     });
   const filters = page.getByRole("tablist", { name: "Show", exact: true });
   const close = async () => {
@@ -35,8 +35,11 @@ export async function teamFeedVisibilitySmoke(page, fixture, engine, capture) {
     1,
   );
   await expect(
-    dialog().getByText(/Results and threads hidden from All teams/),
-  ).toBeVisible();
+    dialog()
+      .locator(".team-option-group")
+      .filter({ has: page.getByRole("checkbox", { name: team.name }) })
+      .locator(".team-option-badge"),
+  ).toHaveText("Hidden");
   await capture("hidden-team-setting");
   await close();
   // Selecting the hidden team is an explicit way back to its results.
@@ -67,7 +70,7 @@ export async function teamFeedVisibilitySmoke(page, fixture, engine, capture) {
     .locator(".team-directory-item")
     .filter({ has: page.getByText(team.name, { exact: true }) });
   const directoryToggle = entry.getByRole("checkbox", {
-    name: /^Show results and threads in feed/,
+    name: /^Show in All teams/,
   });
   await expect(directoryToggle).not.toBeChecked();
   // A rejected save leaves the preference intact and can be retried.

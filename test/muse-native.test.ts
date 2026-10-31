@@ -18,7 +18,7 @@ gitProject(dir);
 const { db } = await import("../src/server/db");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
 const { createAgent, ownedConnection } = await import("../src/server/domain");
-const { enqueue } = await import("../src/server/queue");
+const { enqueue, claim, transition } = await import("../src/server/queue");
 const { acceptsLiveInput } = await import("../src/server/native-connections");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
 const { harnessName } = await import("../src/client/modelChoices");
@@ -118,4 +118,88 @@ it("registers Muse Code as a live-input native connection and resumes its genera
       .map((r) => r.params.input[0].text),
   ).toEqual(["Fixture instructions\n\nExplicit follow-up after restart"]);
   await sessions.dispose(resumed);
+});
+
+it("records a model reported during startup on the native-default run and catalog", async () => {
+  const agent = createAgent(OWNER, {
+    name: "muse-default",
+    connectionId: "native-muse",
+    model: "native-default",
+    instructions: "",
+  });
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('muse-default',?,?,'Muse',0)",
+  ).run(OWNER, agent.id);
+  const task = enqueue(OWNER, "Which model?", "muse-default-run", {
+    conversation: "muse-default",
+    agent: agent.id,
+    payload: {
+      agentId: agent.id,
+      name: agent.name,
+      provider: "muse",
+      folderId: null,
+      connectionId: "native-muse",
+      model: "native-default",
+      instructions: "",
+    },
+  });
+  // The fixture reuses one Muse session id; release the earlier binding.
+  db.prepare(
+    "DELETE FROM companion_sessions WHERE conversation_id='muse-conversation'",
+  ).run();
+  const claimed = claim("muse-fixture", (run) => run.id === task.id)!;
+  // Muse reports its model while the session starts, before the turn is
+  // attached; the run still records it.
+  if ((await sessions.execute(claimed)) !== false)
+    transition(claimed, "completed");
+  const payload = JSON.parse(
+    (
+      db.prepare("SELECT payload FROM runs WHERE id=?").get(task.id) as {
+        payload: string;
+      }
+    ).payload,
+  );
+  expect(payload).toMatchObject({
+    model: "native-default",
+    resolvedModel: "muse-spark-fixture",
+  });
+  expect(
+    ownedConnection("native-muse", OWNER).models.find(
+      (model: { id: string }) => model.id === "native-default",
+    ),
+  ).toMatchObject({ resolvedModel: "muse-spark-fixture" });
+
+  // A model chosen in session settings is applied at the next prompt, after
+  // the startup report; that report must not be recorded for the turn.
+  const controls = sessions.controls("muse-default");
+  await sessions.setSetting(
+    "muse-default",
+    "model",
+    "muse-other-fixture",
+    controls.settings.revision,
+    controls.generation!,
+  );
+  const next = enqueue(OWNER, "And now?", "muse-default-next", {
+    conversation: "muse-default",
+    agent: agent.id,
+    payload: {
+      agentId: agent.id,
+      name: agent.name,
+      provider: "muse",
+      folderId: null,
+      connectionId: "native-muse",
+      model: "native-default",
+      instructions: "",
+    },
+  });
+  await sessions.execute(claim("muse-fixture", (run) => run.id === next.id)!);
+  expect(
+    JSON.parse(
+      (
+        db.prepare("SELECT payload FROM runs WHERE id=?").get(next.id) as {
+          payload: string;
+        }
+      ).payload,
+    ).resolvedModel,
+  ).toBeUndefined();
 });

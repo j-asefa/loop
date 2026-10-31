@@ -323,7 +323,8 @@ export class Codex implements Adapter {
           ? `Native ChatGPT account (${account.account.planType ?? "plan unknown"}); plan limits and enabled overage apply`
           : "Existing Codex provider configuration; may incur API charges",
       provider: r.modelProvider,
-      model: r.model,
+      // Report the model turn/start will dispatch, not the thread's last one.
+      model: this.options.model || this.defaultModel || r.model,
     };
     this.displayControls.publish(this.sessionOptions(r.model), this.commands);
     this.emit({ type: "metadata", nativeSession: this.thread, billing });
