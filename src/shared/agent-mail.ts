@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MachineId } from "./fleet.js";
 
 // Messages Loop55 submits on your behalf, not typed by you: a watched pull
 // request, a Social feed digest, or another agent's message or delegated
@@ -43,6 +44,20 @@ export const MailStatusSchema = z.enum([
 ]);
 export type MailStatus = z.infer<typeof MailStatusSchema>;
 const Text = z.string();
+export const PublicMailAgentReference = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local"), agentId: Text, name: Text.nullable() }),
+  z.object({
+    kind: z.literal("peer"),
+    machineId: MachineId,
+    agentId: Text,
+    name: Text.nullable(),
+  }),
+]);
+export type PublicMailAgentReference = z.infer<typeof PublicMailAgentReference>;
+export const PublicMailConversationReference = z.object({
+  machineId: MachineId,
+  conversationId: z.string().uuid(),
+});
 const ThreadFields = { scope: z.enum(["direct", "team"]), subject: Text };
 const MessageFields = {
   kind: z.enum(["message", "result"]),
@@ -59,6 +74,9 @@ export const PublicMailMessage = z.object({
   error: Text.nullable(),
   files: z.number(),
   conversation_id: Text.nullable().optional(),
+  from_ref: PublicMailAgentReference.optional(),
+  to_ref: PublicMailAgentReference.optional(),
+  remote_conversation: PublicMailConversationReference.nullable().optional(),
 });
 export const PublicMailThread = z.object({
   ...ThreadFields,
@@ -69,6 +87,7 @@ export const PublicMailThread = z.object({
   paused_reason: Text.nullable(),
   updated_at: z.number(),
   participants: z.array(Text),
+  participant_refs: z.array(PublicMailAgentReference).optional(),
   messages: z.array(PublicMailMessage),
 });
 export type MailThread = z.infer<typeof PublicMailThread>;

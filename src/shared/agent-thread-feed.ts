@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PublicMailMessage } from "./agent-mail.js";
+import { PublicMailMessage, PublicMailAgentReference } from "./agent-mail.js";
 import { CardSelectionSchema } from "./cards.js";
 
 export const AgentThreadQuery = CardSelectionSchema.pick({
@@ -24,7 +24,13 @@ export const AgentThreadSummary = z.object({
   updated_at: z.number(),
   paused_at: z.number().nullable(),
   paused_reason: z.string().nullable(),
-  participants: z.array(z.object({ id: z.string(), name: z.string() })),
+  participants: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      reference: PublicMailAgentReference.optional(),
+    }),
+  ),
   message_count: z.number().int().positive(),
   latest: PublicMailMessage,
 });

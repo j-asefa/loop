@@ -26,7 +26,10 @@ import { ActivityRecordSchema } from "../src/agent-activities.ts";
 import { DoneDisplaySchema } from "../src/shared/done-card.ts";
 import { DoneThread, DoneThreadSummary } from "../src/shared/done-threads.ts";
 import { AgentThreadSummary } from "../src/shared/agent-thread-feed.ts";
-import { PublicMailMessage } from "../src/shared/agent-mail.ts";
+import {
+  PublicMailAgentReference,
+  PublicMailMessage,
+} from "../src/shared/agent-mail.ts";
 import { PublicMcpConnection } from "../src/shared/mcp-contract-schemas.ts";
 import { PublicReview } from "../src/shared/team-contract-schemas.ts";
 import { WorkspaceClock } from "../src/shared/workspace-events.ts";
@@ -128,6 +131,7 @@ const publicProjections = {
   PublicPiPackage,
   PublicModel,
   AgentThreadSummary,
+  PublicMailAgentReference,
   PublicMailMessage,
   PublicAgent,
   PublicConnection,
@@ -250,6 +254,8 @@ const sharedManagementGroups = new Set([
   "webhooks",
   "feed",
   "conversations",
+  "messages",
+  "artifacts",
 ]);
 const managementOrigin = {
   name: "Origin",
