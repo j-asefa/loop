@@ -1,6 +1,7 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { matchingAgents } from "./agentSearch";
 import { SearchExcerpt } from "./SearchExcerpt";
+import { feedCategories, type FeedCategory } from "../shared/feed-categories";
 import { capabilities } from "./capabilities";
 import { executionSourceId } from "./sourceRouting";
 import { callRoute, routeUrl } from "./workspace-api";
@@ -599,6 +600,7 @@ export function SearchWorkspace({
   const shown = cachedView<{
     query: string;
     scope: SearchScope;
+    category: FeedCategory | "";
     agent: string;
     folder: string;
     from: string;
@@ -608,6 +610,9 @@ export function SearchWorkspace({
   }>(shownKey);
   const [query, setQuery] = useState(shown?.query ?? ""),
     [scope, setScope] = useState<SearchScope>(shown?.scope ?? initialScope),
+    [category, setCategory] = useState<FeedCategory | "">(
+      shown?.category ?? "",
+    ),
     [agent, setAgent] = useState(shown?.agent ?? initialAgent),
     [folder, setFolder] = useState(shown?.folder ?? ""),
     [from, setFrom] = useState(shown?.from ?? ""),
@@ -618,6 +623,7 @@ export function SearchWorkspace({
     [busy, setBusy] = useState(false),
     [recent, setRecent] = useState(recentSearches);
   const searchRequest = useRef(0);
+  const searched = useRef(!!shown?.result);
   // Search state belongs to the account that searched; it is never cached
   // for another account that signs in while this view is still mounted.
   const searchOwner = useRef(viewOwner());
@@ -627,6 +633,7 @@ export function SearchWorkspace({
       {
         query,
         scope,
+        category,
         agent,
         folder,
         from,
@@ -636,7 +643,13 @@ export function SearchWorkspace({
       },
       searchOwner.current,
     );
-  }, [query, scope, agent, folder, from, to, result, resultQuery]);
+  }, [query, scope, category, agent, folder, from, to, result, resultQuery]);
+  useEffect(
+    () => () => {
+      searchRequest.current++;
+    },
+    [],
+  );
   const kind =
     scope === "results"
       ? "markdown"
@@ -648,15 +661,18 @@ export function SearchWorkspace({
   async function run(append = false, text = query) {
     if (!text.trim() || scope === "mine") return;
     const request = ++searchRequest.current;
+    searched.current = true;
     setBusy(true);
     setError("");
+    if (!append) setResult(null);
     try {
       const query: RouteInput<typeof workspaceApi.search>["query"] = {
         q: text,
         scope: "all",
+        category: category || undefined,
         kind,
         agent,
-        folder,
+        project: folder || undefined,
       };
       if (from) query.from = String(Date.parse(from));
       if (to) query.to = String(Date.parse(to) + 86400000 - 1);
@@ -666,7 +682,11 @@ export function SearchWorkspace({
         { query },
         executionSourceId(),
       );
-      if (request !== searchRequest.current) return;
+      if (
+        request !== searchRequest.current ||
+        searchOwner.current !== viewOwner()
+      )
+        return;
       setResultQuery(text);
       if (!append) {
         rememberSearch(text.trim());
@@ -694,8 +714,10 @@ export function SearchWorkspace({
     }
   }
   useEffect(() => {
-    if (result && query.trim()) void run();
-  }, [scope, agent, folder, from, to]);
+    searchRequest.current++;
+    setBusy(false);
+    if (scope !== "mine" && searched.current && query.trim()) void run();
+  }, [scope, category, agent, folder, from, to]);
   // Pull to refresh runs the current search again.
   const rerun = useRef(() => {});
   rerun.current = () => {
@@ -732,8 +754,12 @@ export function SearchWorkspace({
     }
   }
   const agentMatches =
-    scope === "all" ? matchingAgents(agents, query, { agent, folder }) : [];
-  const active = [!!agent, !!folder, !!from, !!to].filter(Boolean).length;
+    scope === "all" && !category
+      ? matchingAgents(agents, query, { agent, folder })
+      : [];
+  const active = [!!category, !!agent, !!folder, !!from, !!to].filter(
+    Boolean,
+  ).length;
   return (
     <>
       <form
@@ -767,6 +793,7 @@ export function SearchWorkspace({
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
               searchRequest.current++;
+              searched.current = false;
               setQuery("");
               setResult(null);
               setResultQuery("");
@@ -800,6 +827,21 @@ export function SearchWorkspace({
       </div>
       {scope !== "mine" && (
         <div className="chip-row search-refine">
+          <label className="chip chip-select">
+            <span className="sr-only">Feed category</span>
+            <select
+              aria-label="Search category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value as FeedCategory | "")}
+            >
+              <option value="">All Feed categories</option>
+              {feedCategories.map(({ id, label }) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="chip chip-select">
             <span className="sr-only">Project</span>
             <select
@@ -858,6 +900,7 @@ export function SearchWorkspace({
               type="button"
               className="text-button"
               onClick={() => {
+                setCategory("");
                 setAgent("");
                 setFolder("");
                 setFrom("");
@@ -901,6 +944,10 @@ export function SearchWorkspace({
           onConversation={onConversation}
           onReply={onReplyPrompt}
         />
+      ) : busy && !result ? (
+        <p className="field-hint" role="status">
+          Searching…
+        </p>
       ) : result ? (
         <>
           {result.mode === "hybrid" && result.pending > 0 && (
@@ -973,7 +1020,7 @@ export function SearchWorkspace({
             })
           ) : !agentMatches.length ? (
             <Empty title="Nothing found yet.">
-              Try a shorter phrase or another scope.
+              Try a shorter phrase or adjust your filters.
             </Empty>
           ) : null}
           {result.next && (

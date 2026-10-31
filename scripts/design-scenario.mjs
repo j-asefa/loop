@@ -49,6 +49,7 @@ import { swipeBackSmoke } from "./helpers/swipe-back-smoke.mjs";
 import { doneCardDismissalSmoke } from "./helpers/done-card-dismissal-smoke.mjs";
 import { doneCardActionsSmoke } from "./helpers/done-card-actions-smoke.mjs";
 import { doneFeedFiltersSmoke } from "./helpers/done-feed-filters-smoke.mjs";
+import { searchCategoriesSmoke } from "./helpers/search-categories-smoke.mjs";
 import { steeringRepliesSmoke } from "./helpers/steering-replies-smoke.mjs";
 import { resultFilesSmoke } from "./helpers/result-files-smoke.mjs";
 import { replyKeyboardSmoke } from "./helpers/reply-keyboard-smoke.mjs";
@@ -71,6 +72,7 @@ import { uploadDestinationSmoke } from "./helpers/upload-destination-smoke.mjs";
 import { attachmentPickerSmoke } from "./helpers/attachment-picker-smoke.mjs";
 
 const scenarios = {
+  "search-categories": searchCategoriesSmoke,
   "beginner-chat": beginnerChatSmoke,
   "create-agent-models": createAgentModelsSmoke,
   "profile-photos-recipient": profilePhotosRecipientSmoke,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SearchExcerptSchema } from "./search-excerpt.js";
 import { ProviderSchema } from "./provider-schema.js";
+import { feedCategories } from "./feed-categories.js";
 
 const Text = z.string(),
   MaybeText = Text.nullable(),
@@ -79,6 +80,7 @@ export const SearchQuery = z.object({
   project: Filter,
   kind: Filter,
   scope: Filter,
+  category: z.enum(feedCategories.map(({ id }) => id)).optional(),
   from: NumericQuery,
   to: NumericQuery,
   before: NumericQuery,

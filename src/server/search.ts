@@ -10,6 +10,8 @@ import { unseal } from "./secrets.js";
 
 import { localEmbeddings, localModel } from "./local-embeddings.js";
 import { traceArtifactSql } from "./results.js";
+import type { FeedCategory } from "../shared/feed-categories.js";
+import { searchCategorySql } from "./search-category.js";
 export type SearchDoc = {
   id: string;
   owner_id: string;
@@ -253,11 +255,17 @@ function filterSql(owner: string, filters: SearchFilters) {
       params.push(filters[key]);
     }
   }
-  // A project and its subfolders. Messages are indexed without a folder, so
-  // theirs comes from the conversation: its project, else its latest run's.
+  // A project and its subfolders. Messages retain their run's project,
+  // including an explicit Workspace selection; older imports use the thread.
   if (filters.folders) {
     clauses.push(
-      `EXISTS(SELECT 1 FROM json_each(?) WHERE value IS COALESCE(d.folder_id,(SELECT COALESCE(c.project_id,(SELECT json_extract(r.payload,'$.folderId') FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1)) FROM conversations c WHERE c.id=d.conversation_id AND c.owner_id=d.owner_id)))`,
+      `EXISTS(SELECT 1 FROM json_each(?) WHERE value IS COALESCE(d.folder_id,(
+        SELECT CASE WHEN json_type(mr.payload,'$.folderId') IS NOT NULL THEN json_extract(mr.payload,'$.folderId')
+          ELSE COALESCE(c.project_id,(SELECT json_extract(r.payload,'$.folderId') FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1)) END
+        FROM conversations c
+        LEFT JOIN messages m ON substr(d.id,1,8)='message:' AND m.id=substr(d.id,9) AND m.owner_id=c.owner_id AND m.conversation_id=c.id
+        LEFT JOIN runs mr ON mr.id=m.run_id AND mr.owner_id=c.owner_id AND mr.conversation_id=c.id
+        WHERE c.id=d.conversation_id AND c.owner_id=d.owner_id)))`,
     );
     params.push(JSON.stringify(filters.folders));
   }
@@ -277,6 +285,10 @@ function filterSql(owner: string, filters: SearchFilters) {
     clauses.push(
       "EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=d.owner_id AND r.agent_id=d.agent_id AND r.state IN ('running','pausing') AND r.worker_id IS NOT NULL)",
     );
+  if (filters.category) {
+    clauses.push(searchCategorySql(filters.category, !!filters.agent));
+    if (filters.category === "done") params.push(now());
+  }
   return { sql: clauses.join(" AND "), params };
 }
 export function lexical(owner: string, q: string, filters: SearchFilters = {}) {
@@ -302,6 +314,7 @@ export type SearchFilters = {
   from?: number;
   to?: number;
   scope?: string;
+  category?: FeedCategory;
   before?: number;
 };
 export async function search(

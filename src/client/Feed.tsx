@@ -111,13 +111,11 @@ import { readReplyFeedPage } from "./feed-replies";
 import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges, workspaceChangeAffects, type WorkspaceChangeDetail } from "./workspace-changes";
 
+import { feedCategories, type FeedCategory } from "../shared/feed-categories";
+
 export type FeedFilter =
   | "all"
-  | "done"
-  | "replies"
-  | "threads"
-  | "working"
-  | "queued"
+  | FeedCategory
   // Project history views (no chip of their own).
   | "outcomes"
   | "unfinished";
@@ -228,15 +226,8 @@ const combineSummaries = (summaries: Summary[]) => summaries.reduce((sum, summar
 }), { needs: 0, working: 0, queued: 0, later_due: 0 } as Summary);
 type AwayItem = RouteResponse<typeof workspaceApi.feedAway>["completed"][number] & { sourceId?: string };
 
-export const feedFilters: { id: FeedFilter; label: string }[] = [
-  // Done keeps each completed result; open work has its own chip.
-  // What needs you has no chip: it stacks above the row (NeedsStack).
-  { id: "done", label: "Done" },
-  { id: "working", label: "Working" },
-  { id: "queued", label: "Queued" },
-  { id: "replies", label: "Replies" },
-  { id: "threads", label: "Threads" },
-];
+// What needs you has no chip: it stacks above the row (NeedsStack).
+export const feedFilters = feedCategories;
 
 // A thread can have several Done cards; source and result identity must both
 // survive pagination, refreshes and React reconciliation.

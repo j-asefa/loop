@@ -328,6 +328,7 @@ routes.on(workspaceApi.search, async (req, res) => {
           : undefined,
       kind: typeof req.query.kind === "string" ? req.query.kind : undefined,
       scope: typeof req.query.scope === "string" ? req.query.scope : undefined,
+      category: req.query.category,
       from: Number(req.query.from) || undefined,
       to: Number(req.query.to) || undefined,
       before: Number(req.query.before) || 0,

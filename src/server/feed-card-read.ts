@@ -33,7 +33,9 @@ type RecordRow = {
   unread?: number;
 };
 const needs = "(t.needs_run OR COALESCE(t.approval_until,0)>@now)";
-const idle = `NOT (${needs} OR t.working OR t.queued) AND NOT t.snoozed`;
+export const idleFeedThreadSql = (alias: string, at: string) =>
+  `NOT (${alias}.needs_run OR COALESCE(${alias}.approval_until,0)>${at} OR ${alias}.working OR ${alias}.queued) AND NOT ${alias}.snoozed`;
+const idle = idleFeedThreadSql("t", "@now");
 const scope = (alias: string, params: Scope) => {
   // Parameters come from the validated route's resolved folder selection.
   const folders = params.folders

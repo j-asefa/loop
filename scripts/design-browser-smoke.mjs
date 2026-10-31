@@ -17,6 +17,7 @@ const names = [
   "main-composer-keyboard",
   "composer-typing",
   "clear-search",
+  "search-categories",
   "feed-reply-keyboard",
   "mobile-nav-viewport",
   "feed-reading",
