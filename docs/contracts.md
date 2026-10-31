@@ -32,6 +32,14 @@ digest; uploads retain their command identity through staging and owning commit.
 its current paired-device session and CSRF before owner-bound, bodyless receipt
 reconciliation. Neither boundary accepts arbitrary paths or caller-selected owners.
 
+The `fleetMailApi` registry also uses the dedicated `peer:workspace` machine
+boundary for directory, preparation, acceptance and receipt exchanges. Its
+handlers require a destination-issued `mail` credential for the mapped owner;
+read/act access and browser sessions do not authorize mail. Signed responses bind
+the fixed endpoint, request digest, destination and current directory. Preparation
+reserves the original source/message identity; acceptance and receipt lookup use
+that identity and never create an unrelated replacement command.
+
 ## Responses are projections
 
 - Response schemas describe what the caller receives, never a storage row. Never import `row-schemas.ts`, `query-records.ts`, `db.ts` or any credential schema into `src/shared`. The existing `Public*` schemas are the pattern: add to them, extend them, or add a sibling.

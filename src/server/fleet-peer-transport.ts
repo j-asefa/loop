@@ -76,6 +76,7 @@ export class FleetPeerHttpTransport {
     route: { path: string; body: I; response: O },
     input: z.input<I>,
     signal?: AbortSignal,
+    beforeDispatch?: () => void,
   ): Promise<z.output<O>> {
     const url = target(origin, "/api" + route.path),
       value = route.body.safeParse(input);
@@ -88,6 +89,10 @@ export class FleetPeerHttpTransport {
     if (this.capacity && !release)
       throw fleetBackpressure(this.capacity.retryAfter(origin));
     try {
+      signal?.throwIfAborted();
+      // Durable machine jobs can commit their dispatch identity after capacity
+      // admission but before IO. A refusal here sends no request.
+      beforeDispatch?.();
       const response = await this.fetcher(url, {
         method: "POST",
         headers: {

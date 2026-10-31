@@ -21,6 +21,8 @@ import type { FleetHandoffDestination } from "./fleet-handoff.js";
 import type { FleetDirectorySync } from "./fleet-directory-sync.js";
 import type { FleetCredentials } from "./fleet-credentials.js";
 import type { FleetPendingDirectory } from "./fleet-pending-directory.js";
+import { fleetMailApi } from "../shared/fleet-mail-api.js";
+import type { FleetMailDestination } from "./fleet-mail-destination.js";
 
 /** This application has only fixed fleet protocol handlers. It cannot fall through
  * to arbitrary workspace routes, native bridges, browser sessions or local admin. */
@@ -36,11 +38,13 @@ export function createFleetPeerHttp(
     workspaceActions?: FleetWorkspaceActions;
     workspaceFiles?: FleetWorkspaceFiles;
     workspaceUploads?: FleetWorkspaceUploads;
+    mail?: FleetMailDestination;
   } = {},
 ) {
   const paths = new Set(
     [
       ...Object.values(fleetPeerApi),
+      ...(options.mail ? Object.values(fleetMailApi) : []),
       ...(options.workspaceRead ? Object.values(fleetWorkspaceApi) : []),
       ...(options.workspaceActions
         ? Object.values(fleetWorkspaceActionApi)
@@ -178,6 +182,21 @@ export function createFleetPeerHttp(
     );
     routes.on(fleetPendingDirectoryApi.pendingDirectoryPush, ({ body }, res) =>
       res.json(pending.receive(body)),
+    );
+  }
+  if (options.mail) {
+    const mail = options.mail;
+    routes.on(fleetMailApi.directory, ({ body }, res) =>
+      res.json(mail.directory(body)),
+    );
+    routes.on(fleetMailApi.prepare, ({ body }, res) =>
+      res.json(mail.prepare(body)),
+    );
+    routes.on(fleetMailApi.accept, ({ body }, res) =>
+      res.json(mail.accept(body)),
+    );
+    routes.on(fleetMailApi.receipt, ({ body }, res) =>
+      res.json(mail.receipt(body)),
     );
   }
   if (options.workspaceRead) {

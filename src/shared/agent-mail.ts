@@ -28,6 +28,7 @@ export function automationLabel(
 
 export const MailStatusSchema = z.enum([
   "pending",
+  "transport_pending",
   "held",
   "not_delivered",
   "steering",
@@ -110,6 +111,7 @@ export const ToolMailStatus = z.union([
 
 export const MAIL_STATUS_LABELS: Record<MailStatus, string> = {
   pending: "Waiting for recipient availability",
+  transport_pending: "Waiting for destination acceptance",
   held: "Held: thread paused",
   not_delivered: "Not delivered",
   steering: "Waiting to be read mid-task",

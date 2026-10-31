@@ -9,6 +9,7 @@ import { fleetHandoffApi } from "../src/shared/fleet-handoff-api.ts";
 import { fleetDirectoryApi } from "../src/shared/fleet-directory-api.ts";
 import { fleetCredentialApi } from "../src/shared/fleet-credential-api.ts";
 import { fleetPendingDirectoryApi } from "../src/shared/fleet-pending-directory-api.ts";
+import { fleetMailApi } from "../src/shared/fleet-mail-api.ts";
 
 // A separate document describes this machine protocol: its body proofs and
 // rejected browser credentials are different from workspace session security.
@@ -37,6 +38,14 @@ const responseNames = new Map([
 ]);
 
 const proof = {
+  mailDirectory:
+    "Requires a mail-scoped machine credential. Returns only bounded local agent names, IDs and runtime availability. No prompts, connection records, recursive remote discovery or browser session are accepted. Responses bind the current directory, requesting machine and canonical query digest.",
+  mailPrepare:
+    "Reserves the original source/message/digest under both current mail grants without queueing work or granting file/context access. Its durable signed prepared receipt is the only permission to transmit that same envelope after reconciling an ambiguous send. Reservations expire after thirty minutes into retained refusal tombstones. Missing receipts never authorize a new reservation for an uncertain send.",
+  mailAccept:
+    "Requires a mail-scoped machine credential, its durable reservation and a one-hop envelope attributed to that authenticated sending machine. Current source and destination grants must match its immutable pins. Admission and the existing mail queue share one transaction; a duplicate source/message identity returns its original receipt without dispatch. Accepted does not mean read. This route is only installed when the owning mail service is configured.",
+  mailReceipt:
+    "Requires a mail-scoped machine credential and the original source/message identity and payload digest. Reads the destination's admitted mail state without dispatch. A missing row remains unknown and never authorizes a replacement message. Signed responses include the request identity, method and monotonic receipt revision.",
   workspaceUploadPrepare:
     "Requires a files-scoped machine credential and a canonical upload manifest bound to its original command. Stages at most two files of up to 25 MiB for 30 idle or 120 total seconds. Staging is ephemeral, creates no workspace file or agent grant, and is not command acceptance. An existing durable command returns its receipt instead of a new staging area.",
   workspaceUploadChunk:
@@ -92,6 +101,10 @@ for (const [name, route] of Object.entries({
   ...fleetDirectoryApi,
   ...fleetCredentialApi,
   ...fleetPendingDirectoryApi,
+  mailDirectory: fleetMailApi.directory,
+  mailPrepare: fleetMailApi.prepare,
+  mailAccept: fleetMailApi.accept,
+  mailReceipt: fleetMailApi.receipt,
   workspaceCatalog: fleetWorkspaceApi.catalog,
   workspaceRead: fleetWorkspaceApi.read,
   workspaceAction: fleetWorkspaceActionApi.action,

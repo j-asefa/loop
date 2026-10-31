@@ -307,6 +307,38 @@ scope, including receipt reconciliation. Receipts retain the originating peer
 for provenance; the owner, fleet, grant, operation and original command UUID
 identify the same accepted work across gateways.
 
+The [fleet mail journal](../src/server/fleet-mail-journal.ts) retains a separate
+source/message identity for direct mail. An envelope binds both machines and
+their grants, sender run, two-party thread, conversation and file content
+references. Address revisions preserve that envelope; changing either grant
+refuses its use. The outbox commits uncertainty before transmission and then
+requires receipt reconciliation. Inbox admission and the owning mail queue
+share one SQLite transaction; duplicates return its original admission without
+invoking that queue again. Both journals bound unsettled work to 100 records per
+owner, including unadmitted reservations. When the inbox reaches capacity, it
+refreshes accepted admissions from the owner's local mail rows and expires old
+reservations before refusing new work. Completed local mail frees capacity even
+if its sender is offline or its grant has been removed; this inspection does not
+dispatch work or give the former sender access. Settled payloads compact while
+identity tombstones remain. Unconfirmed outgoing effects retain their quota and
+original identity until an authorized destination receipt resolves them; removing
+a grant cannot prove that an earlier send did not execute.
+
+The [mail transport](../src/server/fleet-peer-mail.ts) probes the destination's
+enrolled key before sending a mail-scoped credential. Its fixed directory,
+preparation, acceptance and receipt endpoints sign the request digest, current directory,
+method and destination identity. Capacity admission precedes the durable send
+claim. Preparation reserves the original source/message/digest without queueing
+work or granting content access. After an ambiguous send, only a fresh signed
+prepared receipt permits retransmitting that exact envelope through the same
+atomic inbox boundary. The sender consumes its stored preparation before IO;
+restart must query the destination again. Missing receipts leave delivery unknown,
+and expired preparations become retained refusals after thirty minutes. Accepted
+mail only reconciles its receipt and never repeats an external harness effect. The
+normal workspace host does not yet configure these routes or connect agent
+tools; an explicitly injected owning mail service is required. This boundary
+grants no file or model-context access by itself.
+
 Peer credential primitives bind destination-issued, ten-minute access to the
 enrolled machine key, destination grant, operation and accepted directory.
 Signed challenges use a short-lived nonce bound to the issuer instance and its
