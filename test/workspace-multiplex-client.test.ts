@@ -192,3 +192,49 @@ it("fallback polling shares a fair concurrency budget across unavailable sources
   expect(peak).toBe(4);
   finish.splice(0).forEach((done) => done());
 });
+
+it.each(["malformed", "oversized", "backpressure"])(
+  "reconnects both logical sources after %s without accepting a bad cursor",
+  async (fault) => {
+    const a = subscribe("peer:one"),
+      b = subscribe("peer:two");
+    const socket = Socket.instances[0];
+    socket.open();
+    const first = socket.sent.find((p) => p.source === "peer:one");
+    const second = socket.sent.find((p) => p.source === "peer:two");
+    socket.frame(first.id, first.source, "one-epoch", 10);
+    socket.frame(second.id, second.source, "two-epoch", 91);
+    if (fault === "backpressure") {
+      socket.bufferedAmount = 256 * 1024 + 1;
+      stops.push(
+        watchWorkspaceDetail("peer:one", { conversation: "opened-thread" }),
+      );
+    } else {
+      socket.onmessage?.({
+        data: fault === "malformed" ? "{" : " ".repeat(512 * 1024 + 4097),
+      });
+    }
+    expect(socket.readyState).toBe(Socket.CLOSED);
+    expect(a.frame).toHaveBeenCalledTimes(1);
+    expect(b.frame).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(800);
+    expect(Socket.instances).toHaveLength(2);
+    const next = Socket.instances[1];
+    next.open();
+    const resumedA = next.sent.find((p) => p.source === "peer:one");
+    const resumedB = next.sent.find((p) => p.source === "peer:two");
+    expect(resumedA).toMatchObject({ epoch: "one-epoch", cursor: 10 });
+    expect(resumedB).toMatchObject({ epoch: "two-epoch", cursor: 91 });
+    next.frame(resumedA.id, resumedA.source, "one-epoch", 11);
+    next.frame(resumedB.id, resumedB.source, "two-epoch", 92);
+    expect(a.frame.mock.calls.at(-1)?.[0]).toMatchObject({
+      epoch: "one-epoch",
+      cursor: 11,
+    });
+    expect(b.frame.mock.calls.at(-1)?.[0]).toMatchObject({
+      epoch: "two-epoch",
+      cursor: 92,
+    });
+  },
+);

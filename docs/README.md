@@ -14,6 +14,7 @@
 | [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and workflows              |
 | [Integration API](cards-api.md)                    | Scoped tokens, workspace reads and Cards synchronization |
 | [Development](development.md)                | Tests, builds, packaging and manual verification                  |
+| [Fleet acceptance](fleet-acceptance.md)       | Isolated fixture/tunnel runner and separate-host/phone checklist  |
 | [Experiment previews](previews.md)            | Try design and runtime branches with separate builds, state and pairing |
 
 Earlier specifications, feedback reports and dated test evidence are retained in Git history. They are not current setup instructions. Record verification results in each PR; supported protocol pins are owned by source/configuration files linked from the guides.

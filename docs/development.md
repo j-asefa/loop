@@ -175,7 +175,7 @@ Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an 
 
 GitHub Actions are temporarily removed to avoid hosted-runner costs. Run the relevant checks locally and record results in the PR. The former workflow is available in Git history; the helper scripts in `scripts/ci/` and Docker Bake definitions remain available for manual use or future restoration.
 
-Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them. The Docker companion smoke (`node scripts/compose-companion-smoke.mjs`) builds its images by default. The server smoke (`node scripts/compose-smoke.mjs`) expects the server Compose stack to be running; see [server operation](server.md).
+Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them. The Docker companion smoke (`node scripts/compose-companion-smoke.mjs`) builds its images by default. The server smoke (`node scripts/compose-smoke.mjs`) expects the server Compose stack to be running; see [server operation](server.md). For an isolated prebuilt validation, pass `--images-file /absolute/override.yaml` to the companion smoke; the Compose override selects the test images and can set container memory/CPU limits and environment-specific CA mounts. This avoids overwriting shared CI tags. The runner still owns only its unique Compose project and volumes.
 
 The design smoke runs named scenarios with separate databases, servers and browser contexts, one at a time by default. `LOOP55_BROWSER_WORKERS=2` enables two concurrent scenario workers. For a focused design regression:
 

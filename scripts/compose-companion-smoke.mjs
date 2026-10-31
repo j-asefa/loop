@@ -5,15 +5,39 @@ import "../runtime/environment.mjs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { parseArgs } from "node:util";
+const { values } = parseArgs({
+  options: {
+    prebuilt: { type: "boolean" },
+    "images-file": { type: "string" },
+    help: { type: "boolean", short: "h" },
+  },
+});
+if (values.help) {
+  console.log(`Test-owned Docker companion and real Quick Tunnel smoke
+  node scripts/compose-companion-smoke.mjs
+  node scripts/compose-companion-smoke.mjs --prebuilt
+  node scripts/compose-companion-smoke.mjs --images-file /absolute/override.yaml
+
+An images file selects prebuilt images and may apply container memory/CPU limits
+or environment-specific CA mounts. Default mode builds the shipped Dockerfiles.
+Only this run's uniquely named Compose project and volumes are removed.`);
+  process.exit(0);
+}
 const project = `loop55-companion-smoke-${randomUUID().slice(0, 8)}`;
-const prebuilt = process.argv.includes("--prebuilt");
+const prebuilt = values.prebuilt || !!values["images-file"];
 const args = [
   "compose",
   "-p",
   project,
   "-f",
   resolve("compose.companion.yaml"),
-  ...(prebuilt ? ["-f", resolve("scripts/ci/companion-images.yaml")] : []),
+  ...(prebuilt
+    ? [
+        "-f",
+        resolve(values["images-file"] ?? "scripts/ci/companion-images.yaml"),
+      ]
+    : []),
 ];
 function compose(extra, input, timeout = 60_000) {
   try {
