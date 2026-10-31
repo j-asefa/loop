@@ -3906,7 +3906,10 @@ fieldset {
   border: 0;
   color-scheme: normal;
 }
-.file-preview-content pre {
+.file-preview-content.file-preview-markdown {
+  background: var(--surface);
+}
+.file-preview-content > pre {
   margin: 0;
   font-size: 14px;
   line-height: 1.6;

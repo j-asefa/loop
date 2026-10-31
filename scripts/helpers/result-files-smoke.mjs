@@ -17,61 +17,76 @@ export async function resultFilesSmoke(page, fixture, capture) {
     .get(original.agent_id);
   const source =
     "| Feature | What ACP could let us surface | Difference from Loop55 today |\n| --- | --- | --- |\n| Live plans | A checklist with pending, active and completed steps that updates as the agent works. | Loop55's native event model has no dedicated plan representation. |\n| Streaming updates | Readable intermediate messages and progress from the agent. | The final column stays readable while scrolling horizontally. |";
-  const fileId = randomUUID(),
-    callId = randomUUID();
   const bytes = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
     "base64",
   );
-  const checksum = createHash("sha256").update(bytes).digest("base64");
-  const key = `objects/${createHash("sha256").update(fixture.owner).digest("hex")}/${original.run_id}/${createHash("sha256").update(callId).digest("hex")}`;
   const dbPath = fixture.db
     .prepare("PRAGMA database_list")
     .all()
     .find((row) => row.name === "main").file;
-  const filePath = join(dirname(dbPath), key);
-  mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, bytes);
-  fixture.db
-    .prepare(
-      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,?,'file',?,?,?,?)",
-    )
-    .run(
-      fileId,
-      fixture.owner,
-      agent.id,
-      original.conversation_id,
-      original.run_id,
-      "Design mockup",
-      "File: mockup.png",
-      JSON.stringify({
-        uploaded: true,
-        name: "mockup.png",
-        mime: "image/png",
-        size: bytes.length,
-        model: agent.model,
-      }),
-      Date.now(),
-      Date.now(),
-    );
-  fixture.db
-    .prepare("INSERT INTO artifact_objects VALUES(?,?,?,?,?,?,?,?)")
-    .run(
-      fileId,
-      fixture.owner,
-      original.run_id,
-      callId,
-      key,
-      "image/png",
-      bytes.length,
-      checksum,
-    );
+  const seeded = [];
+  const seedFile = (title, name, mime, bytes) => {
+    const fileId = randomUUID(),
+      callId = randomUUID();
+    const checksum = createHash("sha256").update(bytes).digest("base64");
+    const key = `objects/${createHash("sha256").update(fixture.owner).digest("hex")}/${original.run_id}/${createHash("sha256").update(callId).digest("hex")}`;
+    const filePath = join(dirname(dbPath), key);
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, bytes);
+    seeded.push({ fileId, filePath });
+    fixture.db
+      .prepare(
+        "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,?,'file',?,?,?,?)",
+      )
+      .run(
+        fileId,
+        fixture.owner,
+        agent.id,
+        original.conversation_id,
+        original.run_id,
+        title,
+        `File: ${name}`,
+        JSON.stringify({
+          uploaded: true,
+          name,
+          mime,
+          size: bytes.length,
+          model: agent.model,
+        }),
+        Date.now(),
+        Date.now(),
+      );
+    fixture.db
+      .prepare("INSERT INTO artifact_objects VALUES(?,?,?,?,?,?,?,?)")
+      .run(
+        fileId,
+        fixture.owner,
+        original.run_id,
+        callId,
+        key,
+        mime,
+        bytes.length,
+        checksum,
+      );
+    return fileId;
+  };
+  const fileId = seedFile("Design mockup", "mockup.png", "image/png", bytes);
+  const reportId = seedFile(
+    "Fleet report",
+    "report.md",
+    "text/markdown",
+    Buffer.from(
+      "# Fleet report\n\n- **Merged** PRs\n\n<img src=x onerror=alert(1)>\n",
+    ),
+  );
   fixture.db
     .prepare("UPDATE artifacts SET content=? WHERE id=?")
     .run(
       source +
         `\n\n[View mockup](/api/artifacts/${fileId}/file)` +
-        `\n\n![Preview the mockups](/api/artifacts/${fileId}/file)`,
+        `\n\n![Preview the mockups](/api/artifacts/${fileId}/file)` +
+        `\n\n[Open the report](/api/artifacts/${reportId}/file)`,
       original.id,
     );
   const dialog = () => page.locator("dialog[open]").last();
@@ -319,6 +334,20 @@ export async function resultFilesSmoke(page, fixture, capture) {
     ).toBeVisible();
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator("dialog[open]")).toHaveCount(1);
+    // Markdown files render like chat answers, without their raw HTML.
+    await dialog()
+      .getByRole("link", { name: "Open the report", exact: true })
+      .click();
+    await expect(page.locator("dialog[open]")).toHaveCount(2);
+    const markdown = dialog().locator(".file-preview-content .markdown");
+    await expect(
+      markdown.getByRole("heading", { name: "Fleet report", level: 1 }),
+    ).toBeVisible();
+    await expect(markdown.locator("li strong")).toHaveText("Merged");
+    await expect(markdown.locator("img")).toHaveCount(0);
+    await capture("markdown-file-preview");
+    await dialog().getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.locator("dialog[open]")).toHaveCount(1);
     const replyDraft = "Keep my reply while I preview the mockups";
     await page.evaluate(
       ({ id, draft }) => {
@@ -477,10 +506,12 @@ export async function resultFilesSmoke(page, fixture, capture) {
     fixture.db
       .prepare("UPDATE artifacts SET content=? WHERE id=?")
       .run(original.content, original.id);
-    fixture.db
-      .prepare("DELETE FROM artifact_objects WHERE artifact_id=?")
-      .run(fileId);
-    fixture.db.prepare("DELETE FROM artifacts WHERE id=?").run(fileId);
-    rmSync(filePath, { force: true });
+    for (const { fileId, filePath } of seeded) {
+      fixture.db
+        .prepare("DELETE FROM artifact_objects WHERE artifact_id=?")
+        .run(fileId);
+      fixture.db.prepare("DELETE FROM artifacts WHERE id=?").run(fileId);
+      rmSync(filePath, { force: true });
+    }
   }
 }

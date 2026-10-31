@@ -3,7 +3,7 @@ import { workspaceApi } from "../shared/workspace-api";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Download, File as FileIcon, Share2 } from "lucide-react";
-import { Sheet } from "./components";
+import { RichText, Sheet } from "./components";
 import { isHtmlFile } from "../shared/file-preview";
 import { viewGeneration } from "./viewCache";
 
@@ -110,7 +110,8 @@ const previewMime: Record<string, string> = {
   html: "text/html",
   htm: "text/html",
   txt: "text/plain",
-  md: "text/plain",
+  md: "text/markdown",
+  markdown: "text/markdown",
   csv: "text/plain",
   tsv: "text/plain",
   log: "text/plain",
@@ -126,6 +127,7 @@ type ReadyFile = {
   videoUrl?: string;
   htmlUrl?: string;
   text?: string;
+  markdown?: boolean;
   truncated?: boolean;
 };
 
@@ -236,6 +238,8 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
             ? objectUrl(file)
             : undefined,
           text: content,
+          markdown:
+            type === "text/markdown" || /\.(md|markdown)$/i.test(fileName),
           truncated: text && file.size > 100_000,
           downloadUrl: objectUrl(
             new Blob([blob], { type: "application/octet-stream" }),
@@ -291,7 +295,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
         onClose={onClose}
       >
         <div
-          className={`file-preview-content${ready?.htmlUrl && !error ? " file-preview-html" : ""}`}
+          className={`file-preview-content${ready?.htmlUrl && !error ? " file-preview-html" : ""}${ready?.markdown && !error ? " file-preview-markdown" : ""}`}
           aria-busy={!ready && !error}
         >
           {error ? (
@@ -341,7 +345,13 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
             />
           ) : ready.text !== undefined ? (
             <>
-              <pre>{ready.text}</pre>
+              {ready.markdown ? (
+                // The same renderer as chat answers: no raw HTML, and Loop55
+                // file links open in their own preview.
+                <RichText content={ready.text} />
+              ) : (
+                <pre>{ready.text}</pre>
+              )}
               {ready.truncated && (
                 <p className="muted">
                   Preview shortened. Save the file to see the full contents.
