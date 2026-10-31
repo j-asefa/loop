@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ProfilePhoto } from "./ProfilePhoto";
 import type { Provider } from "../shared/types";
 
@@ -18,6 +18,25 @@ export function Avatar({
 }) {
   const { character, background } = agentAppearance(name);
   const [open, setOpen] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const image = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    if (visible || !image.current) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    // Observe clipping by the horizontal agent strip as well as the viewport.
+    // Native image lazy loading alone can fetch far beyond the visible strip.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setVisible(true);
+      },
+      { rootMargin: "128px" },
+    );
+    observer.observe(image.current);
+    return () => observer.disconnect();
+  }, [character, visible]);
   const Tag = expandable ? "button" : "span";
   return (
     <>
@@ -41,7 +60,8 @@ export function Avatar({
         </span>
         <img
           key={character}
-          src={`/avatars/robots/${character}.webp`}
+          ref={image}
+          src={visible ? `/avatars/robots/${character}.webp` : undefined}
           alt=""
           aria-hidden="true"
           width="384"

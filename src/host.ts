@@ -36,6 +36,7 @@ import {
   type FleetDeviceRequest,
 } from "./fleet-device-authorization.js";
 import { workspaceApi } from "./shared/workspace-api.js";
+import { assetCacheControl, compressResponse } from "./http-transfer.js";
 
 // The paired Node HTTP host consumes the same contracts as the Express app.
 // This exact dispatch table is also included in the production route inventory.
@@ -140,7 +141,9 @@ export class Host {
   private adminToken = secret();
   private flush?: NodeJS.Timeout;
   private heartbeat?: NodeJS.Timeout;
-  private publicServer = createServer((q, s) => void this.http(q, s));
+  private publicServer = createServer((q, s) =>
+    compressResponse(q, s, () => void this.http(q, s)),
+  );
   private adminServer = createServer((q, s) => void this.admin(q, s));
   private ws = new WebSocketServer({
     noServer: true,
@@ -1037,7 +1040,25 @@ export class Host {
         "Content-Type",
         types[extname(asset)] ?? "application/octet-stream",
       );
-      res.end(await readFile(asset));
+      const cacheControl = assetCacheControl(assetPath);
+      res.setHeader("Cache-Control", cacheControl);
+      if (cacheControl !== "no-store") {
+        const etag = `W/"${info.size.toString(16)}-${info.mtimeMs.toString(16)}"`;
+        res.setHeader("ETag", etag);
+        if (
+          req.headers["if-none-match"]?.split(",").some((value) => {
+            const candidate = value.trim().replace(/^W\//, "");
+            return candidate === "*" || candidate === etag.slice(2);
+          })
+        ) {
+          res.statusCode = 304;
+          res.end();
+          return;
+        }
+      }
+      const content = await readFile(asset);
+      res.setHeader("Content-Length", content.length);
+      res.end(content);
     } catch {
       if (!res.headersSent)
         this.json(res, 400, { error: "Invalid request or unavailable asset." });

@@ -19,6 +19,14 @@ Forward WebSocket upgrades for `/api/events/ws` through any reverse proxy, with 
 
 For integration streams, forward WebSocket upgrades and the `Authorization` header for `/api/events/stream`. Acknowledgements travel on the same socket. The endpoint checks token authority and sends a ping every 25 seconds while idle; server and companion shutdown terminate its sockets. It uses WebSockets for compatibility with the default Quick Tunnel connection; see [Integration API events](cards-api.md#event-pages-and-streaming).
 
+Both the server and paired companion negotiate compression for text and JSON
+responses above 1 KiB. Event streams, downloads and byte ranges keep their original
+representation. API responses remain `no-store`. Vite assets with content hashes
+in their URLs are cached for a year as immutable; robot avatars revalidate with
+ETags before reuse. HTML, service workers and manifests remain `no-store` so tabs
+can discover updated builds. Preserve `Vary: Accept-Encoding` and these cache
+headers through a reverse proxy; do not apply public caching to API responses.
+
 ## Docker and harness connections
 
 Use Settings → Provider connections to connect server subscription accounts through the configured runtime broker, or register a native host. See [remote runtimes](remote-runtimes.md). The root Compose stack supplies the server and subscription runtime; the paired Docker companion is a separate deployment.

@@ -1,12 +1,13 @@
 import "../../runtime/environment.mjs";
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import type { z } from "zod";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar, projectResponse, mountRoutes, mountedRoute } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
+import { assetCacheControl, compressResponse } from "../http-transfer.js";
 import { companionMode, capabilities } from "./profile.js";
 import { companion } from "./companion-routes.js";
 import { OWNER } from "./native-sessions.js";
@@ -74,6 +75,7 @@ if (authentication) await authentication.migrateAuth();
 access?.initializeAccess();
 export const app = express();
 app.disable("x-powered-by");
+app.use(compressResponse);
 // HTTP metadata preserves array and Cards response contracts. Each successful
 // owner-session snapshot, including fallback reads, carries the source clock.
 app.use("/api", (req, res, next) => {
@@ -372,9 +374,15 @@ const clientRoot = existsSync(compiledClient + "index.html")
   : fileURLToPath(new URL("../../dist/client/", import.meta.url));
 // Tabs opened before an upgrade still request the original avatar URLs.
 // Serve the new robot artwork there without retaining the retired images.
-app.use("/avatars", express.static(join(clientRoot, "avatars/robots")));
-app.use(express.static(clientRoot));
+const staticOptions = {
+  setHeaders(res: ServerResponse, path: string) {
+    const publicPath = "/" + relative(clientRoot, path).split(sep).join("/");
+    res.setHeader("Cache-Control", assetCacheControl(publicPath));
+  },
+};
+app.use("/avatars", express.static(join(clientRoot, "avatars/robots"), staticOptions));
+app.use(express.static(clientRoot, staticOptions));
 app.get("/{*splat}", (_req, res) =>
-  res.sendFile("index.html", { root: clientRoot }),
+  res.sendFile("index.html", { root: clientRoot, headers: { "Cache-Control": "no-store" } }),
 );
 app.use(errorHandler);
