@@ -12,11 +12,15 @@ export type ReviewSnapshot = {
   diff: string;
   files: Record<string, string>;
   before: Record<string, string>;
+  context?: Record<string, string>;
   changed: string[];
   omitted: string[];
 };
 const MAX_FILE = 512_000,
-  MAX_TOTAL = 16_000_000;
+  MAX_TOTAL = 16_000_000,
+  MAX_CONTEXT_FILES = 20_000,
+  MAX_OMITTED_PATHS = 2_000,
+  MAX_OMITTED_BYTES = 128_000;
 const excluded = (path: string) =>
   path
     .split("/")
@@ -36,13 +40,28 @@ export function captureSnapshot(
   directory: string,
   scope: ReviewScope,
   base = "main",
+  format: "references" | "legacy-inline" = "references",
 ): ReviewSnapshot {
   const root = realpathSync(directory);
   const gitBytes = (args: string[], maxBuffer = 5_000_000, input?: string) => {
     try {
       return execFileSync(
         "git",
-        ["--literal-pathspecs", "-c", "core.quotePath=false", ...args],
+        [
+          "--no-replace-objects",
+          "--literal-pathspecs",
+          "-c",
+          "core.quotePath=false",
+          "-c",
+          "core.fsmonitor=false",
+          "-c",
+          "core.trustctime=true",
+          "-c",
+          "core.checkStat=default",
+          "-c",
+          "core.ignorestat=false",
+          ...args,
+        ],
         {
           cwd: root,
           encoding: null,
@@ -54,6 +73,9 @@ export function captureSnapshot(
             GIT_OPTIONAL_LOCKS: "0",
             GIT_EXTERNAL_DIFF: "",
             GIT_CONFIG_COUNT: "0",
+            GIT_ALLOW_PROTOCOL: "",
+            GIT_NO_LAZY_FETCH: "1",
+            GIT_NO_REPLACE_OBJECTS: "1",
           },
           stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
         },
@@ -72,6 +94,80 @@ export function captureSnapshot(
       422,
       "Bind the project to the repository root to review changes",
     );
+  if (
+    format === "legacy-inline" &&
+    git([
+      "for-each-ref",
+      "--format=%(refname)",
+      "--",
+      process.env.GIT_REPLACE_REF_BASE || "refs/replace",
+    ]).trim()
+  )
+    throw new Problem(
+      409,
+      "Freshness unavailable for legacy snapshots while Git replacement refs exist",
+    );
+  if (scope === "uncommitted" && format === "references") {
+    // Flags and conversion filters can make Git's unchanged list differ from
+    // working bytes. Refuse those cases before diff can invoke a clean filter.
+    const tracked = git(["ls-files", "-v", "-z"]).split("\0").filter(Boolean);
+    if (tracked.some((entry) => /^[a-zS] /.test(entry)))
+      throw new Problem(
+        409,
+        "Uncommitted snapshot reviews do not support assume-unchanged or skip-worktree index flags",
+      );
+    if (tracked.length > MAX_CONTEXT_FILES + MAX_OMITTED_PATHS + 100)
+      throw new Problem(
+        413,
+        "Snapshot metadata exceeds the combined context, omission and changed-file limits",
+      );
+    const conversions = () =>
+      new Problem(
+        409,
+        "Uncommitted snapshot reviews do not support Git content conversions; use staged or branch review",
+      );
+    const autocrlf = git([
+      "config",
+      "--default=false",
+      "--get",
+      "core.autocrlf",
+    ])
+      .trim()
+      .toLowerCase();
+    if (!["false", "no", "off", "0"].includes(autocrlf)) throw conversions();
+    for (let offset = 0; offset < tracked.length;) {
+      let input = "",
+        bytes = 0,
+        count = 0;
+      while (offset < tracked.length && count < 1000 && bytes < 200_000) {
+        const path = tracked[offset++].slice(2);
+        input += path + "\0";
+        bytes += Buffer.byteLength(path) + 1;
+        count++;
+      }
+      const attributes = git(
+        [
+          "check-attr",
+          "-z",
+          "--stdin",
+          "filter",
+          "working-tree-encoding",
+          "text",
+          "eol",
+          "ident",
+          "crlf",
+        ],
+        5_000_000,
+        input,
+      ).split("\0");
+      attributes.pop();
+      if (attributes.length % 3)
+        throw new Problem(422, "Could not inspect Git content conversions");
+      for (let i = 2; i < attributes.length; i += 3)
+        if (!["unspecified", "unset"].includes(attributes[i]))
+          throw conversions();
+    }
+  }
   const head = git(["rev-parse", "--verify", "HEAD"]).trim();
   const baseSha =
     scope === "branch"
@@ -106,19 +202,37 @@ export function captureSnapshot(
   if (changes.length > 100)
     throw new Problem(413, "Review up to 100 changed files at a time");
   const files: Record<string, string> = Object.create(null),
-    before: Record<string, string> = Object.create(null);
-  const omitted = new Set(changes.filter(excluded));
+    before: Record<string, string> = Object.create(null),
+    context: Record<string, string> = Object.create(null);
+  const omitted = new Set<string>();
+  let omittedBytes = 0;
+  const omit = (path: string) => {
+    if (omitted.has(path)) return;
+    const bytes = Buffer.byteLength(JSON.stringify(path)) + 1;
+    if (
+      format === "references" &&
+      (omitted.size >= MAX_OMITTED_PATHS ||
+        omittedBytes + bytes > MAX_OMITTED_BYTES)
+    )
+      throw new Problem(
+        413,
+        "Snapshot omission metadata exceeds 2,000 paths or 128 KB",
+      );
+    omittedBytes += bytes;
+    omitted.add(path);
+  };
+  changes.filter(excluded).forEach(omit);
   let total = 0;
   const text = (value: string, path: string) => {
     if (value.includes("\0") || Buffer.byteLength(value) > MAX_FILE) {
-      omitted.add(path);
+      omit(path);
       return undefined;
     }
     total += Buffer.byteLength(value);
     if (total > MAX_TOTAL)
       throw new Problem(
         413,
-        "Repository context exceeds 16 MB. Use a smaller repository for snapshot review.",
+        "Changed snapshot content exceeds 16 MB. Review fewer changes at a time.",
       );
     return value;
   };
@@ -127,21 +241,23 @@ export function captureSnapshot(
   // immutable objects in bounded batches, checking sizes before fetching data.
   function* blobs(
     entries: Entry[],
-  ): Generator<{ entry: Entry; value: string }> {
+    readContent = true,
+  ): Generator<{ entry: Entry; value: string | undefined }> {
     const eligible = entries.filter((entry) => {
       if (excluded(entry.path) || !["100644", "100755"].includes(entry.mode)) {
-        omitted.add(entry.path);
+        omit(entry.path);
         return false;
       }
       return true;
     });
     const invalid = () =>
       new Problem(422, "Could not read captured Git objects");
-    for (let offset = 0; offset < eligible.length; offset += 64) {
-      const batch = eligible.slice(offset, offset + 64);
+    const batchSize = readContent ? 64 : 1024;
+    for (let offset = 0; offset < eligible.length; offset += batchSize) {
+      const batch = eligible.slice(offset, offset + batchSize);
       const checks = git(
         ["cat-file", "--batch-check"],
-        32_000,
+        batch.length * 128,
         batch.map((entry) => entry.hash).join("\n") + "\n",
       )
         .trimEnd()
@@ -152,12 +268,16 @@ export function captureSnapshot(
         if (hash !== entry.hash || kind !== "blob" || !/^\d+$/.test(size))
           throw invalid();
         if (Number(size) > MAX_FILE) {
-          omitted.add(entry.path);
+          omit(entry.path);
           return false;
         }
         return true;
       });
       if (!selected.length) continue;
+      if (!readContent) {
+        for (const entry of selected) yield { entry, value: undefined };
+        continue;
+      }
       const data = gitBytes(
         ["cat-file", "--batch"],
         MAX_FILE * selected.length + 32_000,
@@ -214,22 +334,45 @@ export function captureSnapshot(
     for (const path of changes)
       if (!entries.some((e) => e.path === path))
         entries.push({ path, mode: "100644", hash: "" });
-  if (entries.length > 2000)
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+  const changedPaths = new Set(changes);
+  // Freshness checks for stored legacy rows must reproduce their original
+  // inline format and bounds; new reviews always use metadata references.
+  if (format === "legacy-inline" && entries.length > 2000)
     throw new Problem(
       413,
-      "Snapshot reviews currently support repositories with up to 2,000 files",
+      "Legacy snapshot freshness supports up to 2,000 files",
     );
-  entries.sort((a, b) => a.path.localeCompare(b.path));
+  if (format === "references") {
+    // Context capture reads metadata only. Binary detection is deferred until
+    // first access, so unchanged content cannot create unbounded synchronous IO.
+    let contextCount = 0;
+    for (const { entry } of blobs(
+      entries.filter((e) => !changedPaths.has(e.path)),
+      false,
+    )) {
+      if (++contextCount > MAX_CONTEXT_FILES)
+        throw new Problem(
+          413,
+          "Snapshot reviews support up to 20,000 context references",
+        );
+      context[entry.path] = entry.hash;
+    }
+  }
+  const inlineEntries =
+    format === "legacy-inline"
+      ? entries
+      : entries.filter((e) => changedPaths.has(e.path));
   const captured =
     scope === "uncommitted"
-      ? entries.map((entry) => ({
+      ? inlineEntries.map((entry) => ({
           entry,
           value: undefined as string | undefined,
         }))
-      : blobs(entries);
+      : blobs(inlineEntries);
   for (const { entry: e, value: blob } of captured) {
     if (excluded(e.path) || !["100644", "100755"].includes(e.mode)) {
-      omitted.add(e.path);
+      omit(e.path);
       continue;
     }
     let value: string;
@@ -240,11 +383,11 @@ export function captureSnapshot(
           !lstatSync(path).isFile() ||
           realpathSync(path) !== resolve(root, e.path)
         ) {
-          omitted.add(e.path);
+          omit(e.path);
           continue;
         }
         if (lstatSync(path).size > MAX_FILE) {
-          omitted.add(e.path);
+          omit(e.path);
           continue;
         }
         value = readFileSync(path, "utf8");
@@ -268,7 +411,7 @@ export function captureSnapshot(
     })
     .filter((entry) => changes.includes(entry.path));
   for (const { entry, value } of blobs(oldEntries)) {
-    const content = text(value, entry.path);
+    const content = text(value!, entry.path);
     if (content !== undefined) before[entry.path] = content;
   }
   const selected = changes.filter((p) => !omitted.has(p));
@@ -293,6 +436,7 @@ export function captureSnapshot(
     diff,
     files,
     before,
+    ...(format === "references" ? { context } : {}),
     changed: selected,
     omitted: [...omitted].sort(),
   };

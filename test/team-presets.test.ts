@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   writeFileSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
 } from "node:fs";
@@ -25,7 +26,8 @@ const { core } = await import("../src/server/core-routes");
 const { reviewContext } = await import("../src/server/review-access");
 const { startCodeReview, reviewStatus } =
   await import("../src/server/code-reviews");
-const { captureSnapshot } = await import("../src/server/review-snapshot");
+const { captureSnapshot, snapshotFingerprint } =
+  await import("../src/server/review-snapshot");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
@@ -64,6 +66,7 @@ git("config", "user.name", "Fixture");
 writeFileSync(join(repo, "index.ts"), "export const answer = 1;\n");
 writeFileSync(join(repo, "caller.ts"), "import { answer } from './index';\n");
 writeFileSync(join(repo, ".env"), "TOKEN=do-not-copy\n");
+writeFileSync(join(repo, "stable.ts"), "export const stable = true;\n");
 git("add", ".");
 git("commit", "-m", "baseline");
 const folder = id();
@@ -155,7 +158,10 @@ it("captures staged contents separately from working changes, includes new files
   expect(work.files["index.ts"]).toContain("= 3");
   expect(work.before["index.ts"]).toContain("= 1");
   expect(work.changed).toContain("new.ts");
-  expect(work.files["caller.ts"]).toContain("import");
+  expect(work.context?.["caller.ts"]).toBe(
+    git("rev-parse", "HEAD:caller.ts").trim(),
+  );
+  expect(staged.context?.["caller.ts"]).toBe(work.context?.["caller.ts"]);
   expect(work.files["new.ts"]).toContain("added");
   expect(JSON.stringify(work)).not.toContain("do-not-copy");
   expect(work.omitted).toContain("linked.ts");
@@ -227,6 +233,13 @@ it("queues three fresh read-only reviewers before the lead, preserves retries, a
       path: "index.ts",
     });
     expect(JSON.stringify(read)).toContain("= 3");
+    const context = await invokeNative(
+      first,
+      nativeBindings(first)[0],
+      "context",
+      { path: "stable.ts" },
+    );
+    expect(JSON.stringify(context)).toContain("stable = true");
     await expect(
       invokeNative(first, nativeBindings(first)[0], "escape", {
         path: "../.env",
@@ -429,7 +442,7 @@ it("lets a working agent request a review of its own worktree, waits for the lea
       "SELECT * FROM code_reviews WHERE run_id=(SELECT child_run_id FROM delegations WHERE parent_run_id=?)",
     )
     .get(run.id) as any;
-  expect(review.source_path).toBe(worktree);
+  expect(review.source_path).toBe(realpathSync(worktree));
   expect(JSON.parse(review.snapshot).changed).toEqual(["feature.ts"]);
   expect(
     (
@@ -691,4 +704,62 @@ it("creates an LLM council whose chair manages members on their own connections"
   expect(agent(assignments[2].agentId).connection_id).toBe(native);
   expect(agent(assignments[3].agentId).connection_id).toBe(c);
   expect(agent(assignments[1].agentId).instructions).toMatch(/FINAL RANKING:/);
+});
+
+it("preserves freshness comparisons for stored inline-format reviews", () => {
+  const legacy = captureSnapshot(repo, "uncommitted", "main", "legacy-inline");
+  expect(Object.hasOwn(legacy, "context")).toBe(false);
+  expect(legacy.files["stable.ts"]).toContain("stable = true");
+  const review = startCodeReview("alice", team.id, {
+    folderId: folder,
+    scope: "uncommitted",
+    idempotencyKey: id(),
+  });
+  db.prepare("UPDATE code_reviews SET snapshot=?,fingerprint=? WHERE id=?").run(
+    JSON.stringify(legacy),
+    snapshotFingerprint(legacy),
+    review.id,
+  );
+  expect(reviewStatus("alice", review.id, true).current).toBe(true);
+  const replaced = git("rev-parse", "HEAD:stable.ts").trim();
+  const replacement = execFileSync("git", ["hash-object", "-w", "--stdin"], {
+    cwd: repo,
+    input: "replacement context\n",
+    encoding: "utf8",
+  }).trim();
+  git("replace", replaced, replacement);
+  try {
+    expect(reviewStatus("alice", review.id, true)).toMatchObject({
+      current: null,
+      freshnessError:
+        "Freshness unavailable for legacy snapshots while Git replacement refs exist",
+    });
+  } finally {
+    git("replace", "-d", replaced);
+  }
+
+  const original = readFileSync(join(repo, "stable.ts"), "utf8");
+  try {
+    writeFileSync(join(repo, "stable.ts"), "changed context\n");
+    expect(reviewStatus("alice", review.id, true).current).toBe(false);
+  } finally {
+    writeFileSync(join(repo, "stable.ts"), original);
+  }
+});
+
+it("does not report current when ident conversions hide working edits", () => {
+  const review = startCodeReview("alice", team.id, {
+    folderId: folder,
+    scope: "uncommitted",
+    idempotencyKey: id(),
+  });
+  expect(reviewStatus("alice", review.id, true).current).toBe(true);
+  writeFileSync(join(repo, ".gitattributes"), "stable.ts ident\n");
+  try {
+    const status = reviewStatus("alice", review.id, true);
+    expect(status.current).toBeNull();
+    expect(status.freshnessError).toContain("Git content conversions");
+  } finally {
+    rmSync(join(repo, ".gitattributes"));
+  }
 });

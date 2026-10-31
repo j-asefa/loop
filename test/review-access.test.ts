@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -240,4 +241,100 @@ it("also bounds the number of retained small snapshots", () => {
   } finally {
     reads.restore();
   }
+});
+
+it("caches verified context across pages and reports uncached missing objects", () => {
+  const repo = join(dir, "context-repo");
+  mkdirSync(repo);
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+  git("init", "-b", "main");
+  const content = "captured context\n".repeat(1000);
+  writeFileSync(join(repo, "context.txt"), content);
+  const hash = git("hash-object", "-w", "context.txt").trim();
+  const value = { ...snapshot(), context: { "context.txt": hash } };
+  const f = fixture(value);
+  db.prepare("UPDATE code_reviews SET source_path=? WHERE id=?").run(
+    repo,
+    f.review,
+  );
+  writeFileSync(join(repo, "context.txt"), "unreviewed replacement");
+  expect(readReview(f.run, {})).toMatchObject({
+    files: ["changed.ts", "context.txt"],
+  });
+  expect(readReview(f.run, { path: "context.txt" })).toMatchObject({
+    content: content.slice(0, 12000),
+    nextOffset: 12000,
+  });
+  rmSync(join(repo, ".git", "objects", hash.slice(0, 2), hash.slice(2)));
+  expect(
+    readReview(f.run, { path: "context.txt", offset: 12000 }),
+  ).toMatchObject({ content: content.slice(12000), nextOffset: null });
+  expect(() =>
+    readReview({ ...f.run, owner_id: "foreign" }, { path: "context.txt" }),
+  ).toThrow(/Review not found/);
+  expect(() =>
+    readReview(f.run, { path: "context.txt", version: "before" }),
+  ).toThrow(/not in this snapshot/);
+  const missing = git("hash-object", "-w", "context.txt").trim();
+  rmSync(join(repo, ".git", "objects", missing.slice(0, 2), missing.slice(2)));
+  const unavailable = fixture({
+    ...snapshot(),
+    context: { "missing.txt": missing },
+  });
+  db.prepare("UPDATE code_reviews SET source_path=? WHERE id=?").run(
+    repo,
+    unavailable.review,
+  );
+  expect(() => readReview(unavailable.run, { path: "missing.txt" })).toThrow(
+    /Context file no longer available/,
+  );
+  const other = fixture(value);
+  expect(
+    readReview(other.run, { path: "context.txt", offset: 12000 }),
+  ).toMatchObject({ content: content.slice(12000) });
+  expect(readReview(f.run, { path: "changed.ts" })).toMatchObject({
+    content: "new content",
+  });
+});
+
+it("keeps old inline context snapshots readable without a source repository", () => {
+  const f = fixture(
+    snapshot({ "changed.ts": "new content", "context.ts": "legacy context" }),
+  );
+  expect(readReview(f.run, { path: "context.ts" })).toMatchObject({
+    content: "legacy context",
+  });
+});
+
+it("reports and caches binary context omissions and ignores replacement refs", () => {
+  const repo = join(dir, "binary-repo");
+  mkdirSync(repo);
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: "pipe" });
+  git("init", "-b", "main");
+  writeFileSync(join(repo, "binary"), Buffer.from([1, 0, 2, 42]));
+  const binary = git("hash-object", "-w", "binary").trim();
+  writeFileSync(join(repo, "text"), "original context with a replacement\n");
+  const text = git("hash-object", "-w", "text").trim();
+  git("replace", text, binary);
+  const f = fixture({ ...snapshot(), context: { text: text, binary: binary } });
+  db.prepare("UPDATE code_reviews SET source_path=? WHERE id=?").run(
+    repo,
+    f.review,
+  );
+  expect(readReview(f.run, { path: "text" })).toMatchObject({
+    content: "original context with a replacement\n",
+  });
+  expect(readReview(f.run, { path: "binary" })).toEqual({
+    path: "binary",
+    version: "current",
+    omitted: true,
+    reason: "binary",
+  });
+  rmSync(join(repo, ".git", "objects", binary.slice(0, 2), binary.slice(2)));
+  expect(readReview(f.run, { path: "binary" })).toMatchObject({
+    omitted: true,
+    reason: "binary",
+  });
 });

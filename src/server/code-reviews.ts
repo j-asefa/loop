@@ -148,7 +148,7 @@ function ensureCodeReview(
         JSON.stringify(snapshot),
         fingerprint,
         now(),
-        requester?.path ?? null,
+        realpathSync(path),
       );
       const manager = submit(owner, {
         agentId: team.manager_id,
@@ -214,6 +214,7 @@ export function reviewStatus(
               : directory(owner, r.folder_id),
             s.scope,
             s.base,
+            Object.hasOwn(s, "context") ? "references" : "legacy-inline",
           ),
         ) === r.fingerprint;
     } catch (error) {
