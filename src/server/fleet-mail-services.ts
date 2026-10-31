@@ -22,8 +22,8 @@ import {
 
 /** The companion lifecycle owns these services and supplies the one tunnel
  * budget used by browser, workspace and mail traffic. Construction starts no
- * delivery and enables no tools. The normal host keeps this factory disabled
- * until published-file transfer and the remote mail UI are integrated. */
+ * delivery and enables no tools. WorkspaceHost installs its private worker
+ * bridge before opening execution, then starts delivery after listening. */
 export class FleetMailServices {
   readonly destination: FleetMailDestination;
   readonly worker: FleetMailWorkerService;

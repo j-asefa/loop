@@ -2,10 +2,12 @@ import type { FleetAuthority } from "./fleet-authority.js";
 import type { FleetMailJournal } from "./fleet-mail-journal.js";
 import type { FleetPeerMail } from "./fleet-peer-mail.js";
 import { MailRefusal } from "./agent-mail-policy.js";
+import { MailFileRefusal } from "./agent-mail-files.js";
 import { Problem } from "../shared/problem.js";
 import { db } from "./db.js";
 import {
   authorizeFleetMailSender,
+  outgoingFleetMailFile,
   reconcileFleetMail,
   recoverFleetMailProjections,
 } from "./fleet-mail-origin.js";
@@ -62,6 +64,8 @@ export class FleetMailDrainer {
         messageId,
         (envelope) => authorizeFleetMailSender(this.owner, envelope),
         controller.signal,
+        (envelope, fileId) =>
+          outgoingFleetMailFile(this.owner, envelope, fileId),
       );
       if (this.stopped) return;
       reconcileFleetMail(this.owner, messageId);
@@ -70,8 +74,13 @@ export class FleetMailDrainer {
       if (this.stopped) return;
       // Only an envelope that has never left may become a local refusal. An
       // uncertain/accepted effect still needs its original destination receipt.
-      let refusal: "sender_unavailable" | "grant_revoked" | undefined;
-      if (error instanceof MailRefusal) refusal = "sender_unavailable";
+      let refusal:
+        | "sender_unavailable"
+        | "files_unavailable"
+        | "grant_revoked"
+        | undefined;
+      if (error instanceof MailFileRefusal) refusal = "files_unavailable";
+      else if (error instanceof MailRefusal) refusal = "sender_unavailable";
       else if (error instanceof Problem && error.status === 403) {
         // A peer may be stale or reject an expired credential. Only locally
         // known grant invalidation can retire an unsent envelope permanently.

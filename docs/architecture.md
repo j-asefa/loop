@@ -336,10 +336,8 @@ prepared receipt permits retransmitting that exact envelope through the same
 atomic inbox boundary. The sender consumes its stored preparation before IO;
 restart must query the destination again. Missing receipts leave delivery unknown,
 and expired preparations become retained refusals after thirty minutes. Accepted
-mail only reconciles its receipt and never repeats an external harness effect. The
-normal workspace host does not yet configure these routes or connect agent
-tools; an explicitly injected owning mail service is required. This boundary
-grants no file or model-context access by itself.
+mail only reconciles its receipt and never repeats an external harness effect.
+Preparation alone grants no file or model-context access.
 
 The optional [mail file transport](../src/server/fleet-mail-files.ts) binds private
 chunks to an unaccepted message reservation and the current mail and files
@@ -362,15 +360,16 @@ participant's eligibility and conversation ownership, rejects team/delegation
 use, and rechecks current grants before allowing that thread. Address repair
 preserves a binding; removal or replacing either grant makes it unavailable.
 An address naming this machine normalizes to the existing local agent ID before
-send identity, self-message and quota checks. The optional owning admission
+send identity, self-message and quota checks. The owning admission
 factory in [agent-mail.ts](../src/server/agent-mail.ts) joins the authenticated
 inbox transaction to those direct-thread bindings, existing quotas, held/Resume
 policy and `submit()` queue or steering path. It attributes the remote sender
 explicitly and retains its mail grant on the receiving run and steering input,
 alongside any grant used to Resume it. Queue claims, steering consumption and
-later effects recheck those constraints. Its receipt follows the original mail and conversation as delivery
-progresses. Files are refused until their authorized transfer path is connected.
-Normal hosts and agent tools still do not install this optional factory.
+later effects recheck those constraints. Its receipt follows the original mail
+and conversation as delivery progresses. File copies enter that same transaction
+only after recipient policy accepts the message; a missing or incomplete copy
+leaves its reservation open.
 
 Incoming mail also shares the existing 20-message hourly allowance across all
 claimed sender agents, runs and threads from one authenticated machine to one
@@ -380,7 +379,7 @@ explicit Resume grants a fresh allowance for that machine/recipient pair while
 other held threads still require their own Resume. The ordinary per-run, agent
 pair, thread and bounded inbox/queue controls continue to apply.
 
-The optional [outgoing mail service](../src/server/fleet-mail-origin.ts) stores
+The [outgoing mail service](../src/server/fleet-mail-origin.ts) stores
 sender attribution and the original connection/native generation in the same
 transaction as local mail acceptance. Held mail enters the peer outbox only on
 explicit Resume. A pause holds new messages; previously accepted or explicitly
@@ -407,17 +406,24 @@ terminal receipts no longer awaiting transport, without contacting the peer.
 An unchanged successful poll clears a prior transport error; otherwise it leaves
 thread activity and Feed invalidations unchanged.
 
-The optional [mail directory](../src/server/fleet-mail-discovery.ts) lists
+Outgoing envelopes capture authorized published or attached files by owning
+machine, immutable content digest, size, name and media type. The sender uses
+the same [file forwarding policy](../src/server/agent-mail-files.ts) as local
+mail and reads bounded original bytes before transfer. An unrelated artifact
+or an attachment from refused, cancelled or uncertain mail grants no forwarding
+access. Removing a publication refuses a still-unsent envelope; it cannot turn
+an uncertain delivery into a definite refusal.
+
+The [mail directory](../src/server/fleet-mail-discovery.ts) lists
 authorized machine identities without network requests. `loop55_agents` keeps its
 local query/offset/limit behavior; an explicit `sourceId` reads one destination's
 signed directory, qualifies its agent IDs and reports that machine's
 availability separately. An offline destination never blocks local discovery.
 The tool rechecks its owner, original connection and active native generation
 before publishing a remote response. Source names are display labels, and the
-directory exposes neither peer origins nor credentials. The normal execution
-lifecycle has not installed this optional discovery service yet.
+directory exposes neither peer origins nor credentials.
 
-When explicitly configured, the companion's private execution IPC carries a
+The companion's private execution IPC carries a
 bounded discovery catalog and correlated reads to the host-owned mail transport.
 The host repeats owner, run, connection and native-generation authorization
 before peer IO and after the response. Neither origins nor peer credentials
@@ -426,15 +432,28 @@ changes and refreshes an already running worker's catalog. Updates coalesce;
 service replacement or worker retirement rejects outstanding reads without replay. Each side allows
 at most sixteen outstanding reads with a 45-second IPC deadline. The host retains
 its slot until the underlying read settles, including after an IPC timeout.
-Normal startup does not configure this optional bridge yet.
+Normal companion startup configures the bridge before opening the execution
+worker. Server profiles and isolated previews do not install it.
 
-The optional [mail service lifecycle](../src/server/fleet-mail-services.ts)
+The [mail service lifecycle](../src/server/fleet-mail-services.ts)
 composes that bridge, destination policy, discovery and autonomous delivery with
 the companion's shared tunnel capacity. Construction starts no delivery or
 tools; the lifecycle starts them after its peer gateway listens and removes them
 on shutdown. Shutdown invalidates outstanding worker reads and closes the peer
 transport without removing a replacement lifecycle's tool binding. The normal
-host keeps this factory disabled pending file transfer and remote mail UI.
+host mounts the fixed mail endpoints alongside the workspace peer protocol;
+each requires its own current mail grant, separately from read or act access.
+
+The [mail file staging store](../src/server/fleet-mail-files.ts) retains private
+copies behind the fixed peer file endpoint. Every 192 KiB chunk is
+bound to the authenticated mail grant, original envelope digest and active
+destination reservation. Both machines recheck their current file-sharing
+grant. Declared sizes reserve at most 256 MiB across the receiving machine;
+incomplete copies expire with their reservation. Complete bytes are hash checked
+before a synchronous database copy inside recipient admission. Chunk transfer
+alone creates no artifacts, conversation attachments or model-context access.
+Lost chunk acknowledgements resume that reservation; lost acceptance reconciles
+the original receipt without reading the source files or copying them again.
 
 Peer credential primitives bind destination-issued, ten-minute access to the
 enrolled machine key, destination grant, operation and accepted directory.
@@ -562,7 +581,7 @@ The internal [fleet effect store](../src/server/fleet-effect-authorizations.ts) 
 
 [native-sessions.ts](../src/server/native-sessions.ts) is the stable import facade. Its [supervisor](../src/server/native/supervisor.ts) owns live sessions, generations, execution, settings, idle disposal and recovery. The same instance supplies its live-session map and callbacks to the [projector](../src/server/native/projector.ts), [decisions](../src/server/native/decisions.ts), [Pi customization](../src/server/native/pi-customization.ts) and [projects/catalogs](../src/server/native/projects.ts) modules. [Workspace preparation](../src/server/native/workspace.ts) shares the existing identity and checkout checks. Worker ownership remains at the execution authority boundary described below.
 
-The private native tool bridge gives ordinary harness runs the same owner-scoped agent directory, direct/team mail, handoff, memory and published-file tools; delegation remains a team-manager operation and snapshot reviews keep their restricted catalog. [Agent messaging](workspace.md#agent-messaging) stays within one owner and Loop55 API source. Direct threads have two fixed participants and conversation bindings. Pending mail is durable; the atomic queue claim serializes mail against conflicting agent work and rechecks authorization before dispatch. Team mail retains membership checks. Handoffs transfer a task and context summary without transferring a provider session or additional authority, and file access is checked on forwarding and reading.
+The private native tool bridge gives ordinary harness runs the same owner-scoped agent directory, direct/team mail, handoff, memory and published-file tools; delegation remains a team-manager operation and snapshot reviews keep their restricted catalog. [Agent messaging](workspace.md#agent-messaging) preserves local owner isolation; direct mail and handoffs can target explicitly authorized fleet peers. Team and delegation operations remain source-local. Direct threads have two fixed participants and conversation bindings. Pending mail is durable; the atomic queue claim serializes mail against conflicting agent work and rechecks authorization before dispatch. Team mail retains membership checks. Handoffs transfer a task and context summary without transferring a provider session or additional authority, and file access is checked on forwarding and reading.
 
 An earlier release ran harnesses through HAPI; that code is gone. Migration 080 made its leftover records inert once: active HAPI runs were interrupted without replay and their pending approvals rejected, HAPI connections stay disconnected and no longer present as subscriptions, and HAPI conversations keep their memory inclusion as an explicit policy. Their history remains readable. No uncertain external effect is replayed automatically.
 

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +21,7 @@ import {
   fleetAgentAddress,
 } from "../src/shared/fleet-mail.js";
 import { fleetMailApi } from "../src/shared/fleet-mail-api.js";
+import { FLEET_MAIL_FILE_CHUNK_BYTES } from "../src/shared/fleet-mail-files.js";
 
 const dir = mkdtempSync(join(tmpdir(), "loop55-fleet-mail-admission-"));
 process.env.LOOP55_PROFILE = "companion";
@@ -29,15 +30,23 @@ process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const { db, id, now } = await import("../src/server/db.js");
 const { createAgent, ownedRun } = await import("../src/server/domain.js");
+const { readRunFile } = await import("../src/server/uploads.js");
+const { sharedMailFiles } = await import("../src/server/agent-mail-files.js");
+const { personalFiles } = await import("../src/server/personal-files.js");
+const { captureMemory } = await import("../src/server/memory.js");
 const { submit } = await import("../src/server/agent-runtime.js");
-const { claim } = await import("../src/server/queue.js");
+const { claim, transition } = await import("../src/server/queue.js");
 const {
   fleetMailPolicyHandlers,
   resumeThread,
   sweepAgentMail,
   MAIL_LIMITS,
+  agentMessages,
   mailStatus,
 } = await import("../src/server/agent-mail.js");
+const { readAgentThread } = await import("../src/server/agent-thread-feed.js");
+const { AgentThreadMessagesQuery, AgentThreadDetail } =
+  await import("../src/shared/agent-thread-feed.js");
 const { SteeringInbox } = await import("../src/server/steering.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
@@ -53,7 +62,7 @@ const first = authority.create(owner, {
   mutationId: id(),
   name: "Same machine name",
   origin,
-  scope: ["read", "mail"],
+  scope: ["read", "mail", "files"],
 });
 const signed = authority.revise(owner, {
   mutationId: id(),
@@ -72,7 +81,7 @@ peer.approve(peerOwner, {
   mutationId: id(),
   expected: null,
   kind: "enroll",
-  scope: ["read", "mail"],
+  scope: ["read", "mail", "files"],
   controller: authority.identity,
   directory: signed,
   grantId: signed.document.members[1].grantId,
@@ -140,10 +149,15 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-let cachedToken: { head: string; value: string } | undefined;
+let cachedCredential:
+  { head: string; token: string; until: number } | undefined;
 function token() {
   const head = directoryDigest(authority.directory(owner)!.document);
-  if (cachedToken?.head === head) return cachedToken.value;
+  if (
+    cachedCredential?.head === head &&
+    performance.now() < cachedCredential.until
+  )
+    return cachedCredential.token;
   const proof = peerCredentials.prove(
     peerOwner,
     credentials.challenge({
@@ -155,13 +169,17 @@ function token() {
       operation: "mail",
     }),
   );
-  const value = peerCredentials.accept(
+  const accepted = peerCredentials.accept(
     peerOwner,
     proof,
     credentials.issue(proof),
-  ).token;
-  cachedToken = { head, value };
-  return value;
+  );
+  cachedCredential = {
+    head,
+    token: accepted.token,
+    until: performance.now() + accepted.remainingMs - 1000,
+  };
+  return accepted.token;
 }
 async function call(
   method: keyof typeof fleetMailApi,
@@ -288,6 +306,137 @@ const row = (mailId: string) =>
     delivery: string | null;
   };
 
+function withFile(e: FleetMailEnvelope, bytes: Buffer) {
+  e.files = [
+    {
+      source: e.source.machineId,
+      fileId: id(),
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      bytes: bytes.length,
+      name: "shared.bin",
+      mediaType: "application/octet-stream",
+    },
+  ];
+  return e;
+}
+async function stage(
+  e: FleetMailEnvelope,
+  reservationId: string,
+  bytes: Buffer,
+  offset = 0,
+) {
+  return call("file", {
+    envelope: e,
+    reservationId,
+    fileId: e.files[0].fileId,
+    offset,
+    base64: bytes
+      .subarray(offset, offset + FLEET_MAIL_FILE_CHUNK_BYTES)
+      .toString("base64"),
+  });
+}
+
+it("keeps peer file chunks private until one atomic production mail admission", async () => {
+  const recipient = agent();
+  const bytes = randomBytes(FLEET_MAIL_FILE_CHUNK_BYTES + 27);
+  const e = withFile(envelope(recipient.id), bytes);
+  const reservationId = await prepare(e);
+  const before = db
+    .prepare("SELECT count(*) n FROM artifacts WHERE owner_id=?")
+    .get(owner);
+  const threadCount = db.prepare("SELECT count(*) n FROM agent_threads").get();
+  expect((await stage(e, reservationId, bytes)).status).toBe(200);
+  expect(
+    db.prepare("SELECT count(*) n FROM artifacts WHERE owner_id=?").get(owner),
+  ).toEqual(before);
+  expect((await call("accept", { envelope: e, reservationId })).status).toBe(
+    409,
+  );
+  expect((await receipt(e)).admission.state).toBe("prepared");
+  expect(db.prepare("SELECT count(*) n FROM agent_threads").get()).toEqual(
+    threadCount,
+  );
+  expect(
+    db.prepare("SELECT count(*) n FROM artifacts WHERE owner_id=?").get(owner),
+  ).toEqual(before);
+  expect(
+    (await stage(e, reservationId, bytes, FLEET_MAIL_FILE_CHUNK_BYTES)).status,
+  ).toBe(200);
+  const accepted = await call("accept", { envelope: e, reservationId });
+  expect(accepted.status).toBe(200);
+  const admission = fleetMailApi.accept.response.parse(accepted.body).response
+    .receipt!.admission;
+  if (admission.state !== "accepted")
+    throw new Error("Expected accepted file mail");
+  const mail = row(admission.mailId);
+  const attachment = db
+    .prepare("SELECT file_ids FROM agent_mail WHERE id=?")
+    .get(mail.id) as { file_ids: string };
+  const [fileId] = JSON.parse(attachment.file_ids) as string[];
+  expect(fileId).not.toBe(e.files[0].fileId);
+  const run = ownedRun(mail.run_id!, owner);
+  expect(() => readRunFile(run, fileId, 0, 128, "base64")).toThrow(
+    /not attached/,
+  );
+  expect(
+    claim("file-recipient", (candidate) => candidate.id === run.id)?.id,
+  ).toBe(run.id);
+  expect(readRunFile(run, fileId, 0, bytes.length, "base64").content).toBe(
+    bytes.toString("base64"),
+  );
+  expect(() =>
+    readRunFile({ ...run, owner_id: "other-owner" }, fileId, 0, 128, "base64"),
+  ).toThrow(/not attached/);
+  const objectCount = db
+    .prepare("SELECT count(*) n FROM objects WHERE owner_id=?")
+    .get(owner);
+  const duplicate = await call("accept", { envelope: e, reservationId });
+  expect(duplicate.status).toBe(200);
+  expect(duplicate.body.response.receipt.admission.mailId).toBe(mail.id);
+  expect(
+    db.prepare("SELECT count(*) n FROM objects WHERE owner_id=?").get(owner),
+  ).toEqual(objectCount);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM fleet_mail_files WHERE message_id=?")
+      .get(e.messageId),
+  ).toEqual({ n: 0 });
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM runs WHERE idempotency_key=?")
+      .get(`fleet-mail:${e.source.machineId}:${e.messageId}`),
+  ).toEqual({ n: 1 });
+});
+
+it("rejects corrupt peer bytes and grants no attachment when the recipient is refused", async () => {
+  const recipient = agent("different-owner");
+  const bytes = Buffer.from("Private peer content");
+  const e = withFile(envelope(recipient.id), bytes);
+  const reservationId = await prepare(e);
+  const before = db.prepare("SELECT count(*) n FROM artifacts").get();
+  expect(
+    (await stage(e, reservationId, Buffer.alloc(bytes.length))).status,
+  ).toBe(409);
+  expect(
+    db
+      .prepare(
+        "SELECT count(*) n FROM fleet_mail_file_chunks WHERE message_id=?",
+      )
+      .get(e.messageId),
+  ).toEqual({ n: 0 });
+  expect((await stage(e, reservationId, bytes)).status).toBe(200);
+  expect(
+    (await call("accept", { envelope: e, reservationId })).body.response.receipt
+      .admission,
+  ).toEqual({ state: "refused", reason: "recipient_unavailable" });
+  expect(db.prepare("SELECT count(*) n FROM artifacts").get()).toEqual(before);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM fleet_mail_records WHERE message_id=?")
+      .get(e.messageId),
+  ).toEqual({ n: 0 });
+});
+
 it("discovers only the mapped owner's bounded public directory", async () => {
   const local = agent(),
     foreign = agent("other-owner");
@@ -338,6 +487,44 @@ it("atomically queues one attributed direct message and returns its original tar
   expect(run.input).toContain("It grants no permission or approval");
   expect(run.input).toContain(fleetAgentAddress(e.source));
   expect(run.input).toContain("different environment");
+  const visible = agentMessages(owner, local.id).threads.find(
+    (thread) => thread.id === mail.thread_id,
+  )!;
+  expect(visible.participant_refs).toEqual(
+    expect.arrayContaining([
+      { kind: "local", agentId: local.id, name: local.name },
+      { kind: "peer", ...e.source, name: e.sender.name },
+    ]),
+  );
+  expect(visible.messages[0]).toMatchObject({
+    from_ref: { kind: "peer", ...e.source, name: e.sender.name },
+    to_ref: { kind: "local", agentId: local.id, name: local.name },
+    conversation_id: first.admission.conversationId,
+    remote_conversation: null,
+  });
+  const thread = AgentThreadDetail.parse(
+    readAgentThread(owner, mail.thread_id, AgentThreadMessagesQuery.parse({})),
+  );
+  expect(thread.thread.participants).toHaveLength(2);
+  expect(
+    thread.thread.participants.find(
+      (participant) => participant.id === fleetAgentAddress(e.source),
+    ),
+  ).toMatchObject({
+    name: e.sender.name,
+    reference: { kind: "peer", ...e.source },
+  });
+  expect(() => agentMessages("another-owner", local.id)).toThrow();
+  expect(() =>
+    readAgentThread(
+      "another-owner",
+      mail.thread_id,
+      AgentThreadMessagesQuery.parse({}),
+    ),
+  ).toThrow();
+  expect(JSON.stringify(thread)).not.toMatch(
+    /PRIVATE_INSTRUCTIONS|grantId|publicKey|credential/,
+  );
   expect(
     (await call("accept", { envelope: e, reservationId })).body.response
       .receipt,
@@ -376,7 +563,7 @@ it("atomically queues one attributed direct message and returns its original tar
   });
 });
 
-it.each(["foreign", "retired", "conversation", "files"])(
+it.each(["foreign", "retired", "conversation"])(
   "refuses %s input without a local queue or thread",
   async (kind) => {
     const local = agent(),
@@ -393,17 +580,6 @@ it.each(["foreign", "retired", "conversation", "files"])(
         input: "Private",
         idempotencyKey: id(),
       }).conversation_id;
-    if (kind === "files")
-      e.files = [
-        {
-          source: e.source.machineId,
-          fileId: id(),
-          digest: "a".repeat(64),
-          bytes: 12,
-          name: "unavailable.txt",
-          mediaType: "text/plain",
-        },
-      ];
     const before = db.prepare("SELECT count(*) n FROM agent_threads").get();
     expect((await deliver(e)).admission.state).toBe("refused");
     expect(db.prepare("SELECT count(*) n FROM agent_threads").get()).toEqual(
@@ -422,7 +598,7 @@ it.each(["foreign", "retired", "conversation", "files"])(
   },
 );
 
-it("keeps held content out of the queue until explicit Resume and preserves the thread binding", async () => {
+it("keeps held content and copied files out of agent access until explicit Resume and dispatch", async () => {
   const local = agent(),
     firstEnvelope = envelope(local.id);
   const first = await deliver(firstEnvelope);
@@ -431,8 +607,17 @@ it("keeps held content out of the queue until explicit Resume and preserves the 
   db.prepare(
     "UPDATE agent_threads SET paused_at=?,paused_reason='Fixture pause' WHERE id=?",
   ).run(now(), first.admission.threadId);
-  const e = { ...firstEnvelope, messageId: id(), body: "Held remote content" };
-  const held = await deliver(e);
+  const bytes = Buffer.from("Private held file context");
+  const e = withFile(
+    { ...firstEnvelope, messageId: id(), body: "Held remote content" },
+    bytes,
+  );
+  const reservationId = await prepare(e);
+  expect((await stage(e, reservationId, bytes)).status).toBe(200);
+  const accepted = await call("accept", { envelope: e, reservationId });
+  expect(accepted.status).toBe(200);
+  const held = fleetMailApi.accept.response.parse(accepted.body).response
+    .receipt!;
   if (held.admission.state !== "accepted")
     throw new Error("Expected held admission");
   expect(held.admission).toMatchObject({
@@ -440,6 +625,35 @@ it("keeps held content out of the queue until explicit Resume and preserves the 
     threadId: first.admission.threadId,
   });
   expect(row(held.admission.mailId).run_id).toBeNull();
+  const stored = db
+    .prepare("SELECT file_ids FROM agent_mail WHERE owner_id=? AND id=?")
+    .get(owner, held.admission.mailId) as { file_ids: string };
+  const [fileId] = JSON.parse(stored.file_ids) as string[];
+  const priorRun = ownedRun(row(first.admission.mailId).run_id!, owner);
+  expect(() => readRunFile(priorRun, fileId, 0, 128, "utf8")).toThrow(
+    /not attached/,
+  );
+  expect(() => sharedMailFiles(priorRun, [fileId])).toThrow(
+    /not one you published/,
+  );
+  expect(
+    personalFiles(owner, { agent: local.id }).items.some(
+      (file) => file.id === fileId,
+    ),
+  ).toBe(false);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM artifact_objects WHERE artifact_id=?")
+      .get(fileId),
+  ).toEqual({ n: 0 });
+  captureMemory();
+  expect(
+    db
+      .prepare(
+        "SELECT count(*) n FROM memory_sources WHERE owner_id=? AND source_id=?",
+      )
+      .get(owner, fileId),
+  ).toEqual({ n: 0 });
   expect(
     db
       .prepare(
@@ -458,6 +672,30 @@ it("keeps held content out of the queue until explicit Resume and preserves the 
     status: "queued",
     conversationId: first.admission.conversationId,
   });
+  const delivery = ownedRun(row(held.admission.mailId).run_id!, owner);
+  expect(() => readRunFile(delivery, fileId, 0, 128, "utf8")).toThrow(
+    /not attached/,
+  );
+  expect(() => sharedMailFiles(delivery, [fileId])).toThrow(
+    /not one you published/,
+  );
+  const earlier = claim(
+    "earlier-mail-recipient",
+    (candidate) => candidate.id === priorRun.id,
+  );
+  expect(earlier?.id).toBe(priorRun.id);
+  expect(transition(earlier!, "completed")).toBe(true);
+  expect(
+    claim("held-file-recipient", (candidate) => candidate.id === delivery.id)
+      ?.id,
+  ).toBe(delivery.id);
+  expect(readRunFile(delivery, fileId, 0, 128, "utf8").content).toBe(
+    bytes.toString(),
+  );
+  expect(sharedMailFiles(delivery, [fileId])).toEqual([fileId]);
+  expect(() => readRunFile(priorRun, fileId, 0, 128, "utf8")).toThrow(
+    /not attached/,
+  );
   expect(resumeThread(owner, null, first.admission.threadId).released).toBe(0);
 });
 

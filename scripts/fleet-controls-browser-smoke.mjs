@@ -26,6 +26,86 @@ const previews = [],
 let refusedSharedId;
 const fileRequests = [];
 const uploadRequests = [];
+const mailAgent = randomUUID(),
+  mailConversation = randomUUID(),
+  mailThreadId = randomUUID();
+const mailGateway = {
+  machineId: "m_" + "0".repeat(64),
+  publicKey: "A".repeat(59),
+};
+const mailDestination = "m_" + "2".repeat(64);
+const mailReference = {
+  kind: "peer",
+  machineId: mailDestination,
+  agentId: mailAgent,
+  name: "Same agent",
+};
+const mailMessage = {
+  id: randomUUID(),
+  kind: "message",
+  status: "queued",
+  from: mailAgent,
+  to: `peer:${mailDestination}:${mailAgent}`,
+  from_ref: { kind: "local", agentId: mailAgent, name: "Same agent" },
+  to_ref: mailReference,
+  remote_conversation: {
+    machineId: mailDestination,
+    conversationId: mailConversation,
+  },
+  conversation_id: null,
+  preview: "Source-bound mail fixture",
+  files: 1,
+  created_at: 1,
+  error: null,
+};
+const mailThread = {
+  id: mailThreadId,
+  scope: "direct",
+  subject: "Machine-qualified mail",
+  paused_at: null,
+  paused_reason: null,
+  updated_at: 1,
+  participants: [mailAgent, mailMessage.to],
+  participant_refs: [mailMessage.from_ref, mailReference],
+  messages: [mailMessage],
+};
+const mailSummary = {
+  ...mailThread,
+  participants: [
+    { id: mailAgent, name: "Same agent" },
+    { id: mailMessage.to, name: "Same agent", reference: mailReference },
+  ],
+  message_count: 1,
+  latest: mailMessage,
+  source: peer,
+};
+const mailDirectory = {
+  document: {
+    version: 1,
+    fleetId: randomUUID(),
+    epoch: 0,
+    revision: 0,
+    mutationId: randomUUID(),
+    parent: null,
+    kind: "genesis",
+    controller: mailGateway,
+    members: [mailGateway.machineId, peer.slice(5), mailDestination].map(
+      (machineId) => ({
+        machineId,
+        publicKey: "A".repeat(59),
+        grantId: randomUUID(),
+        name: "Same machine",
+        origin: `https://${machineId.slice(2, 10)}.example`,
+      }),
+    ),
+    tombstones: [],
+  },
+  signature: "A".repeat(86),
+  acceptance: null,
+};
+let mailDirectoryUnavailable = false,
+  mailGatewayId = mailGateway.machineId,
+  legacyMail = false;
 let holdUpload = false,
   releaseUpload,
   loseFirstUpload = true;
@@ -55,6 +135,9 @@ try {
     import { FileLink } from ${JSON.stringify(resolve("src/client/FilePreview.tsx"))};
     import { AgentModelSettings } from ${JSON.stringify(resolve("src/client/AgentModelSettings.tsx"))};
     import { CreateAgent } from ${JSON.stringify(resolve("src/client/CreateAgent.tsx"))};
+    import { AgentMailThreads } from ${JSON.stringify(resolve("src/client/AgentMail.tsx"))};
+    import { AgentThreadReader } from ${JSON.stringify(resolve("src/client/AgentThreadCard.tsx"))};
+    import { FleetProvider, useFleet } from ${JSON.stringify(resolve("src/client/FleetContext.tsx"))};
     import { setViewOwner } from ${JSON.stringify(resolve("src/client/viewCache.ts"))};
     import { setShellSource } from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
     import { readFleetJournal } from ${JSON.stringify(resolve("src/client/fleetCommandStorage.ts"))};
@@ -114,6 +197,29 @@ try {
         onCreated:(agent,folder,source)=>{window.createdFleetAgent={id:agent.id,source};root.render(React.createElement("p",null,"Fleet agent created"))},
       }));
     };
+    const RefreshMailDirectory = () => {
+      const fleet = useFleet();
+      return React.createElement("button", {onClick:()=>void fleet.refresh()}, "Refresh mail directory");
+    };
+    window.mail = (reader=false, owner="fixture-mail-owner") => {
+      setViewOwner(owner); setShellSource(peer); window.openedMail = null;
+      const capabilities = {
+        profile:"companion", nativeHarnesses:true, pairedDevices:false, runtimeHosts:false, localProjects:true,
+        fleet:{version:1, machineId:peer.slice(5), reads:["agentMail","agentThreadDetail"], actions:[], files:true, events:false},
+      };
+      const view = reader
+        ? React.createElement(AgentThreadReader, {
+          thread:${JSON.stringify(mailSummary)}, onClose:()=>{},
+          onOpen:(id,message,source)=>{window.openedMail={id,message,source}},
+        })
+        : React.createElement(AgentMailThreads, {
+          target:{kind:"agent",id:${JSON.stringify(mailAgent)}}, ownerKey:owner, sourceId:peer,
+          agents:[], onChanged:()=>{}, onOpenConversation:(id,source)=>{window.openedMail={id,source}},
+        });
+      root.render(React.createElement(FleetProvider, {owner,key:owner},
+        React.createElement(SourceProvider,{sourceId:peer,capabilities},
+          React.createElement(React.Fragment,null,React.createElement(RefreshMailDirectory),view))));
+    };
 
   `,
   );
@@ -146,6 +252,72 @@ try {
     }
     if (req.url === "/session") {
       reply(200, { csrf: "fixture-only" });
+      return;
+    }
+    if (req.url === "/api/fleet/admin/state") {
+      reply(
+        mailDirectoryUnavailable ? 503 : 200,
+        mailDirectoryUnavailable
+          ? { error: "Fixture directory unavailable" }
+          : {
+              identity: { ...mailGateway, machineId: mailGatewayId },
+              origin: "https://gateway.example",
+              state:
+                mailGatewayId === mailGateway.machineId
+                  ? "controller"
+                  : "replica",
+              head: "0".repeat(64),
+              directory: mailDirectory,
+              scope: ["read", "mail"],
+              pendingDistribution: 0,
+              unconfirmed: [],
+            },
+      );
+      return;
+    }
+    if (
+      req.url ===
+      `/api/agent-sources/${encodeURIComponent(peer)}/agents/${mailAgent}/mail`
+    ) {
+      const message = legacyMail
+        ? {
+            ...mailMessage,
+            to: mailAgent,
+            from_ref: undefined,
+            to_ref: undefined,
+            remote_conversation: undefined,
+            conversation_id: mailConversation,
+          }
+        : mailMessage;
+      reply(200, {
+        threads: [
+          {
+            ...mailThread,
+            participant_refs: legacyMail
+              ? undefined
+              : mailThread.participant_refs,
+            messages: [message],
+          },
+        ],
+      });
+      return;
+    }
+    if (
+      req.url?.split("?")[0] ===
+      `/api/agent-sources/${encodeURIComponent(peer)}/feed/agent-threads/${mailThreadId}`
+    ) {
+      reply(200, {
+        thread: mailSummary,
+        next: null,
+        messages: [
+          {
+            ...mailMessage,
+            content: mailMessage.preview,
+            message_id: null,
+            attachments: [{ id: artifactId, name: "fleet-fixture.txt" }],
+          },
+        ],
+      });
       return;
     }
     if (req.method === "POST" && req.url?.endsWith("/uploads")) {
@@ -711,9 +883,67 @@ try {
   await expect(
     page.getByText("Model picker closed", { exact: true }),
   ).toBeVisible();
+  await page.evaluate(() => window.mail());
+  const mail = page.getByRole("region", { name: "Agent mail" });
+  const openMail = mail.getByRole("button", { name: /Open in/ });
+  await expect(mail).toContainText("Same agent on Same machine (22222222)");
+  await expect(openMail).toBeEnabled();
+  await openMail.click();
+  assert.deepEqual(await page.evaluate(() => window.openedMail), {
+    id: mailConversation,
+    source: `peer:${mailDestination}`,
+  });
+  mailDirectoryUnavailable = true;
+  await page
+    .getByRole("button", { name: "Refresh mail directory", exact: true })
+    .click();
+  // Production GET recovery waits 2s and 4s before reporting a persistent 503.
+  await expect(openMail).toBeDisabled({ timeout: 10_000 });
+  await expect(mail).toContainText("Refresh the fleet directory");
+  mailDirectoryUnavailable = false;
+  await page
+    .getByRole("button", { name: "Refresh mail directory", exact: true })
+    .click();
+  await expect(openMail).toBeEnabled();
+  await page.evaluate(() => window.mail(true));
+  const original = page.getByRole("button", {
+    name: "Open original conversation",
+    exact: true,
+  });
+  await expect(original).toBeEnabled();
+  await expect(
+    page.getByRole("link", { name: "fleet-fixture.txt", exact: true }),
+  ).toHaveAttribute(
+    "href",
+    new RegExp(
+      `source=${encodeURIComponent(peer)}.*artifact=${artifactId}|artifact=${artifactId}.*source=${encodeURIComponent(peer)}`,
+    ),
+  );
+  await original.click();
+  assert.deepEqual(await page.evaluate(() => window.openedMail), {
+    id: mailConversation,
+    message: undefined,
+    source: `peer:${mailDestination}`,
+  });
+  mailGatewayId = mailDestination;
+  await page.evaluate(() => window.mail(false, "fixture-recipient-gateway"));
+  await expect(openMail).toBeEnabled();
+  await openMail.click();
+  assert.deepEqual(await page.evaluate(() => window.openedMail), {
+    id: mailConversation,
+    source: "",
+  });
+  legacyMail = true;
+  await page.evaluate(() => window.mail(false, "fixture-legacy-mail"));
+  await expect(openMail).toBeEnabled();
+  await openMail.click();
+  assert.deepEqual(await page.evaluate(() => window.openedMail), {
+    id: mailConversation,
+    source: peer,
+  });
   assert.deepEqual(failures, []);
   console.log(
-    `PASS (${engine.name()}): question and upload controls respect capabilities; questions and shared sends renew confirmed refusals and retain uncertain identities; question reconciliation produces no second effect; sharing and uploads reconcile uncertain commands without resubmission; upload reconciliation omits file bytes; held requests and previews are fenced by owner/source changes. Deterministic HTTP fixture.`,
+    `PASS (${engine.name()}): question and upload controls respect capabilities; questions and shared sends renew confirmed refusals and retain uncertain identities; question reconciliation produces no second effect; sharing and uploads reconcile uncertain commands without resubmission; upload reconciliation omits file bytes; held requests and previews are fenced by owner/source changes; mail identity labels and conversation navigation retain the owning machine, block stale directory navigation and preserve legacy source-local targets. Deterministic HTTP fixture.`,
   );
 } finally {
   releasePreview?.();

@@ -48,6 +48,7 @@ import { FleetEnrollmentHttpTransport } from "./server/fleet-enrollment-http.js"
 import { FleetLocalAdmin } from "./server/fleet-local-admin.js";
 import { createFleetAdminHttp } from "./server/fleet-admin-http.js";
 import { FleetWorkspaceServices } from "./server/fleet-workspace-services.js";
+import { FleetMailServices } from "./server/fleet-mail-services.js";
 import { FleetCapacity } from "./server/fleet-capacity.js";
 import { createFleetCommandsHttp } from "./server/fleet-commands-http.js";
 import { AgentSources, dockerSourceAdapter } from "./agent-sources.js";
@@ -77,6 +78,7 @@ export class WorkspaceHost {
   readonly fleetCredentials?: FleetCredentials;
   readonly fleetLeases?: FleetCredentialLeases;
   readonly fleetWorkspace?: FleetWorkspaceServices;
+  readonly fleetMail?: FleetMailServices;
   readonly fleetCapacity?: FleetCapacity;
   private stopCapacity?: () => void;
   private mcpSharing = new DockerMcpSharing();
@@ -209,6 +211,22 @@ export class WorkspaceHost {
         connectWorkspaceEvents,
         this.fleetCapacity,
       );
+    if (
+      this.fleet &&
+      this.fleetCredentials &&
+      this.fleetLeases &&
+      this.fleetCapacity
+    ) {
+      this.fleetMail = new FleetMailServices(
+        this.fleet,
+        this.fleetCredentials,
+        this.fleetLeases,
+        OWNER,
+        { seal, unseal },
+        this.fleetCapacity,
+      );
+      this.execution.setFleetMail?.(this.fleetMail.worker);
+    }
     this.gateway.workspace = {
       isolated: !!preview,
       fleetCapacity: this.fleetCapacity,
@@ -246,6 +264,7 @@ export class WorkspaceHost {
             workspaceActions: this.fleetWorkspace?.workspaceActions,
             workspaceFiles: this.fleetWorkspace?.workspaceFiles,
             workspaceUploads: this.fleetWorkspace?.workspaceUploads,
+            mail: this.fleetMail?.destination,
             pendingDirectory: new FleetPendingDirectory(
               db,
               this.fleet!,
@@ -390,6 +409,7 @@ export class WorkspaceHost {
     if (!preview) {
       this.mcpSharing.start();
       this.fleetDistribution?.start();
+      this.fleetMail?.start();
     }
     // Pairing and the public gateway can be made available before runner startup.
     // Register the project first so a paired client can inspect its workspace.
@@ -425,6 +445,8 @@ export class WorkspaceHost {
   async close() {
     this.closing = true;
     this.stopCapacity?.();
+    this.execution.setFleetMail?.(undefined);
+    this.fleetMail?.close();
     this.fleetDistribution?.close();
     this.fleetWorkspace?.close();
     this.fleetLeases?.close();

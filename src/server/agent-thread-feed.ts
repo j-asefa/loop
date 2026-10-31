@@ -4,7 +4,11 @@ import { ownedAgent, ownedFolder, Problem } from "./domain.js";
 import { projectFolders } from "./results.js";
 import { teamFilter } from "./teams.js";
 import { encode, decode } from "./mobile-return/shared.js";
-import { publicMailMessage, type Mail } from "./agent-mail.js";
+import {
+  publicMailMessage,
+  publicMailAgentReference,
+  type Mail,
+} from "./agent-mail.js";
 import type {
   AgentThreadQuery,
   AgentThreadMessagesQuery,
@@ -46,17 +50,31 @@ function summary(owner: string, thread: Thread): AgentThreadSummary {
         )
         .get(owner, thread.id) as { n: number }
     ).n,
-    participants: db
-      .prepare(
-        `SELECT a.id,a.name FROM agents a WHERE a.owner_id=? AND a.id IN (
-        SELECT sender_agent_id FROM agent_mail WHERE owner_id=? AND thread_id=?
-        UNION SELECT recipient_agent_id FROM agent_mail WHERE owner_id=? AND thread_id=?
-      ) ORDER BY a.name,a.id`,
-      )
-      .all(owner, owner, thread.id, owner, thread.id) as {
-      id: string;
-      name: string;
-    }[],
+    participants: (
+      db
+        .prepare(
+          `WITH participants AS (
+          SELECT sender_agent_id id FROM agent_mail WHERE owner_id=@owner AND thread_id=@thread
+          UNION SELECT recipient_agent_id FROM agent_mail WHERE owner_id=@owner AND thread_id=@thread
+        ) SELECT p.id,a.name FROM participants p
+        LEFT JOIN agents a ON a.id=p.id AND a.owner_id=@owner
+        WHERE a.id IS NOT NULL OR EXISTS (
+          SELECT 1 FROM fleet_mail_threads f WHERE f.owner_id=@owner AND f.thread_id=@thread
+          AND p.id='peer:'||f.peer_id||':'||f.remote_agent_id
+        ) ORDER BY a.name,p.id`,
+        )
+        .all({ owner, thread: thread.id }) as {
+        id: string;
+        name: string | null;
+      }[]
+    ).map((person) => {
+      const reference = publicMailAgentReference(owner, thread.id, person.id);
+      return {
+        id: person.id,
+        name: reference.name ?? person.name ?? "former agent",
+        ...(reference.kind === "peer" ? { reference } : {}),
+      };
+    }),
     latest: publicMailMessage(latest),
   };
 }

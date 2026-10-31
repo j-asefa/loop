@@ -150,6 +150,14 @@ LOOP55_BROWSER=webkit npm run smoke:journey
 
 `smoke:fleet-controls` drives the production native-question and sharing UI with source context against an isolated HTTP fixture. It checks read-only and mismatched-machine capabilities, source-bound command IDs, storage failure before dispatch, and source changes during a pending share preview. Reading a preview does not grant permission to send it. This is browser fixture evidence, not a native provider or live tunnel run.
 
+The same smoke renders the production agent-mail sheet and thread reader with
+machine-qualified references. It checks duplicate display-name labels, navigation
+to the owning peer from another machine's mail sheet, local navigation when the
+browser opens that recipient's gateway, source-bound attachment links, unavailable
+directory state and legacy source-local responses. Its HTTP projections are
+scripted; fleet mail HTTP/native tests separately exercise owning projections and
+delivery.
+
 `smoke:fleet-commands` bundles the production typed client and receipt panel and exercises IndexedDB transactions and Web Locks across reloads and concurrent tabs. Its deterministic HTTP receipt server drops a response after acceptance and checks that the next attempt queries the original command. It reloads without the original action body and checks the persisted destination, command ID, action type and digest through the local receipt route. The panel copies a receipt between separate origins, retains an unknown outcome, and aborts a lookup when the signed-in owner changes. Importing a receipt submits no action. This fixture does not validate companion admission, live providers or tunnels; the fleet HTTP tests cover the owning gateway and destination boundaries.
 
 `smoke:fleet-traces` drives the production trace panel against isolated HTTP fixtures with identical entity IDs on two sources. It exercises source-bound artifact reads, pagination and run downloads, including owner/source changes while a response or asynchronous Blob read is pending. It runs no provider or live tunnel.

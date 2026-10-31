@@ -41,6 +41,7 @@ let turn = 0;
 let approval;
 let pendingLogin;
 let granted = [];
+let fleetBridge;
 const finishTurn = (turnId, terminal = "completed") => {
   notify("turn/completed", {
     sessionId,
@@ -187,6 +188,8 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       ],
     });
   else if (req.method === "session/start" || req.method === "session/resume") {
+    if (process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER)
+      fleetBridge = p.config?.mcpServers?.loop55_workspace;
     if (p.config?.mcpServers && !granted.includes("sessionMcp")) {
       send({
         id: req.id,
@@ -266,6 +269,17 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     });
     notify("turn/started", { sessionId, turnId, commandId: p.commandId });
     const text = p.input.map((part) => part.text).join("\n");
+    if (
+      process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER &&
+      text.startsWith("Fleet discovery fixture: ")
+    ) {
+      const { discover } = await import(
+        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+      );
+      await discover(text, fleetBridge);
+      answerTurn(turnId, "Fixture discovery done");
+      continue;
+    }
     if (text.includes("empty input")) {
       approval = { turnId };
       send({

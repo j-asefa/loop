@@ -4,6 +4,7 @@ import { directoryDigest } from "./fleet-crypto.js";
 import type { z } from "zod";
 import type {
   PublicMailThreads,
+  PublicMailAgentReference,
   ToolMailStatus,
 } from "../shared/agent-mail.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -17,6 +18,8 @@ import {
 } from "./row-schemas.js";
 
 import { READABLE_MAIL_SQL } from "./mail-context.js";
+import { sharedMailFiles } from "./agent-mail-files.js";
+import { uploadFile } from "./uploads.js";
 
 import {
   messageSchema,
@@ -426,30 +429,6 @@ function join(thread: string, agent: string, conversation: string | null) {
   db.prepare(
     "INSERT INTO agent_thread_members(thread_id,agent_id,conversation_id) VALUES(?,?,?) ON CONFLICT(thread_id,agent_id) DO UPDATE SET conversation_id=CASE WHEN (SELECT scope FROM agent_threads WHERE id=excluded.thread_id)='direct' THEN COALESCE(agent_thread_members.conversation_id,excluded.conversation_id) ELSE COALESCE(excluded.conversation_id,agent_thread_members.conversation_id) END",
   ).run(thread, agent, conversation);
-}
-
-// Files the sender may pass on: ones its agent published, or ones attached to
-// the conversation it is working in (which it can already read).
-function sharedFiles(run: Run, ids: string[]) {
-  const unique = [...new Set(ids)];
-  for (const fileId of unique) {
-    const published = db
-      .prepare(
-        "SELECT 1 FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=? AND a.agent_id=?",
-      )
-      .get(fileId, run.owner_id, run.agent_id);
-    const attached = db
-      .prepare(
-        `SELECT 1 FROM messages m, json_each(m.metadata,'$.attachments') a WHERE m.owner_id=? AND m.conversation_id=? AND json_extract(a.value,'$.id')=? AND ${READABLE_MAIL_SQL}`,
-      )
-      .get(run.owner_id, run.conversation_id, fileId);
-    if (!published && !attached)
-      throw new Problem(
-        403,
-        `File ${fileId} is not one you published or one attached to your conversation.`,
-      );
-  }
-  return unique;
 }
 
 function validConversation(
@@ -1129,8 +1108,6 @@ export function sendMail(run: Run, callId: string, input: unknown) {
             403,
             "Remote messages do not confer team or delegation authority.",
           );
-        if (args.fileIds.length)
-          throw new Problem(409, "Remote file delivery is unavailable.");
       } else eligibleMailAgent(run.owner_id, recipientId);
       const activeTeam = teamOf(run);
       if (
@@ -1218,7 +1195,7 @@ export function sendMail(run: Run, callId: string, input: unknown) {
             remote.agentId,
           );
       }
-      const files = sharedFiles(run, args.fileIds);
+      const files = sharedMailFiles(run, args.fileIds);
       if (thread.scope === "team") {
         join(thread.id, run.agent_id!, run.conversation_id);
         join(thread.id, recipientId, null);
@@ -1338,9 +1315,9 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
   return {
     directory: (query) =>
       localAgentDirectory(owner, directorySchema.parse(query)),
-    admit: (input) => {
+    admit: (input, copyFiles) => {
       const envelope = FleetMailEnvelope.parse(input);
-      if (envelope.files.length)
+      if (envelope.files.length && !copyFiles)
         return { state: "refused", reason: "files_unavailable" };
       try {
         return db.transaction((): FleetMailAdmission => {
@@ -1428,6 +1405,20 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
               : undefined) ??
             bound.conversation_id;
           if (destination) mailConversation(owner, recipient.id, destination);
+          const files = envelope.files.length
+            ? copyFiles!(
+                (file, bytes) =>
+                  uploadFile(
+                    owner,
+                    {
+                      originalname: file.name,
+                      mimetype: file.mediaType,
+                      buffer: bytes,
+                    },
+                    { agentId: recipient.id },
+                  ).id,
+              )
+            : [];
           const mail = insertMail({
             owner_id: owner,
             team_id: null,
@@ -1439,7 +1430,7 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
             recipient_agent_id: recipient.id,
             recipient_conversation_id: destination,
             body: envelope.body,
-            file_ids: "[]",
+            file_ids: JSON.stringify(files),
             interrupt: envelope.interrupt ? 1 : 0,
             idempotency_key: `fleet-mail:${envelope.source.machineId}:${envelope.messageId}`,
             request: JSON.stringify(envelope),
@@ -1456,6 +1447,11 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
           const reason = thread.paused_at ? null : limitReason(thread, mail);
           if (thread.paused_at || reason) hold(mail, thread, reason);
           else dispatchPending(mail, thread);
+          if (mail.state === "refused")
+            throw new MailRefusal(
+              409,
+              "The recipient cannot accept this mail.",
+            );
           return {
             state: "accepted",
             mailId: mail.id,
@@ -1915,7 +1911,40 @@ export function teamMessages(owner: string, teamId: string) {
   return describeThreads(threads);
 }
 
+/** Owner-visible attribution is kept separately from local agent rows. History
+ * remains readable after a peer leaves, without restoring its current grant. */
+export function publicMailAgentReference(
+  owner: string,
+  thread: string,
+  address: string,
+): PublicMailAgentReference {
+  const peer = parseFleetAgentAddress(address);
+  if (peer) {
+    const binding = db
+      .prepare(
+        "SELECT remote_name FROM fleet_mail_threads WHERE owner_id=? AND thread_id=? AND peer_id=? AND remote_agent_id=?",
+      )
+      .get(owner, thread, peer.machineId, peer.agentId) as
+      { remote_name: string } | undefined;
+    return { kind: "peer", ...peer, name: binding?.remote_name ?? null };
+  }
+  const local = db
+    .prepare("SELECT name FROM agents WHERE owner_id=? AND id=?")
+    .get(owner, address) as { name: string } | undefined;
+  return { kind: "local", agentId: address, name: local?.name ?? null };
+}
+
 export function publicMailMessage(mail: Mail) {
+  const remote =
+    parseFleetAgentAddress(mail.sender_agent_id) ||
+    parseFleetAgentAddress(mail.recipient_agent_id);
+  const to = remote
+    ? publicMailAgentReference(
+        mail.owner_id,
+        mail.thread_id,
+        mail.recipient_agent_id,
+      )
+    : undefined;
   return {
     id: mail.id,
     kind: mail.kind,
@@ -1926,6 +1955,27 @@ export function publicMailMessage(mail: Mail) {
     status: statusOf(mail),
     error: mail.error,
     files: JSON.parse(mail.file_ids).length as number,
+    ...(remote
+      ? {
+          from_ref: publicMailAgentReference(
+            mail.owner_id,
+            mail.thread_id,
+            mail.sender_agent_id,
+          ),
+          to_ref: to,
+          // Only a destination acceptance records a navigable remote target. A
+          // prepared or uncertain envelope never invents a local conversation.
+          remote_conversation:
+            to?.kind === "peer" &&
+            mail.state === "sent" &&
+            mail.recipient_conversation_id
+              ? {
+                  machineId: to.machineId,
+                  conversationId: mail.recipient_conversation_id,
+                }
+              : null,
+        }
+      : {}),
     conversation_id:
       mail.recipient_conversation_id &&
       db
@@ -1958,6 +2008,27 @@ function describeThreads(threads: Thread[]): z.infer<typeof PublicMailThreads> {
           )
           .all(thread.id) as { agent_id: string }[]
       ).map((m) => m.agent_id),
+      ...(db
+        .prepare(
+          "SELECT 1 FROM fleet_mail_threads WHERE owner_id=? AND thread_id=?",
+        )
+        .get(thread.owner_id, thread.id)
+        ? {
+            participant_refs: (
+              db
+                .prepare(
+                  "SELECT agent_id FROM agent_thread_members WHERE thread_id=? ORDER BY rowid",
+                )
+                .all(thread.id) as { agent_id: string }[]
+            ).map((member) =>
+              publicMailAgentReference(
+                thread.owner_id,
+                thread.id,
+                member.agent_id,
+              ),
+            ),
+          }
+        : {}),
       messages: (
         db
           .prepare(

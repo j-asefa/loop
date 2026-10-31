@@ -26,7 +26,7 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
       "-e",
       `
       const { db } = await import('./src/server/db.ts');
-      let refused = false, lifecycle, workspaceServices = false;
+      let refused = false, lifecycle, workspaceServices = false, mailServices = false;
       if (process.env.LOOP55_TEST_FLEET_IDENTITY_ONLY === '1') {
         const { initializeFleetIdentity } = await import('./src/server/fleet-identity.ts');
         const { seal, unseal } = await import('./src/server/secrets.ts');
@@ -37,23 +37,41 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
           harness: 'codex', executable: process.execPath,
           project: process.env.LOOP55_DATA_DIR, version: 'fixture', billing: 'existing'
         };
+        let mailBridge, bridgeInstalledBeforeOpen = false;
         const host = new WorkspaceHost(process.env.LOOP55_DATA_DIR, options,
-          process.env.LOOP55_TEST_FLEET_WORKER === '1' ? { open: async () => {}, schedule: async () => {}, close: async () => {} } : undefined);
+          process.env.LOOP55_TEST_FLEET_WORKER === '1' ? {
+            setFleetMail: service => { mailBridge = service; },
+            open: async () => { bridgeInstalledBeforeOpen = !!mailBridge; },
+            schedule: async () => {}, close: async () => {}
+          } : undefined);
         workspaceServices = !!host.fleetWorkspace && !!host.gateway.workspace.sources && !!host.gateway.workspace.fleetCommandsHttp;
+        mailServices = !!host.fleetMail;
         if (process.env.LOOP55_TEST_FLEET_WORKER === '1') {
-          if (!host.fleetDistribution) throw new Error('Missing directory worker');
+          if (!host.fleetDistribution || !host.fleetMail) throw new Error('Missing fleet workers');
+          const { fleetMailDiscovery } = await import('./src/server/fleet-mail-tools.ts');
+          const { OWNER } = await import('./src/server/native-sessions.ts');
+          if (fleetMailDiscovery(OWNER)) throw new Error('Mail enabled before listening');
           // Stub unrelated Docker discovery; exercise the actual gateway start,
           // worker scheduler, empty outbox read and gateway shutdown.
           host.mcpSharing.start = () => {};
-          let ticks = 0;
+          let ticks = 0, mailTicks = 0;
           const flush = host.fleetDistribution.flush.bind(host.fleetDistribution);
           host.fleetDistribution.flush = async () => { ticks++; await flush(); };
+          const drain = host.fleetMail.drainer.drain.bind(host.fleetMail.drainer);
+          host.fleetMail.drainer.drain = async () => { mailTicks++; await drain(); };
           await host.start(options, undefined, undefined, true);
+          const toolsEnabled = !!fleetMailDiscovery(OWNER);
           await new Promise(resolve => setTimeout(resolve, 1200));
           await host.close();
           const stoppedAt = ticks;
+          const mailStoppedAt = mailTicks;
           await new Promise(resolve => setTimeout(resolve, 1200));
-          lifecycle = { started: stoppedAt > 0, stopped: stoppedAt === ticks };
+          lifecycle = {
+            started: stoppedAt > 0, stopped: stoppedAt === ticks,
+            mailStarted: mailStoppedAt > 0, mailStopped: mailStoppedAt === mailTicks,
+            bridgeInstalledBeforeOpen, bridgeCleared: !mailBridge,
+            toolsEnabled, toolsDisabled: !fleetMailDiscovery(OWNER)
+          };
         }
       } catch (error) {
         if (process.env.LOOP55_PROFILE !== 'server') throw error;
@@ -67,6 +85,7 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
         workers: db.prepare('SELECT count(*) n FROM fleet_distribution_instances').get().n,
         lifecycle,
         workspaceServices,
+        mailServices,
       }));
       db.close();
       process.exit(0);
@@ -112,6 +131,7 @@ test("companion gateway startup keeps machine identity across process and origin
     assert.equal(first.identities.length, 1);
     assert.equal(first.workers, 1);
     assert.equal(first.workspaceServices, true);
+    assert.equal(first.mailServices, true);
     assert.match(first.identities[0].machine_id, /^m_[a-f0-9]{64}$/);
     assert.deepEqual(
       await startup(directory, {
@@ -139,6 +159,7 @@ test("server profile and isolated preview startup never create fleet signing ide
     assert.equal(server.refused, true);
     assert.equal(server.workers, 0);
     assert.equal(server.workspaceServices, false);
+    assert.equal(server.mailServices, false);
     assert.deepEqual(server.identities, []);
     for (const mode of ["design", "working"]) {
       const home = join(directory, "preview-" + mode),
@@ -169,6 +190,7 @@ test("server profile and isolated preview startup never create fleet signing ide
       });
       assert.deepEqual(isolated.identities, []);
       assert.equal(isolated.workspaceServices, false);
+      assert.equal(isolated.mailServices, false);
       assert.equal(existsSync(join(data, "encryption-key")), false);
     }
   } finally {
@@ -176,11 +198,20 @@ test("server profile and isolated preview startup never create fleet signing ide
   }
 });
 
-test("companion gateway starts and stops its directory worker with the runtime lifecycle", async () => {
+test("companion gateway owns directory and mail workers across the runtime lifecycle", async () => {
   const directory = mkdtempSync(join(tmpdir(), "loop55-fleet-lifecycle-"));
   try {
     const result = await startup(directory, { LOOP55_TEST_FLEET_WORKER: "1" });
-    assert.deepEqual(result.lifecycle, { started: true, stopped: true });
+    assert.deepEqual(result.lifecycle, {
+      started: true,
+      stopped: true,
+      mailStarted: true,
+      mailStopped: true,
+      bridgeInstalledBeforeOpen: true,
+      bridgeCleared: true,
+      toolsEnabled: true,
+      toolsDisabled: true,
+    });
     assert.equal(result.workers, 1);
   } finally {
     rmSync(directory, { recursive: true, force: true });

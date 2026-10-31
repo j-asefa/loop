@@ -4,7 +4,19 @@ import { ArrowUpRight } from "lucide-react";
 import { callRoute, readRoute } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
 import type { Agent } from "../shared/types";
-import { MAIL_STATUS_LABELS, type MailThread } from "../shared/agent-mail";
+import {
+  MAIL_STATUS_LABELS,
+  type MailThread,
+  type PublicMailAgentReference,
+} from "../shared/agent-mail";
+import { useFleet } from "./FleetContext";
+import { useSourceCapabilities } from "./SourceContext";
+import { fleetOperationReason } from "./fleetCapabilities";
+import {
+  mailConversationTarget,
+  mailReferenceId,
+  mailReferenceName,
+} from "./mailReferences";
 
 type Props = {
   target: { kind: "agent" | "team"; id: string };
@@ -31,6 +43,16 @@ function MailThreadsView({
   onOpenConversation,
   onChanged,
 }: Props) {
+  const fleet = useFleet();
+  const resumeRoute =
+    target.kind === "team"
+      ? workspaceApi.teamThreadResume
+      : workspaceApi.agentMailResume;
+  const resumeUnavailable = fleetOperationReason(
+    sourceId,
+    useSourceCapabilities(),
+    resumeRoute,
+  );
   const [threads, setThreads] = useState<MailThread[] | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -89,15 +111,13 @@ function MailThreadsView({
     };
   }, []);
   const resume = async (threadId: string) => {
-    if (resuming) return;
+    if (resuming || resumeUnavailable) return;
     setResuming(threadId);
     setNotice("");
     try {
       const result = await request((signal) =>
         callRoute(
-          target.kind === "team"
-            ? workspaceApi.teamThreadResume
-            : workspaceApi.agentMailResume,
+          resumeRoute,
           { params: { id: target.id, threadId }, body: {} },
           sourceId,
           signal,
@@ -115,14 +135,19 @@ function MailThreadsView({
       if (active.current) setResuming("");
     }
   };
-  const name = (id: string) =>
-    "@" + (agents.find((agent) => agent.id === id)?.name ?? "former agent");
+  const name = (id: string, reference?: PublicMailAgentReference) =>
+    "@" +
+    mailReferenceName(
+      reference,
+      agents.find((agent) => agent.id === id)?.name ?? "former agent",
+      fleet.state,
+    );
   return (
     <section aria-label="Agent mail">
       <p className="muted">
-        Messages between agents in this workspace. Accepted mail may wait for
-        recipient availability. Paused threads keep their held messages until
-        you resume.
+        Messages between agents in this workspace and authorized fleet machines.
+        Accepted mail may wait for recipient availability. Paused threads keep
+        their held messages until you resume.
       </p>
       <button
         className="secondary"
@@ -157,7 +182,13 @@ function MailThreadsView({
                   ? "Direct · "
                   : thread.scope === "team"
                     ? "Team · "
-                    : "") + thread.participants.map(name).join(" · ")}
+                    : "") +
+                  (thread.participant_refs
+                    ? thread.participant_refs.map((reference) =>
+                        name(mailReferenceId(reference), reference),
+                      )
+                    : thread.participants.map((id) => name(id))
+                  ).join(" · ")}
               </small>
             </header>
             {thread.paused_at && (
@@ -168,70 +199,89 @@ function MailThreadsView({
                 </span>
                 <button
                   className="secondary"
-                  disabled={!!resuming}
+                  disabled={!!resuming || !!resumeUnavailable}
                   onClick={() => void resume(thread.id)}
                 >
                   {resuming === thread.id ? "Resuming…" : "Resume"}
                 </button>
+                {resumeUnavailable && <small>{resumeUnavailable}</small>}
               </div>
             )}
             <ol className="team-thread-messages">
-              {thread.messages.map((message) => (
-                <li key={message.id}>
-                  <div className="team-message-meta">
-                    <span>
-                      {name(message.from)} → {name(message.to)}
-                      {message.kind === "result" ? " · result" : ""}
-                    </span>
-                    <span
-                      className={
-                        "team-message-status " +
-                        ([
-                          "held",
-                          "not_delivered",
-                          "unconfirmed",
-                          "failed",
-                        ].includes(message.status)
-                          ? "attention"
-                          : "")
-                      }
+              {thread.messages.map((message) => {
+                const destination = mailConversationTarget(
+                  message,
+                  sourceId,
+                  fleet.state,
+                  !!fleet.error,
+                );
+                return (
+                  <li key={message.id}>
+                    <div className="team-message-meta">
+                      <span>
+                        {name(message.from, message.from_ref)} →{" "}
+                        {name(message.to, message.to_ref)}
+                        {message.kind === "result" ? " · result" : ""}
+                      </span>
+                      <span
+                        className={
+                          "team-message-status " +
+                          ([
+                            "held",
+                            "not_delivered",
+                            "unconfirmed",
+                            "failed",
+                          ].includes(message.status)
+                            ? "attention"
+                            : "")
+                        }
+                      >
+                        {MAIL_STATUS_LABELS[message.status]}
+                      </span>
+                    </div>
+                    <time
+                      className="muted"
+                      dateTime={new Date(message.created_at).toISOString()}
                     >
-                      {MAIL_STATUS_LABELS[message.status]}
-                    </span>
-                  </div>
-                  <time
-                    className="muted"
-                    dateTime={new Date(message.created_at).toISOString()}
-                  >
-                    {new Date(message.created_at).toLocaleString()}
-                  </time>
-                  <p>{message.preview}</p>
-                  {message.status === "pending" && (
-                    <p className="muted">
-                      Accepted and waiting. No recipient turn has started.
-                    </p>
-                  )}
-                  {message.error && <p className="error">{message.error}</p>}
-                  {message.files > 0 && (
-                    <small className="muted">
-                      {message.files === 1
-                        ? "1 file attached"
-                        : `${message.files} files attached`}
-                    </small>
-                  )}
-                  {message.conversation_id && (
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        onOpenConversation(message.conversation_id!, sourceId)
-                      }
-                    >
-                      Open in {name(message.to)}'s thread{" "}
-                      <ArrowUpRight size={14} aria-hidden="true" />
-                    </button>
-                  )}
-                </li>
-              ))}
+                      {new Date(message.created_at).toLocaleString()}
+                    </time>
+                    <p>{message.preview}</p>
+                    {message.status === "pending" && (
+                      <p className="muted">
+                        Accepted and waiting. No recipient turn has started.
+                      </p>
+                    )}
+                    {message.error && <p className="error">{message.error}</p>}
+                    {message.files > 0 && (
+                      <small className="muted">
+                        {message.files === 1
+                          ? "1 file attached"
+                          : `${message.files} files attached`}
+                      </small>
+                    )}
+                    {(message.conversation_id ||
+                      message.remote_conversation) && (
+                      <button
+                        className="text-button"
+                        disabled={!destination}
+                        onClick={() =>
+                          destination &&
+                          onOpenConversation(destination.id, destination.source)
+                        }
+                      >
+                        Open in {name(message.to, message.to_ref)}'s thread{" "}
+                        <ArrowUpRight size={14} aria-hidden="true" />
+                      </button>
+                    )}
+                    {message.remote_conversation && !destination && (
+                      <small className="muted">
+                        Refresh the fleet directory or open that machine to view
+                        this thread.
+                      </small>
+                    )}
+                  </li>
+                );
+              })}
             </ol>
           </section>
         ))}

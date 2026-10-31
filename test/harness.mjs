@@ -716,6 +716,56 @@ if (kind !== "opencode") {
         });
       }
       if (
+        process.env.LOOP55_TEST_FLEET_ACCEPTANCE_HELPER &&
+        text.includes("FLEET_ACCEPTANCE:")
+      ) {
+        void (async () => {
+          const { acceptance } = await import(
+            process.env.LOOP55_TEST_FLEET_ACCEPTANCE_HELPER
+          );
+          const flag = process.argv.indexOf("--mcp-config");
+          const bridge =
+            kind === "claude"
+              ? JSON.parse(process.argv[flag + 1]).mcpServers.loop55_workspace
+              : kind === "pi"
+                ? {
+                    url: process.env.LOOP55_TOOLS_URL,
+                    headers: {
+                      Authorization: "Bearer " + process.env.LOOP55_TOOLS_TOKEN,
+                    },
+                  }
+                : mailBridge;
+          await acceptance(text, bridge, kind === "pi");
+          finish();
+        })().catch(() => finish("failed"));
+        return;
+      }
+      if (
+        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER &&
+        text.startsWith("Fleet discovery fixture: ")
+      ) {
+        void (async () => {
+          const { discover } = await import(
+            process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+          );
+          const flag = process.argv.indexOf("--mcp-config");
+          const bridge =
+            kind === "claude"
+              ? JSON.parse(process.argv[flag + 1]).mcpServers.loop55_workspace
+              : kind === "pi"
+                ? {
+                    url: process.env.LOOP55_TOOLS_URL,
+                    headers: {
+                      Authorization: "Bearer " + process.env.LOOP55_TOOLS_TOKEN,
+                    },
+                  }
+                : mailBridge;
+          await discover(text, bridge, kind === "pi");
+          finish();
+        })().catch(() => finish("failed"));
+        return;
+      }
+      if (
         process.env.LOOP55_TEST_FLEET_DISCOVERY_AUDIT &&
         text.startsWith("Fleet discovery fixture: ")
       ) {
@@ -1042,6 +1092,23 @@ if (kind !== "opencode") {
           state: { status: "running", input: {} },
         },
       });
+      if (
+        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER &&
+        text.startsWith("Fleet discovery fixture: ")
+      ) {
+        res.writeHead(204).end();
+        void (async () => {
+          const { discover } = await import(
+            process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+          );
+          const bridge = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT).mcp
+            .loop55_workspace;
+          await discover(text, bridge);
+        })()
+          .catch(() => {})
+          .finally(end);
+        return;
+      }
       if (text === "approve") {
         permissions = [
           {

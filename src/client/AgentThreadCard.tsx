@@ -6,7 +6,12 @@ import {
   Paperclip,
 } from "lucide-react";
 import { workspaceApi } from "../shared/workspace-api";
-import { MAIL_STATUS_LABELS } from "../shared/agent-mail";
+import {
+  MAIL_STATUS_LABELS,
+  type PublicMailAgentReference,
+} from "../shared/agent-mail";
+import { useFleet } from "./FleetContext";
+import { mailConversationTarget, mailReferenceName } from "./mailReferences";
 import type {
   AgentThreadDetail,
   AgentThreadMessage,
@@ -32,9 +37,14 @@ export function AgentThreadCard({
   environment?: string;
   onOpen: () => void;
 }) {
-  const name = (id: string) =>
-    thread.participants.find((person) => person.id === id)?.name ??
-    "former agent";
+  const fleet = useFleet();
+  const name = (id: string, reference?: PublicMailAgentReference) =>
+    mailReferenceName(
+      reference,
+      thread.participants.find((person) => person.id === id)?.name ??
+        "former agent",
+      fleet.state,
+    );
   return (
     <li className="agent-thread-feed-row">
       <article
@@ -48,7 +58,9 @@ export function AgentThreadCard({
             ))}
           </span>
           <span className="agent-thread-people">
-            {thread.participants.map((person) => `@${person.name}`).join(" · ")}
+            {thread.participants
+              .map((person) => `@${name(person.id, person.reference)}`)
+              .join(" · ")}
           </span>
           <time dateTime={new Date(thread.updated_at).toISOString()}>
             {relativeTime(thread.updated_at)}
@@ -72,9 +84,9 @@ export function AgentThreadCard({
           </span>
           <h2>{thread.subject}</h2>
           <p className="agent-thread-direction">
-            @{name(thread.latest.from)}{" "}
+            @{name(thread.latest.from, thread.latest.from_ref)}{" "}
             <ArrowRight size={12} aria-hidden="true" /> @
-            {name(thread.latest.to)}
+            {name(thread.latest.to, thread.latest.to_ref)}
           </p>
           <p className="preview">{preview(thread.latest.preview, 300)}</p>
           <span className="field-hint">
@@ -105,6 +117,7 @@ export function AgentThreadReader({
     source: string,
   ) => void;
 }) {
+  const fleet = useFleet();
   const capabilities = useSourceCapabilities();
   const generation = viewGeneration();
   const [detail, setDetail] = useState<AgentThreadDetail | null>(null);
@@ -196,9 +209,13 @@ export function AgentThreadReader({
       stops.forEach((stop) => stop());
     };
   }, [thread.id, thread.source, generation]);
-  const name = (id: string) =>
-    (detail?.thread ?? thread).participants.find((person) => person.id === id)
-      ?.name ?? "former agent";
+  const name = (id: string, reference?: PublicMailAgentReference) =>
+    mailReferenceName(
+      reference,
+      (detail?.thread ?? thread).participants.find((person) => person.id === id)
+        ?.name ?? "former agent",
+      fleet.state,
+    );
   return (
     <SourceProvider sourceId={thread.source} capabilities={capabilities}>
       <Sheet
@@ -233,59 +250,77 @@ export function AgentThreadReader({
             Load earlier messages
           </button>
         )}
-        {detail?.messages.map((message) => (
-          <article
-            className="done-thread-message agent-thread-message"
-            key={message.id}
-            data-mail-id={message.id}
-          >
-            <header>
-              <Avatar name={name(message.from)} />
-              <div>
-                <strong>
-                  @{name(message.from)}{" "}
-                  <ArrowRight size={12} aria-hidden="true" /> @
-                  {name(message.to)}
-                </strong>
-                <time dateTime={new Date(message.created_at).toISOString()}>
-                  {new Date(message.created_at).toLocaleString()}
-                </time>
-              </div>
-            </header>
-            <RichText content={message.content} />
-            {!!message.attachments.length && (
-              <ul className="attachment-list" aria-label="Attached files">
-                {message.attachments.map((file) => (
-                  <li key={file.id}>
-                    <Paperclip size={15} aria-hidden="true" />
-                    <a href={sourceUrl(thread.source, { artifact: file.id })}>
-                      {file.name}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="field-hint">{MAIL_STATUS_LABELS[message.status]}</p>
-            {message.error && <p className="error">{message.error}</p>}
-            {message.conversation_id && (
-              <div className="card-actions">
-                <button
-                  onClick={() => {
-                    onClose();
-                    onOpen(
-                      message.conversation_id!,
-                      message.message_id ?? undefined,
-                      thread.source,
-                    );
-                  }}
-                >
-                  Open original conversation{" "}
-                  <ArrowUpRight size={14} aria-hidden="true" />
-                </button>
-              </div>
-            )}
-          </article>
-        ))}
+        {detail?.messages.map((message) => {
+          const destination = mailConversationTarget(
+            message,
+            thread.source,
+            fleet.state,
+            !!fleet.error,
+          );
+          return (
+            <article
+              className="done-thread-message agent-thread-message"
+              key={message.id}
+              data-mail-id={message.id}
+            >
+              <header>
+                <Avatar name={name(message.from, message.from_ref)} />
+                <div>
+                  <strong>
+                    @{name(message.from, message.from_ref)}{" "}
+                    <ArrowRight size={12} aria-hidden="true" /> @
+                    {name(message.to, message.to_ref)}
+                  </strong>
+                  <time dateTime={new Date(message.created_at).toISOString()}>
+                    {new Date(message.created_at).toLocaleString()}
+                  </time>
+                </div>
+              </header>
+              <RichText content={message.content} />
+              {!!message.attachments.length && (
+                <ul className="attachment-list" aria-label="Attached files">
+                  {message.attachments.map((file) => (
+                    <li key={file.id}>
+                      <Paperclip size={15} aria-hidden="true" />
+                      <a href={sourceUrl(thread.source, { artifact: file.id })}>
+                        {file.name}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="field-hint">{MAIL_STATUS_LABELS[message.status]}</p>
+              {message.error && <p className="error">{message.error}</p>}
+              {(message.conversation_id || message.remote_conversation) && (
+                <div className="card-actions">
+                  <button
+                    disabled={!destination}
+                    onClick={() => {
+                      if (!destination) return;
+                      onClose();
+                      onOpen(
+                        destination.id,
+                        message.remote_conversation
+                          ? undefined
+                          : (message.message_id ?? undefined),
+                        destination.source,
+                      );
+                    }}
+                  >
+                    Open original conversation{" "}
+                    <ArrowUpRight size={14} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              {message.remote_conversation && !destination && (
+                <p className="field-hint">
+                  Refresh the fleet directory or open that machine to view this
+                  thread.
+                </p>
+              )}
+            </article>
+          );
+        })}
       </Sheet>
     </SourceProvider>
   );

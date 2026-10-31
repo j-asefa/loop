@@ -31,7 +31,7 @@ const update = (text) =>
       },
     },
   });
-let pending;
+let pending, fleetBridge;
 for await (const line of readline.createInterface({ input: process.stdin })) {
   const req = JSON.parse(line);
   if (process.env.LOOP55_TEST_GEMINI_LOG)
@@ -58,6 +58,12 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       },
     });
   else if (["session/new", "session/load"].includes(req.method)) {
+    if (process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER) {
+      const { acpBridge } = await import(
+        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+      );
+      fleetBridge = acpBridge(req.params.mcpServers);
+    }
     if (process.env.LOOP55_TEST_GEMINI_FAIL) {
       send({
         id: req.id,
@@ -88,6 +94,19 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     models.currentModelId = req.params.modelId;
     send({ id: req.id, result: {} });
   } else if (req.method === "session/prompt") {
+    const text = req.params.prompt.map((part) => part.text ?? "").join("\n");
+    if (
+      process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER &&
+      text.startsWith("Fleet discovery fixture: ")
+    ) {
+      const { discover } = await import(
+        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+      );
+      await discover(text, fleetBridge);
+      update("Fixture discovery done");
+      send({ id: req.id, result: { stopReason: "end_turn" } });
+      continue;
+    }
     if (process.env.LOOP55_TEST_GEMINI_AUTO) {
       update("Fixture done");
       send({ id: req.id, result: { stopReason: "end_turn" } });

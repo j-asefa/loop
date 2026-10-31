@@ -42,6 +42,8 @@ const { fleetWorkspaceUploadApi } =
 const { fleetCredentialApi } =
   await import("../src/shared/fleet-credential-api.js");
 const { fleetGatewayApi } = await import("../src/shared/fleet-gateway-api.js");
+const { fleetMailApi } = await import("../src/shared/fleet-mail-api.js");
+const { createCardToken } = await import("../src/server/card-tokens.js");
 const { db, changes } = await import("../src/server/db.js");
 const { FleetProof, verifyFleetProof } =
   await import("../src/server/fleet-proof.js");
@@ -60,7 +62,6 @@ const { OWNER, nativeSessions } =
   await import("../src/server/native-sessions.js");
 const { closeExecution } = await import("../src/server/execution-client.js");
 const secrets = await import("../src/server/secrets.js");
-const { createCardToken } = await import("../src/server/card-tokens.js");
 const origin = "https://workspace.example";
 const host = new WorkspaceHost(
   root,
@@ -79,7 +80,7 @@ sourceDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const source = new FleetAuthority(sourceDb, secrets),
   sourceOwner = randomUUID();
 const sourceCredentials = new FleetCredentials(sourceDb, source, secrets);
-const scope = ["read", "act", "files", "events"] as const;
+const scope = ["read", "act", "files", "events", "mail"] as const;
 const first = source.create(sourceOwner, {
   mutationId: randomUUID(),
   name: "Peer",
@@ -180,6 +181,7 @@ async function waitFor(predicate: () => boolean) {
 test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device receipts", async (t) => {
   try {
     assert(host.fleetWorkspace);
+    assert(host.fleetMail);
     assert(host.gateway.workspace?.sources);
     await host.gateway.listen();
     host.setOrigin(origin);
@@ -362,6 +364,53 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
               { ...headers, cookie },
             )
           ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await protocol(
+              fleetMailApi.directory.path,
+              {
+                version: 1,
+                requestId: randomUUID(),
+                credential: await token("mail"),
+                query: {},
+              },
+              { ...headers, cookie },
+            )
+          ).status,
+          403,
+        );
+      },
+    );
+    await t.test(
+      "mounted mail discovery requires its own grant and excludes foreign owners",
+      async () => {
+        const input = {
+          version: 1,
+          requestId: randomUUID(),
+          credential: await token("mail"),
+          query: {},
+        };
+        const listed = await protocol(fleetMailApi.directory.path, input);
+        assert.equal(listed.status, 200);
+        assert.deepEqual(listed.body.response.page, {
+          agents: [],
+          nextOffset: null,
+        });
+        assert(!JSON.stringify(listed.body).includes(foreignAgent));
+        assert.equal(
+          (
+            await protocol(fleetMailApi.directory.path, {
+              ...input,
+              credential: read,
+            })
+          ).status,
+          403,
+        );
+        assert.equal(
+          (await protocol(fleetMailApi.directory.path, input, { cookie }))
+            .status,
           403,
         );
       },

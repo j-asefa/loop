@@ -14,7 +14,7 @@ import {
   mailConversation,
   MailRefusal,
 } from "./agent-mail-policy.js";
-import { directoryDigest } from "./fleet-crypto.js";
+import { directoryDigest, fleetPayloadDigest } from "./fleet-crypto.js";
 import { FleetMailJournal } from "./fleet-mail-journal.js";
 import { assertFleetMailTools } from "./fleet-mail-tools.js";
 import { maybeConnection } from "./row-schemas.js";
@@ -24,6 +24,12 @@ import {
 } from "./fleet-effect-authorizations.js";
 import { currentFleetAction } from "./fleet-action-context.js";
 import type { Run } from "./queue.js";
+import {
+  authorizeFleetMailFiles,
+  captureFleetMailFiles,
+  readFleetMailFile,
+  MailFileRefusal,
+} from "./agent-mail-files.js";
 
 type OriginMail = {
   id: string;
@@ -193,7 +199,26 @@ export function authorizeFleetMailSender(
   // A pause holds new mail, not previously accepted/released pending work.
   // Resume can pause again on a later held item while this one still drains,
   // just as the local pending-mail sweeper does.
-  currentSender(mail);
+  const run = currentSender(mail);
+  authorizeFleetMailFiles(run, envelope.files);
+  if (envelope.files.length) {
+    try {
+      authority.acceptedGrant(
+        owner,
+        envelope.destination.machineId,
+        envelope.authority.fleetId,
+        envelope.authority.sourceGrantId,
+        "files",
+      );
+    } catch (error) {
+      if (error instanceof Problem && error.status === 403)
+        throw new MailFileRefusal(
+          409,
+          "The original file-sharing grant is unavailable.",
+        );
+      throw error;
+    }
+  }
 }
 
 /** Durable local dispatch only. The owning gateway's drainer performs IO. */
@@ -212,10 +237,11 @@ export function enqueueFleetMail(mail: OriginMail, subject: string) {
     )
     .get(mail.id) as { sender_name: string } | undefined;
   if (!captured) throw refused();
-  // File authorization/copying is integrated separately before this optional
-  // runtime is exposed by normal workspaces; never treat a local path as remote.
-  if ((JSON.parse(mail.file_ids) as string[]).length)
-    throw new MailRefusal(409, "Remote file delivery is unavailable.");
+  const files = captureFleetMailFiles(
+    currentSender(mail),
+    mailAuthority().identity.machineId,
+    JSON.parse(mail.file_ids) as string[],
+  );
   db.prepare("UPDATE agent_mail SET state='pending',error=NULL WHERE id=?").run(
     mail.id,
   );
@@ -249,7 +275,7 @@ export function enqueueFleetMail(mail: OriginMail, subject: string) {
     },
     body: mail.body,
     interrupt: mail.interrupt === 1,
-    files: [],
+    files,
   });
   const action = currentFleetAction();
   if (action) {
@@ -266,6 +292,26 @@ export function enqueueFleetMail(mail: OriginMail, subject: string) {
     authorizeFleetMailSender(mail.owner_id, value),
   );
   mail.state = "pending";
+}
+
+/** Used only by the owning peer transport, never an agent-selected URL/path. */
+export function outgoingFleetMailFile(
+  owner: string,
+  envelope: FleetMailEnvelope,
+  fileId: string,
+) {
+  authorizeFleetMailSender(owner, envelope);
+  const file = envelope.files.find((file) => file.fileId === fileId);
+  const stored = fleetMailJournal(owner).outgoing(envelope.messageId);
+  if (!file || !stored || stored.payloadDigest !== fleetPayloadDigest(envelope))
+    throw new Problem(
+      409,
+      "The file does not belong to this outgoing message.",
+    );
+  const mail = db
+    .prepare("SELECT * FROM agent_mail WHERE owner_id=? AND id=?")
+    .get(owner, envelope.messageId) as OriginMail;
+  return readFleetMailFile(currentSender(mail), file);
 }
 
 export function fleetOutgoingStatus(mail: OriginMail): MailStatus | undefined {

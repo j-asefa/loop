@@ -144,11 +144,20 @@ The authenticated API exposes `GET /api/agent-definitions` for summaries and `GE
 
 ## Agent messaging
 
-Ordinary agent runs have `loop55_agents`, `loop55_message`, `loop55_message_status` and `loop55_handoff` through the shared API/native tool layer ([agent-mail.ts](../src/server/agent-mail.ts)). `loop55_agents` searches and paginates the current owner's non-retired agents on this Loop55 server, returning stable IDs, names, runtime and availability. It does not reveal instruction prompts or connection secrets. Another execution machine behind this server is eligible; another server shown in the unified Feed is a separate source and cannot receive this mail. Disconnected recipients can have accepted mail waiting. Retired agents, unsupported connections and snapshot review targets are refused; review runs keep their restricted tool catalog.
+Ordinary agent runs have `loop55_agents`, `loop55_message`, `loop55_message_status` and `loop55_handoff` through the shared API/native tool layer ([agent-mail.ts](../src/server/agent-mail.ts)). `loop55_agents` searches and paginates the current owner's non-retired local agents and, on an enrolled companion, authorized fleet peers. Results retain the owning machine, stable agent identity, runtime and availability without instruction prompts or connection secrets. Another execution machine behind a server is eligible through local routing; a separately enrolled companion uses direct fleet mail. Merely appearing as a linked server source in the unified Feed does not grant mail access. Disconnected recipients can have accepted mail waiting. Retired agents, unsupported connections and snapshot review targets are refused; review runs keep their restricted tool catalog.
 
 `loop55_message` takes a recipient `to` agent ID and a body of up to 12,000 characters. With no `scope`, a recipient on the sender's active team gets the existing team routing; otherwise the message starts a **direct** thread. Explicit `scope: "direct"` also works between teammates. Explicit `scope: "team"` requires active team membership. Replies pass `threadId`, use its stored scope and reject conflicting scope or target arguments. Sending without `threadId` creates a new mail thread. That shared mail ID links the participants across their separate conversation IDs; each message records its sender and recipient conversations and runs. It is distinct from a manually created card group ID: manual grouping does not rewrite agent mail or automatically add future cards. The automatic Agent thread view follows that mail ID as replies arrive. Sending to oneself is invalid.
 
 Recipient status tools hide unread message subjects and previews while still reporting delivery state. Senders can inspect their own mail; the owner's Agent mail view retains its full history.
+
+Fleet mail retains each participant's machine and agent identity. Agent mail and
+Agent thread cards label remote participants with their machine; identical agent
+IDs on different machines remain separate participants. A destination link appears
+after the original acceptance identifies its conversation. Opening it uses that
+machine through the current gateway, including when the destination is now the
+gateway itself. An unavailable directory leaves the link disabled with a refresh
+or direct-open action. Pending or unconfirmed delivery does not create a local
+conversation or imply that the recipient read the message.
 
 A direct thread has two fixed participants and default conversation bindings. The sender is bound to the conversation that started it. Optional `conversationId` selects an eligible recipient conversation; otherwise ordinary delivery creates a dedicated conversation using the recipient's own project and connection, without assigning it to a team. Ordinary replies return to those bindings even when either agent works elsewhere. Sending from another conversation does not replace a binding. An unusable destination fails visibly; start a new thread to contact the agent again. Removing team membership or deleting a team does not invalidate an independent direct thread. Team threads keep their membership rules and prefer the recipient's active team conversation, then the remembered thread/delegation conversation or the manager's team thread, otherwise a new team conversation.
 

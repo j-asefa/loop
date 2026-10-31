@@ -26,7 +26,7 @@ const config = () => [
 ];
 const update = (sessionId, body) =>
   send({ method: "session/update", params: { sessionId, update: body } });
-let waitingPrompt;
+let waitingPrompt, fleetBridge;
 for await (const line of readline.createInterface({ input: process.stdin })) {
   const request = JSON.parse(line);
   if (mode === "probe-only" && request.method !== "initialize") {
@@ -49,7 +49,12 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       id: request.id,
       result: {
         protocolVersion: mode === "wrong-version" ? 99 : 1,
-        agentCapabilities: { loadSession: mode !== "no-load" },
+        agentCapabilities: {
+          loadSession: mode !== "no-load",
+          ...(process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+            ? { mcpCapabilities: { http: true } }
+            : {}),
+        },
         authMethods:
           mode === "secret-setup"
             ? [{ id: "secret-auth-token", name: "secret-auth-token" }]
@@ -57,6 +62,12 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       },
     });
   else if (request.method === "session/new") {
+    if (process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER) {
+      const { acpBridge } = await import(
+        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+      );
+      fleetBridge = acpBridge(request.params.mcpServers);
+    }
     if (mode === "secret-setup") {
       send({
         id: request.id,
@@ -79,6 +90,12 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       },
     });
   } else if (request.method === "session/load") {
+    if (process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER) {
+      const { acpBridge } = await import(
+        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+      );
+      fleetBridge = acpBridge(request.params.mcpServers);
+    }
     send({
       method: "session/update",
       params: {
@@ -126,6 +143,24 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       send({ id: request.id, result: { configOptions: config() } });
     }
   } else if (request.method === "session/prompt") {
+    const text = request.params.prompt
+      .map((part) => part.text ?? "")
+      .join("\n");
+    if (
+      process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER &&
+      text.startsWith("Fleet discovery fixture: ")
+    ) {
+      const { discover } = await import(
+        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+      );
+      await discover(text, fleetBridge);
+      update(request.params.sessionId, {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Fixture discovery done" },
+      });
+      send({ id: request.id, result: { stopReason: "end_turn" } });
+      continue;
+    }
     if (mode === "secret-errors") {
       send({
         id: request.id,

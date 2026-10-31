@@ -1,6 +1,6 @@
 import { afterAll, afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +24,8 @@ import { fleetMailApi } from "../src/shared/fleet-mail-api.js";
 import type { Binding, Live } from "../src/server/native/state.js";
 import { NativeOutput } from "../src/server/native-output.js";
 import { Codex } from "../src/adapters/codex.js";
+import { FleetAdminState } from "../src/shared/fleet-admin-api.js";
+import { mailConversationTarget } from "../src/client/mailReferences.js";
 
 const dir = mkdtempSync(join(tmpdir(), "loop55-fleet-mail-outgoing-"));
 process.env.LOOP55_PROFILE = "companion";
@@ -37,7 +39,11 @@ const { FleetPeerMail } = await import("../src/server/fleet-peer-mail.js");
 const { FleetCapacity } = await import("../src/server/fleet-capacity.js");
 const secrets = await import("../src/server/secrets.js");
 const { db, id, now } = await import("../src/server/db.js");
-const { createAgent } = await import("../src/server/domain.js");
+const { createAgent, ownedRun } = await import("../src/server/domain.js");
+const { storePublishedFile } = await import("../src/server/published-files.js");
+const { uploadFile } = await import("../src/server/uploads.js");
+const { outgoingFleetMailFile } =
+  await import("../src/server/fleet-mail-origin.js");
 const { submit } = await import("../src/server/agent-runtime.js");
 const { claim, transition } = await import("../src/server/queue.js");
 const { NativeProjector } = await import("../src/server/native/projector.js");
@@ -72,7 +78,7 @@ const first = authority.create(owner, {
   mutationId: id(),
   name: "Source",
   origin: "https://source.example",
-  scope: ["read", "mail", "act"],
+  scope: ["read", "mail", "files", "act"],
 });
 let directory = authority.revise(owner, {
   mutationId: id(),
@@ -86,7 +92,7 @@ peerAuthority.approve(peerOwner, {
   mutationId: id(),
   expected: null,
   kind: "enroll",
-  scope: ["read", "mail"],
+  scope: ["read", "mail", "files"],
   controller: authority.identity,
   directory,
   grantId: directory.document.members[1].grantId,
@@ -392,6 +398,7 @@ it("persists a single source-owned envelope before IO and reconciles destination
   const input = { to: remote(), body: "only the destination can read this" };
   const first = sendMail(run, "one", input);
   expect(first.delivery).toBe("transport_pending");
+  expect(visible(agent.id).remote_conversation).toBeNull();
   const binding = db
     .prepare(
       "SELECT remote_name FROM fleet_mail_threads WHERE owner_id=? AND thread_id=?",
@@ -424,6 +431,66 @@ it("persists a single source-owned envelope before IO and reconciles destination
   expect(db.prepare("SELECT count(*) n FROM runs").get()).toEqual(senderRuns);
   expect(visible(agent.id).status).toBe("queued");
   expect(visible(agent.id).conversation_id).toBeNull();
+  const message = visible(agent.id);
+  expect(message.to_ref).toMatchObject({
+    kind: "peer",
+    machineId: peerAuthority.identity.machineId,
+    agentId: received[0].destination.agentId,
+  });
+  expect(message.remote_conversation).toMatchObject({
+    machineId: peerAuthority.identity.machineId,
+    conversationId: expect.any(String),
+  });
+  const gateway = FleetAdminState.parse({
+    identity: authority.identity,
+    origin: "https://source.example",
+    state: "controller",
+    head: directoryDigest(directory.document),
+    directory,
+    scope: ["read", "mail"],
+    pendingDistribution: 0,
+    unconfirmed: [],
+  });
+  expect(
+    mailConversationTarget(message, "peer:some-other-sheet", gateway),
+  ).toEqual({
+    id: message.remote_conversation!.conversationId,
+    source: `peer:${peerAuthority.identity.machineId}`,
+  });
+  expect(
+    mailConversationTarget(message, `peer:${authority.identity.machineId}`, {
+      ...gateway,
+      identity: peerAuthority.identity,
+      state: "replica",
+    }),
+  ).toEqual({
+    id: message.remote_conversation!.conversationId,
+    source: "",
+  });
+  expect(mailConversationTarget(message, "", null)).toBeNull();
+  expect(
+    mailConversationTarget({ ...message, to_ref: undefined }, "", gateway),
+  ).toBeNull();
+  expect(
+    mailConversationTarget(
+      {
+        ...message,
+        remote_conversation: {
+          ...message.remote_conversation!,
+          machineId: authority.identity.machineId,
+        },
+      },
+      "",
+      gateway,
+    ),
+  ).toBeNull();
+  expect(mailConversationTarget(message, "", gateway, true)).toBeNull();
+  expect(
+    mailConversationTarget(message, "", { ...gateway, scope: ["mail"] }),
+  ).toBeNull();
+  expect(
+    mailConversationTarget(message, "", { ...gateway, state: "removed" }),
+  ).toBeNull();
   deliveryStatus = "handled";
   wake();
   await drain.drain();
@@ -681,6 +748,7 @@ it("keeps a lost acceptance unknown across sender cancellation and drainer resta
   await old.drain();
   old.close();
   expect(visible(agent.id).status).toBe("unconfirmed");
+  expect(visible(agent.id).remote_conversation).toBeNull();
   expect(received).toHaveLength(1);
   transition(run, "cancelled");
   mode = "normal";
@@ -1000,6 +1068,160 @@ it("keeps an unsent message pending after peer authentication refusal and retrie
   await drain.drain();
   expect(journal.outgoing(mail.messageId)?.state).toBe("accepted");
   expect(received.map((item) => item.messageId)).toEqual([mail.messageId]);
+});
+
+it("captures an authorized publication by immutable source, content and message identity before network IO", () => {
+  const { run } = source();
+  const bytes = Buffer.from("PRIVATE_PUBLISHED_MAIL_CONTENT");
+  const published = storePublishedFile(run, "mail-publication", {
+    name: "design.txt",
+    title: "Design",
+    mime: "text/plain",
+    bytes,
+  });
+  const sent = sendMail(run, "with-publication", {
+    to: remote(),
+    body: "Read the authorized design",
+    fileIds: [published.artifactId],
+  });
+  const envelope = journal.pendingEnvelope(sent.messageId)!;
+  expect(envelope.files).toEqual([
+    {
+      source: authority.identity.machineId,
+      fileId: published.artifactId,
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      bytes: bytes.length,
+      name: "design.txt",
+      mediaType: "text/plain",
+    },
+  ]);
+  expect(JSON.stringify(envelope)).not.toContain(dir);
+  expect(JSON.stringify(envelope)).not.toContain(bytes.toString());
+  expect(outgoingFleetMailFile(owner, envelope, published.artifactId)).toEqual(
+    bytes,
+  );
+  expect(() =>
+    outgoingFleetMailFile("foreign-owner", envelope, published.artifactId),
+  ).toThrow();
+  expect(() =>
+    outgoingFleetMailFile(
+      owner,
+      { ...envelope, body: "forged payload" },
+      published.artifactId,
+    ),
+  ).toThrow();
+  expect(calls).toEqual([]);
+});
+
+it("forwards only an attached local copy and rejects changed bytes against the captured descriptor", () => {
+  const { run } = source();
+  const bytes = randomBytes(32);
+  const file = uploadFile(owner, {
+    originalname: "forward.bin",
+    mimetype: "application/octet-stream",
+    buffer: bytes,
+  });
+  expect(() =>
+    sendMail(run, "unattached", {
+      to: remote(),
+      body: "Unavailable",
+      fileIds: [file.id],
+    }),
+  ).toThrow(/not one you published/);
+  db.prepare(
+    "UPDATE messages SET metadata=? WHERE owner_id=? AND conversation_id=?",
+  ).run(JSON.stringify({ attachments: [file] }), owner, run.conversation_id);
+  const sent = sendMail(run, "attached", {
+    to: remote(),
+    body: "Authorized local copy",
+    fileIds: [file.id],
+  });
+  const envelope = journal.pendingEnvelope(sent.messageId)!;
+  expect(envelope.files[0].source).toBe(authority.identity.machineId);
+  expect(outgoingFleetMailFile(owner, envelope, file.id)).toEqual(bytes);
+  db.prepare("UPDATE objects SET bytes=? WHERE id=? AND owner_id=?").run(
+    Buffer.alloc(32),
+    file.objectId,
+    owner,
+  );
+  expect(() => outgoingFleetMailFile(owner, envelope, file.id)).toThrow(
+    /unavailable or changed/,
+  );
+  const foreign = uploadFile("foreign-owner", {
+    originalname: "private.bin",
+    mimetype: "application/octet-stream",
+    buffer: bytes,
+  });
+  expect(() =>
+    sendMail(run, "foreign", {
+      to: remote(),
+      body: "Unavailable",
+      fileIds: [foreign.id],
+    }),
+  ).toThrow(/not one you published/);
+  expect(calls).toEqual([]);
+});
+
+it("refuses an unsent message before network when its publication is removed", async () => {
+  const { run } = source();
+  const file = storePublishedFile(run, "removed-publication", {
+    name: "removed.txt",
+    title: "Removed",
+    mime: "text/plain",
+    bytes: Buffer.from("Private"),
+  });
+  const sent = sendMail(run, "removed-file", {
+    to: remote(),
+    body: "Will not be transmitted",
+    fileIds: [file.artifactId],
+  });
+  db.prepare(
+    "DELETE FROM artifact_objects WHERE owner_id=? AND artifact_id=?",
+  ).run(owner, file.artifactId);
+  await drainer().drain();
+  expect(journal.outgoing(sent.messageId)).toMatchObject({
+    state: "refused",
+    settled: true,
+  });
+  expect(
+    db
+      .prepare(
+        "SELECT local_refusal FROM fleet_mail_outbox WHERE owner_id=? AND message_id=?",
+      )
+      .get(owner, sent.messageId),
+  ).toEqual({ local_refusal: "files_unavailable" });
+  expect(calls).toEqual([]);
+});
+
+it("does not forward a file from a cancelled mail delivery into remote context", () => {
+  const sender = source(),
+    recipient = source();
+  const file = storePublishedFile(sender.run, "cancelled-publication", {
+    name: "private.txt",
+    title: "Private",
+    mime: "text/plain",
+    bytes: Buffer.from("Never readable"),
+  });
+  const sent = sendMail(sender.run, "cancelled-local", {
+    to: recipient.agent.id,
+    scope: "direct",
+    conversationId: recipient.run.conversation_id,
+    interrupt: false,
+    body: "Cancelled before dispatch",
+    fileIds: [file.artifactId],
+  });
+  const row = db
+    .prepare("SELECT run_id FROM agent_mail WHERE id=? AND owner_id=?")
+    .get(sent.messageId, owner) as { run_id: string };
+  transition(ownedRun(row.run_id, owner), "cancelled");
+  expect(() =>
+    sendMail(recipient.run, "forward-cancelled", {
+      to: remote(),
+      body: "Cannot forward unreadable mail",
+      fileIds: [file.artifactId],
+    }),
+  ).toThrow(/not one you published/);
+  expect(calls).toEqual([]);
 });
 
 it("parks offline mail and sends the same durable identity after signed address repair", async () => {
