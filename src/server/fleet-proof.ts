@@ -13,6 +13,7 @@ import { FLEET_READ_RESPONSE_BYTES } from "../shared/fleet-workspace-api.js";
 type Purpose =
   | "mail-directory"
   | "mail-delivery"
+  | "mail-file"
   | "workspace-event"
   | "workspace-upload-prepare"
   | "workspace-upload-chunk"

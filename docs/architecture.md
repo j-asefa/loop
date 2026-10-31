@@ -315,7 +315,9 @@ refuses its use. The outbox commits uncertainty before transmission and then
 requires receipt reconciliation. Inbox admission and the owning mail queue
 share one SQLite transaction; duplicates return its original admission without
 invoking that queue again. Both journals bound unsettled work to 100 records per
-owner, including unadmitted reservations. When the inbox reaches capacity, it
+owner, including unadmitted reservations. The inbox also limits one authenticated
+peer to 50 unsettled identities, including held mail; changing claimed agents or
+threads cannot create more capacity. When the inbox reaches either limit, it
 refreshes accepted admissions from the owner's local mail rows and expires old
 reservations before refusing new work. Completed local mail frees capacity even
 if its sender is offline or its grant has been removed; this inspection does not
@@ -338,6 +340,101 @@ mail only reconciles its receipt and never repeats an external harness effect. T
 normal workspace host does not yet configure these routes or connect agent
 tools; an explicitly injected owning mail service is required. This boundary
 grants no file or model-context access by itself.
+
+The optional [mail file transport](../src/server/fleet-mail-files.ts) binds private
+chunks to an unaccepted message reservation and the current mail and files
+grants. Each file is at most 25 MiB and each chunk at most 192 KiB. Staging reserves
+at most 200 MiB per authenticated sending machine, across owner/grant aliases,
+and 256 MiB across the receiving machine. One peer can stage the maximum eight
+files in a message while leaving capacity for others. Signed offsets permit
+resuming identical chunks; conflicting bytes or content digests are refused.
+Staging creates no workspace artifact or model attachment. Only the owning
+admission callback may consume verified complete bytes inside its transaction;
+a rollback leaves the reservation available. A subsequent authorized staging
+request reclaims expired or definitively finished private reservations while
+retaining the durable mail receipt. The destination's file endpoint is
+installed with its handler only when the owning mail service is configured.
+
+Remote direct-thread bindings record each participant's owning machine and agent,
+the wire thread's origin, and both original grants. They never create local
+agent rows for remote participants. The existing mail policy checks the local
+participant's eligibility and conversation ownership, rejects team/delegation
+use, and rechecks current grants before allowing that thread. Address repair
+preserves a binding; removal or replacing either grant makes it unavailable.
+An address naming this machine normalizes to the existing local agent ID before
+send identity, self-message and quota checks. The optional owning admission
+factory in [agent-mail.ts](../src/server/agent-mail.ts) joins the authenticated
+inbox transaction to those direct-thread bindings, existing quotas, held/Resume
+policy and `submit()` queue or steering path. It attributes the remote sender
+explicitly and retains its mail grant on the receiving run and steering input,
+alongside any grant used to Resume it. Queue claims, steering consumption and
+later effects recheck those constraints. Its receipt follows the original mail and conversation as delivery
+progresses. Files are refused until their authorized transfer path is connected.
+Normal hosts and agent tools still do not install this optional factory.
+
+Incoming mail also shares the existing 20-message hourly allowance across all
+claimed sender agents, runs and threads from one authenticated machine to one
+local recipient, under the same original grants. Rotating peer-supplied IDs
+cannot reset that allowance. Excess mail is held before queue/steering admission;
+explicit Resume grants a fresh allowance for that machine/recipient pair while
+other held threads still require their own Resume. The ordinary per-run, agent
+pair, thread and bounded inbox/queue controls continue to apply.
+
+The optional [outgoing mail service](../src/server/fleet-mail-origin.ts) stores
+sender attribution and the original connection/native generation in the same
+transaction as local mail acceptance. Held mail enters the peer outbox only on
+explicit Resume. A pause holds new messages; previously accepted or explicitly
+released pending mail can drain while later held mail still requires Resume,
+matching the local pending-mail sweeper. A remote Resume's command and grant are
+stored with each released outgoing message and checked before transmission;
+they do not constrain unrelated messages from the original sending run.
+Remote Resume is an explicit `act`-scoped destination command, including when
+it restores a mail allowance; its authority is retained through later delivery.
+The [drainer](../src/server/fleet-mail-drainer.ts) runs at most
+four deliveries, with persisted 15-second to 5-minute retry delays, and rechecks
+sender cancellation, retirement, conversation, generation and all inherited grants before
+transmitting an envelope. Completed intents survive an idle harness restart.
+Lost outcomes stay unconfirmed until a signed destination receipt resolves them;
+cancellation cannot turn a possibly delivered message into a definite refusal.
+Receipt reconciliation and its backoff survive deletion of the local thread.
+Destination acceptance updates mail status without creating a local recipient
+run or making a remote conversation navigable through a local ID.
+An interrupt receipt retains its message's target without binding an unresolved
+ordinary thread default.
+Receipt and local-refusal changes mark their visible projection in the same
+transaction. Each drainer pass recovers up to 100 pending projections, including
+terminal receipts no longer awaiting transport, without contacting the peer.
+An unchanged successful poll clears a prior transport error; otherwise it leaves
+thread activity and Feed invalidations unchanged.
+
+The optional [mail directory](../src/server/fleet-mail-discovery.ts) lists
+authorized machine identities without network requests. `loop55_agents` keeps its
+local query/offset/limit behavior; an explicit `sourceId` reads one destination's
+signed directory, qualifies its agent IDs and reports that machine's
+availability separately. An offline destination never blocks local discovery.
+The tool rechecks its owner, original connection and active native generation
+before publishing a remote response. Source names are display labels, and the
+directory exposes neither peer origins nor credentials. The normal execution
+lifecycle has not installed this optional discovery service yet.
+
+When explicitly configured, the companion's private execution IPC carries a
+bounded discovery catalog and correlated reads to the host-owned mail transport.
+The host repeats owner, run, connection and native-generation authorization
+before peer IO and after the response. Neither origins nor peer credentials
+cross into the tool worker. The owning service observes committed directory
+changes and refreshes an already running worker's catalog. Updates coalesce;
+service replacement or worker retirement rejects outstanding reads without replay. Each side allows
+at most sixteen outstanding reads with a 45-second IPC deadline. The host retains
+its slot until the underlying read settles, including after an IPC timeout.
+Normal startup does not configure this optional bridge yet.
+
+The optional [mail service lifecycle](../src/server/fleet-mail-services.ts)
+composes that bridge, destination policy, discovery and autonomous delivery with
+the companion's shared tunnel capacity. Construction starts no delivery or
+tools; the lifecycle starts them after its peer gateway listens and removes them
+on shutdown. Shutdown invalidates outstanding worker reads and closes the peer
+transport without removing a replacement lifecycle's tool binding. The normal
+host keeps this factory disabled pending file transfer and remote mail UI.
 
 Peer credential primitives bind destination-issued, ten-minute access to the
 enrolled machine key, destination grant, operation and accepted directory.

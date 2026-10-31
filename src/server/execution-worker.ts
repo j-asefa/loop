@@ -29,6 +29,8 @@ if (
 let authority:
   (typeof import("./execution-authority.js"))["executionAuthority"] | undefined;
 let ownership: ExecutionOwnership | undefined;
+let mail:
+  import("./fleet-mail-worker-client.js").FleetMailWorkerClient | undefined;
 let stopping = false;
 let failed = false;
 let closing: Promise<void> | undefined;
@@ -50,6 +52,7 @@ function exitWorker(code: number): never {
 function shutdown() {
   return (closing ??= (async () => {
     stopping = true;
+    mail?.close();
     stopOwnedProcessLaunches();
     const deadline = setTimeout(() => {
       try {
@@ -93,6 +96,12 @@ const boot = (async () => {
   if (stopping || !process.connected) return;
   recordOwnedProcesses(join(ownership.directory, "children.json"));
   authority = (await import("./execution-authority.js")).executionAuthority;
+  const { FleetMailWorkerClient } =
+    await import("./fleet-mail-worker-client.js");
+  const { OWNER } = await import("./native-sessions.js");
+  mail = new FleetMailWorkerClient(OWNER, ownership.generation, (request) =>
+    send({ type: "fleet-mail-read", request }),
+  );
   if (stopping || !process.connected) return;
   await authority.open();
   if (stopping || !process.connected) return;
@@ -115,6 +124,21 @@ process.on("message", (raw) => {
     const message = ExecutionParentMessage.parse(
       boundedExecutionJson(raw, EXECUTION_REQUEST_BYTES + 1024),
     );
+    if (message.type === "fleet-mail-response") {
+      mail!.receive(message.response);
+      return;
+    }
+    if (message.type === "fleet-mail-state") {
+      ownership!.assertCurrent(message.state.generation);
+      mail!.configure(message.state);
+      send({
+        type: "ack",
+        requestId: message.state.requestId,
+        generation: ownership!.generation,
+        ok: true,
+      });
+      return;
+    }
     if (message.type === "request") {
       if (active >= 128) {
         send({

@@ -107,7 +107,8 @@ export class FleetWorkspaceActions {
       )
         throw new ExecutionRefused(404, "The workspace item is unavailable.");
     };
-    if (input.route === "agentUpdate") own("agents", input.params.id);
+    if (["agentUpdate", "agentMailResume"].includes(input.route))
+      own("agents", input.params.id);
     if (input.route === "shareSend") own("agents", record.newAgentId);
     if (["folderUpdate", "workspaceProjectUpdate"].includes(input.route))
       own("folders", input.params.id);

@@ -524,6 +524,78 @@ it("routes Done grouping through a durable command and rechecks the grant inside
   ).toEqual(before);
 });
 
+it("routes explicit mail resume through the original destination command and rechecks the grant", async () => {
+  const conversation = randomUUID();
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Results',1)",
+  ).run(conversation, OWNER, ownAgent);
+  const mailThread = randomUUID();
+  db.prepare(
+    "INSERT INTO agent_threads(id,owner_id,scope,subject,created_by,paused_at,created_at,updated_at) VALUES(?,?,'direct','Held mail',?,1,1,1)",
+  ).run(mailThread, OWNER, ownAgent);
+  db.prepare(
+    "INSERT INTO agent_thread_members(thread_id,agent_id,conversation_id) VALUES(?,?,?)",
+  ).run(mailThread, ownAgent, conversation);
+  const resume = command(
+    "agentMailResume",
+    {},
+    { id: ownAgent, threadId: mailThread },
+  );
+  expect((await call({ ...resume, credential: read })).status).toBe(403);
+  expect(
+    db
+      .prepare("SELECT paused_at FROM agent_threads WHERE id=?")
+      .get(mailThread),
+  ).toEqual({ paused_at: 1 });
+  const resumed = await call(resume);
+  expect(resumed.status).toBe(200);
+  expect(resumed.body.response.receipt).toMatchObject({
+    state: "completed",
+    result: { released: 0, refused: 0, held: 0 },
+  });
+  expect(
+    db
+      .prepare("SELECT paused_at FROM agent_threads WHERE id=?")
+      .get(mailThread),
+  ).toEqual({ paused_at: null });
+  db.prepare("UPDATE agent_threads SET paused_at=2 WHERE id=?").run(mailThread);
+  expect(
+    (await call({ ...resume, requestId: randomUUID() })).body.response.receipt,
+  ).toEqual(resumed.body.response.receipt);
+  expect(
+    db
+      .prepare("SELECT paused_at FROM agent_threads WHERE id=?")
+      .get(mailThread),
+  ).toEqual({ paused_at: 2 });
+  const foreign = await call(
+    command("agentMailResume", {}, { id: foreignAgent, threadId: mailThread }),
+  );
+  expect(foreign.body.response.receipt.state).toBe("refused");
+
+  const { withFleetAction } =
+    await import("../src/server/fleet-action-context.js");
+  const { resumeThread } = await import("../src/server/agent-mail.js");
+  let checks = 0;
+  expect(() =>
+    withFleetAction(
+      {
+        owner: OWNER,
+        commandId: randomUUID(),
+        grant: credentials.authenticate(act).context,
+      },
+      () => {
+        if (++checks > 1) throw new Error("grant changed before commit");
+      },
+      () => resumeThread(OWNER, null, mailThread),
+    ),
+  ).toThrow("grant changed before commit");
+  expect(
+    db
+      .prepare("SELECT paused_at FROM agent_threads WHERE id=?")
+      .get(mailThread),
+  ).toEqual({ paused_at: 2 });
+});
+
 it("looks up a lost agent creation reply using the wire payload before defaults and idempotency binding", async () => {
   const input = command("agentCreate", {
     name: "fleet-lost-create-fixture",

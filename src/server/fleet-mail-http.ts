@@ -6,6 +6,11 @@ import type { FleetIdentityTransport } from "./fleet-peer-identity.js";
 import { FleetPeerHttpTransport } from "./fleet-peer-transport.js";
 
 export interface FleetMailTransport extends FleetIdentityTransport {
+  file?(
+    origin: string,
+    input: z.input<typeof fleetMailApi.file.body>,
+    signal: AbortSignal,
+  ): Promise<unknown>;
   prepare(
     origin: string,
     input: z.input<typeof fleetMailApi.prepare.body>,
@@ -34,6 +39,13 @@ export class FleetMailHttpTransport
   extends FleetPeerHttpTransport
   implements FleetMailTransport
 {
+  file(
+    origin: string,
+    input: z.input<typeof fleetMailApi.file.body>,
+    signal: AbortSignal,
+  ) {
+    return this.exchange(origin, fleetMailApi.file, input, signal);
+  }
   probe(origin: string, input: FleetEnrollmentProbe, signal: AbortSignal) {
     return this.exchange(origin, fleetPeerApi.enrollmentProbe, input, signal);
   }

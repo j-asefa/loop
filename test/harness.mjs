@@ -716,6 +716,52 @@ if (kind !== "opencode") {
         });
       }
       if (
+        process.env.LOOP55_TEST_FLEET_DISCOVERY_AUDIT &&
+        text.startsWith("Fleet discovery fixture: ")
+      ) {
+        void (async () => {
+          const call = async (body) => {
+            const response = await fetch(mailBridge.url + "/pi", {
+              method: "POST",
+              headers: {
+                ...mailBridge.http_headers,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(body),
+            });
+            if (!response.ok)
+              throw new Error("Fleet discovery bridge refused fixture");
+            return response.json();
+          };
+          // Native clients discover their advertised tool bindings before a
+          // call. The bridge deliberately refuses an unadvertised tool name.
+          const catalog = await call({ method: "tools/list" });
+          if (!catalog.tools.some((tool) => tool.name === "loop55_agents"))
+            throw new Error("Missing fleet discovery tool");
+          const result = await call({
+            method: "tools/call",
+            id: "fleet-discover",
+            name: "loop55_agents",
+            arguments: {
+              sourceId: text.slice("Fleet discovery fixture: ".length).trim(),
+            },
+          });
+          appendFileSync(
+            process.env.LOOP55_TEST_FLEET_DISCOVERY_AUDIT,
+            JSON.stringify(result) + "\n",
+          );
+          finish(result.isError ? "failed" : "completed");
+        })().catch((error) => {
+          appendFileSync(
+            process.env.LOOP55_TEST_FLEET_DISCOVERY_AUDIT,
+            JSON.stringify({ error: error.message }) + "\n",
+          );
+          process.stderr.write("Fleet discovery fixture failed");
+          finish("failed");
+        });
+        return;
+      }
+      if (
         process.env.LOOP55_TEST_AGENT_MAIL &&
         text.includes("To reply, call loop55_message")
       ) {

@@ -2,7 +2,13 @@ import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { own, killOwned } from "../processes.js";
-import { ExecutionProblem } from "../shared/problem.js";
+import { ExecutionProblem, Problem } from "../shared/problem.js";
+import {
+  FleetMailWorkerState,
+  FleetMailWorkerResponse,
+  type FleetMailWorkerRequest,
+} from "../shared/fleet-mail-worker.js";
+import type { FleetMailWorkerService } from "./fleet-mail-worker-service.js";
 import {
   ExecutionChildMessage,
   ExecutionParentMessage,
@@ -25,6 +31,7 @@ export type ExecutionLifecycle = {
   schedule(): Promise<void>;
   close(): Promise<void>;
   setOrigin?(origin: string): void;
+  setFleetMail?(service?: FleetMailWorkerService): void;
 };
 const disconnected = () =>
   new ExecutionProblem(
@@ -61,6 +68,13 @@ export class ExecutionProcess
   private appliedOrigin?: string;
   private workerReady = false;
   private syncingOrigin?: { child: ChildProcess; promise: Promise<void> };
+  private mailService?: FleetMailWorkerService;
+  private stopObservingMail?: () => void;
+  private mailBinding: string | null = null;
+  private mailRevision = 0;
+  private appliedMailRevision = -1;
+  private syncingMail?: { child: ChildProcess; promise: Promise<void> };
+  private activeMail = 0;
   status() {
     return { v: 1 as const, generation: this.generation, state: this.state };
   }
@@ -101,6 +115,8 @@ export class ExecutionProcess
     this.workerReady = false;
     this.appliedOrigin = undefined;
     this.syncingOrigin = undefined;
+    this.appliedMailRevision = -1;
+    this.syncingMail = undefined;
     // Mark remote immediately: requests during startup/restart must never
     // lazily create the old in-process authority.
     setExecutionTransport(this);
@@ -153,8 +169,10 @@ export class ExecutionProcess
             this.workerReady = true;
             void (async () => {
               await this.syncOrigin(child);
+              await this.syncMail(child);
               if (this.scheduled) await this.lifecycle("schedule");
               await this.syncOrigin(child);
+              await this.syncMail(child);
               if (this.child !== child || !this.workerReady || this.stopping)
                 throw disconnected();
               this.state = "ready";
@@ -165,6 +183,10 @@ export class ExecutionProcess
               reject(error);
               this.invalidate(child);
             });
+            return;
+          }
+          if (message.type === "fleet-mail-read") {
+            void this.readMail(child, message.request);
             return;
           }
           const value =
@@ -225,11 +247,14 @@ export class ExecutionProcess
     });
   }
   private exchange(
-    message: z.infer<typeof ExecutionParentMessage>,
+    message: Exclude<
+      z.infer<typeof ExecutionParentMessage>,
+      { type: "fleet-mail-response" }
+    >,
     timeout = 300_000,
   ): Promise<unknown> {
     const child = this.child;
-    const lifecycle = message.type === "lifecycle";
+    const lifecycle = message.type !== "request";
     // Lifecycle has bounded reserved capacity and can restore a connected
     // child before public readiness. User actions cannot enter that lane.
     if (
@@ -250,8 +275,13 @@ export class ExecutionProcess
     const input = ExecutionParentMessage.parse(
       boundedExecutionJson(message, EXECUTION_REQUEST_BYTES + 1024),
     );
+    if (input.type === "fleet-mail-response") throw disconnected();
     const id =
-      input.type === "request" ? input.request.requestId : input.requestId;
+      input.type === "request"
+        ? input.request.requestId
+        : input.type === "fleet-mail-state"
+          ? input.state.requestId
+          : input.requestId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -323,9 +353,146 @@ export class ExecutionProcess
     if (child && this.workerReady)
       void this.syncOrigin(child).catch(() => this.invalidate(child));
   }
+  setFleetMail(service?: FleetMailWorkerService) {
+    if (this.stopping) return;
+    const replaced = service !== this.mailService;
+    if (replaced) {
+      this.stopObservingMail?.();
+      this.mailBinding = service ? randomUUID() : null;
+    }
+    this.mailService = service;
+    if (replaced)
+      this.stopObservingMail = service?.observe?.(() => {
+        if (service === this.mailService) this.setFleetMail(service);
+      });
+    this.mailRevision++;
+    const child = this.child;
+    if (child && this.workerReady)
+      void this.syncMail(child).catch(() => this.invalidate(child));
+  }
+  private syncMail(child: ChildProcess): Promise<void> {
+    if (this.syncingMail?.child === child) return this.syncingMail.promise;
+    const promise = (async () => {
+      while (this.appliedMailRevision !== this.mailRevision) {
+        if (this.child !== child || !this.workerReady) throw disconnected();
+        const revision = this.mailRevision;
+        const state = FleetMailWorkerState.parse({
+          requestId: randomUUID(),
+          generation: this.generation,
+          binding: this.mailBinding,
+          sources: this.mailService?.sources() ?? [],
+        });
+        const response = (await this.exchange(
+          { type: "fleet-mail-state", state },
+          30_000,
+        )) as { ok: boolean };
+        if (!response.ok || this.child !== child) throw disconnected();
+        this.appliedMailRevision = revision;
+      }
+    })();
+    const work = (this.syncingMail = { child, promise });
+    const clear = () => {
+      if (this.syncingMail === work) this.syncingMail = undefined;
+    };
+    void promise.then(clear, clear);
+    return promise;
+  }
+  private async readMail(child: ChildProcess, request: FleetMailWorkerRequest) {
+    const service = this.mailService;
+    const identity = {
+      requestId: request.requestId,
+      generation: request.generation,
+      binding: request.binding,
+    };
+    const deadline = performance.now() + 45_000;
+    const current = () => {
+      if (
+        this.child !== child ||
+        !this.workerReady ||
+        this.stopping ||
+        request.generation !== this.generation ||
+        request.binding !== this.mailBinding ||
+        service !== this.mailService ||
+        performance.now() >= deadline
+      )
+        throw disconnected();
+    };
+    let response: FleetMailWorkerResponse;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      current();
+      if (!service)
+        throw new Problem(503, "Remote agent discovery is unavailable.");
+      if (this.activeMail >= 16)
+        throw new Problem(
+          503,
+          "Agent discovery is busy. Retry after pending reads finish.",
+        );
+      this.activeMail++;
+      // Retain the slot until the underlying read settles, even when its IPC
+      // deadline expires. A stalled service cannot accumulate unbounded reads.
+      const read = Promise.resolve()
+        .then(() => {
+          current();
+          return service.read(
+            request.sourceId,
+            request.query,
+            request.caller,
+            current,
+          );
+        })
+        .finally(() => this.activeMail--);
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(disconnected()), 45_000);
+        timer.unref();
+      });
+      const page = await Promise.race([read, timeout]);
+      current();
+      response = FleetMailWorkerResponse.parse(
+        boundedExecutionJson(
+          { ...identity, ok: true, page },
+          EXECUTION_REQUEST_BYTES,
+        ),
+      );
+    } catch (error) {
+      response = {
+        ...identity,
+        ok: false,
+        error: {
+          status:
+            error instanceof Problem &&
+            Number.isInteger(error.status) &&
+            error.status >= 400 &&
+            error.status <= 599
+              ? error.status
+              : 503,
+          message:
+            error instanceof Problem
+              ? error.message.slice(0, 300)
+              : "Remote agent discovery is unavailable.",
+        },
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (this.child === child && child.connected && !this.stopping) {
+      const message = ExecutionParentMessage.parse({
+        type: "fleet-mail-response",
+        response,
+      });
+      try {
+        child.send(message, () => {});
+      } catch {
+        // A closed IPC channel loses this read result. The worker's deadline
+        // rejects it; neither side replays the request into a replacement.
+      }
+    }
+  }
   close() {
     return (this.closing ??= (async () => {
       this.stopping = true;
+      this.stopObservingMail?.();
+      this.stopObservingMail = undefined;
       this.state = "stopping";
       this.workerReady = false;
       this.failPending();

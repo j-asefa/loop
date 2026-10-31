@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import {
   FleetAgentPage,
   FleetMailDeliveryResponse,
+  FleetMailFileResponse,
   FleetMailDirectoryResponse,
   fleetMailApi,
   type FleetAgentQuery,
@@ -16,18 +17,29 @@ import type { FleetCredentials } from "./fleet-credentials.js";
 import { FleetMailJournal } from "./fleet-mail-journal.js";
 import { FleetProof } from "./fleet-proof.js";
 import { directoryDigest, fleetPayloadDigest } from "./fleet-crypto.js";
+import { FleetMailFiles } from "./fleet-mail-files.js";
+import type { FleetMailFile } from "../shared/fleet-mail.js";
+import type { z } from "zod";
+
+export type FleetMailFileCopies = (
+  copy: (file: z.infer<typeof FleetMailFile>, bytes: Buffer) => string,
+) => string[];
 
 /** Trusted owning-policy callbacks, never a peer-selected owner, URL or route.
  * Directory projection excludes prompts and connection records. The admission
  * callback only writes the existing durable local mail/queue transaction. */
 export type FleetMailHandlers = {
   directory(query: FleetAgentQuery): FleetAgentPage;
-  admit(envelope: FleetMailEnvelope): FleetMailAdmission;
+  admit(
+    envelope: FleetMailEnvelope,
+    files?: FleetMailFileCopies,
+  ): FleetMailAdmission;
   inspect(admission: FleetMailAdmission): FleetMailAdmission;
 };
 export class FleetMailDestination {
   private readonly proof: FleetProof;
   private readonly journal: FleetMailJournal;
+  private readonly files: FleetMailFiles;
   private stopped = false;
   constructor(
     private readonly db: Database.Database,
@@ -40,6 +52,7 @@ export class FleetMailDestination {
   ) {
     this.proof = new FleetProof(db, authority.identity, secrets);
     this.journal = new FleetMailJournal(db, authority, owner, clock);
+    this.files = new FleetMailFiles(db, this.journal, owner, clock);
   }
   private authorize(credential: string) {
     if (
@@ -126,7 +139,15 @@ export class FleetMailDestination {
     const receipt = this.journal.accept(
       authorized.context,
       request.envelope,
-      (envelope) => this.handlers.admit(envelope),
+      (envelope) =>
+        this.handlers.admit(envelope, (copy) =>
+          this.files.consume(
+            authorized.context,
+            envelope,
+            request.reservationId,
+            copy,
+          ),
+        ),
       request.reservationId,
       (admission) => this.handlers.inspect(admission),
     );
@@ -148,6 +169,26 @@ export class FleetMailDestination {
       receipt,
     });
     return { response, signature: this.proof.sign("mail-delivery", response) };
+  }
+  file(input: unknown) {
+    const request = fleetMailApi.file.body.parse(input);
+    const authorized = this.authorize(request.credential);
+    const { credential: _, version: _version, requestId, ...chunk } = request;
+    const staged = this.files.stage(authorized.context, chunk);
+    if (this.authorize(request.credential).directory !== authorized.directory)
+      throw new Problem(
+        409,
+        "The fleet directory changed during file transfer.",
+      );
+    const response = FleetMailFileResponse.parse({
+      ...this.identity(
+        authorized,
+        requestId,
+        fleetPayloadDigest({ requestId, ...chunk }),
+      ),
+      ...staged,
+    });
+    return { response, signature: this.proof.sign("mail-file", response) };
   }
   receipt(input: unknown) {
     const request = fleetMailApi.receipt.body.parse(input);

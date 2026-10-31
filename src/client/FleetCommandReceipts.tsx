@@ -20,6 +20,8 @@ const labels: Record<PendingFleetCommand["route"], string> = {
   uploadCreate: "Upload file",
   agentCreate: "Create agent",
   agentUpdate: "Update agent",
+  agentMailResume: "Resume agent thread",
+  teamThreadResume: "Resume team thread",
   doneThreadCreate: "Create Done group",
   doneThreadMove: "Move Done cards",
   doneThreadRemove: "Remove Done group",

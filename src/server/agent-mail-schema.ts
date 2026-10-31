@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MailSourceId } from "../shared/fleet-mail-discovery.js";
 
 export const messageSchema = z.object({
   to: z
@@ -42,6 +43,9 @@ export const messageSchema = z.object({
     ),
 });
 export const directorySchema = z.object({
+  sourceId: MailSourceId.optional().describe(
+    "Omit for this machine. Use a sourceId from sources to discover agents on another authorized machine; offsets belong to that source.",
+  ),
   query: z.string().trim().max(200).optional(),
   offset: z.number().int().min(0).max(100000).default(0),
   limit: z.number().int().min(1).max(50).default(20),

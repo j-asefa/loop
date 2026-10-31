@@ -46,6 +46,8 @@ const proof = {
     "Requires a mail-scoped machine credential, its durable reservation and a one-hop envelope attributed to that authenticated sending machine. Current source and destination grants must match its immutable pins. Admission and the existing mail queue share one transaction; a duplicate source/message identity returns its original receipt without dispatch. Accepted does not mean read. This route is only installed when the owning mail service is configured.",
   mailReceipt:
     "Requires a mail-scoped machine credential and the original source/message identity and payload digest. Reads the destination's admitted mail state without dispatch. A missing row remains unknown and never authorizes a replacement message. Signed responses include the request identity, method and monotonic receipt revision.",
+  mailFile:
+    "Requires the authenticated mail peer, a current file-sharing grant, the original envelope digest and its unaccepted destination reservation. Stages at most 192 KiB per chunk and reserves at most 256 MiB across the receiving machine. No agent URL or path is accepted. The signed next offset permits resuming identical private chunks. Verified complete bytes become local attachments only inside the recipient mail-admission transaction; staging alone grants no artifact or model-context access.",
   workspaceUploadPrepare:
     "Requires a files-scoped machine credential and a canonical upload manifest bound to its original command. Stages at most two files of up to 25 MiB for 30 idle or 120 total seconds. Staging is ephemeral, creates no workspace file or agent grant, and is not command acceptance. An existing durable command returns its receipt instead of a new staging area.",
   workspaceUploadChunk:
@@ -105,6 +107,7 @@ for (const [name, route] of Object.entries({
   mailPrepare: fleetMailApi.prepare,
   mailAccept: fleetMailApi.accept,
   mailReceipt: fleetMailApi.receipt,
+  mailFile: fleetMailApi.file,
   workspaceCatalog: fleetWorkspaceApi.catalog,
   workspaceRead: fleetWorkspaceApi.read,
   workspaceAction: fleetWorkspaceActionApi.action,

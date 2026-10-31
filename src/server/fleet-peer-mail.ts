@@ -16,6 +16,7 @@ import type { FleetMailTransport } from "./fleet-mail-http.js";
 import { verifyFleetDestination } from "./fleet-peer-identity.js";
 import { verifyFleetProof } from "./fleet-proof.js";
 import { directoryDigest, fleetPayloadDigest } from "./fleet-crypto.js";
+import { FLEET_MAIL_FILE_CHUNK_BYTES } from "../shared/fleet-mail-files.js";
 
 const unavailable = () =>
   new Problem(
@@ -156,7 +157,7 @@ export class FleetPeerMail {
     },
     signature: string,
     target: ReturnType<FleetPeerMail["target"]>,
-    purpose: "mail-directory" | "mail-delivery",
+    purpose: "mail-directory" | "mail-delivery" | "mail-file",
     requestId: string,
     requestDigest: string,
   ) {
@@ -236,6 +237,7 @@ export class FleetPeerMail {
     messageId: string,
     authorizeSender: (envelope: FleetMailEnvelope) => void,
     signal?: AbortSignal,
+    readFile?: (envelope: FleetMailEnvelope, fileId: string) => Buffer,
   ) {
     const stored = this.journal.outgoing(messageId);
     if (!stored) throw new Problem(404, "Outgoing mail was not found.");
@@ -344,6 +346,80 @@ export class FleetPeerMail {
             409,
             "Mail preparation is no longer current. Reconcile its original receipt.",
           );
+        const fileLive = () => {
+          live();
+          authorizeSender(structuredClone(envelope));
+          if (envelope.files.length)
+            this.authority.acceptedGrant(
+              this.owner,
+              stored.peer,
+              envelope.authority.fleetId,
+              envelope.authority.sourceGrantId,
+              "files",
+            );
+        };
+        if (envelope.files.length && (!readFile || !this.transport.file))
+          throw new Problem(
+            503,
+            "This machine cannot transfer mail files yet.",
+          );
+        for (const file of envelope.files) {
+          fileLive();
+          const bytes = readFile!(structuredClone(envelope), file.fileId);
+          if (bytes.length !== file.bytes)
+            throw new Problem(409, "The original mail file changed.");
+          let offset = 0;
+          do {
+            fileLive();
+            const chunk = {
+              envelope,
+              reservationId,
+              fileId: file.fileId,
+              offset,
+              base64: bytes
+                .subarray(offset, offset + FLEET_MAIL_FILE_CHUNK_BYTES)
+                .toString("base64"),
+            };
+            const chunkId = randomUUID();
+            const raw = await this.transport.file!(
+              target.member.origin,
+              {
+                version: 1,
+                requestId: chunkId,
+                credential: credential.token,
+                ...chunk,
+              },
+              lifetime,
+            );
+            fileLive();
+            const parsed = fleetMailApi.file.response.safeParse(raw);
+            if (!parsed.success)
+              throw new Problem(
+                502,
+                "The machine returned an incompatible mail file receipt.",
+              );
+            this.verify(
+              parsed.data.response,
+              parsed.data.signature,
+              target,
+              "mail-file",
+              chunkId,
+              fleetPayloadDigest({ requestId: chunkId, ...chunk }),
+            );
+            const next = parsed.data.response.nextOffset;
+            if (next === null) break;
+            if (
+              next <= offset ||
+              next >= file.bytes ||
+              next % FLEET_MAIL_FILE_CHUNK_BYTES
+            )
+              throw new Problem(
+                502,
+                "The machine returned an invalid mail file position.",
+              );
+            offset = next;
+          } while (offset < file.bytes);
+        }
         const acceptId = randomUUID();
         const raw = await this.transport.accept(
           target.member.origin,
@@ -356,7 +432,7 @@ export class FleetPeerMail {
           },
           lifetime,
           () => {
-            live();
+            fileLive();
             const claimed = this.journal.beginPreparedTransmission(
               messageId,
               reservationId,

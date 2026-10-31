@@ -3,9 +3,37 @@ import { db } from "./db.js";
 import { Problem } from "./domain.js";
 import { companionMode } from "./profile.js";
 import type { Agent } from "../shared/types.js";
+import {
+  fleetAgentAddress,
+  parseFleetAgentAddress,
+} from "../shared/fleet-mail.js";
+import { FleetAuthority } from "./fleet-authority.js";
+import { FleetMailBindings } from "./fleet-mail-bindings.js";
+import * as fleetSecrets from "./secrets.js";
 
 /** A refusal that recovery cannot repair. Disconnection is deliberately absent. */
 export class MailRefusal extends Problem {}
+let fleetAuthority: FleetAuthority | undefined;
+export function mailAuthority() {
+  if (
+    !companionMode ||
+    !db.prepare("SELECT 1 FROM fleet_machine_identity WHERE singleton=1").get()
+  )
+    throw new MailRefusal(403, "Remote mail is unavailable in this workspace.");
+  // Read the same durable directory as the gateway. This instance performs no
+  // enrollment, credential issuance or network activity in the execution worker.
+  return (fleetAuthority ??= new FleetAuthority(db, fleetSecrets));
+}
+export function fleetMailBindings(owner: string) {
+  return new FleetMailBindings(db, mailAuthority(), owner);
+}
+export function normalizeMailAgentId(value: string) {
+  const reference = parseFleetAgentAddress(value);
+  if (!reference) return value;
+  return reference.machineId === mailAuthority().identity.machineId
+    ? reference.agentId
+    : fleetAgentAddress(reference);
+}
 export type MailThread = {
   id: string;
   owner_id: string;
@@ -130,6 +158,46 @@ export function authorizeMail(
   recipient: string,
   resultRunId?: string | null,
 ) {
+  let remote;
+  try {
+    remote =
+      parseFleetAgentAddress(sender) || parseFleetAgentAddress(recipient);
+  } catch {
+    throw new MailRefusal(400, "Invalid remote agent reference.");
+  }
+  if (remote) {
+    if (
+      thread.scope !== "direct" ||
+      thread.team_id !== null ||
+      resultRunId !== undefined
+    )
+      throw new MailRefusal(
+        403,
+        "Remote messages do not confer team or delegation authority.",
+      );
+    let bound;
+    try {
+      bound = fleetMailBindings(thread.owner_id).authorize(
+        thread.id,
+        sender,
+        recipient,
+      );
+    } catch (error) {
+      if (!(error instanceof Problem)) throw error;
+      throw new MailRefusal(error.status, error.message);
+    }
+    eligibleMailAgent(thread.owner_id, bound.binding.local_agent_id);
+    const conversation = bound.members.find(
+      (m) => m.agent_id === bound.binding.local_agent_id,
+    )!.conversation_id;
+    if (conversation)
+      mailConversation(
+        thread.owner_id,
+        bound.binding.local_agent_id,
+        conversation,
+      );
+    return;
+  }
   // A stored background result belongs to the accepted delegation, not to
   // the worker's current team membership or ability to start another turn.
   // Ordinary messages never supply this internal provenance.

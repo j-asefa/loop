@@ -6,7 +6,9 @@ import { MAX_UPLOAD_BYTES } from "./uploads.js";
 const Id = z.string().uuid();
 const Counter = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const FLEET_MAIL_BYTES = 64 * 1024;
+export const FLEET_MAIL_MAX_FILES = 8;
 export const FLEET_MAIL_PENDING = 100;
+export const FLEET_MAIL_PEER_PENDING = FLEET_MAIL_PENDING / 2;
 export const FLEET_MAIL_PREPARE_MS = 30 * 60 * 1000;
 
 export const FleetMailAuthority = z.strictObject({
@@ -76,7 +78,7 @@ export const FleetMailEnvelope = z
     }),
     body: z.string().min(1).max(12000),
     interrupt: z.boolean(),
-    files: z.array(FleetMailFile).max(8),
+    files: z.array(FleetMailFile).max(FLEET_MAIL_MAX_FILES),
   })
   .superRefine((value, context) => {
     if (

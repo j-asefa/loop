@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,10 +27,11 @@ import {
 } from "../src/server/fleet-crypto.js";
 import {
   FleetMailEnvelope,
-  FLEET_MAIL_PENDING,
+  FLEET_MAIL_PEER_PENDING,
   FLEET_MAIL_PREPARE_MS,
 } from "../src/shared/fleet-mail.js";
 import { fleetMailApi } from "../src/shared/fleet-mail-api.js";
+import { FLEET_MAIL_FILE_CHUNK_BYTES } from "../src/shared/fleet-mail-files.js";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.js";
 import type { FleetOperation } from "../src/shared/fleet.js";
 import { secret } from "../src/state.js";
@@ -61,6 +62,9 @@ function machine() {
   db.exec(
     "CREATE TABLE fixture_mail_queue(id TEXT PRIMARY KEY, body TEXT NOT NULL)",
   );
+  db.exec(
+    "CREATE TABLE fixture_file_copies(id TEXT PRIMARY KEY, bytes BLOB NOT NULL)",
+  );
   const authority = new FleetAuthority(db, secrets),
     owner = randomUUID();
   return {
@@ -72,12 +76,11 @@ function machine() {
     journal: new FleetMailJournal(db, authority, owner),
   };
 }
-async function fixture() {
+async function fixture(scopes: FleetOperation[] = ["read", "mail", "files"]) {
   const a = machine(),
     b = machine(),
     recipient = randomUUID();
   let origin = "https://destination.example";
-  const scopes: FleetOperation[] = ["read", "mail", "files"];
   const first = a.authority.create(a.owner, {
     mutationId: randomUUID(),
     name: "Same name",
@@ -127,8 +130,15 @@ async function fixture() {
         ],
         nextOffset: null,
       }),
-      admit: (envelope) => {
+      admit: (envelope, copyFiles) => {
         expect(envelope.destination.agentId).toBe(recipient);
+        if (envelope.files.length)
+          copyFiles!((file, bytes) => {
+            b.db
+              .prepare("INSERT INTO fixture_file_copies VALUES(?,?)")
+              .run(file.fileId, bytes);
+            return file.fileId;
+          });
         const id = randomUUID();
         b.db
           .prepare("INSERT INTO fixture_mail_queue VALUES(?,?)")
@@ -242,6 +252,8 @@ async function fixture() {
     | "destination-busy"
     | "lost-prepare"
     | "tampered-prepare"
+    | "lost-file"
+    | "tampered-file"
     | "wrong-key" = "normal";
   let lastDirectory: unknown;
   let hold: Promise<void> | undefined;
@@ -249,6 +261,7 @@ async function fixture() {
   const calls: string[] = [];
   const sentEnvelopes: FleetMailEnvelope[] = [];
   const sentReservations: string[] = [];
+  const fileOffsets: number[] = [];
   const destinationProof = new FleetProof(b.db, b.authority.identity, secrets);
   const sourceProof = new FleetProof(a.db, a.authority.identity, secrets);
   const fetcher: typeof PeerFetch = async (url, options) => {
@@ -285,6 +298,12 @@ async function fixture() {
       for (const release of held) release();
     }
     let body = reply.body;
+    if (target.pathname === "/api" + fleetMailApi.file.path) {
+      fileOffsets.push(input.offset);
+      if (mode === "lost-file")
+        throw new Error("fixture lost file acknowledgement");
+      if (mode === "tampered-file") body.response.nextOffset = null;
+    }
     if (target.pathname === "/api" + fleetMailApi.prepare.path) {
       if (mode === "lost-prepare")
         throw new Error("fixture lost preparation reply");
@@ -380,6 +399,7 @@ async function fixture() {
     calls,
     sentEnvelopes,
     sentReservations,
+    fileOffsets,
     envelope,
     call,
     recipient,
@@ -522,10 +542,120 @@ it("persists uncertainty before IO and reconciles a lost acceptance after client
   }
 });
 
+function attach(value: FleetMailEnvelope, bytes: Buffer) {
+  value.files = [
+    {
+      source: value.source.machineId,
+      fileId: randomUUID(),
+      digest: createHash("sha256").update(bytes).digest("hex"),
+      bytes: bytes.length,
+      name: "shared.bin",
+      mediaType: "application/octet-stream",
+    },
+  ];
+  return value;
+}
+
+it("resumes private file chunks and reconciles lost mail acceptance without another copy or prompt", async () => {
+  const f = await fixture();
+  try {
+    const bytes = randomBytes(FLEET_MAIL_FILE_CHUNK_BYTES + 31);
+    const value = attach(f.envelope(), bytes);
+    f.a.journal.enqueue(value, allowed);
+    const read = (envelope: FleetMailEnvelope, fileId: string) => {
+      expect(envelope).toEqual(value);
+      expect(fileId).toBe(value.files[0].fileId);
+      return bytes;
+    };
+    f.mode("lost-file");
+    await expect(
+      f.client.deliver(value.messageId, allowed, undefined, read),
+    ).rejects.toThrow();
+    expect(f.a.journal.outgoing(value.messageId)?.state).toBe("pending");
+    expect(
+      f.b.db.prepare("SELECT count(*) n FROM fixture_file_copies").get(),
+    ).toEqual({ n: 0 });
+    expect(accepts(f)).toBe(0);
+    f.mode("lost");
+    await expect(
+      f.client.deliver(value.messageId, allowed, undefined, read),
+    ).rejects.toThrow();
+    expect(f.fileOffsets).toEqual([0, 0, FLEET_MAIL_FILE_CHUNK_BYTES]);
+    expect(f.a.journal.outgoing(value.messageId)?.state).toBe("unknown");
+    expect(f.b.db.prepare("SELECT * FROM fixture_file_copies").all()).toEqual([
+      { id: value.files[0].fileId, bytes },
+    ]);
+    f.restartClient();
+    f.mode("normal");
+    const final = await f.client.deliver(
+      value.messageId,
+      allowed,
+      undefined,
+      () => {
+        throw new Error("Accepted copies must not be reread");
+      },
+    );
+    expect(final.delivery.receipt?.admission.state).toBe("accepted");
+    expect(f.fileOffsets).toHaveLength(3);
+    expect(accepts(f)).toBe(1);
+    expect(
+      f.b.db.prepare("SELECT count(*) n FROM fixture_mail_queue").get(),
+    ).toEqual({ n: 1 });
+    expect(
+      f.b.db.prepare("SELECT count(*) n FROM fleet_mail_files").get(),
+    ).toEqual({ n: 0 });
+  } finally {
+    await f.close();
+  }
+});
+
+it("rejects a changed signed file acknowledgement before mail acceptance", async () => {
+  const f = await fixture();
+  try {
+    const bytes = randomBytes(FLEET_MAIL_FILE_CHUNK_BYTES + 9);
+    const value = attach(f.envelope(), bytes);
+    f.a.journal.enqueue(value, allowed);
+    f.mode("tampered-file");
+    await expect(
+      f.client.deliver(value.messageId, allowed, undefined, () => bytes),
+    ).rejects.toMatchObject({ status: 502 });
+    expect(accepts(f)).toBe(0);
+    expect(
+      f.b.db.prepare("SELECT count(*) n FROM fixture_file_copies").get(),
+    ).toEqual({ n: 0 });
+    f.mode("normal");
+    expect(
+      (await f.client.deliver(value.messageId, allowed, undefined, () => bytes))
+        .delivery.receipt?.admission.state,
+    ).toBe("accepted");
+  } finally {
+    await f.close();
+  }
+});
+
+it("does not send file bytes under a mail-only local grant", async () => {
+  const f = await fixture(["read", "mail"]);
+  try {
+    const bytes = Buffer.from("Denied");
+    const value = attach(f.envelope(), bytes);
+    f.a.journal.enqueue(value, allowed);
+    await expect(
+      f.client.deliver(value.messageId, allowed, undefined, () => bytes),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(f.fileOffsets).toEqual([]);
+    expect(accepts(f)).toBe(0);
+    expect(
+      f.b.db.prepare("SELECT count(*) n FROM fixture_file_copies").get(),
+    ).toEqual({ n: 0 });
+  } finally {
+    await f.close();
+  }
+});
+
 it("reclaims completed incoming capacity without sender receipt polling and retains admission identities", async () => {
   const f = await fixture();
   try {
-    const values = Array.from({ length: FLEET_MAIL_PENDING }, f.envelope);
+    const values = Array.from({ length: FLEET_MAIL_PEER_PENDING }, f.envelope);
     const credential = await f.token("mail");
     const reservations: string[] = [];
     for (const value of values) {
@@ -577,12 +707,12 @@ it("reclaims completed incoming capacity without sender receipt polling and reta
     ).toHaveLength(0);
     expect(
       f.b.db.prepare("SELECT count(*) n FROM fixture_mail_queue").get(),
-    ).toEqual({ n: FLEET_MAIL_PENDING });
+    ).toEqual({ n: FLEET_MAIL_PEER_PENDING });
     expect(
       f.b.db
         .prepare("SELECT count(*) n FROM fleet_mail_inbox WHERE settled=1")
         .get(),
-    ).toEqual({ n: FLEET_MAIL_PENDING });
+    ).toEqual({ n: FLEET_MAIL_PEER_PENDING });
     const duplicate = await f.call("/api" + fleetMailApi.accept.path, {
       version: 1,
       requestId: randomUUID(),
@@ -598,7 +728,7 @@ it("reclaims completed incoming capacity without sender receipt polling and reta
     });
     expect(
       f.b.db.prepare("SELECT count(*) n FROM fixture_mail_queue").get(),
-    ).toEqual({ n: FLEET_MAIL_PENDING });
+    ).toEqual({ n: FLEET_MAIL_PEER_PENDING });
   } finally {
     await f.close();
   }

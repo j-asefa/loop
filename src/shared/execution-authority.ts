@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { FleetGrantContext } from "./fleet.js";
 import {
+  FleetMailWorkerRequest,
+  FleetMailWorkerResponse,
+  FleetMailWorkerState,
+} from "./fleet-mail-worker.js";
+import {
   NativeProvider,
   NativeProviderView,
   ProviderTarget,
@@ -431,6 +436,14 @@ export type ExecutionResponse = z.infer<typeof ExecutionResponse>;
 // The inherited IPC channel carries only these envelopes. Lifecycle commands
 // are parent-owned and generation-bound; they cannot submit native effects.
 export const ExecutionParentMessage = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("fleet-mail-state"),
+    state: FleetMailWorkerState,
+  }),
+  z.strictObject({
+    type: z.literal("fleet-mail-response"),
+    response: FleetMailWorkerResponse,
+  }),
   z.strictObject({ type: z.literal("request"), request: ExecutionRequest }),
   z.strictObject({
     type: z.literal("lifecycle"),
@@ -441,6 +454,10 @@ export const ExecutionParentMessage = z.discriminatedUnion("type", [
   }),
 ]);
 export const ExecutionChildMessage = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("fleet-mail-read"),
+    request: FleetMailWorkerRequest,
+  }),
   z.strictObject({ type: z.literal("ready"), ready: ExecutionReady }),
   z.strictObject({ type: z.literal("response"), response: ExecutionResponse }),
   z.strictObject({

@@ -195,6 +195,7 @@ export function createFleetPeerHttp(
     routes.on(fleetMailApi.accept, ({ body }, res) =>
       res.json(mail.accept(body)),
     );
+    routes.on(fleetMailApi.file, ({ body }, res) => res.json(mail.file(body)));
     routes.on(fleetMailApi.receipt, ({ body }, res) =>
       res.json(mail.receipt(body)),
     );

@@ -2438,6 +2438,158 @@
         }
       }
     },
+    "/api/fleet/peer/v1/mail/file": {
+      "post": {
+        "operationId": "mailFile",
+        "description": "Requires the authenticated mail peer, a current file-sharing grant, the original envelope digest and its unaccepted destination reservation. Stages at most 192 KiB per chunk and reserves at most 256 MiB across the receiving machine. No agent URL or path is accepted. The signed next offset permits resuming identical private chunks. Verified complete bytes become local attachments only inside the recipient mail-admission transaction; staging alone grants no artifact or model-context access. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
+        "security": [],
+        "x-loop55-access": "peer:workspace",
+        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "parameters": [
+          {
+            "name": "X-Loop55-Fleet-Version",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/mailFileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed fleet protocol response; never a device cookie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/mailFileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "A safe protocol error. A failed or missing response does not prove an effect was absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/fleet/peer/v1/workspace/catalog": {
       "post": {
         "operationId": "workspaceCatalog",
@@ -9513,6 +9665,344 @@
         ],
         "additionalProperties": false
       },
+      "mailFileRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "credential": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+          },
+          "envelope": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "messageId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "agentId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "agentId"
+                ],
+                "additionalProperties": false
+              },
+              "destination": {
+                "type": "object",
+                "properties": {
+                  "machineId": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "agentId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "machineId",
+                  "agentId"
+                ],
+                "additionalProperties": false
+              },
+              "authority": {
+                "type": "object",
+                "properties": {
+                  "fleetId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "sourceGrantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "destinationGrantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "directory": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "fleetId",
+                  "sourceGrantId",
+                  "destinationGrantId",
+                  "directory"
+                ],
+                "additionalProperties": false
+              },
+              "sender": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "runId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "runId",
+                  "conversationId"
+                ],
+                "additionalProperties": false
+              },
+              "thread": {
+                "type": "object",
+                "properties": {
+                  "origin": {
+                    "type": "string",
+                    "pattern": "^m_[a-f0-9]{64}$"
+                  },
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "subject": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "recipientConversationId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "origin",
+                  "id",
+                  "subject",
+                  "recipientConversationId"
+                ],
+                "additionalProperties": false
+              },
+              "body": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "interrupt": {
+                "type": "boolean"
+              },
+              "files": {
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^m_[a-f0-9]{64}$"
+                    },
+                    "fileId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "bytes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 26214400
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 240,
+                      "pattern": "^[^/\\\\\\u0000-\\u001f]+$"
+                    },
+                    "mediaType": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "^[\\x20-\\x7e]+$"
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "fileId",
+                    "digest",
+                    "bytes",
+                    "name",
+                    "mediaType"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "version",
+              "messageId",
+              "source",
+              "destination",
+              "authority",
+              "sender",
+              "thread",
+              "body",
+              "interrupt",
+              "files"
+            ],
+            "additionalProperties": false
+          },
+          "reservationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "fileId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 26214400
+          },
+          "base64": {
+            "type": "string",
+            "maxLength": 262144
+          }
+        },
+        "required": [
+          "version",
+          "requestId",
+          "credential",
+          "envelope",
+          "reservationId",
+          "fileId",
+          "offset",
+          "base64"
+        ],
+        "additionalProperties": false
+      },
+      "mailFileResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "requestDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "machineId": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "peer": {
+                "type": "string",
+                "pattern": "^m_[a-f0-9]{64}$"
+              },
+              "grantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "directory": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "nextOffset": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 26214400
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "requestId",
+              "requestDigest",
+              "machineId",
+              "peer",
+              "grantId",
+              "directory",
+              "nextOffset"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+          }
+        },
+        "required": [
+          "response",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
       "workspaceCatalogRequest": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -9673,6 +10163,9 @@
                   "agentMessages",
                   "agentTraces",
                   "agentMail",
+                  "teamMessages",
+                  "agentThreadFeed",
+                  "agentThreadDetail",
                   "doneThreadList",
                   "doneThreadDetail",
                   "doneThreadListPage",
@@ -10011,6 +10504,8 @@
                 "enum": [
                   "agentCreate",
                   "agentUpdate",
+                  "agentMailResume",
+                  "teamThreadResume",
                   "doneThreadCreate",
                   "doneThreadMove",
                   "doneThreadRemove",
@@ -10255,6 +10750,8 @@
             "enum": [
               "agentCreate",
               "agentUpdate",
+              "agentMailResume",
+              "teamThreadResume",
               "doneThreadCreate",
               "doneThreadMove",
               "doneThreadRemove",

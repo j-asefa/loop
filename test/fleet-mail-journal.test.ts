@@ -1,12 +1,14 @@
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetMailJournal } from "../src/server/fleet-mail-journal.js";
+import { FleetMailFiles } from "../src/server/fleet-mail-files.js";
+import { FLEET_MAIL_FILE_CHUNK_BYTES } from "../src/shared/fleet-mail-files.js";
 import {
   directoryDigest,
   fleetPayloadDigest,
@@ -14,6 +16,7 @@ import {
 import {
   FleetMailEnvelope,
   FLEET_MAIL_PENDING,
+  FLEET_MAIL_PEER_PENDING,
   FLEET_MAIL_PREPARE_MS,
   fleetAgentAddress,
   parseFleetAgentAddress,
@@ -91,6 +94,36 @@ function pair(scope = scopes) {
   });
   return { a, b };
 }
+function triple() {
+  const { a, b } = pair();
+  const c = machine("owner-C");
+  const directory = a.authority.revise(a.owner, {
+    mutationId: randomUUID(),
+    expected: a.authority.status(a.owner).head!,
+    members: [
+      ...a.authority.directory(a.owner)!.document.members,
+      {
+        ...c.authority.identity,
+        grantId: randomUUID(),
+        name: "Another peer",
+        origin: "https://c.example",
+      },
+    ],
+  });
+  b.authority.accept(b.owner, directory);
+  c.authority.approve(c.owner, {
+    mutationId: randomUUID(),
+    expected: null,
+    kind: "enroll",
+    scope: scopes,
+    controller: a.authority.identity,
+    directory,
+    grantId: directory.document.members.find(
+      (member) => member.machineId === c.authority.identity.machineId,
+    )!.grantId,
+  });
+  return { a, b, c };
+}
 function context(a: Machine, b: Machine): FleetGrantContext {
   const doc = b.authority.directory(b.owner)!.document;
   return {
@@ -154,6 +187,320 @@ function admit(b: Machine, value: FleetMailEnvelope): FleetMailAdmission {
     status: "queued",
   };
 }
+
+function preparedFile(
+  a: Machine,
+  b: Machine,
+  bytes: Buffer,
+  declaredSize = bytes.length,
+) {
+  const value = envelope(a, b);
+  const file = {
+    source: a.authority.identity.machineId,
+    fileId: randomUUID(),
+    digest: createHash("sha256").update(bytes).digest("hex"),
+    bytes: declaredSize,
+    name: "shared.bin",
+    mediaType: "application/octet-stream",
+  };
+  value.files.push(file);
+  const grant = context(a, b);
+  const receipt = b.journal.prepare(grant, {
+    source: value.source.machineId,
+    destination: value.destination.machineId,
+    messageId: value.messageId,
+    payloadDigest: fleetPayloadDigest(value),
+    authority: value.authority,
+  });
+  if (receipt.admission.state !== "prepared")
+    throw new Error("Fixture preparation failed");
+  const reservationId = receipt.admission.reservationId;
+  const files = new FleetMailFiles(b.db, b.journal, b.owner);
+  const chunk = (offset = 0) => ({
+    envelope: value,
+    reservationId,
+    fileId: file.fileId,
+    offset,
+    base64: bytes
+      .subarray(offset, offset + FLEET_MAIL_FILE_CHUNK_BYTES)
+      .toString("base64"),
+  });
+  return { value, file, grant, reservationId, files, chunk, bytes };
+}
+
+it("stages bounded private bytes and copies them atomically with one original mail admission", () => {
+  const { a, b } = pair();
+  const f = preparedFile(a, b, randomBytes(FLEET_MAIL_FILE_CHUNK_BYTES + 17));
+  const artifacts = b.db.prepare("SELECT count(*) n FROM artifacts").get();
+  expect(f.files.stage(f.grant, f.chunk())).toEqual({
+    nextOffset: FLEET_MAIL_FILE_CHUNK_BYTES,
+  });
+  expect(f.files.stage(f.grant, f.chunk())).toEqual({
+    nextOffset: FLEET_MAIL_FILE_CHUNK_BYTES,
+  });
+  let copies = 0;
+  const accept = () =>
+    b.journal.accept(
+      f.grant,
+      f.value,
+      (mail) => {
+        f.files.consume(f.grant, mail, f.reservationId, (file, bytes) => {
+          copies++;
+          expect(file).toEqual(f.file);
+          expect(bytes).toEqual(f.bytes);
+          b.db
+            .prepare("INSERT INTO fixture_queue VALUES(?,?)")
+            .run(file.fileId, bytes.toString("base64"));
+          return file.fileId;
+        });
+        return admit(b, mail);
+      },
+      f.reservationId,
+    );
+  expect(accept).toThrow(/incomplete/);
+  expect(copies).toBe(0);
+  expect(b.db.prepare("SELECT count(*) n FROM fixture_queue").get()).toEqual({
+    n: 0,
+  });
+  expect(b.db.prepare("SELECT count(*) n FROM artifacts").get()).toEqual(
+    artifacts,
+  );
+  expect(f.files.stage(f.grant, f.chunk(FLEET_MAIL_FILE_CHUNK_BYTES))).toEqual({
+    nextOffset: null,
+  });
+  const receipt = accept();
+  expect(receipt.admission.state).toBe("accepted");
+  expect(accept()).toEqual(receipt);
+  expect(copies).toBe(1);
+  expect(b.db.prepare("SELECT count(*) n FROM fleet_mail_files").get()).toEqual(
+    { n: 0 },
+  );
+  expect(
+    b.db.prepare("SELECT count(*) n FROM fleet_mail_file_chunks").get(),
+  ).toEqual({ n: 0 });
+  expect(() => f.files.stage(f.grant, f.chunk())).toThrow();
+});
+
+it("requires a current file-sharing grant in addition to mail admission", () => {
+  const { a, b } = pair(["read", "mail"]);
+  const f = preparedFile(a, b, Buffer.from("Not granted"));
+  expect(() => f.files.stage(f.grant, f.chunk())).toThrow();
+  expect(b.db.prepare("SELECT count(*) n FROM fleet_mail_files").get()).toEqual(
+    { n: 0 },
+  );
+  expect(
+    b.db.prepare("SELECT count(*) n FROM fleet_mail_file_chunks").get(),
+  ).toEqual({ n: 0 });
+});
+
+it("rolls file copies back with refused admission work and keeps prepared bytes for the original retry", () => {
+  const { a, b } = pair();
+  const f = preparedFile(a, b, Buffer.from("authorized original content"));
+  f.files.stage(f.grant, f.chunk());
+  expect(() =>
+    f.files.consume(f.grant, f.value, f.reservationId, () => "copy"),
+  ).toThrow(/transaction/);
+  expect(() =>
+    b.journal.accept(
+      f.grant,
+      f.value,
+      (mail) => {
+        f.files.consume(f.grant, mail, f.reservationId, (file, bytes) => {
+          b.db
+            .prepare("INSERT INTO fixture_queue VALUES(?,?)")
+            .run(file.fileId, bytes.toString());
+          throw new Error("Fixture recipient refusal after a database write");
+        });
+        return admit(b, mail);
+      },
+      f.reservationId,
+    ),
+  ).toThrow(/Fixture recipient refusal/);
+  expect(b.db.prepare("SELECT count(*) n FROM fixture_queue").get()).toEqual({
+    n: 0,
+  });
+  expect(
+    b.db
+      .prepare("SELECT count(*) n FROM fleet_mail_files WHERE complete=1")
+      .get(),
+  ).toEqual({ n: 1 });
+  let reads = 0;
+  const receipt = b.journal.accept(
+    f.grant,
+    f.value,
+    () => {
+      // Recipient policy rejects before invoking any copy or granting context.
+      return { state: "refused", reason: "recipient_unavailable" };
+    },
+    f.reservationId,
+  );
+  expect(receipt.admission.state).toBe("refused");
+  expect(() =>
+    b.db.transaction(() =>
+      f.files.consume(f.grant, f.value, f.reservationId, () => {
+        reads++;
+      }),
+    )(),
+  ).toThrow();
+  expect(reads).toBe(0);
+  expect(b.db.prepare("SELECT count(*) n FROM fixture_queue").get()).toEqual({
+    n: 0,
+  });
+  const following = preparedFile(a, b, Buffer.from("new authorized file"));
+  following.files.stage(following.grant, following.chunk());
+  expect(
+    b.db
+      .prepare("SELECT count(*) n FROM fleet_mail_files WHERE message_id=?")
+      .get(f.value.messageId),
+  ).toEqual({ n: 0 });
+  expect(
+    b.db
+      .prepare(
+        "SELECT count(*) n FROM fleet_mail_file_chunks WHERE message_id=?",
+      )
+      .get(f.value.messageId),
+  ).toEqual({ n: 0 });
+  // Reclaim private bytes, not the evidence that the original was refused.
+  expect(
+    b.journal.accept(
+      f.grant,
+      f.value,
+      () => {
+        throw new Error("Refused work replayed");
+      },
+      f.reservationId,
+    ),
+  ).toEqual(receipt);
+});
+
+it("rejects changed chunks, corrupt complete content, invalid offsets and oversized encodings", () => {
+  const { a, b } = pair();
+  const f = preparedFile(a, b, randomBytes(FLEET_MAIL_FILE_CHUNK_BYTES + 3));
+  expect(() =>
+    f.files.stage(f.grant, f.chunk(FLEET_MAIL_FILE_CHUNK_BYTES)),
+  ).toThrow();
+  expect(() => f.files.stage(f.grant, { ...f.chunk(), offset: 1 })).toThrow();
+  expect(() =>
+    f.files.stage(f.grant, {
+      ...f.chunk(),
+      base64: "A".repeat(4 * FLEET_MAIL_FILE_CHUNK_BYTES),
+    }),
+  ).toThrow();
+  f.files.stage(f.grant, f.chunk());
+  expect(() =>
+    f.files.stage(f.grant, {
+      ...f.chunk(),
+      base64: Buffer.alloc(FLEET_MAIL_FILE_CHUNK_BYTES).toString("base64"),
+    }),
+  ).toThrow();
+  expect(() =>
+    f.files.stage(f.grant, {
+      ...f.chunk(FLEET_MAIL_FILE_CHUNK_BYTES),
+      base64: Buffer.from("bad").toString("base64"),
+    }),
+  ).toThrow(/changed/);
+  expect(b.db.prepare("SELECT count(*) n FROM fleet_mail_files").get()).toEqual(
+    { n: 0 },
+  );
+  expect(
+    b.db.prepare("SELECT count(*) n FROM fleet_mail_file_chunks").get(),
+  ).toEqual({ n: 0 });
+  f.files.stage(f.grant, f.chunk());
+  expect(f.files.stage(f.grant, f.chunk(FLEET_MAIL_FILE_CHUNK_BYTES))).toEqual({
+    nextOffset: null,
+  });
+  const empty = preparedFile(a, b, Buffer.alloc(0));
+  expect(empty.files.stage(empty.grant, empty.chunk())).toEqual({
+    nextOffset: null,
+  });
+});
+
+it("binds every chunk to current owner, profile, peer, reservation and immutable envelope", () => {
+  const { a, b } = pair();
+  const f = preparedFile(a, b, Buffer.from("private"));
+  const wrongOwner = new FleetMailFiles(
+    b.db,
+    new FleetMailJournal(b.db, b.authority, "foreign-owner"),
+    "foreign-owner",
+  );
+  expect(() => wrongOwner.stage(f.grant, f.chunk())).toThrow();
+  expect(() =>
+    f.files.stage({ ...f.grant, operation: "read" }, f.chunk()),
+  ).toThrow();
+  expect(() =>
+    f.files.stage(
+      { ...f.grant, peer: b.authority.identity.machineId },
+      f.chunk(),
+    ),
+  ).toThrow();
+  expect(() =>
+    f.files.stage(f.grant, { ...f.chunk(), reservationId: randomUUID() }),
+  ).toThrow();
+  expect(() =>
+    f.files.stage(f.grant, {
+      ...f.chunk(),
+      envelope: { ...f.value, body: "changed" },
+    }),
+  ).toThrow();
+  expect(() =>
+    f.files.stage(f.grant, { ...f.chunk(), fileId: randomUUID() }),
+  ).toThrow();
+  expect(() =>
+    f.files.stage(f.grant, {
+      ...f.chunk(),
+      url: "https://agent-selected.example/private",
+    }),
+  ).toThrow();
+  b.db.prepare("UPDATE deployment_profile SET profile='server'").run();
+  expect(() => f.files.stage(f.grant, f.chunk())).toThrow();
+  expect(b.db.prepare("SELECT count(*) n FROM fleet_mail_files").get()).toEqual(
+    { n: 0 },
+  );
+});
+
+it("reserves declared bytes per authenticated peer and machine, then expires private staging", () => {
+  const { a, b, c } = triple();
+  const bytes = Buffer.alloc(FLEET_MAIL_FILE_CHUNK_BYTES);
+  for (let i = 0; i < 8; i++) {
+    const f = preparedFile(a, b, bytes, 25 * 1024 * 1024);
+    f.files.stage(f.grant, f.chunk());
+  }
+  const overflow = preparedFile(a, b, bytes, 25 * 1024 * 1024);
+  expect(() => overflow.files.stage(overflow.grant, overflow.chunk())).toThrow(
+    /peer.*full/,
+  );
+  // A second authenticated peer can still reserve two maximum-size files.
+  for (let i = 0; i < 2; i++) {
+    const f = preparedFile(c, b, bytes, 25 * 1024 * 1024);
+    expect(f.files.stage(f.grant, f.chunk())).toEqual({
+      nextOffset: FLEET_MAIL_FILE_CHUNK_BYTES,
+    });
+  }
+  const rest = preparedFile(c, b, bytes, 6 * 1024 * 1024);
+  rest.files.stage(rest.grant, rest.chunk());
+  const globalOverflow = preparedFile(c, b, Buffer.from("x"));
+  expect(() =>
+    globalOverflow.files.stage(globalOverflow.grant, globalOverflow.chunk()),
+  ).toThrow(/machine.*full/);
+  expect(
+    b.db.prepare("SELECT sum(size) size FROM fleet_mail_files").get(),
+  ).toEqual({ size: 256 * 1024 * 1024 });
+  new FleetMailFiles(
+    b.db,
+    b.journal,
+    b.owner,
+    () => Date.now() + FLEET_MAIL_PREPARE_MS + 1000,
+  ).prune();
+  expect(b.db.prepare("SELECT count(*) n FROM fleet_mail_files").get()).toEqual(
+    { n: 0 },
+  );
+  expect(
+    b.db.prepare("SELECT count(*) n FROM fleet_mail_file_chunks").get(),
+  ).toEqual({ n: 0 });
+  expect(b.db.prepare("SELECT count(*) n FROM artifacts").get()).toEqual({
+    n: 0,
+  });
+});
 const allowed = () => {};
 const reference = (value: FleetMailEnvelope) => ({
   source: value.source.machineId,
@@ -277,7 +624,7 @@ it("expires bounded reservations into durable refusals without granting queue or
   const journal = new FleetMailJournal(b.db, b.authority, b.owner, () => now);
   const first = journal.prepare(grant, offer(value));
   if (first.admission.state !== "prepared") throw new Error("not prepared");
-  for (let i = 1; i < 100; i++)
+  for (let i = 1; i < FLEET_MAIL_PEER_PENDING; i++)
     journal.prepare(grant, offer({ ...value, messageId: randomUUID() }));
   const later = { ...value, messageId: randomUUID() };
   expect(() => journal.prepare(grant, offer(later))).toThrow(
@@ -309,7 +656,7 @@ it("expires bounded reservations into durable refusals without granting queue or
       .get(),
   ).toEqual({ n: 1 });
   expect(b.db.prepare("SELECT count(*) n FROM fleet_mail_inbox").get()).toEqual(
-    { n: 101 },
+    { n: FLEET_MAIL_PEER_PENDING + 1 },
   );
   expect(b.db.prepare("SELECT count(*) n FROM fixture_queue").get()).toEqual({
     n: 0,
@@ -608,7 +955,7 @@ it("bounds active owner queues and retains refused identities without dispatch",
     a.journal.enqueue({ ...first, messageId: randomUUID() }, allowed),
   ).toThrow("pending fleet mail");
   b.db.transaction(() => {
-    for (const value of values)
+    for (const value of values.slice(0, FLEET_MAIL_PEER_PENDING))
       b.journal.accept(context(a, b), value, (mail) => admit(b, mail));
   })();
   expect(() =>
@@ -636,7 +983,49 @@ it("bounds active owner queues and retains refused identities without dispatch",
     }),
   ).toEqual(refused);
   expect(b.db.prepare("SELECT count(*) n FROM fixture_queue").get()).toEqual({
-    n: 100,
+    n: FLEET_MAIL_PEER_PENDING,
+  });
+});
+
+it("keeps held identities from one authenticated peer within half the shared inbox", () => {
+  const { a, b, c } = triple();
+  const held = () => ({
+    state: "accepted" as const,
+    mailId: randomUUID(),
+    threadId: randomUUID(),
+    conversationId: null,
+    status: "held" as const,
+  });
+  const first = envelope(a, b),
+    grant = context(a, b);
+  const saved = b.journal.accept(grant, first, held);
+  for (let i = 1; i < FLEET_MAIL_PEER_PENDING; i++)
+    b.journal.accept(grant, envelope(a, b), held);
+  const extra = envelope(a, b);
+  expect(() =>
+    b.journal.prepare(grant, offer(extra), (prior) => prior),
+  ).toThrow("pending fleet mail");
+  expect(() =>
+    b.journal.accept(grant, extra, held, undefined, (prior) => prior),
+  ).toThrow("pending fleet mail");
+  expect(
+    b.journal.accept(grant, first, () => {
+      throw new Error("held identity replayed");
+    }),
+  ).toEqual(saved);
+  const other = context(c, b);
+  for (let i = 0; i < FLEET_MAIL_PEER_PENDING; i++)
+    b.journal.prepare(other, offer(envelope(c, b)), (prior) => prior);
+  expect(() =>
+    b.journal.prepare(other, offer(envelope(c, b)), (prior) => prior),
+  ).toThrow("pending fleet mail");
+  expect(
+    b.db
+      .prepare("SELECT count(*) n FROM fleet_mail_inbox WHERE settled=0")
+      .get(),
+  ).toEqual({ n: FLEET_MAIL_PENDING });
+  expect(b.db.prepare("SELECT count(*) n FROM fixture_queue").get()).toEqual({
+    n: 0,
   });
 });
 
@@ -675,9 +1064,21 @@ it("settles only owning admissions after sender removal and rolls back invalid i
   if (accepted.admission.state !== "accepted")
     throw new Error("fixture admission");
   const completedId = accepted.admission.mailId;
+  let completedAId = "";
   b.db.transaction(() => {
-    for (let i = 1; i < FLEET_MAIL_PENDING; i++)
-      b.journal.accept(context(a, b), envelope(a, b), (mail) => admit(b, mail));
+    for (let i = 1; i < FLEET_MAIL_PENDING; i++) {
+      const sender = i < FLEET_MAIL_PEER_PENDING ? c : a;
+      const receipt = b.journal.accept(
+        context(sender, b),
+        envelope(sender, b),
+        (mail) => admit(b, mail),
+      );
+      if (
+        i === FLEET_MAIL_PEER_PENDING &&
+        receipt.admission.state === "accepted"
+      )
+        completedAId = receipt.admission.mailId;
+    }
   })();
   b.db
     .prepare(
@@ -725,7 +1126,8 @@ it("settles only owning admissions after sender removal and rolls back invalid i
   inspected = 0;
   const prepared = b.journal.prepare(current, offer(value), (prior) => {
     inspected++;
-    return prior.state === "accepted" && prior.mailId === completedId
+    return prior.state === "accepted" &&
+      [completedId, completedAId].includes(prior.mailId)
       ? { ...prior, status: "handled" }
       : prior;
   });

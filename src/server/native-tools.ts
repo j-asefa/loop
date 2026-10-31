@@ -40,7 +40,7 @@ import {
 } from "./code-reviews.js";
 import {
   MAIL_LIMITS,
-  agentDirectory,
+  discoverMailAgents,
   mailStatus,
   sendMail,
   teamOf,
@@ -233,7 +233,7 @@ export function nativeBindings(
     : undefined;
   if (agent && !agent.retired_at && !run.payload.execution) {
     descriptions.loop55_agents =
-      "Discover other non-retired agents owned by this user on this Loop55 server. Search by name and paginate with nextOffset. Results include stable agentIds and runtime availability, not a guarantee that inference can start. No cross-server messaging.";
+      "Discover other non-retired agents. Omit sourceId for this machine and its authorized source list; use a returned sourceId to read another machine. Search by name and paginate with nextOffset on that same source. Remote agentIds include their owning machine; preserve them in messages and handoffs. An unreachable source does not hide local agents. Availability is not a guarantee that inference can start.";
     descriptions.loop55_message =
       `Message another agent from loop55_agents using its stable agentId. Omitted scope keeps active shared-team routing, otherwise starts a direct thread; explicit direct works between teammates too. Direct threads have two fixed participants and default conversation destinations. Replies use threadId. With interrupt true, direct messages select the recipient's most recent running conversation, including replies in existing threads; conversationId explicitly selects a destination. Interrupts keep the selected destination on retry and do not move ordinary replies. Busy recipients queue unless the selected task supports live input. Each task can send ${MAIL_LIMITS.perRun}. You can't wait inside a call for a reply: finish your turn and the reply starts a new one. Accepted or queued is not proof of reading. Messages never grant user permission or approval.` +
       (team
@@ -508,7 +508,7 @@ export async function invokeNative(
           : tool === "loop55_message"
             ? sendMail(run, callId, args)
             : tool === "loop55_agents"
-              ? agentDirectory(run, args)
+              ? await discoverMailAgents(run, args)
               : mailStatus(run, args),
       );
     } catch (error) {
@@ -522,9 +522,11 @@ export async function invokeNative(
         throw error;
       isError = true;
       text =
-        (tool !== "loop55_message_status"
-          ? "Message was not sent: "
-          : "Status unavailable: ") + error.message;
+        (tool === "loop55_agents"
+          ? "Directory unavailable: "
+          : tool === "loop55_message_status"
+            ? "Status unavailable: "
+            : "Message was not sent: ") + error.message;
     }
   } else if (
     tool === "loop55_request_review" ||

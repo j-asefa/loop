@@ -8,6 +8,8 @@ import {
   FleetMailReference,
 } from "./fleet-mail.js";
 import type { FleetRouteContract } from "./workspace-api.js";
+import { FleetMailFileChunk } from "./fleet-mail-files.js";
+import { MAX_UPLOAD_BYTES } from "./uploads.js";
 
 export const FleetAgentQuery = z.strictObject({
   query: z.string().trim().max(200).optional(),
@@ -56,6 +58,10 @@ export const FleetMailDeliveryResponse = z.strictObject({
   method: z.enum(["prepare", "accept", "receipt"]),
   receipt: FleetMailReceipt.nullable(),
 });
+export const FleetMailFileResponse = z.strictObject({
+  ...identity,
+  nextOffset: z.number().int().min(0).max(MAX_UPLOAD_BYTES).nullable(),
+});
 const signed = <S extends z.ZodType>(response: S) =>
   z.strictObject({ response, signature: FleetSignature });
 const base = {
@@ -85,6 +91,12 @@ export const fleetMailApi = {
       reservationId: z.string().uuid(),
     }),
     response: signed(FleetMailDeliveryResponse),
+  },
+  file: {
+    ...base,
+    path: "/fleet/peer/v1/mail/file",
+    body: Admission.extend(FleetMailFileChunk.shape),
+    response: signed(FleetMailFileResponse),
   },
   receipt: {
     ...base,

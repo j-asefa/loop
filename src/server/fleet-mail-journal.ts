@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   FLEET_MAIL_PENDING,
+  FLEET_MAIL_PEER_PENDING,
   FLEET_MAIL_PREPARE_MS,
   FleetMailAdmission,
   FleetMailEnvelope,
@@ -119,6 +120,45 @@ export class FleetMailJournal {
         ? FleetMailReceipt.parse(JSON.parse(row.receipt))
         : null,
     };
+  }
+  unsettled(time = this.clock()) {
+    return (
+      this.db
+        .prepare(
+          "SELECT message_id FROM fleet_mail_outbox WHERE owner_id=? AND settled=0 AND retry_at<=? ORDER BY updated_at,message_id LIMIT ?",
+        )
+        .all(this.owner, time, FLEET_MAIL_PENDING) as { message_id: string }[]
+    ).map((row) => row.message_id);
+  }
+  wake() {
+    this.db
+      .prepare(
+        "UPDATE fleet_mail_outbox SET retry_at=0 WHERE owner_id=? AND settled=0",
+      )
+      .run(this.owner);
+  }
+  defer(messageId: string, failed: boolean, time = this.clock()) {
+    const row = this.db
+      .prepare(
+        "SELECT attempts FROM fleet_mail_outbox WHERE owner_id=? AND message_id=? AND settled=0",
+      )
+      .get(this.owner, messageId) as { attempts: number } | undefined;
+    if (!row) return;
+    const attempts = failed ? row.attempts + 1 : 0;
+    this.db
+      .prepare(
+        "UPDATE fleet_mail_outbox SET attempts=?,retry_at=? WHERE owner_id=? AND message_id=? AND settled=0",
+      )
+      .run(
+        attempts,
+        time +
+          Math.min(
+            300_000,
+            15_000 * 2 ** Math.min(Math.max(attempts - 1, 0), 5),
+          ),
+        this.owner,
+        messageId,
+      );
   }
   /** Only the sending machine's internal drainer may obtain an unsent body.
    * Unknown/accepted identities cannot supply a replayable envelope. */
@@ -420,6 +460,7 @@ export class FleetMailJournal {
     return this.incomingRow(row.peer_id, row.message_id)!;
   }
   private capacity(
+    peer: string,
     inspect?: (admission: FleetMailAdmission) => FleetMailAdmission,
   ) {
     // At the quota, refresh bounded owner-local state without relying on a
@@ -430,18 +471,24 @@ export class FleetMailJournal {
         "SELECT * FROM fleet_mail_inbox WHERE owner_id=? AND settled=0 LIMIT ?",
       )
       .all(this.owner, FLEET_MAIL_PENDING) as Incoming[];
+    const atLimit =
+      pending.length === FLEET_MAIL_PENDING ||
+      pending.filter((row) => row.peer_id === peer).length >=
+        FLEET_MAIL_PEER_PENDING;
     for (const row of pending) {
       const current = this.expirePrepared(row);
-      if (inspect && pending.length === FLEET_MAIL_PENDING)
-        this.refreshIncoming(current, inspect);
+      if (inspect && atLimit) this.refreshIncoming(current, inspect);
     }
-    if (pending.length < FLEET_MAIL_PENDING) return;
+    if (!atLimit) return;
     const remaining = this.db
       .prepare(
-        "SELECT count(*) n FROM fleet_mail_inbox WHERE owner_id=? AND settled=0",
+        "SELECT count(*) n,coalesce(sum(peer_id=?),0) peers FROM fleet_mail_inbox WHERE owner_id=? AND settled=0",
       )
-      .get(this.owner) as { n: number };
-    if (remaining.n >= FLEET_MAIL_PENDING)
+      .get(peer, this.owner) as { n: number; peers: number };
+    if (
+      remaining.n >= FLEET_MAIL_PENDING ||
+      remaining.peers >= FLEET_MAIL_PEER_PENDING
+    )
       throw new Problem(429, "This workspace has too much pending fleet mail.");
   }
 
@@ -479,7 +526,7 @@ export class FleetMailJournal {
             throw conflict();
           return this.incomingReceipt(this.expirePrepared(existing));
         }
-        this.capacity(inspect);
+        this.capacity(offer.source, inspect);
         this.authorize(context, offer.source);
         this.pins(pins, true);
         const now = this.clock();
@@ -509,6 +556,62 @@ export class FleetMailJournal {
         return this.incomingReceipt(
           this.incomingRow(offer.source, offer.messageId)!,
         );
+      })
+      .immediate();
+  }
+
+  /** Bind private file staging to a current, unaccepted inbox reservation.
+   * Synchronous writes commit with the checked owner, grants and payload. */
+  withPrepared<T>(
+    context: FleetGrantContext,
+    input: unknown,
+    reservationId: string,
+    apply: (envelope: FleetMailEnvelope, expiresAt: number) => T,
+  ): T {
+    const envelope = FleetMailEnvelope.parse(input);
+    return this.db
+      .transaction(() => {
+        this.authorize(context, envelope.source.machineId);
+        if (
+          envelope.destination.machineId !== this.authority.identity.machineId
+        )
+          throw unavailable();
+        const found = this.incomingRow(
+          envelope.source.machineId,
+          envelope.messageId,
+        );
+        if (!found || found.payload_digest !== fleetPayloadDigest(envelope))
+          throw conflict();
+        this.pins(found, true);
+        if (envelope.files.length)
+          this.authority.acceptedGrant(
+            this.owner,
+            envelope.source.machineId,
+            envelope.authority.fleetId,
+            envelope.authority.destinationGrantId,
+            "files",
+          );
+        if (
+          found.fleet_id !== envelope.authority.fleetId ||
+          found.source_grant_id !== envelope.authority.sourceGrantId ||
+          found.destination_grant_id !== envelope.authority.destinationGrantId
+        )
+          throw conflict();
+        const receipt = this.incomingReceipt(this.expirePrepared(found));
+        if (
+          receipt.admission.state !== "prepared" ||
+          receipt.admission.reservationId !== reservationId
+        )
+          throw conflict();
+        const result = apply(
+          structuredClone(envelope),
+          receipt.admission.expiresAt,
+        );
+        if (result && typeof (result as { then?: unknown }).then === "function")
+          throw new Error(
+            "Prepared mail work must finish inside its transaction",
+          );
+        return result;
       })
       .immediate();
   }
@@ -554,7 +657,7 @@ export class FleetMailJournal {
           // Missing/expired transport receipts never grant a fresh admission.
           // Direct internal callers retain the original journal primitive.
           if (reservationId !== undefined) throw conflict();
-          this.capacity(inspect);
+          this.capacity(pins.peer_id, inspect);
         }
         const admission = FleetMailAdmission.parse(
           admit(structuredClone(envelope)),
