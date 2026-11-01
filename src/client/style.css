@@ -7647,6 +7647,7 @@ details > summary {
   }
 }
 .done-selection-bar {
+  flex-wrap: wrap;
   position: sticky;
   top: 0;
   z-index: 5;

@@ -1230,6 +1230,7 @@ export function Feed({
   const [aggregate, setAggregate] = useState<ThreadSelection | null>(null);
   const [combineFrom, setCombineFrom] = useState<string | null>(null);
   const [selectedCards, setSelectedCards] = useState<string[] | null>(null);
+  const [bulkReadBusy, setBulkReadBusy] = useState(false);
   const [readingCard, setReadingCard] = useState<{ item: FeedItem; view: string } | null>(null);
   const aggregatable = (item: FeedItem) => filter === "done" && grouping.supported.includes(item.sourceId ?? scopedSource) && !!item.done_card_key && item.last_message?.role === "assistant";
   const doneId = (item: FeedItem) => item.card?.id ?? "d:" + item.done_card_key;
@@ -2098,7 +2099,7 @@ export function Feed({
       if (owner === viewOwner()) setError((error as Error).message);
     }
   }
-  async function markDoneRead(item: FeedItem) {
+  async function markDoneRead(item: FeedItem, bulk = false) {
     // Opening again is a later read choice even while an unread write is pending.
     const cardKey = item.done_card_key;
     if (item.read_at === undefined || !cardKey) return;
@@ -2107,12 +2108,13 @@ export function Feed({
     try {
       await writeDoneReadState(source, () =>
         callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey, unreadVersion: doneReadVersion(source, "d:" + cardKey, item.unread_version) } }, source));
-      if (generation === viewGeneration()) await load();
+      if (!bulk && generation === viewGeneration()) await load();
     } catch (error) {
+      if (bulk) throw error;
       if (generation === viewGeneration()) setError((error as Error).message);
     }
   }
-  async function markUnread(item: FeedItem, thread?: SourcedDoneThread) {
+  async function markUnread(item: FeedItem, thread?: SourcedDoneThread, bulk = false) {
     const generation = viewGeneration();
     const cardKey = item.done_card_key, source = item.sourceId ?? scopedSource;
     try {
@@ -2125,12 +2127,45 @@ export function Feed({
             params: { id: item.conversation_id }, body: { cardKey },
           }, source));
       } else return;
-      if (generation === viewGeneration()) {
+      if (!bulk && generation === viewGeneration()) {
         grouping.refresh();
         await load();
       }
     } catch (error) {
+      if (bulk) throw error;
       if (generation === viewGeneration()) setError((error as Error).message);
+    }
+  }
+  async function markSelectedRead(unread: boolean) {
+    if (bulkReadBusy) return;
+    const currentGeneration = viewGeneration();
+    const rows = visibleCards.filter(row => selectedCards?.includes(row.key));
+    setBulkReadBusy(true);
+    const failed: string[] = [];
+    try {
+      for (const row of rows) {
+        if (currentGeneration !== viewGeneration()) return;
+        const source = row.thread?.source ?? row.item.sourceId ?? scopedSource;
+        const route = row.thread
+          ? unread ? workspaceApi.doneThreadUnread : workspaceApi.doneThreadRead
+          : unread ? workspaceApi.feedUnread : workspaceApi.feedRead;
+        try {
+          const reason = fleetOperationReason(source, allSources.find(entry => entry.id === source)?.capabilities, route);
+          if (reason) throw new Error(reason);
+          if (unread) await markUnread(row.item, row.thread, true);
+          else if (row.thread) await markThreadRead(row.thread, true);
+          else await markDoneRead(row.item, true);
+        } catch {
+          failed.push(row.key);
+        }
+      }
+      if (currentGeneration !== viewGeneration()) return;
+      setSelectedCards(failed.length ? failed : null);
+      if (failed.length) setError(`${failed.length} cards could not be marked ${unread ? "unread" : "read"}. Select the action again to retry.`);
+      grouping.refresh();
+      await load();
+    } finally {
+      setBulkReadBusy(false);
     }
   }
   // Every way of opening a saved group reads its members.
@@ -2138,14 +2173,15 @@ export function Feed({
     setReadingThread({ ...thread, generation });
     if (thread.unread !== undefined) void markThreadRead(thread);
   }
-  async function markThreadRead(thread: SourcedDoneThread) {
+  async function markThreadRead(thread: SourcedDoneThread, bulk = false) {
     const generation = viewGeneration();
     if (fleetOperationReason(thread.source, allSources.find(entry => entry.id === thread.source)?.capabilities, workspaceApi.doneThreadRead)) return;
     try {
       await writeDoneReadState(thread.source, () =>
         callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: thread.unreadVersions === undefined ? {} : { unreadVersions: doneThreadReadVersions(thread.source, thread.id, thread.unreadVersions) } }, thread.source));
-      if (generation === viewGeneration()) { grouping.refresh(); await load(); }
+      if (!bulk && generation === viewGeneration()) { grouping.refresh(); await load(); }
     } catch (error) {
+      if (bulk) throw error;
       if (generation === viewGeneration()) setError((error as Error).message);
     }
   }
@@ -2490,7 +2526,7 @@ export function Feed({
         item={thread ? { ...item, title: thread.title, next_action: undefined } : item}
         groupCount={thread?.cardIds.length}
         selected={!inNeeds && selectedCards ? selectedCards.includes(displayKey) : undefined}
-        onSelect={!inNeeds && selectedCards && aggregatable(item) ? () => toggleSelection(displayKey) : undefined}
+        onSelect={!inNeeds && selectedCards && aggregatable(item) ? () => { if (!bulkReadBusy) toggleSelection(displayKey); } : undefined}
         aggregationId={!inNeeds && aggregatable(item) ? displayKey : undefined}
         dragSession={dragSession}
         onAggregate={combineCards}
@@ -2664,8 +2700,10 @@ export function Feed({
       {mailThreads.error && <p className="error" role="alert">{mailThreads.error}<button onClick={mailThreads.refresh}>Retry agent threads</button></p>}
       {selectedCards && <div className="done-selection-bar" role="region" aria-label="Selected cards">
         <strong>{selectedCards.length} selected</strong>
-        <button className="primary" disabled={!selectedCards.length} onClick={() => organizeSelection(selectedCards)}>Move to…</button>
-        <button onClick={() => setSelectedCards(null)}>Cancel</button>
+        <button disabled={bulkReadBusy || !selectedCards.length} onClick={() => void markSelectedRead(false)}>Mark read</button>
+        <button disabled={bulkReadBusy || !selectedCards.length} onClick={() => void markSelectedRead(true)}>Mark unread</button>
+        <button className="primary" disabled={bulkReadBusy || !selectedCards.length} onClick={() => organizeSelection(selectedCards)}>Move to…</button>
+        <button disabled={bulkReadBusy} onClick={() => setSelectedCards(null)}>Cancel</button>
       </div>}
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
       <div className="inbox-results" hidden={needsOpen}>

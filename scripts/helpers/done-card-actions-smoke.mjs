@@ -330,6 +330,33 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
     await expect(selection).toContainText("1 selected");
     await card(1).getByRole("checkbox").check();
     await expect(selection).toContainText("2 selected");
+    // Bulk read choices affect both selected results and survive a reload.
+    const selectPair = async () => {
+      await card(0).locator(".inbox-row").press("Shift+F10");
+      await menu
+        .getByRole("menuitem", { name: "Select cards", exact: true })
+        .click();
+      await card(1).getByRole("checkbox").check();
+    };
+    await selection
+      .getByRole("button", { name: "Mark unread", exact: true })
+      .click();
+    await expect(selection).toHaveCount(0);
+    for (const index of [0, 1])
+      await expect(
+        card(index).getByText("Unread", { exact: true }),
+      ).toBeVisible();
+    await selectPair();
+    await selection
+      .getByRole("button", { name: "Mark read", exact: true })
+      .click();
+    await expect(selection).toHaveCount(0);
+    await page.reload({ waitUntil: "networkidle" });
+    for (const index of [0, 1])
+      await expect(
+        card(index).getByText("Unread", { exact: true }),
+      ).toHaveCount(0);
+    await selectPair();
     await selection
       .getByRole("button", { name: "Move to…", exact: true })
       .click();
