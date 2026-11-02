@@ -1,5 +1,9 @@
 import {
   ImportRecord,
+  WorkflowRecord,
+  McpConnectionRecord,
+  OperationRecord,
+  RuntimeHostRecord,
   AgentRecord,
   ConnectionRecord,
   ApprovalRecord,
@@ -17,6 +21,46 @@ import { z } from "zod";
 // Type assertions do not validate saved execution data. Joined and partial
 // selections declare their selected columns at each query.
 export const QueryRecords = {
+  project_change_folders: z.object({
+    owner_id: z.string(),
+    project_id: z.string(),
+    folder_id: z.string().nullable(),
+  }),
+  feed_revisions: z.object({
+    revision: z.number(),
+    entity: z.string(),
+    object_id: z.string(),
+    owner_id: z.string(),
+    cursor: z.number(),
+  }),
+  agent_activities: z.object({
+    owner_id: z.string(),
+    scope: z.string(),
+    activity_key: z.string(),
+    conversation_id: z.string().nullable(),
+    run_id: z.string().nullable(),
+    kind: z.string(),
+    record: z.string(),
+    sequence: z.number(),
+    created_at: z.number(),
+    updated_at: z.number(),
+  }),
+  artifact_versions: z.object({
+    id: z.string(),
+    artifact_id: z.string(),
+    version: z.number(),
+    content: z.string(),
+    created_at: z.number(),
+  }),
+  workflows: WorkflowRecord,
+  mcp_connections: McpConnectionRecord,
+  operations: OperationRecord,
+  runtime_hosts: RuntimeHostRecord,
+  handles: z.object({
+    name: z.string(),
+    agent_id: z.string(),
+    created_at: z.number(),
+  }),
   agents: AgentRecord,
   connections: ConnectionRecord,
   approvals: ApprovalRecord,

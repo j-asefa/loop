@@ -1,3 +1,6 @@
+import * as projectChangeFoldersQueries from "./sql/project-change-folders.js";
+import * as foldersQueries from "./sql/folders.js";
+import * as feedRevisionQueries from "./sql/feed-revisions.js";
 import { db } from "./db.js";
 import { isWorkspaceProject } from "./workspace-project.js";
 
@@ -7,48 +10,24 @@ export function projectFolders(
 ): (string | null)[] {
   if (isWorkspaceProject(owner, project))
     return (
-      db
-        .prepare(
-          "SELECT folder_id FROM project_change_folders WHERE owner_id=? AND project_id=?",
-        )
-        .all(owner, project) as { folder_id: string | null }[]
+      projectChangeFoldersQueries.forProject(db, owner, project) as {
+        folder_id: string | null;
+      }[]
     ).map((row) => row.folder_id);
   return (
-    db
-      .prepare(
-        `WITH RECURSIVE scope(id) AS (
-    SELECT id FROM folders WHERE owner_id=? AND id=?
-    UNION SELECT f.id FROM folders f JOIN scope s ON f.parent_id=s.id WHERE f.owner_id=?
-  ) SELECT id FROM scope`,
-      )
-      .all(owner, project, owner) as { id: string }[]
+    foldersQueries.descendants(db, owner, project, owner) as { id: string }[]
   ).map((row) => row.id);
 }
 
-// The same rule must govern initial pages and update tombstones. A running or
-// failed placeholder is not an output, and tool artifacts belong to Traces.
-// Native is provenance, not a tool marker: a completed checkpoint owns the
-// native harness's final answer, including answers saved by earlier versions.
-export const traceArtifactSql = `(json_extract(a.metadata,'$.tool') IS NOT NULL
-  OR (json_extract(a.metadata,'$.native')=1 AND NOT EXISTS(
-    SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id
-      AND cp.artifact_id=a.id AND cp.stage='done' AND length(trim(a.content))>0))
-  OR EXISTS(SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id AND cp.artifact_id<>a.id))`;
-export const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
-export const fileArtifactSql = `(${finishedArtifactSql} OR json_extract(a.metadata,'$.uploaded')=1)`;
-export const resultOutputSql = `${finishedArtifactSql} AND NOT COALESCE(${traceArtifactSql},0)
-  AND json_extract(a.metadata,'$.upload') IS NOT 1
-  AND json_extract(a.metadata,'$.uploaded') IS NOT 1
-  AND COALESCE(json_extract(a.metadata,'$.partial'),0)=0`;
+export {
+  traceArtifactSql,
+  finishedArtifactSql,
+  fileArtifactSql,
+  resultOutputSql,
+} from "./sql/artifacts.js";
 
 export function resultsRevision(owner: string) {
-  return (
-    db
-      .prepare(
-        "SELECT COALESCE(max(revision),0) revision FROM feed_revisions WHERE owner_id=?",
-      )
-      .get(owner) as { revision: number }
-  ).revision;
+  return feedRevisionQueries.revision(db, owner);
 }
 
 export function resultsUpdates(
@@ -70,28 +49,12 @@ export function resultsUpdates(
   const folders = options.folder
     ? new Set(projectFolders(owner, options.folder))
     : null;
-  const rows = db
-    .prepare(
-      prompts
-        ? `
-    SELECT f.revision AS change_revision,f.object_id AS changed_id,f.cursor,m.*,r.state run_state,r.error run_error,c.agent_id AS feed_agent_id,c.team_id,json_extract((SELECT payload FROM runs fr WHERE fr.id=m.run_id),'$.folderId') AS folder_id,g.name,g.provider
-    FROM feed_revisions f LEFT JOIN messages m ON m.id=f.object_id AND m.owner_id=f.owner_id
-    LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id
-    LEFT JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents g ON g.id=c.agent_id
-    WHERE f.owner_id=? AND f.entity='prompt' AND f.revision>? AND f.revision<=? AND f.cursor>=?
-    ORDER BY f.revision LIMIT 200
-  `
-        : `
-    SELECT f.revision AS change_revision,f.object_id AS changed_id,COALESCE(p.sequence,f.cursor) AS cursor,a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,c.team_id,(${options.saved || options.view === "files" ? fileArtifactSql : resultOutputSql}) AS output_visible
-    FROM feed_revisions f LEFT JOIN artifacts a ON a.id=f.object_id AND a.owner_id=f.owner_id
-    LEFT JOIN ${options.saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=f.object_id
-    LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-    LEFT JOIN agents g ON g.id=a.agent_id LEFT JOIN conversations c ON c.id=a.conversation_id
-    WHERE f.owner_id=? AND f.entity='artifact' AND f.revision>? AND f.revision<=? AND (p.sequence>=? OR p.sequence IS NULL)
-    ORDER BY f.revision LIMIT 200
-  `,
-    )
-    .all(owner, options.after, revision, options.through) as any[];
+  const rows = feedRevisionQueries.updates(
+    db,
+    owner,
+    options,
+    revision,
+  ) as any[];
   const items = [],
     removed: string[] = [];
   const fileKinds = new Set([

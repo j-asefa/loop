@@ -314,3 +314,44 @@ export function visibleOwned(
     ? undefined
     : parseRecord(visibleOwnedRow, row, "agent_threads");
 }
+
+const mailScopeStatement = statement(
+  "SELECT t.scope FROM agent_threads t JOIN agent_mail m ON m.thread_id=t.id WHERE m.owner_id=? AND m.idempotency_key=?",
+);
+const mailScopeRow = QueryRecords.agent_threads.pick({ scope: true });
+export function mailScope(db: Database.Database, owner: string, key: string) {
+  const row = mailScopeStatement(db).get(owner, key);
+  return row === undefined
+    ? undefined
+    : parseRecord(mailScopeRow, row, "agent_threads");
+}
+
+const ownedScopeStatement = statement(
+  "SELECT scope FROM agent_threads WHERE id=? AND owner_id=?",
+);
+const ownedScopeRow = QueryRecords.agent_threads.pick({ scope: true });
+export function ownedScope(
+  db: Database.Database,
+  thread: string,
+  owner: string,
+) {
+  const row = ownedScopeStatement(db).get(thread, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedScopeRow, row, "agent_threads");
+}
+
+const pausedCountStatement = statement(
+  "SELECT count(*) n FROM agent_threads WHERE owner_id=? AND team_id=? AND paused_at IS NOT NULL",
+);
+const pausedCountRow = z.object({ n: z.number() });
+export function pausedCount(
+  db: Database.Database,
+  owner: string,
+  team: string,
+) {
+  const row = pausedCountStatement(db).get(owner, team);
+  return row === undefined
+    ? undefined
+    : parseRecord(pausedCountRow, row, "agent_threads");
+}

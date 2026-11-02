@@ -14,3 +14,24 @@ export function existsOwned(db: Database.Database, id: string, owner: string) {
     ? undefined
     : parseRecord(existsOwnedRow, row, "approvals");
 }
+
+const ownedStatement = statement(
+  "SELECT * FROM approvals WHERE id=? AND owner_id=?",
+);
+export function owned(db: Database.Database, id: string, owner: string) {
+  const row = ownedStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(QueryRecords.approvals, row, "approvals");
+}
+
+const completeStatement = statement(
+  "UPDATE approvals SET state='completed',result=? WHERE id=?",
+);
+export function complete(
+  db: Database.Database,
+  result: string,
+  approval: string,
+) {
+  return completeStatement(db).run(result, approval);
+}

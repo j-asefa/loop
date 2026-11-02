@@ -1,3 +1,18 @@
+import * as memorySourcesQueries from "./sql/memory-sources.js";
+import * as runtimeHostsQueries from "./sql/runtime-hosts.js";
+import * as teamsQueries from "./sql/teams.js";
+import * as operationsQueries from "./sql/operations.js";
+import * as approvalsQueries from "./sql/approvals.js";
+import * as mcpConnectionsQueries from "./sql/mcp-connections.js";
+import * as workflowsQueries from "./sql/workflows.js";
+import * as importsQueries from "./sql/imports.js";
+import * as foldersQueries from "./sql/folders.js";
+import * as objectsQueries from "./sql/objects.js";
+import * as artifactsQueries from "./sql/artifacts.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as connectionsQueries from "./sql/connections.js";
+import * as handlesQueries from "./sql/handles.js";
+import * as agentsQueries from "./sql/agents.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import {
@@ -11,34 +26,31 @@ import { db, id, now } from "./db.js";
 
 import { Problem } from "../shared/problem.js";
 export { Problem } from "../shared/problem.js";
+const ownedQueries = {
+  agents: agentsQueries.owned,
+  connections: connectionsQueries.owned,
+  conversations: conversationsQueries.owned,
+  runs: runsQueries.owned,
+  messages: messagesQueries.owned,
+  artifacts: artifactsQueries.owned,
+  objects: objectsQueries.owned,
+  folders: foldersQueries.owned,
+  imports: importsQueries.owned,
+  workflows: workflowsQueries.owned,
+  mcp_connections: mcpConnectionsQueries.owned,
+  approvals: approvalsQueries.owned,
+  operations: operationsQueries.owned,
+  teams: teamsQueries.owned,
+  runtime_hosts: runtimeHostsQueries.owned,
+  memory_sources: memorySourcesQueries.owned,
+};
 export function owned(table: string, recordId: string, owner: string): unknown {
-  const tables = [
-    "agents",
-    "connections",
-    "conversations",
-    "runs",
-    "messages",
-    "artifacts",
-    "objects",
-    "folders",
-    "imports",
-    "workflows",
-    "mcp_connections",
-    "approvals",
-    "operations",
-    "teams",
-    "runtime_hosts",
-    "memory_sources",
-  ];
-  if (!tables.includes(table)) throw new Error("Invalid resource");
-  const record =
-    table === "runs"
-      ? runsQueries.owned(db, recordId, owner)
-      : table === "messages"
-        ? messagesQueries.owned(db, recordId, owner)
-        : db
-            .prepare(`SELECT * FROM ${table} WHERE id=? AND owner_id=?`)
-            .get(recordId, owner);
+  if (!Object.hasOwn(ownedQueries, table)) throw new Error("Invalid resource");
+  const record = ownedQueries[table as keyof typeof ownedQueries](
+    db,
+    recordId,
+    owner,
+  );
   if (!record) throw new Problem(404, "Item not found");
   return record;
 }
@@ -58,12 +70,11 @@ export function createAgent(owner: string, value: unknown) {
   validateEffort(connection, data.model, data.effort);
   return db
     .transaction(() => {
-      if (db.prepare("SELECT 1 FROM handles WHERE name=?").get(data.name))
+      if (handlesQueries.exists(db, data.name))
         throw new Problem(409, "That name is taken. Choose another name.");
       const agentId = id();
-      db.prepare(
-        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id,effort) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-      ).run(
+      agentsQueries.insert(
+        db,
         agentId,
         owner,
         data.name,
@@ -76,11 +87,7 @@ export function createAgent(owner: string, value: unknown) {
         data.folderId || null,
         data.effort || null,
       );
-      db.prepare("INSERT INTO handles VALUES(?,?,?)").run(
-        data.name,
-        agentId,
-        now(),
-      );
+      handlesQueries.insert(db, data.name, agentId, now());
       return ownedAgent(agentId, owner);
     })
     .immediate();
@@ -105,21 +112,12 @@ export function renameAgent(owner: string, agentId: string, name: unknown) {
   const agent = ownedAgent(agentId, owner);
   return db
     .transaction(() => {
-      const occupied = db
-        .prepare("SELECT agent_id FROM handles WHERE name=?")
-        .get(normalized) as { agent_id: string } | undefined;
+      const occupied = handlesQueries.agent(db, normalized) as
+        { agent_id: string } | undefined;
       if (occupied && occupied.agent_id !== agentId)
         throw new Problem(409, "That name is taken or reserved");
-      db.prepare("INSERT OR IGNORE INTO handles VALUES(?,?,?)").run(
-        normalized,
-        agentId,
-        now(),
-      );
-      db.prepare("UPDATE agents SET name=?,normalized_name=? WHERE id=?").run(
-        normalized,
-        normalized,
-        agentId,
-      );
+      handlesQueries.reserve(db, normalized, agentId, now());
+      agentsQueries.rename(db, normalized, normalized, agentId);
       return { ...agent, name: normalized };
     })
     .immediate();

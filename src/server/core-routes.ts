@@ -1,3 +1,10 @@
+import * as agentsQueries from "./sql/agents.js";
+import * as connectionsQueries from "./sql/connections.js";
+import * as foldersQueries from "./sql/folders.js";
+import * as teamsQueries from "./sql/teams.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as nativeDispatchQueries from "./sql/native-dispatch.js";
+import * as artifactsQueries from "./sql/artifacts.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
 import { passiveWorkspaceRead } from "./workspace-read-context.js";
@@ -16,7 +23,6 @@ import { localArtifact } from "./published-files.js";
 import { FILE_DOWNLOAD_POLICY, sendHtmlPreview } from "./file-preview.js";
 import {
   isNativeConnection,
-  NATIVE_CONNECTION_SQL,
 } from "./native-connections.js";
 import { executionRequest } from "./execution-client.js";
 import { nativeSessions } from "./native-sessions.js";
@@ -24,8 +30,6 @@ import { hostEnvironmentName } from "./execution-location.js";
 import {
   resultsRevision,
   resultsUpdates,
-  resultOutputSql,
-  fileArtifactSql,
   projectFolders,
 } from "./results.js";
 import { agentTraces, runTraceExport } from "./traces.js";
@@ -71,19 +75,9 @@ routes.on(workspaceApi.bootstrap, (_req, res) => {
     ...(publicPreview ? { preview: publicPreview } : {}),
     environmentName: hostEnvironmentName(),
     teams: listTeams(res.locals.owner),
-    agents: db
-      .prepare("SELECT * FROM agents WHERE owner_id=? ORDER BY created_at DESC")
-      .all(res.locals.owner) as z.input<typeof PublicAgent>[],
-    connections: db
-      .prepare(
-        "SELECT id,provider,label,status,models,metadata FROM connections WHERE owner_id=?",
-      )
-      .all(res.locals.owner) as z.input<typeof PublicConnection>[],
-    folders: db
-      .prepare(
-        "SELECT f.*,p.path,EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=f.owner_id AND w.project_id=f.id) is_workspace FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.owner_id=? ORDER BY f.name",
-      )
-      .all(res.locals.owner) as z.input<typeof PublicFolder>[],
+    agents: agentsQueries.forOwner(db, res.locals.owner) as z.input<typeof PublicAgent>[],
+    connections: connectionsQueries.publicCatalog(db, res.locals.owner) as z.input<typeof PublicConnection>[],
+    folders: foldersQueries.withProjects(db, res.locals.owner) as z.input<typeof PublicFolder>[],
     identityProviders: process.env.GITHUB_CLIENT_ID ? ["github"] : [],
     capabilities: {
       codex: runtimeConfigured(),
@@ -103,23 +97,11 @@ routes.on(workspaceApi.connectionCreate, async (req, res) => {
     );
   }
   const record = id();
-  writeConnectionStatus(record, () => db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-  ).run(
-    record,
-    res.locals.owner,
-    d.provider,
-    d.label,
-    seal(d.secret, res.locals.owner),
-    "connected",
-    JSON.stringify(ConnectionModels.parse(models)),
-    JSON.stringify(ConnectionMetadata.parse({
+  writeConnectionStatus(record, () => connectionsQueries.insert(db, record, res.locals.owner, d.provider, d.label, seal(d.secret, res.locals.owner), "connected", JSON.stringify(ConnectionModels.parse(models)), JSON.stringify(ConnectionMetadata.parse({
       billing: "API-billed",
       scope:
         "Models available to this key; consumer chat history is not included",
-    })),
-    now(),
-  ));
+    })), now()));
   res.json({ id: record, models });
 });
 routes.on(workspaceApi.connectionRefresh, async (req, res) => {
@@ -139,14 +121,10 @@ routes.on(workspaceApi.connectionRefresh, async (req, res) => {
     const models = await adapter(c.provider).models(
       unseal(c.secret, res.locals.owner),
     );
-    writeConnectionStatus(c.id, () => db.prepare(
-      "UPDATE connections SET models=?,status='connected' WHERE id=?",
-    ).run(JSON.stringify(ConnectionModels.parse(models)), c.id));
+    writeConnectionStatus(c.id, () => connectionsQueries.connectedModels(db, JSON.stringify(ConnectionModels.parse(models)), c.id));
     res.json({ models });
   } catch {
-    writeConnectionStatus(c.id, () => db.prepare(
-      "UPDATE connections SET status='needs_reconnect' WHERE id=?",
-    ).run(c.id));
+    writeConnectionStatus(c.id, () => connectionsQueries.needsReconnect(db, c.id));
     throw new Problem(
       422,
       "Connection could not be refreshed. Reconnect with a valid API key.",
@@ -200,10 +178,7 @@ routes.on(workspaceApi.connectionModels, async (req, res) => {
     )
     .max(300)
     .parse(models);
-  db.prepare("UPDATE connections SET models=? WHERE id=?").run(
-    JSON.stringify(ConnectionModels.parse(catalog)),
-    c.id,
-  );
+  connectionsQueries.models(db, JSON.stringify(ConnectionModels.parse(catalog)), c.id);
   res.json({ models: catalog });
 });
 routes.on(workspaceApi.connectionReconnect, async (req, res) => {
@@ -216,24 +191,21 @@ routes.on(workspaceApi.connectionReconnect, async (req, res) => {
     );
   try {
     const models = await adapter(c.provider).models(secret);
-    writeConnectionStatus(c.id, () => db.prepare(
-      "UPDATE connections SET secret=?,models=?,status='connected' WHERE id=?",
-    ).run(seal(secret, res.locals.owner), JSON.stringify(ConnectionModels.parse(models)), c.id));
+    writeConnectionStatus(c.id, () => connectionsQueries.reconnect(db, seal(secret, res.locals.owner), JSON.stringify(ConnectionModels.parse(models)), c.id));
     res.json({ ok: true });
   } catch {
     throw new Problem(422, "Could not validate this API key");
   }
 });
 routes.on(workspaceApi.connectionDisconnect, async (req, res) => {
-  const raw = owned("connections", req.params.id, res.locals.owner);
+  const raw = connectionsQueries.ownedForRevocation(db, req.params.id, res.locals.owner);
+  if (!raw) throw new Problem(404, "Item not found");
   let c: ReturnType<typeof parseConnectionControl> | undefined;
   try { c = parseConnectionControl(raw); }
   catch (error) { if (!(error instanceof InvalidRow)) throw error; }
   // Revocation must work for an unavailable row, without using its invalid
   // routing for an external logout or repairing it into an executable default.
-  writeConnectionStatus(req.params.id, () => db.prepare(
-    "UPDATE connections SET secret='',status='disconnected',metadata=CASE WHEN json_valid(metadata) THEN json_remove(metadata,'$.retiredDirectRuntime','$.nativeRecoveryRequired') ELSE metadata END WHERE id=? AND owner_id=?",
-  ).run(req.params.id, res.locals.owner));
+  writeConnectionStatus(req.params.id, () => connectionsQueries.disconnect(db, req.params.id, res.locals.owner));
   if (c && isSubscription(c)) await runtimeAction(c, "logout");
   res.json({ ok: true });
 });
@@ -252,24 +224,17 @@ routes.on(workspaceApi.agentUpdate, (req, res) => {
         const retired = z.boolean().parse(req.body.retired);
         if (!retired && agent.retired_at != null)
           assertTeamRestoreCapacity(owner, agent.id);
-        db.prepare(
-          "UPDATE agents SET retired_at=? WHERE id=? AND owner_id=?",
-        ).run(retired ? agent.retired_at || now() : null, agent.id, owner);
+        agentsQueries.retire(db, retired ? agent.retired_at || now() : null, agent.id, owner);
       }
       if (req.body.folderId !== undefined) {
         const folderId = z.string().min(1).nullable().parse(req.body.folderId);
         if (folderId) owned("folders", folderId, owner);
-        db.prepare(
-          "UPDATE agents SET folder_id=? WHERE id=? AND owner_id=?",
-        ).run(folderId, agent.id, owner);
+        agentsQueries.folder(db, folderId, agent.id, owner);
       }
       if (req.body.name !== undefined)
         renameAgent(owner, agent.id, req.body.name);
       if (req.body.instructions !== undefined)
-        db.prepare("UPDATE agents SET instructions=? WHERE id=?").run(
-          z.string().max(12000).parse(req.body.instructions),
-          agent.id,
-        );
+        agentsQueries.instructions(db, z.string().max(12000).parse(req.body.instructions), agent.id);
       if (
         req.body.model !== undefined ||
         req.body.connectionId !== undefined ||
@@ -294,13 +259,9 @@ routes.on(workspaceApi.agentUpdate, (req, res) => {
         if (!c.models.some((m: { id: string }) => m.id === model))
           throw new Problem(400, "Model unavailable on this connection");
         validateEffort(c, model, effort);
-        db.prepare(
-          "UPDATE agents SET connection_id=?,provider=?,model=?,effort=? WHERE id=?",
-        ).run(c.id, c.provider, model, effort || null, agent.id);
+        agentsQueries.configure(db, c.id, c.provider, model, effort || null, agent.id);
         if (c.id !== agent.connection_id)
-          db.prepare(
-            "UPDATE teams SET conversation_id=NULL WHERE owner_id=? AND manager_id=? AND deleted_at IS NULL",
-          ).run(owner, agent.id);
+          teamsQueries.clearManagerConversation(db, owner, agent.id);
       }
       return ownedAgent(agent.id, owner);
     })
@@ -418,11 +379,7 @@ routes.on(workspaceApi.agentDetail, (req, res) => {
   res.json({
     agent: a,
     runs: runsQueries.forAgent(db, res.locals.owner, a.id) as z.input<typeof workspaceApi.agentDetail.response>["runs"],
-    conversations: db
-      .prepare(
-        "SELECT * FROM conversations WHERE owner_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 100",
-      )
-      .all(res.locals.owner, a.id) as z.input<typeof workspaceApi.agentDetail.response>["conversations"],
+    conversations: conversationsQueries.forAgent(db, res.locals.owner, a.id) as z.input<typeof workspaceApi.agentDetail.response>["conversations"],
   });
 });
 routes.on(workspaceApi.submit, (req, res) => {
@@ -439,12 +396,8 @@ routes.on(workspaceApi.runAction, (req, res) => {
   if (
     action === "pause" &&
     ["running", "awaiting_approval"].includes(run.state) &&
-    (db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id) ||
-      db
-        .prepare(
-          `SELECT 1 FROM connections c WHERE c.id=? AND c.owner_id=? AND ${NATIVE_CONNECTION_SQL}`,
-        )
-        .get(run.payload.connectionId ?? null, run.owner_id))
+    (nativeDispatchQueries.exists(db, run.id) ||
+      connectionsQueries.nativeOwned(db, run.payload.connectionId ?? null, run.owner_id))
   )
     throw new Problem(
       409,
@@ -529,19 +482,11 @@ routes.on(workspaceApi.results, (req, res) => {
   const cursor = req.query.before,
     limit = 40;
   const params: unknown[] = [res.locals.owner];
-  let where =
-    "a.owner_id=? AND a.archived=0" +
-    (saved ? " AND a.pinned=1" : " AND a.feed_hidden=0");
   if (teams.length) {
-    where +=
-      " AND a.conversation_id IN (SELECT id FROM conversations WHERE owner_id=? AND team_id IN (" +
-      teams.map(() => "?").join(",") +
-      "))";
     params.push(res.locals.owner, ...teams);
   }
   if (req.query.folder) {
     owned("folders", String(req.query.folder), res.locals.owner);
-    where += " AND EXISTS(SELECT 1 FROM json_each(?) WHERE value IS a.folder_id)";
     params.push(
       JSON.stringify(
         projectFolders(res.locals.owner, String(req.query.folder)),
@@ -550,11 +495,9 @@ routes.on(workspaceApi.results, (req, res) => {
   }
   if (req.query.agent) {
     owned("agents", String(req.query.agent), res.locals.owner);
-    where += " AND a.agent_id=?";
     params.push(req.query.agent);
   }
   if (cursor) {
-    where += " AND p.sequence<?";
     params.push(cursor);
   }
   if (!saved && req.query.view === "prompts") {
@@ -582,15 +525,7 @@ routes.on(workspaceApi.results, (req, res) => {
       }), "a:", res.req.method !== "HEAD"));
     return;
   }
-  if (saved) where += ` AND ${fileArtifactSql}`;
-  else if (req.query.view === "files")
-    where += ` AND ${fileArtifactSql} AND a.kind IN ('file','image','code','table','diagram','chart','workflow')`;
-  else where += ` AND ${resultOutputSql}`;
-  const items = db
-    .prepare(
-      `SELECT a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,p.sequence AS cursor,g.name,g.provider,(SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id FROM artifacts a JOIN ${saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=a.id LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY p.sequence DESC LIMIT ?`,
-    )
-    .all(...params, limit) as z.input<typeof ResultItem>[];
+  const items = artifactsQueries.page(db, {saved, files:req.query.view === "files", teamCount:teams.length, folder:!!req.query.folder, agent:!!req.query.agent, cursor:!!cursor}, params, limit) as z.input<typeof ResultItem>[];
   res.json(tokenResultPage(res.locals.owner, res.locals.bearer?.tokenId,
     projectResponse(workspaceApi.results, {
       revision, items, next: items.length === limit ? items.at(-1)!.cursor : null,
@@ -599,9 +534,7 @@ routes.on(workspaceApi.results, (req, res) => {
 routes.on(workspaceApi.resultUpdate, (req, res) => {
   const item = ownedArtifact(req.params.id, res.locals.owner);
   const { hidden } = req.body;
-  db.prepare(
-    "UPDATE artifacts SET feed_hidden=? WHERE id=? AND owner_id=?",
-  ).run(Number(hidden), item.id, res.locals.owner);
+  artifactsQueries.feedHidden(db, Number(hidden), item.id, res.locals.owner);
   if (item.run_id)
     emit(res.locals.owner, item.run_id, "feed.changed", {
       artifactId: item.id,

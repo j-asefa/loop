@@ -14,3 +14,13 @@ export function ownedSize(db: Database.Database, id: string, owner: string) {
     ? undefined
     : parseRecord(ownedSizeRow, row, "objects");
 }
+
+const ownedStatement = statement(
+  "SELECT * FROM objects WHERE id=? AND owner_id=?",
+);
+export function owned(db: Database.Database, id: string, owner: string) {
+  const row = ownedStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(QueryRecords.objects, row, "objects");
+}

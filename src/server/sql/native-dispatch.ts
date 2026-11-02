@@ -34,3 +34,14 @@ export function generationState(db: Database.Database, run: string) {
     ? undefined
     : parseRecord(generationStateRow, row, "native_dispatch");
 }
+
+const existsStatement = statement(
+  "SELECT 1 FROM native_dispatch WHERE run_id=?",
+);
+const existsRow = z.object({ "1": z.number() });
+export function exists(db: Database.Database, run: string) {
+  const row = existsStatement(db).get(run);
+  return row === undefined
+    ? undefined
+    : parseRecord(existsRow, row, "native_dispatch");
+}

@@ -23,3 +23,41 @@ export function existsOwned(db: Database.Database, id: string, owner: string) {
     ? undefined
     : parseRecord(existsOwnedRow, row, "folders");
 }
+
+const ownedStatement = statement(
+  "SELECT * FROM folders WHERE id=? AND owner_id=?",
+);
+export function owned(db: Database.Database, id: string, owner: string) {
+  const row = ownedStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(QueryRecords.folders, row, "folders");
+}
+
+const withProjectsStatement = statement(
+  "SELECT f.*,p.path,EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=f.owner_id AND w.project_id=f.id) is_workspace FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.owner_id=? ORDER BY f.name",
+);
+const withProjectsRow = QueryRecords.folders.extend({
+  path: z.string().nullable(),
+  is_workspace: z.number(),
+});
+export function withProjects(db: Database.Database, owner: string) {
+  return withProjectsStatement(db)
+    .all(owner)
+    .map((row) => parseRecord(withProjectsRow, row, "folders"));
+}
+
+const descendantsStatement = statement(
+  "WITH RECURSIVE scope(id) AS (\n    SELECT id FROM folders WHERE owner_id=? AND id=?\n    UNION SELECT f.id FROM folders f JOIN scope s ON f.parent_id=s.id WHERE f.owner_id=?\n  ) SELECT id FROM scope",
+);
+const descendantsRow = QueryRecords.folders.pick({ id: true });
+export function descendants(
+  db: Database.Database,
+  owner: string,
+  folder: string,
+  descendantOwner: string,
+) {
+  return descendantsStatement(db)
+    .all(owner, folder, descendantOwner)
+    .map((row) => parseRecord(descendantsRow, row, "folders"));
+}

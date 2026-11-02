@@ -1,3 +1,4 @@
+import { armResultReadHook } from "../helpers/result-read-hook.js";
 import { db, id, now } from "../../src/server/db.js";
 import { seal } from "../../src/server/secrets.js";
 import { createAgent } from "../../src/server/domain.js";
@@ -25,36 +26,21 @@ export function interleaveResultWrite(artifact: string) {
       .run(artifact);
     state.committed = true;
   };
-  const prepare = db.prepare.bind(db);
-  db.prepare = ((sql: string) => {
-    const statement = prepare(sql);
-    if (
-      sql.includes(
-        "SELECT COALESCE(max(revision),0) revision FROM feed_revisions",
+  armResultReadHook(() => {
+    state.attempted = true;
+    try {
+      write();
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        error.code !== "SQLITE_BUSY"
       )
-    ) {
-      const get = statement.get.bind(statement);
-      statement.get = (...args: unknown[]) => {
-        const row = get(...args);
-        db.prepare = prepare;
-        state.attempted = true;
-        try {
-          write();
-        } catch (error) {
-          if (
-            !(error instanceof Error) ||
-            !("code" in error) ||
-            error.code !== "SQLITE_BUSY"
-          )
-            throw error;
-        }
-        return row;
-      };
+        throw error;
     }
-    return statement;
-  }) as typeof db.prepare;
+  });
   return () => {
-    db.prepare = prepare;
+    armResultReadHook();
     try {
       if (state.attempted && !state.committed) write();
       return state;

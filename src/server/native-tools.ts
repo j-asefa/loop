@@ -1,3 +1,10 @@
+import * as teamMembersQueries from "./sql/team-members.js";
+import * as agentsQueries from "./sql/agents.js";
+import * as nativeCallsQueries from "./sql/native-calls.js";
+import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
+import * as approvalsQueries from "./sql/approvals.js";
+import * as agentThreadsQueries from "./sql/agent-threads.js";
+import * as delegationsQueries from "./sql/delegations.js";
 import type { QueryRow } from "./query-records.js";
 import { agentPayload } from "./row-schemas.js";
 import {
@@ -216,19 +223,17 @@ export function nativeBindings(
       "Ask a code review team to review your changes, for example before you open a pull request. Loop55 captures an immutable snapshot of your working checkout (scope branch: commits since base; uncommitted: working-tree changes including new files; staged: the index), three reviewers examine it independently and the team lead consolidates their findings. By default this call returns a reviewId immediately; use loop55_review_status later to retrieve the consolidated report. Optional wait:true blocks until completion and may exceed your harness timeout; recover with loop55_review_status if it does. Edits made after the capture are not reviewed; fix confirmed findings, then request another review if needed. The review never edits files, runs tests or opens a pull request. Review teams: " +
       JSON.stringify(reviewTeams);
   if (team?.manager_id === run.agent_id) {
-    const workers = db
-      .prepare(
-        "SELECT a.id,a.name,substr(a.instructions,1,1000) AS instructions FROM team_members m JOIN agents a ON a.id=m.agent_id WHERE m.team_id=? AND a.owner_id=? AND a.retired_at IS NULL",
-      )
-      .all(team.id, run.owner_id);
+    const workers = teamMembersQueries.activeInstructions(
+      db,
+      team.id,
+      run.owner_id,
+    );
     descriptions.loop55_delegate =
       "You manage this team. Delegate focused tasks to these workers using their agentId. Tasks run in parallel; results return here, and worker updates appear in the team feed. Synthesize their work for the user. By default this call waits for every result. Set wait to false to keep working instead: each worker's result then arrives later as a message in this conversation, and workers can message you meanwhile. Available workers: " +
       JSON.stringify(workers);
   }
   const agent = run.agent_id
-    ? (db
-        .prepare("SELECT retired_at FROM agents WHERE id=? AND owner_id=?")
-        .get(run.agent_id, run.owner_id) as
+    ? (agentsQueries.retirement(db, run.agent_id, run.owner_id) as
         { retired_at: number | null } | undefined)
     : undefined;
   if (agent && !agent.retired_at && !run.payload.execution) {
@@ -276,9 +281,8 @@ export async function invokeNative(
     tool === "loop55_install_mcp"
       ? createHash("sha256").update(JSON.stringify(args)).digest("hex")
       : JSON.stringify(args);
-  const previous = db
-    .prepare("SELECT * FROM native_calls WHERE run_id=? AND call_id=?")
-    .get(run.id, callId) as QueryRow<"native_calls"> | undefined;
+  const previous = nativeCallsQueries.get(db, run.id, callId) as
+    QueryRow<"native_calls"> | undefined;
   if (
     previous &&
     (previous.tool !== binding.tool || previous.arguments !== encoded)
@@ -290,9 +294,7 @@ export async function invokeNative(
       result: JSON.parse(previous.result),
       artifactId: previous.artifact_id || "",
     };
-  db.prepare(
-    "INSERT OR IGNORE INTO native_calls(run_id,call_id,tool,arguments) VALUES(?,?,?,?)",
-  ).run(run.id, callId, binding.tool, encoded);
+  nativeCallsQueries.insert(db, run.id, callId, binding.tool, encoded);
   let text: string,
     artifactId = "";
   let isError = false;
@@ -388,9 +390,8 @@ export async function invokeNative(
       metadata: {
         native: true,
         messageId: (
-          db
-            .prepare("SELECT message_id FROM agent_checkpoints WHERE run_id=?")
-            .get(run.id) as QueryRow<"agent_checkpoints"> | undefined
+          agentCheckpointsQueries.message(db, run.id) as
+            QueryRow<"agent_checkpoints"> | undefined
         )?.message_id,
       },
     });
@@ -423,9 +424,7 @@ export async function invokeNative(
         message:
           "Install these MCP servers for all agents in your workspace? Tool calls will follow your workspace approval preference.",
       });
-      db.prepare(
-        "UPDATE native_calls SET approval_id=? WHERE run_id=? AND call_id=?",
-      ).run(approval.id, run.id, callId);
+      nativeCallsQueries.approval(db, approval.id, run.id, callId);
     }
     if (approval.state === "pending") {
       transition(run, "awaiting_approval", { approvalId: approval.id });
@@ -449,9 +448,7 @@ export async function invokeNative(
         : connection.metadata.runtimeHostId,
     );
     text = JSON.stringify(installed);
-    db.prepare(
-      "UPDATE approvals SET state='completed',result=? WHERE id=?",
-    ).run(text, approval.id);
+    approvalsQueries.complete(db, text, approval.id);
   } else if (
     tool === "loop55_agents" ||
     tool === "loop55_message" ||
@@ -465,19 +462,17 @@ export async function invokeNative(
               const transfer = handoff.parse(args);
               // Keep the wording (and request identity) of an already accepted
               // handoff, including one whose tool response was lost.
-              const storedScope = db
-                .prepare(
-                  "SELECT t.scope FROM agent_threads t JOIN agent_mail m ON m.thread_id=t.id WHERE m.owner_id=? AND m.idempotency_key=?",
-                )
-                .get(run.owner_id, `mail:${run.id}:${callId}`) as
-                { scope: string } | undefined;
+              const storedScope = agentThreadsQueries.mailScope(
+                db,
+                run.owner_id,
+                `mail:${run.id}:${callId}`,
+              ) as { scope: string } | undefined;
               const threadScope = transfer.threadId
-                ? (db
-                    .prepare(
-                      "SELECT scope FROM agent_threads WHERE id=? AND owner_id=?",
-                    )
-                    .get(transfer.threadId, run.owner_id) as
-                    { scope: string } | undefined)
+                ? (agentThreadsQueries.ownedScope(
+                    db,
+                    transfer.threadId,
+                    run.owner_id,
+                  ) as { scope: string } | undefined)
                 : undefined;
               const team = teamOf(run);
               const scope =
@@ -565,26 +560,17 @@ export async function invokeNative(
     const background = wait === false;
     const teamId = run.payload.teamId;
     for (const task of tasks)
-      if (
-        !db
-          .prepare("SELECT 1 FROM team_members WHERE team_id=? AND agent_id=?")
-          .get(teamId, task.agentId)
-      )
+      if (!teamMembersQueries.exists(db, teamId, task.agentId))
         throw new Problem(403, "Delegate only to this team's workers");
     const children = db
       .transaction(() => {
-        const existing = db
-          .prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?")
-          .get(run.id) as { n: number };
-        const prior = db
-          .prepare(
-            "SELECT d.*,r.state,r.result,r.error,r.agent_id,r.id FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? AND substr(d.call_id,1,?)=?",
-          )
-          .all(
-            run.id,
-            callId.length + 1,
-            callId + ":",
-          ) as (QueryRow<"delegations"> &
+        const existing = delegationsQueries.count(db, run.id) as { n: number };
+        const prior = delegationsQueries.callChildren(
+          db,
+          run.id,
+          callId.length + 1,
+          callId + ":",
+        ) as (QueryRow<"delegations"> &
           Pick<Run, "state" | "result" | "error" | "agent_id" | "id">)[];
         if (prior.length) return prior;
         if (existing.n + tasks.length > 16)
@@ -604,9 +590,8 @@ export async function invokeNative(
             idempotencyKey: "delegate:" + run.id + ":" + callId + ":" + i,
           });
           inheritFleetEffect(run.owner_id, "run", run.id, child.id);
-          db.prepare(
-            "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,?)",
-          ).run(
+          delegationsQueries.insert(
+            db,
             run.id,
             callId + ":" + i,
             child.id,
@@ -654,9 +639,13 @@ export async function invokeNative(
     content: [{ type: "text", text }],
     ...(isError ? { isError: true } : {}),
   };
-  db.prepare(
-    "UPDATE native_calls SET result=?,artifact_id=? WHERE run_id=? AND call_id=?",
-  ).run(JSON.stringify(result), artifactId || null, run.id, callId);
+  nativeCallsQueries.result(
+    db,
+    JSON.stringify(result),
+    artifactId || null,
+    run.id,
+    callId,
+  );
   emit(run.owner_id, run.id, "tool.completed", {
     tool: binding.tool,
     artifactId,

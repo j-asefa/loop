@@ -1,3 +1,5 @@
+import * as artifactsQueries from "./sql/artifacts.js";
+import * as artifactVersionsQueries from "./sql/artifact-versions.js";
 import { ArtifactMetadata } from "./row-schemas.js";
 import { db, id, now } from "./db.js";
 export function saveArtifact(
@@ -15,9 +17,8 @@ export function saveArtifact(
 ) {
   const artifactId = id(),
     time = now();
-  db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,folder_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-  ).run(
+  artifactsQueries.insert(
+    db,
     artifactId,
     owner,
     data.agent || null,
@@ -33,12 +34,6 @@ export function saveArtifact(
     time,
     time,
   );
-  db.prepare("INSERT INTO artifact_versions VALUES(?,?,?,?,?)").run(
-    id(),
-    artifactId,
-    1,
-    data.content,
-    time,
-  );
+  artifactVersionsQueries.insert(db, id(), artifactId, 1, data.content, time);
   return artifactId;
 }

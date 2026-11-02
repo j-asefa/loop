@@ -1,3 +1,12 @@
+import * as teamsQueries from "./sql/teams.js";
+import * as teamMembersQueries from "./sql/team-members.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as agentActivitiesQueries from "./sql/agent-activities.js";
+import * as nativeDispatchQueries from "./sql/native-dispatch.js";
+import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
+import * as artifactsQueries from "./sql/artifacts.js";
+import * as artifactVersionsQueries from "./sql/artifact-versions.js";
+import * as toolInvocationsQueries from "./sql/tool-invocations.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import { assertFleetEffect } from "./fleet-effect-authorizations.js";
@@ -182,11 +191,7 @@ export function submit(
       if (agent.retired_at)
         throw new Problem(409, "This agent is retired. Restore it from its profile before sending new work.");
       if (!conversation && !teamId && data.mailScope !== "direct") {
-        const managerTeam = db
-          .prepare(
-            "SELECT conversation_id,id FROM teams WHERE owner_id=? AND manager_id=? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
-          )
-          .get(owner, agent.id) as
+        const managerTeam = teamsQueries.latestManagerConversation(db, owner, agent.id) as
           { conversation_id: string; id: string } | undefined;
         if (managerTeam) {
           conversation = managerTeam.conversation_id || undefined;
@@ -211,39 +216,20 @@ export function submit(
           const team = ownedTeam(teamId, owner);
           if (
             team.manager_id !== agent.id &&
-            !db
-              .prepare(
-                "SELECT 1 FROM team_members WHERE team_id=? AND agent_id=?",
-              )
-              .get(teamId, agent.id)
+            !teamMembersQueries.exists(db, teamId, agent.id)
           )
             throw new Problem(403, "Agent is not a member of this team");
         }
         conversation = id();
-        db.prepare(
-          "INSERT INTO conversations(id,owner_id,agent_id,title,created_at,team_id) VALUES(?,?,?,?,?,?)",
-        ).run(
-          conversation,
-          owner,
-          agent.id,
-          data.input.slice(0, 100),
-          now(),
-          teamId || null,
-        );
+        conversationsQueries.insertTeam(db, conversation, owner, agent.id, data.input.slice(0, 100), now(), teamId || null);
         if (teamId)
-          db.prepare(
-            "UPDATE teams SET conversation_id=? WHERE id=? AND owner_id=? AND manager_id=? AND conversation_id IS NULL AND deleted_at IS NULL",
-          ).run(conversation, teamId, owner, agent.id);
+          teamsQueries.claimConversation(db, conversation, teamId, owner, agent.id);
       }
       const previousReview = runsQueries.latestConversationPayloadByRowid(db, owner, conversation) as { id: string; payload: string } | undefined;
       const reviewId = data.reviewId || (previousReview ? readRunReviewId(previousReview.payload, previousReview.id) : undefined);
       if (
         !reviewId &&
-        db
-          .prepare(
-            "SELECT 1 FROM teams t WHERE t.owner_id=? AND t.preset_id='code-review' AND t.deleted_at IS NULL AND (t.manager_id=? OR EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=?))",
-          )
-          .get(owner, agent.id, agent.id)
+        teamsQueries.hasReviewAgent(db, owner, agent.id, agent.id)
       )
         throw new Problem(
           409,
@@ -310,13 +296,7 @@ export function submit(
           );
         }
       }
-      db.prepare(
-        "UPDATE conversations SET execution_connection_id=COALESCE(execution_connection_id,?),project_id=COALESCE(project_id,?) WHERE id=?",
-      ).run(
-        connection.id,
-        folderId,
-        conversation,
-      );
+      conversationsQueries.pinExecution(db, connection.id, folderId, conversation);
       const run = enqueue(owner, data.input, data.idempotencyKey, {
         agent: agent.id,
         conversation,
@@ -400,11 +380,7 @@ function apiSessionActivities(
 // run does not reset them to undiscovered before its first result.
 function reportedFeatures(run: Run, runtime: "codex" | "claude" | undefined) {
   if (!runtime || !run.conversation_id) return [];
-  const row = db
-    .prepare(
-      "SELECT record FROM agent_activities WHERE owner_id=? AND scope=? AND activity_key=?",
-    )
-    .get(run.owner_id, run.conversation_id, `capabilities:api:${runtime}`) as
+  const row = agentActivitiesQueries.record(db, run.owner_id, run.conversation_id, `capabilities:api:${runtime}`) as
     | { record: string }
     | undefined;
   const capabilities = row ? JSON.parse(row.record).capabilities || {} : {};
@@ -480,13 +456,13 @@ export async function executeAgent(run: Run): Promise<boolean> {
   const harness = connection.metadata.loop55Harness;
   if (harness &&
     (providerChangeInProgress(harness) || nativeSignIns.inProgress(harness)) &&
-    !db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id) &&
-    !db.prepare("SELECT 1 FROM agent_checkpoints WHERE run_id=?").get(run.id))
+    !nativeDispatchQueries.exists(db, run.id) &&
+    !agentCheckpointsQueries.exists(db, run.id))
     throw new RunDeferred("Wait for this harness’s provider change to finish.");
   if (connection.status !== "connected") {
     // Disconnection can race the atomic queue claim. Only a mail turn that
     // has not begun model/tool work can safely return to the queue here.
-    if (!queuedMailReady(run) && !db.prepare("SELECT 1 FROM agent_checkpoints WHERE run_id=?").get(run.id))
+    if (!queuedMailReady(run) && !agentCheckpointsQueries.exists(db, run.id))
       throw new RunDeferred("Agent mail is waiting for its provider to reconnect.");
     throw new Problem(409, "Reconnect this provider before continuing.");
   }
@@ -494,9 +470,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
     if (!companionMode) throw new Problem(409, "This conversation belongs to a companion deployment.");
     return nativeSessions.execute(run);
   }
-  let cp = db
-    .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
-    .get(run.id) as QueryRow<"agent_checkpoints"> | undefined;
+  let cp = agentCheckpointsQueries.get(db, run.id) as QueryRow<"agent_checkpoints"> | undefined;
   if (!cp) {
     const turns = parseMessages(messagesQueries.agentHistory(db, run.conversation_id, run.owner_id, run.id, run.id));
     const history: ChatMessage[] = turns.map((m) => ({
@@ -532,13 +506,9 @@ export async function executeAgent(run: Run): Promise<boolean> {
         folder: snapshot.folderId,
         metadata: { ...snapshot, messageId, partial: true },
       });
-      db.prepare(
-        "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,?)",
-      ).run(run.id, messageId, artifactId, JSON.stringify(history));
+      agentCheckpointsQueries.insert(db, run.id, messageId, artifactId, JSON.stringify(history));
     }).immediate();
-    cp = QueryRecords.agent_checkpoints.parse(db
-      .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
-      .get(run.id));
+    cp = QueryRecords.agent_checkpoints.parse(agentCheckpointsQueries.get(db, run.id));
   }
   let history = JSON.parse(cp.history) as ChatMessage[],
     output = cp.output as string,
@@ -559,10 +529,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   );
   const steering = new SteeringInbox(run, (message) => {
     history.push(message);
-    db.prepare("UPDATE agent_checkpoints SET history=? WHERE run_id=?").run(
-      JSON.stringify(history),
-      run.id,
-    );
+    agentCheckpointsQueries.history(db, JSON.stringify(history), run.id);
   }, !snapshot.workflowRun && !snapshot.reviewId);
   const persist = db.transaction((partial: boolean) => {
     const metadata = JSON.stringify(MessageMetadata.parse({
@@ -571,18 +538,9 @@ export async function executeAgent(run: Run): Promise<boolean> {
       partial,
     }));
     messagesQueries.updateContentAndMetadata(db, output, metadata, cp.message_id);
-    db.prepare(
-      // Version 1 belongs to the generator. A saved user content revision
-      // becomes the current artifact and must never be replaced by a chunk.
-      "UPDATE artifacts SET content=?,metadata=?,updated_at=? WHERE id=? AND NOT EXISTS (SELECT 1 FROM artifact_versions WHERE artifact_id=artifacts.id AND version>1)",
-    ).run(output, metadata, now(), cp.artifact_id);
-    db.prepare(
-      "UPDATE artifact_versions SET content=? WHERE artifact_id=? AND version=1",
-    ).run(output, cp.artifact_id);
-    db.prepare("UPDATE agent_checkpoints SET output=? WHERE run_id=?").run(
-      output,
-      run.id,
-    );
+    artifactsQueries.streamInitial(db, output, metadata, now(), cp.artifact_id);
+    artifactVersionsQueries.streamInitial(db, output, cp.artifact_id);
+    agentCheckpointsQueries.output(db, output, run.id);
   }).immediate;
   const watched = watchRun(run);
   const controller = new AbortController();
@@ -683,11 +641,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           } catch (error) {
             // The broker marks calls whose external outcome is uncertain.
             const unknown = (
-              db
-                .prepare(
-                  "SELECT 1 FROM tool_invocations WHERE run_id=? AND call_id=? AND state='unknown'",
-                )
-                .get(run.id, invocation.call.id) as unknown
+              toolInvocationsQueries.isUnknown(db, run.id, invocation.call.id) as unknown
             )
               ? true
               : false;
@@ -779,15 +733,11 @@ export async function executeAgent(run: Run): Promise<boolean> {
             isError: outcome.result.isError === true,
           });
           invocation.done = true;
-          db.prepare(
-            "UPDATE agent_checkpoints SET history=?,pending=? WHERE run_id=?",
-          ).run(JSON.stringify(history), JSON.stringify(pending), run.id);
+          agentCheckpointsQueries.pending(db, JSON.stringify(history), JSON.stringify(pending), run.id);
         }
         cp.stage = "model";
         cp.pending = "[]";
-        db.prepare(
-          "UPDATE agent_checkpoints SET stage='model',pending='[]' WHERE run_id=?",
-        ).run(run.id);
+        agentCheckpointsQueries.modelStage(db, run.id);
       }
       const state = (
         runsQueries.state(db, run.id) as {
@@ -821,10 +771,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         paused = false;
       db.transaction(() => {
         steering.appendPending(history);
-        db.prepare("UPDATE agent_checkpoints SET history=? WHERE run_id=?").run(
-          JSON.stringify(history),
-          run.id,
-        );
+        agentCheckpointsQueries.history(db, JSON.stringify(history), run.id);
       }).immediate();
       let turnText = "";
       // Each provider round has a public message. Only the round with no tool calls
@@ -964,10 +911,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         !signal.aborted
       ) {
         round++;
-        db.prepare("UPDATE agent_checkpoints SET round=? WHERE run_id=?").run(
-          round,
-          run.id,
-        );
+        agentCheckpointsQueries.round(db, round, run.id);
         continue;
       }
       signal.throwIfAborted();
@@ -988,9 +932,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           providerContent,
           paused: true,
         });
-        db.prepare(
-          "UPDATE agent_checkpoints SET round=?,history=? WHERE run_id=?",
-        ).run(round, JSON.stringify(history), run.id);
+        agentCheckpointsQueries.roundHistory(db, round, JSON.stringify(history), run.id);
         continue;
       }
       if (!calls.length && !turnText.trim())
@@ -1011,17 +953,13 @@ export async function executeAgent(run: Run): Promise<boolean> {
         const continuing = db
           .transaction(() => {
             if (steering.appendPending(history)) {
-              db.prepare(
-                "UPDATE agent_checkpoints SET round=?,history=? WHERE run_id=?",
-              ).run(round, JSON.stringify(history), run.id);
+              agentCheckpointsQueries.roundHistory(db, round, JSON.stringify(history), run.id);
               return true;
             }
             saveTurn(true);
             persist(false);
             runsQueries.setResult(db, output, run.id);
-            db.prepare(
-              "UPDATE agent_checkpoints SET round=?,history=?,stage='done' WHERE run_id=?",
-            ).run(round, JSON.stringify(history), run.id);
+            agentCheckpointsQueries.done(db, round, JSON.stringify(history), run.id);
             return false;
           })
           .immediate();
@@ -1060,9 +998,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       });
       cp.stage = "tools";
       cp.pending = JSON.stringify(pending);
-      db.prepare(
-        "UPDATE agent_checkpoints SET round=?,history=?,pending=?,stage='tools' WHERE run_id=?",
-      ).run(round, JSON.stringify(history), cp.pending, run.id);
+      agentCheckpointsQueries.toolsStage(db, round, JSON.stringify(history), cp.pending, run.id);
     }
   } catch (error) {
     persist(true);
