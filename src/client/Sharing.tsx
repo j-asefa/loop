@@ -202,7 +202,7 @@ function ShareForm({
           value={draft.question}
           onChange={(e) => update({ question: e.target.value })}
           rows={3}
-          placeholder="What could we build with this? Or @agent-name, review it…"
+          placeholder="What could we build with this? Or ask an agent to review it…"
         />
       </label>
       <label>

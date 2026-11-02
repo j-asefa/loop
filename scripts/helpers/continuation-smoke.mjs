@@ -188,7 +188,10 @@ export async function continuationSmoke(page, fixture) {
   ).toBeVisible();
   await expect(
     page.getByRole("textbox", { name: "Reply to agent" }),
-  ).toHaveAttribute("placeholder", `Reply to @${target.name}…`);
+  ).toHaveAttribute(
+    "placeholder",
+    `Reply to ${target.name.charAt(0).toUpperCase() + target.name.slice(1)}…`,
+  );
   assert.deepEqual(
     fixture.db
       .prepare(

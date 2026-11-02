@@ -1189,7 +1189,7 @@ export function renderComposer({
                 }}
                 placeholder={
                   threadMode
-                    ? `Reply to @${activeAgent?.name || "agent"}…`
+                    ? `Reply to ${(activeAgent?.name || "agent").replace(/^./, (c) => c.toUpperCase())}…`
                     : "Ask anything…"
                 }
                 rows={threadMode ? 1 : 2}

@@ -57,7 +57,10 @@ export async function conversationLiveSmoke(page, capture) {
       ).toBeVisible();
       await expect(
         page.getByRole("textbox", { name: "Reply to agent" }),
-      ).toHaveAttribute("placeholder", `Reply to @${agentName}…`);
+      ).toHaveAttribute(
+        "placeholder",
+        `Reply to ${agentName.charAt(0).toUpperCase() + agentName.slice(1)}…`,
+      );
       await expect(
         page.getByRole("combobox", { name: "Agent recipient" }),
       ).toHaveCount(0);
