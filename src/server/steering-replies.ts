@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import { PublishReply, ReplyState } from "../shared/steering-replies.js";
 import { db, now } from "./db.js";
 import { ownedRun, Problem } from "./domain.js";
@@ -14,14 +15,12 @@ export function publishReply(run: Run, callId: string, input: unknown) {
       const key = `reply:${callId}`;
       // Publication and its card commit together. A retry after publication but
       // before the native tool receipt must return the original, immutable reply.
-      const prior = db
-        .prepare(
-          `SELECT m.id,m.content,json_extract(m.metadata,'$.reply.to') reply_to
-      FROM messages m JOIN steering_replies p ON p.message_id=m.id AND p.owner_id=m.owner_id
-      WHERE m.owner_id=? AND m.run_id=? AND m.update_key=?`,
-        )
-        .get(current.owner_id, current.id, key) as
-        { id: string; content: string; reply_to: string } | undefined;
+      const prior = messagesQueries.publishedReply(
+        db,
+        current.owner_id,
+        current.id,
+        key,
+      ) as { id: string; content: string; reply_to: string } | undefined;
       if (prior) {
         if (prior.content !== args.body || prior.reply_to !== args.replyTo)
           throw new Problem(409, "Reply publication identity was reused");

@@ -1,3 +1,5 @@
+import * as messagesQueries from "./sql/messages.js";
+import * as runsQueries from "./sql/runs.js";
 import { DoneReadInput, FeedUpdateInput, SavedLabelInput } from "../shared/mobile-contract-schemas.js";
 import { assertFeedApplied, projectionFeed, projectionDoneRows } from "./feed-card-read.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
@@ -18,8 +20,6 @@ export { createScheduledSend, listScheduledSends, cancelScheduledSend, editSched
 export { reorderRun, editQueuedRun, withdrawQueuedRun, moveQueuedRun } from "./mobile-return/queued-runs.js";
 export { forkConversation } from "./mobile-return/forking.js";
 
-const publicState = (r: string) =>
-  `CASE WHEN ${r}.state IN ('running','pausing') AND ${r}.worker_id IS NULL THEN 'waiting_children' ELSE ${r}.state END`;
 
 // ---------------------------------------------------------------------------
 // 2. Inbox
@@ -207,13 +207,7 @@ export function setDoneCardHidden(
       ownedConversation(conversation, owner);
       const isRun = cardKey.startsWith("run:");
       const target = cardKey.slice(cardKey.indexOf(":") + 1);
-      const record = db
-        .prepare(
-          isRun
-            ? "SELECT 1 FROM runs WHERE id=? AND owner_id=? AND conversation_id=? AND state IN ('completed','cancelled','failed','interrupted')"
-            : "SELECT 1 FROM messages WHERE id=? AND owner_id=? AND conversation_id=?",
-        )
-        .get(target, owner, conversation);
+      const record = (isRun ? runsQueries.doneInConversation(db, target, owner, conversation) : messagesQueries.existsInConversation(db, target, owner, conversation));
       if (!record) throw new Problem(404, "Done card not found");
       if (hidden) {
         db.prepare(
@@ -272,28 +266,7 @@ type AwayItem = {
   updated_at: number;
 };
 export function awaySummary(owner: string, since: number) {
-  const summary = (condition: string, params: unknown[] = []) =>
-    db
-      .prepare(
-        `SELECT r.conversation_id,c.title,a.name agent_name,r.id run_id,${publicState("r")} state,r.updated_at
-        FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
-        LEFT JOIN agents a ON a.id=r.agent_id AND a.owner_id=r.owner_id
-        WHERE r.owner_id=? AND (${condition})
-        ORDER BY r.updated_at DESC,r.rowid DESC LIMIT 20`,
-      )
-      .all(owner, ...params) as AwayItem[];
-  return {
-    completed: summary("r.state='completed' AND r.updated_at>?", [since]),
-    needs: summary(
-      `r.attention_dismissed_at IS NULL AND (r.state IN ('awaiting_approval','paused')
-      OR EXISTS(SELECT 1 FROM approvals ap WHERE ap.run_id=r.id AND ap.owner_id=r.owner_id AND ap.state='pending' AND ap.expires_at>?)
-      OR (r.state IN ('failed','interrupted') AND NOT EXISTS(SELECT 1 FROM runs newer WHERE newer.owner_id=r.owner_id AND newer.conversation_id=r.conversation_id AND (newer.created_at>r.created_at OR (newer.created_at=r.created_at AND newer.rowid>r.rowid)))))`,
-      [now()],
-    ),
-    failed: summary("r.state IN ('failed','interrupted') AND r.updated_at>?", [
-      since,
-    ]),
-  };
+  return runsQueries.awaySummary(db, owner, since, now);
 }
 
 // ---------------------------------------------------------------------------
@@ -487,14 +460,7 @@ const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 export function conversationUsage(owner: string, conversation: string) {
   ownedConversation(conversation, owner);
-  const events = db
-    .prepare(
-      // Start with this conversation's runs, then visit only their usage
-      // receipts. Polling must never scan the workspace's tool/event history.
-      `SELECT e.run_id,e.type,e.payload FROM runs r CROSS JOIN events e INDEXED BY events_usage ON r.id=e.run_id AND r.owner_id=e.owner_id
-      WHERE r.owner_id=? AND r.conversation_id=? AND e.type IN ('provider.receipt','native.usage') ORDER BY e.id`,
-    )
-    .all(owner, conversation) as {
+  const events = runsQueries.conversationUsageEvents(db, owner, conversation) as {
     run_id: string;
     type: string;
     payload: string;
@@ -619,14 +585,7 @@ export function projectSummaries(owner: string) {
   const agents = byProject<{ n: number }>(
     "SELECT fp.project_id,count(*) n FROM agents a JOIN folder_project fp ON fp.id IS a.folder_id WHERE a.owner_id=@owner AND a.retired_at IS NULL GROUP BY fp.project_id",
   );
-  const runs = byProject<{ last: number; working: number; needs: number }>(
-    `SELECT fp.project_id,max(r.updated_at) last,
-      sum(r.state IN ('running','pausing')) working,
-      sum(r.attention_dismissed_at IS NULL AND (r.state IN ('awaiting_approval','paused') OR r.state IN ('failed','interrupted'))) needs
-    FROM runs r LEFT JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
-    JOIN folder_project fp ON fp.id IS COALESCE(c.project_id,json_extract(r.payload,'$.folderId'))
-    WHERE r.owner_id=@owner AND (r.conversation_id IS NULL OR c.id IS NOT NULL) GROUP BY fp.project_id`,
-  );
+  const runs = new Map(runsQueries.projectSummaries(db, owner).map(row => [row.project_id, row]));
   const artifacts = byProject<{ last: number }>(
     "SELECT fp.project_id,max(a.updated_at) last FROM artifacts a JOIN folder_project fp ON fp.id IS a.folder_id WHERE a.owner_id=@owner AND a.archived=0 GROUP BY fp.project_id",
   );

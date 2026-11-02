@@ -1,3 +1,4 @@
+import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import { db } from "../db.js";
 import { ownedConversation } from "../domain.js";
@@ -21,11 +22,7 @@ export function conversationOutline(
   ownedConversation(conversation, owner);
   if (q?.trim())
     return { items: [], matches: threadMatches(owner, conversation, q.trim()) };
-  const messages = db
-    .prepare(
-      "SELECT id,run_id,role,substr(content,1,1000) content,created_at,rowid seq FROM messages WHERE owner_id=? AND conversation_id=? AND json_extract(metadata,'$.progress') IS NOT 1 ORDER BY created_at,rowid",
-    )
-    .all(owner, conversation) as {
+  const messages = messagesQueries.outline(db, owner, conversation) as {
     id: string;
     run_id: string | null;
     role: string;
@@ -104,22 +101,11 @@ type ThreadMatch = {
 };
 function threadMatches(owner: string, conversation: string, q: string) {
   const pattern = contains(q);
-  const rows = db
-    .prepare(
-      `SELECT m.id,m.role,m.run_id,m.content,m.created_at,
-        COALESCE(json_extract(m.metadata,'$.progress'),0) progress,r.state run_state,r.error run_error,
-        m.id=(SELECT f.id FROM messages f WHERE f.owner_id=m.owner_id AND f.conversation_id=m.conversation_id AND f.run_id=m.run_id
-          AND f.role='assistant' AND COALESCE(json_extract(f.metadata,'$.progress'),0)=0 AND length(trim(f.content))>0
-          ORDER BY f.created_at DESC,f.rowid DESC LIMIT 1) final,
-        m.id=(SELECT l.id FROM messages l WHERE l.owner_id=m.owner_id AND l.conversation_id=m.conversation_id AND l.run_id=m.run_id
-          ORDER BY l.created_at DESC,l.rowid DESC LIMIT 1) last
-      FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id
-      WHERE m.owner_id=@owner AND m.conversation_id=@conversation
-        AND NOT (json_extract(m.metadata,'$.progress') IS 1 AND json_extract(m.metadata,'$.final') IS 1)
-        AND (m.content LIKE @q ESCAPE '\\' OR (r.state IN ('failed','interrupted') AND r.error LIKE @q ESCAPE '\\'))
-      ORDER BY m.created_at DESC,m.rowid DESC LIMIT 100`,
-    )
-    .all({ owner, conversation, q: pattern }) as {
+  const rows = messagesQueries.threadMatches(db, {
+    owner,
+    conversation,
+    q: pattern,
+  }) as {
     id: string;
     role: string;
     run_id: string | null;

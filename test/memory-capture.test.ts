@@ -27,9 +27,11 @@ function message(owner: string, content: string) {
   return message;
 }
 
+// The query module prepares once per connection; retain the captured SQL for
+// subsequent query-plan assertions against this same fixture connection.
+let query = "";
 function captureQuery() {
   const prepare = db.prepare.bind(db);
-  let query = "";
   const spy = vi.spyOn(db, "prepare").mockImplementation((sql: string) => {
     if (sql.includes("SELECT m.*") && sql.includes("FROM memory_sources s"))
       query = sql;

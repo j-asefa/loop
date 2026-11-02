@@ -49,6 +49,15 @@ export const QueryRecords = {
     source_path: z.string().nullable(),
   }),
   conversations: ConversationRecord,
+  conversation_transcript: z.object({
+    ordinal: z.number(),
+    owner_id: z.string(),
+    conversation_id: z.string(),
+    run_id: z.string().nullable(),
+    message_id: z.string(),
+    position: z.number().nullable(),
+    phase: z.number(),
+  }),
   delegations: z.object({
     parent_run_id: z.string(),
     call_id: z.string(),

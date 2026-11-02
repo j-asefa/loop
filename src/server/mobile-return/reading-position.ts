@@ -1,3 +1,4 @@
+import * as messagesQueries from "../sql/messages.js";
 import { PositionInput } from "../../shared/mobile-contract-schemas.js";
 import { db, now } from "../db.js";
 import { ownedConversation, Problem } from "../domain.js";
@@ -39,12 +40,12 @@ function conversationMessage(
   conversation: string,
   message: string,
 ) {
-  return db
-    .prepare(
-      "SELECT id,created_at FROM messages WHERE id=? AND owner_id=? AND conversation_id=?",
-    )
-    .get(message, owner, conversation) as
-    { id: string; created_at: number } | undefined;
+  return messagesQueries.conversationPosition(
+    db,
+    message,
+    owner,
+    conversation,
+  ) as { id: string; created_at: number } | undefined;
 }
 
 export function savePosition(

@@ -1,4 +1,5 @@
 import * as runsQueries from "./sql/runs.js";
+import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
 
 import { db, emit, now } from "./db.js";
@@ -110,11 +111,8 @@ export function runPreview(owner: string, runId: string) {
     ({ content: string } & Record<string, unknown>) | undefined;
   const latest = !artifact?.content
     ? (
-        db
-          .prepare(
-            `SELECT content FROM messages WHERE owner_id=? AND run_id=? AND role='assistant' AND length(trim(content))>0 ORDER BY created_at DESC,rowid DESC LIMIT 1`,
-          )
-          .get(owner, runId) as { content: string } | undefined
+        messagesQueries.latestAssistantContent(db, owner, runId) as
+          { content: string } | undefined
       )?.content
     : undefined;
   if (artifact && latest) artifact.content = latest;

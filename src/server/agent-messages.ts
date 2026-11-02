@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import { db } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { z } from "zod";
@@ -18,24 +19,13 @@ export function agentMessages(owner: string, agent: string, before?: string) {
       throw new Problem(400, "Invalid message cursor");
     }
   }
-  const items = db
-    .prepare(
-      `WITH entries AS (
-    SELECT m.id,m.content,COALESCE((SELECT f.created_at FROM messages f
-        WHERE json_extract(m.metadata,'$.progress') IS NOT 1
-          AND f.owner_id=m.owner_id AND f.run_id=m.run_id AND f.update_key IS NOT NULL
-          AND json_extract(f.metadata,'$.final')=1
-        ORDER BY f.rowid DESC LIMIT 1),m.created_at) created_at,m.conversation_id,m.run_id,
-      CASE WHEN json_extract(m.metadata,'$.progress')=1 THEN 0 ELSE 1 END final
-    FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
-    WHERE m.owner_id=? AND c.agent_id=? AND m.role='assistant'
-      AND json_extract(m.metadata,'$.partial') IS NOT 1
-      AND NOT (json_extract(m.metadata,'$.progress') IS 1 AND json_extract(m.metadata,'$.final') IS 1)
-      AND length(trim(m.content))>0
-    ) SELECT *, (SELECT json_extract(r.payload,'$.model') FROM runs r WHERE r.id=entries.run_id AND r.owner_id=?) model FROM entries WHERE (created_at,final,id)<(?,?,?)
-    ORDER BY created_at DESC,final DESC,id DESC LIMIT 51`,
-    )
-    .all(owner, agent, owner, ...cursor) as {
+  const items = messagesQueries.agentOutputPage(
+    db,
+    owner,
+    agent,
+    owner,
+    ...cursor,
+  ) as {
     id: string;
     content: string;
     created_at: number;

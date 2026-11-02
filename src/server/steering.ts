@@ -1,4 +1,5 @@
 import * as runsQueries from "./sql/runs.js";
+import * as messagesQueries from "./sql/messages.js";
 import { MessageMetadata, parseRun } from "./row-schemas.js";
 import {
   recordFleetEffect,
@@ -70,9 +71,8 @@ export function saveSteering(
         messageId = id(),
         messageAt = now();
       recordFleetEffect(run.owner_id, "steering", steeringId);
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user',?,?,?)",
-      ).run(
+      messagesQueries.insertUser(
+        db,
         messageId,
         run.owner_id,
         run.conversation_id,

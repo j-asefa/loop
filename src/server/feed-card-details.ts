@@ -1,4 +1,5 @@
 import * as runsQueries from "./sql/runs.js";
+import * as messagesQueries from "./sql/messages.js";
 import * as watchQueries from "./sql/pr-watches.js";
 import type Database from "better-sqlite3";
 import { summarize, type VerificationItem } from "../shared/verification.js";
@@ -157,11 +158,8 @@ export function runDetails(
       )
       .get(owner, runId) as { content: string } | undefined;
     const latest = !artifact?.content
-      ? (db
-          .prepare(
-            "SELECT content FROM messages WHERE owner_id=? AND run_id=? AND role='assistant' AND length(trim(content))>0 ORDER BY created_at DESC,rowid DESC LIMIT 1",
-          )
-          .get(owner, runId) as { content: string } | undefined)
+      ? (messagesQueries.latestAssistantContent(db, owner, runId) as
+          { content: string } | undefined)
       : undefined;
     detail.live_preview =
       (latest?.content ?? artifact?.content ?? "").trim().slice(0, 4000) ||

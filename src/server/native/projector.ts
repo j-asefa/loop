@@ -1,4 +1,5 @@
 import * as runsQueries from "../sql/runs.js";
+import * as messagesQueries from "../sql/messages.js";
 import { MessageMetadata, agentPayload } from "../row-schemas.js";
 import type { QueryRow } from "../query-records.js";
 import { observeCompletedOutput } from "../run-verifications.js";
@@ -484,7 +485,8 @@ export class NativeProjector {
         output !== checkpoint.output ||
         checkpoint.stage !== (partial ? "native" : "done")
       ) {
-        db.prepare("UPDATE messages SET content=?,metadata=? WHERE id=?").run(
+        messagesQueries.updateContentAndMetadata(
+          db,
           output,
           metadata,
           checkpoint.message_id,
@@ -523,9 +525,12 @@ export class NativeProjector {
             },
           });
         else
-          db.prepare(
-            "DELETE FROM messages WHERE owner_id=? AND run_id=? AND update_key=?",
-          ).run(run.owner_id, run.id, `native-message:${item.id}`);
+          messagesQueries.deleteRunUpdate(
+            db,
+            run.owner_id,
+            run.id,
+            `native-message:${item.id}`,
+          );
       }
       if (finalItem)
         recordConversationUpdate(run, `native-message:${finalItem.id}`, {

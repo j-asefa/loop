@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import { readdir, readFile, copyFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -204,9 +205,8 @@ export function importSession(
       now(),
     );
     if (["user", "assistant"].includes(item.kind))
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?)",
-      ).run(
+      messagesQueries.insertImported(
+        db,
         id(),
         OWNER,
         conversation,

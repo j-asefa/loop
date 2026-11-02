@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import {
   AgentHandle as handle,
@@ -33,9 +34,11 @@ export function owned(table: string, recordId: string, owner: string): unknown {
   const record =
     table === "runs"
       ? runsQueries.owned(db, recordId, owner)
-      : db
-          .prepare(`SELECT * FROM ${table} WHERE id=? AND owner_id=?`)
-          .get(recordId, owner);
+      : table === "messages"
+        ? messagesQueries.owned(db, recordId, owner)
+        : db
+            .prepare(`SELECT * FROM ${table} WHERE id=? AND owner_id=?`)
+            .get(recordId, owner);
   if (!record) throw new Problem(404, "Item not found");
   return record;
 }

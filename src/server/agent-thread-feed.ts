@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
 import { db } from "./db.js";
 import { ownedAgent, ownedFolder, Problem } from "./domain.js";
@@ -181,17 +182,14 @@ export function readAgentThread(
         content: mail.body,
         message_id:
           (
-            db
-              .prepare(
-                "SELECT id FROM messages WHERE owner_id=? AND conversation_id=? AND run_id IN (?,?) AND json_extract(metadata,'$.automation.mailId')=? ORDER BY created_at,id LIMIT 1",
-              )
-              .get(
-                owner,
-                mail.recipient_conversation_id,
-                mail.run_id,
-                mail.requeued_run_id,
-                mail.id,
-              ) as { id: string } | undefined
+            messagesQueries.mailMessageId(
+              db,
+              owner,
+              mail.recipient_conversation_id,
+              mail.run_id,
+              mail.requeued_run_id,
+              mail.id,
+            ) as { id: string } | undefined
           )?.id ?? null,
         attachments: db
           .prepare(

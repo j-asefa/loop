@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import { type Artifact } from "./row-schemas.js";
 
 import { z } from "zod";
@@ -225,13 +226,13 @@ export function readRunFile(
   length: number,
   encoding: "utf8" | "base64",
 ) {
-  const allowed = db
-    .prepare(
-      `SELECT 1 FROM messages m, json_each(m.metadata,'$.attachments') a
-    WHERE m.owner_id=? AND m.conversation_id=? AND json_extract(a.value,'$.id')=? AND ${READABLE_MAIL_SQL}
-    AND (m.run_id IS NULL OR (SELECT rowid FROM runs WHERE id=m.run_id)<=(SELECT rowid FROM runs WHERE id=?))`,
-    )
-    .get(run.owner_id, run.conversation_id, fileId, run.id);
+  const allowed = messagesQueries.runAttachmentReadable(
+    db,
+    run.owner_id,
+    run.conversation_id,
+    fileId,
+    run.id,
+  );
   if (!allowed)
     throw new Problem(404, "This file is not attached to the conversation");
   const { object, text } = uploadedFile(run.owner_id, fileId);

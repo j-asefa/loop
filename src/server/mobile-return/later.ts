@@ -1,3 +1,4 @@
+import * as messagesQueries from "../sql/messages.js";
 import { LaterInput as laterInput } from "../../shared/mobile-contract-schemas.js";
 import { db, id, now } from "../db.js";
 import { ownedFolder, owned, Problem } from "../domain.js";
@@ -60,11 +61,8 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
         }
       | undefined;
     if (!c) return null;
-    const last = db
-      .prepare(
-        "SELECT substr(content,1,4000) content FROM messages WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-      )
-      .get(owner, c.id) as { content: string } | undefined;
+    const last = messagesQueries.latestContent(db, owner, c.id) as
+      { content: string } | undefined;
     return {
       title: c.title as string,
       preview: collapse(last?.content, 200),
@@ -78,20 +76,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
     };
   }
   if (kind === "message") {
-    const m = db
-      .prepare(
-        `SELECT m.id,substr(m.content,1,4000) content,m.conversation_id,c.title,a.name agent_name,a.provider,
-        r.input card_run_input,r.state card_run_state,
-        CASE WHEN m.role='assistant' AND json_extract(m.metadata,'$.reply.published')=1 THEN (
-          SELECT q.content FROM messages q WHERE q.id=json_extract(m.metadata,'$.reply.to')
-          AND q.owner_id=m.owner_id AND q.conversation_id=m.conversation_id AND q.run_id=m.run_id AND q.role='user'
-        ) END reply_prompt,
-        COALESCE(json_extract(r.payload,'$.folderId'),c.project_id) folder_id
-        FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
-        LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id AND r.conversation_id=m.conversation_id
-        LEFT JOIN agents a ON a.id=c.agent_id AND a.owner_id=c.owner_id WHERE m.id=? AND m.owner_id=?`,
-      )
-      .get(target, owner) as
+    const m = messagesQueries.laterTarget(db, target, owner) as
       | ({
           id: string;
           title: string;

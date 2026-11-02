@@ -1,3 +1,4 @@
+import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import { QueryRecords, type QueryRow } from "../query-records.js";
 
@@ -173,9 +174,15 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
           },
         });
         inheritFleetEffect(run.owner_id, "run", run.id, child.id);
-        db.prepare(
-          "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'user',?,?)",
-        ).run(id(), run.owner_id, conversation, child.id, prompt, now());
+        messagesQueries.insertWorkflowUser(
+          db,
+          id(),
+          run.owner_id,
+          conversation,
+          child.id,
+          prompt,
+          now(),
+        );
         db.prepare(
           "UPDATE workflow_steps SET state='running',child_run_id=? WHERE run_id=? AND step_id=?",
         ).run(child.id, run.id, step.id);

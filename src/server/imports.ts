@@ -1,4 +1,5 @@
 import * as runsQueries from "./sql/runs.js";
+import * as messagesQueries from "./sql/messages.js";
 import { MessageMetadata } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 import { z } from "zod";
@@ -399,9 +400,8 @@ export async function executeImport(run: Run) {
         )
           continue;
         const messageId = id();
-        db.prepare(
-          "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-        ).run(
+        messagesQueries.insert(
+          db,
           messageId,
           run.owner_id,
           conversation.id,

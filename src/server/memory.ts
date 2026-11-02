@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import "../../runtime/environment.mjs";
 import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -59,9 +60,7 @@ function eligible(s: any) {
       Pick<QueryRow<"native_sessions">, "coherent"> | undefined;
     if (native && !native.coherent) return false;
     if (s.message_id) {
-      const m = db
-        .prepare("SELECT metadata FROM messages WHERE id=? AND owner_id=?")
-        .get(s.message_id, s.owner_id) as
+      const m = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id) as
         Pick<QueryRow<"messages">, "metadata"> | undefined;
       if (!m || JSON.parse(m.metadata).superseded) return false;
     }
@@ -121,12 +120,9 @@ export function captureMemory() {
     // Match the owner-leading unique key: without the owner predicate this
     // correlated lookup scans every saved source for every message, blocking
     // the companion's API and WebSocket heartbeats on each background pass.
-    const rows = db
-      .prepare(
-        `SELECT m.*,c.project_id,c.title,c.agent_id,r.state FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN runs r ON r.id=m.run_id
-      WHERE m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (r.state IN ('completed','failed','cancelled') OR m.run_id IS NULL) AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.owner_id=m.owner_id AND s.kind='message' AND s.source_id=m.id AND s.updated_at>=m.created_at AND s.content_hash IS NOT NULL AND s.content=m.content) LIMIT 250`,
-      )
-      .all() as (QueryRow<"messages"> & {
+    const rows = messagesQueries.memoryCandidates(
+      db,
+    ) as (QueryRow<"messages"> & {
       state: string | null;
       project_id: string | null;
       title: string;

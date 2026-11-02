@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import { createHash } from "node:crypto";
 import type { z } from "zod";
 import { FleetMailFile } from "../shared/fleet-mail.js";
@@ -20,11 +21,12 @@ export function sharedMailFiles(run: Run, ids: string[]) {
         "SELECT 1 FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=? AND a.agent_id=?",
       )
       .get(fileId, run.owner_id, run.agent_id);
-    const attached = db
-      .prepare(
-        `SELECT 1 FROM messages m, json_each(m.metadata,'$.attachments') a WHERE m.owner_id=? AND m.conversation_id=? AND json_extract(a.value,'$.id')=? AND ${READABLE_MAIL_SQL}`,
-      )
-      .get(run.owner_id, run.conversation_id, fileId);
+    const attached = messagesQueries.sharedAttachmentReadable(
+      db,
+      run.owner_id,
+      run.conversation_id,
+      fileId,
+    );
     if (!published && !attached)
       throw new Problem(
         403,

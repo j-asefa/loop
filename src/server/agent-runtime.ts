@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import { assertFleetEffect } from "./fleet-effect-authorizations.js";
 import { MessageMetadata, readRunFolder, readRunReviewId, parseMessages, parseRuns, maybeRun, agentPayload } from "./row-schemas.js";
@@ -322,16 +323,7 @@ export function submit(
         payload: snapshot,
       });
       const messageId = id(), messageAt = now();
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-      ).run(
-        messageId,
-        owner,
-        conversation,
-        run.id,
-        "user",
-        data.input,
-        JSON.stringify(MessageMetadata.parse({
+      messagesQueries.insert(db, messageId, owner, conversation, run.id, "user", data.input, JSON.stringify(MessageMetadata.parse({
           attachments,
           replyTo,
           personal: data.personal === true,
@@ -506,11 +498,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
     .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
     .get(run.id) as QueryRow<"agent_checkpoints"> | undefined;
   if (!cp) {
-    const turns = parseMessages(db
-      .prepare(
-        `SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.owner_id=? AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=?)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=? OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid`,
-      )
-      .all(run.conversation_id, run.owner_id, run.id, run.id));
+    const turns = parseMessages(messagesQueries.agentHistory(db, run.conversation_id, run.owner_id, run.id, run.id));
     const history: ChatMessage[] = turns.map((m) => ({
       role: m.role as "user" | "assistant",
       content: attachmentPrompt(
@@ -534,16 +522,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       );
     const messageId = id();
     db.transaction(() => {
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','',?,?)",
-      ).run(
-        messageId,
-        run.owner_id,
-        run.conversation_id,
-        run.id,
-        JSON.stringify(MessageMetadata.parse({ ...snapshot, partial: true })),
-        now(),
-      );
+      messagesQueries.insertAssistantPlaceholder(db, messageId, run.owner_id, run.conversation_id, run.id, JSON.stringify(MessageMetadata.parse({ ...snapshot, partial: true })), now());
       const artifactId = saveArtifact(run.owner_id, {
         title: run.input.slice(0, 85),
         content: "",
@@ -591,11 +570,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       messageId: cp.message_id,
       partial,
     }));
-    db.prepare("UPDATE messages SET content=?,metadata=? WHERE id=?").run(
-      output,
-      metadata,
-      cp.message_id,
-    );
+    messagesQueries.updateContentAndMetadata(db, output, metadata, cp.message_id);
     db.prepare(
       // Version 1 belongs to the generator. A saved user content revision
       // becomes the current artifact and must never be replaced by a chunk.

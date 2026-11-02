@@ -1,3 +1,4 @@
+import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import {
   RunReorderInput,
@@ -113,12 +114,8 @@ export function editQueuedRun(owner: string, runId: string, body: unknown) {
           "This message has already started. It can no longer be edited.",
         );
       recordFleetEffectEdit(owner, "run", run.id);
-      db.prepare(
-        "UPDATE runs SET input=?,updated_at=? WHERE id=? AND owner_id=? AND state='queued' AND worker_id IS NULL",
-      ).run(input, now(), run.id, owner);
-      db.prepare(
-        "UPDATE messages SET content=? WHERE run_id=? AND owner_id=? AND role='user'",
-      ).run(input, run.id, owner);
+      runsQueries.editQueuedInput(db, input, now(), run.id, owner);
+      messagesQueries.editRunUserContent(db, input, run.id, owner);
       emit(owner, run.id, "queue.edited", {});
       return { ok: true };
     })

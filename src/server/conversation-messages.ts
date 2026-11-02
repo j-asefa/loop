@@ -1,3 +1,4 @@
+import * as transcriptQueries from "./sql/conversation-transcript.js";
 import { z } from "zod";
 import { db } from "./db.js";
 import { Problem } from "./domain.js";
@@ -13,18 +14,7 @@ const position = (item: Entry): Position => [
 const encode = (value: Position) =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
-// Order/eligibility is maintained transactionally by migrations 065/073. Materialize
-// only the page before joining content and current run/delivery state.
-export const transcriptPageSql = `WITH page AS MATERIALIZED (
-  SELECT * FROM conversation_transcript
-  WHERE owner_id=? AND conversation_id=? AND (position,phase,ordinal)<(?,?,?)
-  ORDER BY position DESC,phase DESC,ordinal DESC LIMIT 51
-) SELECT m.id,m.owner_id,m.conversation_id,m.run_id,m.role,m.content,
-  m.metadata,m.created_at,m.revision,m.run_state,m.run_error,m.run_checkout,m.run_verification,
-  p.position,p.phase,p.ordinal
-FROM page p
-JOIN message_projection m ON m.id=p.message_id AND m.owner_id=p.owner_id
-ORDER BY p.position DESC,p.phase DESC,p.ordinal DESC`;
+export { transcriptPageSql } from "./sql/conversation-transcript.js";
 
 export function conversationMessages(
   owner: string,
@@ -51,27 +41,24 @@ export function conversationMessages(
     }
   }
   if (anchor) {
-    const entry = db
-      .prepare(
-        "SELECT position,phase,ordinal FROM conversation_transcript WHERE owner_id=? AND conversation_id=? AND message_id=?",
-      )
-      .get(owner, conversation, anchor) as Entry | undefined;
+    const entry = transcriptQueries.anchor(db, owner, conversation, anchor) as
+      Entry | undefined;
     // Saved/search links to hidden native rows still open where that row was.
     const hidden = entry
       ? undefined
-      : (db
-          .prepare(
-            "SELECT position,phase,ordinal FROM transcript_message_entries WHERE owner_id=? AND conversation_id=? AND message_id=?",
-          )
-          .get(owner, conversation, anchor) as Entry | undefined);
+      : (transcriptQueries.hiddenAnchor(db, owner, conversation, anchor) as
+          Entry | undefined);
     const target = entry || hidden;
     if (!target) throw new Problem(404, "Message not found");
     cursor = position(target);
     cursor[2]++;
   }
-  const items = db
-    .prepare(transcriptPageSql)
-    .all(owner, conversation, ...cursor) as Entry[];
+  const items = transcriptQueries.page(
+    db,
+    owner,
+    conversation,
+    ...cursor,
+  ) as Entry[];
   const hasMore = items.length > 50;
   if (hasMore) items.pop();
   return {
@@ -92,14 +79,11 @@ export function conversationMessages(
 /** The agent's latest message in the visible transcript, wherever the page
  * is anchored, so a reply to it can go unquoted. */
 export function latestAgentMessage(owner: string, conversation: string) {
-  const entry = db
-    .prepare(
-      `SELECT t.message_id id,t.position,t.phase,t.ordinal FROM conversation_transcript t
-      JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
-      WHERE t.owner_id=? AND t.conversation_id=? AND t.position IS NOT NULL AND m.role='assistant'
-      ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT 1`,
-    )
-    .get(owner, conversation) as
+  const entry = transcriptQueries.latestAgentMessage(
+    db,
+    owner,
+    conversation,
+  ) as
     | { id: string; position: number; phase: number; ordinal: number }
     | undefined;
   return entry

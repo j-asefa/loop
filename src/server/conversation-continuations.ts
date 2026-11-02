@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import type { z } from "zod";
 import type { ContinueInput } from "../shared/library-contract-schemas.js";
 import { db, id, now } from "./db.js";
@@ -84,11 +85,12 @@ export function continueConversation(
       // Resolve equal timestamps in source order, independent of checkbox order.
       const order = new Map(
         (
-          db
-            .prepare(
-              "SELECT id,rowid seq FROM messages WHERE owner_id=? AND conversation_id=? AND id IN (SELECT value FROM json_each(?))",
-            )
-            .all(owner, source.id, JSON.stringify(messageIds)) as {
+          messagesQueries.continuationPositions(
+            db,
+            owner,
+            source.id,
+            JSON.stringify(messageIds),
+          ) as {
             id: string;
             seq: number;
           }[]
@@ -110,11 +112,10 @@ export function continueConversation(
         null,
         now(),
       );
-      const insert = db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-      );
+
       for (const message of messages)
-        insert.run(
+        messagesQueries.insert(
+          db,
           id(),
           owner,
           conversationId,

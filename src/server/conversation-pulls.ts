@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import * as watchQueries from "./sql/pr-watches.js";
 import { db, now } from "./db.js";
 import { ownedConversation, Problem } from "./domain.js";
@@ -47,21 +48,22 @@ export function conversationPullRefs(owner: string, conversation: string) {
   // Collect the newest distinct candidates independently from each source,
   // so old transcript links cannot crowd out newer saved PR cards.
   // Tool output alone is not evidence that a thread is working on that PR.
-  for (const query of [
-    `SELECT content,created_at FROM messages
-    WHERE owner_id=? AND conversation_id=? AND role IN ('user','assistant')
-      AND instr(content,'github.com/')>0 ORDER BY created_at DESC,rowid DESC`,
-    `SELECT content,created_at FROM artifacts
+  for (const read of [
+    () => messagesQueries.pullReferences(db, owner, conversation),
+    () =>
+      db
+        .prepare(
+          `SELECT content,created_at FROM artifacts
     WHERE owner_id=? AND conversation_id=? AND kind='github_pr'
     ORDER BY created_at DESC,rowid DESC`,
+        )
+        .iterate(owner, conversation) as Iterable<{
+        content: string;
+        created_at: number;
+      }>,
   ]) {
     const candidates = new Set<string>();
-    for (const row of db
-      .prepare(query)
-      .iterate(owner, conversation) as Iterable<{
-      content: string;
-      created_at: number;
-    }>) {
+    for (const row of read()) {
       for (const ref of parsePullRequestUrls(row.content, 21)) {
         add(ref, row.created_at);
         candidates.add(pullRequestKey(ref).toLowerCase());

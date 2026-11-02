@@ -1,3 +1,5 @@
+import * as runsQueries from "./sql/runs.js";
+import * as messagesQueries from "./sql/messages.js";
 import { passiveWorkspaceRead } from "./workspace-read-context.js";
 import { submitTokenWrite, runControlTokenWrite } from "./token-write-policies.js";
 import { recordCardRead, tokenResultPage } from "./card-tokens.js";
@@ -415,11 +417,7 @@ routes.on(workspaceApi.agentDetail, (req, res) => {
   const a = ownedAgent(req.params.id, res.locals.owner);
   res.json({
     agent: a,
-    runs: db
-      .prepare(
-        "SELECT * FROM runs WHERE owner_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 100",
-      )
-      .all(res.locals.owner, a.id) as z.input<typeof workspaceApi.agentDetail.response>["runs"],
+    runs: runsQueries.forAgent(db, res.locals.owner, a.id) as z.input<typeof workspaceApi.agentDetail.response>["runs"],
     conversations: db
       .prepare(
         "SELECT * FROM conversations WHERE owner_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 100",
@@ -561,14 +559,10 @@ routes.on(workspaceApi.results, (req, res) => {
   }
   if (!saved && req.query.view === "prompts") {
     const values: unknown[] = [res.locals.owner];
-    let filter = "m.owner_id=? AND m.role='user'";
     if (teams.length) {
-      filter += " AND c.team_id IN (" + teams.map(() => "?").join(",") + ")";
       values.push(...teams);
     }
     if (req.query.folder) {
-      filter +=
-        " AND EXISTS (SELECT 1 FROM runs fr WHERE fr.id=m.run_id AND EXISTS(SELECT 1 FROM json_each(?) WHERE value IS json_extract(fr.payload,'$.folderId')))";
       values.push(
         JSON.stringify(
           projectFolders(res.locals.owner, String(req.query.folder)),
@@ -576,18 +570,12 @@ routes.on(workspaceApi.results, (req, res) => {
       );
     }
     if (req.query.agent) {
-      filter += " AND c.agent_id=?";
       values.push(req.query.agent);
     }
     if (cursor) {
-      filter += " AND m.rowid<?";
       values.push(cursor);
     }
-    const rows = db
-      .prepare(
-        `SELECT m.*,r.state run_state,r.error run_error,m.rowid cursor,c.agent_id,c.team_id,a.name,a.provider FROM messages m LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents a ON a.id=c.agent_id WHERE ${filter} ORDER BY m.rowid DESC LIMIT 40`,
-      )
-      .all(...values) as z.input<typeof ResultItem>[];
+    const rows = messagesQueries.promptPage(db, {teamCount:teams.length, folder:!!req.query.folder, agent:!!req.query.agent, cursor:!!cursor}, values) as z.input<typeof ResultItem>[];
     res.json(tokenResultPage(res.locals.owner, res.locals.bearer?.tokenId,
       projectResponse(workspaceApi.results, {
         revision, items: rows, next: rows.length === 40 ? rows.at(-1)!.cursor : null,
@@ -669,11 +657,7 @@ routes.on(workspaceApi.messageDetail, (req, res) =>
 routes.on(workspaceApi.messageSearch, (req, res) => {
   const { q } = req.query;
   res.json(
-    db
-      .prepare(
-        "SELECT * FROM messages WHERE owner_id=? AND instr(lower(content),lower(?))>0 ORDER BY created_at DESC LIMIT 50",
-      )
-      .all(res.locals.owner, q) as z.input<typeof PublicMessage>[],
+    messagesQueries.search(db, res.locals.owner, q) as z.input<typeof PublicMessage>[],
   );
 });
 

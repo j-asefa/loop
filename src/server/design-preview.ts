@@ -1,3 +1,4 @@
+import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import { MessageMetadata, parseRun, parseRuns } from "./row-schemas.js";
 
@@ -133,9 +134,8 @@ export const designPreviewBoundary: RequestHandler = (req, res, next) => {
 
 function reply(run: Run, content: string, partial = false) {
   const message = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-  ).run(
+  messagesQueries.insert(
+    db,
     message,
     run.owner_id,
     run.conversation_id,
@@ -271,9 +271,8 @@ export function seedDesignPreview() {
       const run = parseRun(runsQueries.get(db, runId));
       const turns = index === 0 ? 24 : 1;
       for (let turn = 0; turn < turns; turn++) {
-        db.prepare(
-          "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,?,?,?)",
-        ).run(
+        messagesQueries.insertWithDefaultMetadata(
+          db,
           id(),
           OWNER,
           conversation,
@@ -285,9 +284,8 @@ export function seedDesignPreview() {
           time + turn * 2000,
         );
         if (turn < turns - 1 || state !== "completed")
-          db.prepare(
-            "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-          ).run(
+          messagesQueries.insert(
+            db,
             id(),
             OWNER,
             conversation,
