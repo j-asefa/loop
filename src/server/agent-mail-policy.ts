@@ -1,3 +1,9 @@
+import * as teamMembersQueries from "./sql/team-members.js";
+import * as agentsQueries from "./sql/agents.js";
+import * as connectionsQueries from "./sql/connections.js";
+import * as teamsQueries from "./sql/teams.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as delegationsQueries from "./sql/delegations.js";
 import * as agentThreadMembersQueries from "./sql/agent-thread-members.js";
 import * as identityQueries from "./sql/fleet-machine-identity.js";
 import * as mailQueries from "./sql/agent-mail.js";
@@ -51,17 +57,13 @@ export type MailTeam = {
 };
 export function memberRole(team: MailTeam, agentId: string) {
   if (team.manager_id === agentId) return "manager" as const;
-  return db
-    .prepare("SELECT 1 FROM team_members WHERE team_id=? AND agent_id=?")
-    .get(team.id, agentId)
+  return teamMembersQueries.exists(db, team.id, agentId)
     ? ("worker" as const)
     : undefined;
 }
 
 export function eligibleMailAgent(owner: string, agentId: string) {
-  const agent = db
-    .prepare("SELECT * FROM agents WHERE id=? AND owner_id=?")
-    .get(agentId, owner) as Agent | undefined;
+  const agent = agentsQueries.owned(db, agentId, owner) as Agent | undefined;
   if (!agent) throw new MailRefusal(404, "Agent not found in this workspace.");
   if (agent.retired_at)
     throw new MailRefusal(
@@ -69,9 +71,7 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       `@${agent.name} is retired and can't receive messages.`,
     );
   const connection = maybeConnection(
-    db
-      .prepare("SELECT * FROM connections WHERE id=? AND owner_id=?")
-      .get(agent.connection_id ?? null, owner),
+    connectionsQueries.owned(db, agent.connection_id ?? null, owner),
   );
   if (!connection)
     throw new MailRefusal(
@@ -107,13 +107,7 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       409,
       "This native connection cannot execute in this deployment profile.",
     );
-  if (
-    db
-      .prepare(
-        "SELECT 1 FROM teams t WHERE t.owner_id=? AND t.preset_id='code-review' AND t.deleted_at IS NULL AND (t.manager_id=? OR EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=?))",
-      )
-      .get(owner, agentId, agentId)
-  )
+  if (teamsQueries.agentInCodeReview(db, owner, agentId, agentId))
     throw new MailRefusal(
       409,
       "Snapshot review agents accept work only through Review changes.",
@@ -126,12 +120,12 @@ export function mailConversation(
   agent: string,
   conversation: string,
 ) {
-  const row = db
-    .prepare(
-      "SELECT * FROM conversations WHERE id=? AND owner_id=? AND agent_id=?",
-    )
-    .get(conversation, owner, agent) as
-    { execution_backend: string | null } | undefined;
+  const row = conversationsQueries.ownedAgentConversation(
+    db,
+    conversation,
+    owner,
+    agent,
+  ) as { execution_backend: string | null } | undefined;
   if (!row)
     throw new MailRefusal(
       404,
@@ -201,21 +195,14 @@ export function authorizeMail(
   if (resultRunId !== undefined) {
     const parent =
       thread.scope === "team" &&
-      (db
-        .prepare(
-          `SELECT p.state FROM delegations d
-       JOIN runs child ON child.id=d.child_run_id AND child.owner_id=? AND child.agent_id=?
-       JOIN agents sender ON sender.id=child.agent_id AND sender.owner_id=child.owner_id
-       JOIN runs p ON p.id=d.parent_run_id AND p.owner_id=child.owner_id AND p.agent_id=?
-       WHERE d.child_run_id=? AND d.background=1 AND json_extract(p.payload,'$.teamId')=?`,
-        )
-        .get(
-          thread.owner_id,
-          sender,
-          recipient,
-          resultRunId,
-          thread.team_id,
-        ) as { state: string } | undefined);
+      (delegationsQueries.backgroundParentState(
+        db,
+        thread.owner_id,
+        sender,
+        recipient,
+        resultRunId,
+        thread.team_id,
+      ) as { state: string } | undefined);
     if (!parent)
       throw new MailRefusal(
         403,
@@ -231,11 +218,11 @@ export function authorizeMail(
   if (sender === recipient)
     throw new MailRefusal(400, "You can't message yourself.");
   if (thread.scope === "team") {
-    const team = db
-      .prepare(
-        "SELECT * FROM teams WHERE id=? AND owner_id=? AND deleted_at IS NULL",
-      )
-      .get(thread.team_id, thread.owner_id) as MailTeam | undefined;
+    const team = teamsQueries.activeOwned(
+      db,
+      thread.team_id,
+      thread.owner_id,
+    ) as MailTeam | undefined;
     if (
       !team ||
       (resultRunId === undefined && !memberRole(team, sender)) ||
@@ -331,9 +318,10 @@ export function queuedMailReady(run: {
   payload: import("./row-schemas.js").RunPayload;
 }) {
   if (!mailQueries.hasQueuedRun(db, run.id, run.id)) return true;
-  const connection = db
-    .prepare("SELECT status FROM connections WHERE id=? AND owner_id=?")
-    .get(run.payload.connectionId, run.owner_id) as
-    { status: string } | undefined;
+  const connection = connectionsQueries.status(
+    db,
+    run.payload.connectionId,
+    run.owner_id,
+  ) as { status: string } | undefined;
   return connection?.status === "connected";
 }

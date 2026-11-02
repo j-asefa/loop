@@ -1,3 +1,4 @@
+import * as runVerificationsQueries from "./sql/run-verifications.js";
 import { db, id, now } from "./db.js";
 import type { Run } from "./queue.js";
 import type { OutputData } from "../agent-activities.js";
@@ -90,11 +91,7 @@ export function observeCompletedOutput(
   // One row per invocation: a later update to the same output record (an
   // exit arriving after completion) replaces the observation under the same
   // id, so counts and citations never double.
-  db.prepare(
-    `INSERT INTO run_verifications(id,owner_id,run_id,conversation_id,generation,source_id,kind,tools,command,status,exit_code,truncated,output_tail,observed_at)
-     VALUES(@id,@owner,@run,@conversation,@generation,@source,@kind,@tools,@command,@status,@exit,@truncated,@tail,@at)
-     ON CONFLICT(run_id,source_id) DO UPDATE SET kind=excluded.kind,tools=excluded.tools,command=excluded.command,status=excluded.status,exit_code=excluded.exit_code,truncated=excluded.truncated,output_tail=excluded.output_tail,observed_at=excluded.observed_at`,
-  ).run({
+  runVerificationsQueries.upsert(db, {
     id: id(),
     owner: run.owner_id,
     run: run.id,
@@ -128,11 +125,7 @@ function toItem(row: VerificationRow): VerificationItem {
 /** Every verification observed for a run, oldest first, with output tails. */
 export function runVerifications(owner: string, runId: string) {
   return (
-    db
-      .prepare(
-        "SELECT * FROM run_verifications WHERE owner_id=? AND run_id=? ORDER BY observed_at,rowid",
-      )
-      .all(owner, runId) as VerificationRow[]
+    runVerificationsQueries.forRun(db, owner, runId) as VerificationRow[]
   ).map((row) => ({ ...toItem(row), output_tail: row.output_tail }));
 }
 
@@ -141,11 +134,11 @@ export function verificationSummary(
   owner: string,
   runId: string,
 ): VerificationSummary | null {
-  const rows = db
-    .prepare(
-      "SELECT * FROM run_verifications WHERE owner_id=? AND run_id=? ORDER BY observed_at,rowid",
-    )
-    .all(owner, runId) as VerificationRow[];
+  const rows = runVerificationsQueries.forRun(
+    db,
+    owner,
+    runId,
+  ) as VerificationRow[];
   return rows.length ? summarize(rows.map(toItem)) : null;
 }
 

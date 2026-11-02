@@ -1,3 +1,6 @@
+import * as companionSessionsQueries from "./sql/companion-sessions.js";
+import * as nativeCatalogQueries from "./sql/native-catalog.js";
+import * as nativeHistoryActionsQueries from "./sql/native-history-actions.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 
@@ -72,11 +75,7 @@ export function historyProjection(thread: any) {
   }));
 }
 routes.on(workspaceApi.nativeHistoryList, async (req, res) => {
-  const managed = db
-    .prepare(
-      "SELECT n.conversation_id id,n.harness,n.project,n.state,c.title FROM companion_sessions n JOIN conversations c ON c.id=n.conversation_id ORDER BY n.updated_at DESC LIMIT 200",
-    )
-    .all() as z.input<
+  const managed = companionSessionsQueries.historyList(db) as z.input<
     typeof workspaceApi.nativeHistoryList.response
   >["managed"];
   if (req.query.discover !== "1")
@@ -95,26 +94,20 @@ routes.on(workspaceApi.nativeHistoryList, async (req, res) => {
       (result.data || [])
         .map((t: any) => {
           if (!t.id || typeof t.cwd !== "string") return null;
-          const existing = db
-            .prepare(
-              "SELECT conversation_id FROM companion_sessions WHERE harness='codex' AND native_id=?",
-            )
-            .get(t.id) as any;
+          const existing = companionSessionsQueries.codexConversation(
+            db,
+            t.id,
+          ) as any;
           if (existing) return null;
-          db.prepare(
-            "INSERT INTO native_catalog(id,harness,native_id,project,title,updated_at) VALUES(?,'codex',?,?,?,?) ON CONFLICT(harness,native_id) DO UPDATE SET project=excluded.project,title=excluded.title,updated_at=excluded.updated_at",
-          ).run(
+          nativeCatalogQueries.upsertCodex(
+            db,
             id(),
             t.id,
             t.cwd,
             String(t.name || t.preview || "Codex conversation").slice(0, 180),
             now(),
           );
-          return db
-            .prepare(
-              "SELECT id,harness,project,title FROM native_catalog WHERE harness='codex' AND native_id=?",
-            )
-            .get(t.id);
+          return nativeCatalogQueries.codexSummary(db, t.id);
         })
         .filter(Boolean),
     )
@@ -127,9 +120,7 @@ routes.on(workspaceApi.nativeHistoryList, async (req, res) => {
   });
 });
 routes.on(workspaceApi.nativeHistoryDetail, async (req, res) => {
-  const record = db
-    .prepare("SELECT * FROM native_catalog WHERE id=?")
-    .get(req.params.id) as any;
+  const record = nativeCatalogQueries.get(db, req.params.id) as any;
   if (!record) throw new Problem(404, "Native history entry not found");
   const data = await inspect((native) =>
     native.inspect("thread/read", {
@@ -145,13 +136,9 @@ routes.on(workspaceApi.nativeHistoryDetail, async (req, res) => {
 });
 routes.on(workspaceApi.nativeHistoryFork, async (req, res) => {
   const { commandId } = req.body;
-  const record = db
-    .prepare("SELECT * FROM native_catalog WHERE id=?")
-    .get(req.params.id) as any;
+  const record = nativeCatalogQueries.get(db, req.params.id) as any;
   if (!record) throw new Problem(404, "Native history entry not found");
-  const old = db
-    .prepare("SELECT * FROM native_history_actions WHERE id=?")
-    .get(commandId) as any;
+  const old = nativeHistoryActionsQueries.get(db, commandId) as any;
   if (old) {
     if (old.catalog_id !== record.id)
       throw new Problem(
@@ -173,9 +160,7 @@ routes.on(workspaceApi.nativeHistoryFork, async (req, res) => {
       commandId,
       JSON.stringify([record.id, record.native_id]),
     );
-    db.prepare(
-      "INSERT INTO native_history_actions VALUES(?,?,'unknown',NULL,?)",
-    ).run(commandId, record.id, now());
+    nativeHistoryActionsQueries.insertUnknown(db, commandId, record.id, now());
     const result = await native.inspect("thread/fork", {
       threadId: record.native_id,
       cwd: prepared.workspace.directory,
@@ -192,9 +177,7 @@ routes.on(workspaceApi.nativeHistoryFork, async (req, res) => {
         // Display history only: replayed records never mark tools as newly run.
         for (const update of historyActivities(result.thread))
           applyActivity({ owner: OWNER, conversation }, update);
-        db.prepare(
-          "UPDATE native_history_actions SET state='completed',conversation_id=? WHERE id=?",
-        ).run(conversation, commandId);
+        nativeHistoryActionsQueries.complete(db, conversation, commandId);
         return conversation;
       })
       .immediate();

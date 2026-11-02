@@ -366,3 +366,64 @@ export function ownedAgentFileExists(
     ? undefined
     : parseRecord(ownedAgentFileExistsRow, row, "artifacts");
 }
+
+const pinnedStatement = statement(
+  "SELECT pinned FROM artifacts WHERE id=? AND owner_id=?",
+);
+const pinnedRow = QueryRecords.artifacts.pick({ pinned: true });
+export function pinned(db: Database.Database, id: string, owner: string) {
+  const row = pinnedStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(pinnedRow, row, "artifacts");
+}
+
+const memoryCandidatesStatement = statement(
+  "SELECT * FROM artifacts WHERE pinned=1 OR id IN (SELECT substr(scope,10) FROM memory_policy WHERE scope LIKE 'artifact:%' AND enabled=1)",
+);
+const memoryCandidatesRow = QueryRecords.artifacts;
+export function memoryCandidates(db: Database.Database) {
+  return memoryCandidatesStatement(db)
+    .all()
+    .map((row) => parseRecord(memoryCandidatesRow, row, "artifacts"));
+}
+
+const moveStatement = statement(
+  "UPDATE artifacts SET folder_id=?,version=version+1,updated_at=? WHERE id=?",
+);
+export function move(
+  db: Database.Database,
+  folder: string | null,
+  updated: number,
+  id: string,
+) {
+  return moveStatement(db).run(folder, updated, id);
+}
+
+const conversationHasArtifactStatement = statement(
+  "SELECT 1 FROM artifacts WHERE owner_id=? AND conversation_id=?",
+);
+const conversationHasArtifactRow = z.object({ "1": z.number() });
+export function conversationHasArtifact(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+) {
+  const row = conversationHasArtifactStatement(db).get(owner, conversation);
+  return row === undefined
+    ? undefined
+    : parseRecord(conversationHasArtifactRow, row, "artifacts");
+}
+
+const updateNativeOutputStatement = statement(
+  "UPDATE artifacts SET content=?,metadata=?,updated_at=? WHERE id=? AND version=1",
+);
+export function updateNativeOutput(
+  db: Database.Database,
+  content: string,
+  metadata: string,
+  updated: number,
+  id: string,
+) {
+  return updateNativeOutputStatement(db).run(content, metadata, updated, id);
+}

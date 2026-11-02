@@ -1,3 +1,5 @@
+import * as nativeDecisionsQueries from "../sql/native-decisions.js";
+import * as personalDecisionsQueries from "../sql/personal-decisions.js";
 import * as runsQueries from "../sql/runs.js";
 import { assertFleetAction } from "../fleet-action-context.js";
 import { ExecutionRefused } from "../execution-refusal.js";
@@ -27,19 +29,6 @@ type Context = {
   interrupt(runId: string, reason?: string): Promise<void>;
   answer: NativeDecisions["answer"];
 };
-
-export function finishDecisions(
-  state: "resolved" | "expired" | "unknown",
-  where: string,
-  params: unknown[],
-) {
-  db.transaction(() => {
-    db.prepare(
-      `UPDATE native_decisions SET state=? WHERE (${where}) AND state<>?
-`,
-    ).run(state, ...params, state);
-  }).immediate();
-}
 
 export function requestApproval(live: Live, input: AdapterEvent) {
   return input.type === "request" && live.run
@@ -78,19 +67,16 @@ export class NativeDecisions {
     const decisionId = id();
     const recorded = db
       .transaction(() => {
-        const changed = db
-          .prepare(
-            "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(conversation_id,generation,native_id) DO NOTHING",
-          )
-          .run(
-            decisionId,
-            run.id,
-            live.binding.conversation_id,
-            live.generation,
-            event.request.id,
-            JSON.stringify(event.request),
-            now(),
-          ).changes;
+        const changed = nativeDecisionsQueries.insertPending(
+          db,
+          decisionId,
+          run.id,
+          live.binding.conversation_id,
+          live.generation,
+          event.request.id,
+          JSON.stringify(event.request),
+          now(),
+        ).changes;
         return changed;
       })
       .immediate();
@@ -125,9 +111,8 @@ export class NativeDecisions {
     commandId: string,
     answer: Record<string, unknown>,
   ) {
-    const d = db
-      .prepare("SELECT * FROM native_decisions WHERE id=?")
-      .get(decisionId) as QueryRow<"native_decisions"> | undefined;
+    const d = nativeDecisionsQueries.get(db, decisionId) as
+      QueryRow<"native_decisions"> | undefined;
     if (!d) throw new Problem(404, "Native decision not found.");
     const digest = createHash("sha256")
       .update(JSON.stringify(answer))
@@ -161,11 +146,12 @@ export class NativeDecisions {
         assertFleetAction(run.owner_id);
         assertFleetEffect(run.owner_id, "run", run.id);
         const edit = recordFleetEffectEdit(run.owner_id, "run", run.id);
-        const claimed = db
-          .prepare(
-            "UPDATE native_decisions SET state='deciding',command_id=?,digest=? WHERE id=? AND state='pending'",
-          )
-          .run(commandId, digest, decisionId).changes;
+        const claimed = nativeDecisionsQueries.beginAnswer(
+          db,
+          commandId,
+          digest,
+          decisionId,
+        ).changes;
         if (!claimed)
           throw new Problem(409, "This native decision was already handled.");
         if (!commandId.startsWith("auto:"))
@@ -181,11 +167,10 @@ export class NativeDecisions {
       .immediate();
     try {
       await live.adapter.answer(d.native_id, answer, () => {
-        const current = db
-          .prepare(
-            "SELECT state,command_id,digest FROM native_decisions WHERE id=?",
-          )
-          .get(decisionId) as
+        const current = nativeDecisionsQueries.decisionReceipt(
+          db,
+          decisionId,
+        ) as
           | Pick<
               QueryRow<"native_decisions">,
               "state" | "command_id" | "digest"
@@ -216,7 +201,7 @@ export class NativeDecisions {
           throw error;
         }
       });
-      finishDecisions("resolved", "id=?", [decisionId]);
+      nativeDecisionsQueries.finishById(db, "resolved", decisionId);
       return { state: "resolved" };
     } catch (error) {
       // The harness explicitly refused the answer and is still waiting:
@@ -238,25 +223,20 @@ export class NativeDecisions {
               live.run?.id === d.run_id &&
               ["running", "awaiting_approval"].includes(runState ?? "")
             ) {
-              reopened = db
-                .prepare(
-                  "UPDATE native_decisions SET state='pending',command_id=NULL,digest=NULL WHERE id=? AND state='deciding'",
-                )
-                .run(decisionId).changes;
+              reopened = nativeDecisionsQueries.reopen(db, decisionId).changes;
             } else
-              finishDecisions("expired", "id=? AND state='deciding'", [
+              nativeDecisionsQueries.finishDecidingById(
+                db,
+                "expired",
                 decisionId,
-              ]);
-            const stored = db
-              .prepare("SELECT state FROM native_decisions WHERE id=?")
-              .get(decisionId) as { state: string } | undefined;
+              );
+            const stored = nativeDecisionsQueries.state(db, decisionId) as
+              { state: string } | undefined;
             // Definitive non-delivery is not an answer, even if the run ended.
             // Preserve only a response the harness already confirmed meanwhile.
             if (stored?.state !== "resolved") {
               discardFleetEffectEdit(edit);
-              db.prepare(
-                "DELETE FROM personal_decisions WHERE native_decision_id=?",
-              ).run(decisionId);
+              personalDecisionsQueries.removeNativeDecision(db, decisionId);
             }
             return { reopened, state: stored?.state };
           })
@@ -273,10 +253,9 @@ export class NativeDecisions {
       // A harness resolution can arrive before the answer transport finishes.
       // A later transport failure must not undo that confirmation or record it
       // a second time. An unconfirmed answer stays uncertain and is not replayed.
-      finishDecisions("unknown", "id=? AND state='deciding'", [decisionId]);
-      const current = db
-        .prepare("SELECT state FROM native_decisions WHERE id=?")
-        .get(decisionId) as { state: string } | undefined;
+      nativeDecisionsQueries.finishDecidingById(db, "unknown", decisionId);
+      const current = nativeDecisionsQueries.state(db, decisionId) as
+        { state: string } | undefined;
       if (current?.state === "resolved") return { state: "resolved" };
       throw new Problem(
         409,

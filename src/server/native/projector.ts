@@ -1,3 +1,11 @@
+import * as nativeDecisionsQueries from "../sql/native-decisions.js";
+import * as companionSessionsQueries from "../sql/companion-sessions.js";
+import * as nativeItemsQueries from "../sql/native-items.js";
+import * as nativeDispatchQueries from "../sql/native-dispatch.js";
+import * as connectionsQueries from "../sql/connections.js";
+import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
+import * as artifactsQueries from "../sql/artifacts.js";
+import * as artifactVersionsQueries from "../sql/artifact-versions.js";
 import * as runsQueries from "../sql/runs.js";
 import * as messagesQueries from "../sql/messages.js";
 import { MessageMetadata, agentPayload } from "../row-schemas.js";
@@ -20,11 +28,7 @@ import {
   ingestNativeCapabilities,
 } from "../activities.js";
 import { type Live } from "./state.js";
-import {
-  finishDecisions,
-  requestApproval,
-  type NativeDecisions,
-} from "./decisions.js";
+import { requestApproval, type NativeDecisions } from "./decisions.js";
 
 type Context = {
   live: ReadonlyMap<string, Live>;
@@ -60,12 +64,10 @@ export class NativeProjector {
     if (this.context.live.get(live.binding.conversation_id) !== live) return;
     if (input.type === "usage") {
       const run = live.run;
-      const current = db
-        .prepare(
-          "SELECT generation FROM companion_sessions WHERE conversation_id=?",
-        )
-        .get(live.binding.conversation_id) as
-        { generation: string } | undefined;
+      const current = companionSessionsQueries.generation(
+        db,
+        live.binding.conversation_id,
+      ) as { generation: string } | undefined;
       const usage = input.usage;
       if (
         !run ||
@@ -140,20 +142,21 @@ export class NativeProjector {
     if (event.type === "metadata") {
       if (event.nativeSession && event.nativeSession.length <= 4096) {
         live.binding.native_id = event.nativeSession;
-        db.prepare(
-          "UPDATE companion_sessions SET native_id=?,updated_at=? WHERE conversation_id=?",
-        ).run(event.nativeSession, now(), live.binding.conversation_id);
+        companionSessionsQueries.setNativeId(
+          db,
+          event.nativeSession,
+          now(),
+          live.binding.conversation_id,
+        );
       }
       const model =
         typeof event.billing?.model === "string"
           ? event.billing.model.trim()
           : "";
-      const current = db
-        .prepare(
-          "SELECT generation FROM companion_sessions WHERE conversation_id=?",
-        )
-        .get(live.binding.conversation_id) as
-        { generation: string } | undefined;
+      const current = companionSessionsQueries.generation(
+        db,
+        live.binding.conversation_id,
+      ) as { generation: string } | undefined;
       if (
         model &&
         model.length <= 200 &&
@@ -170,9 +173,8 @@ export class NativeProjector {
       // Native history is a projection; it is never fed back as model context.
       if (event.type === "item") {
         if (!live.items.replay(event.item)) return;
-        db.prepare(
-          "INSERT INTO native_items VALUES(?,?,NULL,?,?) ON CONFLICT(conversation_id,native_id) DO UPDATE SET item=excluded.item,updated_at=excluded.updated_at",
-        ).run(
+        nativeItemsQueries.upsertUnbound(
+          db,
           live.binding.conversation_id,
           event.item.id,
           JSON.stringify(event.item),
@@ -211,12 +213,12 @@ export class NativeProjector {
       // only this run's saved projection, including the original item phase.
       let previous = live.items.get(event.id);
       if (!previous) {
-        const stored = db
-          .prepare(
-            "SELECT item FROM native_items WHERE conversation_id=? AND run_id=? AND native_id=?",
-          )
-          .get(live.binding.conversation_id, run.id, event.id) as
-          { item: string } | undefined;
+        const stored = nativeItemsQueries.runItem(
+          db,
+          live.binding.conversation_id,
+          run.id,
+          event.id,
+        ) as { item: string } | undefined;
         if (stored) previous = JSON.parse(stored.item) as Item;
       }
       const item = {
@@ -234,10 +236,12 @@ export class NativeProjector {
     }
     if (event.type === "resolved") {
       live.requests.delete(event.id);
-      finishDecisions(
+      nativeDecisionsQueries.finishRequest(
+        db,
         "resolved",
-        "conversation_id=? AND generation=? AND native_id=? AND state IN ('pending','deciding')",
-        [live.binding.conversation_id, live.generation, event.id],
+        live.binding.conversation_id,
+        live.generation,
+        event.id,
       );
       if (!live.requests.size) {
         live.waiting = false;
@@ -253,17 +257,13 @@ export class NativeProjector {
       this.context.projectOutput(live, event.status !== "completed");
       live.requests.clear();
       live.waiting = false;
-      finishDecisions("expired", "run_id=? AND state='pending'", [run.id]);
-      db.prepare("UPDATE native_dispatch SET state=? WHERE run_id=?").run(
-        event.status,
-        run.id,
-      );
+      nativeDecisionsQueries.finishPendingRun(db, "expired", run.id);
+      nativeDispatchQueries.setState(db, event.status, run.id);
       const unavailable =
         (event.status === "failed" && !event.recoverable) ||
         live.adapter.reusable === false;
-      db.prepare(
-        "UPDATE companion_sessions SET state=?,updated_at=? WHERE conversation_id=?",
-      ).run(
+      companionSessionsQueries.setState(
+        db,
         unavailable ? "unavailable" : "idle",
         now(),
         live.binding.conversation_id,
@@ -299,9 +299,12 @@ export class NativeProjector {
     db.transaction(() => {
       runsQueries.setResolvedModel(db, model, run.id, run.owner_id);
       if (run.payload.connectionId)
-        db.prepare(
-          "UPDATE connections SET models=(SELECT json_group_array(CASE WHEN json_extract(value,'$.id')='native-default' THEN json_set(value,'$.resolvedModel',?) ELSE json(value) END) FROM json_each(connections.models)) WHERE id=? AND owner_id=? AND json_valid(models)",
-        ).run(model, run.payload.connectionId, run.owner_id);
+        connectionsQueries.setResolvedNativeModel(
+          db,
+          model,
+          run.payload.connectionId,
+          run.owner_id,
+        );
     })();
   }
   private scheduleOutput(live: Live) {
@@ -349,12 +352,10 @@ export class NativeProjector {
   ) {
     // A restarted workspace or replaced session owns a different generation;
     // late frames from an older process must not write into its records.
-    const current = db
-      .prepare(
-        "SELECT generation FROM companion_sessions WHERE conversation_id=?",
-      )
-      .get(live.binding.conversation_id) as
-      { generation: string | null } | undefined;
+    const current = companionSessionsQueries.generation(
+      db,
+      live.binding.conversation_id,
+    ) as { generation: string | null } | undefined;
     if (current?.generation !== live.generation) return;
     const transport = ["acp", "gemini", "grok"].includes(live.binding.harness)
       ? "acp"
@@ -394,11 +395,10 @@ export class NativeProjector {
       const data = applied.record.data;
       const generation = live.generation;
       const stillCurrent = () => {
-        const current = db
-          .prepare(
-            "SELECT generation FROM companion_sessions WHERE conversation_id=?",
-          )
-          .get(run.conversation_id) as { generation: string } | undefined;
+        const current = companionSessionsQueries.generation(
+          db,
+          run.conversation_id,
+        ) as { generation: string } | undefined;
         return current?.generation === generation;
       };
       void import("../pr-watches.js")
@@ -435,9 +435,8 @@ export class NativeProjector {
     if (!run) return;
     clearTimeout(live.flush);
     live.flush = undefined;
-    const checkpoint = db
-      .prepare("SELECT * FROM agent_checkpoints WHERE run_id=?")
-      .get(run.id) as QueryRow<"agent_checkpoints"> | undefined;
+    const checkpoint = agentCheckpointsQueries.get(db, run.id) as
+      QueryRow<"agent_checkpoints"> | undefined;
     if (!checkpoint) return;
     let finalItem = !partial
       ? [...live.items.values()].findLast(
@@ -448,14 +447,11 @@ export class NativeProjector {
     if (!partial && !finalItem) {
       // Tool bookkeeping can evict a reply after it was saved. Completion
       // still publishes that run's last non-commentary assistant item.
-      const stored = db
-        .prepare(
-          `SELECT item FROM native_items WHERE conversation_id=? AND run_id=?
-           AND json_extract(item,'$.kind')='assistant'
-           AND json_extract(item,'$.phase') IS NOT 'commentary'
-           ORDER BY rowid DESC`,
-        )
-        .iterate(live.binding.conversation_id, run.id) as Iterable<{
+      const stored = nativeItemsQueries.assistantHistory(
+        db,
+        live.binding.conversation_id,
+        run.id,
+      ) as Iterable<{
         item: string;
       }>;
       for (const row of stored) {
@@ -491,23 +487,31 @@ export class NativeProjector {
           metadata,
           checkpoint.message_id,
         );
-        db.prepare(
-          "UPDATE artifacts SET content=?,metadata=?,updated_at=? WHERE id=? AND version=1",
-        ).run(output, metadata, now(), checkpoint.artifact_id);
-        db.prepare(
-          "UPDATE artifact_versions SET content=? WHERE artifact_id=? AND version=1",
-        ).run(output, checkpoint.artifact_id);
-        db.prepare(
-          "UPDATE agent_checkpoints SET output=?,stage=? WHERE run_id=?",
-        ).run(output, partial ? "native" : "done", run.id);
+        artifactsQueries.updateNativeOutput(
+          db,
+          output,
+          metadata,
+          now(),
+          checkpoint.artifact_id,
+        );
+        artifactVersionsQueries.updateNativeOutput(
+          db,
+          output,
+          checkpoint.artifact_id,
+        );
+        agentCheckpointsQueries.nativeOutput(
+          db,
+          output,
+          partial ? "native" : "done",
+          run.id,
+        );
         runsQueries.setResult(db, output, run.id);
       }
-      const put = db.prepare(
-        "INSERT INTO native_items VALUES(?,?,?,?,?) ON CONFLICT(conversation_id,native_id) DO UPDATE SET item=excluded.item,run_id=excluded.run_id,updated_at=excluded.updated_at",
-      );
+
       for (const itemId of live.items.dirty) {
         const item = live.items.get(itemId)!;
-        put.run(
+        nativeItemsQueries.upsertRunItem(
+          db,
           live.binding.conversation_id,
           item.id,
           run.id,

@@ -1,3 +1,5 @@
+import { CAPTURE_FIELDS } from "./sql/run-checkouts.js";
+import * as runCheckoutsQueries from "./sql/run-checkouts.js";
 import * as runsQueries from "./sql/runs.js";
 import { spawn } from "node:child_process";
 import {
@@ -615,13 +617,8 @@ function summarize(row: CheckoutRow): CheckoutSummary {
   };
 }
 
-function select(runId: string, owner?: string) {
-  return db
-    .prepare(
-      `SELECT * FROM run_checkouts WHERE run_id=?${owner ? " AND owner_id=?" : ""}`,
-    )
-    .get(...(owner ? [runId, owner] : [runId])) as CheckoutRow | undefined;
-}
+const select = (runId: string, owner?: string) =>
+  runCheckoutsQueries.select(db, runId, owner);
 
 export function toDetail(row: CheckoutRow): CheckoutDetail {
   // The baseline is capture machinery, not another browser-visible patch.
@@ -653,19 +650,10 @@ export function checkoutSummary(
   owner: string,
   runId: string,
 ): CheckoutSummary | null {
-  const row = db
-    .prepare("SELECT summary FROM run_checkouts WHERE run_id=? AND owner_id=?")
-    .get(runId, owner) as { summary: string | null } | undefined;
+  const row = runCheckoutsQueries.ownedSummary(db, runId, owner) as
+    { summary: string | null } | undefined;
   return row?.summary ? (JSON.parse(row.summary) as CheckoutSummary) : null;
 }
-// Prepared on first use: this module is loaded by the queue, which some
-// fixtures import against databases that have not run every migration.
-const INSERT = () =>
-  db.prepare(
-    `INSERT OR IGNORE INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,generation,directory,source,branch,base_ref,base_sha,start_head,start_patch,start_untracked_paths,start_dirty,start_untracked,started_at,state,error,summary)
-   VALUES(@id,@owner_id,@run_id,@agent_id,@conversation_id,@generation,@directory,@source,@branch,@base_ref,@base_sha,@start_head,@start_patch,@start_untracked_paths,@start_dirty,@start_untracked,@started_at,@state,@error,@summary)`,
-  );
-
 /** The start capture's overall budget: it runs before the agent is dispatched. */
 const START_BUDGET_MS = 20000;
 /**
@@ -780,27 +768,11 @@ export async function startCheckout(
     if (!budgetPassed) iso?.cleanup();
   }
   // The run may have been recorded by a concurrent start while Git ran.
-  INSERT().run({ ...row, summary: JSON.stringify(summarize(row)) });
+  runCheckoutsQueries.insert(db, {
+    ...row,
+    summary: JSON.stringify(summarize(row)),
+  });
 }
-
-const CAPTURE_FIELDS = [
-  "end_head",
-  "ahead",
-  "behind",
-  "files",
-  "committed",
-  "working",
-  "untracked",
-  "patch",
-  "patch_bytes",
-  "patch_truncated",
-  "remote",
-  "overlap",
-] as const;
-const UPDATE = () =>
-  db.prepare(
-    `UPDATE run_checkouts SET id=@id,state=@state,branch=@branch,base_sha=@base_sha,${CAPTURE_FIELDS.map((f) => `${f}=@${f}`).join(",")},captured_late=@captured_late,summary=@summary,ended_at=@ended_at,error=@error WHERE run_id=@run_id AND capture_token=@token`,
-  );
 
 /**
  * Capture the end state when a run reaches a terminal state. A run that ends
@@ -820,9 +792,7 @@ export async function completeCheckout(
   if (row.state === "failed" && !row.start_head) {
     // Nothing to observe for a run whose start was never captured; drop the
     // request so reconciliation does not keep selecting it.
-    db.prepare("UPDATE run_checkouts SET capture_pending=0 WHERE run_id=?").run(
-      runId,
-    );
+    runCheckoutsQueries.clearPending(db, runId);
     return;
   }
   const time = now();
@@ -834,17 +804,15 @@ export async function completeCheckout(
   // Claim and read in one statement: the row this capture archives and
   // updates is the row as it was when the claim succeeded, never an earlier
   // read that another process has since replaced.
-  const claimed = db
-    .prepare(
-      "UPDATE run_checkouts SET capture_token=?,capture_started_at=?,capture_pending=0 WHERE run_id=? AND (capture_token IS NULL OR capture_started_at<?) RETURNING *",
-    )
-    .get(token, time, runId, time - CAPTURE_LEASE_MS) as
-    CheckoutRow | undefined;
+  const claimed = runCheckoutsQueries.acquireCapture(
+    db,
+    token,
+    time,
+    runId,
+    time - CAPTURE_LEASE_MS,
+  ) as CheckoutRow | undefined;
   if (!claimed) {
-    if (!options.ifIdle)
-      db.prepare(
-        "UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?",
-      ).run(runId);
+    if (!options.ifIdle) runCheckoutsQueries.markPending(db, runId);
     return;
   }
   return captureClaimed(claimed, token, time, options);
@@ -982,7 +950,7 @@ async function captureClaimed(
   // whole observation with its change events or nothing of it.
   const outcome = db
     .transaction(() => {
-      const written = UPDATE().run({
+      const written = runCheckoutsQueries.updateCapture(db, {
         run_id: row.run_id,
         token,
         id: next.id,
@@ -998,11 +966,8 @@ async function captureClaimed(
       // The lease passed to another capture while this one ran: its result
       // is discarded, and the holder will publish its own.
       if (!written) return "lost";
-      const release = db
-        .prepare(
-          "UPDATE run_checkouts SET capture_token=NULL,capture_started_at=NULL WHERE run_id=? AND capture_token=? RETURNING capture_pending",
-        )
-        .get(runId, token) as { capture_pending: number } | undefined;
+      const release = runCheckoutsQueries.releaseCapture(db, runId, token) as
+        { capture_pending: number } | undefined;
       if (release?.capture_pending) return "again";
       return "done";
     })
@@ -1027,17 +992,11 @@ export function reconcileCheckouts(): Promise<void> {
   reconciledAt = now();
   reconciling = (async () => {
     const time = now();
-    const pending = db
-      .prepare(
-        `SELECT k.run_id,r.updated_at FROM run_checkouts k JOIN runs r ON r.id=k.run_id
-         WHERE k.start_head<>'' AND (k.state='started' OR k.capture_pending=1 OR k.capture_token IS NOT NULL)
-           AND (k.capture_token IS NULL OR k.capture_started_at<?)
-           AND r.state IN (${TERMINAL_STATES.map(() => "?").join(",")}) LIMIT 20`,
-      )
-      .all(time - CAPTURE_LEASE_MS, ...TERMINAL_STATES) as {
-      run_id: string;
-      updated_at: number;
-    }[];
+    const pending = runCheckoutsQueries.reconcileCandidates(
+      db,
+      time - CAPTURE_LEASE_MS,
+      TERMINAL_STATES,
+    );
     for (const { run_id, updated_at } of pending)
       await completeCheckout(run_id, {
         late: time - updated_at > LATE_AFTER_MS,

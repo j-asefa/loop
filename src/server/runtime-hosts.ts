@@ -1,3 +1,6 @@
+import * as runtimeHostsQueries from "./sql/runtime-hosts.js";
+import * as connectionsQueries from "./sql/connections.js";
+import * as mcpConnectionsQueries from "./sql/mcp-connections.js";
 import "../../runtime/environment.mjs";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar, projectResponse } from "./registrar.js";
@@ -126,11 +129,7 @@ routes.on(workspaceApi.runtimeHostList, (_req, res) =>
   res.json(
     companionMode
       ? [{ id: "local", name: "This computer", kind: "local", url: "" }]
-      : (db
-          .prepare(
-            "SELECT id,name,url,kind FROM runtime_hosts WHERE owner_id=? ORDER BY created_at",
-          )
-          .all(res.locals.owner) as z.input<
+      : (runtimeHostsQueries.publicList(db, res.locals.owner) as z.input<
           typeof workspaceApi.runtimeHostList.response
         >),
   ),
@@ -179,9 +178,8 @@ routes.on(workspaceApi.runtimeHostCreate, async (req, res) => {
     );
   }
   const host = id();
-  db.prepare(
-    "INSERT INTO runtime_hosts(id,owner_id,name,url,secret,created_at,kind) VALUES(?,?,?,?,?,?,?)",
-  ).run(
+  runtimeHostsQueries.insert(
+    db,
     host,
     res.locals.owner,
     d.name,
@@ -195,24 +193,13 @@ routes.on(workspaceApi.runtimeHostCreate, async (req, res) => {
 routes.on(workspaceApi.runtimeHostDelete, (req, res) => {
   owned("runtime_hosts", req.params.id, res.locals.owner);
   if (
-    db
-      .prepare(
-        "SELECT 1 FROM connections WHERE owner_id=? AND json_extract(metadata,'$.runtimeHostId')=? AND status<>'disconnected'",
-      )
-      .get(res.locals.owner, req.params.id) ||
-    db
-      .prepare(
-        "SELECT 1 FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.runtimeHostId')=? AND status<>'disconnected'",
-      )
-      .get(res.locals.owner, req.params.id)
+    connectionsQueries.runtimeHostInUse(db, res.locals.owner, req.params.id) ||
+    mcpConnectionsQueries.runtimeHostInUse(db, res.locals.owner, req.params.id)
   )
     throw new Problem(
       409,
       "Disconnect accounts and tools using this machine first",
     );
-  db.prepare("DELETE FROM runtime_hosts WHERE id=? AND owner_id=?").run(
-    req.params.id,
-    res.locals.owner,
-  );
+  runtimeHostsQueries.remove(db, req.params.id, res.locals.owner);
   res.json({ ok: true });
 });

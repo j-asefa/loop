@@ -1,3 +1,10 @@
+import * as agentsQueries from "./sql/agents.js";
+import * as teamsQueries from "./sql/teams.js";
+import * as connectionsQueries from "./sql/connections.js";
+import * as nativeDispatchQueries from "./sql/native-dispatch.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as delegationsQueries from "./sql/delegations.js";
+import * as runSteeringQueries from "./sql/run-steering.js";
 import * as agentThreadsQueries from "./sql/agent-threads.js";
 import * as agentThreadMembersQueries from "./sql/agent-thread-members.js";
 import * as fleetMailRecordsQueries from "./sql/fleet-mail-records.js";
@@ -108,8 +115,6 @@ export const MAIL_LIMITS = {
   pending: 100,
 } as const;
 const HOUR = 3_600_000;
-const ACTIVE = runsQueries.ACTIVE;
-const FINISHED = "('completed','failed','cancelled','interrupted')";
 
 type Team = MailTeam;
 type Thread = {
@@ -157,19 +162,14 @@ const firstLine = (text: string) =>
 const mailByKey = (owner: string, key: string) =>
   mailQueries.byIdempotency(db, owner, key) as Mail | undefined;
 const agentRow = (owner: string, agentId: string) =>
-  db
-    .prepare("SELECT * FROM agents WHERE id=? AND owner_id=?")
-    .get(agentId, owner) as Agent | undefined;
+  agentsQueries.owned(db, agentId, owner) as Agent | undefined;
 
 /** The run's team, if it is still active and the run's agent belongs to it. */
 export function teamOf(run: Pick<Run, "payload" | "owner_id" | "agent_id">) {
   const teamId = run.payload.teamId;
   if (typeof teamId !== "string" || !run.agent_id) return;
-  const team = db
-    .prepare(
-      "SELECT * FROM teams WHERE id=? AND owner_id=? AND deleted_at IS NULL",
-    )
-    .get(teamId, run.owner_id) as Team | undefined;
+  const team = teamsQueries.activeOwned(db, teamId, run.owner_id) as
+    Team | undefined;
   return team && memberRole(team, run.agent_id) ? team : undefined;
 }
 
@@ -189,11 +189,7 @@ function runtimeOf(owner: string, connectionId: string | null | undefined) {
   let connection;
   try {
     connection = connectionId
-      ? maybeConnection(
-          db
-            .prepare("SELECT * FROM connections WHERE id=? AND owner_id=?")
-            .get(connectionId, owner),
-        )
+      ? maybeConnection(connectionsQueries.owned(db, connectionId, owner))
       : undefined;
   } catch (error) {
     if (!(error instanceof InvalidRow)) throw error;
@@ -215,11 +211,13 @@ function runtimeOf(owner: string, connectionId: string | null | undefined) {
 /** Teammates an agent can message, for the loop55_message description. */
 export function teamRoster(team: Team, owner: string, self: string) {
   return (
-    db
-      .prepare(
-        "SELECT id,name,connection_id FROM agents WHERE owner_id=? AND retired_at IS NULL AND (id=? OR id IN (SELECT agent_id FROM team_members WHERE team_id=?)) ORDER BY id=? DESC,name",
-      )
-      .all(owner, team.manager_id, team.id, team.manager_id) as {
+    agentsQueries.mailTeamMembers(
+      db,
+      owner,
+      team.manager_id,
+      team.id,
+      team.manager_id,
+    ) as {
       id: string;
       name: string;
       connection_id: string | null;
@@ -291,16 +289,14 @@ function mailDiscoveryGeneration(run: Run) {
   if (agent.connection_id !== current.payload.connectionId)
     throw new Problem(409, "The sending agent's connection changed.");
   const connection = maybeConnection(
-    db
-      .prepare("SELECT * FROM connections WHERE id=? AND owner_id=?")
-      .get(agent.connection_id, run.owner_id),
+    connectionsQueries.owned(db, agent.connection_id, run.owner_id),
   );
   if (!connection?.metadata.loop55Harness) return null;
-  const dispatch = db
-    .prepare(
-      `SELECT d.generation FROM native_dispatch d JOIN companion_sessions s ON s.conversation_id=? AND s.generation=d.generation AND s.state='running' WHERE d.run_id=? AND d.state IN ('unknown','accepted')`,
-    )
-    .get(run.conversation_id, run.id) as { generation: string } | undefined;
+  const dispatch = nativeDispatchQueries.activeGeneration(
+    db,
+    run.conversation_id,
+    run.id,
+  ) as { generation: string } | undefined;
   if (!dispatch)
     throw new Problem(409, "The original native task is no longer executing.");
   return dispatch.generation;
@@ -330,18 +326,15 @@ function localAgentDirectory(
   args: FleetAgentQuery,
   self = "",
 ): FleetAgentPage {
-  const rows = db
-    .prepare(
-      "SELECT * FROM agents WHERE owner_id=? AND retired_at IS NULL AND id<>? AND (?='' OR instr(lower(name),lower(?))>0) ORDER BY normalized_name,id LIMIT ? OFFSET ?",
-    )
-    .all(
-      owner,
-      self,
-      args.query ?? "",
-      args.query ?? "",
-      args.limit + 1,
-      args.offset,
-    ) as Agent[];
+  const rows = agentsQueries.mailDirectory(
+    db,
+    owner,
+    self,
+    args.query ?? "",
+    args.query ?? "",
+    args.limit + 1,
+    args.offset,
+  ) as Agent[];
   return {
     agents: rows.slice(0, args.limit).map((agent) => {
       let reason: string | undefined;
@@ -352,9 +345,11 @@ function localAgentDirectory(
           throw error;
         reason = error.message;
       }
-      const connected = db
-        .prepare("SELECT status FROM connections WHERE id=? AND owner_id=?")
-        .get(agent.connection_id, owner) as { status: string } | undefined;
+      const connected = connectionsQueries.status(
+        db,
+        agent.connection_id,
+        owner,
+      ) as { status: string } | undefined;
       const busy = !!runsQueries.hasActiveForAgent(db, owner, agent.id);
       return {
         agentId: agent.id,
@@ -434,12 +429,13 @@ function validConversation(
 ) {
   if (!conversation) return;
   return (
-    db
-      .prepare(
-        "SELECT id FROM conversations WHERE id=? AND owner_id=? AND agent_id=? AND team_id=?",
-      )
-      .get(conversation, team.owner_id, agentId, team.id) as
-      { id: string } | undefined
+    conversationsQueries.mailTeamConversation(
+      db,
+      conversation,
+      team.owner_id,
+      agentId,
+      team.id,
+    ) as { id: string } | undefined
   )?.id;
 }
 // The team conversation the agent is working in (or has work queued in).
@@ -473,12 +469,11 @@ function route(
 ) {
   const parent = senderRun
     ? (
-        db
-          .prepare(
-            "SELECT p.conversation_id FROM delegations d JOIN runs p ON p.id=d.parent_run_id WHERE d.child_run_id=? AND p.agent_id=?",
-          )
-          .get(senderRun.id, recipient) as
-          { conversation_id: string } | undefined
+        delegationsQueries.mailParentConversation(
+          db,
+          senderRun.id,
+          recipient,
+        ) as { conversation_id: string } | undefined
       )?.conversation_id
     : undefined;
   if (preferParent) {
@@ -497,12 +492,12 @@ function route(
   )?.conversation_id;
   const delegated = senderRun?.conversation_id
     ? (
-        db
-          .prepare(
-            "SELECT ch.conversation_id FROM delegations d JOIN runs p ON p.id=d.parent_run_id JOIN runs ch ON ch.id=d.child_run_id WHERE p.owner_id=? AND p.conversation_id=? AND ch.agent_id=? ORDER BY ch.created_at DESC,ch.rowid DESC LIMIT 1",
-          )
-          .get(team.owner_id, senderRun.conversation_id, recipient) as
-          { conversation_id: string } | undefined
+        delegationsQueries.mailChildConversation(
+          db,
+          team.owner_id,
+          senderRun.conversation_id,
+          recipient,
+        ) as { conversation_id: string } | undefined
       )?.conversation_id
     : undefined;
   for (const candidate of [
@@ -523,11 +518,7 @@ function route(
 function steerable(owner: string, conversation: string, recipient: string) {
   const found = activeRun(owner, conversation, recipient);
   if (!found?.liveInput || found.run.state !== "running") return false;
-  return !db
-    .prepare(
-      `SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=? AND d.background=0 AND child.state IN ${ACTIVE}`,
-    )
-    .get(found.run.id);
+  return !delegationsQueries.hasBlockingChild(db, found.run.id);
 }
 
 // Resolve direct interrupts when accepting the message, before holding or
@@ -1202,9 +1193,8 @@ function statusOf(mail: Mail): MailStatus {
   if (mail.state === "refused") return "not_delivered";
   if (mail.steering_id && !mail.requeued_run_id) {
     const steering = (
-      db
-        .prepare("SELECT state FROM run_steering WHERE id=?")
-        .get(mail.steering_id) as { state: string } | undefined
+      runSteeringQueries.state(db, mail.steering_id) as
+        { state: string } | undefined
     )?.state;
     return steering === "delivered"
       ? "steered"
@@ -1218,11 +1208,10 @@ function statusOf(mail: Mail): MailStatus {
   )?.state;
   if (
     state === "interrupted" &&
-    db
-      .prepare(
-        "SELECT 1 FROM native_dispatch WHERE run_id=? AND state IN ('unknown','accepted')",
-      )
-      .get(mail.requeued_run_id ?? mail.run_id)
+    nativeDispatchQueries.hasUnknownOrAccepted(
+      db,
+      mail.requeued_run_id ?? mail.run_id,
+    )
   )
     return "unconfirmed";
   if (state === "queued" || state === "paused") return "queued";
@@ -1595,11 +1584,11 @@ const CANCELLED =
 // restarted by its unread messages.
 function requeue(mail: Mail) {
   db.transaction(() => {
-    const message = db
-      .prepare(
-        "SELECT m.content,m.conversation_id,m.metadata,r.state run_state FROM run_steering s JOIN messages m ON m.id=s.message_id JOIN runs r ON r.id=s.run_id WHERE s.id=? AND s.state='failed' AND s.error=?",
-      )
-      .get(mail.steering_id, UNSENT) as
+    const message = runSteeringQueries.failedMail(
+      db,
+      mail.steering_id,
+      UNSENT,
+    ) as
       | {
           content: string;
           conversation_id: string;
@@ -1609,9 +1598,7 @@ function requeue(mail: Mail) {
       | undefined;
     if (!message) return;
     const note = (text: string) =>
-      db
-        .prepare("UPDATE run_steering SET error=? WHERE id=?")
-        .run(text, mail.steering_id);
+      runSteeringQueries.setError(db, text, mail.steering_id);
     if (message.run_state === "cancelled") {
       note(CANCELLED);
       refuse(mail, new Problem(409, CANCELLED));
@@ -1688,18 +1675,9 @@ function attempt(key: string, time: number, work: () => void) {
 /** Worker pass: deliver background delegation results, requeue stranded steering. */
 export function sweepAgentMail(time = now()) {
   // Snapshot reviews are retrieved through loop55_review_status, not team mail.
-  const finished = db
-    .prepare(
-      `SELECT p.owner_id,d.parent_run_id,d.child_run_id,c.state FROM delegations d
-       JOIN runs c ON c.id=d.child_run_id JOIN runs p ON p.id=d.parent_run_id
-       JOIN teams t ON t.id=json_extract(p.payload,'$.teamId') AND t.owner_id=p.owner_id AND t.deleted_at IS NULL
-       WHERE d.background=1 AND c.state IN ${FINISHED}
-         AND json_extract(c.payload,'$.reviewId') IS NULL
-         AND p.state<>'cancelled'
-         AND NOT EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=p.owner_id AND m.idempotency_key='result:'||d.child_run_id||':'||c.state)
-       ORDER BY c.updated_at LIMIT 200`,
-    )
-    .all() as Parameters<typeof deliverResult>[0][];
+  const finished = delegationsQueries.finishedMailResults(db) as Parameters<
+    typeof deliverResult
+  >[0][];
   for (const row of finished)
     attempt(`result:${row.child_run_id}:${row.state}`, time, () =>
       deliverResult(row),
@@ -1828,9 +1806,8 @@ export function publicMailAgentReference(
     ) as { remote_name: string } | undefined;
     return { kind: "peer", ...peer, name: binding?.remote_name ?? null };
   }
-  const local = db
-    .prepare("SELECT name FROM agents WHERE owner_id=? AND id=?")
-    .get(owner, address) as { name: string } | undefined;
+  const local = agentsQueries.ownedName(db, owner, address) as
+    { name: string } | undefined;
   return { kind: "local", agentId: address, name: local?.name ?? null };
 }
 
@@ -1878,15 +1855,12 @@ export function publicMailMessage(mail: Mail) {
       : {}),
     conversation_id:
       mail.recipient_conversation_id &&
-      db
-        .prepare(
-          "SELECT 1 FROM conversations WHERE id=? AND owner_id=? AND agent_id=?",
-        )
-        .get(
-          mail.recipient_conversation_id,
-          mail.owner_id,
-          mail.recipient_agent_id,
-        )
+      conversationsQueries.ownedAgentExists(
+        db,
+        mail.recipient_conversation_id,
+        mail.owner_id,
+        mail.recipient_agent_id,
+      )
         ? mail.recipient_conversation_id
         : null,
   };

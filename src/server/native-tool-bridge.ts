@@ -1,3 +1,4 @@
+import * as approvalsQueries from "./sql/approvals.js";
 import { watchRun } from "./run-signal.js";
 import {
   createServer,
@@ -137,12 +138,12 @@ export class NativeToolBridge {
         // A delegation or another call blocked by run state must not inherit
         // a sibling tool request's approval deadline.
         const approval = pending
-          ? (db
-              .prepare(
-                "SELECT expires_at FROM approvals WHERE id=? AND owner_id=? AND run_id=? AND state='pending'",
-              )
-              .get(pending, run.owner_id, run.id) as
-              { expires_at: number } | undefined)
+          ? (approvalsQueries.pendingExpiry(
+              db,
+              pending,
+              run.owner_id,
+              run.id,
+            ) as { expires_at: number } | undefined)
           : undefined;
         const expired = new AbortController();
         const expire = () =>

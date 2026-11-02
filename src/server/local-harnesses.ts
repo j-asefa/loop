@@ -1,3 +1,4 @@
+import * as connectionsQueries from "./sql/connections.js";
 import { executionRequest } from "./execution-client.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { discover } from "../host-control.js";
@@ -25,12 +26,11 @@ export async function prepareLocalHarnesses(
   let enabled = 0;
   for (const name of selected) {
     if (stopping()) break;
-    const connection = db
-      .prepare(
-        "SELECT status,metadata FROM connections WHERE id=? AND owner_id=?",
-      )
-      .get("native-" + name, OWNER) as
-      { status: string; metadata: string } | undefined;
+    const connection = connectionsQueries.statusMetadata(
+      db,
+      "native-" + name,
+      OWNER,
+    ) as { status: string; metadata: string } | undefined;
     // An intentional disconnect is not an invitation to sign in again.
     if (
       connection?.status === "disconnected" &&
@@ -80,11 +80,7 @@ export async function prepareLocalHarnesses(
       // Never print provider configuration, credentials or raw auth subprocess output.
       // Verification failure must not leave a stale account available for dispatch.
       writeConnectionStatus("native-" + name, () =>
-        db
-          .prepare(
-            "UPDATE connections SET status='needs_sign_in' WHERE id=? AND owner_id=? AND status<>'disconnected'",
-          )
-          .run("native-" + name, OWNER),
+        connectionsQueries.needsSignIn(db, "native-" + name, OWNER),
       );
       console.log(
         `${name}: check installation and sign-in in Provider connections.`,

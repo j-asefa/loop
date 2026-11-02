@@ -42,7 +42,7 @@ export function existsOwned(
 const ownedStatement = statement(
   "SELECT * FROM connections WHERE id=? AND owner_id=?",
 );
-export function owned(db: Database.Database, id: string, owner: string) {
+export function owned(db: Database.Database, id: string | null, owner: string) {
   const row = ownedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
@@ -179,4 +179,194 @@ export function ownerStatus(db: Database.Database, id: string) {
   return row === undefined
     ? undefined
     : parseRecord(ownerStatusRow, row, "connections");
+}
+
+const statusStatement = statement(
+  "SELECT status FROM connections WHERE id=? AND owner_id=?",
+);
+
+const statusRow = QueryRecords.connections.pick({ status: true });
+
+export function status(
+  db: Database.Database,
+  id: string | null | undefined,
+  owner: string,
+) {
+  const row = statusStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(statusRow, row, "connections");
+}
+
+const runtimeHostInUseStatement = statement(
+  "SELECT 1 FROM connections WHERE owner_id=? AND json_extract(metadata,'$.runtimeHostId')=? AND status<>'disconnected'",
+);
+
+const runtimeHostInUseRow = z.object({ "1": z.number() });
+
+export function runtimeHostInUse(
+  db: Database.Database,
+  owner: string,
+  host: string,
+) {
+  const row = runtimeHostInUseStatement(db).get(owner, host);
+  return row === undefined
+    ? undefined
+    : parseRecord(runtimeHostInUseRow, row, "connections");
+}
+
+const resolvedNativeModelStatement = statement(
+  "SELECT json_extract(value,'$.resolvedModel') model FROM connections,json_each(connections.models) WHERE connections.id=? AND connections.owner_id=? AND json_valid(connections.models) AND json_extract(value,'$.id')='native-default'",
+);
+
+const resolvedNativeModelRow = z.object({ model: z.string().nullable() });
+
+export function resolvedNativeModel(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = resolvedNativeModelStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(resolvedNativeModelRow, row, "connections");
+}
+
+const registerNativeStatement = statement(
+  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,'connected',?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label,status='connected',models=excluded.models,metadata=excluded.metadata",
+);
+
+export function registerNative(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  provider: string,
+  label: string,
+  secret: string,
+  models: string,
+  metadata: string,
+  created: number,
+) {
+  return registerNativeStatement(db).run(
+    id,
+    owner,
+    provider,
+    label,
+    secret,
+    models,
+    metadata,
+    created,
+  );
+}
+
+const registerDisconnectedNativeStatement = statement(
+  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,'','disconnected','[]',?,?) ON CONFLICT(id) DO UPDATE SET status='disconnected',models='[]' WHERE owner_id=excluded.owner_id",
+);
+
+export function registerDisconnectedNative(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  provider: string,
+  label: string,
+  metadata: string,
+  created: number,
+) {
+  return registerDisconnectedNativeStatement(db).run(
+    id,
+    owner,
+    provider,
+    label,
+    metadata,
+    created,
+  );
+}
+
+const statusModelsStatement = statement(
+  "SELECT status,models FROM connections WHERE id=? AND owner_id=?",
+);
+
+const statusModelsRow = QueryRecords.connections.pick({
+  status: true,
+  models: true,
+});
+
+export function statusModels(db: Database.Database, id: string, owner: string) {
+  const row = statusModelsStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(statusModelsRow, row, "connections");
+}
+
+const statusMetadataStatement = statement(
+  "SELECT status,metadata FROM connections WHERE id=? AND owner_id=?",
+);
+
+const statusMetadataRow = QueryRecords.connections.pick({
+  status: true,
+  metadata: true,
+});
+
+export function statusMetadata(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = statusMetadataStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(statusMetadataRow, row, "connections");
+}
+
+const needsSignInStatement = statement(
+  "UPDATE connections SET status='needs_sign_in' WHERE id=? AND owner_id=? AND status<>'disconnected'",
+);
+
+export function needsSignIn(db: Database.Database, id: string, owner: string) {
+  return needsSignInStatement(db).run(id, owner);
+}
+
+const readModelsStatement = statement(
+  "SELECT models FROM connections WHERE id=? AND owner_id=?",
+);
+
+export function readModels(db: Database.Database, id: string, owner: string) {
+  const row = readModelsStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(
+        QueryRecords.connections.pick({ models: true }),
+        row,
+        "connections",
+      );
+}
+
+const idStatement = statement("SELECT id FROM connections WHERE id=?");
+const idRow = QueryRecords.connections.pick({ id: true });
+export function id(db: Database.Database, id: string) {
+  const row = idStatement(db).get(id);
+  return row === undefined ? undefined : parseRecord(idRow, row, "connections");
+}
+
+const metadataStatement = statement(
+  "SELECT metadata FROM connections WHERE id=? AND owner_id=?",
+);
+const metadataRow = QueryRecords.connections.pick({ metadata: true });
+export function metadata(db: Database.Database, id: string, owner: string) {
+  const row = metadataStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(metadataRow, row, "connections");
+}
+
+const setResolvedNativeModelStatement = statement(
+  "UPDATE connections SET models=(SELECT json_group_array(CASE WHEN json_extract(value,'$.id')='native-default' THEN json_set(value,'$.resolvedModel',?) ELSE json(value) END) FROM json_each(connections.models)) WHERE id=? AND owner_id=? AND json_valid(models)",
+);
+export function setResolvedNativeModel(
+  db: Database.Database,
+  model: string,
+  id: string | undefined,
+  owner: string,
+) {
+  return setResolvedNativeModelStatement(db).run(model, id, owner);
 }

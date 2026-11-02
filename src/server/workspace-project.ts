@@ -1,20 +1,17 @@
+import * as workspaceProjectsQueries from "./sql/workspace-projects.js";
+import * as foldersQueries from "./sql/folders.js";
 import { db, id, now } from "./db.js";
 
 export function isWorkspaceProject(owner: string, project: string) {
-  return !!db
-    .prepare(
-      "SELECT 1 FROM workspace_projects WHERE owner_id=? AND project_id=?",
-    )
-    .get(owner, project);
+  return !!workspaceProjectsQueries.exists(db, owner, project);
 }
 
 /** Materialize the default project once per owner without refiling work. */
 export function ensureWorkspaceProject(owner: string): string {
   const read = () =>
     (
-      db
-        .prepare("SELECT project_id FROM workspace_projects WHERE owner_id=?")
-        .get(owner) as { project_id: string } | undefined
+      workspaceProjectsQueries.forOwner(db, owner) as
+        { project_id: string } | undefined
     )?.project_id;
   const existing = read();
   if (existing) return existing;
@@ -23,12 +20,8 @@ export function ensureWorkspaceProject(owner: string): string {
       const existing = read();
       if (existing) return existing;
       const project = id();
-      db.prepare(
-        "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,NULL,'project','Workspace',?)",
-      ).run(project, owner, now());
-      db.prepare(
-        "INSERT INTO workspace_projects(owner_id,project_id) VALUES(?,?)",
-      ).run(owner, project);
+      foldersQueries.insertWorkspace(db, project, owner, now());
+      workspaceProjectsQueries.insert(db, owner, project);
       return project;
     })
     .immediate();

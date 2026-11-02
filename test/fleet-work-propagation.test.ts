@@ -686,9 +686,9 @@ it.each([
       const first = request("first");
       answer.mockImplementationOnce(async () => {
         if (outcome === "resolved-before-refusal") {
-          const { finishDecisions } =
-            await import("../src/server/native/decisions.js");
-          finishDecisions("resolved", "id=?", [first]);
+          const { finishById } =
+            await import("../src/server/sql/native-decisions.js");
+          finishById(db, "resolved", first);
         }
         if (outcome.includes("refus"))
           throw new NotDelivered("Fixture native rejection");

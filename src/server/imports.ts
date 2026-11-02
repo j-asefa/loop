@@ -1,3 +1,10 @@
+import * as importsQueries from "./sql/imports.js";
+import * as objectsQueries from "./sql/objects.js";
+import * as agentsQueries from "./sql/agents.js";
+import * as handlesQueries from "./sql/handles.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as importMessagesQueries from "./sql/import-messages.js";
+import * as artifactsQueries from "./sql/artifacts.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
 import { MessageMetadata } from "./row-schemas.js";
@@ -282,9 +289,8 @@ export async function readArchive(
 }
 export async function stageImport(owner: string, bytes: Buffer, name: string) {
   const checksum = digest(bytes);
-  const prior = db
-    .prepare("SELECT * FROM imports WHERE owner_id=? AND digest=?")
-    .get(owner, checksum) as QueryRow<"imports"> | undefined;
+  const prior = importsQueries.byDigest(db, owner, checksum) as
+    QueryRow<"imports"> | undefined;
   if (prior)
     return { ...prior, summary: JSON.parse(prior.summary), duplicate: true };
   const parsed = await readArchive(bytes, name);
@@ -292,7 +298,8 @@ export async function stageImport(owner: string, bytes: Buffer, name: string) {
     .transaction(() => {
       const objectId = id(),
         job = id();
-      db.prepare("INSERT INTO objects VALUES(?,?,?,?,?,?)").run(
+      objectsQueries.insert(
+        db,
         objectId,
         owner,
         name.slice(0, 180),
@@ -312,7 +319,8 @@ export async function stageImport(owner: string, bytes: Buffer, name: string) {
         titles: parsed.conversations.slice(0, 5).map((c) => c.title),
         completed: 0,
       };
-      db.prepare("INSERT INTO imports VALUES(?,?,?,?,'preview',?,?)").run(
+      importsQueries.insertPreview(
+        db,
         job,
         owner,
         parsed.provider,
@@ -328,26 +336,28 @@ export async function executeImport(run: Run) {
   const importId = z.string().min(1).parse(run.payload.importId);
   const job = ownedImport(importId, run.owner_id),
     summary = JSON.parse(job.summary);
-  const object = db
-    .prepare("SELECT * FROM objects WHERE id=? AND owner_id=?")
-    .get(summary.objectId, run.owner_id) as QueryRow<"objects"> | undefined;
+  const object = objectsQueries.owned(db, summary.objectId, run.owner_id) as
+    QueryRow<"objects"> | undefined;
   if (!object) throw new Error("Import file missing");
   const parsed = await readArchive(object.bytes, object.name);
-  db.prepare("UPDATE imports SET status='running' WHERE id=?").run(importId);
+  importsQueries.markRunning(db, importId);
   let agentId = summary.agentId;
   if (!agentId) {
     agentId = id();
     const name = `import-${parsed.provider}-${agentId.slice(0, 8)}`;
     db.transaction(() => {
-      db.prepare(
-        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,?,?,?,'Imported history','','import',?)",
-      ).run(agentId, run.owner_id, name, name, parsed.provider, now());
-      db.prepare("INSERT INTO handles VALUES(?,?,?)").run(name, agentId, now());
-      summary.agentId = agentId;
-      db.prepare("UPDATE imports SET summary=? WHERE id=?").run(
-        JSON.stringify(summary),
-        importId,
+      agentsQueries.insertImported(
+        db,
+        agentId,
+        run.owner_id,
+        name,
+        name,
+        parsed.provider,
+        now(),
       );
+      handlesQueries.insert(db, name, agentId, now());
+      summary.agentId = agentId;
+      importsQueries.setSummary(db, JSON.stringify(summary), importId);
     }).immediate();
   }
   for (let index = 0; index < parsed.conversations.length; index++) {
@@ -357,29 +367,26 @@ export async function executeImport(run: Run) {
       }
     ).state;
     if (state === "pausing") {
-      db.prepare("UPDATE imports SET status='paused' WHERE id=?").run(importId);
+      importsQueries.markPaused(db, importId);
       transition(run, "paused");
       return false;
     }
     if (state === "cancelled") {
-      db.prepare("UPDATE imports SET status='cancelled' WHERE id=?").run(
-        importId,
-      );
+      importsQueries.markCancelled(db, importId);
       return false;
     }
     const c = parsed.conversations[index];
     db.transaction(() => {
-      let conversation = db
-        .prepare(
-          "SELECT id FROM conversations WHERE owner_id=? AND origin=? AND external_id=?",
-        )
-        .get(run.owner_id, parsed.provider + "-import", c.externalId) as
-        { id: string } | undefined;
+      let conversation = conversationsQueries.byOriginExternal(
+        db,
+        run.owner_id,
+        parsed.provider + "-import",
+        c.externalId,
+      ) as { id: string } | undefined;
       if (!conversation) {
         conversation = { id: id() };
-        db.prepare(
-          "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
-        ).run(
+        conversationsQueries.insertImported(
+          db,
           conversation.id,
           run.owner_id,
           agentId,
@@ -392,11 +399,12 @@ export async function executeImport(run: Run) {
       for (const m of c.messages) {
         const external = c.externalId + ":" + m.externalId;
         if (
-          db
-            .prepare(
-              "SELECT 1 FROM import_messages WHERE owner_id=? AND provider=? AND external_id=?",
-            )
-            .get(run.owner_id, parsed.provider, external)
+          importMessagesQueries.exists(
+            db,
+            run.owner_id,
+            parsed.provider,
+            external,
+          )
         )
           continue;
         const messageId = id();
@@ -421,7 +429,8 @@ export async function executeImport(run: Run) {
           ),
           m.timestamp || c.timestamp || now(),
         );
-        db.prepare("INSERT INTO import_messages VALUES(?,?,?,?)").run(
+        importMessagesQueries.insert(
+          db,
           run.owner_id,
           parsed.provider,
           external,
@@ -429,11 +438,11 @@ export async function executeImport(run: Run) {
         );
       }
       if (
-        !db
-          .prepare(
-            "SELECT 1 FROM artifacts WHERE owner_id=? AND conversation_id=?",
-          )
-          .get(run.owner_id, conversation.id)
+        !artifactsQueries.conversationHasArtifact(
+          db,
+          run.owner_id,
+          conversation.id,
+        )
       )
         saveArtifact(run.owner_id, {
           title: c.title,
@@ -453,10 +462,7 @@ export async function executeImport(run: Run) {
           },
         });
       summary.completed = index + 1;
-      db.prepare("UPDATE imports SET summary=? WHERE id=?").run(
-        JSON.stringify(summary),
-        importId,
-      );
+      importsQueries.setSummary(db, JSON.stringify(summary), importId);
     }).immediate();
     emit(run.owner_id, run.id, "import.progress", {
       completed: index + 1,
@@ -468,7 +474,8 @@ export async function executeImport(run: Run) {
     db.transaction(() => {
       for (const attachment of parsed.attachments) {
         const objectId = id();
-        db.prepare("INSERT INTO objects VALUES(?,?,?,?,?,?)").run(
+        objectsQueries.insert(
+          db,
           objectId,
           run.owner_id,
           attachment.name,
@@ -492,11 +499,8 @@ export async function executeImport(run: Run) {
         });
       }
       summary.attachmentsStored = true;
-      db.prepare("UPDATE imports SET summary=? WHERE id=?").run(
-        JSON.stringify(summary),
-        importId,
-      );
+      importsQueries.setSummary(db, JSON.stringify(summary), importId);
     }).immediate();
   }
-  db.prepare("UPDATE imports SET status='completed' WHERE id=?").run(importId);
+  importsQueries.markCompleted(db, importId);
 }

@@ -1,3 +1,5 @@
+import * as objectsQueries from "./sql/objects.js";
+import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 import * as messagesQueries from "./sql/messages.js";
 import { type Artifact } from "./row-schemas.js";
 
@@ -61,7 +63,8 @@ export function uploadFile(
   return db
     .transaction(() => {
       assertFleetAction(owner);
-      db.prepare("INSERT INTO objects VALUES(?,?,?,?,?,?)").run(
+      objectsQueries.insert(
+        db,
         objectId,
         owner,
         name,
@@ -85,11 +88,7 @@ export function uploadFile(
 // A file an agent published (loop55_publish_file), passed to a teammate with
 // loop55_message. Its bytes live under the data directory, checked on read.
 function publishedFile(artifact: Artifact, owner: string) {
-  const row = db
-    .prepare(
-      "SELECT object_key,mime,checksum FROM artifact_objects WHERE artifact_id=? AND owner_id=?",
-    )
-    .get(artifact.id, owner) as
+  const row = artifactObjectsQueries.download(db, artifact.id, owner) as
     { object_key: string; mime: string; checksum: string } | undefined;
   if (
     !row ||

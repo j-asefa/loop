@@ -1,3 +1,11 @@
+import * as memoryPolicyQueries from "./sql/memory-policy.js";
+import * as artifactsQueries from "./sql/artifacts.js";
+import * as nativeSessionsQueries from "./sql/native-sessions.js";
+import * as memorySourcesQueries from "./sql/memory-sources.js";
+import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
+import * as memoryOutboxQueries from "./sql/memory-outbox.js";
+import * as memoryFtsQueries from "./sql/memory-fts.js";
+import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
 import "../../runtime/environment.mjs";
 import { registrar, projectResponse } from "./registrar.js";
@@ -26,9 +34,7 @@ export function enabled(
 ): boolean {
   if (scope === "workspace" && process.env.LOOP55_MEMORY_ENABLED === "0")
     return false;
-  const p = db
-    .prepare("SELECT enabled FROM memory_policy WHERE owner_id=? AND scope=?")
-    .get(owner, scope) as
+  const p = memoryPolicyQueries.enabled(db, owner, scope) as
     Pick<QueryRow<"memory_policy">, "enabled"> | undefined;
   return p ? p.enabled === 1 : fallback;
 }
@@ -41,9 +47,7 @@ function eligible(s: any) {
   )
     return false;
   if (s.kind === "artifact") {
-    const artifact = db
-      .prepare("SELECT pinned FROM artifacts WHERE id=? AND owner_id=?")
-      .get(s.source_id, s.owner_id) as
+    const artifact = artifactsQueries.pinned(db, s.source_id, s.owner_id) as
       Pick<QueryRow<"artifacts">, "pinned"> | undefined;
     if (
       !artifact ||
@@ -54,9 +58,7 @@ function eligible(s: any) {
   if (s.conversation_id) {
     if (!enabled(s.owner_id, "conversation:" + s.conversation_id, false))
       return false;
-    const native = db
-      .prepare("SELECT coherent FROM native_sessions WHERE conversation_id=?")
-      .get(s.conversation_id) as
+    const native = nativeSessionsQueries.coherent(db, s.conversation_id) as
       Pick<QueryRow<"native_sessions">, "coherent"> | undefined;
     if (native && !native.coherent) return false;
     if (s.message_id) {
@@ -72,15 +74,12 @@ function putSource(s: any) {
   const hash = digest(
     JSON.stringify([s.content, s.project_id, s.eligible, s.title]),
   );
-  const old = db
-    .prepare("SELECT * FROM memory_sources WHERE id=?")
-    .get(sourceId) as QueryRow<"memory_sources"> | undefined;
+  const old = memorySourcesQueries.get(db, sourceId) as
+    QueryRow<"memory_sources"> | undefined;
   if (old?.tombstone || old?.content_hash === hash) return;
   const revision = (old?.revision || 0) + 1;
-  db.prepare(
-    `INSERT INTO memory_sources(id,owner_id,project_id,kind,source_id,conversation_id,message_id,agent_id,origin,role,revision,content_hash,content,title,eligible,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,revision=excluded.revision,content_hash=excluded.content_hash,content=excluded.content,title=excluded.title,eligible=excluded.eligible,updated_at=excluded.updated_at`,
-  ).run(
+  memorySourcesQueries.upsert(
+    db,
     sourceId,
     s.owner_id,
     s.project_id || null,
@@ -99,21 +98,22 @@ function putSource(s: any) {
     s.created_at,
     now(),
   );
-  db.prepare("UPDATE memory_sources SET complete=? WHERE id=?").run(
-    s.complete === false ? 0 : 1,
-    sourceId,
-  );
+  memorySourcesQueries.setComplete(db, s.complete === false ? 0 : 1, sourceId);
   if (s.kind === "note")
-    db.prepare("INSERT INTO memory_note_versions VALUES(?,?,?,?,?)").run(
+    memoryNoteVersionsQueries.insert(
+      db,
       sourceId,
       revision,
       s.title,
       s.content,
       now(),
     );
-  db.prepare(
-    "INSERT INTO memory_outbox(source_id,revision,action) VALUES(?,?,?) ON CONFLICT(source_id) DO UPDATE SET revision=excluded.revision,action=excluded.action,attempts=0,next_attempt=0",
-  ).run(sourceId, revision, s.eligible ? "index" : "delete");
+  memoryOutboxQueries.enqueueResetAttempts(
+    db,
+    sourceId,
+    revision,
+    s.eligible ? "index" : "delete",
+  );
 }
 export function captureMemory() {
   db.transaction(() => {
@@ -147,11 +147,9 @@ export function captureMemory() {
         complete: !meta.truncated,
       });
     }
-    const artifacts = db
-      .prepare(
-        "SELECT * FROM artifacts WHERE pinned=1 OR id IN (SELECT substr(scope,10) FROM memory_policy WHERE scope LIKE 'artifact:%' AND enabled=1)",
-      )
-      .all() as QueryRow<"artifacts">[];
+    const artifacts = artifactsQueries.memoryCandidates(
+      db,
+    ) as QueryRow<"artifacts">[];
     for (const a of artifacts)
       if (["markdown", "note", "text"].includes(a.kind))
         putSource({
@@ -193,13 +191,13 @@ export async function indexMemory() {
   indexing = true;
   try {
     captureMemory();
-    const jobs = db
-      .prepare("SELECT * FROM memory_outbox WHERE next_attempt<=? LIMIT 8")
-      .all(now()) as QueryRow<"memory_outbox">[];
+    const jobs = memoryOutboxQueries.due(
+      db,
+      now(),
+    ) as QueryRow<"memory_outbox">[];
     for (const job of jobs) {
-      const s = db
-        .prepare("SELECT * FROM memory_sources WHERE id=?")
-        .get(job.source_id) as QueryRow<"memory_sources"> | undefined;
+      const s = memorySourcesQueries.get(db, job.source_id) as
+        QueryRow<"memory_sources"> | undefined;
       try {
         if (!s)
           throw new Error(`Memory source ${job.source_id} no longer exists`);
@@ -217,17 +215,12 @@ export async function indexMemory() {
           120000,
         );
         db.transaction(() => {
-          db.prepare(
-            "UPDATE memory_sources SET indexed_revision=? WHERE id=? AND revision=?",
-          ).run(s.revision, s.id, s.revision);
-          db.prepare(
-            "DELETE FROM memory_outbox WHERE source_id=? AND revision=?",
-          ).run(s.id, s.revision);
+          memorySourcesQueries.markIndexed(db, s.revision, s.id, s.revision);
+          memoryOutboxQueries.removeRevision(db, s.id, s.revision);
         }).immediate();
       } catch {
-        db.prepare(
-          "UPDATE memory_outbox SET attempts=attempts+1,next_attempt=? WHERE source_id=? AND revision=?",
-        ).run(
+        memoryOutboxQueries.backoff(
+          db,
           now() + Math.min(300000, 5000 * 2 ** Math.min(job.attempts, 6)),
           job.source_id,
           job.revision,
@@ -306,17 +299,14 @@ export async function searchMemory(
     .filter((w) => !stop.has(w.toLowerCase()))
     .slice(0, 24);
   if (words.length) {
-    const lexical = db
-      .prepare(
-        "SELECT s.id,s.revision FROM memory_fts f JOIN memory_sources s ON s.id=f.id WHERE memory_fts MATCH ? AND s.owner_id=? AND (s.project_id IS ? OR (s.kind='note' AND s.project_id IS NULL)) ORDER BY rank LIMIT 30",
-      )
-      .all(
-        "content:(" +
-          words.map((w) => '"' + w.replaceAll('"', '""') + '"').join(" OR ") +
-          ")",
-        owner,
-        project,
-      );
+    const lexical = memoryFtsQueries.search(
+      db,
+      "content:(" +
+        words.map((w) => '"' + w.replaceAll('"', '""') + '"').join(" OR ") +
+        ")",
+      owner,
+      project,
+    );
     candidates.push(...lexical);
   }
   const seen = new Set(),
@@ -351,12 +341,7 @@ export async function recallForRun(run: Run) {
   const p = run.payload,
     recall = await searchMemory(run.owner_id, p.folderId || null, run.input);
   const sources = recall.sources.filter(
-    (s) =>
-      !db
-        .prepare(
-          "SELECT 1 FROM memory_sources WHERE id=? AND conversation_id=?",
-        )
-        .get(s.id, run.conversation_id),
+    (s) => !memorySourcesQueries.inConversation(db, s.id, run.conversation_id),
   );
   const text = (
     sources.length
@@ -369,7 +354,8 @@ export async function recallForRun(run: Run) {
           .join("\n\n")
       : ""
   ).slice(0, 6000);
-  db.prepare("INSERT OR REPLACE INTO memory_receipts VALUES(?,?,?,?,?)").run(
+  memoryReceiptsQueries.replace(
+    db,
     run.id,
     recall.mode,
     JSON.stringify(sources.map(({ excerpt, ...s }) => s)),
@@ -399,21 +385,9 @@ routes.on(workspaceApi.memoryStatus, async (_req, res) => {
   res.json(
     projectResponse(workspaceApi.memoryStatus, {
       readiness,
-      backlog: (
-        db
-          .prepare(
-            "SELECT count(*) n FROM memory_outbox o JOIN memory_sources s ON s.id=o.source_id WHERE s.owner_id=?",
-          )
-          .get(owner) as { n: number }
-      ).n,
-      policies: db
-        .prepare("SELECT scope,enabled FROM memory_policy WHERE owner_id=?")
-        .all(owner),
-      sources: db
-        .prepare(
-          "SELECT id,title,kind,project_id,revision,eligible,tombstone,indexed_revision FROM memory_sources WHERE owner_id=? ORDER BY updated_at DESC LIMIT 100",
-        )
-        .all(owner),
+      backlog: (memoryOutboxQueries.ownedCount(db, owner) as { n: number }).n,
+      policies: memoryPolicyQueries.forOwner(db, owner),
+      sources: memorySourcesQueries.summaries(db, owner),
     }),
   );
 });
@@ -427,12 +401,11 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
   else if (scope !== "workspace")
     throw new Problem(400, "Unknown memory scope");
   db.transaction(() => {
-    db.prepare(
-      "INSERT INTO memory_policy VALUES(?,?,?) ON CONFLICT(owner_id,scope) DO UPDATE SET enabled=excluded.enabled",
-    ).run(owner, scope, value ? 1 : 0);
-    const sources = db
-      .prepare("SELECT * FROM memory_sources WHERE owner_id=?")
-      .all(owner) as QueryRow<"memory_sources">[];
+    memoryPolicyQueries.set(db, owner, scope, value ? 1 : 0);
+    const sources = memorySourcesQueries.forOwner(
+      db,
+      owner,
+    ) as QueryRow<"memory_sources">[];
     for (const s of sources) {
       if (
         scope !== "workspace" &&
@@ -441,12 +414,13 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
         !(kind === "artifact" && s.source_id === key)
       )
         continue;
-      db.prepare(
-        "UPDATE memory_sources SET revision=revision+1,updated_at=? WHERE id=?",
-      ).run(now(), s.id);
-      db.prepare(
-        "INSERT INTO memory_outbox(source_id,revision,action) VALUES(?,?,?) ON CONFLICT(source_id) DO UPDATE SET revision=excluded.revision,action=excluded.action,next_attempt=0",
-      ).run(s.id, s.revision + 1, eligible(s) ? "index" : "delete");
+      memorySourcesQueries.advanceRevision(db, now(), s.id);
+      memoryOutboxQueries.enqueue(
+        db,
+        s.id,
+        s.revision + 1,
+        eligible(s) ? "index" : "delete",
+      );
     }
   }).immediate();
   res.json({ ok: true });
@@ -467,12 +441,8 @@ routes.on(workspaceApi.memorySource, (req, res) => {
 routes.on(workspaceApi.memorySourceDelete, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   db.transaction(() => {
-    db.prepare(
-      "UPDATE memory_sources SET tombstone=1,eligible=0,revision=revision+1 WHERE id=?",
-    ).run(s.id);
-    db.prepare(
-      "INSERT INTO memory_outbox(source_id,revision,action) VALUES(?,?,'delete') ON CONFLICT(source_id) DO UPDATE SET revision=excluded.revision,action='delete',next_attempt=0",
-    ).run(s.id, s.revision + 1);
+    memorySourcesQueries.tombstone(db, s.id);
+    memoryOutboxQueries.enqueueDelete(db, s.id, s.revision + 1);
   }).immediate();
   res.json({ ok: true, originalHistoryRetained: true });
 });
@@ -501,11 +471,11 @@ routes.on(workspaceApi.runMemory, (req, res) => {
   res.json(
     projectResponse(
       workspaceApi.runMemory,
-      db
-        .prepare("SELECT * FROM memory_receipts WHERE run_id=?")
-        // Only runtimes that recall memory record a receipt; no receipt means
-        // nothing was looked up or added, not an empty search.
-        .get(req.params.id) || { mode: "not-used", sources: "[]", tokens: 0 },
+      memoryReceiptsQueries.get(db, req.params.id) || {
+        mode: "not-used",
+        sources: "[]",
+        tokens: 0,
+      },
     ),
   );
 });
@@ -527,11 +497,7 @@ routes.on(workspaceApi.memoryNoteVersions, (req, res) => {
   res.json(
     projectResponse(
       workspaceApi.memoryNoteVersions,
-      db
-        .prepare(
-          "SELECT revision,title,content,created_at FROM memory_note_versions WHERE source_id=? ORDER BY revision DESC",
-        )
-        .all(s.id),
+      memoryNoteVersionsQueries.history(db, s.id),
     ),
   );
 });

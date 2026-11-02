@@ -1,3 +1,4 @@
+import * as runCheckoutsQueries from "./sql/run-checkouts.js";
 import * as mailQueries from "./sql/agent-mail.js";
 import * as runsQueries from "./sql/runs.js";
 import { z } from "zod";
@@ -184,9 +185,7 @@ function transitionState(
       // The capture request is durable with the transition: if the process
       // stops before the capture claims it, reconciliation finds it.
       if (TERMINAL_STATES.includes(state))
-        db.prepare(
-          "UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?",
-        ).run(run.id);
+        runCheckoutsQueries.markPending(db, run.id);
       const event = emit(run.owner_id, run.id, state, payload);
       enqueueStoppedWebhooks(db, event);
       return true;

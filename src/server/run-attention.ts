@@ -1,3 +1,5 @@
+import * as approvalsQueries from "./sql/approvals.js";
+import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
@@ -20,9 +22,7 @@ function cancelChildren(
     const parent = pending.pop()!;
     if (visited.has(parent)) continue;
     visited.add(parent);
-    db.prepare(
-      "UPDATE approvals SET state='rejected' WHERE owner_id=? AND run_id=? AND state='pending'",
-    ).run(owner, parent);
+    approvalsQueries.rejectPending(db, owner, parent);
     const children = z
       .array(RunIdentity)
       .parse(
@@ -100,14 +100,7 @@ export function listRuns(owner: string, teams: string[] = [], active = false) {
  * the newest public update when the artifact has no content yet.
  */
 export function runPreview(owner: string, runId: string) {
-  const artifact = db
-    .prepare(
-      `SELECT a.*,r.state run_state,r.error run_error,
-        json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata
-        FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id AND a.owner_id=?
-        JOIN runs r ON r.id=cp.run_id WHERE cp.run_id=?`,
-    )
-    .get(owner, runId) as
+  const artifact = agentCheckpointsQueries.result(db, owner, runId) as
     ({ content: string } & Record<string, unknown>) | undefined;
   const latest = !artifact?.content
     ? (

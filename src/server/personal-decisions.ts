@@ -1,3 +1,4 @@
+import * as personalDecisionsQueries from "./sql/personal-decisions.js";
 import { z } from "zod";
 import { db, now } from "./db.js";
 import { Problem } from "./domain.js";
@@ -16,21 +17,7 @@ import {
 const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 
 export function personalApproval(owner: string, id: string): PersonalApproval {
-  const row = db
-    .prepare(
-      `SELECT
-      CASE WHEN a.id IS NOT NULL THEN 'approval' ELSE 'native' END source,
-      COALESCE(a.request,d.request) request
-    FROM personal_decisions h
-    JOIN runs r ON r.id=h.run_id AND r.owner_id=h.owner_id
-    LEFT JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=h.owner_id
-    LEFT JOIN approvals a ON a.id=h.approval_id AND a.owner_id=h.owner_id AND a.run_id=r.id
-    LEFT JOIN native_decisions d ON d.id=h.native_decision_id AND d.run_id=r.id AND d.conversation_id=r.conversation_id
-    WHERE h.id=? AND h.owner_id=? AND h.kind='approval'
-      AND (a.id IS NOT NULL OR d.id IS NOT NULL)
-      AND (r.conversation_id IS NULL OR c.id IS NOT NULL)`,
-    )
-    .get(id, owner) as
+  const row = personalDecisionsQueries.approval(db, id, owner) as
     { source: "approval" | "native"; request: string } | undefined;
   if (!row) throw new Problem(404, "Approval history not found");
   return PersonalApprovalSchema.parse({
@@ -161,11 +148,8 @@ export function recordPersonalDecision(input: {
           response: { choice: previewText(input.answer.choice as string, 256) },
           truncated: jsonBytes(input.answer.choice) > 256,
         };
-  db.prepare(
-    `INSERT INTO personal_decisions
-    (id,owner_id,run_id,approval_id,native_decision_id,kind,response,response_truncated,created_at)
-    VALUES(?,?,?,?,?,?,?,?,?)`,
-  ).run(
+  personalDecisionsQueries.insert(
+    db,
     input.approval ? "approval:" + input.approval : "native:" + input.native,
     input.owner,
     input.run,
@@ -211,35 +195,12 @@ export function personalDecisions(
       throw new Problem(400, "Invalid decision history cursor");
     }
   }
-  const rows = db
-    .prepare(
-      `SELECT h.id,h.kind,substr(h.response,1,${PERSONAL_DECISION_RESPONSE_LIMIT + 1}) response,
-      h.response_truncated,h.created_at,h.native_decision_id,
-      CASE WHEN h.approval_id IS NOT NULL THEN json_object(
-        'tool',substr(json_extract(a.request,'$.tool'),1,1025),
-        'type',substr(json_extract(a.request,'$.type'),1,256),
-        'message',substr(json_extract(a.request,'$.message'),1,${PERSONAL_DECISION_DETAIL_LIMIT + 1}),
-        'content',substr(json_extract(a.request,'$.content'),1,${PERSONAL_DECISION_DETAIL_LIMIT + 1}),
-        'argumentsText',substr(json_extract(a.request,'$.arguments'),1,${PERSONAL_DECISION_DETAIL_LIMIT + 1})
-      ) ELSE json_object(
-        'title',substr(json_extract(d.request,'$.title'),1,1025),
-        'detail',substr(json_extract(d.request,'$.detail'),1,${PERSONAL_DECISION_DETAIL_LIMIT + 1}),
-        'questionsText',substr(json_extract(d.request,'$.questions'),1,65537)
-      ) END request,
-      CASE WHEN h.approval_id IS NOT NULL THEN 'resolved' ELSE d.state END state,
-      c.id conversation_id,substr(c.title,1,1025) conversation_title,substr(g.name,1,257) agent_name
-    FROM personal_decisions h
-    JOIN runs r ON r.id=h.run_id AND r.owner_id=h.owner_id
-    LEFT JOIN approvals a ON a.id=h.approval_id AND a.owner_id=h.owner_id AND a.run_id=r.id
-    LEFT JOIN native_decisions d ON d.id=h.native_decision_id AND d.run_id=r.id AND d.conversation_id=r.conversation_id
-    LEFT JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=h.owner_id
-    LEFT JOIN agents g ON g.id=r.agent_id AND g.owner_id=h.owner_id
-    WHERE h.owner_id=? AND h.kind=? AND (a.id IS NOT NULL OR d.id IS NOT NULL)
-      AND (r.conversation_id IS NULL OR c.id IS NOT NULL)
-      AND (h.created_at,h.id)<(?,?)
-    ORDER BY h.created_at DESC,h.id DESC LIMIT 51`,
-    )
-    .all(owner, query.kind, ...cursor) as Row[];
+  const rows = personalDecisionsQueries.page(
+    db,
+    owner,
+    query.kind,
+    ...cursor,
+  ) as Row[];
   const more = rows.length > 50;
   if (more) rows.pop();
   const last = rows.at(-1);

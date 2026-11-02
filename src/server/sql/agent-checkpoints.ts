@@ -126,3 +126,41 @@ export function message(db: Database.Database, run: string) {
     ? undefined
     : parseRecord(messageRow, row, "agent_checkpoints");
 }
+
+const resultStatement = statement(
+  "SELECT a.*,r.state run_state,r.error run_error,\n        json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata\n        FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id AND a.owner_id=?\n        JOIN runs r ON r.id=cp.run_id WHERE cp.run_id=?",
+);
+const resultRow = QueryRecords.artifacts.extend({
+  run_state: z.string(),
+  run_error: z.string().nullable(),
+});
+export function result(db: Database.Database, owner: string, run: string) {
+  const row = resultStatement(db).get(owner, run);
+  return row === undefined
+    ? undefined
+    : parseRecord(resultRow, row, "agent_checkpoints");
+}
+
+const insertNativeStatement = statement(
+  "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,'[]')",
+);
+export function insertNative(
+  db: Database.Database,
+  run: string,
+  message: string,
+  artifact: string,
+) {
+  return insertNativeStatement(db).run(run, message, artifact);
+}
+
+const nativeOutputStatement = statement(
+  "UPDATE agent_checkpoints SET output=?,stage=? WHERE run_id=?",
+);
+export function nativeOutput(
+  db: Database.Database,
+  output: string,
+  stage: string,
+  run: string,
+) {
+  return nativeOutputStatement(db).run(output, stage, run);
+}

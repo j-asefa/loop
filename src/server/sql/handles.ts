@@ -47,3 +47,14 @@ export function names(db: Database.Database) {
     .all()
     .map((row) => parseRecord(namesRow, row, "handles"));
 }
+
+const ownedAgentStatement = statement(
+  "SELECT a.* FROM handles h JOIN agents a ON a.id=h.agent_id WHERE h.name=? AND a.owner_id=?",
+);
+const ownedAgentRow = QueryRecords.agents;
+export function ownedAgent(db: Database.Database, name: string, owner: string) {
+  const row = ownedAgentStatement(db).get(name, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedAgentRow, row, "handles");
+}

@@ -1,3 +1,6 @@
+import * as artifactObjectsQueries from "./sql/artifact-objects.js";
+import * as artifactPublicationsQueries from "./sql/artifact-publications.js";
+import * as companionSessionsQueries from "./sql/companion-sessions.js";
 import type { QueryRow } from "./query-records.js";
 import { agentPayload } from "./row-schemas.js";
 
@@ -97,12 +100,12 @@ export function storePublishedFile(
       const live = ownedRun(run.id, run.owner_id);
       if (live.state !== "running")
         throw new Problem(409, "Run is no longer executing");
-      const prior = db
-        .prepare(
-          "SELECT artifact_id FROM artifact_objects WHERE run_id=? AND call_id=? AND owner_id=?",
-        )
-        .get(run.id, callId, run.owner_id) as
-        { artifact_id: string } | undefined;
+      const prior = artifactObjectsQueries.forCallId(
+        db,
+        run.id,
+        callId,
+        run.owner_id,
+      ) as { artifact_id: string } | undefined;
       const name =
         basename(file.name.replaceAll("\\", "/"))
           .replace(/[\x00-\x1f\x7f]/g, "")
@@ -133,7 +136,8 @@ export function storePublishedFile(
           },
         });
       if (!prior) {
-        db.prepare("INSERT INTO artifact_objects VALUES(?,?,?,?,?,?,?,?)").run(
+        artifactObjectsQueries.insert(
+          db,
           aid,
           run.owner_id,
           run.id,
@@ -144,9 +148,7 @@ export function storePublishedFile(
           checksum,
         );
         // A published file is already complete, even while its agent keeps working.
-        db.prepare(
-          "INSERT OR IGNORE INTO artifact_publications(artifact_id) VALUES(?)",
-        ).run(aid);
+        artifactPublicationsQueries.insert(db, aid);
         emit(run.owner_id, run.id, "artifact.published", { artifactId: aid });
       }
       return {
@@ -169,11 +171,12 @@ export async function publishRunFile(
 ) {
   if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
-  const prior = db
-    .prepare(
-      "SELECT a.id,a.title,a.metadata,f.mime,f.size FROM artifact_objects f JOIN artifacts a ON a.id=f.artifact_id AND a.owner_id=f.owner_id WHERE f.run_id=? AND f.call_id=? AND f.owner_id=?",
-    )
-    .get(run.id, callId, run.owner_id) as
+  const prior = artifactObjectsQueries.forCall(
+    db,
+    run.id,
+    callId,
+    run.owner_id,
+  ) as
     | {
         id: string;
         title: string;
@@ -208,11 +211,8 @@ export async function publishRunFile(
   const metadata = connection.metadata;
   const binding =
     companionMode && metadata.loop55Harness
-      ? (db
-          .prepare(
-            "SELECT project FROM companion_sessions WHERE conversation_id=?",
-          )
-          .get(run.conversation_id) as { project: string } | undefined)
+      ? (companionSessionsQueries.project(db, run.conversation_id) as
+          { project: string } | undefined)
       : undefined;
   if (metadata.loop55Harness && !binding)
     throw new Problem(409, "Native workspace unavailable");
@@ -277,11 +277,8 @@ export async function publishRunFile(
 
 export function localArtifact(owner: string, artifactId: string) {
   ownedArtifact(artifactId, owner);
-  const object = db
-    .prepare(
-      "SELECT * FROM artifact_objects WHERE artifact_id=? AND owner_id=?",
-    )
-    .get(artifactId, owner) as QueryRow<"artifact_objects"> | undefined;
+  const object = artifactObjectsQueries.owned(db, artifactId, owner) as
+    QueryRow<"artifact_objects"> | undefined;
   if (!object) throw new Problem(404, "Local file unavailable");
   if (
     !/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(

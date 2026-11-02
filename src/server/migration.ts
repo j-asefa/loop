@@ -1,3 +1,11 @@
+import * as nativeImportWorkspacesQueries from "./sql/native-import-workspaces.js";
+import * as companionSessionsQueries from "./sql/companion-sessions.js";
+import * as connectionsQueries from "./sql/connections.js";
+import * as agentsQueries from "./sql/agents.js";
+import * as handlesQueries from "./sql/handles.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as nativeItemsQueries from "./sql/native-items.js";
+import * as legacyImportsQueries from "./sql/legacy-imports.js";
 import * as messagesQueries from "./sql/messages.js";
 import { readdir, readFile, copyFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -33,12 +41,12 @@ export async function prepareImportSession(
   // reuse it, and an uncertain fork retains its workspace under the command ID.
   const row = db
     .transaction(() => {
-      const previous = db
-        .prepare(
-          "SELECT harness,project,source FROM native_import_workspaces WHERE owner_id=? AND kind=? AND import_key=? LIMIT 1",
-        )
-        .get(OWNER, kind, importKey) as
-        { harness: string; project: string; source: string } | undefined;
+      const previous = nativeImportWorkspacesQueries.destination(
+        db,
+        OWNER,
+        kind,
+        importKey,
+      ) as { harness: string; project: string; source: string } | undefined;
       if (previous && previous.source !== source)
         throw new Problem(
           409,
@@ -52,9 +60,8 @@ export async function prepareImportSession(
           409,
           "This native import was prepared for a different harness or directory. Use its original destination.",
         );
-      db.prepare(
-        "INSERT OR IGNORE INTO native_import_workspaces(owner_id,kind,import_key,source,harness,project,agent_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
-      ).run(
+      nativeImportWorkspacesQueries.insert(
+        db,
         OWNER,
         kind,
         importKey,
@@ -64,11 +71,12 @@ export async function prepareImportSession(
         id(),
         now(),
       );
-      const saved = db
-        .prepare(
-          "SELECT agent_id,workspace FROM native_import_workspaces WHERE owner_id=? AND kind=? AND import_key=? AND imported_at IS NULL",
-        )
-        .get(OWNER, kind, importKey) as {
+      const saved = nativeImportWorkspacesQueries.pending(
+        db,
+        OWNER,
+        kind,
+        importKey,
+      ) as {
         agent_id: string;
         workspace: string | null;
       };
@@ -89,11 +97,13 @@ export async function prepareImportSession(
       options.harness,
       expected,
     );
-    const published = db
-      .prepare(
-        "UPDATE native_import_workspaces SET workspace=? WHERE owner_id=? AND agent_id=? AND workspace IS ? AND imported_at IS NULL",
-      )
-      .run(JSON.stringify(workspace), OWNER, row.agent_id, row.workspace);
+    const published = nativeImportWorkspacesQueries.setWorkspace(
+      db,
+      JSON.stringify(workspace),
+      OWNER,
+      row.agent_id,
+      row.workspace,
+    );
     if (!published.changes)
       throw new Problem(
         409,
@@ -116,11 +126,11 @@ export function importSession(
   title: string,
   prepared?: Awaited<ReturnType<typeof prepareImportSession>>,
 ) {
-  const existing = db
-    .prepare(
-      "SELECT conversation_id,project,worktree_source,worktree_agent_id FROM companion_sessions WHERE harness=? AND native_id=?",
-    )
-    .get(options.harness, nativeId) as any;
+  const existing = companionSessionsQueries.nativeWorkspace(
+    db,
+    options.harness,
+    nativeId,
+  ) as any;
   if (existing) {
     if (
       prepared &&
@@ -135,18 +145,15 @@ export function importSession(
     return existing.conversation_id as string;
   }
   if (prepared) {
-    const consumed = db
-      .prepare(
-        "UPDATE native_import_workspaces SET imported_at=? WHERE owner_id=? AND agent_id=? AND project=? AND harness=? AND workspace=? AND imported_at IS NULL",
-      )
-      .run(
-        now(),
-        OWNER,
-        prepared.agent,
-        prepared.project,
-        options.harness,
-        JSON.stringify(prepared.workspace),
-      );
+    const consumed = nativeImportWorkspacesQueries.complete(
+      db,
+      now(),
+      OWNER,
+      prepared.agent,
+      prepared.project,
+      options.harness,
+      JSON.stringify(prepared.workspace),
+    );
     if (!consumed.changes)
       throw new Problem(
         409,
@@ -165,12 +172,12 @@ export function importSession(
     worktreeSource: null,
   };
   const folder = nativeSessions.addProject(project) as any;
-  const connection = db
-    .prepare("SELECT id FROM connections WHERE id=?")
-    .get("native-" + options.harness) as any;
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id) VALUES(?,?,?,?,?,?,?,'',?,?)",
-  ).run(
+  const connection = connectionsQueries.id(
+    db,
+    "native-" + options.harness,
+  ) as any;
+  agentsQueries.insertNativeImport(
+    db,
     agent,
     OWNER,
     name,
@@ -181,13 +188,17 @@ export function importSession(
     now(),
     folder.id,
   );
-  db.prepare("INSERT INTO handles VALUES(?,?,?)").run(name, agent, now());
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,?,'native',?)",
-  ).run(conversation, OWNER, agent, title, now());
-  db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,native_id,project,state,updated_at,worktree_source,worktree_agent_id) VALUES(?,?,?,?,'disconnected',?,?,?)",
-  ).run(
+  handlesQueries.insert(db, name, agent, now());
+  conversationsQueries.insertNativeImport(
+    db,
+    conversation,
+    OWNER,
+    agent,
+    title,
+    now(),
+  );
+  companionSessionsQueries.insertImported(
+    db,
     conversation,
     options.harness,
     nativeId,
@@ -198,7 +209,8 @@ export function importSession(
   );
   for (const item of items.slice(-2000)) {
     if (!item || typeof item.text !== "string") continue;
-    db.prepare("INSERT OR IGNORE INTO native_items VALUES(?,?,NULL,?,?)").run(
+    nativeItemsQueries.insertImported(
+      db,
       conversation,
       item.id || id(),
       JSON.stringify(item),
@@ -221,11 +233,11 @@ export function importSession(
 export async function resumeFromDesktop(options: Options, nativeId: string) {
   if (!nativeId || nativeId.length > 4096)
     throw new Error("Invalid native session identifier");
-  const existing = db
-    .prepare(
-      "SELECT conversation_id,project,worktree_agent_id,COALESCE(worktree_source,project) AS source FROM companion_sessions WHERE harness=? AND native_id=?",
-    )
-    .get(options.harness, nativeId) as
+  const existing = companionSessionsQueries.nativeHandoff(
+    db,
+    options.harness,
+    nativeId,
+  ) as
     | {
         conversation_id: string;
         project: string;
@@ -282,9 +294,7 @@ export async function migrateLegacy(root: string) {
           file,
       );
     const digest = createHash("sha256").update(raw).digest("hex");
-    const prior = db
-      .prepare("SELECT digest FROM legacy_imports WHERE path=?")
-      .get(file) as any;
+    const prior = legacyImportsQueries.digest(db, file) as any;
     if (prior) {
       if (prior.digest !== digest)
         console.error(
@@ -315,12 +325,7 @@ export async function migrateLegacy(root: string) {
         snapshot.items || [],
         "Migrated " + harness + " conversation",
       );
-      db.prepare("INSERT INTO legacy_imports VALUES(?,?,?,?)").run(
-        file,
-        conversation,
-        digest,
-        now(),
-      );
+      legacyImportsQueries.insert(db, file, conversation, digest, now());
     }).immediate();
   }
 }

@@ -1,3 +1,8 @@
+import * as nativeDecisionsQueries from "../sql/native-decisions.js";
+import * as companionSessionsQueries from "../sql/companion-sessions.js";
+import * as connectionsQueries from "../sql/connections.js";
+import * as nativeDispatchQueries from "../sql/native-dispatch.js";
+import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
 import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import { assertFleetAction } from "../fleet-action-context.js";
@@ -55,7 +60,7 @@ import { prepareWorkspace, boundWorkspace } from "./workspace.js";
 import { PiCustomization } from "./pi-customization.js";
 import { NativeProjects } from "./projects.js";
 import { NativeProjector } from "./projector.js";
-import { NativeDecisions, finishDecisions } from "./decisions.js";
+import { NativeDecisions } from "./decisions.js";
 
 /**
  * The terminal transition captured the checkout at once, but a cancelled or
@@ -229,11 +234,10 @@ export class NativeSessions {
     return this.live.size;
   }
   controls(conversation: string, cachedOnly = false) {
-    const binding = db
-      .prepare(
-        "SELECT generation,state,harness FROM companion_sessions WHERE conversation_id=?",
-      )
-      .get(conversation) as
+    const binding = companionSessionsQueries.generationBinding(
+      db,
+      conversation,
+    ) as
       | { generation: string | null; state: string; harness: Harness }
       | undefined;
     if (!binding) throw new Problem(404, "Native session has not started");
@@ -272,11 +276,8 @@ export class NativeSessions {
       );
     await live.ready;
     const isCurrent = () => {
-      const binding = db
-        .prepare(
-          "SELECT generation FROM companion_sessions WHERE conversation_id=?",
-        )
-        .get(conversation) as { generation: string | null } | undefined;
+      const binding = companionSessionsQueries.generation(db, conversation) as
+        { generation: string | null } | undefined;
       return (
         this.live.get(conversation) === live &&
         !live.closed &&
@@ -343,9 +344,14 @@ export class NativeSessions {
           // Record the workspace level this choice was made against, so a
           // later change to that level supersedes it (see session()).
           const base = live.permissionMode ?? DEFAULT_PERMISSION_MODE;
-          db.prepare(
-            "UPDATE companion_sessions SET permission_mode=?,permission_base=?,updated_at=? WHERE conversation_id=? AND generation=?",
-          ).run(confirmed, base, now(), conversation, generation);
+          companionSessionsQueries.setPermission(
+            db,
+            confirmed,
+            base,
+            now(),
+            conversation,
+            generation,
+          );
           live.binding.permission_mode = confirmed;
           live.binding.permission_base = base;
         }
@@ -391,9 +397,8 @@ export class NativeSessions {
       // may already have started the next generation while we were waiting.
       return this.session(run);
     }
-    let binding = db
-      .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
-      .get(conversation) as Binding | undefined;
+    let binding = companionSessionsQueries.get(db, conversation) as
+      Binding | undefined;
     let previousProject: string | undefined;
     let previousWorkspace: AgentWorkspace | undefined;
     let previousBinding: Binding | undefined;
@@ -462,28 +467,24 @@ export class NativeSessions {
       // context. A changed directory or failed insert leaves the old binding.
       db.transaction(() => {
         if (previousBinding) {
-          const removed = db
-            .prepare(
-              "DELETE FROM companion_sessions WHERE conversation_id=? AND harness=? AND generation IS ? AND native_id IS ? AND project=? AND worktree_agent_id IS ? AND worktree_source IS ?",
-            )
-            .run(
-              conversation,
-              previousBinding.harness,
-              previousBinding.generation,
-              previousBinding.native_id,
-              previousBinding.project,
-              previousBinding.worktree_agent_id ?? null,
-              previousBinding.worktree_source ?? null,
-            );
+          const removed = companionSessionsQueries.removeBinding(
+            db,
+            conversation,
+            previousBinding.harness,
+            previousBinding.generation,
+            previousBinding.native_id,
+            previousBinding.project,
+            previousBinding.worktree_agent_id ?? null,
+            previousBinding.worktree_source ?? null,
+          );
           if (!removed.changes)
             throw new Problem(
               409,
               "The native session changed during the harness switch. Retry with its current session.",
             );
         }
-        db.prepare(
-          "INSERT INTO companion_sessions(conversation_id,harness,project,model,instructions,updated_at,effort,worktree_source,worktree_agent_id) VALUES(?,?,?,?,?,?,?,?,?)",
-        ).run(
+        companionSessionsQueries.insertBinding(
+          db,
           conversation,
           harness,
           workspace.directory,
@@ -495,9 +496,7 @@ export class NativeSessions {
           run.agent_id,
         );
       }).immediate();
-      binding = db
-        .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
-        .get(conversation) as Binding;
+      binding = companionSessionsQueries.get(db, conversation) as Binding;
     } else boundWorkspace(binding, run.agent_id, run.owner_id);
     // What the checkout looked like before this run touched it. Recorded by
     // Loop55, never by the harness; a capture failure is recorded, not raised.
@@ -519,9 +518,7 @@ export class NativeSessions {
       binding.permission_mode &&
       (binding.permission_base ?? DEFAULT_PERMISSION_MODE) !== permissionMode
     ) {
-      db.prepare(
-        "UPDATE companion_sessions SET permission_mode=NULL,permission_base=NULL,updated_at=? WHERE conversation_id=?",
-      ).run(now(), conversation);
+      companionSessionsQueries.clearPermission(db, now(), conversation);
       binding.permission_mode = null;
       binding.permission_base = null;
       if (current && !current.closed) current.sessionMode = undefined;
@@ -548,9 +545,13 @@ export class NativeSessions {
           );
         await this.dispose(current);
       }
-      db.prepare(
-        "UPDATE companion_sessions SET model=?,effort=?,updated_at=? WHERE conversation_id=?",
-      ).run(model, effort, now(), conversation);
+      companionSessionsQueries.setModelEffort(
+        db,
+        model,
+        effort,
+        now(),
+        conversation,
+      );
       binding.model = model;
       binding.effort = effort;
     } else if (current && !current.closed) {
@@ -600,23 +601,22 @@ export class NativeSessions {
       this.event(live, event),
     );
     this.live.set(conversation, live);
-    db.prepare(
-      "UPDATE companion_sessions SET generation=?,state='starting',updated_at=? WHERE conversation_id=?",
-    ).run(generation, now(), conversation);
+    companionSessionsQueries.markStarting(db, generation, now(), conversation);
     live.ready = (async () => {
       try {
         assertFleetEffect(run.owner_id, "run", run.id);
         await live.adapter.start();
         if (this.stopped || live.closed)
           throw new Error("Workspace stopped during native startup.");
-        db.prepare(
-          "UPDATE companion_sessions SET state='idle',updated_at=? WHERE conversation_id=?",
-        ).run(now(), conversation);
+        companionSessionsQueries.markIdle(db, now(), conversation);
       } catch (error) {
         await this.dispose(live);
-        db.prepare(
-          "UPDATE companion_sessions SET state='failed',updated_at=? WHERE conversation_id=? AND generation=?",
-        ).run(now(), conversation, generation);
+        companionSessionsQueries.failGeneration(
+          db,
+          now(),
+          conversation,
+          generation,
+        );
         throw nativeStartupFailure(labels[harness], error, !!options.resume);
       }
     })();
@@ -628,10 +628,11 @@ export class NativeSessions {
     // The run is already claimed, so an upgrade that holds this harness
     // afterwards sees it as active; one that held it first is refused here.
     // A missing connection is reported by session() below.
-    const connection = db
-      .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
-      .get(agentPayload(run).connectionId, run.owner_id) as
-      { metadata: string } | undefined;
+    const connection = connectionsQueries.metadata(
+      db,
+      agentPayload(run).connectionId,
+      run.owner_id,
+    ) as { metadata: string } | undefined;
     if (
       connection &&
       (harnessUpgrades.busy(JSON.parse(connection.metadata).loop55Harness) ||
@@ -643,7 +644,7 @@ export class NativeSessions {
       throw new RunDeferred(
         "Wait for the runtime upgrade or provider change to finish before starting a run.",
       );
-    if (db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id))
+    if (nativeDispatchQueries.exists(db, run.id))
       throw new Problem(
         409,
         "This native turn was already dispatched or has an uncertain outcome. Review it and submit a new follow-up explicitly.",
@@ -688,20 +689,20 @@ export class NativeSessions {
         folder: snapshot.folderId,
         metadata: { native: true, partial: true, messageId },
       });
-      db.prepare(
-        "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,'[]')",
-      ).run(run.id, messageId, artifact);
-      db.prepare(
-        "INSERT INTO native_dispatch VALUES(?,?,?,'unknown',NULL,?)",
-      ).run(
+      agentCheckpointsQueries.insertNative(db, run.id, messageId, artifact);
+      nativeDispatchQueries.insertUnknown(
+        db,
         run.id,
         live.generation,
         createHash("sha256").update(input).digest("hex"),
         now(),
       );
-      db.prepare(
-        "UPDATE companion_sessions SET state='running',last_run_id=?,updated_at=? WHERE conversation_id=?",
-      ).run(run.id, now(), run.conversation_id);
+      companionSessionsQueries.markRunning(
+        db,
+        run.id,
+        now(),
+        run.conversation_id,
+      );
     }).immediate();
     const complete = new Promise<string>((resolve) => {
       live.finish = resolve;
@@ -764,9 +765,7 @@ export class NativeSessions {
         ),
         beforeDispatch,
       );
-      db.prepare(
-        "UPDATE native_dispatch SET state='accepted' WHERE run_id=? AND state='unknown'",
-      ).run(run.id);
+      nativeDispatchQueries.acceptUnknown(db, run.id);
       stopSteering = steering.listen(async (message) => {
         if (!live.adapter.steer)
           throw new NotDelivered("This native turn cannot accept live input");
@@ -805,10 +804,7 @@ export class NativeSessions {
         error instanceof Error
           ? error.message.slice(0, 2000)
           : "Native outcome is unknown";
-      db.prepare("UPDATE native_dispatch SET error=? WHERE run_id=?").run(
-        message,
-        run.id,
-      );
+      nativeDispatchQueries.setError(db, message, run.id);
       runsQueries.setError(
         db,
         "Native outcome unknown: " + message + ". No automatic retry was made.",
@@ -870,10 +866,11 @@ export class NativeSessions {
     clearTimeout(live.flush);
     clearTimeout(live.idle);
     live.finish?.("interrupted");
-    finishDecisions(
+    nativeDecisionsQueries.finishPendingGeneration(
+      db,
       "expired",
-      "conversation_id=? AND generation=? AND state='pending'",
-      [live.binding.conversation_id, live.generation],
+      live.binding.conversation_id,
+      live.generation,
     );
     live.disposal = (async () => {
       await this.revokeTools?.(live.binding.conversation_id, live.generation);
@@ -901,11 +898,9 @@ export class NativeSessions {
         });
         enqueueStoppedWebhooks(db, event);
       }
-      db.prepare(
-        "UPDATE companion_sessions SET generation=NULL,state='disconnected'",
-      ).run();
-      finishDecisions("expired", "state='pending'", []);
-      finishDecisions("unknown", "state='deciding'", []);
+      companionSessionsQueries.disconnectAll(db);
+      nativeDecisionsQueries.finishPending(db, "expired");
+      nativeDecisionsQueries.finishDeciding(db, "unknown");
     }).immediate();
   }
   async close() {

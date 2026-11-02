@@ -85,3 +85,71 @@ export function projectFor(
     ? undefined
     : parseRecord(projectForRow, row, "folders");
 }
+
+const namedChildrenStatement = statement(
+  "SELECT * FROM folders WHERE owner_id=? AND parent_id IS ? AND lower(name)=lower(?)",
+);
+const namedChildrenRow = QueryRecords.folders;
+export function namedChildren(
+  db: Database.Database,
+  owner: string,
+  parent: string | null,
+  name: string,
+) {
+  return namedChildrenStatement(db)
+    .all(owner, parent, name)
+    .map((row) => parseRecord(namedChildrenRow, row, "folders"));
+}
+
+const insertWorkspaceStatement = statement(
+  "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,NULL,'project','Workspace',?)",
+);
+export function insertWorkspace(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  created: number,
+) {
+  return insertWorkspaceStatement(db).run(id, owner, created);
+}
+
+const byProjectPathStatement = statement(
+  "SELECT f.*,p.path FROM folders f JOIN project_paths p ON p.folder_id=f.id WHERE p.path=?",
+);
+const byProjectPathRow = QueryRecords.folders.extend({ path: z.string() });
+export function byProjectPath(db: Database.Database, path: string) {
+  const row = byProjectPathStatement(db).get(path);
+  return row === undefined
+    ? undefined
+    : parseRecord(byProjectPathRow, row, "folders");
+}
+
+const insertNativeProjectStatement = statement(
+  "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,NULL,'project',?,?)",
+);
+export function insertNativeProject(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  name: string,
+  created: number,
+) {
+  return insertNativeProjectStatement(db).run(id, owner, name, created);
+}
+
+const parentProjectPathStatement = statement(
+  "SELECT f.parent_id,p.path FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.id=? AND f.owner_id=?",
+);
+const parentProjectPathRow = QueryRecords.folders
+  .pick({ parent_id: true })
+  .extend({ path: z.string().nullable() });
+export function parentProjectPath(
+  db: Database.Database,
+  folder: string,
+  owner: string,
+) {
+  const row = parentProjectPathStatement(db).get(folder, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(parentProjectPathRow, row, "folders");
+}

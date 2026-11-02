@@ -89,3 +89,33 @@ export function decide(
 ) {
   return decideStatement(db).run(decision, id, previous);
 }
+
+const pendingExpiryStatement = statement(
+  "SELECT expires_at FROM approvals WHERE id=? AND owner_id=? AND run_id=? AND state='pending'",
+);
+
+const pendingExpiryRow = QueryRecords.approvals.pick({ expires_at: true });
+
+export function pendingExpiry(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  run: string,
+) {
+  const row = pendingExpiryStatement(db).get(id, owner, run);
+  return row === undefined
+    ? undefined
+    : parseRecord(pendingExpiryRow, row, "approvals");
+}
+
+const rejectPendingStatement = statement(
+  "UPDATE approvals SET state='rejected' WHERE owner_id=? AND run_id=? AND state='pending'",
+);
+
+export function rejectPending(
+  db: Database.Database,
+  owner: string,
+  run: string,
+) {
+  return rejectPendingStatement(db).run(owner, run);
+}

@@ -1,3 +1,9 @@
+import * as harnessesQueries from "../sql/harnesses.js";
+import * as connectionsQueries from "../sql/connections.js";
+import * as agentsQueries from "../sql/agents.js";
+import * as foldersQueries from "../sql/folders.js";
+import * as projectPathsQueries from "../sql/project-paths.js";
+import * as companionSessionsQueries from "../sql/companion-sessions.js";
 import { ConnectionModels, ConnectionMetadata } from "../row-schemas.js";
 import { ExecutionRefused } from "../execution-refusal.js";
 import { writeConnectionStatus } from "../connection-status.js";
@@ -50,11 +56,7 @@ export class NativeProjects {
 
   private enabling = new Map<Harness, Promise<any>>();
   registrations() {
-    return (
-      db
-        .prepare("SELECT * FROM harnesses ORDER BY name")
-        .all() as Registration[]
-    ).map((r) => ({
+    return (harnessesQueries.all(db) as Registration[]).map((r) => ({
       name: r.name,
       billing: JSON.parse(r.billing),
       models: JSON.parse(r.models),
@@ -63,8 +65,7 @@ export class NativeProjects {
     }));
   }
   registration(name: Harness): Options {
-    const row = db.prepare("SELECT * FROM harnesses WHERE name=?").get(name) as
-      Registration | undefined;
+    const row = harnessesQueries.get(db, name) as Registration | undefined;
     if (!row)
       throw new Problem(
         409,
@@ -107,9 +108,8 @@ export class NativeProjects {
     if (this.context.isStopped())
       throw new ExecutionRefused(409, "Workspace is stopping");
     if (options.harness === "acp") {
-      const existing = db
-        .prepare("SELECT options FROM harnesses WHERE name='acp'")
-        .get() as { options: string } | undefined;
+      const existing = harnessesQueries.acpOptions(db) as
+        { options: string } | undefined;
       if (existing) {
         const saved = JSON.parse(existing.options) as Options;
         if (
@@ -175,12 +175,11 @@ export class NativeProjects {
     const observed = native.defaultModelOption
       ? undefined
       : (
-          db
-            .prepare(
-              "SELECT json_extract(value,'$.resolvedModel') model FROM connections,json_each(connections.models) WHERE connections.id=? AND connections.owner_id=? AND json_valid(connections.models) AND json_extract(value,'$.id')='native-default'",
-            )
-            .get("native-" + options.harness, OWNER) as
-            { model: string | null } | undefined
+          connectionsQueries.resolvedNativeModel(
+            db,
+            "native-" + options.harness,
+            OWNER,
+          ) as { model: string | null } | undefined
         )?.model;
     const models = [
       native.defaultModelOption || {
@@ -220,9 +219,8 @@ export class NativeProjects {
       capabilities,
     };
     db.transaction(() => {
-      db.prepare(
-        "INSERT INTO harnesses VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET options=excluded.options,billing=excluded.billing,capabilities=excluded.capabilities,models=excluded.models,updated_at=excluded.updated_at",
-      ).run(
+      harnessesQueries.upsert(
+        db,
         options.harness,
         JSON.stringify(options),
         JSON.stringify(billing),
@@ -231,24 +229,23 @@ export class NativeProjects {
         now(),
       );
       writeConnectionStatus("native-" + options.harness, () =>
-        db
-          .prepare(
-            "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,'connected',?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label,status='connected',models=excluded.models,metadata=excluded.metadata",
-          )
-          .run(
-            "native-" + options.harness,
-            OWNER,
-            options.harness === "claude" ? "anthropic" : options.harness,
-            metadata.environmentName + " · " + labels[options.harness],
-            "",
-            JSON.stringify(ConnectionModels.parse(models)),
-            JSON.stringify(ConnectionMetadata.parse(metadata)),
-            now(),
-          ),
+        connectionsQueries.registerNative(
+          db,
+          "native-" + options.harness,
+          OWNER,
+          options.harness === "claude" ? "anthropic" : options.harness,
+          metadata.environmentName + " · " + labels[options.harness],
+          "",
+          JSON.stringify(ConnectionModels.parse(models)),
+          JSON.stringify(ConnectionMetadata.parse(metadata)),
+          now(),
+        ),
       );
-      db.prepare(
-        "UPDATE agents SET connection_id=? WHERE connection_id IS NULL AND id IN (SELECT agent_id FROM conversations c JOIN companion_sessions n ON n.conversation_id=c.id WHERE n.harness=?)",
-      ).run("native-" + options.harness, options.harness);
+      agentsQueries.bindNativeHarness(
+        db,
+        "native-" + options.harness,
+        options.harness,
+      );
       this.addProject(options.project);
     }).immediate();
     return { name: options.harness, billing, models, capabilities };
@@ -265,17 +262,17 @@ export class NativeProjects {
   }
   addProject(path: string, name?: string) {
     const real = this.directory(path);
-    const existing = db
-      .prepare(
-        "SELECT f.*,p.path FROM folders f JOIN project_paths p ON p.folder_id=f.id WHERE p.path=?",
-      )
-      .get(real);
+    const existing = foldersQueries.byProjectPath(db, real);
     if (existing) return existing;
     const folder = id();
-    db.prepare(
-      "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,NULL,'project',?,?)",
-    ).run(folder, OWNER, name || basename(real) || real, now());
-    db.prepare("INSERT INTO project_paths VALUES(?,?)").run(folder, real);
+    foldersQueries.insertNativeProject(
+      db,
+      folder,
+      OWNER,
+      name || basename(real) || real,
+      now(),
+    );
+    projectPathsQueries.insert(db, folder, real);
     return {
       id: folder,
       name: name || basename(real),
@@ -289,11 +286,7 @@ export class NativeProjects {
     const seen = new Set<string>();
     while (folder && !seen.has(folder)) {
       seen.add(folder);
-      const row = db
-        .prepare(
-          "SELECT f.parent_id,p.path FROM folders f LEFT JOIN project_paths p ON p.folder_id=f.id WHERE f.id=? AND f.owner_id=?",
-        )
-        .get(folder, OWNER) as
+      const row = foldersQueries.parentProjectPath(db, folder, OWNER) as
         { parent_id: string | null; path: string | null } | undefined;
       if (row?.path) return this.directory(row.path);
       folder = row?.parent_id ?? null;
@@ -336,9 +329,7 @@ export class NativeProjects {
     const harness = ownedConnection(agent.connection_id, OWNER).metadata
       .loop55Harness as Harness;
     const binding = conversation
-      ? (db
-          .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
-          .get(conversation) as Binding | undefined)
+      ? (companionSessionsQueries.get(db, conversation) as Binding | undefined)
       : undefined;
     const options = this.registration(harness);
     // Validate before returning live/cached commands or launching a probe, so

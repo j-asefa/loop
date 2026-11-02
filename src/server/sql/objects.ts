@@ -24,3 +24,16 @@ export function owned(db: Database.Database, id: string, owner: string) {
     ? undefined
     : parseRecord(QueryRecords.objects, row, "objects");
 }
+
+const insertStatement = statement("INSERT INTO objects VALUES(?,?,?,?,?,?)");
+export function insert(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  name: string,
+  mime: string,
+  bytes: Buffer,
+  created: number,
+) {
+  return insertStatement(db).run(id, owner, name, mime, bytes, created);
+}

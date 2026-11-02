@@ -1,3 +1,5 @@
+import * as piProjectTrustQueries from "../sql/pi-project-trust.js";
+import * as piPackageRecoveryQueries from "../sql/pi-package-recovery.js";
 import { realpathSync, statSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
@@ -51,11 +53,7 @@ export class PiCustomization {
         decision: "not required",
         override: undefined,
       };
-    const stored = db
-      .prepare(
-        "SELECT trusted,fingerprint FROM pi_project_trust WHERE owner_id=? AND project=?",
-      )
-      .get(OWNER, project) as
+    const stored = piProjectTrustQueries.decision(db, OWNER, project) as
       { trusted: number; fingerprint: string } | undefined;
     if (stored?.fingerprint === resource.fingerprint)
       return {
@@ -81,15 +79,16 @@ export class PiCustomization {
     };
   }
   private refreshLoopTrustAfterProjectWrite(project: string) {
-    const stored = db
-      .prepare(
-        "SELECT trusted FROM pi_project_trust WHERE owner_id=? AND project=?",
-      )
-      .get(OWNER, project) as { trusted: number } | undefined;
+    const stored = piProjectTrustQueries.trusted(db, OWNER, project) as
+      { trusted: number } | undefined;
     if (stored?.trusted !== 1) return;
-    db.prepare(
-      "UPDATE pi_project_trust SET fingerprint=?,decided_at=? WHERE owner_id=? AND project=?",
-    ).run(piProjectResources(project).fingerprint, now(), OWNER, project);
+    piProjectTrustQueries.refresh(
+      db,
+      piProjectResources(project).fingerprint,
+      now(),
+      OWNER,
+      project,
+    );
   }
   // Shared database/filesystem reads only; safe in the HTTP process.
   piConfiguration(agent: any) {
@@ -97,12 +96,13 @@ export class PiCustomization {
     const trust = this.projectTrust(project);
     const agentDir = this.piAgentDir();
     const packages = piPackageEntries(agentDir, project).map((entry, index) => {
-      const recovery = db
-        .prepare(
-          "SELECT previous_source FROM pi_package_recovery WHERE owner_id=? AND project=? AND scope=? AND source=?",
-        )
-        .get(OWNER, project, entry.scope, entry.source) as
-        { previous_source: string } | undefined;
+      const recovery = piPackageRecoveryQueries.previous(
+        db,
+        OWNER,
+        project,
+        entry.scope,
+        entry.source,
+      ) as { previous_source: string } | undefined;
       let resolvedSource: string | undefined;
       if (index < 100)
         try {
@@ -163,9 +163,14 @@ export class PiCustomization {
         "Wait for the current Pi run to finish before changing project trust.",
       );
     for (const live of sessions) await this.context.dispose(live);
-    db.prepare(
-      "INSERT INTO pi_project_trust(owner_id,project,fingerprint,trusted,decided_at) VALUES(?,?,?,?,?) ON CONFLICT(owner_id,project) DO UPDATE SET fingerprint=excluded.fingerprint,trusted=excluded.trusted,decided_at=excluded.decided_at",
-    ).run(OWNER, project, fingerprint, trusted ? 1 : 0, now());
+    piProjectTrustQueries.upsert(
+      db,
+      OWNER,
+      project,
+      fingerprint,
+      trusted ? 1 : 0,
+      now(),
+    );
     return {};
   }
   piPackageFilters(
@@ -265,12 +270,13 @@ export class PiCustomization {
         409,
         "Review and trust this project before changing project packages.",
       );
-    const recovery = db
-      .prepare(
-        "SELECT previous_source FROM pi_package_recovery WHERE owner_id=? AND project=? AND scope=? AND source=?",
-      )
-      .get(OWNER, project, scope, source) as
-      { previous_source: string } | undefined;
+    const recovery = piPackageRecoveryQueries.previous(
+      db,
+      OWNER,
+      project,
+      scope,
+      source,
+    ) as { previous_source: string } | undefined;
     if (
       !recovery ||
       !this.piPackages(agent).some(
@@ -295,9 +301,7 @@ export class PiCustomization {
         { cwd: project },
       );
       if (scope === "project") this.refreshLoopTrustAfterProjectWrite(project);
-      db.prepare(
-        "DELETE FROM pi_package_recovery WHERE owner_id=? AND project=? AND scope=? AND source=?",
-      ).run(OWNER, project, scope, source);
+      piPackageRecoveryQueries.remove(db, OWNER, project, scope, source);
       return {
         status: "configured",
         application: "new-session",
@@ -451,15 +455,19 @@ export class PiCustomization {
           /* A future update can establish a new recovery pin. */
         }
         if (current && current !== previous)
-          db.prepare(
-            "INSERT INTO pi_package_recovery(owner_id,project,scope,source,previous_source,saved_at) VALUES(?,?,?,?,?,?) ON CONFLICT(owner_id,project,scope,source) DO UPDATE SET previous_source=excluded.previous_source,saved_at=excluded.saved_at",
-          ).run(OWNER, project, scope, source, previous, now());
+          piPackageRecoveryQueries.upsert(
+            db,
+            OWNER,
+            project,
+            scope,
+            source,
+            previous,
+            now(),
+          );
       }
       if (scope === "project") this.refreshLoopTrustAfterProjectWrite(project);
       if (action === "remove")
-        db.prepare(
-          "DELETE FROM pi_package_recovery WHERE owner_id=? AND project=? AND scope=? AND source=?",
-        ).run(OWNER, project, scope, source);
+        piPackageRecoveryQueries.remove(db, OWNER, project, scope, source);
       return {
         status: "configured",
         application: "new-session",

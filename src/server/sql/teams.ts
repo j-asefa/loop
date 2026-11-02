@@ -168,3 +168,56 @@ export function setFolder(
 ) {
   return setFolderStatement(db).run(folder, id);
 }
+
+const agentInCodeReviewStatement = statement(
+  "SELECT 1 FROM teams t WHERE t.owner_id=? AND t.preset_id='code-review' AND t.deleted_at IS NULL AND (t.manager_id=? OR EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=?))",
+);
+
+const agentInCodeReviewRow = z.object({ "1": z.number() });
+
+export function agentInCodeReview(
+  db: Database.Database,
+  owner: string,
+  agent: string,
+  sameAgent: string,
+) {
+  const row = agentInCodeReviewStatement(db).get(owner, agent, sameAgent);
+  return row === undefined
+    ? undefined
+    : parseRecord(agentInCodeReviewRow, row, "teams");
+}
+
+const activeOwnedStatement = statement(
+  "SELECT * FROM teams WHERE id=? AND owner_id=? AND deleted_at IS NULL",
+);
+
+const activeOwnedRow = QueryRecords.teams;
+
+export function activeOwned(
+  db: Database.Database,
+  id: string | null,
+  owner: string,
+) {
+  const row = activeOwnedStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(activeOwnedRow, row, "teams");
+}
+
+const agentInActiveTeamStatement = statement(
+  "SELECT 1 FROM teams t WHERE t.owner_id=? AND t.deleted_at IS NULL\n       AND (t.manager_id=? OR EXISTS (\n         SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=?\n       )) LIMIT 1",
+);
+
+const agentInActiveTeamRow = z.object({ "1": z.number() });
+
+export function agentInActiveTeam(
+  db: Database.Database,
+  owner: string,
+  agent: string,
+  sameAgent: string,
+) {
+  const row = agentInActiveTeamStatement(db).get(owner, agent, sameAgent);
+  return row === undefined
+    ? undefined
+    : parseRecord(agentInActiveTeamRow, row, "teams");
+}

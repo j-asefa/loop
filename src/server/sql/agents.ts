@@ -168,3 +168,155 @@ export function projectCounts(db: Database.Database, owner: string) {
     .all({ owner })
     .map((row) => parseRecord(projectCountsRow, row, "agents"));
 }
+
+const mailTeamMembersStatement = statement(
+  "SELECT id,name,connection_id FROM agents WHERE owner_id=? AND retired_at IS NULL AND (id=? OR id IN (SELECT agent_id FROM team_members WHERE team_id=?)) ORDER BY id=? DESC,name",
+);
+
+const mailTeamMembersRow = QueryRecords.agents.pick({
+  id: true,
+  name: true,
+  connection_id: true,
+});
+
+export function mailTeamMembers(
+  db: Database.Database,
+  owner: string,
+  manager: string,
+  team: string,
+  sameManager: string,
+) {
+  return mailTeamMembersStatement(db)
+    .all(owner, manager, team, sameManager)
+    .map((row) => parseRecord(mailTeamMembersRow, row, "agents"));
+}
+
+const mailDirectoryStatement = statement(
+  "SELECT * FROM agents WHERE owner_id=? AND retired_at IS NULL AND id<>? AND (?='' OR instr(lower(name),lower(?))>0) ORDER BY normalized_name,id LIMIT ? OFFSET ?",
+);
+
+const mailDirectoryRow = QueryRecords.agents;
+
+export function mailDirectory(
+  db: Database.Database,
+  owner: string,
+  self: string,
+  query: string,
+  sameQuery: string,
+  limit: number,
+  offset: number,
+) {
+  return mailDirectoryStatement(db)
+    .all(owner, self, query, sameQuery, limit, offset)
+    .map((row) => parseRecord(mailDirectoryRow, row, "agents"));
+}
+
+const ownedNameStatement = statement(
+  "SELECT name FROM agents WHERE owner_id=? AND id=?",
+);
+
+const ownedNameRow = QueryRecords.agents.pick({ name: true });
+
+export function ownedName(db: Database.Database, owner: string, id: string) {
+  const row = ownedNameStatement(db).get(owner, id);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedNameRow, row, "agents");
+}
+
+const routingSuggestionStatement = statement(
+  "SELECT a.* FROM agents a JOIN connections c ON c.id=a.connection_id AND c.owner_id=a.owner_id WHERE a.owner_id=? AND a.retired_at IS NULL AND c.status='connected' ORDER BY COALESCE((SELECT max(r.created_at) FROM runs r WHERE r.agent_id=a.id AND (? IS NULL OR json_extract(r.payload,'$.folderId')=?)),0) DESC,a.created_at DESC LIMIT 1",
+);
+
+const routingSuggestionRow = QueryRecords.agents;
+
+export function routingSuggestion(
+  db: Database.Database,
+  owner: string,
+  project: string | null,
+  sameProject: string | null,
+) {
+  const row = routingSuggestionStatement(db).get(owner, project, sameProject);
+  return row === undefined
+    ? undefined
+    : parseRecord(routingSuggestionRow, row, "agents");
+}
+
+const insertImportedStatement = statement(
+  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,?,?,?,'Imported history','','import',?)",
+);
+
+export function insertImported(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  name: string,
+  normalized: string,
+  provider: string,
+  created: number,
+) {
+  return insertImportedStatement(db).run(
+    id,
+    owner,
+    name,
+    normalized,
+    provider,
+    created,
+  );
+}
+
+const bindNativeHarnessStatement = statement(
+  "UPDATE agents SET connection_id=? WHERE connection_id IS NULL AND id IN (SELECT agent_id FROM conversations c JOIN companion_sessions n ON n.conversation_id=c.id WHERE n.harness=?)",
+);
+export function bindNativeHarness(
+  db: Database.Database,
+  connection: string,
+  harness: string,
+) {
+  return bindNativeHarnessStatement(db).run(connection, harness);
+}
+
+const connectionModelsStatement = statement(
+  "SELECT name,model FROM agents WHERE owner_id=? AND connection_id=? ORDER BY name",
+);
+const connectionModelsRow = QueryRecords.agents.pick({
+  name: true,
+  model: true,
+});
+export function connectionModels(
+  db: Database.Database,
+  owner: string,
+  connection: string,
+) {
+  return connectionModelsStatement(db)
+    .all(owner, connection)
+    .map((row) => parseRecord(connectionModelsRow, row, "agents"));
+}
+
+const insertNativeImportStatement = statement(
+  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id) VALUES(?,?,?,?,?,?,?,'',?,?)",
+);
+export function insertNativeImport(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  name: string,
+  normalized: string,
+  provider: string,
+  connection: string | null,
+  model: string,
+  created: number,
+  folder: string,
+) {
+  return insertNativeImportStatement(db).run(
+    id,
+    owner,
+    name,
+    normalized,
+    provider,
+    connection,
+    model,
+    created,
+    folder,
+  );
+}

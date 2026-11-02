@@ -12,3 +12,32 @@ export function owned(db: Database.Database, id: string, owner: string) {
     ? undefined
     : parseRecord(QueryRecords.operations, row, "operations");
 }
+
+const insertMoveStatement = statement(
+  "INSERT INTO operations VALUES(?,?,?,?,?,0,?)",
+);
+export function insertMove(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  artifact: string,
+  previous: string,
+  version: number,
+  created: number,
+) {
+  return insertMoveStatement(db).run(
+    id,
+    owner,
+    artifact,
+    previous,
+    version,
+    created,
+  );
+}
+
+const markUndoneStatement = statement(
+  "UPDATE operations SET undone=1 WHERE id=?",
+);
+export function markUndone(db: Database.Database, id: string) {
+  return markUndoneStatement(db).run(id);
+}

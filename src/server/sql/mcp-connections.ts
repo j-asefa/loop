@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type Database from "better-sqlite3";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
@@ -11,4 +12,19 @@ export function owned(db: Database.Database, id: string, owner: string) {
   return row === undefined
     ? undefined
     : parseRecord(QueryRecords.mcp_connections, row, "mcp_connections");
+}
+
+const runtimeHostInUseStatement = statement(
+  "SELECT 1 FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.runtimeHostId')=? AND status<>'disconnected'",
+);
+const runtimeHostInUseRow = z.object({ "1": z.number() });
+export function runtimeHostInUse(
+  db: Database.Database,
+  owner: string,
+  host: string,
+) {
+  const row = runtimeHostInUseStatement(db).get(owner, host);
+  return row === undefined
+    ? undefined
+    : parseRecord(runtimeHostInUseRow, row, "mcp_connections");
 }

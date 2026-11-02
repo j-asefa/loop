@@ -28,3 +28,14 @@ export function insert(
 ) {
   return insertStatement(db).run(id, artifact, version, content, created);
 }
+
+const updateNativeOutputStatement = statement(
+  "UPDATE artifact_versions SET content=? WHERE artifact_id=? AND version=1",
+);
+export function updateNativeOutput(
+  db: Database.Database,
+  content: string,
+  artifact: string,
+) {
+  return updateNativeOutputStatement(db).run(content, artifact);
+}

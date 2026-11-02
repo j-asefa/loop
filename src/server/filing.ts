@@ -1,3 +1,6 @@
+import * as operationsQueries from "./sql/operations.js";
+import * as artifactsQueries from "./sql/artifacts.js";
+import * as foldersQueries from "./sql/folders.js";
 import { db, id, now } from "./db.js";
 import {
   ownedFolder,
@@ -16,7 +19,8 @@ export function moveArtifact(
       const a = ownedArtifact(artifactId, owner);
       if (folderId) ownedFolder(folderId, owner);
       const operation = id();
-      db.prepare("INSERT INTO operations VALUES(?,?,?,?,?,0,?)").run(
+      operationsQueries.insertMove(
+        db,
         operation,
         owner,
         a.id,
@@ -24,9 +28,7 @@ export function moveArtifact(
         a.version + 1,
         now(),
       );
-      db.prepare(
-        "UPDATE artifacts SET folder_id=?,version=version+1,updated_at=? WHERE id=?",
-      ).run(folderId, now(), a.id);
+      artifactsQueries.move(db, folderId, now(), a.id);
       return { operation, folderId, message: "Filed. You can undo this move." };
     })
     .immediate();
@@ -43,10 +45,8 @@ export function undoMove(owner: string, operationId: string) {
         );
       const previous = JSON.parse(op.previous);
       if (previous.folder_id) ownedFolder(previous.folder_id, owner);
-      db.prepare(
-        "UPDATE artifacts SET folder_id=?,version=version+1,updated_at=? WHERE id=?",
-      ).run(previous.folder_id, now(), a.id);
-      db.prepare("UPDATE operations SET undone=1 WHERE id=?").run(op.id);
+      artifactsQueries.move(db, previous.folder_id, now(), a.id);
+      operationsQueries.markUndone(db, op.id);
       return { ok: true, folderId: previous.folder_id };
     })
     .immediate();
@@ -68,11 +68,12 @@ export function naturalDestination(owner: string, command: string) {
     .filter(Boolean);
   let parent: string | null = null;
   for (const part of path) {
-    const found = db
-      .prepare(
-        "SELECT * FROM folders WHERE owner_id=? AND parent_id IS ? AND lower(name)=lower(?)",
-      )
-      .all(owner, parent, part) as Folder[];
+    const found = foldersQueries.namedChildren(
+      db,
+      owner,
+      parent,
+      part,
+    ) as Folder[];
     if (found.length !== 1)
       throw new Problem(
         422,

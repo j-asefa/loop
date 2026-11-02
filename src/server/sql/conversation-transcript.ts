@@ -98,3 +98,57 @@ export function latestAgentMessage(
     ? undefined
     : parseRecord(latestAgentMessageRow, row, "conversation_transcript");
 }
+
+const messageSelection = `FROM conversation_transcript p JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id
+    WHERE p.owner_id=? AND p.run_id=? AND length(trim(m.content))>0
+    ORDER BY p.position,p.phase,p.ordinal`;
+const messageSql = `SELECT m.id,m.role,m.content,m.metadata,m.created_at
+    ${messageSelection} LIMIT ?`;
+const exportRowsStatement = statement(messageSql);
+const exportSizeStatement = statement(
+  `SELECT COALESCE(SUM(COALESCE(length(CAST(id AS BLOB)),0)+COALESCE(length(CAST(role AS BLOB)),0)+COALESCE(length(CAST(content AS BLOB)),0)+COALESCE(length(CAST(metadata AS BLOB)),0)),0) size FROM (${messageSql})`,
+);
+const exportHasMoreStatement = statement(
+  `SELECT 1 ${messageSelection} LIMIT 1 OFFSET ?`,
+);
+const exportRow = QueryRecords.messages.pick({
+  id: true,
+  role: true,
+  content: true,
+  metadata: true,
+  created_at: true,
+});
+export function exportRows(
+  db: Database.Database,
+  owner: string,
+  run: string,
+  limit: number,
+) {
+  return exportRowsStatement(db)
+    .all(owner, run, limit)
+    .map((row) => parseRecord(exportRow, row, "conversation-transcript"));
+}
+export function exportSize(
+  db: Database.Database,
+  owner: string,
+  run: string,
+  limit: number,
+) {
+  return parseRecord(
+    z.object({ size: z.number() }),
+    exportSizeStatement(db).get(owner, run, limit),
+    "conversation-transcript",
+  ).size;
+}
+export function exportHasMore(
+  db: Database.Database,
+  owner: string,
+  run: string,
+  limit: number,
+) {
+  const row = exportHasMoreStatement(db).get(owner, run, limit);
+  return (
+    row !== undefined &&
+    !!parseRecord(z.object({ "1": z.number() }), row, "conversation-transcript")
+  );
+}

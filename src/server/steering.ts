@@ -1,3 +1,4 @@
+import * as runSteeringQueries from "./sql/run-steering.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
 import { MessageMetadata, parseRun } from "./row-schemas.js";
@@ -46,11 +47,7 @@ export function activeRun(owner: string, conversation: string, agent?: string) {
 }
 
 export function steeringReceipt(owner: string, key: string, request: string) {
-  const prior = db
-    .prepare(
-      "SELECT * FROM run_steering WHERE owner_id=? AND idempotency_key=?",
-    )
-    .get(owner, key) as
+  const prior = runSteeringQueries.byIdempotency(db, owner, key) as
     { request: string; run_id: string; id: string } | undefined;
   if (!prior) return;
   if (prior.request !== request)
@@ -81,9 +78,16 @@ export function saveSteering(
         JSON.stringify(MessageMetadata.parse({ ...metadata, steeringId })),
         messageAt,
       );
-      db.prepare(
-        "INSERT INTO run_steering(id,owner_id,run_id,message_id,idempotency_key,request,created_at) VALUES(?,?,?,?,?,?,?)",
-      ).run(steeringId, run.owner_id, run.id, messageId, key, request, now());
+      runSteeringQueries.insert(
+        db,
+        steeringId,
+        run.owner_id,
+        run.id,
+        messageId,
+        key,
+        request,
+        now(),
+      );
       // Accepting peer input constrains the receiving run, including subsequent
       // tools after delivery. Keep the constraint even if delivery is uncertain.
       inheritFleetEffect(run.owner_id, "steering", steeringId, run.id);
@@ -119,16 +123,10 @@ export class SteeringInbox {
     private replyToolAvailable = false,
   ) {}
   private pending() {
-    return db
-      .prepare(
-        "SELECT s.id,s.message_id,m.content,m.metadata FROM run_steering s JOIN messages m ON m.id=s.message_id WHERE s.run_id=? AND s.state='pending' ORDER BY s.created_at,s.rowid",
-      )
-      .all(this.run.id) as Input[];
+    return runSteeringQueries.pendingMessages(db, this.run.id) as Input[];
   }
   private receipt(input: Input, state: "delivered" | "failed", error?: string) {
-    db.prepare(
-      "UPDATE run_steering SET state=?,error=? WHERE id=? AND state IN ('pending','sending')",
-    ).run(state, error || null, input.id);
+    runSteeringQueries.finish(db, state, error || null, input.id);
     emit(this.run.owner_id, this.run.id, `steering.${state}`, {
       messageId: input.message_id,
     });
@@ -142,11 +140,7 @@ export class SteeringInbox {
       if (this.busy || this.listener !== deliver) return;
       const input = this.pending()[0];
       if (!input) return;
-      const claimed = db
-        .prepare(
-          "UPDATE run_steering SET state='sending' WHERE id=? AND state='pending' AND EXISTS(SELECT 1 FROM runs WHERE id=run_id AND state IN ('running','awaiting_approval'))",
-        )
-        .run(input.id).changes;
+      const claimed = runSteeringQueries.markSending(db, input.id).changes;
       if (!claimed) return;
       let retryLater = false;
       this.busy = (async () => {
@@ -164,9 +158,7 @@ export class SteeringInbox {
           // If the run ends first, it is marked as never delivered.
           if (error instanceof NotDelivered) {
             retryLater = true;
-            db.prepare(
-              "UPDATE run_steering SET state='pending' WHERE id=? AND state='sending'",
-            ).run(input.id);
+            runSteeringQueries.returnPending(db, input.id);
             return;
           }
           this.receipt(

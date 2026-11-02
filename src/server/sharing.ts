@@ -1,3 +1,5 @@
+import * as handlesQueries from "./sql/handles.js";
+import * as agentsQueries from "./sql/agents.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar, projectResponse } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
@@ -13,11 +15,7 @@ export function routeHandle(owner: string, text: string) {
   const match = text.trim().match(/^@([^\s]+)(?:\s|$)/);
   if (!match) return null;
   const name = match[1].toLowerCase().replace(/[,;:]$/, "");
-  const agent = db
-    .prepare(
-      "SELECT a.* FROM handles h JOIN agents a ON a.id=h.agent_id WHERE h.name=? AND a.owner_id=?",
-    )
-    .get(name, owner) as Agent | undefined;
+  const agent = handlesQueries.ownedAgent(db, name, owner) as Agent | undefined;
   if (!agent)
     throw new Problem(
       404,
@@ -90,15 +88,12 @@ routes.on(workspaceApi.routingPreview, (req, res) => {
   let agent = routeHandle(res.locals.owner, d.input);
   if (!agent)
     agent =
-      (db
-        .prepare(
-          "SELECT a.* FROM agents a JOIN connections c ON c.id=a.connection_id AND c.owner_id=a.owner_id WHERE a.owner_id=? AND a.retired_at IS NULL AND c.status='connected' ORDER BY COALESCE((SELECT max(r.created_at) FROM runs r WHERE r.agent_id=a.id AND (? IS NULL OR json_extract(r.payload,'$.folderId')=?)),0) DESC,a.created_at DESC LIMIT 1",
-        )
-        .get(
-          res.locals.owner,
-          d.folderId || null,
-          d.folderId || null,
-        ) as Agent) || null;
+      (agentsQueries.routingSuggestion(
+        db,
+        res.locals.owner,
+        d.folderId || null,
+        d.folderId || null,
+      ) as Agent) || null;
   res.json({
     agent,
     reason: agent

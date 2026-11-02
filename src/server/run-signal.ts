@@ -1,3 +1,4 @@
+import * as delegationsQueries from "./sql/delegations.js";
 import * as runsQueries from "./sql/runs.js";
 import { changes, db } from "./db.js";
 import { Problem } from "../shared/problem.js";
@@ -77,11 +78,7 @@ function subscribe(run: Identity) {
           ["completed", "failed", "cancelled", "interrupted"].includes(
             event.type,
           ) &&
-          db
-            .prepare(
-              "SELECT 1 FROM delegations WHERE parent_run_id=? AND child_run_id=?",
-            )
-            .get(run.id, event.run_id),
+          delegationsQueries.isChild(db, run.id, event.run_id),
       )
     )
       publish("children");

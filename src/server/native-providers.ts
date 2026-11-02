@@ -1,3 +1,5 @@
+import * as connectionsQueries from "./sql/connections.js";
+import * as agentsQueries from "./sql/agents.js";
 import * as runsQueries from "./sql/runs.js";
 import { z } from "zod";
 import { createAuthDriver } from "../native-auth/drivers.js";
@@ -60,22 +62,19 @@ export function invalidateProviderConnection(name: string) {
   syncErrors.delete(name);
   const id = "native-" + name;
   writeConnectionStatus(id, () =>
-    db
-      .prepare(
-        "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,'','disconnected','[]',?,?) ON CONFLICT(id) DO UPDATE SET status='disconnected',models='[]' WHERE owner_id=excluded.owner_id",
-      )
-      .run(
-        id,
-        OWNER,
-        name,
-        name === "pi" ? "Pi" : "OpenCode",
-        JSON.stringify({
-          loop55Harness: name,
-          authMode: "native-existing",
-          runtimeKind: "loop55-local",
-        }),
-        now(),
-      ),
+    connectionsQueries.registerDisconnectedNative(
+      db,
+      id,
+      OWNER,
+      name,
+      name === "pi" ? "Pi" : "OpenCode",
+      JSON.stringify({
+        loop55Harness: name,
+        authMode: "native-existing",
+        runtimeKind: "loop55-local",
+      }),
+      now(),
+    ),
   );
   nativeSessions.clearProbes();
 }
@@ -106,12 +105,11 @@ export async function providerCatalog(
         (await driver.models?.()) || [],
       );
       const saved = registration(target.name);
-      const connection = db
-        .prepare(
-          "SELECT status,models FROM connections WHERE id=? AND owner_id=?",
-        )
-        .get("native-" + target.name, OWNER) as
-        { status: string; models: string } | undefined;
+      const connection = connectionsQueries.statusModels(
+        db,
+        "native-" + target.name,
+        OWNER,
+      ) as { status: string; models: string } | undefined;
       if (saved?.billing === "subscription") {
         // Only the native execution probe can attest this restriction. Do not
         // reintroduce API models through a general provider catalog read.
@@ -122,11 +120,11 @@ export async function providerCatalog(
         );
         models = models.filter((m) => allowed.has(m.id));
       }
-      const agents = db
-        .prepare(
-          "SELECT name,model FROM agents WHERE owner_id=? AND connection_id=? ORDER BY name",
-        )
-        .all(OWNER, "native-" + target.name);
+      const agents = agentsQueries.connectionModels(
+        db,
+        OWNER,
+        "native-" + target.name,
+      );
       return NativeProviderView.parse({
         providers,
         models,
@@ -177,9 +175,11 @@ async function syncModels(
       true,
       signal,
     );
-    const connection = db
-      .prepare("SELECT models FROM connections WHERE id=? AND owner_id=?")
-      .get("native-" + target.name, OWNER) as { models: string };
+    const connection = connectionsQueries.readModels(
+      db,
+      "native-" + target.name,
+      OWNER,
+    ) as { models: string };
     syncErrors.delete(target.name);
     return {
       ...view,
