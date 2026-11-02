@@ -123,15 +123,15 @@ export function HarnessPicker({
     catalog?.commands.filter((c) =>
       `${c.token} ${c.description}`.toLowerCase().includes(query.toLowerCase()),
     ) || [];
-  // Snippets follow the commands, one line each. A few show until you search
-  // or ask for all of them.
+  // Snippets come before the commands, one line each. A few show until you
+  // search or ask for all of them.
   const matchingSnippets = (snippets || []).filter((snippet) =>
     `${snippet.title} ${snippet.content}`
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
   const shownSnippets =
-    query || allSnippets ? matchingSnippets : matchingSnippets.slice(0, 3);
+    query || allSnippets ? matchingSnippets : matchingSnippets.slice(0, 10);
   return (
     <>
       {showTrigger && (
@@ -162,6 +162,50 @@ export function HarnessPicker({
             autoFocus
             placeholder="Search commands, skills and snippets"
           />
+          {!!matchingSnippets.length && (
+            <section className="snippet-options" aria-label="Your snippets">
+              <h3 className="section-title">Snippets</h3>
+              <div className="harness-options">
+                {shownSnippets.map((snippet) => {
+                  const name = snippetName(snippet);
+                  return (
+                    <button
+                      type="button"
+                      key={snippet.id}
+                      className="harness-option snippet-option"
+                      onClick={() => {
+                        const rest = value.replace(/^\s*\/\s*$/, "");
+                        onChange(
+                          rest
+                            ? `${rest}\n${snippet.content}`
+                            : snippet.content,
+                        );
+                        close();
+                      }}
+                    >
+                      {name && <strong>{name}</strong>}
+                      <span
+                        className={
+                          "harness-option-text" + (name ? "" : " unnamed")
+                        }
+                      >
+                        {snippet.content}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {shownSnippets.length < matchingSnippets.length && (
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => setAllSnippets(true)}
+                >
+                  Show all {matchingSnippets.length} snippets
+                </button>
+              )}
+            </section>
+          )}
           <p className="picker-source">
             {catalog?.runtime
               ? `From this agent’s ${catalog.runtime} machine. Choose one, add your instructions, then send.`
@@ -215,50 +259,6 @@ export function HarnessPicker({
                 ? "No matching commands."
                 : "No commands or skills were discovered on this machine."}
             </p>
-          )}
-          {!!matchingSnippets.length && (
-            <section className="snippet-options" aria-label="Your snippets">
-              <h3 className="section-title">Snippets</h3>
-              <div className="harness-options">
-                {shownSnippets.map((snippet) => {
-                  const name = snippetName(snippet);
-                  return (
-                    <button
-                      type="button"
-                      key={snippet.id}
-                      className="harness-option snippet-option"
-                      onClick={() => {
-                        const rest = value.replace(/^\s*\/\s*$/, "");
-                        onChange(
-                          rest
-                            ? `${rest}\n${snippet.content}`
-                            : snippet.content,
-                        );
-                        close();
-                      }}
-                    >
-                      {name && <strong>{name}</strong>}
-                      <span
-                        className={
-                          "harness-option-text" + (name ? "" : " unnamed")
-                        }
-                      >
-                        {snippet.content}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              {shownSnippets.length < matchingSnippets.length && (
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => setAllSnippets(true)}
-                >
-                  Show all {matchingSnippets.length} snippets
-                </button>
-              )}
-            </section>
           )}
           <button
             type="button"

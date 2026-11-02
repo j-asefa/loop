@@ -7991,7 +7991,7 @@ details > summary {
 .snippet-options {
   display: grid;
   gap: 6px;
-  margin: 16px 0 4px;
+  margin: 4px 0 16px;
 }
 .snippet-options .section-title {
   margin: 0 2px;
