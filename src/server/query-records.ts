@@ -14,6 +14,34 @@ import { z } from "zod";
 // Type assertions do not validate saved execution data. Joined and partial
 // selections declare their selected columns at each query.
 export const QueryRecords = {
+  agent_mail: z.object({
+    id: z.string(),
+    owner_id: z.string(),
+    team_id: z.string().nullable(),
+    thread_id: z.string(),
+    kind: z.string(),
+    sender_agent_id: z.string(),
+    sender_run_id: z.string().nullable(),
+    sender_conversation_id: z.string().nullable(),
+    recipient_agent_id: z.string(),
+    recipient_conversation_id: z.string().nullable(),
+    body: z.string(),
+    file_ids: z.string(),
+    interrupt: z.number(),
+    idempotency_key: z.string(),
+    request: z.string(),
+    state: z.string(),
+    error: z.string().nullable(),
+    delivery: z.string().nullable(),
+    run_id: z.string().nullable(),
+    steering_id: z.string().nullable(),
+    requeued_run_id: z.string().nullable(),
+    created_at: z.number(),
+    sent_at: z.number().nullable(),
+    retry_at: z.number(),
+    attempts: z.number(),
+  }),
+
   agent_checkpoints: z.object({
     run_id: z.string(),
     message_id: z.string(),

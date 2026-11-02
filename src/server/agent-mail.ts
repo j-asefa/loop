@@ -1,3 +1,4 @@
+import * as mailQueries from "./sql/agent-mail.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import { FleetMailCaller } from "../shared/fleet-mail-worker.js";
@@ -147,14 +148,10 @@ export type Mail = {
   sent_at: number | null;
 };
 
-const count = (sql: string, ...params: unknown[]) =>
-  (db.prepare(sql).get(...params) as { n: number }).n;
 const firstLine = (text: string) =>
   text.trim().split("\n")[0].slice(0, 120) || "Message";
 const mailByKey = (owner: string, key: string) =>
-  db
-    .prepare("SELECT * FROM agent_mail WHERE owner_id=? AND idempotency_key=?")
-    .get(owner, key) as Mail | undefined;
+  mailQueries.byIdempotency(db, owner, key) as Mail | undefined;
 const agentRow = (owner: string, agentId: string) =>
   db
     .prepare("SELECT * FROM agents WHERE id=? AND owner_id=?")
@@ -634,17 +631,12 @@ function hold(mail: Mail, thread: Thread, reason: string | null) {
     thread.paused_at = now();
     thread.paused_reason = reason;
   }
-  if (
-    count(
-      "SELECT count(*) n FROM agent_mail WHERE thread_id=? AND state='held'",
-      thread.id,
-    ) >= MAIL_LIMITS.held
-  )
+  if (mailQueries.heldCount(db, thread.id) >= MAIL_LIMITS.held)
     throw new Problem(
       429,
       `This thread is paused and already holds ${MAIL_LIMITS.held} messages. Wait for the user to resume it.`,
     );
-  db.prepare("UPDATE agent_mail SET state='held' WHERE id=?").run(mail.id);
+  mailQueries.hold(db, mail.id);
   mail.state = "held";
 }
 
@@ -658,44 +650,23 @@ function limitReason(thread: Thread, mail: Mail) {
     // The peer attests its agent/run IDs, so those IDs alone cannot enforce an
     // allowance. Count the authenticated machine/grants across all its threads
     // to this local recipient. Explicit Resume gives that pair a fresh budget.
-    const received = db
-      .prepare(
-        `
-      WITH peer_threads AS (
-        SELECT t.id,t.resumed_order FROM agent_threads t
-        JOIN fleet_mail_threads f ON f.thread_id=t.id AND f.owner_id=t.owner_id
-        WHERE t.owner_id=@owner AND f.peer_id=@peer AND f.local_agent_id=@recipient
-          AND f.fleet_id=@fleet AND f.local_grant_id=@localGrant AND f.peer_grant_id=@peerGrant
-      )
-      SELECT count(*) n FROM agent_mail m
-      JOIN fleet_mail_records r ON r.mail_id=m.id AND r.owner_id=m.owner_id
-      WHERE m.owner_id=@owner AND m.thread_id IN (SELECT id FROM peer_threads)
-        AND r.peer_id=@peer AND r.direction='incoming' AND m.recipient_agent_id=@recipient
-        AND m.kind='message' AND m.state IN ('sent','pending') AND m.id<>@mailId
-        AND m.created_at>@since AND m.rowid>COALESCE((SELECT max(resumed_order) FROM peer_threads),0)
-    `,
-      )
-      .get({
-        owner: mail.owner_id,
-        peer: remote.machineId,
-        recipient: mail.recipient_agent_id,
-        fleet: binding.fleet_id,
-        localGrant: binding.local_grant_id,
-        peerGrant: binding.peer_grant_id,
-        mailId: mail.id,
-        since: now() - HOUR,
-      }) as { n: number };
+    const received = mailQueries.receivedFromPeer(db, {
+      owner: mail.owner_id,
+      peer: remote.machineId,
+      recipient: mail.recipient_agent_id,
+      fleet: binding.fleet_id,
+      localGrant: binding.local_grant_id,
+      peerGrant: binding.peer_grant_id,
+      mailId: mail.id,
+      since: now() - HOUR,
+    }) as { n: number };
     if (received.n >= MAIL_LIMITS.perPairHour)
       return `This machine sent ${MAIL_LIMITS.perPairHour} messages to this recipient in an hour.`;
   }
   const since = thread.resumed_order ?? 0;
   if (
-    count(
-      "SELECT count(*) n FROM agent_mail WHERE thread_id=? AND kind='message' AND rowid>? AND id<>?",
-      thread.id,
-      since,
-      mail.id,
-    ) >= MAIL_LIMITS.perThread
+    mailQueries.threadMessageCount(db, thread.id, since, mail.id) >=
+    MAIL_LIMITS.perThread
   )
     return `The thread reached ${MAIL_LIMITS.perThread} messages.`;
   const [a, b] = [mail.sender_agent_id, mail.recipient_agent_id];
@@ -709,8 +680,8 @@ function limitReason(thread: Thread, mail: Mail) {
       .get(mail.owner_id, a, b) as { at: number | null }
   ).at;
   if (
-    count(
-      "SELECT count(*) n FROM agent_mail WHERE owner_id=? AND kind='message' AND state IN ('sent','pending') AND id<>? AND created_at>? AND rowid>? AND ((sender_agent_id=? AND recipient_agent_id=?) OR (sender_agent_id=? AND recipient_agent_id=?))",
+    mailQueries.pairMessageCount(
+      db,
       mail.owner_id,
       mail.id,
       now() - HOUR,
@@ -738,13 +709,7 @@ function dispatch(
     mail.recipient_agent_id,
     mail.kind === "result" ? mail.sender_run_id : undefined,
   );
-  if (
-    db
-      .prepare(
-        "SELECT 1 FROM agent_mail WHERE thread_id=? AND state='pending' AND rowid<(SELECT rowid FROM agent_mail WHERE id=?)",
-      )
-      .get(thread.id, mail.id)
-  )
+  if (mailQueries.hasEarlierPending(db, thread.id, mail.id))
     throw new Problem(409, "Waiting for earlier accepted mail in this thread.");
   if (parseFleetAgentAddress(mail.recipient_agent_id)) {
     enqueueFleetMail(mail, thread.subject);
@@ -867,9 +832,15 @@ function dispatch(
     : routed.active || busy
       ? "queued"
       : "new_turn";
-  db.prepare(
-    "UPDATE agent_mail SET state='sent',error=NULL,delivery=?,run_id=?,steering_id=?,recipient_conversation_id=?,sent_at=? WHERE id=?",
-  ).run(delivery, run.id, steeringId, run.conversation_id, now(), mail.id);
+  mailQueries.markSent(
+    db,
+    delivery,
+    run.id,
+    steeringId,
+    run.conversation_id,
+    now(),
+    mail.id,
+  );
   join(thread.id, recipient.id, run.conversation_id);
   db.prepare("UPDATE agent_threads SET updated_at=? WHERE id=?").run(
     now(),
@@ -892,10 +863,7 @@ function dispatch(
 function refuse(mail: Mail, error: unknown) {
   const message =
     error instanceof Error ? error.message.slice(0, 500) : "Not delivered";
-  db.prepare("UPDATE agent_mail SET state='refused',error=? WHERE id=?").run(
-    message,
-    mail.id,
-  );
+  mailQueries.refuse(db, message, mail.id);
   mail.state = "refused";
   mail.error = message;
 }
@@ -942,18 +910,13 @@ function dispatchPending(mail: Mail, thread: Thread, time = now()) {
       return;
     }
     const attempts =
-      (
-        db
-          .prepare("SELECT attempts FROM agent_mail WHERE id=?")
-          .get(mail.id) as { attempts: number }
-      ).attempts + 1;
+      (mailQueries.attempts(db, mail.id) as { attempts: number }).attempts + 1;
     const reason =
       error instanceof Error
         ? error.message.slice(0, 500)
         : "Waiting for delivery";
-    db.prepare(
-      "UPDATE agent_mail SET state='pending',error=?,attempts=?,retry_at=? WHERE id=?",
-    ).run(
+    mailQueries.scheduleRetry(
+      db,
       reason,
       attempts,
       time + Math.min(300000, 15000 * 2 ** Math.min(attempts - 1, 5)),
@@ -990,9 +953,8 @@ function insertMail(
     created_at: now(),
     sent_at: null,
   };
-  db.prepare(
-    "INSERT INTO agent_mail(id,owner_id,team_id,thread_id,kind,sender_agent_id,sender_run_id,sender_conversation_id,recipient_agent_id,recipient_conversation_id,body,file_ids,interrupt,idempotency_key,request,state,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)",
-  ).run(
+  mailQueries.insertPending(
+    db,
     mail.id,
     mail.owner_id,
     mail.team_id,
@@ -1094,12 +1056,7 @@ export function sendMail(run: Run, callId: string, input: unknown) {
           );
       } else eligibleMailAgent(run.owner_id, recipientId);
       const activeTeam = teamOf(run);
-      if (
-        count(
-          "SELECT count(*) n FROM agent_mail WHERE sender_run_id=? AND kind='message'",
-          run.id,
-        ) >= MAIL_LIMITS.perRun
-      )
+      if (mailQueries.senderRunMessageCount(db, run.id) >= MAIL_LIMITS.perRun)
         throw new Problem(
           429,
           `This task already sent ${MAIL_LIMITS.perRun} messages, the most one task can send. Replies start new turns, which can send more.`,
@@ -1212,12 +1169,7 @@ export function sendMail(run: Run, callId: string, input: unknown) {
           }
         }
       }
-      if (
-        count(
-          "SELECT count(*) n FROM agent_mail WHERE owner_id=? AND state='pending'",
-          run.owner_id,
-        ) >= MAIL_LIMITS.pending
-      )
+      if (mailQueries.pendingCount(db, run.owner_id) >= MAIL_LIMITS.pending)
         throw new Problem(
           429,
           "This workspace has too much pending agent mail. Wait for delivery before sending more.",
@@ -1312,19 +1264,11 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
           const sender = fleetAgentAddress(envelope.source);
           const senderRun = `peer:${envelope.source.machineId}:${envelope.sender.runId}`;
           if (
-            count(
-              "SELECT count(*) n FROM agent_mail WHERE owner_id=? AND sender_run_id=? AND kind='message'",
-              owner,
-              senderRun,
-            ) >= MAIL_LIMITS.perRun
+            mailQueries.ownedSenderRunMessageCount(db, owner, senderRun) >=
+            MAIL_LIMITS.perRun
           )
             return { state: "refused", reason: "quota" };
-          if (
-            count(
-              "SELECT count(*) n FROM agent_mail WHERE owner_id=? AND state='pending'",
-              owner,
-            ) >= MAIL_LIMITS.pending
-          )
+          if (mailQueries.pendingCount(db, owner) >= MAIL_LIMITS.pending)
             return { state: "refused", reason: "quota" };
           const stored = bindings.find(
             envelope.thread.origin,
@@ -1455,12 +1399,12 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
     },
     inspect: (admission) => {
       if (admission.state !== "accepted") return admission;
-      const mail = db
-        .prepare(
-          `SELECT m.* FROM agent_mail m JOIN fleet_mail_records f ON f.mail_id=m.id AND f.owner_id=m.owner_id
-        WHERE m.owner_id=? AND m.id=? AND m.thread_id=? AND f.direction='incoming'`,
-        )
-        .get(owner, admission.mailId, admission.threadId) as Mail | undefined;
+      const mail = mailQueries.incoming(
+        db,
+        owner,
+        admission.mailId,
+        admission.threadId,
+      ) as Mail | undefined;
       if (!mail) return { ...admission, status: "not_delivered" };
       return {
         ...admission,
@@ -1484,11 +1428,7 @@ function mailContentReadable(mail: Mail, agentId: string | null) {
 
 function statusSubject(thread: Thread, agentId: string | null) {
   if (thread.created_by === agentId) return thread.subject;
-  const first = db
-    .prepare(
-      "SELECT * FROM agent_mail WHERE thread_id=? ORDER BY created_at,rowid LIMIT 1",
-    )
-    .get(thread.id) as Mail | undefined;
+  const first = mailQueries.firstInThread(db, thread.id) as Mail | undefined;
   return first && mailContentReadable(first, agentId)
     ? thread.subject
     : "Agent message";
@@ -1550,13 +1490,9 @@ export function mailStatus(
       subject: statusSubject(thread, run.agent_id),
       paused: !!thread.paused_at,
       ...(thread.paused_reason ? { pausedReason: thread.paused_reason } : {}),
-      messages: (
-        db
-          .prepare(
-            "SELECT * FROM (SELECT *,rowid r FROM agent_mail WHERE thread_id=? ORDER BY created_at DESC,rowid DESC LIMIT 30) ORDER BY created_at,r",
-          )
-          .all(thread.id) as Mail[]
-      ).map((mail) => describe(mail, run.agent_id)),
+      messages: (mailQueries.recentInThread(db, thread.id) as Mail[]).map(
+        (mail) => describe(mail, run.agent_id),
+      ),
     };
   }
   const threads = db
@@ -1566,11 +1502,8 @@ export function mailStatus(
     .all(run.agent_id, run.owner_id, team?.id ?? null) as Thread[];
   return {
     threads: threads.map((thread) => {
-      const last = db
-        .prepare(
-          "SELECT * FROM agent_mail WHERE thread_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-        )
-        .get(thread.id) as Mail | undefined;
+      const last = mailQueries.latestInThread(db, thread.id) as
+        Mail | undefined;
       return {
         threadId: thread.id,
         scope: thread.scope,
@@ -1728,9 +1661,7 @@ function requeue(mail: Mail) {
         return run;
       })();
       note(REQUEUED);
-      db.prepare(
-        "UPDATE agent_mail SET requeued_run_id=?,delivery='queued',recipient_conversation_id=? WHERE id=?",
-      ).run(run.id, run.conversation_id, mail.id);
+      mailQueries.markRequeued(db, run.id, run.conversation_id, mail.id);
     } catch (error) {
       if (!settled(mail, error)) throw error;
       note("Not delivered: " + (error as Error).message);
@@ -1778,40 +1709,32 @@ export function sweepAgentMail(time = now()) {
     attempt(`result:${row.child_run_id}:${row.state}`, time, () =>
       deliverResult(row),
     );
-  const stranded = db
-    .prepare(
-      `SELECT m.* FROM agent_mail m JOIN run_steering s ON s.id=m.steering_id
-       WHERE m.steering_id IS NOT NULL AND m.requeued_run_id IS NULL AND m.state='sent' AND s.state='failed' AND s.error=?
-       ORDER BY m.created_at LIMIT 200`,
-    )
-    .all(UNSENT) as Mail[];
+  const rejectInvalidMail = (id: string, error: InvalidRow) =>
+    mailQueries.refuse(db, error.message.slice(0, 500), id);
+  const stranded = mailQueries.stranded(
+    db,
+    UNSENT,
+    rejectInvalidMail,
+  ) as Mail[];
   for (const mail of stranded)
     attempt("requeue:" + mail.id, time, () => requeue(mail));
-  const pending = db
-    .prepare(
-      "SELECT m.id FROM agent_mail m WHERE m.state='pending' AND m.retry_at<=? AND NOT EXISTS(SELECT 1 FROM fleet_mail_outbox f WHERE f.owner_id=m.owner_id AND f.message_id=m.id) AND NOT EXISTS(SELECT 1 FROM agent_mail earlier WHERE earlier.thread_id=m.thread_id AND earlier.state='pending' AND earlier.rowid<m.rowid) ORDER BY m.retry_at,m.created_at,m.rowid LIMIT 200",
-    )
-    .all(time) as { id: string }[];
+  const pending = mailQueries.pendingHeads(db, time) as { id: string }[];
   for (const item of pending)
     db.transaction(() => {
-      const mail = db
-        .prepare(
-          "SELECT * FROM agent_mail WHERE id=? AND state='pending' AND retry_at<=?",
-        )
-        .get(item.id, time) as Mail | undefined;
+      let mail: Mail | undefined;
+      try {
+        mail = mailQueries.due(db, item.id, time) as Mail | undefined;
+      } catch (error) {
+        if (!(error instanceof InvalidRow)) throw error;
+        rejectInvalidMail(item.id, error);
+        return;
+      }
       if (!mail) return;
       const thread = db
         .prepare("SELECT * FROM agent_threads WHERE id=?")
         .get(mail.thread_id) as Thread;
       // Recheck after acquiring the write lock; several workers may sweep.
-      if (
-        db
-          .prepare(
-            "SELECT 1 FROM agent_mail WHERE thread_id=? AND state='pending' AND rowid<(SELECT rowid FROM agent_mail WHERE id=?)",
-          )
-          .get(thread.id, mail.id)
-      )
-        return;
+      if (mailQueries.hasEarlierPending(db, thread.id, mail.id)) return;
       dispatchPending(mail, thread, time);
     }).immediate();
   for (const [key, wait] of backoff)
@@ -1854,11 +1777,7 @@ export function resumeThread(
             .get(thread.id) as { resumed_order: number }
         ).resumed_order,
       });
-      const held = db
-        .prepare(
-          "SELECT * FROM agent_mail WHERE thread_id=? AND state='held' ORDER BY created_at,rowid",
-        )
-        .all(thread.id) as Mail[];
+      const held = mailQueries.heldInThread(db, thread.id) as Mail[];
       let released = 0,
         refused = 0;
       for (const mail of held) {
@@ -2013,13 +1932,9 @@ function describeThreads(threads: Thread[]): z.infer<typeof PublicMailThreads> {
             ),
           }
         : {}),
-      messages: (
-        db
-          .prepare(
-            "SELECT * FROM (SELECT *,rowid r FROM agent_mail WHERE thread_id=? ORDER BY created_at DESC,rowid DESC LIMIT 30) ORDER BY created_at,r",
-          )
-          .all(thread.id) as Mail[]
-      ).map(publicMailMessage),
+      messages: (mailQueries.recentInThread(db, thread.id) as Mail[]).map(
+        publicMailMessage,
+      ),
     })),
   };
 }

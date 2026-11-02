@@ -106,7 +106,6 @@ const allowance = [
   "fleet-local-admin.ts",
   "fleet-mail-bindings.ts",
   "fleet-mail-destination.ts",
-  "fleet-mail-drainer.ts",
   "fleet-mail-files.ts",
   "fleet-mail-journal.ts",
   "fleet-mail-origin.ts",

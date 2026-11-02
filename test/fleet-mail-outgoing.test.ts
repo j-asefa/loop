@@ -551,6 +551,53 @@ it("keeps interrupt receipt targets separate from an unresolved ordinary thread 
   ).toBe(ordinary);
 });
 
+it("projects receipts despite malformed local retry metadata without blocking healthy outgoing mail", async () => {
+  const firstSource = source(),
+    secondSource = source();
+  const first = sendMail(firstSource.run, "damaged-projection", {
+    to: remote(),
+    body: "Already accepted remotely",
+  });
+  const peer = new FleetPeerMail(authority, leases, owner, journal, transport);
+  try {
+    await peer.deliver(first.messageId, (envelope) =>
+      authorizeFleetMailSender(owner, envelope),
+    );
+  } finally {
+    peer.close();
+  }
+  expect(journal.outgoing(first.messageId)?.state).toBe("accepted");
+  const digest = journal.outgoing(first.messageId)?.payloadDigest;
+  db.prepare(
+    "UPDATE agent_mail SET attempts='bad',retry_at='bad' WHERE id=?",
+  ).run(first.messageId);
+  const second = sendMail(secondSource.run, "healthy-projection", {
+    to: remote(),
+    body: "Healthy outgoing mail",
+  });
+  const drain = drainer();
+  await drain.drain();
+  for (const message of [first.messageId, second.messageId]) {
+    expect(
+      db.prepare("SELECT state FROM agent_mail WHERE id=?").get(message),
+    ).toEqual({ state: "sent" });
+    expect(
+      db
+        .prepare(
+          "SELECT projection_pending FROM fleet_mail_records WHERE mail_id=?",
+        )
+        .get(message),
+    ).toEqual({ projection_pending: 0 });
+  }
+  expect(journal.outgoing(first.messageId)?.payloadDigest).toBe(digest);
+  expect(
+    db
+      .prepare("SELECT attempts,retry_at FROM agent_mail WHERE id=?")
+      .get(first.messageId),
+  ).toEqual({ attempts: "bad", retry_at: "bad" });
+  expect(visible(firstSource.agent.id).status).toBe("queued");
+});
+
 it("recovers receipt projection after restart and keeps unchanged receipt polls quiet", async () => {
   const { agent, run } = source();
   const first = sendMail(run, "quiet-receipt", {

@@ -2389,6 +2389,45 @@ it("bounds accepted pending mail without creating orphan threads on refusal", ()
   ).toEqual({ n: 100 });
 });
 
+
+it.each(["pending", "stranded"])("isolates malformed %s mail during the worker sweep", async (phase) => {
+  const owner = `malformed-sweep-${phase}`;
+  const pending = (owner: string) => {
+    const sender = agent(owner, "sender"), recipient = agent(owner, "recipient");
+    db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(recipient.connection_id);
+    const receipt = sendMail(running(owner, sender.id, {}), "pending", { to: recipient.id, body: "Deliver after recovery" });
+    expect(receipt.delivery).toBe("pending");
+    return { receipt, recipient, sender };
+  };
+  let damaged: string;
+  if (phase === "stranded") {
+    const { manager, coder, team } = mixedTeam(owner);
+    const lead = running(owner, manager.id, { conversationId: team.conversation_id! });
+    const busy = running(owner, coder.id, { teamId: team.id });
+    const receipt = sendMail(lead, "unread", { to: coder.id, body: "Unread steering", interrupt: true });
+    expect(mail(receipt.messageId).steering_id).toEqual(expect.any(String));
+    transition(busy, "completed");
+    damaged = receipt.messageId;
+  } else damaged = pending(owner).receipt.messageId;
+  db.prepare("UPDATE agent_mail SET attempts='bad' WHERE id=?").run(damaged);
+  const healthy = pending(owner + "-healthy");
+  db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(healthy.recipient.connection_id);
+  sweepAgentMail(now() + 600000);
+  expect(mail(damaged)).toMatchObject({ state: "refused", attempts: "bad", requeued_run_id: null });
+  expect(mail(healthy.receipt.messageId)).toMatchObject({ state: "sent", owner_id: owner + "-healthy", run_id: expect.any(String) });
+  const delivered = mail(healthy.receipt.messageId).run_id;
+  sweepAgentMail(now() + 1200000);
+  expect(mail(healthy.receipt.messageId).run_id).toBe(delivered);
+  expect(db.prepare("SELECT count(*) n FROM runs WHERE agent_id=?").get(healthy.recipient.id)).toEqual({ n: 1 });
+  const row = mail(damaged);
+  const readable = readAgentThread(owner, row.thread_id, { limit: 40 });
+  expect(readable.messages.some(message => message.id === damaged)).toBe(true);
+  const statusRun = runOf(row.sender_run_id);
+  const status = await toolResult(statusRun, "loop55_message_status", { threadId: row.thread_id });
+  expect(status.messages.some((message: { messageId: string }) => message.messageId === damaged)).toBe(true);
+
+});
+
 it("does not let blocked followers starve retryable thread heads across owners", () => {
   const heads: string[] = [];
   for (let group = 0; group < 12; group++) {

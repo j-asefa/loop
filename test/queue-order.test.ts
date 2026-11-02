@@ -160,3 +160,54 @@ it("does not reorder per-conversation harness queues", () => {
   transition(second, "completed");
   expect(claim("worker")?.id).toBe(c.id);
 });
+
+it.each(["run payload", "mail attempts"])(
+  "rejects malformed %s without blocking another owner's healthy run",
+  (corruption) => {
+    const broken = fixture(),
+      healthy = fixture();
+    const damaged = broken.make(broken.conversation()),
+      ready = healthy.make(healthy.conversation());
+    const thread = id(),
+      mail = id(),
+      time = now();
+    db.prepare(
+      "INSERT INTO agent_threads(id,owner_id,scope,subject,created_by,created_at,updated_at) VALUES(?,?,'direct','Queue recovery',?,?,?)",
+    ).run(thread, broken.owner, damaged.agent_id, time, time);
+    db.prepare(
+      "INSERT INTO agent_mail(id,owner_id,thread_id,kind,sender_agent_id,recipient_agent_id,body,idempotency_key,request,state,run_id,created_at) VALUES(?,?,?,'message',?,?,'Queued mail',?,'{}','pending',?,?)",
+    ).run(
+      mail,
+      broken.owner,
+      thread,
+      damaged.agent_id,
+      damaged.agent_id,
+      mail,
+      damaged.id,
+      time,
+    );
+    const payload =
+      corruption === "run payload"
+        ? '{"maxTokens":0}'
+        : JSON.stringify(damaged.payload);
+    if (corruption === "run payload")
+      db.prepare("UPDATE runs SET payload=? WHERE id=?").run(
+        payload,
+        damaged.id,
+      );
+    else
+      db.prepare("UPDATE agent_mail SET attempts='bad' WHERE id=?").run(mail);
+    const claimed = claim("mail-recovery", (run) => run.id === ready.id);
+    expect(claimed?.id).toBe(ready.id);
+    expect(claimed?.owner_id).toBe(healthy.owner);
+    expect(
+      db
+        .prepare("SELECT state,payload,worker_id FROM runs WHERE id=?")
+        .get(damaged.id),
+    ).toEqual({ state: "failed", payload, worker_id: null });
+    expect(
+      claim("mail-recovery", (run) => run.id === damaged.id),
+    ).toBeUndefined();
+    transition(claimed!, "completed");
+  },
+);

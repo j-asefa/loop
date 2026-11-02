@@ -1,3 +1,4 @@
+import * as mailQueries from "./sql/agent-mail.js";
 import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
 import { db } from "./db.js";
@@ -32,11 +33,7 @@ const messageCursor = z.tuple([
   z.number().int().positive(),
 ]);
 function summary(owner: string, thread: Thread): AgentThreadSummary {
-  const latest = db
-    .prepare(
-      "SELECT * FROM agent_mail WHERE owner_id=? AND thread_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-    )
-    .get(owner, thread.id) as Mail;
+  const latest = mailQueries.ownedLatestInThread(db, owner, thread.id) as Mail;
   return {
     id: thread.id,
     subject: thread.subject,
@@ -45,11 +42,7 @@ function summary(owner: string, thread: Thread): AgentThreadSummary {
     paused_reason: thread.paused_reason,
     updated_at: latest.created_at,
     message_count: (
-      db
-        .prepare(
-          "SELECT count(*) n FROM agent_mail WHERE owner_id=? AND thread_id=?",
-        )
-        .get(owner, thread.id) as { n: number }
+      mailQueries.ownedThreadCount(db, owner, thread.id) as { n: number }
     ).n,
     participants: (
       db
@@ -159,18 +152,15 @@ export function readAgentThread(
     const cursor = query.before
       ? decode(query.before, messageCursor, "agent messages")
       : null;
-    const rows = db
-      .prepare(
-        "SELECT *,rowid ordinal FROM agent_mail WHERE owner_id=? AND thread_id=? AND (? IS NULL OR (created_at,rowid)<(?,?)) ORDER BY created_at DESC,rowid DESC LIMIT ?",
-      )
-      .all(
-        owner,
-        id,
-        cursor?.[0] ?? null,
-        cursor?.[0] ?? null,
-        cursor?.[1] ?? null,
-        query.limit + 1,
-      ) as (Mail & { ordinal: number })[];
+    const rows = mailQueries.ownedThreadPage(
+      db,
+      owner,
+      id,
+      cursor?.[0] ?? null,
+      cursor?.[0] ?? null,
+      cursor?.[1] ?? null,
+      query.limit + 1,
+    ) as (Mail & { ordinal: number })[];
     const more = rows.length > query.limit;
     if (more) rows.pop();
     const oldest = rows.at(-1);

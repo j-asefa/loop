@@ -1,3 +1,4 @@
+import * as mailQueries from "./sql/agent-mail.js";
 import * as runsQueries from "./sql/runs.js";
 import { maybeConnection } from "./row-schemas.js";
 import { db } from "./db.js";
@@ -271,11 +272,7 @@ export function authorizeMail(
 
 /** Refuse obsolete queued mail before it can cause an external effect. */
 export function queuedMailFailure(runId: string): string | undefined {
-  const mail = db
-    .prepare(
-      "SELECT m.*,t.scope FROM agent_mail m JOIN agent_threads t ON t.id=m.thread_id WHERE (m.run_id=? AND m.steering_id IS NULL) OR m.requeued_run_id=?",
-    )
-    .get(runId, runId) as
+  const mail = mailQueries.forQueuedRun(db, runId, runId) as
     | {
         id: string;
         owner_id: string;
@@ -325,10 +322,7 @@ export function queuedMailFailure(runId: string): string | undefined {
       );
   } catch (error) {
     if (!(error instanceof MailRefusal)) throw error;
-    db.prepare("UPDATE agent_mail SET state='refused',error=? WHERE id=?").run(
-      error.message,
-      mail.id,
-    );
+    mailQueries.refuse(db, error.message, mail.id);
     return error.message;
   }
 }
@@ -338,14 +332,7 @@ export function queuedMailReady(run: {
   owner_id: string;
   payload: import("./row-schemas.js").RunPayload;
 }) {
-  if (
-    !db
-      .prepare(
-        "SELECT 1 FROM agent_mail WHERE (run_id=? AND steering_id IS NULL) OR requeued_run_id=?",
-      )
-      .get(run.id, run.id)
-  )
-    return true;
+  if (!mailQueries.hasQueuedRun(db, run.id, run.id)) return true;
   const connection = db
     .prepare("SELECT status FROM connections WHERE id=? AND owner_id=?")
     .get(run.payload.connectionId, run.owner_id) as

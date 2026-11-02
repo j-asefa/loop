@@ -1,3 +1,4 @@
+import * as mailQueries from "./sql/agent-mail.js";
 import type { MailStatus } from "../shared/agent-mail.js";
 import { FleetGrantContext } from "../shared/fleet.js";
 import {
@@ -168,12 +169,8 @@ export function authorizeFleetMailSender(
   owner: string,
   envelope: FleetMailEnvelope,
 ) {
-  const mail = db
-    .prepare(
-      `SELECT m.* FROM agent_mail m JOIN fleet_mail_records r ON r.mail_id=m.id
-      WHERE m.owner_id=? AND m.id=? AND r.owner_id=m.owner_id AND r.direction='outgoing'`,
-    )
-    .get(owner, envelope.messageId) as OriginMail | undefined;
+  const mail = mailQueries.outgoing(db, owner, envelope.messageId) as
+    OriginMail | undefined;
   const authority = mailAuthority();
   if (
     !mail ||
@@ -242,9 +239,7 @@ export function enqueueFleetMail(mail: OriginMail, subject: string) {
     mailAuthority().identity.machineId,
     JSON.parse(mail.file_ids) as string[],
   );
-  db.prepare("UPDATE agent_mail SET state='pending',error=NULL WHERE id=?").run(
-    mail.id,
-  );
+  mailQueries.releaseOutgoing(db, mail.id);
   const envelope = FleetMailEnvelope.parse({
     version: 1,
     messageId: mail.id,
@@ -308,9 +303,7 @@ export function outgoingFleetMailFile(
       409,
       "The file does not belong to this outgoing message.",
     );
-  const mail = db
-    .prepare("SELECT * FROM agent_mail WHERE owner_id=? AND id=?")
-    .get(owner, envelope.messageId) as OriginMail;
+  const mail = mailQueries.owned(db, owner, envelope.messageId) as OriginMail;
   return readFleetMailFile(currentSender(mail), file);
 }
 
@@ -331,13 +324,7 @@ export function fleetOutgoingStatus(mail: OriginMail): MailStatus | undefined {
  * replacing the two participants' original conversation bindings. */
 export function reconcileFleetMail(owner: string, messageId: string) {
   db.transaction(() => {
-    const mail = db
-      .prepare(
-        `SELECT m.*,r.projection_pending FROM agent_mail m JOIN fleet_mail_records r ON r.mail_id=m.id
-        WHERE m.owner_id=? AND m.id=? AND r.owner_id=m.owner_id AND r.direction='outgoing'`,
-      )
-      .get(owner, messageId) as
-      (OriginMail & { projection_pending: number }) | undefined;
+    const mail = mailQueries.outgoingProjection(db, owner, messageId);
     if (!mail) return;
     const stored = fleetMailJournal(owner).outgoing(messageId);
     if (!stored) return;
@@ -346,27 +333,18 @@ export function reconcileFleetMail(owner: string, messageId: string) {
     if (stored.state === "refused") {
       const error = `Remote mail refused: ${stored.localRefusal ?? (admission?.state === "refused" ? admission.reason : "unavailable")}.`;
       changed =
-        db
-          .prepare(
-            `UPDATE agent_mail SET state='refused',error=? WHERE owner_id=? AND id=?
-          AND (state IS NOT 'refused' OR error IS NOT ?)`,
-          )
-          .run(error, owner, messageId, error).changes > 0;
+        mailQueries.projectRefused(db, error, owner, messageId, error).changes >
+        0;
     } else if (admission?.state === "accepted") {
       changed =
-        db
-          .prepare(
-            `UPDATE agent_mail SET state='sent',error=NULL,recipient_conversation_id=?,sent_at=COALESCE(sent_at,?)
-          WHERE owner_id=? AND id=? AND (state IS NOT 'sent' OR error IS NOT NULL
-            OR recipient_conversation_id IS NOT ? OR sent_at IS NULL)`,
-          )
-          .run(
-            admission.conversationId,
-            now(),
-            owner,
-            messageId,
-            admission.conversationId,
-          ).changes > 0;
+        mailQueries.projectAccepted(
+          db,
+          admission.conversationId,
+          now(),
+          owner,
+          messageId,
+          admission.conversationId,
+        ).changes > 0;
       // An interrupt's target belongs to that message, not an unresolved
       // ordinary thread default. The destination may later bind a different one.
       if (!mail.interrupt)

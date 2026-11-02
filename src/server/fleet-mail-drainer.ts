@@ -1,3 +1,4 @@
+import * as mailQueries from "./sql/agent-mail.js";
 import type { FleetAuthority } from "./fleet-authority.js";
 import type { FleetMailJournal } from "./fleet-mail-journal.js";
 import type { FleetPeerMail } from "./fleet-peer-mail.js";
@@ -105,9 +106,7 @@ export class FleetMailDrainer {
               : error instanceof Problem && error.status === 409
                 ? "Waiting for the sending task or fleet directory to become available."
                 : "The destination is unavailable. Retry or re-pair its changed address; this message keeps its original identity.";
-        db.prepare(
-          "UPDATE agent_mail SET error=? WHERE owner_id=? AND id=?",
-        ).run(message, this.owner, messageId);
+        mailQueries.setOwnedError(db, message, this.owner, messageId);
       }
       this.journal.defer(messageId, true, this.clock());
     }

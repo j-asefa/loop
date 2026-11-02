@@ -1,3 +1,4 @@
+import * as mailQueries from "./sql/agent-mail.js";
 import * as runsQueries from "./sql/runs.js";
 import { z } from "zod";
 import {
@@ -96,19 +97,15 @@ export function claim(
       // working and receives each result as a message.
       // Refuse obsolete mail even when another conversation would prevent its
       // claim. Otherwise it can remain a permanent queue barrier.
-      const mailRuns = checkedRuns(
-        db
-          .prepare(
-            `SELECT DISTINCT r.* FROM agent_mail m JOIN runs r ON ((m.run_id=r.id AND m.steering_id IS NULL) OR m.requeued_run_id=r.id) AND m.owner_id=r.owner_id
-         WHERE r.state='queued' AND r.worker_id IS NULL
-         AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)
-         AND NOT EXISTS(SELECT 1 FROM native_dispatches d WHERE d.run_id=r.id)`,
-          )
-          .all(),
-      );
+      const mailRuns = mailQueries.queuedRuns(db, rejectInvalidRun);
       for (const queued of mailRuns) {
-        const failure = queuedMailFailure(queued.id);
-        if (failure) transition(queued, "cancelled", { message: failure });
+        try {
+          const failure = queuedMailFailure(queued.id);
+          if (failure) transition(queued, "cancelled", { message: failure });
+        } catch (error) {
+          if (!(error instanceof InvalidRow)) throw error;
+          rejectInvalidRun(queued, error);
+        }
       }
       const candidates = runsQueries.claimCandidates(db, rejectInvalidRun);
       const run = candidates.find((candidate) => {
@@ -207,20 +204,6 @@ export function recoverStale() {
     });
 }
 
-// Reject saved execution data before availability checks or a lease can expose
-// it to an executor. A bad record cannot block unrelated queued conversations.
-function checkedRuns(values: unknown[]): Run[] {
-  return values.flatMap((value) => {
-    try {
-      return [parseRun(value)];
-    } catch (error) {
-      if (!(error instanceof InvalidRow)) throw error;
-      const identity = RunIdentity.parse(value);
-      rejectInvalidRun(identity, error);
-      return [];
-    }
-  });
-}
 function rejectInvalidRun(
   run: Pick<Run, "id" | "owner_id">,
   error: InvalidRow,
