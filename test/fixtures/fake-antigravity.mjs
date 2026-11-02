@@ -78,6 +78,29 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       event: "step_update",
       step_update: { conversation_id: conversation, ...body },
     });
+  if (mode === "soft-denied") {
+    // Print mode soft-denies a tool needing approval, then reports SUCCESS
+    // with an empty response; its explanation goes only to stderr.
+    step({
+      step_index: count * 3,
+      step_type: "tool",
+      state: "DONE",
+      tool_name: "run_command",
+      tool_info: { parameters: { CommandLine: "ls -la" } },
+    });
+    console.error(
+      'Print mode: soft-denying tool confirmation "RunCommand" private-credential-fixture',
+    );
+    send({
+      event: "result",
+      result: {
+        conversation_id: conversation,
+        status: "SUCCESS",
+        response: "",
+      },
+    });
+    return;
+  }
   step({
     step_index: count * 3,
     step_type: "tool",

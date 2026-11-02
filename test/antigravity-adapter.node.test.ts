@@ -164,6 +164,33 @@ for (const mode of ["WAITING", "RUNNING", "ERROR", "INVALID", "disconnect"]) {
     }
   });
 }
+test("Antigravity reports a soft-denied tool with an empty SUCCESS as a recoverable failure, not completion", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP55_TEST_AGY_MODE = "soft-denied";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(options, (e) => events.push(e));
+  const failures = () =>
+    events.filter((e) => e.type === "status" && e.status === "failed");
+  try {
+    await adapter.start();
+    await adapter.prompt("List the projects");
+    await until(() => failures().length === 1);
+    assert.equal(complete(events).length, 0);
+    assert(failures().every((e) => e.type === "status" && e.recoverable));
+    assert(
+      !events.some((e) => e.type === "item" && e.item.kind === "assistant"),
+    );
+    assert(!JSON.stringify(events).includes("private-credential-fixture"));
+    assert(adapter.reusable);
+    // The native conversation stays open; only an explicit follow-up is sent.
+    await adapter.prompt("Explicit follow-up");
+    await until(() => failures().length === 2);
+    assert.equal(requests().filter((r) => r.event === "user").length, 2);
+  } finally {
+    await adapter.dispose();
+  }
+});
+
 test("Antigravity ignores foreign results and cancellation stops the process without another prompt", async (t) => {
   const requests = fixture(t);
   process.env.LOOP55_TEST_AGY_MODE = "foreign-result";

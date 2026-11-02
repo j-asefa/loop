@@ -35,6 +35,7 @@ export class Antigravity implements Adapter {
   private stopped = false;
   private turn = "";
   private responseId?: string;
+  private replied = false;
   private usage = new Map<
     number,
     { input_tokens: number; output_tokens: number }
@@ -179,6 +180,7 @@ export class Antigravity implements Adapter {
     beforeDispatch?.();
     this.turn = randomUUID();
     this.responseId = undefined;
+    this.replied = false;
     this.usage.clear();
     this.active = true;
     try {
@@ -240,6 +242,7 @@ export class Antigravity implements Adapter {
         typeof step.text_delta === "string"
       ) {
         this.responseId = id;
+        if (step.text_delta) this.replied = true;
         this.emit({ type: "delta", id, text: step.text_delta });
       }
       if (step.step_type === "tool") {
@@ -312,7 +315,21 @@ export class Antigravity implements Adapter {
         this.emit({ type: "usage", usage });
     }
     this.usage.clear();
-    if (result.status === "SUCCESS") {
+    if (
+      result.status === "SUCCESS" &&
+      !this.replied &&
+      !(typeof result.response === "string" && result.response)
+    ) {
+      // Headless agy soft-denies tool calls that need interactive approval,
+      // then reports SUCCESS with no answer. The conversation stays usable.
+      this.emit({
+        type: "status",
+        status: "failed",
+        recoverable: true,
+        detail:
+          "Antigravity finished without an answer. A tool may have needed permission that headless Antigravity cannot request; check agy's permission settings on the execution computer, then send an explicit follow-up. No prompt was replayed.",
+      });
+    } else if (result.status === "SUCCESS") {
       this.emit({ type: "status", status: "completed" });
     } else {
       // WAITING/RUNNING can be partial timeout output with a successful exit.
