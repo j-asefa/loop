@@ -3,10 +3,10 @@
   "body": {
     "completed": [
       {
-        "conversation_id": "c-workflow-child",
-        "title": "Thread workflow-child",
+        "conversation_id": "c-worker-child",
+        "title": "Thread worker-child",
         "agent_name": "api-agent",
-        "run_id": "r-workflow-child",
+        "run_id": "r-worker-child",
         "state": "completed",
         "updated_at": 1799646840000
       },

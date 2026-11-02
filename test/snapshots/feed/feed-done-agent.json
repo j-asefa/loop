@@ -3,9 +3,9 @@
   "body": {
     "items": [
       {
-        "conversation_id": "c-workflow-child",
-        "done_card_key": "run:r-workflow-child",
-        "title": "Prompt for r-workflow-child",
+        "conversation_id": "c-worker-child",
+        "done_card_key": "run:r-worker-child",
+        "title": "Prompt for r-worker-child",
         "agent_id": "agent-api",
         "connection_id": null,
         "agent_name": "api-agent",
@@ -16,18 +16,18 @@
         "origin": "loop55",
         "last_activity_at": 1799646840000,
         "last_message": {
-          "id": "m-workflow-child-answer",
+          "id": "m-worker-child-answer",
           "role": "assistant",
-          "preview": "Answer workflow-child",
-          "content": "Answer workflow-child",
+          "preview": "Answer worker-child",
+          "content": "Answer worker-child",
           "created_at": 1799646720000,
           "saved": false
         },
         "run": {
-          "id": "r-workflow-child",
+          "id": "r-worker-child",
           "state": "completed",
           "error": null,
-          "input": "Prompt for r-workflow-child",
+          "input": "Prompt for r-worker-child",
           "connection_id": "conn-api",
           "model": "fixture-model",
           "resolved_model": null,
@@ -45,8 +45,8 @@
         "later": null,
         "next_action": {
           "kind": "result",
-          "run_id": "r-workflow-child",
-          "message_id": "m-workflow-child-answer"
+          "run_id": "r-worker-child",
+          "message_id": "m-worker-child-answer"
         }
       },
       {

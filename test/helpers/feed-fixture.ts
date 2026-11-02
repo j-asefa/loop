@@ -482,8 +482,9 @@ function seed(db: import("better-sqlite3").Database) {
     prompt: { automation: { kind: "pull_request", fromName: "owner/repo#7" } },
   });
 
+  // The tick keeps later rows at their recorded snapshot times.
   tick();
-  finished("workflow-child", "agent-api");
+  finished("worker-child", "agent-api");
 
   // Saved: a message without a result (a prompt), alongside the pinned answer.
   sql(
