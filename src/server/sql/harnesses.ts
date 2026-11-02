@@ -51,3 +51,14 @@ export function upsert(
     updated,
   );
 }
+
+const setOptionsStatement = statement(
+  "UPDATE harnesses SET options=? WHERE name=?",
+);
+export function setOptions(
+  db: Database.Database,
+  options: string,
+  name: string,
+) {
+  return setOptionsStatement(db).run(options, name);
+}

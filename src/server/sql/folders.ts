@@ -153,3 +153,15 @@ export function parentProjectPath(
     ? undefined
     : parseRecord(parentProjectPathRow, row, "folders");
 }
+
+const rootProjectCountStatement = statement(
+  "SELECT count(*) n FROM folders WHERE owner_id=? AND kind='project' AND parent_id IS NULL",
+);
+const rootProjectCountRow = z.object({ n: z.number() });
+export function rootProjectCount(db: Database.Database, owner: string) {
+  return parseRecord(
+    rootProjectCountRow,
+    rootProjectCountStatement(db).get(owner),
+    "folders",
+  );
+}

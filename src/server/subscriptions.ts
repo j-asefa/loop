@@ -1,3 +1,4 @@
+import * as connectionsQueries from "./sql/connections.js";
 import "../../runtime/environment.mjs";
 import { SubscriptionCodeInput } from "../shared/companion-contract-schemas.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -394,11 +395,7 @@ export async function* streamConnection(c: Connection, input: ChatInput) {
       (error.status === 401 || error.status === 403)
     )
       writeConnectionStatus(c.id, () =>
-        db
-          .prepare(
-            "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
-          )
-          .run(c.id, c.owner_id),
+        connectionsQueries.subscriptionNeedsReconnect(db, c.id, c.owner_id),
       );
     if (error instanceof HarnessError) throw new Problem(422, error.message);
     if (error instanceof Problem || input.signal.aborted) throw error;
@@ -420,11 +417,9 @@ routes.on(workspaceApi.subscriptionCreate, (req, res) => {
   const owner = res.locals.owner;
   const record = db
     .transaction(() => {
-      const count = db
-        .prepare(
-          "SELECT count(*) n FROM connections WHERE owner_id=? AND json_extract(metadata,'$.authMode')='subscription'",
-        )
-        .get(owner) as { n: number };
+      const count = connectionsQueries.subscriptionCount(db, owner) as {
+        n: number;
+      };
       if (count.n >= 8)
         throw new Problem(
           409,
@@ -432,28 +427,25 @@ routes.on(workspaceApi.subscriptionCreate, (req, res) => {
         );
       const key = id();
       writeConnectionStatus(key, () =>
-        db
-          .prepare(
-            "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES(?,?,?,?,'','needs_sign_in',?,?)",
-          )
-          .run(
-            key,
-            owner,
-            d.provider === "codex" ? "codex" : "anthropic",
-            d.label,
-            JSON.stringify(
-              ConnectionMetadata.parse({
-                authMode: "subscription",
-                runtime: d.provider,
-                runtimeHostId: d.runtimeHostId,
-                runtimeKind: endpoint.kind,
-                billing: "Subscription allowance",
-                scope:
-                  "Official runtime sign-in; no API fallback. Past chats are imported separately.",
-              }),
-            ),
-            now(),
+        connectionsQueries.insertSubscription(
+          db,
+          key,
+          owner,
+          d.provider === "codex" ? "codex" : "anthropic",
+          d.label,
+          JSON.stringify(
+            ConnectionMetadata.parse({
+              authMode: "subscription",
+              runtime: d.provider,
+              runtimeHostId: d.runtimeHostId,
+              runtimeKind: endpoint.kind,
+              billing: "Subscription allowance",
+              scope:
+                "Official runtime sign-in; no API fallback. Past chats are imported separately.",
+            }),
           ),
+          now(),
+        ),
       );
       return ownedConnection(key, owner);
     })
@@ -475,11 +467,7 @@ routes.on(workspaceApi.subscriptionAction, async (req, res) => {
     return;
   }
   if (action === "login")
-    writeConnectionStatus(c.id, () =>
-      db
-        .prepare("UPDATE connections SET status='signing_in' WHERE id=?")
-        .run(c.id),
-    );
+    writeConnectionStatus(c.id, () => connectionsQueries.signingIn(db, c.id));
   let result;
   try {
     result = projectResponse(
@@ -489,11 +477,7 @@ routes.on(workspaceApi.subscriptionAction, async (req, res) => {
   } catch (error) {
     if (action === "login")
       writeConnectionStatus(c.id, () =>
-        db
-          .prepare(
-            "UPDATE connections SET status='needs_sign_in' WHERE id=? AND status='signing_in'",
-          )
-          .run(c.id),
+        connectionsQueries.resetSigningIn(db, c.id),
       );
     throw error;
   }
@@ -529,24 +513,21 @@ routes.on(workspaceApi.subscriptionAction, async (req, res) => {
       .max(300)
       .parse(result.models);
     writeConnectionStatus(c.id, () =>
-      db
-        .prepare(
-          "UPDATE connections SET models=?,status='connected',metadata=? WHERE id=? AND status<>'disconnected'",
-        )
-        .run(
-          JSON.stringify(ConnectionModels.parse(models)),
-          JSON.stringify({
-            ...c.metadata,
-            // Preserve validated historical fields in place; only this status
-            // patch is new data and must pass the strict write schema.
-            ...ConnectionMetadata.parse({
-              plan: result.plan,
-              limits: result.limits,
-              checkedAt: now(),
-            }),
+      connectionsQueries.subscriptionConnected(
+        db,
+        JSON.stringify(ConnectionModels.parse(models)),
+        JSON.stringify({
+          ...c.metadata,
+          // Preserve validated historical fields in place; only this status
+          // patch is new data and must pass the strict write schema.
+          ...ConnectionMetadata.parse({
+            plan: result.plan,
+            limits: result.limits,
+            checkedAt: now(),
           }),
-          c.id,
-        ),
+        }),
+        c.id,
+      ),
     );
   } else if (
     ("authenticated" in result && result.authenticated === false) ||
@@ -556,9 +537,7 @@ routes.on(workspaceApi.subscriptionAction, async (req, res) => {
     action === "cancel"
   ) {
     writeConnectionStatus(c.id, () =>
-      db
-        .prepare("UPDATE connections SET status='needs_sign_in' WHERE id=?")
-        .run(c.id),
+      connectionsQueries.subscriptionNeedsSignIn(db, c.id),
     );
   }
   res.json(result);

@@ -278,3 +278,46 @@ export function insertNativeImport(
 ) {
   return insertNativeImportStatement(db).run(id, owner, agent, title, created);
 }
+
+const ownedRunExistsStatement = statement(
+  "SELECT 1 FROM conversations c JOIN runs r ON r.conversation_id=c.id AND r.owner_id=c.owner_id WHERE c.owner_id=? AND c.id=? AND r.id=?",
+);
+
+const ownedRunExistsRow = z.object({ "1": z.number() });
+
+export function ownedRunExists(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+  run: string,
+) {
+  const row = ownedRunExistsStatement(db).get(owner, conversation, run);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedRunExistsRow, row, "conversations");
+}
+
+const insertExternalStatement = statement(
+  "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
+);
+
+export function insertExternal(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  agent: string,
+  title: string,
+  origin: string,
+  external: string | null,
+  created: number,
+) {
+  return insertExternalStatement(db).run(
+    id,
+    owner,
+    agent,
+    title,
+    origin,
+    external,
+    created,
+  );
+}

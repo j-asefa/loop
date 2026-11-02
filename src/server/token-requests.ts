@@ -1,3 +1,5 @@
+import { InvalidRow } from "./row-schemas.js";
+import * as tokenRequestsQueries from "./sql/token-requests.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, now } from "./db.js";
@@ -62,21 +64,27 @@ type Reserved =
   | { kind: "refused"; message: string };
 
 function reserve(request: TokenRequest, policy: TokenWritePolicy): Reserved {
-  const key = [request.owner, request.tokenId, request.identity];
+  const key = [request.owner, request.tokenId, request.identity] as const;
   const hash = createHash("sha256")
     .update(canonical(request.input))
     .digest("hex");
   // Keep the primary-key marker. Old keys must never become new requests, even
   // after the response data expires or a client retries after a long outage.
-  db.prepare(
-    `UPDATE token_requests SET operation=NULL,request_hash=NULL,response_status=NULL,locator=NULL
-    WHERE owner_id=? AND token_id=? AND state='complete' AND completed_at<? AND operation IS NOT NULL`,
-  ).run(request.owner, request.tokenId, now() - RETAIN_RESULT_MS);
-  const stored = db
-    .prepare(
-      "SELECT operation,request_hash,state,response_status,locator FROM token_requests WHERE owner_id=? AND token_id=? AND identity=?",
-    )
-    .get(...key);
+  tokenRequestsQueries.expireResults(
+    db,
+    request.owner,
+    request.tokenId,
+    now() - RETAIN_RESULT_MS,
+  );
+  const stored = (() => {
+    try {
+      return tokenRequestsQueries.receipt(db, ...key);
+    } catch (error) {
+      if (error instanceof InvalidRow)
+        throw new Problem(500, "The request receipt is unavailable.");
+      throw error;
+    }
+  })();
   if (stored) {
     const parsed = Receipt.safeParse(stored);
     if (!parsed.success)
@@ -122,10 +130,7 @@ function reserve(request: TokenRequest, policy: TokenWritePolicy): Reserved {
     };
   }
   const prepared = policy.prepare?.(request);
-  db.prepare(
-    `INSERT INTO token_requests(owner_id,token_id,identity,operation,request_hash,state,created_at)
-    VALUES(?,?,?,?,?,'pending',?)`,
-  ).run(...key, request.operation, hash, now());
+  tokenRequestsQueries.reserve(db, ...key, request.operation, hash, now());
   return { kind: "new", prepared };
 }
 
@@ -139,19 +144,15 @@ function complete(
   const locator = JSON.stringify(policy.locate(request, result.body, prepared));
   if (locator === undefined)
     throw new Error("A token write must record a result locator");
-  const changed = db
-    .prepare(
-      `UPDATE token_requests SET state='complete',response_status=?,locator=?,completed_at=?
-    WHERE owner_id=? AND token_id=? AND identity=? AND state='pending'`,
-    )
-    .run(
-      result.status,
-      locator,
-      now(),
-      request.owner,
-      request.tokenId,
-      request.identity,
-    ).changes;
+  const changed = tokenRequestsQueries.complete(
+    db,
+    result.status,
+    locator,
+    now(),
+    request.owner,
+    request.tokenId,
+    request.identity,
+  ).changes;
   if (changed !== 1)
     throw new Problem(409, "The request identity is no longer pending.");
   return result;

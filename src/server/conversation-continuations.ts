@@ -1,3 +1,5 @@
+import * as continuationRequestsQueries from "./sql/continuation-requests.js";
+import * as conversationsQueries from "./sql/conversations.js";
 import * as messagesQueries from "./sql/messages.js";
 import type { z } from "zod";
 import type { ContinueInput } from "../shared/library-contract-schemas.js";
@@ -47,11 +49,11 @@ export function continueConversation(
       // Queued prompts can be edited, so they cannot serve as request receipts.
       const previous =
         data.start &&
-        (db
-          .prepare(
-            "SELECT request,conversation_id,run_id FROM continuation_requests WHERE owner_id=? AND idempotency_key=?",
-          )
-          .get(owner, data.start.idempotencyKey) as
+        (continuationRequestsQueries.receipt(
+          db,
+          owner,
+          data.start.idempotencyKey,
+        ) as
           | { request: string; conversation_id: string; run_id: string }
           | undefined);
       if (previous && data.start) {
@@ -60,11 +62,12 @@ export function continueConversation(
             409,
             "This request key belongs to a different continuation",
           );
-        const available = db
-          .prepare(
-            "SELECT 1 FROM conversations c JOIN runs r ON r.conversation_id=c.id AND r.owner_id=c.owner_id WHERE c.owner_id=? AND c.id=? AND r.id=?",
-          )
-          .get(owner, previous.conversation_id, previous.run_id);
+        const available = conversationsQueries.ownedRunExists(
+          db,
+          owner,
+          previous.conversation_id,
+          previous.run_id,
+        );
         // Reading an accepted receipt does not reconnect, resubmit or replay work.
         // Its identity survives deletion of either thread or the original run.
         return {
@@ -101,9 +104,8 @@ export function continueConversation(
           a.created_at - b.created_at || order.get(a.id)! - order.get(b.id)!,
       );
       const conversationId = id();
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
-      ).run(
+      conversationsQueries.insertExternal(
+        db,
         conversationId,
         owner,
         agent.id,
@@ -143,9 +145,8 @@ export function continueConversation(
           })
         : undefined;
       if (run && data.start)
-        db.prepare(
-          "INSERT INTO continuation_requests(owner_id,idempotency_key,request,conversation_id,run_id,created_at) VALUES(?,?,?,?,?,?)",
-        ).run(
+        continuationRequestsQueries.insert(
+          db,
           owner,
           data.start.idempotencyKey,
           request,

@@ -1,3 +1,8 @@
+import * as eventsQueries from "./sql/events.js";
+import * as webhookSubscriptionsQueries from "./sql/webhook-subscriptions.js";
+import * as approvalsQueries from "./sql/approvals.js";
+import * as nativeDecisionsQueries from "./sql/native-decisions.js";
+import * as webhookDeliveriesQueries from "./sql/webhook-deliveries.js";
 import * as runsQueries from "./sql/runs.js";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
@@ -31,9 +36,7 @@ export function enqueueStoppedWebhooks(
 ) {
   if (!db.inTransaction)
     throw new Error("Webhook events require the transition transaction");
-  const event = db
-    .prepare("SELECT id,owner_id,run_id,type,created_at FROM events WHERE id=?")
-    .get(eventId) as
+  const event = eventsQueries.webhookEvent(db, eventId) as
     | {
         id: number;
         owner_id: string;
@@ -43,13 +46,10 @@ export function enqueueStoppedWebhooks(
       }
     | undefined;
   if (!event || !event.run_id || !reasons[event.type]) return;
-  const subscriptions = db
-    .prepare(
-      `SELECT id FROM webhook_subscriptions
-    WHERE owner_id=? AND state IN ('active','failed') AND EXISTS
-    (SELECT 1 FROM json_each(kinds) WHERE value='run.stopped')`,
-    )
-    .all(event.owner_id) as { id: string }[];
+  const subscriptions = webhookSubscriptionsQueries.stoppedSubscribers(
+    db,
+    event.owner_id,
+  ) as { id: string }[];
   if (!subscriptions.length) return;
   const run = runsQueries.webhookContext(db, event.run_id, event.owner_id) as
     | {
@@ -68,18 +68,15 @@ export function enqueueStoppedWebhooks(
     throw new Error("Webhook event does not describe the current transition");
   let needs: { kind: "approval" | "answer"; id: string } | undefined;
   if (event.type === "awaiting_approval") {
-    const approval = db
-      .prepare(
-        "SELECT id FROM approvals WHERE run_id=? AND owner_id=? AND state='pending' ORDER BY created_at,id LIMIT 1",
-      )
-      .get(run.id, event.owner_id) as { id: string } | undefined;
+    const approval = approvalsQueries.pendingWebhook(
+      db,
+      run.id,
+      event.owner_id,
+    ) as { id: string } | undefined;
     if (approval) needs = { kind: "approval", id: approval.id };
     else {
-      const decision = db
-        .prepare(
-          "SELECT id,json_extract(request,'$.kind') kind FROM native_decisions WHERE run_id=? AND state='pending' ORDER BY created_at,id LIMIT 1",
-        )
-        .get(run.id) as { id: string; kind: string | null } | undefined;
+      const decision = nativeDecisionsQueries.pendingWebhook(db, run.id) as
+        { id: string; kind: string | null } | undefined;
       if (decision)
         needs = {
           kind: decision.kind === "approval" ? "approval" : "answer",
@@ -110,10 +107,8 @@ export function enqueueStoppedWebhooks(
       result_preview: plainPreview(run.preview, 180),
       url: url.href,
     });
-    db.prepare(
-      `INSERT INTO webhook_deliveries(id,subscription_id,event_id,kind,payload,created_at,available_at)
-      VALUES(?,?,?,'run.stopped',?,?,?) ON CONFLICT(subscription_id,event_id) DO NOTHING`,
-    ).run(
+    webhookDeliveriesQueries.enqueueStopped(
+      db,
       payload.id,
       subscription.id,
       event.id,

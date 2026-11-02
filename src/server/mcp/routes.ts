@@ -1,9 +1,13 @@
+import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
+import * as grantsQueries from "../sql/grants.js";
+import * as oauthStatesQueries from "../sql/oauth-states.js";
 import * as runsQueries from "../sql/runs.js";
 import { workspaceApi } from "../../shared/workspace-api.js";
 import { McpToolCallInput } from "../../shared/mcp-contract-schemas.js";
 import { registrar, projectResponse } from "../registrar.js";
 import type { QueryRow } from "../query-records.js";
 import {
+  InvalidRow,
   McpConnectionRecord,
   parseRecord,
   runResponse,
@@ -134,23 +138,28 @@ function publicConnection(c: MCPConnection) {
     authType: readSecret(c).type,
   });
 }
-routes.on(workspaceApi.mcpList, (_req, res) =>
-  res.json(
-    db
-      .prepare(
-        "SELECT * FROM mcp_connections WHERE owner_id=? ORDER BY created_at DESC",
-      )
-      .all(res.locals.owner)
-      .map((c) => publicConnection(c as MCPConnection)),
-  ),
-);
+routes.on(workspaceApi.mcpList, (_req, res) => {
+  try {
+    res.json(
+      mcpConnectionsQueries
+        .forOwner(db, res.locals.owner)
+        .map(publicConnection),
+    );
+  } catch (error) {
+    if (error instanceof InvalidRow)
+      throw new Problem(
+        500,
+        "The workspace response is unavailable. Please try again.",
+      );
+    throw error;
+  }
+});
 routes.on(workspaceApi.mcpCreate, async (req, res) => {
   const data = req.body,
     stored = privateMcpUrl(data.url, data.auth),
     connection = id();
-  db.prepare(
-    "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,created_at) VALUES(?,?,?,?,?,'needs_auth',?)",
-  ).run(
+  mcpConnectionsQueries.insert(
+    db,
     connection,
     res.locals.owner,
     data.name,
@@ -175,7 +184,8 @@ routes.on(workspaceApi.mcpTest, async (req, res) => {
     await discover(c);
     res.json(publicConnection(ownedMcpConnection(c.id, c.owner_id)));
   } catch (e) {
-    db.prepare("UPDATE mcp_connections SET status=? WHERE id=?").run(
+    mcpConnectionsQueries.setStatus(
+      db,
       e instanceof ToolBudgetError ? "disabled" : "needs_auth",
       c.id,
     );
@@ -192,17 +202,18 @@ routes.on(workspaceApi.mcpUpdate, async (req, res) => {
       : ownedMcpConnection(String(req.params.id), res.locals.owner);
   if (data.action === "disconnect") {
     db.transaction(() => {
-      db.prepare(
-        "UPDATE mcp_connections SET status='disconnected',secret=? WHERE id=?",
-      ).run(seal(JSON.stringify({ type: "none" }), c.owner_id), c.id);
-      db.prepare("DELETE FROM grants WHERE connection_id=?").run(c.id);
-      db.prepare("DELETE FROM oauth_states WHERE connection_id=?").run(c.id);
+      mcpConnectionsQueries.disconnect(
+        db,
+        seal(JSON.stringify({ type: "none" }), c.owner_id),
+        c.id,
+      );
+      grantsQueries.removeConnection(db, c.id);
+      oauthStatesQueries.removeConnection(db, c.id);
     }).immediate();
   } else if (data.action === "credentials") {
     if (!data.auth) throw new Problem(400, "Provide new credentials");
-    db.prepare(
-      "UPDATE mcp_connections SET secret=?,status='needs_auth' WHERE id=?",
-    ).run(
+    mcpConnectionsQueries.credentialsNeedAuth(
+      db,
       seal(
         JSON.stringify({ ...data.auth, query: readSecret(c).query }),
         c.owner_id,
@@ -213,10 +224,7 @@ routes.on(workspaceApi.mcpUpdate, async (req, res) => {
     if (c.status !== "disabled")
       throw new Problem(409, "Reconnect this account first");
     await discover(c);
-  } else
-    db.prepare("UPDATE mcp_connections SET status='disabled' WHERE id=?").run(
-      c.id,
-    );
+  } else mcpConnectionsQueries.disable(db, c.id);
   res.json(publicConnection(ownedMcpConnection(c.id, c.owner_id)));
 });
 routes.on(workspaceApi.mcpOauthCallback, async (req, res) => {
@@ -224,18 +232,18 @@ routes.on(workspaceApi.mcpOauthCallback, async (req, res) => {
     code = String(req.query.code || "");
   const saved = db
     .transaction(() => {
-      const row = db
-        .prepare(
-          "SELECT * FROM oauth_states WHERE state=? AND owner_id=? AND expires_at>?",
-        )
-        .get(state, res.locals.owner, now()) as
-        QueryRow<"oauth_states"> | undefined;
+      const row = oauthStatesQueries.active(
+        db,
+        state,
+        res.locals.owner,
+        now(),
+      ) as QueryRow<"oauth_states"> | undefined;
       if (!row)
         throw new Problem(
           403,
           "OAuth state expired or belongs to another session",
         );
-      db.prepare("DELETE FROM oauth_states WHERE state=?").run(state);
+      oauthStatesQueries.remove(db, state);
       return row;
     })
     .immediate();

@@ -1,3 +1,5 @@
+import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
+import * as oauthStatesQueries from "../sql/oauth-states.js";
 import { createHash } from "node:crypto";
 import { db, id, now } from "../db.js";
 import { ownedMcpConnection, Problem } from "../domain.js";
@@ -64,21 +66,19 @@ async function install(
   // One catalog installation per workspace, independent of the requesting agent.
   const c = db
     .transaction(() => {
-      let existing = db
-        .prepare(
-          "SELECT * FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.catalogId')=? ORDER BY created_at LIMIT 1",
-        )
-        .get(owner, entry.id) as MCPConnection | undefined;
+      let existing = mcpConnectionsQueries.byCatalog(db, owner, entry.id) as
+        MCPConnection | undefined;
       // Reuse a manually configured hosted connection, including earlier Datadog installs.
       if (!existing && entry.serverUrl)
-        existing = db
-          .prepare(
-            "SELECT * FROM mcp_connections WHERE owner_id=? AND rtrim(url,'/')=rtrim(?,'/') AND json_extract(metadata,'$.catalogId') IS NULL ORDER BY CASE status WHEN 'connected' THEN 0 ELSE 1 END, created_at LIMIT 1",
-          )
-          .get(owner, entry.serverUrl) as MCPConnection | undefined;
+        existing = mcpConnectionsQueries.uncataloguedUrl(
+          db,
+          owner,
+          entry.serverUrl,
+        ) as MCPConnection | undefined;
       const metadata = existing ? JSON.parse(existing.metadata) : {};
       if (existing?.status === "connected" && !Object.keys(values).length) {
-        db.prepare("UPDATE mcp_connections SET metadata=? WHERE id=?").run(
+        mcpConnectionsQueries.setMetadata(
+          db,
           JSON.stringify({ ...metadata, catalogId: entry.id }),
           existing.id,
         );
@@ -103,13 +103,15 @@ async function install(
         runtimeHostId: entry.transport === "stdio" ? host : undefined,
       });
       if (existing)
-        db.prepare(
-          "UPDATE mcp_connections SET secret=?,status='needs_auth',metadata=? WHERE id=?",
-        ).run(seal(JSON.stringify(secret), owner), meta, connection);
+        mcpConnectionsQueries.catalogNeedsAuth(
+          db,
+          seal(JSON.stringify(secret), owner),
+          meta,
+          connection,
+        );
       else
-        db.prepare(
-          "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,?,?,?,?,'needs_auth',?,?)",
-        ).run(
+        mcpConnectionsQueries.insertWithMetadata(
+          db,
           connection,
           owner,
           entry.name,
@@ -118,10 +120,7 @@ async function install(
           meta,
           now(),
         );
-      if (!reuse)
-        db.prepare("DELETE FROM oauth_states WHERE connection_id=?").run(
-          connection,
-        );
+      if (!reuse) oauthStatesQueries.removeConnection(db, connection);
       return ownedMcpConnection(connection, owner);
     })
     .immediate();
@@ -147,10 +146,7 @@ async function install(
     };
   } catch (error) {
     const status = error instanceof ToolBudgetError ? "disabled" : "needs_auth";
-    db.prepare("UPDATE mcp_connections SET status=? WHERE id=?").run(
-      status,
-      c.id,
-    );
+    mcpConnectionsQueries.setStatus(db, status, c.id);
     // Upstream errors can contain keys, query strings or environment variables.
     return {
       id: c.id,

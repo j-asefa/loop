@@ -328,3 +328,20 @@ export function setState(
 ) {
   return setStateStatement(db).run(state, updated, conversation);
 }
+
+const publicSessionStatement = statement(
+  "SELECT harness,project,model,state,updated_at FROM companion_sessions WHERE conversation_id=?",
+);
+const publicSessionRow = QueryRecords.companion_sessions.pick({
+  harness: true,
+  project: true,
+  model: true,
+  state: true,
+  updated_at: true,
+});
+export function publicSession(db: Database.Database, conversation: string) {
+  const row = publicSessionStatement(db).get(conversation);
+  return row === undefined
+    ? undefined
+    : parseRecord(publicSessionRow, row, "companion_sessions");
+}

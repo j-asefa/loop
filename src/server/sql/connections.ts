@@ -370,3 +370,103 @@ export function setResolvedNativeModel(
 ) {
   return setResolvedNativeModelStatement(db).run(model, id, owner);
 }
+
+const subscriptionNeedsReconnectStatement = statement(
+  "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
+);
+
+export function subscriptionNeedsReconnect(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  return subscriptionNeedsReconnectStatement(db).run(id, owner);
+}
+
+const subscriptionCountStatement = statement(
+  "SELECT count(*) n FROM connections WHERE owner_id=? AND json_extract(metadata,'$.authMode')='subscription'",
+);
+
+const subscriptionCountRow = z.object({ n: z.number() });
+
+export function subscriptionCount(db: Database.Database, owner: string) {
+  const row = subscriptionCountStatement(db).get(owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(subscriptionCountRow, row, "connections");
+}
+
+const insertSubscriptionStatement = statement(
+  "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES(?,?,?,?,'','needs_sign_in',?,?)",
+);
+
+export function insertSubscription(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  provider: string,
+  label: string,
+  metadata: string,
+  created: number,
+) {
+  return insertSubscriptionStatement(db).run(
+    id,
+    owner,
+    provider,
+    label,
+    metadata,
+    created,
+  );
+}
+
+const signingInStatement = statement(
+  "UPDATE connections SET status='signing_in' WHERE id=?",
+);
+
+export function signingIn(db: Database.Database, id: string) {
+  return signingInStatement(db).run(id);
+}
+
+const resetSigningInStatement = statement(
+  "UPDATE connections SET status='needs_sign_in' WHERE id=? AND status='signing_in'",
+);
+
+export function resetSigningIn(db: Database.Database, id: string) {
+  return resetSigningInStatement(db).run(id);
+}
+
+const subscriptionConnectedStatement = statement(
+  "UPDATE connections SET models=?,status='connected',metadata=? WHERE id=? AND status<>'disconnected'",
+);
+
+export function subscriptionConnected(
+  db: Database.Database,
+  models: string,
+  metadata: string,
+  id: string,
+) {
+  return subscriptionConnectedStatement(db).run(models, metadata, id);
+}
+
+const subscriptionNeedsSignInStatement = statement(
+  "UPDATE connections SET status='needs_sign_in' WHERE id=?",
+);
+
+export function subscriptionNeedsSignIn(db: Database.Database, id: string) {
+  return subscriptionNeedsSignInStatement(db).run(id);
+}
+
+const connectedExistsStatement = statement(
+  "SELECT 1 FROM connections WHERE id=? AND owner_id=? AND status='connected'",
+);
+const connectedExistsRow = z.object({ "1": z.number() });
+export function connectedExists(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = connectedExistsStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(connectedExistsRow, row, "connections");
+}

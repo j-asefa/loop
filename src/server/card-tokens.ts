@@ -1,3 +1,9 @@
+import { InvalidRow } from "./row-schemas.js";
+import * as cardTokensQueries from "./sql/card-tokens.js";
+import * as cardTokenIdsQueries from "./sql/card-token-ids.js";
+import * as cardTokenReadsQueries from "./sql/card-token-reads.js";
+import * as installationQueries from "./sql/installation.js";
+import * as cardOwnerLimitsQueries from "./sql/card-owner-limits.js";
 import { createHash } from "node:crypto";
 import type { CardChanges, CardPage } from "../shared/cards.js";
 import type { IncomingMessage } from "node:http";
@@ -50,15 +56,10 @@ function publicToken(row: TokenRow): CardToken {
   return { ...fields, scopes: scopes.data };
 }
 
-const columns = "id,name,scope,created_at,revoked_at,last_used_at";
 const digest = (secret: string) =>
   createHash("sha256").update(secret).digest("hex");
 export function listCardTokens(owner: string): CardToken[] {
-  const rows = db
-    .prepare(
-      `SELECT ${columns} FROM card_tokens WHERE owner_id=? ORDER BY created_at DESC,id DESC`,
-    )
-    .all(owner) as TokenRow[];
+  const rows = cardTokensQueries.publicList(db, owner) as TokenRow[];
   return rows.map(publicToken);
 }
 export function createCardToken(owner: string, input: unknown) {
@@ -68,9 +69,7 @@ export function createCardToken(owner: string, input: unknown) {
   const stored = JSON.stringify(admission);
   return db
     .transaction(() => {
-      const existing = db
-        .prepare("SELECT * FROM card_tokens WHERE id=?")
-        .get(options.request_id) as
+      const existing = cardTokensQueries.byId(db, options.request_id) as
         (TokenRow & { owner_id: string; digest: string }) | undefined;
       if (existing) {
         if (
@@ -84,43 +83,32 @@ export function createCardToken(owner: string, input: unknown) {
             409,
             "This token creation is already settled; use a new creation request",
           );
-        const token = db
-          .prepare(`SELECT ${columns} FROM card_tokens WHERE id=?`)
-          .get(existing.id) as TokenRow;
+        const token = cardTokensQueries.publicById(db, existing.id) as TokenRow;
         return { token: publicToken(token), secret: options.secret };
       }
-      if (
-        db
-          .prepare("SELECT 1 FROM card_token_ids WHERE id=?")
-          .get(options.request_id)
-      )
+      if (cardTokenIdsQueries.exists(db, options.request_id))
         throw new Problem(
           409,
           "This token creation is already settled; use a new creation request",
         );
       if (
-        db
-          .prepare(
-            "SELECT 1 FROM card_token_ids WHERE digest=? UNION ALL SELECT 1 FROM card_tokens WHERE digest=? LIMIT 1",
-          )
-          .get(digest(options.secret), digest(options.secret))
+        cardTokenIdsQueries.digestExists(
+          db,
+          digest(options.secret),
+          digest(options.secret),
+        )
       )
         throw new Problem(409, "Use a new secret for a new token creation");
-      const { n } = db
-        .prepare(
-          "SELECT count(*) n FROM card_tokens WHERE owner_id=? AND revoked_at IS NULL",
-        )
-        .get(owner) as { n: number };
+      const { n } = cardTokensQueries.activeCount(db, owner) as { n: number };
       if (n >= 50)
         throw new Problem(
           409,
           "Revoke an existing token before creating another (50 active tokens maximum)",
         );
       // Retain a bounded recent revocation history. Active credentials are never pruned.
-      db.prepare(
-        "DELETE FROM card_tokens WHERE owner_id=? AND revoked_at IS NOT NULL AND id NOT IN (SELECT id FROM card_tokens WHERE owner_id=? AND revoked_at IS NOT NULL ORDER BY revoked_at DESC,id DESC LIMIT 50)",
-      ).run(owner, owner);
-      db.prepare("INSERT INTO card_token_ids VALUES(?,?,?)").run(
+      cardTokensQueries.pruneRevoked(db, owner, owner);
+      cardTokenIdsQueries.insert(
+        db,
         options.request_id,
         owner,
         digest(options.secret),
@@ -134,9 +122,8 @@ export function createCardToken(owner: string, input: unknown) {
         revoked_at: null,
         last_used_at: null,
       };
-      db.prepare(
-        "INSERT INTO card_tokens(id,owner_id,name,digest,scope,created_at) VALUES(?,?,?,?,?,?)",
-      ).run(
+      cardTokensQueries.insert(
+        db,
         token.id,
         owner,
         token.name,
@@ -150,26 +137,25 @@ export function createCardToken(owner: string, input: unknown) {
 }
 export function revokeCardToken(owner: string, tokenId: string) {
   db.transaction(() => {
-    const changed = db
-      .prepare(
-        "UPDATE card_tokens SET revoked_at=coalesce(revoked_at,?) WHERE id=? AND owner_id=?",
-      )
-      .run(Date.now(), tokenId, owner);
+    const changed = cardTokensQueries.revoke(db, Date.now(), tokenId, owner);
     if (!changed.changes) throw new Problem(404, "Token not found");
-    db.prepare(
-      "DELETE FROM card_token_reads WHERE token_id=? AND owner_id=?",
-    ).run(tokenId, owner);
+    cardTokenReadsQueries.remove(db, tokenId, owner);
   }).immediate();
 }
 
 /** Token-side read bookkeeping, never product state. Unknown/ineligible IDs
  * must not escape via tombstones. Replacing a credential requires a backfill. */
 export function recordCardRead(owner: string, tokenId: string, ids: string[]) {
-  const insert = db.prepare(
-    "INSERT OR IGNORE INTO card_token_reads(token_id,owner_id,card_id) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM card_tokens WHERE id=? AND owner_id=? AND revoked_at IS NULL)",
-  );
   db.transaction(() => {
-    for (const id of ids) insert.run(tokenId, owner, id, tokenId, owner);
+    for (const id of ids)
+      cardTokenReadsQueries.insertActive(
+        db,
+        tokenId,
+        owner,
+        id,
+        tokenId,
+        owner,
+      );
   }).immediate();
 }
 
@@ -188,11 +174,13 @@ export function tokenResultPage<
   return db
     .transaction(() => {
       if (page.removed) {
-        const known = db.prepare(
-          "SELECT 1 FROM card_token_reads WHERE token_id=? AND owner_id=? AND card_id=?",
-        );
         page.removed = page.removed.filter((value) =>
-          known.get(tokenId, owner, removedPrefix + value),
+          cardTokenReadsQueries.known(
+            db,
+            tokenId,
+            owner,
+            removedPrefix + value,
+          ),
         );
       }
       if (disclose)
@@ -217,11 +205,12 @@ export function tokenCardPage<T extends CardChanges | CardPage>(
       if ("removed" in page && page.removed.length) {
         const known = new Set(
           (
-            db
-              .prepare(
-                "SELECT card_id FROM card_token_reads WHERE token_id=? AND owner_id=? AND card_id IN (SELECT value FROM json_each(?))",
-              )
-              .all(tokenId, owner, JSON.stringify(page.removed)) as {
+            cardTokenReadsQueries.knownPage(
+              db,
+              tokenId,
+              owner,
+              JSON.stringify(page.removed),
+            ) as {
               card_id: string;
             }[]
           ).map((row) => row.card_id),
@@ -249,16 +238,14 @@ export function activeIntegrationToken(
   tokenId: string,
   scope: TokenAdmission,
 ) {
-  const token = db
-    .prepare(
-      "SELECT scope FROM card_tokens WHERE id=? AND owner_id=? AND revoked_at IS NULL",
-    )
-    .get(tokenId, owner) as { scope: string } | undefined;
+  const token = credentialRow(() =>
+    cardTokensQueries.activeScope(db, tokenId, owner),
+  ) as { scope: string } | undefined;
   const installedOwner = companionMode
     ? OWNER
     : config.authMode === "single-user"
       ? (
-          db.prepare("SELECT owner_id FROM installation WHERE id=1").get() as
+          credentialRow(() => installationQueries.owner(db)) as
             { owner_id: string } | undefined
         )?.owner_id
       : owner;
@@ -279,11 +266,9 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
   // Last-use throttling must never become a revocation cache.
   return db
     .transaction(() => {
-      const token = db
-        .prepare(
-          "SELECT id,owner_id,scope,revoked_at FROM card_tokens WHERE digest=?",
-        )
-        .get(digest(match[1])) as
+      const token = credentialRow(() =>
+        cardTokensQueries.byDigest(db, digest(match[1])),
+      ) as
         | {
             id: string;
             owner_id: string;
@@ -295,9 +280,8 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
         ? OWNER
         : config.authMode === "single-user"
           ? (
-              db
-                .prepare("SELECT owner_id FROM installation WHERE id=1")
-                .get() as { owner_id: string } | undefined
+              credentialRow(() => installationQueries.owner(db)) as
+                { owner_id: string } | undefined
             )?.owner_id
           : token?.owner_id;
       const admission = token && storedAdmission(token.scope);
@@ -310,24 +294,21 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
         throw new Problem(401, "Invalid integration credential");
       const now = Date.now(),
         window = Math.floor(now / 60000);
-      const perToken = db
-        .prepare(
-          "UPDATE card_tokens SET request_window=?,request_count=CASE WHEN request_window=? THEN request_count+1 ELSE 1 END WHERE id=? RETURNING request_count n",
-        )
-        .get(window, window, token.id) as { n: number };
-      const perOwner = db
-        .prepare(
-          "INSERT INTO card_owner_limits VALUES(?,?,1) ON CONFLICT(owner_id) DO UPDATE SET window=excluded.window,count=CASE WHEN card_owner_limits.window=excluded.window THEN card_owner_limits.count+1 ELSE 1 END RETURNING count n",
-        )
-        .get(owner, window) as { n: number };
+      const perToken = cardTokensQueries.charge(
+        db,
+        window,
+        window,
+        token.id,
+      ) as { n: number };
+      const perOwner = cardOwnerLimitsQueries.charge(db, owner, window) as {
+        n: number;
+      };
       if (perToken.n > 120 || perOwner.n > 600)
         throw new Problem(
           429,
           "Too many integration requests. Try again in a minute.",
         );
-      db.prepare(
-        "UPDATE card_tokens SET last_used_at=? WHERE id=? AND (last_used_at IS NULL OR last_used_at<=?)",
-      ).run(now, token.id, now - 60000);
+      cardTokensQueries.touch(db, now, token.id, now - 60000);
       return {
         owner: token.owner_id,
         admission,
@@ -335,4 +316,13 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
       };
     })
     .immediate();
+}
+
+function credentialRow<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof InvalidRow) return undefined;
+    throw error;
+  }
 }

@@ -1,3 +1,8 @@
+import * as projectPathsQueries from "./sql/project-paths.js";
+import * as workspaceProjectsQueries from "./sql/workspace-projects.js";
+import * as nativeDecisionsQueries from "./sql/native-decisions.js";
+import * as companionSessionsQueries from "./sql/companion-sessions.js";
+import * as nativeItemsQueries from "./sql/native-items.js";
 import { nativeAnswerTokenWrite } from "./token-write-policies.js";
 import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -106,7 +111,7 @@ routes.on(workspaceApi.workspace, async (_req, res) =>
     concurrency: MAX_CONCURRENT_RUNS,
     hostLifetime: "foreground",
     tunnelOrigin: config.url,
-    projectPaths: db.prepare("SELECT * FROM project_paths").all() as z.input<
+    projectPaths: projectPathsQueries.all(db) as z.input<
       typeof workspaceApi.workspace.response
     >["projectPaths"],
   }),
@@ -173,28 +178,16 @@ routes.on(workspaceApi.workspaceProjectCreate, (req, res) => {
 });
 routes.on(workspaceApi.workspaceProjectUpdate, (req, res) => {
   ownedFolder(String(req.params.id), OWNER);
-  if (
-    db
-      .prepare(
-        "SELECT 1 FROM workspace_projects WHERE owner_id=? AND project_id=?",
-      )
-      .get(OWNER, req.params.id)
-  )
+  if (workspaceProjectsQueries.exists(db, OWNER, req.params.id))
     throw new Problem(400, "Choose a named project for a local directory.");
   const { path } = req.body;
   const real = nativeSessions.directory(path);
-  if (
-    db
-      .prepare("SELECT 1 FROM project_paths WHERE path=? AND folder_id<>?")
-      .get(real, req.params.id)
-  )
+  if (projectPathsQueries.usedElsewhere(db, real, req.params.id))
     throw new Problem(
       409,
       "That directory already belongs to another project.",
     );
-  db.prepare(
-    "INSERT INTO project_paths VALUES(?,?) ON CONFLICT(folder_id) DO UPDATE SET path=excluded.path",
-  ).run(req.params.id, real);
+  projectPathsQueries.upsert(db, req.params.id, real);
   res.json({
     ok: true,
     path: real,
@@ -205,13 +198,12 @@ routes.on(workspaceApi.nativeDecisions, (req, res) => {
   const { conversation } = req.query;
   if (conversation) ownedConversation(conversation, OWNER);
   res.json(
-    db
-      .prepare(
-        "SELECT d.*,a.name,a.provider,r.input FROM native_decisions d JOIN runs r ON r.id=d.run_id LEFT JOIN agents a ON a.id=r.agent_id WHERE d.state IN ('pending','deciding','unknown') AND r.owner_id=? AND (? IS NULL OR d.conversation_id=?) ORDER BY d.created_at",
-      )
-      .all(OWNER, conversation || null, conversation || null) as z.input<
-      typeof workspaceApi.nativeDecisions.response
-    >,
+    nativeDecisionsQueries.visibleForOwner(
+      db,
+      OWNER,
+      conversation || null,
+      conversation || null,
+    ) as z.input<typeof workspaceApi.nativeDecisions.response>,
   );
 });
 routes.on(
@@ -255,18 +247,13 @@ routes.on(workspaceApi.setting, async (req, res) => {
 });
 routes.on(workspaceApi.conversationNative, (req, res) => {
   ownedConversation(req.params.id, OWNER);
-  const binding = db
-    .prepare(
-      "SELECT harness,project,model,state,updated_at FROM companion_sessions WHERE conversation_id=?",
-    )
-    .get(req.params.id) as z.input<
-    typeof workspaceApi.conversationNative.response
-  >["binding"];
-  const items = db
-    .prepare(
-      "SELECT item FROM native_items WHERE conversation_id=? ORDER BY updated_at,native_id LIMIT 500",
-    )
-    .all(req.params.id) as { item: string }[];
+  const binding = companionSessionsQueries.publicSession(
+    db,
+    req.params.id,
+  ) as z.input<typeof workspaceApi.conversationNative.response>["binding"];
+  const items = nativeItemsQueries.sessionItems(db, req.params.id) as {
+    item: string;
+  }[];
   res.json({
     binding,
     memoryIncluded: memoryEnabled(

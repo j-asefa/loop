@@ -150,3 +150,21 @@ const returnPendingStatement = statement(
 export function returnPending(db: Database.Database, id: string) {
   return returnPendingStatement(db).run(id);
 }
+
+const ownedRunExistsStatement = statement(
+  "SELECT 1 FROM run_steering WHERE id=? AND owner_id=? AND run_id=?",
+);
+
+const ownedRunExistsRow = z.object({ "1": z.number() });
+
+export function ownedRunExists(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  run: string,
+) {
+  const row = ownedRunExistsStatement(db).get(id, owner, run);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedRunExistsRow, row, "run_steering");
+}

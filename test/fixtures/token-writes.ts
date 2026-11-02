@@ -1,3 +1,4 @@
+import { failNextTokenCompletion } from "../helpers/token-completion-hook.js";
 import express from "express";
 import Database from "better-sqlite3";
 import { db, id, now } from "../../src/server/db.js";
@@ -24,17 +25,7 @@ export function loseTokenResponse() {
 }
 
 export function failTokenCompletion() {
-  const prepare = db.prepare.bind(db);
-  db.prepare = ((sql: string) => {
-    const statement = prepare(sql);
-    if (sql.includes("UPDATE token_requests SET state='complete'")) {
-      statement.run = () => {
-        db.prepare = prepare;
-        throw new Error("Fixture crash before receipt completion");
-      };
-    }
-    return statement;
-  }) as typeof db.prepare;
+  failNextTokenCompletion();
 }
 
 export function nativeTokenDecision(fail: boolean) {

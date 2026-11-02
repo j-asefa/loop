@@ -1,3 +1,4 @@
+import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, id, now } from "../db.js";
@@ -86,11 +87,11 @@ export async function installConfig(
     const fingerprint = createHash("sha256")
       .update(JSON.stringify([name, entry, runtimeHostId || ""]))
       .digest("hex");
-    let c = db
-      .prepare(
-        "SELECT * FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.installFingerprint')=? AND status<>'disconnected'",
-      )
-      .get(owner, fingerprint) as MCPConnection | undefined;
+    let c = mcpConnectionsQueries.byInstallFingerprint(
+      db,
+      owner,
+      fingerprint,
+    ) as MCPConnection | undefined;
     if (!c) {
       const connection = id(),
         stdio = "command" in entry;
@@ -106,9 +107,8 @@ export async function installConfig(
                 ? { type: "headers", headers: entry.headers }
                 : { type: "none" },
             );
-      db.prepare(
-        "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,?,?,?,?,'needs_auth',?,?)",
-      ).run(
+      mcpConnectionsQueries.insertWithMetadata(
+        db,
         connection,
         owner,
         name,

@@ -1,0 +1,31 @@
+import type Database from "better-sqlite3";
+import { z } from "zod";
+import { QueryRecords } from "../query-records.js";
+import { parseRecord } from "../row-schemas.js";
+import { statement } from "./statement.js";
+
+const insertOwnedStatement = statement(
+  "INSERT OR IGNORE INTO conversation_pull_links\n    (owner_id,conversation_id,repo_owner,repo_name,number,created_at)\n    SELECT ?,?,?,?,?,? WHERE EXISTS (\n      SELECT 1 FROM conversations WHERE id=? AND owner_id=?)",
+);
+export function insertOwned(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+  repoOwner: string,
+  repo: string,
+  number: number,
+  created: number,
+  expectedConversation: string,
+  expectedOwner: string,
+) {
+  return insertOwnedStatement(db).run(
+    owner,
+    conversation,
+    repoOwner,
+    repo,
+    number,
+    created,
+    expectedConversation,
+    expectedOwner,
+  );
+}

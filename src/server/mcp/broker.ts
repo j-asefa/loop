@@ -1,3 +1,6 @@
+import * as toolInvocationsQueries from "../sql/tool-invocations.js";
+import * as approvalsQueries from "../sql/approvals.js";
+import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
 import { QueryRecords, type QueryRow } from "../query-records.js";
 
 import { watchRun } from "../run-signal.js";
@@ -163,9 +166,8 @@ export async function invokeTool(
     binding.tool,
     args,
   );
-  let invocation = db
-    .prepare("SELECT * FROM tool_invocations WHERE run_id=? AND call_id=?")
-    .get(run.id, callId) as QueryRow<"tool_invocations"> | undefined;
+  let invocation = toolInvocationsQueries.byCall(db, run.id, callId) as
+    QueryRow<"tool_invocations"> | undefined;
   if (
     invocation &&
     (invocation.connection_id !== connection.id ||
@@ -214,9 +216,8 @@ export async function invokeTool(
           automaticallyAllowed,
         );
         const invocationId = id();
-        db.prepare(
-          "INSERT INTO tool_invocations(id,owner_id,run_id,connection_id,agent_id,call_id,tool,args,state,approval_id,created_at) VALUES(?,?,?,?,?,?,?,?,'pending',?,?)",
-        ).run(
+        toolInvocationsQueries.insertPending(
+          db,
           invocationId,
           run.owner_id,
           run.id,
@@ -229,9 +230,7 @@ export async function invokeTool(
           now(),
         );
         invocation = QueryRecords.tool_invocations.parse(
-          db
-            .prepare("SELECT * FROM tool_invocations WHERE id=?")
-            .get(invocationId),
+          toolInvocationsQueries.byId(db, invocationId),
         );
       }
       if (
@@ -239,11 +238,11 @@ export async function invokeTool(
         automaticallyAllowed &&
         approval.expires_at > now()
       ) {
-        const approved = db
-          .prepare(
-            "UPDATE approvals SET state='approved' WHERE id=? AND state='pending' AND expires_at>?",
-          )
-          .run(approval.id, now());
+        const approved = approvalsQueries.approveUnexpired(
+          db,
+          approval.id,
+          now(),
+        );
         approval = ownedApproval(approval.id, run.owner_id);
         if (approved.changes) {
           emit(run.owner_id, run.id, "approval.auto_approved", {
@@ -270,16 +269,10 @@ export async function invokeTool(
         args,
       );
       db.transaction(() => {
-        const row = db
-          .prepare(
-            "UPDATE tool_invocations SET state='executing' WHERE id=? AND state='pending'",
-          )
-          .run(invocation!.id);
+        const row = toolInvocationsQueries.startPending(db, invocation!.id);
         if (!row.changes)
           throw new Problem(409, "Tool execution already started");
-        db.prepare(
-          "UPDATE approvals SET state='executing' WHERE id=? AND state='approved'",
-        ).run(approval.id);
+        approvalsQueries.startApproved(db, approval.id);
       }).immediate();
       return approval;
     })
@@ -349,11 +342,8 @@ export async function invokeTool(
           folder: run.payload.folderId,
           metadata: {
             messageId: (
-              db
-                .prepare(
-                  "SELECT message_id FROM agent_checkpoints WHERE run_id=?",
-                )
-                .get(run.id) as QueryRow<"agent_checkpoints"> | undefined
+              agentCheckpointsQueries.message(db, run.id) as
+                QueryRow<"agent_checkpoints"> | undefined
             )?.message_id,
             connectionId: connection.id,
             tool: binding.tool,
@@ -365,17 +355,18 @@ export async function invokeTool(
             fixture: metadata.fixture === true,
           },
         });
-        db.prepare(
-          "UPDATE tool_invocations SET state=?,result=?,artifact_id=? WHERE id=?",
-        ).run(
+        toolInvocationsQueries.complete(
+          db,
           toolFailed ? "failed" : "completed",
           JSON.stringify(result),
           artifactId,
           invocationId,
         );
-        db.prepare(
-          "UPDATE approvals SET state='completed',result=? WHERE id=?",
-        ).run(JSON.stringify({ artifactId, isError: toolFailed }), approval.id);
+        approvalsQueries.completeResult(
+          db,
+          JSON.stringify({ artifactId, isError: toolFailed }),
+          approval.id,
+        );
         return artifactId;
       })
       .immediate();
@@ -450,9 +441,8 @@ export async function invokeTool(
       content: message,
       metadata: { state: "failed", isError: true, failure },
     });
-    db.prepare(
-      "UPDATE tool_invocations SET state='unknown',result=? WHERE id=? AND state='executing'",
-    ).run(
+    toolInvocationsQueries.unknownExecuting(
+      db,
       JSON.stringify({
         isError: true,
         content: [{ type: "text", text: message }],
@@ -460,9 +450,11 @@ export async function invokeTool(
       }),
       invocationId,
     );
-    db.prepare(
-      "UPDATE approvals SET state='unknown',result=? WHERE id=? AND state='executing'",
-    ).run(JSON.stringify({ error: message, failure }), approval.id);
+    approvalsQueries.unknownExecuting(
+      db,
+      JSON.stringify({ error: message, failure }),
+      approval.id,
+    );
     throw new Problem(
       error instanceof Problem ? error.status : 422,
       message,

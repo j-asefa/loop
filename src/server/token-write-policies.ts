@@ -1,3 +1,6 @@
+import * as runSteeringQueries from "./sql/run-steering.js";
+import * as approvalsQueries from "./sql/approvals.js";
+import * as nativeDecisionsQueries from "./sql/native-decisions.js";
 import * as runsQueries from "./sql/runs.js";
 import { z } from "zod";
 import { PublicRun } from "../shared/workspace-api.js";
@@ -53,11 +56,7 @@ function projectRun(owner: string, value: unknown) {
   runExists(owner, saved.run);
   if (
     saved.steering &&
-    !db
-      .prepare(
-        "SELECT 1 FROM run_steering WHERE id=? AND owner_id=? AND run_id=?",
-      )
-      .get(saved.steering, owner, saved.run)
+    !runSteeringQueries.ownedRunExists(db, saved.steering, owner, saved.run)
   )
     throw unavailable();
   return {
@@ -139,11 +138,13 @@ export const approvalTokenWrite = tokenWrite({
   project: (owner, value) => {
     const saved = locator(ApprovalLocator, value);
     if (
-      !db
-        .prepare(
-          "SELECT 1 FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=? AND a.run_id=? AND a.digest=?",
-        )
-        .get(saved.approval, owner, saved.run, saved.digest)
+      !approvalsQueries.ownedRunDigestExists(
+        db,
+        saved.approval,
+        owner,
+        saved.run,
+        saved.digest,
+      )
     )
       throw unavailable();
     return { ok: true };
@@ -153,24 +154,25 @@ export const nativeAnswerTokenWrite = tokenWrite({
   mode: "external",
   prepare: (request) => {
     const decision = Target.parse(request.input.params).id;
-    const row = db
-      .prepare(
-        "SELECT d.generation FROM native_decisions d JOIN runs r ON r.id=d.run_id JOIN conversations c ON c.id=d.conversation_id WHERE d.id=? AND r.owner_id=? AND c.owner_id=?",
-      )
-      .get(decision, request.owner, request.owner) as
-      { generation: string } | undefined;
+    const row = nativeDecisionsQueries.ownedGeneration(
+      db,
+      decision,
+      request.owner,
+      request.owner,
+    ) as { generation: string } | undefined;
     if (!row) throw new Problem(404, "Native decision not found.");
     return { decision, generation: row.generation };
   },
   locate: (_request, _response, prepared) => prepared,
   project: (owner, value) => {
     const saved = locator(DecisionLocator, value);
-    const row = db
-      .prepare(
-        "SELECT d.state FROM native_decisions d JOIN runs r ON r.id=d.run_id JOIN conversations c ON c.id=d.conversation_id WHERE d.id=? AND d.generation=? AND r.owner_id=? AND c.owner_id=?",
-      )
-      .get(saved.decision, saved.generation, owner, owner) as
-      { state: string } | undefined;
+    const row = nativeDecisionsQueries.ownedGenerationState(
+      db,
+      saved.decision,
+      saved.generation,
+      owner,
+      owner,
+    ) as { state: string } | undefined;
     if (!row) throw unavailable();
     return { state: row.state };
   },

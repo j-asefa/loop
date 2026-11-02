@@ -82,3 +82,13 @@ export function upsertRunItem(
     updated,
   );
 }
+
+const sessionItemsStatement = statement(
+  "SELECT item FROM native_items WHERE conversation_id=? ORDER BY updated_at,native_id LIMIT 500",
+);
+const sessionItemsRow = QueryRecords.native_items.pick({ item: true });
+export function sessionItems(db: Database.Database, conversation: string) {
+  return sessionItemsStatement(db)
+    .all(conversation)
+    .map((row) => parseRecord(sessionItemsRow, row, "native_items"));
+}

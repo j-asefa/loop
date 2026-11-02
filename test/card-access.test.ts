@@ -280,13 +280,16 @@ it.each(["server", "companion"] as const)(
         (await request("/api/v1/cards", { headers: headers(wrong) })).status,
       ).toBe(401);
       db.pragma("ignore_check_constraints = ON");
-      db.prepare("UPDATE card_tokens SET scope='admin' WHERE id=?").run(
-        all.token.id,
-      );
-      expect(
-        (await request("/api/v1/cards", { headers: headers(all.secret) }))
-          .status,
-      ).toBe(401);
+      for (const scope of ["admin", Buffer.from('["cards:read"]')]) {
+        db.prepare("UPDATE card_tokens SET scope=? WHERE id=?").run(
+          scope,
+          all.token.id,
+        );
+        expect(
+          (await request("/api/v1/cards", { headers: headers(all.secret) }))
+            .status,
+        ).toBe(401);
+      }
       db.prepare(
         "UPDATE card_tokens SET scope=json_array('cards:read') WHERE id=?",
       ).run(all.token.id);

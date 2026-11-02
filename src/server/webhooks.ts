@@ -1,3 +1,6 @@
+import * as webhookSubscriptionsQueries from "./sql/webhook-subscriptions.js";
+import * as webhookDeliveriesQueries from "./sql/webhook-deliveries.js";
+import * as webhookRequestsQueries from "./sql/webhook-requests.js";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { db, now } from "./db.js";
 import { Problem } from "./domain.js";
@@ -59,15 +62,13 @@ const LEASE_MS = 60000;
 const digest = (input: unknown) =>
   createHash("sha256").update(JSON.stringify(input)).digest("hex");
 function owned(owner: string, id: string) {
-  const row = db
-    .prepare("SELECT * FROM webhook_subscriptions WHERE id=? AND owner_id=?")
-    .get(id, owner) as SubscriptionRow | undefined;
+  const row = webhookSubscriptionsQueries.owned(db, id, owner) as
+    SubscriptionRow | undefined;
   if (!row) throw new Problem(404, "Webhook not found");
   return row;
 }
 function delivery(id: string) {
-  return db.prepare("SELECT * FROM webhook_deliveries WHERE id=?").get(id) as
-    DeliveryRow | undefined;
+  return webhookDeliveriesQueries.byId(db, id) as DeliveryRow | undefined;
 }
 function publicDelivery(row: DeliveryRow) {
   return WebhookDelivery.parse({
@@ -77,11 +78,8 @@ function publicDelivery(row: DeliveryRow) {
   });
 }
 function publicSubscription(row: SubscriptionRow) {
-  const activation = db
-    .prepare(
-      "SELECT * FROM webhook_deliveries WHERE subscription_id=? AND purpose='activation'",
-    )
-    .get(row.id) as DeliveryRow | undefined;
+  const activation = webhookDeliveriesQueries.activation(db, row.id) as
+    DeliveryRow | undefined;
   return WebhookSubscription.parse({
     ...row,
     kinds: JSON.parse(row.kinds),
@@ -90,11 +88,10 @@ function publicSubscription(row: SubscriptionRow) {
   });
 }
 export function listWebhooks(owner: string) {
-  const rows = db
-    .prepare(
-      "SELECT * FROM webhook_subscriptions WHERE owner_id=? ORDER BY created_at DESC,id DESC",
-    )
-    .all(owner) as SubscriptionRow[];
+  const rows = webhookSubscriptionsQueries.forOwner(
+    db,
+    owner,
+  ) as SubscriptionRow[];
   return {
     policy: webhookPolicy(),
     subscriptions: rows.map(publicSubscription),
@@ -102,13 +99,9 @@ export function listWebhooks(owner: string) {
 }
 export function webhookHistory(owner: string, id: string) {
   owned(owner, id);
-  return (
-    db
-      .prepare(
-        "SELECT * FROM webhook_deliveries WHERE subscription_id=? ORDER BY created_at DESC,id DESC LIMIT 50",
-      )
-      .all(id) as DeliveryRow[]
-  ).map(publicDelivery);
+  return (webhookDeliveriesQueries.history(db, id) as DeliveryRow[]).map(
+    publicDelivery,
+  );
 }
 function pendingPing(
   id: string,
@@ -121,10 +114,16 @@ function pendingPing(
       type: "ping",
       sent_at: time,
     });
-  db.prepare(
-    `INSERT INTO webhook_deliveries(id,subscription_id,kind,purpose,request_id,payload,created_at,available_at)
-    VALUES(?,?,'control',?,?,?,?,?)`,
-  ).run(payload.id, id, purpose, request, JSON.stringify(payload), time, time);
+  webhookDeliveriesQueries.insertControl(
+    db,
+    payload.id,
+    id,
+    purpose,
+    request,
+    JSON.stringify(payload),
+    time,
+    time,
+  );
   return payload.id;
 }
 function priorRequest(
@@ -134,9 +133,7 @@ function priorRequest(
   action: string,
   input: unknown,
 ) {
-  const row = db
-    .prepare("SELECT * FROM webhook_requests WHERE owner_id=? AND request_id=?")
-    .get(owner, request) as
+  const row = webhookRequestsQueries.prior(db, owner, request) as
     | {
         subscription_id: string;
         action: string;
@@ -161,7 +158,8 @@ function remember(
   input: unknown,
   result: string | null = null,
 ) {
-  db.prepare("INSERT INTO webhook_requests VALUES(?,?,?,?,?,?)").run(
+  webhookRequestsQueries.insert(
+    db,
     owner,
     request,
     id,
@@ -173,9 +171,8 @@ function remember(
 export async function createWebhook(owner: string, input: unknown) {
   const parsed = WebhookCreate.parse(input);
   const options = { ...parsed, kinds: [...new Set(parsed.kinds)].sort() };
-  const existing = db
-    .prepare("SELECT * FROM webhook_subscriptions WHERE id=?")
-    .get(options.request_id) as SubscriptionRow | undefined;
+  const existing = webhookSubscriptionsQueries.byId(db, options.request_id) as
+    SubscriptionRow | undefined;
   if (existing) {
     if (
       existing.owner_id !== owner ||
@@ -190,12 +187,10 @@ export async function createWebhook(owner: string, input: unknown) {
   const destination = await webhookDestination(options.url);
   const control = db
     .transaction(() => {
-      const collision = db
-        .prepare(
-          "SELECT owner_id,creation_digest FROM webhook_subscriptions WHERE id=?",
-        )
-        .get(options.request_id) as
-        { owner_id: string; creation_digest: string } | undefined;
+      const collision = webhookSubscriptionsQueries.creation(
+        db,
+        options.request_id,
+      ) as { owner_id: string; creation_digest: string } | undefined;
       if (
         collision &&
         (collision.owner_id !== owner ||
@@ -213,17 +208,13 @@ export async function createWebhook(owner: string, input: unknown) {
         options,
       );
       if (raced) return raced.result_id!;
-      const count = db
-        .prepare(
-          "SELECT count(*) n FROM webhook_subscriptions WHERE owner_id=? AND state<>'revoked'",
-        )
-        .get(owner) as { n: number };
+      const count = webhookSubscriptionsQueries.activeCount(db, owner) as {
+        n: number;
+      };
       if (count.n >= 50)
         throw new Problem(429, "Revoke a webhook before creating another");
-      db.prepare(
-        `INSERT INTO webhook_subscriptions(id,owner_id,url,secret_sealed,creation_digest,kinds,local,state,created_at)
-      VALUES(?,?,?,?,?,?,?,'pending_activation',?)`,
-      ).run(
+      webhookSubscriptionsQueries.insert(
+        db,
         options.request_id,
         owner,
         destination.url.href,
@@ -271,10 +262,7 @@ export function updateWebhook(
         return publicSubscription(row);
       if (row.state === "revoked")
         throw new Problem(409, "This webhook is revoked");
-      db.prepare("UPDATE webhook_subscriptions SET kinds=? WHERE id=?").run(
-        JSON.stringify(input),
-        id,
-      );
+      webhookSubscriptionsQueries.setKinds(db, JSON.stringify(input), id);
       remember(owner, id, request, "update", input);
       return publicSubscription(owned(owner, id));
     })
@@ -286,18 +274,10 @@ export function revokeWebhook(owner: string, id: string, request: string) {
       const row = owned(owner, id);
       if (priorRequest(owner, id, request, "revoke", null))
         return publicSubscription(row);
-      db.prepare(
-        "UPDATE webhook_subscriptions SET state='revoked',revoked_at=COALESCE(revoked_at,?) WHERE id=?",
-      ).run(now(), id);
+      webhookSubscriptionsQueries.revoke(db, now(), id);
       // A claim that has not started dispatch may be cancelled truthfully. An
       // in-flight send retains its lease and its eventual observed outcome.
-      db.prepare(
-        `UPDATE webhook_deliveries SET exhausted=1,
-      outcome=CASE WHEN dispatch_started_at IS NULL THEN 'cancelled' ELSE
-        CASE WHEN outcome='sending' THEN 'uncertain' ELSE outcome END END,
-      last_error=CASE WHEN dispatch_started_at IS NULL THEN 'Revoked before dispatch' ELSE last_error END
-      WHERE subscription_id=? AND delivered_at IS NULL`,
-      ).run(id);
+      webhookDeliveriesQueries.revokeSubscription(db, id);
       remember(owner, id, request, "revoke", null);
       return publicSubscription(owned(owner, id));
     })
@@ -346,25 +326,14 @@ export async function retryWebhook(owner: string, id: string, request: string) {
         return publicSubscription(current);
       if (current.state === "revoked")
         throw new Problem(409, "This webhook is revoked");
-      if (
-        db
-          .prepare(
-            "SELECT 1 FROM webhook_deliveries WHERE subscription_id=? AND leased_until>? LIMIT 1",
-          )
-          .get(id, now())
-      )
+      if (webhookDeliveriesQueries.leased(db, id, now()))
         throw new Problem(
           409,
           "A delivery is still in flight; wait for its outcome",
         );
       if (current.state === "failed")
-        db.prepare(
-          "UPDATE webhook_subscriptions SET state='active',failed_at=NULL WHERE id=?",
-        ).run(id);
-      db.prepare(
-        `UPDATE webhook_deliveries SET attempts=0,available_at=?,leased_until=NULL,lease_id=NULL,exhausted=0
-      WHERE subscription_id=? AND delivered_at IS NULL AND (?<>'pending_activation' OR purpose='activation')`,
-      ).run(now(), id, current.state);
+        webhookSubscriptionsQueries.activate(db, id);
+      webhookDeliveriesQueries.reset(db, now(), id, current.state);
       remember(owner, id, request, "retry", null);
       // Merely re-arms the same rows. Only an accepted activation ping can activate.
       return publicSubscription(owned(owner, id));
@@ -384,16 +353,12 @@ function exhaust(
   message: string,
   status: number | null,
 ) {
-  db.prepare(
-    "UPDATE webhook_deliveries SET exhausted=1,last_error=?,last_status=?,lease_id=NULL,leased_until=NULL WHERE id=?",
-  ).run(message, status, job.id);
+  webhookDeliveriesQueries.exhaust(db, message, status, job.id);
   // Later attempts have their own history. Preserve every diagnostic field of
   // the first exhausted event until the owner explicitly retries the backlog.
   if (subscription.state === "failed") return;
-  db.prepare(
-    `UPDATE webhook_subscriptions SET state=CASE WHEN state='active' AND ?='run.stopped' THEN 'failed' ELSE state END,
-    failed_at=CASE WHEN state IN ('active','failed') AND ?='run.stopped' THEN ? ELSE failed_at END,last_error=?,last_status=?,last_attempts=? WHERE id=? AND state<>'revoked'`,
-  ).run(
+  webhookSubscriptionsQueries.fail(
+    db,
     job.kind,
     job.kind,
     now(),
@@ -408,26 +373,24 @@ function exhaust(
 export function claimWebhooks(only?: string) {
   return db
     .transaction(() => {
-      const jobs = db
-        .prepare(
-          `SELECT d.* FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id
-      WHERE d.delivered_at IS NULL AND d.exhausted=0 AND d.available_at<=? AND (d.leased_until IS NULL OR d.leased_until<=?)
-      AND (? IS NULL OR d.id=?) AND (s.state='active' OR (s.state='pending_activation' AND d.purpose='activation') OR (s.state='failed' AND d.purpose='test'))
-      ORDER BY d.available_at,d.id LIMIT 4`,
-        )
-        .all(now(), now(), only ?? null, only ?? null) as DeliveryRow[];
+      const jobs = webhookDeliveriesQueries.due(
+        db,
+        now(),
+        now(),
+        only ?? null,
+        only ?? null,
+      ) as DeliveryRow[];
       return jobs.flatMap((job) => {
         if (job.dispatch_started_at !== null && job.outcome === "sending") {
           job.outcome = "uncertain";
           job.last_status = null;
-          db.prepare(
-            "UPDATE webhook_deliveries SET outcome='uncertain',last_status=NULL,last_error='Worker stopped before confirming delivery' WHERE id=?",
-          ).run(job.id);
+          webhookDeliveriesQueries.uncertain(db, job.id);
         }
         if (job.attempts >= 6) {
-          const subscription = db
-            .prepare("SELECT * FROM webhook_subscriptions WHERE id=?")
-            .get(job.subscription_id) as SubscriptionRow;
+          const subscription = webhookSubscriptionsQueries.byId(
+            db,
+            job.subscription_id,
+          ) as SubscriptionRow;
           exhaust(
             subscription,
             job,
@@ -437,9 +400,7 @@ export function claimWebhooks(only?: string) {
           return [];
         }
         const lease = randomUUID();
-        db.prepare(
-          "UPDATE webhook_deliveries SET lease_id=?,leased_until=? WHERE id=?",
-        ).run(lease, now() + LEASE_MS, job.id);
+        webhookDeliveriesQueries.lease(db, lease, now() + LEASE_MS, job.id);
         return [{ id: job.id, lease }];
       });
     })
@@ -463,9 +424,10 @@ async function deliverClaim(
 ) {
   const initial = delivery(claim.id);
   if (!initial || initial.lease_id !== claim.lease) return;
-  const subscription = db
-    .prepare("SELECT * FROM webhook_subscriptions WHERE id=?")
-    .get(initial.subscription_id) as SubscriptionRow;
+  const subscription = webhookSubscriptionsQueries.byId(
+    db,
+    initial.subscription_id,
+  ) as SubscriptionRow;
   const signal = AbortSignal.any([
     AbortSignal.timeout(10000),
     ...(stopped ? [stopped] : []),
@@ -491,14 +453,10 @@ async function deliverClaim(
           job.exhausted ||
           signal.aborted
         ) {
-          db.prepare(
-            "UPDATE webhook_deliveries SET lease_id=NULL,leased_until=NULL WHERE id=? AND lease_id=?",
-          ).run(job.id, claim.lease);
+          webhookDeliveriesQueries.release(db, job.id, claim.lease);
           return false;
         }
-        db.prepare(
-          "UPDATE webhook_deliveries SET attempts=attempts+1,dispatch_started_at=?,outcome='sending' WHERE id=? AND lease_id=?",
-        ).run(now(), job.id, claim.lease);
+        webhookDeliveriesQueries.dispatch(db, now(), job.id, claim.lease);
         return true;
       })
       .immediate();
@@ -533,9 +491,7 @@ async function deliverClaim(
   if (!dispatched && stopped?.aborted) {
     // Stopping the worker is not a failed receiver attempt. No external effect
     // began, so release only this claim and preserve its retry budget/outcome.
-    db.prepare(
-      "UPDATE webhook_deliveries SET lease_id=NULL,leased_until=NULL WHERE id=? AND lease_id=?",
-    ).run(claim.id, claim.lease);
+    webhookDeliveriesQueries.release(db, claim.id, claim.lease);
     return;
   }
   db.transaction(() => {
@@ -555,9 +511,8 @@ async function deliverClaim(
           : dispatched
             ? "uncertain"
             : "unattempted";
-    db.prepare(
-      `UPDATE webhook_deliveries SET attempts=?,leased_until=NULL,lease_id=NULL,delivered_at=?,last_status=?,last_error=?,outcome=?,exhausted=?,available_at=? WHERE id=? AND lease_id=?`,
-    ).run(
+    webhookDeliveriesQueries.settle(
+      db,
       attempts,
       accepted ? now() : null,
       status,
@@ -569,11 +524,8 @@ async function deliverClaim(
       claim.lease,
     );
     const keepFailure = current.state === "failed";
-    db.prepare(
-      `UPDATE webhook_subscriptions SET last_status=?,last_error=?,last_attempts=?,last_delivered_at=CASE WHEN ? THEN ? ELSE last_delivered_at END,
-      state=CASE WHEN ? AND ?='activation' AND state='pending_activation' THEN 'active' ELSE state END,
-      activated_at=CASE WHEN ? AND ?='activation' AND state='pending_activation' THEN ? ELSE activated_at END WHERE id=?`,
-    ).run(
+    webhookSubscriptionsQueries.settle(
+      db,
       keepFailure ? current.last_status : status,
       keepFailure ? current.last_error : failure,
       keepFailure ? current.last_attempts : attempts,

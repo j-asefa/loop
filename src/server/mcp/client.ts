@@ -1,3 +1,5 @@
+import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
+import * as oauthStatesQueries from "../sql/oauth-states.js";
 import {
   diagnosticText,
   errorSummary,
@@ -62,7 +64,8 @@ export function connectionUrl(c: MCPConnection) {
 function updateSecret(c: MCPConnection, patch: Partial<AuthSecret>) {
   const fresh = ownedMcpConnection(c.id, c.owner_id),
     value = { ...readSecret(fresh), ...patch };
-  db.prepare("UPDATE mcp_connections SET secret=? WHERE id=?").run(
+  mcpConnectionsQueries.setSecret(
+    db,
     seal(JSON.stringify(value), c.owner_id),
     c.id,
   );
@@ -87,10 +90,9 @@ export function oauthProvider(c: MCPConnection) {
     },
     state() {
       const state = randomBytes(32).toString("hex");
-      db.prepare(
-        "DELETE FROM oauth_states WHERE connection_id=? OR expires_at<?",
-      ).run(c.id, now());
-      db.prepare("INSERT INTO oauth_states VALUES(?,?,?,?)").run(
+      oauthStatesQueries.removeConnectionOrExpired(db, c.id, now());
+      oauthStatesQueries.insert(
+        db,
         state,
         c.owner_id,
         c.id,
@@ -293,16 +295,17 @@ export async function discover(
     db.transaction(() => {
       // Concurrent discoveries must check and enable against the same snapshot.
       workspaceToolBindings(c.owner_id, { ...c, tools: JSON.stringify(tools) });
-      db.prepare(
-        "UPDATE mcp_connections SET tools=?,metadata=?,status='connected' WHERE id=?",
-      ).run(JSON.stringify(tools), JSON.stringify(metadata), c.id);
+      mcpConnectionsQueries.discovered(
+        db,
+        JSON.stringify(tools),
+        JSON.stringify(metadata),
+        c.id,
+      );
     }).immediate();
     return { tools, metadata };
   } catch (error) {
     if (error instanceof ToolBudgetError && !keepOnBudget)
-      db.prepare("UPDATE mcp_connections SET status='disabled' WHERE id=?").run(
-        c.id,
-      );
+      mcpConnectionsQueries.disable(db, c.id);
     throw error;
   } finally {
     await client.close();

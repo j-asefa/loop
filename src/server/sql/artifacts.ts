@@ -427,3 +427,19 @@ export function updateNativeOutput(
 ) {
   return updateNativeOutputStatement(db).run(content, metadata, updated, id);
 }
+
+const pullReferencesStatement = statement(
+  "SELECT content,created_at FROM artifacts WHERE owner_id=? AND conversation_id=? AND kind='github_pr' ORDER BY created_at DESC,rowid DESC",
+);
+export function* pullReferences(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+) {
+  for (const row of pullReferencesStatement(db).iterate(owner, conversation))
+    yield parseRecord(
+      QueryRecords.artifacts.pick({ content: true, created_at: true }),
+      row,
+      "artifacts",
+    );
+}

@@ -1,3 +1,8 @@
+import * as projectPathsQueries from "./sql/project-paths.js";
+import * as codeReviewsQueries from "./sql/code-reviews.js";
+import * as delegationsQueries from "./sql/delegations.js";
+import * as teamsQueries from "./sql/teams.js";
+import * as companionSessionsQueries from "./sql/companion-sessions.js";
 import { ReviewInput } from "../shared/team-contract-schemas.js";
 import type { QueryRow } from "./query-records.js";
 
@@ -28,9 +33,8 @@ function directory(owner: string, folderId: string) {
       "Local snapshot review requires a laptop workspace. Open the Loop55 workspace running beside your repository.",
     );
   ownedFolder(folderId, owner);
-  const mapping = db
-    .prepare("SELECT path FROM project_paths WHERE folder_id=?")
-    .get(folderId) as { path: string } | undefined;
+  const mapping = projectPathsQueries.path(db, folderId) as
+    { path: string } | undefined;
   if (!mapping)
     throw new Problem(409, "Bind this project to a local Git repository first");
   return mapping.path;
@@ -87,11 +91,8 @@ function ensureCodeReview(
     )
     .digest("hex");
   const receipt = () => {
-    const prior = db
-      .prepare(
-        "SELECT id,request_hash FROM code_reviews WHERE owner_id=? AND request_key=?",
-      )
-      .get(owner, d.idempotencyKey) as QueryRow<"code_reviews"> | undefined;
+    const prior = codeReviewsQueries.request(db, owner, d.idempotencyKey) as
+      QueryRow<"code_reviews"> | undefined;
     if (prior && prior.request_hash !== hash)
       throw new Problem(409, "This request key belongs to a different review");
     return prior;
@@ -136,9 +137,8 @@ function ensureCodeReview(
       const previous = receipt();
       if (previous) return previous.id as string;
       const reviewId = id();
-      db.prepare(
-        "INSERT INTO code_reviews(id,owner_id,team_id,folder_id,request_key,request_hash,snapshot,fingerprint,created_at,source_path) VALUES(?,?,?,?,?,?,?,?,?,?)",
-      ).run(
+      codeReviewsQueries.insert(
+        db,
         reviewId,
         owner,
         teamId,
@@ -161,16 +161,17 @@ function ensureCodeReview(
       });
       if (requester)
         inheritFleetEffect(owner, "run", requester.runId, manager.id);
-      db.prepare("UPDATE code_reviews SET run_id=? WHERE id=?").run(
-        manager.id,
-        reviewId,
-      );
+      codeReviewsQueries.setRun(db, manager.id, reviewId);
       // Start with a foreground link; requestReview promotes nonblocking
       // requests to background before returning. Both retain cancellation.
       if (requester)
-        db.prepare(
-          "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,0)",
-        ).run(requester.runId, requester.callId + ":review", manager.id, "{}");
+        delegationsQueries.insertForeground(
+          db,
+          requester.runId,
+          requester.callId + ":review",
+          manager.id,
+          "{}",
+        );
       for (const a of assignments.slice(1)) {
         const child = submit(owner, {
           agentId: a.agentId,
@@ -182,9 +183,13 @@ function ensureCodeReview(
         });
         inheritFleetEffect(owner, "run", manager.id, child.id);
         // Existing queue dependency and cancellation machinery owns this fan-out.
-        db.prepare(
-          "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,0)",
-        ).run(manager.id, `review:${a.role}`, child.id, "{}");
+        delegationsQueries.insertForeground(
+          db,
+          manager.id,
+          `review:${a.role}`,
+          child.id,
+          "{}",
+        );
       }
       return reviewId;
     })
@@ -197,11 +202,7 @@ export function reviewStatus(
 ) {
   const { record: r, snapshot: s } = reviewSnapshot(owner, reviewId);
   const run = ownedRun(r.run_id, owner);
-  const reviewers = db
-    .prepare(
-      "SELECT r.agent_id,r.state,r.error FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? ORDER BY d.call_id",
-    )
-    .all(run.id);
+  const reviewers = delegationsQueries.reviewStates(db, run.id);
   let current: boolean | null = null,
     freshnessError: string | null = null;
   if (freshness) {
@@ -246,11 +247,10 @@ const ACTIVE = [
 ];
 // Review teams an agent can ask for: active, and without the agent on them.
 export function requestableReviewTeams(owner: string, agentId: string) {
-  return db
-    .prepare(
-      "SELECT id,name FROM teams WHERE owner_id=? AND deleted_at IS NULL AND preset_id='code-review' AND manager_id<>? AND NOT EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=teams.id AND m.agent_id=?) ORDER BY name",
-    )
-    .all(owner, agentId, agentId) as { id: string; name: string }[];
+  return teamsQueries.reviewCandidates(db, owner, agentId, agentId) as {
+    id: string;
+    name: string;
+  }[];
 }
 export function requestReview(
   run: Run,
@@ -263,9 +263,8 @@ export function requestReview(
   if (!folderId)
     throw new Problem(409, "This conversation has no project to review");
   // A native session's project is its verified agent worktree.
-  const session = db
-    .prepare("SELECT project FROM companion_sessions WHERE conversation_id=?")
-    .get(run.conversation_id) as { project: string } | undefined;
+  const session = companionSessionsQueries.project(db, run.conversation_id) as
+    { project: string } | undefined;
   const reviewId = ensureCodeReview(
     run.owner_id,
     team.id,
@@ -287,17 +286,14 @@ export function requestReview(
   );
   // Async reviews preserve cancellation/provenance without blocking ordinary
   // delegation resumption or live steering. Also upgrades old pending receipts.
-  if (!args.wait)
-    db.prepare(
-      "UPDATE delegations SET background=1 WHERE parent_run_id=? AND call_id=?",
-    ).run(run.id, callId + ":review");
+  if (!args.wait) delegationsQueries.background(db, run.id, callId + ":review");
   // Waiting calls poll frequently. Keep captured repository contents out of
   // this path: snapshots can be many megabytes and never change while waiting.
-  const progress = db
-    .prepare(
-      "SELECT r.id,r.state FROM code_reviews c JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id WHERE c.id=? AND c.owner_id=?",
-    )
-    .get(reviewId, run.owner_id) as { id: string; state: string } | undefined;
+  const progress = codeReviewsQueries.runIdentity(
+    db,
+    reviewId,
+    run.owner_id,
+  ) as { id: string; state: string } | undefined;
   if (!progress) throw new Problem(404, "Review not found");
   if (ACTIVE.includes(progress.state) && args.wait) return { pending: callId };
   return agentReviewReport(run, reviewId);
@@ -307,11 +303,7 @@ function agentReviewReport(
   run: Run,
   reviewId: string,
 ): { report: object; failed: boolean } {
-  const record = db
-    .prepare(
-      "SELECT c.run_id,r.state FROM code_reviews c JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id WHERE c.id=? AND c.owner_id=?",
-    )
-    .get(reviewId, run.owner_id) as
+  const record = codeReviewsQueries.runStatus(db, reviewId, run.owner_id) as
     { run_id: string; state: string } | undefined;
   if (!record) throw new Problem(404, "Review not found");
   if (ACTIVE.includes(record.state))
@@ -346,16 +338,13 @@ function agentReviewReport(
 // Durable delegation provenance authorizes recovery across turns, without
 // granting access to another agent's reviews (even for the same owner).
 export function requestedReviewStatus(run: Run, reviewId?: string) {
-  const reviews = db
-    .prepare(
-      `SELECT c.id AS reviewId,r.state,c.fingerprint,c.created_at AS createdAt FROM code_reviews c
-    JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id
-    JOIN delegations d ON d.child_run_id=c.run_id
-    JOIN runs p ON p.id=d.parent_run_id AND p.owner_id=c.owner_id
-    WHERE c.owner_id=? AND p.agent_id=? AND (? IS NULL OR c.id=?)
-    ORDER BY c.created_at DESC,c.id LIMIT 10`,
-    )
-    .all(run.owner_id, run.agent_id, reviewId ?? null, reviewId ?? null) as {
+  const reviews = codeReviewsQueries.agentReviews(
+    db,
+    run.owner_id,
+    run.agent_id,
+    reviewId ?? null,
+    reviewId ?? null,
+  ) as {
     reviewId: string;
     state: string;
     fingerprint: string;

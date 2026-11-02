@@ -1,3 +1,5 @@
+import * as artifactsQueries from "./sql/artifacts.js";
+import * as conversationPullLinksQueries from "./sql/conversation-pull-links.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as watchQueries from "./sql/pr-watches.js";
 import { db, now } from "./db.js";
@@ -15,12 +17,8 @@ import type { ConversationPulls } from "../shared/conversation-pulls.js";
 /** A confirmed create result is enough to retain the link, even offline. */
 export function linkCreatedPullRequest(run: Run, ref: PullRequestRef) {
   if (!run.conversation_id) return;
-  db.prepare(
-    `INSERT OR IGNORE INTO conversation_pull_links
-    (owner_id,conversation_id,repo_owner,repo_name,number,created_at)
-    SELECT ?,?,?,?,?,? WHERE EXISTS (
-      SELECT 1 FROM conversations WHERE id=? AND owner_id=?)`,
-  ).run(
+  conversationPullLinksQueries.insertOwned(
+    db,
     run.owner_id,
     run.conversation_id,
     ref.owner,
@@ -50,17 +48,7 @@ export function conversationPullRefs(owner: string, conversation: string) {
   // Tool output alone is not evidence that a thread is working on that PR.
   for (const read of [
     () => messagesQueries.pullReferences(db, owner, conversation),
-    () =>
-      db
-        .prepare(
-          `SELECT content,created_at FROM artifacts
-    WHERE owner_id=? AND conversation_id=? AND kind='github_pr'
-    ORDER BY created_at DESC,rowid DESC`,
-        )
-        .iterate(owner, conversation) as Iterable<{
-        content: string;
-        created_at: number;
-      }>,
+    () => artifactsQueries.pullReferences(db, owner, conversation),
   ]) {
     const candidates = new Set<string>();
     for (const row of read()) {

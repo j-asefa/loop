@@ -1,3 +1,6 @@
+import * as eventsQueries from "./sql/events.js";
+import * as tokenEventCursorsQueries from "./sql/token-event-cursors.js";
+import * as changeWatermarkQueries from "./sql/change-watermark.js";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type { IncomingMessage } from "node:http";
@@ -23,14 +26,14 @@ const MAX_UNCONFIRMED_FRAMES = 1024;
 /** Preserve the historical array and whole rows. One oversize first row is
  * returned intact so the caller can always make forward progress. */
 export function eventPage(owner: string, after: number, bearer: boolean) {
-  const query = db.prepare(
-    "SELECT * FROM events WHERE owner_id=? AND id>? ORDER BY id LIMIT 200",
-  );
   if (!bearer)
-    return projectResponse(workspaceApi.events, query.all(owner, after));
+    return projectResponse(
+      workspaceApi.events,
+      eventsQueries.page(db, owner, after),
+    );
   const page = [];
   let bytes = 2;
-  for (const row of query.iterate(owner, after)) {
+  for (const row of eventsQueries.iteratePage(db, owner, after)) {
     const event = projectResponse(workspaceApi.events, [row])[0];
     const size =
       Buffer.byteLength(JSON.stringify(event)) + (page.length ? 1 : 0);
@@ -95,12 +98,11 @@ class TokenEventConnection extends EventEmitter {
   }
 
   current() {
-    const row = db
-      .prepare(
-        "SELECT connection_id FROM token_event_cursors WHERE token_id=? AND owner_id=?",
-      )
-      .get(this.tokenId, this.owner) as
-      Pick<Checkpoint, "connection_id"> | undefined;
+    const row = tokenEventCursorsQueries.current(
+      db,
+      this.tokenId,
+      this.owner,
+    ) as Pick<Checkpoint, "connection_id"> | undefined;
     return (
       row?.connection_id === this.connection &&
       activeIntegrationToken(this.owner, this.tokenId, "read")
@@ -149,11 +151,7 @@ class TokenEventConnection extends EventEmitter {
     if (!offered || offered.epoch !== query.epoch)
       throw new Error("This connection did not offer that checkpoint");
     db.transaction(() => {
-      const clock = db
-        .prepare(
-          "SELECT epoch,last_event_id FROM change_watermark WHERE owner_id=?",
-        )
-        .get(this.owner) as
+      const clock = changeWatermarkQueries.clock(db, this.owner) as
         { epoch: string; last_event_id: number } | undefined;
       if (
         !this.current() ||
@@ -163,10 +161,8 @@ class TokenEventConnection extends EventEmitter {
         throw new Error("This connection's checkpoint is no longer current");
       // Preserve the offered reset's meaning even if later commits overtake an
       // invalid saved cursor. Ordinary replay cannot rewind confirmed progress.
-      db.prepare(
-        `UPDATE token_event_cursors SET epoch=?,cursor=CASE WHEN ? THEN ? WHEN epoch=? AND cursor<=? THEN max(cursor,?) ELSE ? END
-        WHERE token_id=? AND owner_id=? AND connection_id=?`,
-      ).run(
+      tokenEventCursorsQueries.confirm(
+        db,
         query.epoch,
         offered.reset ? 1 : 0,
         query.cursor,
@@ -249,13 +245,12 @@ export function createTokenEventSockets(
               .transaction(() => {
                 if (!activeIntegrationToken(owner, tokenId, "read"))
                   throw new Problem(401, "Invalid integration credential");
-                return db
-                  .prepare(
-                    `INSERT INTO token_event_cursors(token_id,owner_id,connection_id) VALUES(?,?,?)
-                    ON CONFLICT(token_id) DO UPDATE SET connection_id=excluded.connection_id WHERE owner_id=excluded.owner_id
-                    RETURNING epoch,cursor,connection_id`,
-                  )
-                  .get(tokenId, owner, stream.connection) as Checkpoint;
+                return tokenEventCursorsQueries.connect(
+                  db,
+                  tokenId,
+                  owner,
+                  stream.connection,
+                ) as Checkpoint;
               })
               .immediate();
             streams.get(tokenId)?.close();
@@ -271,9 +266,8 @@ export function createTokenEventSockets(
             if (checkpoint.epoch)
               replay.searchParams.set("epoch", checkpoint.epoch);
             else if (query.data.after !== undefined) {
-              const clock = db
-                .prepare("SELECT epoch FROM change_watermark WHERE owner_id=?")
-                .get(owner) as { epoch: string } | undefined;
+              const clock = changeWatermarkQueries.epoch(db, owner) as
+                { epoch: string } | undefined;
               if (clock) replay.searchParams.set("epoch", clock.epoch);
             }
             connectWorkspaceEvents(stream, replay, owner, "");

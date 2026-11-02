@@ -221,3 +221,20 @@ export function agentInActiveTeam(
     ? undefined
     : parseRecord(agentInActiveTeamRow, row, "teams");
 }
+
+const reviewCandidatesStatement = statement(
+  "SELECT id,name FROM teams WHERE owner_id=? AND deleted_at IS NULL AND preset_id='code-review' AND manager_id<>? AND NOT EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=teams.id AND m.agent_id=?) ORDER BY name",
+);
+
+const reviewCandidatesRow = QueryRecords.teams.pick({ id: true, name: true });
+
+export function reviewCandidates(
+  db: Database.Database,
+  owner: string,
+  manager: string | null,
+  member: string | null,
+) {
+  return reviewCandidatesStatement(db)
+    .all(owner, manager, member)
+    .map((row) => parseRecord(reviewCandidatesRow, row, "teams"));
+}

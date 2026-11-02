@@ -320,3 +320,17 @@ export function insertNativeImport(
     folder,
   );
 }
+
+const activeProfileCountStatement = statement(
+  "SELECT count(*) n FROM agents WHERE owner_id=? AND retired_at IS NULL",
+);
+
+const activeProfileCountRow = z.object({ n: z.number() });
+
+export function activeProfileCount(db: Database.Database, owner: string) {
+  return parseRecord(
+    activeProfileCountRow,
+    activeProfileCountStatement(db).get(owner),
+    "agents",
+  );
+}

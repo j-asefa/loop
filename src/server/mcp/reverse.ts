@@ -1,3 +1,7 @@
+import * as mcpFederationPeersQueries from "../sql/mcp-federation-peers.js";
+import * as mcpReverseCatalogQueries from "../sql/mcp-reverse-catalog.js";
+import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
+import * as mcpReverseCallsQueries from "../sql/mcp-reverse-calls.js";
 import * as runsQueries from "../sql/runs.js";
 import { MCP_TOOL_BUDGET } from "./tool-budget.js";
 import { watchRun } from "../run-signal.js";
@@ -30,11 +34,7 @@ type Queued = {
   result: string | null;
 };
 const peer = (owner: string, peerId: string) =>
-  db
-    .prepare(
-      "SELECT * FROM mcp_federation_peers WHERE owner_id=? AND peer_id=? AND revoked_at IS NULL",
-    )
-    .get(owner, peerId) as Peer | undefined;
+  mcpFederationPeersQueries.active(db, owner, peerId) as Peer | undefined;
 
 export async function installReverseCatalog(
   owner: string,
@@ -59,15 +59,15 @@ export async function installReverseCatalog(
     Buffer.byteLength(JSON.stringify(tools)) > MCP_TOOL_BUDGET.bytes
   )
     throw new Problem(400, "Invalid shared tool catalog");
-  db.prepare(
-    `INSERT INTO mcp_reverse_catalog(peer_id,owner_id,tools,updated_at) VALUES(?,?,?,?)
-     ON CONFLICT(peer_id) DO UPDATE SET tools=excluded.tools,updated_at=excluded.updated_at`,
-  ).run(peerId, owner, JSON.stringify(tools), now());
-  const existing = db
-    .prepare(
-      "SELECT * FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.federatedPeer')=? ORDER BY created_at DESC LIMIT 1",
-    )
-    .get(owner, peerId) as MCPConnection | undefined;
+  mcpReverseCatalogQueries.upsert(
+    db,
+    peerId,
+    owner,
+    JSON.stringify(tools),
+    now(),
+  );
+  const existing = mcpConnectionsQueries.byFederatedPeer(db, owner, peerId) as
+    MCPConnection | undefined;
   const url = `http://127.0.0.1:${config.port}/api/mcp/reverse`;
   const secret = seal(
     JSON.stringify({ type: "bearer", token: unseal(source.secret, owner) }),
@@ -80,23 +80,33 @@ export async function installReverseCatalog(
   });
   const key = existing?.id || id();
   if (existing)
-    db.prepare(
-      "UPDATE mcp_connections SET name=?,url=?,secret=?,status=CASE WHEN status='disconnected' THEN 'needs_auth' ELSE status END,metadata=? WHERE id=? AND owner_id=?",
-    ).run(label, url, secret, metadata, key, owner);
+    mcpConnectionsQueries.reconnectFederated(
+      db,
+      label,
+      url,
+      secret,
+      metadata,
+      key,
+      owner,
+    );
   else
-    db.prepare(
-      "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,?,?,?,?,'needs_auth',?,?)",
-    ).run(key, owner, label, url, secret, metadata, now());
+    mcpConnectionsQueries.insertWithMetadata(
+      db,
+      key,
+      owner,
+      label,
+      url,
+      secret,
+      metadata,
+      now(),
+    );
   await discover(ownedMcpConnection(key, owner));
   return { id: key, status: "connected" };
 }
 
 function catalog(owner: string, peerId: string) {
-  const row = db
-    .prepare(
-      "SELECT tools FROM mcp_reverse_catalog WHERE owner_id=? AND peer_id=?",
-    )
-    .get(owner, peerId) as { tools: string } | undefined;
+  const row = mcpReverseCatalogQueries.tools(db, owner, peerId) as
+    { tools: string } | undefined;
   return row ? ToolSchema.array().parse(JSON.parse(row.tools)) : [];
 }
 
@@ -120,21 +130,20 @@ function queue(
   )
     throw new Problem(409, "Shared tool run is no longer active");
   const encoded = JSON.stringify(args);
-  let saved = db
-    .prepare(
-      "SELECT * FROM mcp_reverse_calls WHERE peer_id=? AND run_key=? AND request_key=?",
-    )
-    .get(source.peer_id, runKey, requestKey) as Queued | undefined;
+  let saved = mcpReverseCallsQueries.byRequest(
+    db,
+    source.peer_id,
+    runKey,
+    requestKey,
+  ) as Queued | undefined;
   if (saved) {
     if (saved.tool_name !== name || saved.args !== encoded)
       throw new Problem(409, "Shared tool call identity was reused");
     return saved.id;
   }
   const key = id();
-  db.prepare(
-    `INSERT INTO mcp_reverse_calls(id,owner_id,peer_id,run_key,request_key,tool_name,args,state,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,'pending',?,?)`,
-  ).run(
+  mcpReverseCallsQueries.insertPending(
+    db,
     key,
     source.owner_id,
     source.peer_id,
@@ -151,18 +160,8 @@ function queue(
 export function pendingReverseCalls(owner: string, peerId: string) {
   if (!peer(owner, peerId))
     throw new Problem(403, "Execution source is not enrolled");
-  db.prepare(
-    `UPDATE mcp_reverse_calls SET state='unknown',updated_at=?
-     WHERE owner_id=? AND peer_id=? AND state IN ('pending','claimed') AND run_key IN
-     (SELECT id FROM runs WHERE state NOT IN ('running','awaiting_approval'))`,
-  ).run(now(), owner, peerId);
-  return db
-    .prepare(
-      `SELECT id,run_key AS runKey,request_key AS requestKey,tool_name AS name,args
-       FROM mcp_reverse_calls WHERE owner_id=? AND peer_id=? AND state='pending'
-       ORDER BY created_at LIMIT 20`,
-    )
-    .all(owner, peerId) as {
+  mcpReverseCallsQueries.unknownInactiveRuns(db, now(), owner, peerId);
+  return mcpReverseCallsQueries.pending(db, owner, peerId) as {
     id: string;
     runKey: string;
     requestKey: string;
@@ -182,13 +181,8 @@ export function claimReverseCall(
   if (!peer(owner, peerId))
     throw new Problem(403, "Execution source is not enrolled");
   const claimed =
-    db
-      .prepare(
-        `UPDATE mcp_reverse_calls SET state='claimed',updated_at=?
-         WHERE id=? AND owner_id=? AND peer_id=? AND state='pending' AND run_key IN
-         (SELECT id FROM runs WHERE state IN ('running','awaiting_approval'))`,
-      )
-      .run(now(), callId, owner, peerId).changes === 1;
+    mcpReverseCallsQueries.claim(db, now(), callId, owner, peerId).changes ===
+    1;
   return { claimed };
 }
 
@@ -203,11 +197,12 @@ export function completeReverseCall(
     .transaction(() => {
       if (!peer(owner, peerId))
         throw new Problem(403, "Execution source is not enrolled");
-      const saved = db
-        .prepare(
-          "SELECT * FROM mcp_reverse_calls WHERE id=? AND owner_id=? AND peer_id=?",
-        )
-        .get(callId, owner, peerId) as Queued | undefined;
+      const saved = mcpReverseCallsQueries.ownedPeer(
+        db,
+        callId,
+        owner,
+        peerId,
+      ) as Queued | undefined;
       if (!saved) throw new Problem(404, "Shared tool call unavailable");
       const encoded = state === "completed" ? JSON.stringify(result) : null;
       if (encoded && Buffer.byteLength(encoded) > 4 * 1024 * 1024)
@@ -219,9 +214,7 @@ export function completeReverseCall(
         }
         throw new Problem(409, "Shared tool call already resolved");
       }
-      db.prepare(
-        "UPDATE mcp_reverse_calls SET state=?,result=?,updated_at=? WHERE id=? AND state IN ('pending','claimed')",
-      ).run(state, encoded, now(), callId);
+      mcpReverseCallsQueries.settle(db, state, encoded, now(), callId);
       notifySettled(owner, saved.run_key, callId);
       return { state };
     })
@@ -238,11 +231,12 @@ const waiters = new Map<string, Set<() => void>>();
 function markUnknown(owner: string, callId: string) {
   return db
     .transaction(() => {
-      const changed = db
-        .prepare(
-          "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE id=? AND owner_id=? AND state IN ('pending','claimed') RETURNING run_key",
-        )
-        .get(now(), callId, owner) as { run_key: string } | undefined;
+      const changed = mcpReverseCallsQueries.markUnknown(
+        db,
+        now(),
+        callId,
+        owner,
+      ) as { run_key: string } | undefined;
       if (changed) notifySettled(owner, changed.run_key, callId);
       return !!changed;
     })
@@ -251,9 +245,8 @@ function markUnknown(owner: string, callId: string) {
 
 /** Shared-call identity is durable; every HTTP waiter observes the same result. */
 export async function waitForReverseCall(owner: string, callId: string) {
-  const initial = db
-    .prepare("SELECT * FROM mcp_reverse_calls WHERE id=? AND owner_id=?")
-    .get(callId, owner) as Queued | undefined;
+  const initial = mcpReverseCallsQueries.owned(db, callId, owner) as
+    Queued | undefined;
   if (!initial) throw new Problem(404, "Shared tool call unavailable");
   const watched = watchRun({ id: initial.run_key, owner_id: owner });
   let remove: (() => void) | undefined;
@@ -274,11 +267,8 @@ export async function waitForReverseCall(owner: string, callId: string) {
           !peer(owner, initial.peer_id)
         )
           markUnknown(owner, callId);
-        const saved = db
-          .prepare(
-            "SELECT state,result FROM mcp_reverse_calls WHERE id=? AND owner_id=?",
-          )
-          .get(callId, owner) as Queued | undefined;
+        const saved = mcpReverseCallsQueries.receipt(db, callId, owner) as
+          Queued | undefined;
         if (saved?.state === "completed")
           settle(undefined, JSON.parse(saved.result!));
         else if (!saved || !["pending", "claimed"].includes(saved.state))

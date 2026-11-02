@@ -1,3 +1,8 @@
+import * as pushConfigQueries from "./sql/push-config.js";
+import * as pushSubscriptionsQueries from "./sql/push-subscriptions.js";
+import * as pushPreferencesQueries from "./sql/push-preferences.js";
+import * as pushDeliveriesQueries from "./sql/push-deliveries.js";
+import * as pushMessagesQueries from "./sql/push-messages.js";
 import "../../runtime/environment.mjs";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
@@ -14,21 +19,15 @@ export { pushEndpoint } from "../shared/team-contract-schemas.js";
 export function notificationKeys() {
   return db
     .transaction(() => {
-      let row = db
-        .prepare(
-          "SELECT public_key,private_key FROM push_config WHERE singleton=1",
-        )
-        .get() as { public_key: string; private_key: string } | undefined;
+      let row = pushConfigQueries.keys(db) as
+        { public_key: string; private_key: string } | undefined;
       if (!row) {
         const keys = webpush.generateVAPIDKeys();
         row = {
           public_key: keys.publicKey,
           private_key: seal(keys.privateKey, "web-push"),
         };
-        db.prepare("INSERT INTO push_config VALUES(1,?,?)").run(
-          row.public_key,
-          row.private_key,
-        );
+        pushConfigQueries.insert(db, row.public_key, row.private_key);
       }
       return {
         publicKey: row.public_key,
@@ -39,13 +38,7 @@ export function notificationKeys() {
 }
 
 function devicePreferences(owner: string) {
-  const rows = db
-    .prepare(
-      `SELECT s.endpoint,COALESCE(p.needs_you,1) needsYou,
-    COALESCE(p.completed,1) completed,COALESCE(p.reminders,1) reminders,COALESCE(p.social,1) social
-    FROM push_subscriptions s LEFT JOIN push_preferences p ON p.subscription_id=s.id WHERE s.owner_id=?`,
-    )
-    .all(owner) as {
+  const rows = pushSubscriptionsQueries.preferences(db, owner) as {
     endpoint: string;
     needsYou: number;
     completed: number;
@@ -69,9 +62,9 @@ routes.on(workspaceApi.notifications, (_req, res) => {
     publicKey: notificationKeys().publicKey,
     devices: devicePreferences(res.locals.owner),
     endpoints: (
-      db
-        .prepare("SELECT endpoint FROM push_subscriptions WHERE owner_id=?")
-        .all(res.locals.owner) as { endpoint: string }[]
+      pushSubscriptionsQueries.endpoints(db, res.locals.owner) as {
+        endpoint: string;
+      }[]
     ).map((s) => s.endpoint),
   });
 });
@@ -80,10 +73,10 @@ routes.on(workspaceApi.notificationSubscribe, (req, res) => {
   const preferences = req.body.preferences;
   const owner = res.locals.owner;
   db.transaction(() => {
-    const existing = db
-      .prepare("SELECT id,owner_id FROM push_subscriptions WHERE endpoint=?")
-      .get(subscription.endpoint) as
-      { id: string; owner_id: string } | undefined;
+    const existing = pushSubscriptionsQueries.byEndpoint(
+      db,
+      subscription.endpoint,
+    ) as { id: string; owner_id: string } | undefined;
     if (existing && existing.owner_id !== owner)
       throw new Problem(
         409,
@@ -91,19 +84,14 @@ routes.on(workspaceApi.notificationSubscribe, (req, res) => {
       );
     if (
       !existing &&
-      (
-        db
-          .prepare("SELECT count(*) n FROM push_subscriptions WHERE owner_id=?")
-          .get(owner) as { n: number }
-      ).n >= 20
+      (pushSubscriptionsQueries.count(db, owner) as { n: number }).n >= 20
     )
       throw new Problem(
         409,
         "Too many notification devices for this workspace",
       );
-    db.prepare(
-      "INSERT INTO push_subscriptions VALUES(?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET subscription=excluded.subscription",
-    ).run(
+    pushSubscriptionsQueries.upsert(
+      db,
       existing?.id || id(),
       owner,
       subscription.endpoint,
@@ -111,15 +99,13 @@ routes.on(workspaceApi.notificationSubscribe, (req, res) => {
       now(),
     );
     if (preferences) {
-      const device = db
-        .prepare(
-          "SELECT id FROM push_subscriptions WHERE endpoint=? AND owner_id=?",
-        )
-        .get(subscription.endpoint, owner) as { id: string };
-      db.prepare(
-        `INSERT INTO push_preferences(subscription_id,needs_you,completed,reminders,social) VALUES(?,?,?,?,?)
-        ON CONFLICT(subscription_id) DO UPDATE SET needs_you=excluded.needs_you,completed=excluded.completed,reminders=excluded.reminders,social=excluded.social`,
-      ).run(
+      const device = pushSubscriptionsQueries.ownedEndpoint(
+        db,
+        subscription.endpoint,
+        owner,
+      ) as { id: string };
+      pushPreferencesQueries.upsert(
+        db,
         device.id,
         Number(preferences.needsYou),
         Number(preferences.completed),
@@ -132,9 +118,7 @@ routes.on(workspaceApi.notificationSubscribe, (req, res) => {
 });
 routes.on(workspaceApi.notificationUnsubscribe, (req, res) => {
   const { endpoint } = req.body;
-  db.prepare(
-    "DELETE FROM push_subscriptions WHERE endpoint=? AND owner_id=?",
-  ).run(endpoint, res.locals.owner);
+  pushSubscriptionsQueries.removeEndpoint(db, endpoint, res.locals.owner);
   res.json({ ok: true });
 });
 
@@ -194,15 +178,7 @@ export async function deliverNotifications(send = webpush.sendNotification) {
   const jobs = db
     .transaction(() => {
       const results = (
-        db
-          .prepare(
-            `SELECT d.subscription_id,d.artifact_id,d.attempts,s.subscription,s.owner_id,a.title,a.kind,substr(a.content,1,4000) content,c.title thread,g.name,a.conversation_id,json_extract(a.metadata,'$.messageId') message_id FROM push_deliveries d
-      JOIN push_subscriptions s ON s.id=d.subscription_id
-      JOIN artifacts a ON a.id=d.artifact_id LEFT JOIN agents g ON g.id=a.agent_id
-      LEFT JOIN conversations c ON c.id=a.conversation_id AND c.owner_id=a.owner_id
-      WHERE d.delivered_at IS NULL AND d.available_at<=? AND d.attempts<${MAX_ATTEMPTS} ORDER BY d.available_at LIMIT 4`,
-          )
-          .all(now()) as {
+        pushDeliveriesQueries.due(db, now(), MAX_ATTEMPTS) as {
           subscription_id: string;
           artifact_id: string;
           attempts: number;
@@ -230,13 +206,7 @@ export async function deliverNotifications(send = webpush.sendNotification) {
         },
       }));
       const messages = (
-        db
-          .prepare(
-            `SELECT m.*,s.subscription,s.owner_id FROM push_messages m
-      JOIN push_subscriptions s ON s.id=m.subscription_id
-      WHERE m.delivered_at IS NULL AND m.available_at<=? AND m.attempts<${MAX_ATTEMPTS} ORDER BY m.available_at LIMIT 4`,
-          )
-          .all(now()) as {
+        pushMessagesQueries.due(db, now(), MAX_ATTEMPTS) as {
           subscription_id: string;
           message_key: string;
           title: string;
@@ -262,30 +232,42 @@ export async function deliverNotifications(send = webpush.sendNotification) {
         },
       }));
       for (const job of results)
-        db.prepare(
-          "UPDATE push_deliveries SET attempts=attempts+1,available_at=? WHERE subscription_id=? AND artifact_id=?",
-        ).run(now() + 60000, job.subscription_id, job.artifact_id);
+        pushDeliveriesQueries.claim(
+          db,
+          now() + 60000,
+          job.subscription_id,
+          job.artifact_id,
+        );
       for (const job of messages)
-        db.prepare(
-          "UPDATE push_messages SET attempts=attempts+1,available_at=? WHERE subscription_id=? AND message_key=?",
-        ).run(now() + 60000, job.subscription_id, job.message_key);
+        pushMessagesQueries.claim(
+          db,
+          now() + 60000,
+          job.subscription_id,
+          job.message_key,
+        );
       return [...results, ...messages];
     })
     .immediate();
   if (!jobs.length) return;
   const keys = notificationKeys();
-  const settle = (job: Delivery, sql: string, ...values: unknown[]) =>
+  const settle = (
+    job: Delivery,
+    action: "delivered" | "retry",
+    time: number,
+  ) =>
     job.artifact_id
-      ? db
-          .prepare(
-            `UPDATE push_deliveries SET ${sql} WHERE subscription_id=? AND artifact_id=?`,
-          )
-          .run(...values, job.subscription_id, job.artifact_id)
-      : db
-          .prepare(
-            `UPDATE push_messages SET ${sql} WHERE subscription_id=? AND message_key=?`,
-          )
-          .run(...values, job.subscription_id, job.message_key);
+      ? pushDeliveriesQueries[action](
+          db,
+          time,
+          job.subscription_id,
+          job.artifact_id,
+        )
+      : pushMessagesQueries[action](
+          db,
+          time,
+          job.subscription_id,
+          job.message_key,
+        );
   await Promise.all(
     jobs.map(async (job) => {
       try {
@@ -303,25 +285,31 @@ export async function deliverNotifications(send = webpush.sendNotification) {
           urgency: "normal",
           timeout: 8000,
         });
-        settle(job, "delivered_at=?", now());
+        settle(job, "delivered", now());
       } catch (error) {
         const status = (error as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410)
-          db.prepare("DELETE FROM push_subscriptions WHERE id=?").run(
-            job.subscription_id,
-          );
+          pushSubscriptionsQueries.remove(db, job.subscription_id);
         else
           settle(
             job,
-            "available_at=?",
+            "retry",
             now() + Math.min(3600000, 60000 * 2 ** job.attempts),
           );
         // Never log endpoint URLs or subscription encryption keys.
       }
     }),
   );
-  for (const table of ["push_deliveries", "push_messages"])
-    db.prepare(
-      `DELETE FROM ${table} WHERE delivered_at<? OR (attempts>=${MAX_ATTEMPTS} AND available_at<?)`,
-    ).run(now() - 7 * 86400000, now() - 7 * 86400000);
+  pushDeliveriesQueries.prune(
+    db,
+    now() - 7 * 86400000,
+    MAX_ATTEMPTS,
+    now() - 7 * 86400000,
+  );
+  pushMessagesQueries.prune(
+    db,
+    now() - 7 * 86400000,
+    MAX_ATTEMPTS,
+    now() - 7 * 86400000,
+  );
 }

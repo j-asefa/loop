@@ -1,3 +1,4 @@
+import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
 import { createHash } from "node:crypto";
 import { db } from "../db.js";
 import { Problem } from "../domain.js";
@@ -26,11 +27,7 @@ export function workspaceToolBindings(
   owner: string,
   candidate?: Catalog,
 ): ToolBinding[] {
-  const rows = db
-    .prepare(
-      "SELECT id,name,tools FROM mcp_connections WHERE owner_id=? AND status='connected' ORDER BY id",
-    )
-    .all(owner) as Catalog[];
+  const rows = mcpConnectionsQueries.connectedCatalog(db, owner) as Catalog[];
   const catalogs = candidate
     ? [...rows.filter((row) => row.id !== candidate.id), candidate].sort(
         (a, b) => a.id.localeCompare(b.id),

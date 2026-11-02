@@ -1,3 +1,5 @@
+import * as prWatchDeliveriesQueries from "./sql/pr-watch-deliveries.js";
+import * as prWatchSeenQueries from "./sql/pr-watch-seen.js";
 import type { QueryRow } from "./query-records.js";
 import * as watchQueries from "./sql/pr-watches.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -313,7 +315,7 @@ export function resumeWatch(owner: string, watchId: string) {
     throw new Problem(409, "Only a paused watch can be resumed");
   watchQueries.resume(db, now(), watch.id);
   // A resumed watch starts a fresh hour.
-  db.prepare("DELETE FROM pr_watch_deliveries WHERE watch_id=?").run(watch.id);
+  prWatchDeliveriesQueries.removeWatch(db, watch.id);
   return { ok: true };
 }
 
@@ -494,9 +496,10 @@ async function read(watch: PrWatch, token: string) {
     Date.parse(c.submitted_at || c.created_at || "");
   const seen = new Set(
     (
-      db
-        .prepare("SELECT kind,item_id FROM pr_watch_seen WHERE watch_id=?")
-        .all(watch.id) as { kind: string; item_id: number }[]
+      prWatchSeenQueries.forWatch(db, watch.id) as {
+        kind: string;
+        item_id: number;
+      }[]
     ).map((s) => s.kind + ":" + s.item_id),
   );
   // Ids up to a watch's cursor were handled before ids were tracked.
@@ -645,11 +648,7 @@ export async function pollWatch(watchId: string, time = now()) {
   watchQueries.schedule(db, time + POLL_MS, watch.id);
   // Hold updates while the agent is still on the last one: they arrive
   // together once it is done, and its own pushes cannot pile up turns.
-  const busy = db
-    .prepare(
-      "SELECT 1 FROM pr_watch_deliveries d JOIN runs r ON r.id=d.run_id WHERE d.watch_id=? AND r.state IN ('queued','running','pausing','paused','awaiting_approval')",
-    )
-    .get(watch.id);
+  const busy = prWatchDeliveriesQueries.activeRun(db, watch.id);
   if (busy) return "busy";
   const token = githubToken(watch.owner_id);
   if (!token) {
@@ -693,9 +692,7 @@ export async function pollWatch(watchId: string, time = now()) {
     .transaction(() => {
       const current = watchQueries.watching(db, watch.id);
       // Stopped or polled by someone else meanwhile: drop this read.
-      const already = db.prepare(
-        "SELECT 1 FROM pr_watch_seen WHERE watch_id=? AND kind=? AND item_id=?",
-      );
+
       // A read that another poll has since superseded is dropped whole: its
       // observation (head, pending checks, read time) is older than what
       // the watch already holds, even when the conclusion fields agree.
@@ -704,14 +701,14 @@ export async function pollWatch(watchId: string, time = now()) {
         current.ci_sha !== watch.ci_sha ||
         current.ci_conclusion !== watch.ci_conclusion ||
         current.read_at !== watch.read_at ||
-        update.seen.some((item) => already.get(watch.id, item.kind, item.id))
+        update.seen.some((item) =>
+          prWatchSeenQueries.exists(db, watch.id, item.kind, item.id),
+        )
       )
         return "skipped";
       const advance = () => {
-        const mark = db.prepare(
-          "INSERT OR IGNORE INTO pr_watch_seen(watch_id,kind,item_id) VALUES(?,?,?)",
-        );
-        for (const item of update.seen) mark.run(watch.id, item.kind, item.id);
+        for (const item of update.seen)
+          prWatchSeenQueries.insert(db, watch.id, item.kind, item.id);
         watchQueries.advance(
           db,
           login,
@@ -730,11 +727,11 @@ export async function pollWatch(watchId: string, time = now()) {
         advance();
         return "quiet";
       }
-      const recent = db
-        .prepare(
-          "SELECT count(*) n FROM pr_watch_deliveries WHERE watch_id=? AND created_at>?",
-        )
-        .get(watch.id, time - 3600_000) as { n: number };
+      const recent = prWatchDeliveriesQueries.recentCount(
+        db,
+        watch.id,
+        time - 3600_000,
+      ) as { n: number };
       if (recent.n >= TURNS_PER_HOUR) {
         // Record what this read observed (the head, its result, whether its
         // checks had finished, and when) apart from the delivered result and
@@ -782,9 +779,7 @@ export async function pollWatch(watchId: string, time = now()) {
           steer: false,
           automation: { kind: "github_watch", watchId: watch.id },
         });
-        db.prepare(
-          "INSERT INTO pr_watch_deliveries(watch_id,run_id,created_at) VALUES(?,?,?)",
-        ).run(watch.id, run.id, time);
+        prWatchDeliveriesQueries.insert(db, watch.id, run.id, time);
       } catch (error) {
         if (!(error instanceof Problem)) throw error;
         // A missing thread or agent ends the watch. Anything else (a provider

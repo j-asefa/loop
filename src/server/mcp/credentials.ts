@@ -1,3 +1,4 @@
+import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
 import { db } from "../db.js";
 import { seal, unseal } from "../secrets.js";
 import { safeUrl } from "./network.js";
@@ -30,15 +31,14 @@ export function privateMcpUrl(value: string, auth: AuthSecret) {
 // the API or worker starts, preserving their owner, credentials and identity.
 export function migrateMcpUrlCredentials() {
   db.transaction(() => {
-    const rows = db
-      .prepare("SELECT * FROM mcp_connections WHERE url LIKE 'https:%?%'")
-      .all() as MCPConnection[];
+    const rows = mcpConnectionsQueries.credentialUrls(db) as MCPConnection[];
     for (const row of rows) {
       const auth: AuthSecret = row.secret
         ? JSON.parse(unseal(row.secret, row.owner_id))
         : { type: "none" };
       const clean = privateMcpUrl(row.url, auth);
-      db.prepare("UPDATE mcp_connections SET url=?,secret=? WHERE id=?").run(
+      mcpConnectionsQueries.setPrivateUrl(
+        db,
         clean.url,
         seal(
           JSON.stringify(row.status === "disconnected" ? auth : clean.auth),

@@ -1,4 +1,5 @@
 import { installResultReadHook } from "../helpers/result-read-hook.js";
+import { installTokenCompletionHook } from "../helpers/token-completion-hook.js";
 // An actual production HTTP entrypoint, with no workers or model providers.
 // Environment and data directory are supplied by the isolated parent fixture.
 import { once } from "node:events";
@@ -13,6 +14,7 @@ const source =
 const { config } = await import(source + "server/config.js");
 const { db, changes } = await import(source + "server/db.js");
 installResultReadHook(db);
+installTokenCompletionHook(db);
 const { seal } = await import(source + "server/secrets.js");
 let close: () => Promise<void>;
 let stopListening: () => Promise<void>;

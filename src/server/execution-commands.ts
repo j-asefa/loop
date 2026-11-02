@@ -1,3 +1,4 @@
+import * as executionCommandsQueries from "./sql/execution-commands.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { db, now } from "./db.js";
@@ -20,20 +21,16 @@ const sessionDigestKey = randomBytes(32);
 // Response bodies are a bounded cache; a compacted success remains a success
 // tombstone and requires the caller to inspect current state instead of rerun.
 function compactResults(owner: string, current: string) {
-  const rows = db
-    .prepare(
-      "SELECT command_id,length(CAST(result AS BLOB)) bytes FROM execution_commands WHERE owner_id=? AND result IS NOT NULL ORDER BY (command_id=?) DESC,updated_at DESC,command_id DESC",
-    )
-    .all(owner, current) as { command_id: string; bytes: number }[];
+  const rows = executionCommandsQueries.resultSizes(db, owner, current) as {
+    command_id: string;
+    bytes: number;
+  }[];
   let count = 0,
     bytes = 0;
-  const compact = db.prepare(
-    "UPDATE execution_commands SET result=NULL WHERE owner_id=? AND command_id=? AND state='completed'",
-  );
   for (const row of rows) {
     if (++count <= 64 && bytes + row.bytes <= 4 * 1024 * 1024)
       bytes += row.bytes;
-    else compact.run(owner, row.command_id);
+    else executionCommandsQueries.compact(db, owner, row.command_id);
   }
 }
 const uncertain = () =>
@@ -61,15 +58,14 @@ export async function executionCommand(
     .digest("hex");
   const prior = db
     .transaction(() => {
-      const row = db
-        .prepare(
-          "SELECT method,digest,generation,state,result FROM execution_commands WHERE owner_id=? AND command_id=?",
-        )
-        .get(request.owner, commandId) as Receipt | undefined;
+      const row = executionCommandsQueries.receipt(
+        db,
+        request.owner,
+        commandId,
+      ) as Receipt | undefined;
       if (row) return row;
-      db.prepare(
-        "INSERT INTO execution_commands(owner_id,command_id,method,digest,generation,state,created_at,updated_at) VALUES(?,?,?,?,?,'started',?,?)",
-      ).run(
+      executionCommandsQueries.start(
+        db,
         request.owner,
         commandId,
         request.method,
@@ -110,9 +106,8 @@ export async function executionCommand(
         // Sign-in replies can contain short-lived codes. Never persist those or
         // submitted credentials; only the digest and the command state travel.
         db.transaction(() => {
-          db.prepare(
-            "UPDATE execution_commands SET state='completed',result=?,updated_at=? WHERE owner_id=? AND command_id=? AND generation=? AND state='started'",
-          ).run(
+          executionCommandsQueries.complete(
+            db,
             sessionReplay ? null : JSON.stringify(result),
             now(),
             request.owner,
@@ -125,13 +120,20 @@ export async function executionCommand(
       },
       (error) => {
         if (error instanceof ExecutionRefused) {
-          db.prepare(
-            "DELETE FROM execution_commands WHERE owner_id=? AND command_id=? AND generation=? AND state='started'",
-          ).run(request.owner, commandId, request.generation);
+          executionCommandsQueries.refused(
+            db,
+            request.owner,
+            commandId,
+            request.generation,
+          );
         } else {
-          db.prepare(
-            "UPDATE execution_commands SET state='unknown',updated_at=? WHERE owner_id=? AND command_id=? AND generation=? AND state='started'",
-          ).run(now(), request.owner, commandId, request.generation);
+          executionCommandsQueries.unknown(
+            db,
+            now(),
+            request.owner,
+            commandId,
+            request.generation,
+          );
         }
         // All concurrent callers await this same promise. Preserve its
         // outcome independently of whether their own handler was entered.

@@ -1,3 +1,6 @@
+import * as projectPathsQueries from "./sql/project-paths.js";
+import * as connectionsQueries from "./sql/connections.js";
+import * as harnessesQueries from "./sql/harnesses.js";
 import * as runsQueries from "./sql/runs.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { discover } from "../host-control.js";
@@ -25,9 +28,8 @@ export async function authOptions({
   projectId,
 }: ExecutionInput<"auth.catalog">) {
   owned("folders", projectId, OWNER);
-  const project = db
-    .prepare("SELECT path FROM project_paths WHERE folder_id=?")
-    .get(projectId) as { path: string } | undefined;
+  const project = projectPathsQueries.path(db, projectId) as
+    { path: string } | undefined;
   if (!project)
     throw new ExecutionRefused(
       422,
@@ -87,11 +89,8 @@ export async function runtimeList({
         help: probe.help,
         enabled:
           !!enabled &&
-          db
-            .prepare(
-              "SELECT 1 FROM connections WHERE id=? AND owner_id=? AND status='connected'",
-            )
-            .get("native-" + name, OWNER) != null,
+          connectionsQueries.connectedExists(db, "native-" + name, OWNER) !=
+            null,
         authentication: enabled ? "previously_verified" : "unknown",
         billing: saved?.billing,
         project: saved?.project,
@@ -156,7 +155,8 @@ export async function upgradeStart(
       throw new Problem(409, (error as Error).message);
     }
     if (saved && saved.executable !== executable)
-      db.prepare("UPDATE harnesses SET options=? WHERE name=?").run(
+      harnessesQueries.setOptions(
+        db,
         JSON.stringify({ ...saved, executable }),
         name,
       );
@@ -192,9 +192,8 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       "Finish or cancel this runtime’s sign-in before enabling it.",
     );
   owned("folders", input.projectId, OWNER);
-  const project = db
-    .prepare("SELECT path FROM project_paths WHERE folder_id=?")
-    .get(input.projectId) as { path: string } | undefined;
+  const project = projectPathsQueries.path(db, input.projectId) as
+    { path: string } | undefined;
   if (!project)
     throw new ExecutionRefused(
       422,

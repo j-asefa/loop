@@ -96,16 +96,27 @@ function fixture(value = snapshot()) {
   );
   return { review, run: ownedRun(rid, owner) };
 }
+let observedQueries: string[] | undefined;
+const prepare = db.prepare.bind(db);
+db.prepare = ((sql: string) => {
+  const statement = prepare(sql);
+  if (/FROM code_reviews/i.test(sql)) {
+    const get = statement.get.bind(statement);
+    statement.get = (...args: unknown[]) => {
+      observedQueries?.push(sql);
+      return get(...args);
+    };
+  }
+  return statement;
+}) as typeof db.prepare;
 function observeReads() {
-  const prepare = db.prepare.bind(db);
   const queries: string[] = [];
-  const spy = vi.spyOn(db, "prepare").mockImplementation((sql: string) => {
-    if (/FROM code_reviews/i.test(sql)) queries.push(sql);
-    return prepare(sql);
-  });
+  observedQueries = queries;
   return {
     queries,
-    restore: () => spy.mockRestore(),
+    restore: () => {
+      observedQueries = undefined;
+    },
     blobs: () =>
       queries.filter((sql) => /^SELECT snapshot FROM code_reviews/.test(sql))
         .length,

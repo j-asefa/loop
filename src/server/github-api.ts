@@ -1,3 +1,4 @@
+import * as mcpConnectionsQueries from "./sql/mcp-connections.js";
 import "../../runtime/environment.mjs";
 import { fetch as undiciFetch } from "undici";
 import { db, now } from "./db.js";
@@ -36,11 +37,10 @@ export function withGithubFixture(
  * oldest connection first. Never inferred from a connection's display name.
  */
 export function githubTokens(owner: string) {
-  const connections = db
-    .prepare(
-      "SELECT * FROM mcp_connections WHERE owner_id=? AND status='connected' ORDER BY created_at,rowid",
-    )
-    .all(owner) as MCPConnection[];
+  const connections = mcpConnectionsQueries.githubCandidates(
+    db,
+    owner,
+  ) as MCPConnection[];
   const tokens = new Set<string>();
   for (const connection of connections) {
     if (!isGithubMcpUrl(connection.url)) continue;

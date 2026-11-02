@@ -14,3 +14,84 @@ export function isUnknown(db: Database.Database, run: string, call: string) {
     ? undefined
     : parseRecord(isUnknownRow, row, "tool_invocations");
 }
+
+const byCallStatement = statement(
+  "SELECT * FROM tool_invocations WHERE run_id=? AND call_id=?",
+);
+const byCallRow = QueryRecords.tool_invocations;
+export function byCall(db: Database.Database, run: string, call: string) {
+  const row = byCallStatement(db).get(run, call);
+  return row === undefined
+    ? undefined
+    : parseRecord(byCallRow, row, "tool_invocations");
+}
+
+const insertPendingStatement = statement(
+  "INSERT INTO tool_invocations(id,owner_id,run_id,connection_id,agent_id,call_id,tool,args,state,approval_id,created_at) VALUES(?,?,?,?,?,?,?,?,'pending',?,?)",
+);
+export function insertPending(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  run: string,
+  connection: string,
+  agent: string | null,
+  call: string,
+  tool: string,
+  args: string,
+  approval: string,
+  created: number,
+) {
+  return insertPendingStatement(db).run(
+    id,
+    owner,
+    run,
+    connection,
+    agent,
+    call,
+    tool,
+    args,
+    approval,
+    created,
+  );
+}
+
+const byIdStatement = statement("SELECT * FROM tool_invocations WHERE id=?");
+const byIdRow = QueryRecords.tool_invocations;
+export function byId(db: Database.Database, id: string) {
+  const row = byIdStatement(db).get(id);
+  return row === undefined
+    ? undefined
+    : parseRecord(byIdRow, row, "tool_invocations");
+}
+
+const startPendingStatement = statement(
+  "UPDATE tool_invocations SET state='executing' WHERE id=? AND state='pending'",
+);
+export function startPending(db: Database.Database, id: string) {
+  return startPendingStatement(db).run(id);
+}
+
+const completeStatement = statement(
+  "UPDATE tool_invocations SET state=?,result=?,artifact_id=? WHERE id=?",
+);
+export function complete(
+  db: Database.Database,
+  state: string,
+  result: string,
+  artifact: string,
+  id: string,
+) {
+  return completeStatement(db).run(state, result, artifact, id);
+}
+
+const unknownExecutingStatement = statement(
+  "UPDATE tool_invocations SET state='unknown',result=? WHERE id=? AND state='executing'",
+);
+export function unknownExecuting(
+  db: Database.Database,
+  result: string,
+  id: string,
+) {
+  return unknownExecutingStatement(db).run(result, id);
+}

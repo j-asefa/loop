@@ -185,3 +185,58 @@ export function isChild(db: Database.Database, parent: string, child: string) {
     ? undefined
     : parseRecord(isChildRow, row, "delegations");
 }
+
+const reportsStatement = statement(
+  "SELECT r.agent_id,r.state,r.result,r.error FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? ORDER BY d.call_id",
+);
+
+const reportsRow = QueryRecords.runs.pick({
+  agent_id: true,
+  state: true,
+  result: true,
+  error: true,
+});
+
+export function reports(db: Database.Database, run: string | null) {
+  return reportsStatement(db)
+    .all(run)
+    .map((row) => parseRecord(reportsRow, row, "delegations"));
+}
+
+const insertForegroundStatement = statement(
+  "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,0)",
+);
+export function insertForeground(
+  db: Database.Database,
+  parent: string,
+  call: string,
+  child: string,
+  args: string,
+) {
+  return insertForegroundStatement(db).run(parent, call, child, args);
+}
+
+const reviewStatesStatement = statement(
+  "SELECT r.agent_id,r.state,r.error FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? ORDER BY d.call_id",
+);
+const reviewStatesRow = QueryRecords.runs.pick({
+  agent_id: true,
+  state: true,
+  error: true,
+});
+export function reviewStates(db: Database.Database, parent: string) {
+  return reviewStatesStatement(db)
+    .all(parent)
+    .map((row) => parseRecord(reviewStatesRow, row, "delegations"));
+}
+
+const backgroundStatement = statement(
+  "UPDATE delegations SET background=1 WHERE parent_run_id=? AND call_id=?",
+);
+export function background(
+  db: Database.Database,
+  parent: string,
+  call: string,
+) {
+  return backgroundStatement(db).run(parent, call);
+}

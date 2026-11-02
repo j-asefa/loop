@@ -1,3 +1,7 @@
+import * as mcpFederationPeersQueries from "../sql/mcp-federation-peers.js";
+import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
+import * as mcpReverseCallsQueries from "../sql/mcp-reverse-calls.js";
+import * as mcpFederationCallsQueries from "../sql/mcp-federation-calls.js";
 import * as runsQueries from "../sql/runs.js";
 import type { QueryRow } from "../query-records.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -47,23 +51,20 @@ export function enrollFederationPeer(owner: string, peerId: string) {
     throw new Problem(400, "Invalid execution source");
   return db
     .transaction(() => {
-      let row = db
-        .prepare(
-          "SELECT * FROM mcp_federation_peers WHERE owner_id=? AND peer_id=?",
-        )
-        .get(owner, peerId) as Peer | undefined;
+      let row = mcpFederationPeersQueries.ownedPeer(db, owner, peerId) as
+        Peer | undefined;
       if (!row || row.revoked_at) {
         const token = randomBytes(32).toString("hex");
-        db.prepare(
-          `INSERT INTO mcp_federation_peers(id,owner_id,peer_id,secret,token_hash,created_at,revoked_at,revoke_synced_at)
-           VALUES(?,?,?,?,?,?,NULL,NULL) ON CONFLICT(owner_id,peer_id) DO UPDATE SET
-           secret=excluded.secret,token_hash=excluded.token_hash,created_at=excluded.created_at,revoked_at=NULL,revoke_synced_at=NULL`,
-        ).run(id(), owner, peerId, seal(token, owner), hash(token), now());
-        row = db
-          .prepare(
-            "SELECT * FROM mcp_federation_peers WHERE owner_id=? AND peer_id=?",
-          )
-          .get(owner, peerId) as Peer;
+        mcpFederationPeersQueries.enroll(
+          db,
+          id(),
+          owner,
+          peerId,
+          seal(token, owner),
+          hash(token),
+          now(),
+        );
+        row = mcpFederationPeersQueries.ownedPeer(db, owner, peerId) as Peer;
       }
       return unseal(row.secret, owner);
     })
@@ -77,20 +78,27 @@ export function revokeFederationPeer(
 ) {
   return db
     .transaction(() => {
-      db.prepare(
-        `UPDATE mcp_federation_peers SET revoked_at=coalesce(revoked_at,?),
-         revoke_synced_at=CASE WHEN ? THEN ? ELSE revoke_synced_at END,
-         secret=? WHERE owner_id=? AND peer_id=?`,
-      ).run(now(), synced ? 1 : 0, now(), seal("", owner), owner, peerId);
-      db.prepare(
-        `UPDATE mcp_connections SET status='disconnected',secret=?
-         WHERE owner_id=? AND json_extract(metadata,'$.federatedPeer')=?`,
-      ).run(seal(JSON.stringify({ type: "none" }), owner), owner, peerId);
-      const calls = db
-        .prepare(
-          "UPDATE mcp_reverse_calls SET state='unknown',updated_at=? WHERE owner_id=? AND peer_id=? AND state IN ('pending','claimed') RETURNING id,run_key",
-        )
-        .all(now(), owner, peerId) as { id: string; run_key: string }[];
+      mcpFederationPeersQueries.revoke(
+        db,
+        now(),
+        synced ? 1 : 0,
+        now(),
+        seal("", owner),
+        owner,
+        peerId,
+      );
+      mcpConnectionsQueries.disconnectPeer(
+        db,
+        seal(JSON.stringify({ type: "none" }), owner),
+        owner,
+        peerId,
+      );
+      const calls = mcpReverseCallsQueries.unknownPeer(
+        db,
+        now(),
+        owner,
+        peerId,
+      ) as { id: string; run_key: string }[];
       for (const call of calls)
         if (runsQueries.existsOwned(db, call.run_key, owner))
           emit(owner, call.run_key, "reverse.settled", { callId: call.id });
@@ -135,11 +143,8 @@ export async function installFederationPeer(
   if (token.length !== 64 || !/^[0-9a-f]+$/.test(token))
     throw new Problem(400, "Invalid execution source credential");
   const url = federationUrl(endpoint).toString();
-  const existing = db
-    .prepare(
-      "SELECT * FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.federatedPeer')=? ORDER BY created_at DESC LIMIT 1",
-    )
-    .get(owner, peerId) as MCPConnection | undefined;
+  const existing = mcpConnectionsQueries.byFederatedPeer(db, owner, peerId) as
+    MCPConnection | undefined;
   const secret = seal(JSON.stringify({ type: "bearer", token }), owner);
   const metadata = JSON.stringify({
     transport: "federation",
@@ -147,13 +152,26 @@ export async function installFederationPeer(
   });
   const connectionId = existing?.id || id();
   if (existing)
-    db.prepare(
-      "UPDATE mcp_connections SET name=?,url=?,secret=?,status=CASE WHEN status='disconnected' THEN 'needs_auth' ELSE status END,metadata=? WHERE id=? AND owner_id=?",
-    ).run(label, url, secret, metadata, connectionId, owner);
+    mcpConnectionsQueries.reconnectFederated(
+      db,
+      label,
+      url,
+      secret,
+      metadata,
+      connectionId,
+      owner,
+    );
   else
-    db.prepare(
-      "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,?,?,?,?,'needs_auth',?,?)",
-    ).run(connectionId, owner, label, url, secret, metadata, now());
+    mcpConnectionsQueries.insertWithMetadata(
+      db,
+      connectionId,
+      owner,
+      label,
+      url,
+      secret,
+      metadata,
+      now(),
+    );
   await discover(ownedMcpConnection(connectionId, owner));
   return { id: connectionId, status: "connected" };
 }
@@ -165,11 +183,8 @@ export function authenticateFederationPeer(req: IncomingMessage): Peer {
   if (!token || req.headers.origin || req.headers["sec-fetch-site"])
     throw new Problem(403, "Execution source credential required");
   const tokenHash = hash(token);
-  const row = db
-    .prepare(
-      "SELECT * FROM mcp_federation_peers WHERE token_hash=? AND revoked_at IS NULL",
-    )
-    .get(tokenHash) as Peer | undefined;
+  const row = mcpFederationPeersQueries.byToken(db, tokenHash) as
+    Peer | undefined;
   if (
     !row ||
     !timingSafeEqual(Buffer.from(tokenHash), Buffer.from(row.token_hash))
@@ -179,12 +194,10 @@ export function authenticateFederationPeer(req: IncomingMessage): Peer {
 }
 
 function sourceBindings(owner: string): Binding[] {
-  const rows = db
-    .prepare(
-      `SELECT * FROM mcp_connections WHERE owner_id=? AND status='connected'
-       AND coalesce(json_extract(metadata,'$.transport'),'http')<>'federation' ORDER BY id`,
-    )
-    .all(owner) as MCPConnection[];
+  const rows = mcpConnectionsQueries.localConnected(
+    db,
+    owner,
+  ) as MCPConnection[];
   return rows.flatMap((connection) =>
     ToolSchema.array()
       .parse(JSON.parse(connection.tools))
@@ -281,12 +294,12 @@ async function call(
     args,
   );
   const encodedArgs = JSON.stringify(args);
-  const saved = db
-    .prepare(
-      "SELECT * FROM mcp_federation_calls WHERE peer_id=? AND run_key=? AND request_key=?",
-    )
-    .get(peer.id, runKey, requestKey) as
-    QueryRow<"mcp_federation_calls"> | undefined;
+  const saved = mcpFederationCallsQueries.byRequest(
+    db,
+    peer.id,
+    runKey,
+    requestKey,
+  ) as QueryRow<"mcp_federation_calls"> | undefined;
   if (saved) {
     if (saved.tool_name !== name || saved.args !== encodedArgs)
       throw new Problem(409, "Shared tool call identity was reused");
@@ -307,22 +320,18 @@ async function call(
   // connection sends nothing, so it must stay retryable, not uncertain.
   const client = await clientFor(peer, runKey, connection);
   const key = id();
-  const recorded = db
-    .prepare(
-      `INSERT INTO mcp_federation_calls(id,owner_id,peer_id,run_key,request_key,tool_name,args,state,created_at,updated_at)
-       VALUES(?,?,?,?,?,?,?,'executing',?,?) ON CONFLICT(peer_id,run_key,request_key) DO NOTHING`,
-    )
-    .run(
-      key,
-      peer.owner_id,
-      peer.id,
-      runKey,
-      requestKey,
-      name,
-      encodedArgs,
-      now(),
-      now(),
-    ).changes;
+  const recorded = mcpFederationCallsQueries.insertExecuting(
+    db,
+    key,
+    peer.owner_id,
+    peer.id,
+    runKey,
+    requestKey,
+    name,
+    encodedArgs,
+    now(),
+    now(),
+  ).changes;
   // The same identity arrived concurrently while this one connected.
   if (!recorded)
     throw new Problem(
@@ -342,14 +351,10 @@ async function call(
     const result = JSON.stringify(clean);
     if (Buffer.byteLength(result) > 4 * 1024 * 1024)
       throw new Problem(413, "Shared tool result exceeds size limit");
-    db.prepare(
-      "UPDATE mcp_federation_calls SET state='completed',result=?,updated_at=? WHERE id=?",
-    ).run(result, now(), key);
+    mcpFederationCallsQueries.complete(db, result, now(), key);
     return clean;
   } catch {
-    db.prepare(
-      "UPDATE mcp_federation_calls SET state='unknown',updated_at=? WHERE id=?",
-    ).run(now(), key);
+    mcpFederationCallsQueries.unknown(db, now(), key);
     throw new Problem(
       409,
       "Shared tool outcome is uncertain; inspect it before retrying",
@@ -364,11 +369,8 @@ export async function invokeLocalFederatedTool(
   name: string,
   args: Record<string, unknown>,
 ) {
-  const peer = db
-    .prepare(
-      "SELECT * FROM mcp_federation_peers WHERE owner_id=? AND peer_id=? AND revoked_at IS NULL",
-    )
-    .get(owner, peerId) as Peer | undefined;
+  const peer = mcpFederationPeersQueries.active(db, owner, peerId) as
+    Peer | undefined;
   if (!peer) throw new Problem(403, "Execution source is not shared");
   return call(peer, runKey, requestKey, name, args);
 }

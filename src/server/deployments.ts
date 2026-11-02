@@ -1,3 +1,4 @@
+import * as deploymentInstancesQueries from "./sql/deployment-instances.js";
 import { db, id, now } from "./db.js";
 import { BuildStamp, publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
@@ -14,20 +15,15 @@ type Instance = {
   stopped_at: number | null;
 };
 const instances = (at: number) =>
-  db
-    .prepare(
-      "SELECT * FROM deployment_instances WHERE stopped_at IS NULL AND seen_at>=? ORDER BY id",
-    )
-    .all(at - FRESH_MS) as Instance[];
+  deploymentInstancesQueries.fresh(db, at - FRESH_MS) as Instance[];
 /** Called by actual serving/working entrypoints, never by a read or CLI status. */
 export function observeProcess(role: Instance["role"], build?: BuildStamp) {
   const stopEventLoop = role === "api" ? observeApiEventLoop() : undefined;
   const instance = id(),
     started = now();
-  db.prepare("DELETE FROM deployment_instances WHERE seen_at<?").run(
-    started - 24 * 3600_000,
-  );
-  db.prepare("INSERT INTO deployment_instances VALUES(?,?,?,?,?,NULL)").run(
+  deploymentInstancesQueries.prune(db, started - 24 * 3600_000);
+  deploymentInstancesQueries.insert(
+    db,
     instance,
     role,
     JSON.stringify(build ?? observedBuild()),
@@ -36,9 +32,12 @@ export function observeProcess(role: Instance["role"], build?: BuildStamp) {
   );
   const pulse = () =>
     heartbeatWrite(`deployment-${role}`, () => {
-      db.prepare(
-        "UPDATE deployment_instances SET seen_at=?,build=? WHERE id=? AND stopped_at IS NULL",
-      ).run(now(), JSON.stringify(build ?? observedBuild()), instance);
+      deploymentInstancesQueries.heartbeat(
+        db,
+        now(),
+        JSON.stringify(build ?? observedBuild()),
+        instance,
+      );
     });
   pulse();
   const timer = setInterval(pulse, 5000);
@@ -47,9 +46,7 @@ export function observeProcess(role: Instance["role"], build?: BuildStamp) {
     stopEventLoop?.();
     clearInterval(timer);
     heartbeatWrite(`deployment-${role}`, () =>
-      db
-        .prepare("UPDATE deployment_instances SET stopped_at=? WHERE id=?")
-        .run(now(), instance),
+      deploymentInstancesQueries.stop(db, now(), instance),
     );
   };
 }
