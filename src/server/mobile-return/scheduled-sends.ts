@@ -1,3 +1,4 @@
+import * as scheduledSendsQueries from "../sql/scheduled-sends.js";
 import * as runsQueries from "../sql/runs.js";
 import {
   ScheduleInput as scheduleInput,
@@ -56,11 +57,11 @@ export function createScheduledSend(owner: string, body: unknown) {
     .transaction(() => {
       // A retry of accepted work returns its receipt first, before any check
       // that depends on when it is retried (the time may have passed).
-      const prior = db
-        .prepare(
-          "SELECT * FROM scheduled_sends WHERE owner_id=? AND idempotency_key=?",
-        )
-        .get(owner, d.idempotencyKey) as ScheduledSend | undefined;
+      const prior = scheduledSendsQueries.byIdempotency(
+        db,
+        owner,
+        d.idempotencyKey,
+      ) as ScheduledSend | undefined;
       if (prior) {
         const same =
           prior.agent_id === d.agentId &&
@@ -102,11 +103,9 @@ export function createScheduledSend(owner: string, body: unknown) {
           d.replyToMessageId,
           d.replyExcerpt,
         );
-      const pending = db
-        .prepare(
-          "SELECT count(*) n FROM scheduled_sends WHERE owner_id=? AND state='scheduled'",
-        )
-        .get(owner) as { n: number };
+      const pending = scheduledSendsQueries.pendingCount(db, owner) as {
+        n: number;
+      };
       if (pending.n >= 100)
         throw new Problem(
           429,
@@ -114,10 +113,8 @@ export function createScheduledSend(owner: string, body: unknown) {
         );
       const sendId = id();
       recordFleetEffect(owner, "scheduled", sendId);
-      db.prepare(
-        `INSERT INTO scheduled_sends(id,owner_id,agent_id,conversation_id,folder_id,folder_chosen,input,attachment_ids,reply_to_message_id,reply_excerpt,idempotency_key,send_at,state,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?)`,
-      ).run(
+      scheduledSendsQueries.insert(
+        db,
         sendId,
         owner,
         agent.id,
@@ -138,9 +135,8 @@ export function createScheduledSend(owner: string, body: unknown) {
 }
 
 function scheduledSend(owner: string, sendId: string) {
-  return db
-    .prepare("SELECT * FROM scheduled_sends WHERE id=? AND owner_id=?")
-    .get(sendId, owner) as ScheduledSend | undefined;
+  return scheduledSendsQueries.owned(db, sendId, owner) as
+    ScheduledSend | undefined;
 }
 
 /**
@@ -165,37 +161,24 @@ export function listScheduledSends(
   // Waiting and not-sent messages are read separately, so a long history of
   // failures can never hide work that is still going to be sent. Failures
   // page newest first, so every one stays reachable to retry or dismiss.
-  const select = `SELECT s.*,a.name agent_name,a.provider,c.title conversation_title,f.name folder_name
-        FROM scheduled_sends s
-        LEFT JOIN agents a ON a.id=s.agent_id AND a.owner_id=s.owner_id
-        LEFT JOIN conversations c ON c.id=s.conversation_id AND c.owner_id=s.owner_id
-        LEFT JOIN folders f ON f.id=COALESCE(s.folder_id,c.project_id) AND f.owner_id=s.owner_id
-        WHERE s.owner_id=@owner AND (@conversation IS NULL OR s.conversation_id=@conversation)`;
-  const failed = db
-    .prepare(
-      `${select} AND s.state='failed'
-        AND (@at IS NULL OR s.send_at<@at OR (s.send_at=@at AND (s.created_at<@created OR (s.created_at=@created AND s.id<@id))))
-        ORDER BY s.send_at DESC,s.created_at DESC,s.id DESC LIMIT @limit`,
-    )
-    .all({
-      owner,
-      conversation: conversation ?? null,
-      at: cursor?.at ?? null,
-      created: cursor?.created ?? null,
-      id: cursor?.id ?? null,
-      limit: FAILED_PAGE + 1,
-    }) as ScheduledSend[];
+  const failed = scheduledSendsQueries.failedPage(db, {
+    owner,
+    conversation: conversation ?? null,
+    at: cursor?.at ?? null,
+    created: cursor?.created ?? null,
+    id: cursor?.id ?? null,
+    limit: FAILED_PAGE + 1,
+  }) as ScheduledSend[];
   const more = failed.length > FAILED_PAGE;
   if (more) failed.pop();
   const last = failed.at(-1);
   // Pending messages are capped at 100 per owner, so one read holds them all.
   const pending = cursor
     ? []
-    : db
-        .prepare(
-          `${select} AND s.state='scheduled' ORDER BY s.send_at,s.created_at`,
-        )
-        .all({ owner, conversation: conversation ?? null });
+    : scheduledSendsQueries.pendingPage(db, {
+        owner,
+        conversation: conversation ?? null,
+      });
   // Descriptors let "Copy to a draft" bring the files back with the text.
   const withFiles = (row: ScheduledSend) => ({
     ...row,
@@ -218,9 +201,7 @@ export function cancelScheduledSend(owner: string, sendId: string) {
       if (!row) throw new Problem(404, "Item not found");
       if (!["scheduled", "failed"].includes(row.state))
         throw new Problem(409, "This message was already sent or cancelled");
-      db.prepare(
-        "UPDATE scheduled_sends SET state='cancelled' WHERE id=? AND owner_id=? AND state IN ('scheduled','failed')",
-      ).run(sendId, owner);
+      scheduledSendsQueries.cancel(db, sendId, owner);
       return { ok: true };
     })
     .immediate();
@@ -248,11 +229,9 @@ export function editScheduledSend(
         if (d.sendAt === undefined)
           throw new Problem(400, "Choose a new time to send it");
         if (row.run_id) throw new Problem(409, "This message was already sent");
-        const pending = db
-          .prepare(
-            "SELECT count(*) n FROM scheduled_sends WHERE owner_id=? AND state='scheduled'",
-          )
-          .get(owner) as { n: number };
+        const pending = scheduledSendsQueries.pendingCount(db, owner) as {
+          n: number;
+        };
         if (pending.n >= 100)
           throw new Problem(
             429,
@@ -261,9 +240,13 @@ export function editScheduledSend(
       }
       if (d.sendAt !== undefined) validSendAt(d.sendAt);
       recordFleetEffectEdit(owner, "scheduled", row.id);
-      db.prepare(
-        "UPDATE scheduled_sends SET input=?,send_at=?,state='scheduled',error=NULL WHERE id=? AND owner_id=? AND state IN ('scheduled','failed')",
-      ).run(d.input ?? row.input, d.sendAt ?? row.send_at, sendId, owner);
+      scheduledSendsQueries.reschedule(
+        db,
+        d.input ?? row.input,
+        d.sendAt ?? row.send_at,
+        sendId,
+        owner,
+      );
       return scheduledSend(owner, sendId)!;
     })
     .immediate();
@@ -290,9 +273,7 @@ function submitScheduled(row: ScheduledSend) {
     }),
   );
   inheritFleetEffect(row.owner_id, "scheduled", row.id, run.id);
-  db.prepare(
-    "UPDATE scheduled_sends SET state='submitted',run_id=?,error=NULL WHERE id=?",
-  ).run(run.id, row.id);
+  scheduledSendsQueries.submitted(db, run.id, row.id);
   return run;
 }
 const refusal = (error: unknown) =>
@@ -326,10 +307,7 @@ export function retryScheduledSend(owner: string, sendId: string) {
       } catch (error) {
         const reason = refusal(error);
         if (reason === null) throw error;
-        db.prepare("UPDATE scheduled_sends SET error=? WHERE id=?").run(
-          reason,
-          row.id,
-        );
+        scheduledSendsQueries.setError(db, reason, row.id);
         return { run: null, row: scheduledSend(owner, sendId)! };
       }
     })
@@ -342,19 +320,12 @@ export function retryScheduledSend(owner: string, sendId: string) {
 // definite refusal marks a message failed; any other error rolls back and the
 // message is tried again on the next pass.
 export function deliverScheduledSends(time = now()) {
-  const due = db
-    .prepare(
-      "SELECT id FROM scheduled_sends WHERE state='scheduled' AND send_at<=? ORDER BY send_at,rowid LIMIT 20",
-    )
-    .all(time) as { id: string }[];
+  const due = scheduledSendsQueries.dueIds(db, time) as { id: string }[];
   let submitted = 0;
   for (const { id: sendId } of due)
     db.transaction(() => {
-      const row = db
-        .prepare(
-          "SELECT * FROM scheduled_sends WHERE id=? AND state='scheduled'",
-        )
-        .get(sendId) as ScheduledSend | undefined;
+      const row = scheduledSendsQueries.scheduled(db, sendId) as
+        ScheduledSend | undefined;
       if (!row) return;
       try {
         submitScheduled(row);
@@ -362,9 +333,7 @@ export function deliverScheduledSends(time = now()) {
       } catch (error) {
         const reason = refusal(error);
         if (reason === null) throw error;
-        db.prepare(
-          "UPDATE scheduled_sends SET state='failed',error=? WHERE id=?",
-        ).run(reason, row.id);
+        scheduledSendsQueries.fail(db, reason, row.id);
       }
     }).immediate();
   return submitted;

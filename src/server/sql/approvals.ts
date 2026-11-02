@@ -35,3 +35,57 @@ export function complete(
 ) {
   return completeStatement(db).run(result, approval);
 }
+
+const byDigestStatement = statement(
+  "SELECT * FROM approvals WHERE owner_id=? AND run_id=? AND digest=?",
+);
+const byDigestRow = QueryRecords.approvals;
+export function byDigest(
+  db: Database.Database,
+  owner: string,
+  run: string,
+  digest: string,
+) {
+  const row = byDigestStatement(db).get(owner, run, digest);
+  return row === undefined
+    ? undefined
+    : parseRecord(byDigestRow, row, "approvals");
+}
+
+const insertStatement = statement(
+  "INSERT INTO approvals VALUES(?,?,?,?,?,?,NULL,?,?)",
+);
+export function insert(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  run: string,
+  digest: string,
+  action: string,
+  state: string,
+  created: number,
+  expires: number,
+) {
+  return insertStatement(db).run(
+    id,
+    owner,
+    run,
+    digest,
+    action,
+    state,
+    created,
+    expires,
+  );
+}
+
+const decideStatement = statement(
+  "UPDATE approvals SET state=? WHERE id=? AND state=?",
+);
+export function decide(
+  db: Database.Database,
+  decision: string,
+  id: string,
+  previous: string,
+) {
+  return decideStatement(db).run(decision, id, previous);
+}

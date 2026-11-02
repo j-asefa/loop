@@ -1,3 +1,7 @@
+import * as agentDefinitionsQueries from "./sql/agent-definitions.js";
+import * as definitionCreationsQueries from "./sql/definition-creations.js";
+import * as teamsQueries from "./sql/teams.js";
+import * as conversationsQueries from "./sql/conversations.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar, projectResponse } from "./registrar.js";
 import { createHash } from "node:crypto";
@@ -25,9 +29,8 @@ type StoredDefinition = DefinitionSummary & {
   markdown: string;
 };
 function stored(owner: string, definitionId: string): StoredDefinition {
-  const row = db
-    .prepare("SELECT * FROM agent_definitions WHERE id=? AND owner_id=?")
-    .get(definitionId, owner) as StoredDefinition | undefined;
+  const row = agentDefinitionsQueries.owned(db, definitionId, owner) as
+    StoredDefinition | undefined;
   if (!row) throw new Problem(404, "Definition not found");
   return row;
 }
@@ -47,9 +50,8 @@ export function saveDefinition(
     throw new Problem(400, `Choose a ${data.kind} definition for this library`);
   return db
     .transaction(() => {
-      const prior = db
-        .prepare("SELECT * FROM agent_definitions WHERE id=?")
-        .get(definitionId) as StoredDefinition | undefined;
+      const prior = agentDefinitionsQueries.get(db, definitionId) as
+        StoredDefinition | undefined;
       if (prior && prior.owner_id !== owner)
         throw new Problem(404, "Definition not found");
       // A lost save response can be retried without another version or duplicate.
@@ -65,9 +67,8 @@ export function saveDefinition(
         );
       const at = now();
       if (prior) {
-        db.prepare(
-          "UPDATE agent_definitions SET kind=?,name=?,description=?,markdown=?,version=version+1,updated_at=? WHERE id=? AND owner_id=?",
-        ).run(
+        agentDefinitionsQueries.update(
+          db,
           spec.kind,
           spec.name,
           spec.description,
@@ -77,9 +78,8 @@ export function saveDefinition(
           owner,
         );
       } else {
-        db.prepare(
-          "INSERT INTO agent_definitions(id,owner_id,kind,name,description,markdown,version,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?)",
-        ).run(
+        agentDefinitionsQueries.insert(
+          db,
           definitionId,
           owner,
           spec.kind,
@@ -113,11 +113,11 @@ export function createFromDefinition(
     .digest("hex");
   return db
     .transaction(() => {
-      const prior = db
-        .prepare(
-          "SELECT * FROM definition_creations WHERE owner_id=? AND request_key=?",
-        )
-        .get(owner, idempotencyKey) as
+      const prior = definitionCreationsQueries.byRequest(
+        db,
+        owner,
+        idempotencyKey,
+      ) as
         | {
             request_hash: string;
             agent_id: string | null;
@@ -230,16 +230,15 @@ export function createFromDefinition(
           members,
         });
         teamId = team.id;
-        db.prepare("UPDATE teams SET folder_id=? WHERE id=?").run(
-          folderId || null,
-          teamId,
-        );
-        db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(
+        teamsQueries.setFolder(db, folderId || null, teamId);
+        conversationsQueries.setProject(
+          db,
           folderId || null,
           team.conversation_id,
         );
       }
-      db.prepare("INSERT INTO definition_creations VALUES(?,?,?,?,?)").run(
+      definitionCreationsQueries.insert(
+        db,
         owner,
         idempotencyKey,
         hash,
@@ -255,11 +254,10 @@ const routes = registrar("agentDefinitions");
 export const agentDefinitions = routes.mount;
 routes.on(workspaceApi.definitionList, (_req, res) => {
   res.json(
-    db
-      .prepare(
-        "SELECT id,kind,name,description,version,created_at,updated_at FROM agent_definitions WHERE owner_id=? ORDER BY updated_at DESC,id",
-      )
-      .all(res.locals.owner) as DefinitionSummary[],
+    agentDefinitionsQueries.summaries(
+      db,
+      res.locals.owner,
+    ) as DefinitionSummary[],
   );
 });
 routes.on(workspaceApi.definitionRead, (req, res) =>
@@ -277,10 +275,7 @@ routes.on(workspaceApi.definitionDelete, (req, res) => {
         409,
         "This definition changed. Reopen it before deleting.",
       );
-    db.prepare("DELETE FROM agent_definitions WHERE id=? AND owner_id=?").run(
-      row.id,
-      res.locals.owner,
-    );
+    agentDefinitionsQueries.remove(db, row.id, res.locals.owner);
   }).immediate();
   res.json({ ok: true });
 });

@@ -39,3 +39,11 @@ export function reserve(
 ) {
   return reserveStatement(db).run(name, agent, created);
 }
+
+const namesStatement = statement("SELECT name FROM handles");
+const namesRow = QueryRecords.handles.pick({ name: true });
+export function names(db: Database.Database) {
+  return namesStatement(db)
+    .all()
+    .map((row) => parseRecord(namesRow, row, "handles"));
+}

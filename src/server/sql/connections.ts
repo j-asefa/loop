@@ -166,3 +166,17 @@ export function ownedForRevocation(
     ? undefined
     : parseRecord(ownedForRevocationRow, row, "connections");
 }
+
+const ownerStatusStatement = statement(
+  "SELECT owner_id,status FROM connections WHERE id=?",
+);
+const ownerStatusRow = QueryRecords.connections.pick({
+  owner_id: true,
+  status: true,
+});
+export function ownerStatus(db: Database.Database, id: string) {
+  const row = ownerStatusStatement(db).get(id);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownerStatusRow, row, "connections");
+}

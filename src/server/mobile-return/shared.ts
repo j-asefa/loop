@@ -1,3 +1,5 @@
+import * as foldersQueries from "../sql/folders.js";
+import * as artifactsQueries from "../sql/artifacts.js";
 import { z } from "zod";
 import { db } from "../db.js";
 import { Problem } from "../domain.js";
@@ -13,13 +15,11 @@ export function attachmentDescriptors(
   ids: string[],
 ): UploadedFile[] {
   if (!ids.length) return [];
-  const rows = db
-    .prepare(
-      `SELECT a.id,o.id objectId,o.name,o.mime,length(o.bytes) size FROM artifacts a
-      JOIN objects o ON o.id=json_extract(a.metadata,'$.objectId') AND o.owner_id=a.owner_id
-      WHERE a.owner_id=? AND json_extract(a.metadata,'$.upload') IS NOT NULL AND a.id IN (SELECT value FROM json_each(?))`,
-    )
-    .all(owner, JSON.stringify(ids)) as UploadedFile[];
+  const rows = artifactsQueries.attachmentDescriptors(
+    db,
+    owner,
+    JSON.stringify(ids),
+  ) as UploadedFile[];
   return ids.flatMap((fileId) => rows.filter((row) => row.id === fileId));
 }
 
@@ -47,14 +47,9 @@ export function decode<T>(
 // Top-level named projects keep their existing grouping. Workspace covers only
 // unassigned work and ordinary folders outside an explicit project.
 export { FOLDER_PROJECT } from "../sql/folders.js";
-import { FOLDER_PROJECT } from "../sql/folders.js";
 export function projectFor(owner: string, folder: string | null | undefined) {
   return (
-    (db
-      .prepare(
-        `WITH RECURSIVE ${FOLDER_PROJECT} SELECT p.id,p.name FROM folder_project fp JOIN folders p ON p.id=fp.project_id AND p.owner_id=@owner WHERE fp.id IS @folder`,
-      )
-      .get({ owner, folder: folder ?? null }) as
+    (foldersQueries.projectFor(db, { owner, folder: folder ?? null }) as
       { id: string; name: string } | undefined) || null
   );
 }

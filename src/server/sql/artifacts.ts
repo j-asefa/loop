@@ -1,3 +1,4 @@
+import { FOLDER_PROJECT } from "./folders.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -163,4 +164,205 @@ export function page(
   )
     .all(...values, limit)
     .map((row) => parseRecord(pageRow, row, "artifacts"));
+}
+
+const messageResultStatement = statement(
+  "SELECT a.id,a.pinned FROM artifacts a JOIN messages m ON m.id=? AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id WHERE a.owner_id=? AND a.archived=0 AND json_extract(a.metadata,'$.messageId')=m.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",
+);
+const messageResultRow = QueryRecords.artifacts.pick({
+  id: true,
+  pinned: true,
+});
+export function messageResult(
+  db: Database.Database,
+  message: string,
+  owner: string,
+) {
+  const row = messageResultStatement(db).get(message, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(messageResultRow, row, "artifacts");
+}
+
+const bookmarkStatement = statement(
+  "UPDATE artifacts SET pinned=?,version=version+1,updated_at=? WHERE id=? AND owner_id=? AND pinned<>?",
+);
+export function bookmark(
+  db: Database.Database,
+  pinned: number,
+  updated: number,
+  artifact: string,
+  owner: string,
+  previous: number,
+) {
+  return bookmarkStatement(db).run(pinned, updated, artifact, owner, previous);
+}
+
+const isBookmarkedStatement = statement(
+  "SELECT 1 FROM artifacts a JOIN artifact_bookmarks p ON p.artifact_id=a.id WHERE a.id=? AND a.owner_id=? AND a.pinned=1 AND a.archived=0",
+);
+const isBookmarkedRow = z.object({ "1": z.number() });
+export function isBookmarked(
+  db: Database.Database,
+  artifact: string,
+  owner: string,
+) {
+  const row = isBookmarkedStatement(db).get(artifact, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(isBookmarkedRow, row, "artifacts");
+}
+
+const snippetsStatement = statement(
+  "SELECT id,title,content,created_at FROM (\n          SELECT id,title,content,created_at,rowid AS row,\n            row_number() OVER (\n              PARTITION BY trim(content,' '||char(9)||char(10)||char(13))\n              ORDER BY created_at DESC,rowid DESC\n            ) copy\n          FROM artifacts WHERE owner_id=? AND archived=0\n            AND (json_extract(metadata,'$.snippet')=1 OR title LIKE 'Saved prompt:%')\n        ) WHERE copy=1 ORDER BY created_at DESC,row DESC LIMIT 100",
+);
+const snippetsRow = QueryRecords.artifacts.pick({
+  id: true,
+  title: true,
+  content: true,
+  created_at: true,
+});
+export function snippets(db: Database.Database, owner: string) {
+  return snippetsStatement(db)
+    .all(owner)
+    .map((row) => parseRecord(snippetsRow, row, "artifacts"));
+}
+
+const savedPageStatement =
+  statement(`SELECT 'a:'||a.id key,COALESCE(p.saved_at,a.updated_at) saved_at,a.*,r.state run_state,r.error run_error,
+        json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,
+        (SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id,l.label saved_label
+      FROM artifacts a JOIN artifact_bookmarks p ON p.artifact_id=a.id
+      LEFT JOIN saved_labels l ON l.owner_id=a.owner_id AND l.item_key='a:'||a.id
+      LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+      LEFT JOIN agents g ON g.id=a.agent_id
+      WHERE a.owner_id=@owner AND a.archived=0 AND a.pinned=1 AND ${fileArtifactSql}
+        AND json_extract(a.metadata,'$.snippet') IS NULL
+        AND (@at IS NULL OR COALESCE(p.saved_at,a.updated_at)<@at OR (COALESCE(p.saved_at,a.updated_at)=@at AND 'a:'||a.id<@key))
+        AND (@folders IS NULL OR EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS a.folder_id))
+        AND (@teams IS NULL OR a.conversation_id IN (SELECT id FROM conversations WHERE owner_id=@owner AND team_id IN (SELECT value FROM json_each(@teams))))
+        AND (@q IS NULL OR a.title LIKE @q ESCAPE '\\' OR a.content LIKE @q ESCAPE '\\' OR l.label LIKE @q ESCAPE '\\')
+      ORDER BY COALESCE(p.saved_at,a.updated_at) DESC,key DESC LIMIT @limit`);
+const savedPageRow = QueryRecords.artifacts.extend({
+  key: z.string(),
+  saved_at: z.number(),
+  run_state: z.string().nullable(),
+  run_error: z.string().nullable(),
+  name: z.string().nullable(),
+  provider: z.string().nullable(),
+  team_id: z.string().nullable(),
+  saved_label: z.string().nullable(),
+});
+export function savedPage(
+  db: Database.Database,
+  params: {
+    owner: string;
+    at: number | null;
+    key: string | null;
+    limit: number;
+    folders: string | null;
+    teams: string | null;
+    q: string | null;
+  },
+) {
+  return savedPageStatement(db)
+    .all(params)
+    .map((row) => parseRecord(savedPageRow, row, "artifacts"));
+}
+
+const projectActivityStatement = statement(
+  `WITH RECURSIVE ${FOLDER_PROJECT} SELECT fp.project_id,max(a.updated_at) last FROM artifacts a JOIN folder_project fp ON fp.id IS a.folder_id WHERE a.owner_id=@owner AND a.archived=0 GROUP BY fp.project_id`,
+);
+const projectActivityRow = z.object({
+  project_id: z.string(),
+  last: z.number(),
+});
+export function projectActivity(db: Database.Database, owner: string) {
+  return projectActivityStatement(db)
+    .all({ owner })
+    .map((row) => parseRecord(projectActivityRow, row, "artifacts"));
+}
+
+const latestProjectResultsStatement =
+  statement(`WITH RECURSIVE ${FOLDER_PROJECT} SELECT project_id,id,title,created_at FROM (
+      SELECT fp.project_id,a.id,a.title,a.created_at,
+        row_number() OVER (PARTITION BY fp.project_id ORDER BY p.sequence DESC) n
+      FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id
+      JOIN folder_project fp ON fp.id IS a.folder_id
+      LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+      WHERE a.owner_id=@owner AND a.archived=0 AND a.feed_hidden=0 AND ${resultOutputSql}
+    ) WHERE n=1`);
+const latestProjectResultsRow = z.object({
+  project_id: z.string(),
+  id: z.string(),
+  title: z.string(),
+  created_at: z.number(),
+});
+export function latestProjectResults(db: Database.Database, owner: string) {
+  return latestProjectResultsStatement(db)
+    .all({ owner })
+    .map((row) => parseRecord(latestProjectResultsRow, row, "artifacts"));
+}
+
+const laterTargetStatement = statement(
+  "SELECT a.id,a.title,substr(a.content,1,4000) content,a.conversation_id,json_extract(a.metadata,'$.messageId') message_id,a.folder_id,g.name agent_name,g.provider FROM artifacts a LEFT JOIN agents g ON g.id=a.agent_id AND g.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=?",
+);
+const laterTargetRow = QueryRecords.artifacts
+  .pick({
+    id: true,
+    title: true,
+    content: true,
+    conversation_id: true,
+    folder_id: true,
+  })
+  .extend({
+    message_id: z.string().nullable(),
+    agent_name: z.string().nullable(),
+    provider: z.string().nullable(),
+  });
+export function laterTarget(
+  db: Database.Database,
+  target: string,
+  owner: string,
+) {
+  const row = laterTargetStatement(db).get(target, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(laterTargetRow, row, "artifacts");
+}
+
+const attachmentDescriptorsStatement = statement(
+  "SELECT a.id,o.id objectId,o.name,o.mime,length(o.bytes) size FROM artifacts a\n      JOIN objects o ON o.id=json_extract(a.metadata,'$.objectId') AND o.owner_id=a.owner_id\n      WHERE a.owner_id=? AND json_extract(a.metadata,'$.upload') IS NOT NULL AND a.id IN (SELECT value FROM json_each(?))",
+);
+const attachmentDescriptorsRow = z.object({
+  id: z.string(),
+  objectId: z.string(),
+  name: z.string(),
+  mime: z.string(),
+  size: z.number(),
+});
+export function attachmentDescriptors(
+  db: Database.Database,
+  owner: string,
+  ids: string,
+) {
+  return attachmentDescriptorsStatement(db)
+    .all(owner, ids)
+    .map((row) => parseRecord(attachmentDescriptorsRow, row, "artifacts"));
+}
+
+const ownedAgentFileExistsStatement = statement(
+  "SELECT 1 FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=? AND a.agent_id=?",
+);
+const ownedAgentFileExistsRow = z.object({ "1": z.number() });
+export function ownedAgentFileExists(
+  db: Database.Database,
+  file: string,
+  owner: string,
+  agent: string | null,
+) {
+  const row = ownedAgentFileExistsStatement(db).get(file, owner, agent);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedAgentFileExistsRow, row, "artifacts");
 }

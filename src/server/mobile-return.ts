@@ -1,3 +1,16 @@
+import * as steeringRepliesQueries from "./sql/steering-replies.js";
+import type {ReplyScope} from "./sql/steering-replies.js";
+import * as agentsQueries from "./sql/agents.js";
+import * as laterItemsQueries from "./sql/later-items.js";
+import * as scheduledSendsQueries from "./sql/scheduled-sends.js";
+import * as doneCardDismissalsQueries from "./sql/done-card-dismissals.js";
+import * as feedCardsQueries from "./sql/feed-cards.js";
+import * as doneCardReadsQueries from "./sql/done-card-reads.js";
+import * as artifactsQueries from "./sql/artifacts.js";
+import * as messageBookmarksQueries from "./sql/message-bookmarks.js";
+import * as savedLabelsQueries from "./sql/saved-labels.js";
+import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
+import * as foldersQueries from "./sql/folders.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import { DoneReadInput, FeedUpdateInput, SavedLabelInput } from "../shared/mobile-contract-schemas.js";
@@ -7,10 +20,10 @@ import { z } from "zod";
 import { db, now, emit } from "./db.js";
 import { doneUnreadVersion, advanceDoneUnreadVersion } from "./done-read-state.js";
 import { ownedAgent, ownedFolder, ownedConversation, ownedMessage, owned, Problem } from "./domain.js";
-import { resultOutputSql, fileArtifactSql, projectFolders, resultUrl } from "./results.js";
+import { projectFolders, resultUrl } from "./results.js";
 import { unreadCount } from "./news.js";
 import { FEED_FILTERS, type FeedPage } from "../shared/workspace-api.js";
-import { collapse, encode, decode, FOLDER_PROJECT, projectFor, contains } from "./mobile-return/shared.js";
+import { collapse, encode, decode, projectFor, contains } from "./mobile-return/shared.js";
 
 // Keep the existing route and worker import surface stable.
 export { conversationReturnState, savePosition } from "./mobile-return/reading-position.js";
@@ -77,17 +90,9 @@ function readFeed(
   const more = page.length > 40;
   if (more) page.pop();
   const rows = page.map(item => item.row);
-  const laterDue = db
-    .prepare(
-      "SELECT count(*) n FROM later_items WHERE owner_id=? AND surfaced_at IS NOT NULL AND done_at IS NULL",
-    )
-    .get(owner) as { n: number };
+  const laterDue = laterItemsQueries.dueCount(db, owner) as { n: number };
   // Scheduled messages, owner-wide: not sent (needs you) apart from waiting.
-  const scheduled = db
-    .prepare(
-      "SELECT COALESCE(sum(state='failed'),0) failed,COALESCE(sum(state='scheduled'),0) pending FROM scheduled_sends WHERE owner_id=?",
-    )
-    .get(owner) as { failed: number; pending: number };
+  const scheduled = scheduledSendsQueries.summary(db, owner) as { failed: number; pending: number };
   const last = rows.at(-1);
   return {
     items: replyPage ? replyPage.items : page.map(item => item.display),
@@ -113,37 +118,13 @@ function readFeed(
   };
 }
 
-type ReplyScope = {
-  owner: string; teams: string | null; folders: string | null; agent: string | null;
-};
-const replyFolder = "CASE WHEN json_type(r.payload,'$.folderId') IS NOT NULL THEN json_extract(r.payload,'$.folderId') ELSE c.project_id END";
-const replyScopeSql = `FROM steering_replies p
-  JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id
-  JOIN run_steering s ON s.id=p.steering_id AND s.owner_id=p.owner_id
-  JOIN messages q ON q.id=s.message_id AND q.owner_id=p.owner_id
-  JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=p.owner_id
-  JOIN runs r ON r.id=m.run_id AND r.owner_id=p.owner_id
-  WHERE p.owner_id=@owner AND p.archived_at IS NULL
-    AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
-    AND (@agent IS NULL OR r.agent_id=@agent)
-    AND (@folders IS NULL OR ${replyFolder} IN (SELECT value FROM json_each(@folders))
-      OR (${replyFolder} IS NULL AND EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS NULL)))`;
 
 function replyUnread(scope: ReplyScope) {
-  return (db.prepare(`SELECT count(*) n ${replyScopeSql} AND p.read_at IS NULL`).get(scope) as { n: number }).n;
+  return (steeringRepliesQueries.unread(db,scope) as { n: number }).n;
 }
 
 function readReplyFeed(scope: ReplyScope & { at: number | null; after: string | null; afterCard: string | null }) {
-  const rows = db.prepare(`SELECT p.message_id,p.created_at,p.read_at,q.id question_id,substr(q.content,1,1000) question,
-    substr(m.content,1,1000) content,c.id conversation_id,c.title,c.origin,c.team_id,r.agent_id,
-    ${replyFolder} folder_id,r.id run_id,r.state,r.error,r.input,r.created_at run_created_at,r.updated_at,
-    json_extract(r.payload,'$.connectionId') connection_id,json_extract(r.payload,'$.model') model,
-    json_extract(r.payload,'$.resolvedModel') resolved_model,json_extract(r.payload,'$.provider') provider,
-    COALESCE(json_extract(r.payload,'$.name'),(SELECT name FROM agents WHERE id=r.agent_id AND owner_id=@owner)) agent_name,
-    EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id) saved
-    ${replyScopeSql}
-      AND (@at IS NULL OR (p.created_at,c.id,'reply:'||p.message_id)<(@at,@after,@afterCard))
-    ORDER BY p.created_at DESC,c.id DESC,p.message_id DESC LIMIT 41`).all(scope) as {
+  const rows = steeringRepliesQueries.page(db,scope) as {
       message_id: string; created_at: number; read_at: number | null; question_id: string; question: string; content: string;
       conversation_id: string; title: string; origin: string; team_id: string | null; agent_id: string | null;
       folder_id: string | null; run_id: string; state: string; error: string | null; input: string;
@@ -210,13 +191,9 @@ export function setDoneCardHidden(
       const record = (isRun ? runsQueries.doneInConversation(db, target, owner, conversation) : messagesQueries.existsInConversation(db, target, owner, conversation));
       if (!record) throw new Problem(404, "Done card not found");
       if (hidden) {
-        db.prepare(
-          "INSERT OR IGNORE INTO done_card_dismissals(owner_id,conversation_id,card_key,created_at) VALUES(?,?,?,?)",
-        ).run(owner, conversation, cardKey, now());
+        doneCardDismissalsQueries.insert(db, owner, conversation, cardKey, now());
       } else {
-        db.prepare(
-          "DELETE FROM done_card_dismissals WHERE owner_id=? AND conversation_id=? AND card_key=?",
-        ).run(owner, conversation, cardKey);
+        doneCardDismissalsQueries.remove(db, owner, conversation, cardKey);
       }
       return { ok: true };
     })
@@ -233,22 +210,14 @@ export function setDoneCardRead(
   return db
     .transaction(() => {
       ownedConversation(conversation, owner);
-      const card = db
-        .prepare(
-          "SELECT 1 FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' AND card_key=?",
-        )
-        .get(owner, conversation, cardKey);
+      const card = feedCardsQueries.hasResult(db, owner, conversation, cardKey);
       if (!card) throw new Problem(404, "Done card not found");
       if (read) {
         if (unreadVersion !== doneUnreadVersion(owner, conversation, cardKey))
           return { ok: true };
-        db.prepare(
-          "INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at) VALUES(?,?,?,?)",
-        ).run(owner, conversation, cardKey, now());
+        doneCardReadsQueries.insert(db, owner, conversation, cardKey, now());
       } else {
-        db.prepare(
-          "DELETE FROM done_card_reads WHERE owner_id=? AND conversation_id=? AND card_key=?",
-        ).run(owner, conversation, cardKey);
+        doneCardReadsQueries.remove(db, owner, conversation, cardKey);
         const version = advanceDoneUnreadVersion(owner, conversation, cardKey);
         emit(owner, { kind: "collection", id: "feed" }, "invalidate", { scope: { kind: "collection", id: "feed" } });
         return { ok: true, unreadVersions: { ["d:" + cardKey]: version } };
@@ -275,11 +244,7 @@ export function awaySummary(owner: string, since: number) {
 // has a result card is saved by pinning that result, so saving either one
 // saves both and the list shows it once.
 function resultFor(owner: string, messageId: string) {
-  return db
-    .prepare(
-      "SELECT a.id,a.pinned FROM artifacts a JOIN messages m ON m.id=? AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id WHERE a.owner_id=? AND a.archived=0 AND json_extract(a.metadata,'$.messageId')=m.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1",
-    )
-    .get(messageId, owner) as { id: string; pinned: number } | undefined;
+  return artifactsQueries.messageResult(db, messageId, owner) as { id: string; pinned: number } | undefined;
 }
 
 export function setSaved(owner: string, messageId: string, on: boolean) {
@@ -291,21 +256,11 @@ export function setSaved(owner: string, messageId: string, on: boolean) {
       const result = resultFor(owner, messageId),
         savedAt = now();
       if (result && result.pinned !== Number(on)) {
-        db.prepare(
-          "UPDATE artifacts SET pinned=?,version=version+1,updated_at=? WHERE id=? AND owner_id=? AND pinned<>?",
-        ).run(Number(on), savedAt, result.id, owner, Number(on));
+        artifactsQueries.bookmark(db, Number(on), savedAt, result.id, owner, Number(on));
       }
         on && !result
-          ? db
-              .prepare(
-                "INSERT OR IGNORE INTO message_bookmarks(owner_id,message_id,created_at) VALUES(?,?,?)",
-              )
-              .run(owner, messageId, savedAt).changes
-          : db
-              .prepare(
-                "DELETE FROM message_bookmarks WHERE owner_id=? AND message_id=?",
-              )
-              .run(owner, messageId).changes;
+          ? messageBookmarksQueries.insert(db, owner, messageId, savedAt).changes
+          : messageBookmarksQueries.remove(db, owner, messageId).changes;
       return { ok: true as const, saved: on };
     })
     .immediate();
@@ -339,52 +294,13 @@ export function listSaved(
     teams: options.teams?.length ? JSON.stringify(options.teams) : null,
     q: options.q?.trim() ? contains(options.q.trim()) : null,
   };
-  const after = (at: string, key: string) =>
-    `(@at IS NULL OR ${at}<@at OR (${at}=@at AND ${key}<@key))`;
-  const messages = db
-    .prepare(
-      `WITH RECURSIVE ${FOLDER_PROJECT}
-      SELECT 'm:'||b.message_id key,b.created_at saved_at,b.message_id,m.conversation_id,
-        c.title conversation_title,m.role,substr(m.content,1,4000) content,m.created_at,
-        a.id agent_id,a.name agent_name,a.provider,project.name project_name,l.label
-      FROM message_bookmarks b
-      LEFT JOIN saved_labels l ON l.owner_id=b.owner_id AND l.item_key='m:'||b.message_id
-      JOIN messages m ON m.id=b.message_id AND m.owner_id=b.owner_id
-      JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=b.owner_id
-      LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=b.owner_id
-      LEFT JOIN agents a ON a.id=COALESCE(r.agent_id,c.agent_id) AND a.owner_id=b.owner_id
-      LEFT JOIN folder_project fp ON fp.id IS COALESCE(json_extract(r.payload,'$.folderId'),c.project_id)
-      LEFT JOIN folders project ON project.id=fp.project_id AND project.owner_id=b.owner_id
-      WHERE b.owner_id=@owner AND ${after("b.created_at", "'m:'||b.message_id")}
-        AND (@folders IS NULL OR EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS COALESCE(json_extract(r.payload,'$.folderId'),c.project_id)))
-        AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
-        AND (@q IS NULL OR m.content LIKE @q ESCAPE '\\' OR c.title LIKE @q ESCAPE '\\' OR l.label LIKE @q ESCAPE '\\')
-      ORDER BY b.created_at DESC,key DESC LIMIT @limit`,
-    )
-    .all(params) as (Record<string, unknown> & {
+  const messages = messageBookmarksQueries.page(db,params) as (Record<string, unknown> & {
     key: string;
     saved_at: number;
     content: string;
   })[];
   // The same columns as a saved card in the results feed.
-  const results = db
-    .prepare(
-      `SELECT 'a:'||a.id key,COALESCE(p.saved_at,a.updated_at) saved_at,a.*,r.state run_state,r.error run_error,
-        json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,
-        (SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id,l.label saved_label
-      FROM artifacts a JOIN artifact_bookmarks p ON p.artifact_id=a.id
-      LEFT JOIN saved_labels l ON l.owner_id=a.owner_id AND l.item_key='a:'||a.id
-      LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-      LEFT JOIN agents g ON g.id=a.agent_id
-      WHERE a.owner_id=@owner AND a.archived=0 AND a.pinned=1 AND ${fileArtifactSql}
-        AND json_extract(a.metadata,'$.snippet') IS NULL
-        AND ${after("COALESCE(p.saved_at,a.updated_at)", "'a:'||a.id")}
-        AND (@folders IS NULL OR EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS a.folder_id))
-        AND (@teams IS NULL OR a.conversation_id IN (SELECT id FROM conversations WHERE owner_id=@owner AND team_id IN (SELECT value FROM json_each(@teams))))
-        AND (@q IS NULL OR a.title LIKE @q ESCAPE '\\' OR a.content LIKE @q ESCAPE '\\' OR l.label LIKE @q ESCAPE '\\')
-      ORDER BY COALESCE(p.saved_at,a.updated_at) DESC,key DESC LIMIT @limit`,
-    )
-    .all(params) as (Record<string, unknown> & {
+  const results = artifactsQueries.savedPage(db,params) as (Record<string, unknown> & {
     key: string;
     saved_at: number;
   })[];
@@ -428,26 +344,13 @@ export function setSavedLabel(owner: string, body: unknown) {
     .transaction(() => {
       const target = d.key.slice(2);
       const saved = d.key.startsWith("m:")
-        ? db
-            .prepare(
-              "SELECT 1 FROM message_bookmarks WHERE owner_id=? AND message_id=?",
-            )
-            .get(owner, target)
-        : db
-            .prepare(
-              "SELECT 1 FROM artifacts a JOIN artifact_bookmarks p ON p.artifact_id=a.id WHERE a.id=? AND a.owner_id=? AND a.pinned=1 AND a.archived=0",
-            )
-            .get(target, owner);
+        ? messageBookmarksQueries.exists(db, owner, target)
+        : artifactsQueries.isBookmarked(db, target, owner);
       if (!saved) throw new Problem(404, "Saved item not found");
       if (d.label)
-        db.prepare(
-          `INSERT INTO saved_labels(owner_id,item_key,label,updated_at) VALUES(?,?,?,?)
-          ON CONFLICT(owner_id,item_key) DO UPDATE SET label=excluded.label,updated_at=excluded.updated_at`,
-        ).run(owner, d.key, d.label, now());
+        savedLabelsQueries.save(db, owner, d.key, d.label, now());
       else
-        db.prepare(
-          "DELETE FROM saved_labels WHERE owner_id=? AND item_key=?",
-        ).run(owner, d.key);
+        savedLabelsQueries.remove(db, owner, d.key);
       return { key: d.key, label: d.label || null };
     })
     .immediate();
@@ -532,12 +435,7 @@ export function conversationUsage(owner: string, conversation: string) {
   // Only runtimes that recall memory record a receipt, so the thread offers
   // "Memory used" on these runs alone.
   const memory = (
-    db
-      .prepare(
-        `SELECT m.run_id FROM memory_receipts m JOIN runs r ON r.id=m.run_id
-        WHERE r.owner_id=? AND r.conversation_id=?`,
-      )
-      .all(owner, conversation) as { run_id: string }[]
+    memoryReceiptsQueries.conversationRuns(db, owner, conversation) as { run_id: string }[]
   ).map((row) => row.run_id);
   return { runs, total, memory };
 }
@@ -549,19 +447,7 @@ export function listSnippets(owner: string) {
   // Duplicates collapse before the limit, so a run of repeated saves can't
   // push older, different snippets out of the list.
   return {
-    items: db
-      .prepare(
-        `SELECT id,title,content,created_at FROM (
-          SELECT id,title,content,created_at,rowid AS row,
-            row_number() OVER (
-              PARTITION BY trim(content,' '||char(9)||char(10)||char(13))
-              ORDER BY created_at DESC,rowid DESC
-            ) copy
-          FROM artifacts WHERE owner_id=? AND archived=0
-            AND (json_extract(metadata,'$.snippet')=1 OR title LIKE 'Saved prompt:%')
-        ) WHERE copy=1 ORDER BY created_at DESC,row DESC LIMIT 100`,
-      )
-      .all(owner),
+    items: artifactsQueries.snippets(db, owner),
   };
 }
 
@@ -569,36 +455,12 @@ export function listSnippets(owner: string) {
 // 12. Project summaries
 export function projectSummaries(owner: string) {
   ensureWorkspaceProject(owner);
-  const projects = db
-    .prepare(
-      "SELECT id,name FROM folders WHERE owner_id=? AND kind='project' AND parent_id IS NULL",
-    )
-    .all(owner) as { id: string; name: string }[];
-  const byProject = <T>(sql: string) =>
-    new Map(
-      (
-        db
-          .prepare(`WITH RECURSIVE ${FOLDER_PROJECT} ${sql}`)
-          .all({ owner }) as (T & { project_id: string })[]
-      ).map((row) => [row.project_id, row]),
-    );
-  const agents = byProject<{ n: number }>(
-    "SELECT fp.project_id,count(*) n FROM agents a JOIN folder_project fp ON fp.id IS a.folder_id WHERE a.owner_id=@owner AND a.retired_at IS NULL GROUP BY fp.project_id",
-  );
+  const projects = foldersQueries.rootProjects(db, owner) as { id: string; name: string }[];
+  const byProject = <T extends {project_id:string}>(rows:T[]) => new Map(rows.map(row=>[row.project_id,row]));
+  const agents = byProject(agentsQueries.projectCounts(db,owner));
   const runs = new Map(runsQueries.projectSummaries(db, owner).map(row => [row.project_id, row]));
-  const artifacts = byProject<{ last: number }>(
-    "SELECT fp.project_id,max(a.updated_at) last FROM artifacts a JOIN folder_project fp ON fp.id IS a.folder_id WHERE a.owner_id=@owner AND a.archived=0 GROUP BY fp.project_id",
-  );
-  const latest = byProject<{ id: string; title: string; created_at: number }>(
-    `SELECT project_id,id,title,created_at FROM (
-      SELECT fp.project_id,a.id,a.title,a.created_at,
-        row_number() OVER (PARTITION BY fp.project_id ORDER BY p.sequence DESC) n
-      FROM artifacts a JOIN artifact_publications p ON p.artifact_id=a.id
-      JOIN folder_project fp ON fp.id IS a.folder_id
-      LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-      WHERE a.owner_id=@owner AND a.archived=0 AND a.feed_hidden=0 AND ${resultOutputSql}
-    ) WHERE n=1`,
-  );
+  const artifacts = byProject(artifactsQueries.projectActivity(db,owner));
+  const latest = byProject(artifactsQueries.latestProjectResults(db,owner));
   const items = projects.map((project) => {
     const run = runs.get(project.id),
       artifact = artifacts.get(project.id),

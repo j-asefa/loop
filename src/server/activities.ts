@@ -1,3 +1,5 @@
+import * as agentActivitiesQueries from "./sql/agent-activities.js";
+import * as conversationsQueries from "./sql/conversations.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 import type { QueryRow } from "./query-records.js";
@@ -5,7 +7,7 @@ import type { QueryRow } from "./query-records.js";
 import { z } from "zod";
 import { db, emit, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
-import { publicTraceFilter } from "./traces.js";
+import * as runTracesQueries from "./sql/run-traces.js";
 import {
   ACTIVITY_FEATURES,
   ACTIVITY_LIMITS,
@@ -50,15 +52,7 @@ const scopeOf = (s: ActivityScope) =>
   s.conversation || (s.run ? "run:" + s.run : null);
 
 function nextSequence(owner: string) {
-  return (
-    (
-      db
-        .prepare(
-          "SELECT coalesce(max(sequence),0) n FROM agent_activities WHERE owner_id=?",
-        )
-        .get(owner) as { n: number }
-    ).n + 1
-  );
+  return (agentActivitiesQueries.maxSequence(db, owner) as { n: number }).n + 1;
 }
 
 function write(
@@ -69,11 +63,8 @@ function write(
   session: boolean,
 ) {
   const sequence = nextSequence(scope.owner);
-  db.prepare(
-    `INSERT INTO agent_activities(owner_id,scope,activity_key,conversation_id,run_id,kind,record,sequence,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(owner_id,scope,activity_key) DO UPDATE SET
-    record=excluded.record,sequence=excluded.sequence,updated_at=excluded.updated_at`,
-  ).run(
+  agentActivitiesQueries.upsert(
+    db,
     scope.owner,
     scopeOf(scope),
     key,
@@ -128,12 +119,12 @@ export function applyActivity(
   }
   return db
     .transaction((): ActivityResult => {
-      const row = db
-        .prepare(
-          "SELECT record FROM agent_activities WHERE owner_id=? AND scope=? AND activity_key=?",
-        )
-        .get(scope.owner, scopeOf(scope), key) as
-        { record: string } | undefined;
+      const row = agentActivitiesQueries.record(
+        db,
+        scope.owner,
+        scopeOf(scope),
+        key,
+      ) as { record: string } | undefined;
       const stored = row
         ? (JSON.parse(row.record) as ActivityRecord)
         : undefined;
@@ -176,9 +167,8 @@ type NativeLive = {
 // session claims. A run bound to another conversation or owner is rejected.
 function nativeOwner(live: NativeLive) {
   const owner = (
-    db
-      .prepare("SELECT owner_id FROM conversations WHERE id=?")
-      .get(live.binding.conversation_id) as { owner_id: string } | undefined
+    conversationsQueries.owner(db, live.binding.conversation_id) as
+      { owner_id: string } | undefined
   )?.owner_id;
   if (!owner) return;
   if (
@@ -286,12 +276,12 @@ export function setActivityCapabilities(
   const key = `capabilities:${source.transport}:${source.harness || "default"}`;
   return db
     .transaction((): CapabilitiesResult => {
-      const row = db
-        .prepare(
-          "SELECT record FROM agent_activities WHERE owner_id=? AND scope=? AND activity_key=?",
-        )
-        .get(scope.owner, scopeOf(scope), key) as
-        { record: string } | undefined;
+      const row = agentActivitiesQueries.record(
+        db,
+        scope.owner,
+        scopeOf(scope),
+        key,
+      ) as { record: string } | undefined;
       if (row?.record === JSON.stringify(record))
         return { applied: false, key, reason: "no change" };
       const sequence = write(scope, key, "capabilities", record, true);
@@ -304,12 +294,6 @@ export function setActivityCapabilities(
 // traces as read-only records; internal envelopes stay hidden as in agentTraces.
 // Paged legacy history must not offer traces already represented by a durable
 // record, even when that record is on an older activity page.
-const unrepresentedTrace = `NOT EXISTS (
-  SELECT 1 FROM agent_activities a
-  WHERE a.owner_id=t.owner_id AND a.scope=COALESCE(r.conversation_id,'run:'||r.id)
-    AND a.run_id=t.run_id AND json_extract(a.record,'$.data.links.trace') IS NOT NULL
-    AND json_extract(a.record,'$.data.links.trace')=t.trace_key
-)`;
 
 function legacyTools(
   owner: string,
@@ -317,24 +301,7 @@ function legacyTools(
   known: Set<string>,
   before?: number,
 ) {
-  const traces = db
-    .prepare(
-      `SELECT t.run_id,t.trace_key,t.title,t.content,t.metadata,t.artifact_id,t.id
-      FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
-      WHERE t.owner_id=? AND t.kind='tool' AND (r.conversation_id=? OR 'run:'||r.id=?)
-        -- Plan tool calls are represented by their plan activity.
-        AND t.title NOT IN ('loop55_plan','loop_plan')
-        AND ${publicTraceFilter}
-        ${before === undefined ? "" : `AND ${unrepresentedTrace}`}
-      AND t.id<? ORDER BY t.id ${before === undefined ? "ASC" : "DESC"} LIMIT ?`,
-    )
-    .all(
-      owner,
-      scope,
-      scope,
-      before ?? Number.MAX_SAFE_INTEGER,
-      before === undefined ? 2000 : 101,
-    ) as Pick<
+  const traces = runTracesQueries.legacyTools(db, owner, scope, before) as Pick<
     QueryRow<"run_traces">,
     | "run_id"
     | "trace_key"
@@ -428,29 +395,26 @@ export function listActivities(
     const rows = initial
       ? ["settings", "commands", "capabilities"].flatMap(
           (kind) =>
-            db
-              .prepare(
-                `SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND kind=?
-           ORDER BY sequence DESC LIMIT 16`,
-              )
-              .all(owner, conversation, kind) as Row[],
+            agentActivitiesQueries.recentKind(
+              db,
+              owner,
+              conversation,
+              kind,
+            ) as Row[],
         )
-      : (db
-          .prepare(
-            `SELECT * FROM agent_activities WHERE owner_id=? AND scope=?
-          AND kind IN ('settings','commands','capabilities','file_change') AND sequence>?
-          ORDER BY sequence LIMIT 501`,
-          )
-          .all(owner, conversation, options.after ?? 0) as Row[]);
+      : (agentActivitiesQueries.controlUpdates(
+          db,
+          owner,
+          conversation,
+          options.after ?? 0,
+        ) as Row[]);
     const more = !initial && rows.length > 500;
     if (more) rows.pop();
     const cursor = initial
       ? ((
-          db
-            .prepare(
-              "SELECT max(sequence) cursor FROM agent_activities WHERE owner_id=? AND scope=?",
-            )
-            .get(owner, conversation) as { cursor: number | null }
+          agentActivitiesQueries.cursor(db, owner, conversation) as {
+            cursor: number | null;
+          }
         ).cursor ?? 0)
       : (rows.at(-1)?.sequence ?? options.after ?? 0);
     return {
@@ -477,16 +441,12 @@ export function listActivities(
     };
   }
   if (options.view === "recent") {
-    const rows = db
-      .prepare(
-        `SELECT * FROM agent_activities
-      WHERE owner_id=? AND scope=? AND sequence<? ORDER BY sequence DESC LIMIT 101`,
-      )
-      .all(
-        owner,
-        conversation,
-        options.before ?? Number.MAX_SAFE_INTEGER,
-      ) as Row[];
+    const rows = agentActivitiesQueries.before(
+      db,
+      owner,
+      conversation,
+      options.before ?? Number.MAX_SAFE_INTEGER,
+    ) as Row[];
     const more = rows.length > 100;
     if (more) rows.pop();
     const next = more ? rows.at(-1)!.sequence : null;
@@ -495,12 +455,7 @@ export function listActivities(
     // else would ask the reader to load records that never appear.
     const earlier =
       next !== null &&
-      db
-        .prepare(
-          `SELECT 1 FROM agent_activities WHERE owner_id=? AND scope=?
-      AND kind IN ('tool','output','plan') AND sequence<? LIMIT 1`,
-        )
-        .get(owner, conversation, next)
+      agentActivitiesQueries.hasEarlierTools(db, owner, conversation, next)
         ? next
         : null;
     // Controls are keyed by producer, not turn. Include their current records
@@ -509,12 +464,12 @@ export function listActivities(
       options.before === undefined
         ? ["settings", "commands", "capabilities"].flatMap(
             (kind) =>
-              db
-                .prepare(
-                  `SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND kind=?
-        ORDER BY sequence DESC LIMIT 16`,
-                )
-                .all(owner, conversation, kind) as Row[],
+              agentActivitiesQueries.recentKind(
+                db,
+                owner,
+                conversation,
+                kind,
+              ) as Row[],
           )
         : [];
     const byKey = new Map(
@@ -524,14 +479,7 @@ export function listActivities(
     // plan calls are not history the reader can load.
     const legacyAvailable =
       options.before === undefined &&
-      !!db
-        .prepare(
-          `SELECT 1 FROM run_traces t JOIN runs r ON r.id=t.run_id AND r.owner_id=t.owner_id
-      WHERE t.owner_id=? AND t.kind='tool' AND (r.conversation_id=? OR 'run:'||r.id=?)
-        AND t.title NOT IN ('loop55_plan','loop_plan') AND ${publicTraceFilter}
-        AND ${unrepresentedTrace} LIMIT 1`,
-        )
-        .get(owner, conversation, conversation);
+      !!runTracesQueries.hasLegacyTools(db, owner, conversation);
     return {
       version: ACTIVITY_VERSION,
       items: [...byKey.values()]
@@ -546,13 +494,13 @@ export function listActivities(
   if (options.view === "files") {
     const runs = options.runs || [];
     if (!runs.length) throw new Problem(400, "Choose runs for file changes");
-    const rows = db
-      .prepare(
-        `SELECT * FROM agent_activities WHERE owner_id=? AND scope=?
-      AND run_id IN (${runs.map(() => "?").join(",")}) AND kind='file_change' AND sequence>?
-      ORDER BY sequence LIMIT 501`,
-      )
-      .all(owner, conversation, ...runs, options.after ?? 0) as Row[];
+    const rows = agentActivitiesQueries.fileUpdates(
+      db,
+      owner,
+      conversation,
+      runs,
+      options.after ?? 0,
+    ) as Row[];
     const more = rows.length > 500;
     if (more) rows.pop();
     return {
@@ -562,18 +510,14 @@ export function listActivities(
       more,
     };
   }
-  const rows = db
-    .prepare(
-      `SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND sequence>?
-      AND (? IS NULL OR run_id IS NULL OR run_id=?) ORDER BY sequence LIMIT 501`,
-    )
-    .all(
-      owner,
-      conversation,
-      options.after || 0,
-      options.run || null,
-      options.run || null,
-    ) as Row[];
+  const rows = agentActivitiesQueries.updates(
+    db,
+    owner,
+    conversation,
+    options.after || 0,
+    options.run || null,
+    options.run || null,
+  ) as Row[];
   const more = rows.length > 500;
   if (more) rows.pop();
   const items = rows.map(activityItem);

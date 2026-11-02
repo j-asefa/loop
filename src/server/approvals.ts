@@ -1,3 +1,5 @@
+import * as approvalsQueries from "./sql/approvals.js";
+import * as nativeDispatchQueries from "./sql/native-dispatch.js";
 import * as runsQueries from "./sql/runs.js";
 import { ApprovalRecord } from "./row-schemas.js";
 
@@ -17,16 +19,13 @@ export function requestApproval(
 ) {
   const encoded = JSON.stringify(request),
     digest = createHash("sha256").update(encoded).digest("hex");
-  const prior = db
-    .prepare(
-      "SELECT * FROM approvals WHERE owner_id=? AND run_id=? AND digest=?",
-    )
-    .get(run.owner_id, run.id, digest);
+  const prior = approvalsQueries.byDigest(db, run.owner_id, run.id, digest);
   if (prior) return ApprovalRecord.parse(prior);
   const approvalId = id();
   const createdAt = now();
   db.transaction(() => {
-    db.prepare("INSERT INTO approvals VALUES(?,?,?,?,?,?,NULL,?,?)").run(
+    approvalsQueries.insert(
+      db,
       approvalId,
       run.owner_id,
       run.id,
@@ -65,16 +64,16 @@ export function decide(
           409,
           "This approval expired. Start a new run after review.",
         );
-      const resumesNative = db
-        .prepare(
-          "SELECT 1 FROM native_dispatch WHERE run_id=? AND state IN ('accepted','unknown')",
-        )
-        .get(run.id);
+      const resumesNative = nativeDispatchQueries.hasAcceptedOrUnknown(
+        db,
+        run.id,
+      );
       if (decision === "approve" || resumesNative) {
         assertFleetEffect(owner, "run", run.id);
         recordFleetEffectEdit(owner, "run", run.id);
       }
-      db.prepare("UPDATE approvals SET state=? WHERE id=? AND state=?").run(
+      approvalsQueries.decide(
+        db,
         decision === "approve" ? "approved" : "rejected",
         approvalId,
         "pending",

@@ -159,3 +159,12 @@ export function clearManagerConversation(
 ) {
   return clearManagerConversationStatement(db).run(owner, manager);
 }
+
+const setFolderStatement = statement("UPDATE teams SET folder_id=? WHERE id=?");
+export function setFolder(
+  db: Database.Database,
+  folder: string | null,
+  id: string,
+) {
+  return setFolderStatement(db).run(folder, id);
+}

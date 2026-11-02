@@ -1,3 +1,7 @@
+import * as conversationsQueries from "../sql/conversations.js";
+import * as artifactsQueries from "../sql/artifacts.js";
+import * as laterItemsQueries from "../sql/later-items.js";
+import * as pushMessagesQueries from "../sql/push-messages.js";
 import * as messagesQueries from "../sql/messages.js";
 import { LaterInput as laterInput } from "../../shared/mobile-contract-schemas.js";
 import { db, id, now } from "../db.js";
@@ -8,11 +12,6 @@ import { feedCardTitle } from "../feed-card-display.js";
 import { collapse, projectFor } from "./shared.js";
 
 // A conversation's folder: its recorded project, else its latest run's folder.
-const conversationFolder = (c: string) =>
-  `COALESCE(${c}.project_id,(SELECT json_extract(fr.payload,'$.folderId') FROM runs fr WHERE fr.owner_id=${c}.owner_id AND fr.conversation_id=${c}.id ORDER BY fr.created_at DESC,fr.rowid DESC LIMIT 1))`;
-const ACTIVE_STATES =
-  "('queued','running','pausing','paused','awaiting_approval')";
-
 // ---------------------------------------------------------------------------
 // 5. Later
 type LaterItem = {
@@ -47,11 +46,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
     };
   }
   if (kind === "conversation") {
-    const c = db
-      .prepare(
-        `SELECT c.id,c.title,${conversationFolder("c")} folder_id,a.name agent_name,a.provider FROM conversations c LEFT JOIN agents a ON a.id=c.agent_id AND a.owner_id=c.owner_id WHERE c.id=? AND c.owner_id=?`,
-      )
-      .get(target, owner) as
+    const c = conversationsQueries.laterTarget(db, target, owner) as
       | {
           id: string;
           title: string;
@@ -108,11 +103,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
         encodeURIComponent(m.id),
     };
   }
-  const a = db
-    .prepare(
-      "SELECT a.id,a.title,substr(a.content,1,4000) content,a.conversation_id,json_extract(a.metadata,'$.messageId') message_id,a.folder_id,g.name agent_name,g.provider FROM artifacts a LEFT JOIN agents g ON g.id=a.agent_id AND g.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=?",
-    )
-    .get(target, owner) as
+  const a = artifactsQueries.laterTarget(db, target, owner) as
     | ({
         id: string;
         title: string;
@@ -187,18 +178,16 @@ export function createLater(owner: string, body: unknown) {
           owner,
         );
       if (d.projectId) ownedFolder(d.projectId, owner);
-      const replaced = db
-        .prepare(
-          "SELECT id FROM later_items WHERE owner_id=? AND kind=? AND target_id=? AND done_at IS NULL",
-        )
-        .get(owner, d.kind, d.targetId) as { id: string } | undefined;
-      db.prepare(
-        "UPDATE later_items SET done_at=? WHERE owner_id=? AND kind=? AND target_id=? AND done_at IS NULL",
-      ).run(time, owner, d.kind, d.targetId);
+      const replaced = laterItemsQueries.openId(
+        db,
+        owner,
+        d.kind,
+        d.targetId,
+      ) as { id: string } | undefined;
+      laterItemsQueries.finishTarget(db, time, owner, d.kind, d.targetId);
       const itemId = id();
-      db.prepare(
-        "INSERT INTO later_items(id,owner_id,kind,target_id,condition,due_at,project_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
-      ).run(
+      laterItemsQueries.insert(
+        db,
         itemId,
         owner,
         d.kind,
@@ -230,9 +219,8 @@ export function snoozeLater(owner: string, itemId: string, body: unknown) {
       if (item.done_at !== null)
         throw new Problem(409, "This reminder is already done");
       if (d.projectId) ownedFolder(d.projectId, owner);
-      db.prepare(
-        "UPDATE later_items SET condition=?,due_at=?,project_id=?,surfaced_at=NULL,snoozes=snoozes+1 WHERE id=? AND owner_id=? AND done_at IS NULL",
-      ).run(
+      laterItemsQueries.snooze(
+        db,
         d.condition,
         d.condition === "time" ? d.dueAt : null,
         d.condition === "project_open" ? d.projectId : null,
@@ -254,31 +242,24 @@ export function reopenLater(owner: string, itemId: string) {
       const item = laterRow(owner, itemId);
       if (!item) throw new Problem(404, "Item not found");
       if (item.done_at === null) return item;
-      const open = db
-        .prepare(
-          "SELECT 1 FROM later_items WHERE owner_id=? AND kind=? AND target_id=? AND done_at IS NULL",
-        )
-        .get(owner, item.kind, item.target_id);
+      const open = laterItemsQueries.openExists(
+        db,
+        owner,
+        item.kind,
+        item.target_id,
+      );
       if (open)
         throw new Problem(409, "This item already has another reminder");
-      db.prepare(
-        "UPDATE later_items SET done_at=NULL WHERE id=? AND owner_id=?",
-      ).run(itemId, owner);
+      laterItemsQueries.restore(db, itemId, owner);
       return laterRow(owner, itemId)!;
     })
     .immediate();
 }
 const laterRow = (owner: string, itemId: string) =>
-  db
-    .prepare("SELECT * FROM later_items WHERE id=? AND owner_id=?")
-    .get(itemId, owner) as LaterItem | undefined;
+  laterItemsQueries.owned(db, itemId, owner) as LaterItem | undefined;
 
 export function listLater(owner: string) {
-  const rows = db
-    .prepare(
-      "SELECT * FROM later_items WHERE owner_id=? AND done_at IS NULL ORDER BY COALESCE(surfaced_at,due_at,created_at),created_at LIMIT 400",
-    )
-    .all(owner) as LaterItem[];
+  const rows = laterItemsQueries.open(db, owner) as LaterItem[];
   const view = (item: LaterItem) => {
     const target = laterTarget(owner, item.kind, item.target_id);
     const project =
@@ -309,11 +290,7 @@ export function listLater(owner: string) {
 }
 
 export function finishLater(owner: string, itemId: string) {
-  const changed = db
-    .prepare(
-      "UPDATE later_items SET done_at=? WHERE id=? AND owner_id=? AND done_at IS NULL",
-    )
-    .run(now(), itemId, owner).changes;
+  const changed = laterItemsQueries.finish(db, now(), itemId, owner).changes;
   if (!changed && !laterRow(owner, itemId))
     throw new Problem(404, "Item not found");
   return { ok: true };
@@ -322,11 +299,8 @@ export function finishLater(owner: string, itemId: string) {
 export function projectOpened(owner: string, project: string) {
   ownedFolder(project, owner);
   return {
-    surfaced: db
-      .prepare(
-        "UPDATE later_items SET surfaced_at=? WHERE owner_id=? AND condition='project_open' AND project_id=? AND surfaced_at IS NULL AND done_at IS NULL",
-      )
-      .run(now(), owner, project).changes,
+    surfaced: laterItemsQueries.projectOpened(db, now(), owner, project)
+      .changes,
   };
 }
 
@@ -337,9 +311,8 @@ export function enqueuePush(
   message: { title: string; body: string; url: string },
   category: "reminders" | "social" = "reminders",
 ) {
-  db.prepare(
-    "INSERT OR IGNORE INTO push_messages(subscription_id,message_key,title,body,url,available_at,category) SELECT id,?,?,?,?,?,? FROM push_subscriptions WHERE owner_id=?",
-  ).run(
+  pushMessagesQueries.enqueueOwner(
+    db,
     key,
     message.title.slice(0, 120),
     message.body.slice(0, 140),
@@ -354,25 +327,10 @@ export function enqueuePush(
 export function surfaceLater(time = now()) {
   return db
     .transaction(() => {
-      const due = db
-        .prepare(
-          `SELECT l.* FROM later_items l WHERE l.done_at IS NULL AND l.surfaced_at IS NULL AND (
-          (l.condition='time' AND l.due_at<=@now) OR
-          (l.condition='run_finished' AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=l.owner_id AND r.state IN ${ACTIVE_STATES}
-            AND r.conversation_id=(CASE l.kind
-              WHEN 'conversation' THEN l.target_id
-              WHEN 'message' THEN (SELECT m.conversation_id FROM messages m WHERE m.id=l.target_id AND m.owner_id=l.owner_id)
-              ELSE (SELECT COALESCE(a.conversation_id,(SELECT ar.conversation_id FROM runs ar WHERE ar.id=a.run_id)) FROM artifacts a WHERE a.id=l.target_id AND a.owner_id=l.owner_id) END))))
-          ORDER BY l.created_at LIMIT 100`,
-        )
-        .all({ now: time }) as LaterItem[];
+      const due = laterItemsQueries.due(db, { now: time }) as LaterItem[];
       let surfaced = 0;
       for (const item of due) {
-        const changed = db
-          .prepare(
-            "UPDATE later_items SET surfaced_at=? WHERE id=? AND surfaced_at IS NULL AND done_at IS NULL",
-          )
-          .run(time, item.id).changes;
+        const changed = laterItemsQueries.surface(db, time, item.id).changes;
         if (!changed) continue;
         surfaced++;
         const target = laterTarget(item.owner_id, item.kind, item.target_id);

@@ -1,3 +1,4 @@
+import * as handlesQueries from "./sql/handles.js";
 import { randomInt } from "node:crypto";
 import { db } from "./db.js";
 import { handle } from "./domain.js";
@@ -72,9 +73,7 @@ const words =
 
 export function suggestAgentName() {
   const occupied = new Set(
-    (db.prepare("SELECT name FROM handles").all() as { name: string }[]).map(
-      (row) => row.name,
-    ),
+    (handlesQueries.names(db) as { name: string }[]).map((row) => row.name),
   );
   const available = words.filter(
     (name) => !occupied.has(name) && handle.safeParse(name).success,

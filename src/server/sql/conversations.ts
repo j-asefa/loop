@@ -92,3 +92,77 @@ export function forAgent(db: Database.Database, owner: string, agent: string) {
     .all(owner, agent)
     .map((row) => parseRecord(forAgentRow, row, "conversations"));
 }
+
+const insertForkStatement = statement(
+  "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at,project_id,execution_connection_id) VALUES(?,?,?,?,?,?,?,?,?)",
+);
+export function insertFork(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  agent: string,
+  title: string,
+  origin: string,
+  external: string | null,
+  created: number,
+  project: string | null,
+  connection: string,
+) {
+  return insertForkStatement(db).run(
+    id,
+    owner,
+    agent,
+    title,
+    origin,
+    external,
+    created,
+    project,
+    connection,
+  );
+}
+
+const conversationFolder = (c: string) =>
+  `COALESCE(${c}.project_id,(SELECT json_extract(fr.payload,'$.folderId') FROM runs fr WHERE fr.owner_id=${c}.owner_id AND fr.conversation_id=${c}.id ORDER BY fr.created_at DESC,fr.rowid DESC LIMIT 1))`;
+
+const laterTargetStatement = statement(
+  `SELECT c.id,c.title,${conversationFolder("c")} folder_id,a.name agent_name,a.provider FROM conversations c LEFT JOIN agents a ON a.id=c.agent_id AND a.owner_id=c.owner_id WHERE c.id=? AND c.owner_id=?`,
+);
+const laterTargetRow = QueryRecords.conversations
+  .pick({ id: true, title: true })
+  .extend({
+    folder_id: z.string().nullable(),
+    agent_name: z.string().nullable(),
+    provider: z.string().nullable(),
+  });
+export function laterTarget(
+  db: Database.Database,
+  target: string,
+  owner: string,
+) {
+  const row = laterTargetStatement(db).get(target, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(laterTargetRow, row, "conversations");
+}
+
+const setProjectStatement = statement(
+  "UPDATE conversations SET project_id=? WHERE id=?",
+);
+export function setProject(
+  db: Database.Database,
+  project: string | null,
+  id: string,
+) {
+  return setProjectStatement(db).run(project, id);
+}
+
+const ownerStatement = statement(
+  "SELECT owner_id FROM conversations WHERE id=?",
+);
+const ownerRow = QueryRecords.conversations.pick({ owner_id: true });
+export function owner(db: Database.Database, id: string) {
+  const row = ownerStatement(db).get(id);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownerRow, row, "conversations");
+}

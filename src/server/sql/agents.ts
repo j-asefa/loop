@@ -1,3 +1,4 @@
+import { FOLDER_PROJECT } from "./folders.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -156,4 +157,14 @@ export function configure(
   id: string,
 ) {
   return configureStatement(db).run(connection, provider, model, effort, id);
+}
+
+const projectCountsStatement = statement(
+  `WITH RECURSIVE ${FOLDER_PROJECT} SELECT fp.project_id,count(*) n FROM agents a JOIN folder_project fp ON fp.id IS a.folder_id WHERE a.owner_id=@owner AND a.retired_at IS NULL GROUP BY fp.project_id`,
+);
+const projectCountsRow = z.object({ project_id: z.string(), n: z.number() });
+export function projectCounts(db: Database.Database, owner: string) {
+  return projectCountsStatement(db)
+    .all({ owner })
+    .map((row) => parseRecord(projectCountsRow, row, "agents"));
 }

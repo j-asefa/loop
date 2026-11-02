@@ -49,3 +49,18 @@ export function insert(
 ) {
   return insertStatement(db).run(parent, call, child, args, background);
 }
+
+const childOfDelegateOrWorkflowStatement = statement(
+  "SELECT 1 FROM delegations WHERE child_run_id=? UNION ALL SELECT 1 FROM workflow_steps WHERE child_run_id=?",
+);
+const childOfDelegateOrWorkflowRow = z.object({ "1": z.number() });
+export function childOfDelegateOrWorkflow(
+  db: Database.Database,
+  delegate: string,
+  workflow: string,
+) {
+  const row = childOfDelegateOrWorkflowStatement(db).get(delegate, workflow);
+  return row === undefined
+    ? undefined
+    : parseRecord(childOfDelegateOrWorkflowRow, row, "delegations");
+}

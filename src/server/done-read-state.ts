@@ -1,3 +1,4 @@
+import * as doneCardUnreadVersionsQueries from "./sql/done-card-unread-versions.js";
 import { db } from "./db.js";
 
 export function doneUnreadVersion(
@@ -7,11 +8,8 @@ export function doneUnreadVersion(
 ) {
   return (
     (
-      db
-        .prepare(
-          "SELECT version FROM done_card_unread_versions WHERE owner_id=? AND conversation_id=? AND card_key=?",
-        )
-        .get(owner, conversation, key) as { version: number } | undefined
+      doneCardUnreadVersionsQueries.version(db, owner, conversation, key) as
+        { version: number } | undefined
     )?.version ?? 0
   );
 }
@@ -23,11 +21,8 @@ export function advanceDoneUnreadVersion(
   key: string,
 ) {
   return (
-    db
-      .prepare(
-        `INSERT INTO done_card_unread_versions(owner_id,conversation_id,card_key,version) VALUES(?,?,?,1)
-    ON CONFLICT(owner_id,conversation_id,card_key) DO UPDATE SET version=version+1 RETURNING version`,
-      )
-      .get(owner, conversation, key) as { version: number }
+    doneCardUnreadVersionsQueries.advance(db, owner, conversation, key) as {
+      version: number;
+    }
   ).version;
 }

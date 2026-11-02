@@ -8,12 +8,8 @@ import { MAX_UPLOAD_BYTES } from "../shared/uploads.js";
 
 // Older runtimes saved Claude's internal JSON-envelope tool and its receipt.
 // Keep the records, but exclude them from public traces and Running previews.
-export const publicTraceFilter = `NOT EXISTS (
-  SELECT 1 FROM run_traces internal WHERE internal.run_id=t.run_id
-  AND internal.trace_key=CASE WHEN substr(t.trace_key,-7)=':result'
-    THEN substr(t.trace_key,1,length(t.trace_key)-7) ELSE t.trace_key END
-  AND internal.title='StructuredOutput' AND json_extract(internal.metadata,'$.native')=1
-)`;
+export { publicTraceFilter } from "./sql/run-traces.js";
+import { publicTraceFilter } from "./sql/run-traces.js";
 
 export function recordTrace(
   run: Run,

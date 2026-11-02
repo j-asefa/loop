@@ -45,3 +45,14 @@ export function exists(db: Database.Database, run: string) {
     ? undefined
     : parseRecord(existsRow, row, "native_dispatch");
 }
+
+const hasAcceptedOrUnknownStatement = statement(
+  "SELECT 1 FROM native_dispatch WHERE run_id=? AND state IN ('accepted','unknown')",
+);
+const hasAcceptedOrUnknownRow = z.object({ "1": z.number() });
+export function hasAcceptedOrUnknown(db: Database.Database, run: string) {
+  const row = hasAcceptedOrUnknownStatement(db).get(run);
+  return row === undefined
+    ? undefined
+    : parseRecord(hasAcceptedOrUnknownRow, row, "native_dispatch");
+}

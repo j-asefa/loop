@@ -1,3 +1,4 @@
+import * as conversationsQueries from "../sql/conversations.js";
 import * as messagesQueries from "../sql/messages.js";
 import { ConversationForkInput } from "../../shared/mobile-contract-schemas.js";
 import { MessageMetadata, parseMessages } from "../row-schemas.js";
@@ -47,9 +48,8 @@ export function forkConversation(
       // Bind the fork to the selected agent's connection now, as a first send
       // to a new conversation would.
       const connection = ownedConnection(agent.connection_id, owner);
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at,project_id,execution_connection_id) VALUES(?,?,?,?,?,?,?,?,?)",
-      ).run(
+      conversationsQueries.insertFork(
+        db,
         forkId,
         owner,
         agent.id,

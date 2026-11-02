@@ -1,3 +1,4 @@
+import * as artifactsQueries from "./sql/artifacts.js";
 import * as messagesQueries from "./sql/messages.js";
 import { createHash } from "node:crypto";
 import type { z } from "zod";
@@ -16,11 +17,12 @@ export class MailFileRefusal extends MailRefusal {}
 export function sharedMailFiles(run: Run, ids: string[]) {
   const unique = [...new Set(ids)];
   for (const fileId of unique) {
-    const published = db
-      .prepare(
-        "SELECT 1 FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=? AND a.agent_id=?",
-      )
-      .get(fileId, run.owner_id, run.agent_id);
+    const published = artifactsQueries.ownedAgentFileExists(
+      db,
+      fileId,
+      run.owner_id,
+      run.agent_id,
+    );
     const attached = messagesQueries.sharedAttachmentReadable(
       db,
       run.owner_id,

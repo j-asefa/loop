@@ -1,3 +1,5 @@
+import * as installationQueries from "./sql/installation.js";
+import * as oauthStatesQueries from "./sql/oauth-states.js";
 import { timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
 import ipaddr from "ipaddr.js";
@@ -30,9 +32,8 @@ export function initializeAccess() {
   const accounts = workspaceAccounts();
   personalUser = db
     .transaction(() => {
-      const saved = db
-        .prepare("SELECT owner_id FROM installation WHERE id=1")
-        .get() as { owner_id: string } | undefined;
+      const saved = installationQueries.owner(db) as
+        { owner_id: string } | undefined;
       const chosen = config.singleUserEmail
         ? accounts.find(
             (a) =>
@@ -48,9 +49,7 @@ export function initializeAccess() {
           "Multiple Loop55 accounts exist. Set LOOP55_SINGLE_USER_EMAIL to select a workspace, or LOOP55_AUTH_MODE=multi-user to keep separate sign-ins.",
         );
       const owner = chosen?.id || saved?.owner_id || accounts[0]?.id || id();
-      db.prepare(
-        "INSERT INTO installation(id,owner_id) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET owner_id=excluded.owner_id",
-      ).run(owner);
+      installationQueries.setOwner(db, owner);
       return {
         id: owner,
         name: accounts.find((a) => a.id === owner)?.name || "Your workspace",
@@ -92,11 +91,12 @@ function authorizePersonalAccess(req: AccessRequest) {
     req.originalUrl?.split("?")[0] === "/api/mcp/oauth/callback" &&
     req.headers["sec-fetch-mode"] === "navigate" &&
     typeof req.query?.state === "string" &&
-    !!db
-      .prepare(
-        "SELECT 1 FROM oauth_states WHERE state=? AND owner_id=? AND expires_at>?",
-      )
-      .get(req.query.state, personalUser?.id || "", Date.now());
+    !!oauthStatesQueries.valid(
+      db,
+      req.query.state,
+      personalUser?.id || "",
+      Date.now(),
+    );
   if (
     !callback &&
     ((req.headers.origin && !allowedOrigin(req)) ||

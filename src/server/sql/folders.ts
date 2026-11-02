@@ -61,3 +61,27 @@ export function descendants(
     .all(owner, folder, descendantOwner)
     .map((row) => parseRecord(descendantsRow, row, "folders"));
 }
+
+const rootProjectsStatement = statement(
+  "SELECT id,name FROM folders WHERE owner_id=? AND kind='project' AND parent_id IS NULL",
+);
+const rootProjectsRow = QueryRecords.folders.pick({ id: true, name: true });
+export function rootProjects(db: Database.Database, owner: string) {
+  return rootProjectsStatement(db)
+    .all(owner)
+    .map((row) => parseRecord(rootProjectsRow, row, "folders"));
+}
+
+const projectForStatement = statement(
+  `WITH RECURSIVE ${FOLDER_PROJECT} SELECT p.id,p.name FROM folder_project fp JOIN folders p ON p.id=fp.project_id AND p.owner_id=@owner WHERE fp.id IS @folder`,
+);
+const projectForRow = QueryRecords.folders.pick({ id: true, name: true });
+export function projectFor(
+  db: Database.Database,
+  params: { owner: string; folder: string | null },
+) {
+  const row = projectForStatement(db).get(params);
+  return row === undefined
+    ? undefined
+    : parseRecord(projectForRow, row, "folders");
+}

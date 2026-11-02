@@ -1,3 +1,4 @@
+import * as agentCreationsQueries from "./sql/agent-creations.js";
 import { createHash } from "node:crypto";
 import { AgentCreateInput } from "../shared/agent-contract-schemas.js";
 import { db, id, now } from "./db.js";
@@ -29,11 +30,11 @@ export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
     .digest("hex");
   return db
     .transaction(() => {
-      const receipt = db
-        .prepare(
-          "SELECT * FROM agent_creations WHERE owner_id=? AND request_key=?",
-        )
-        .get(owner, idempotencyKey) as
+      const receipt = agentCreationsQueries.byRequest(
+        db,
+        owner,
+        idempotencyKey,
+      ) as
         | {
             request_hash: string;
             agent_id: string;
@@ -76,7 +77,8 @@ export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
             idempotencyKey: "agent-initial:" + agent.id,
           })
         : undefined;
-      db.prepare("INSERT INTO agent_creations VALUES(?,?,?,?,?,?)").run(
+      agentCreationsQueries.insert(
+        db,
         owner,
         idempotencyKey,
         hash,

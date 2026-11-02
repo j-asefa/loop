@@ -1,3 +1,6 @@
+import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
+import * as nativeDispatchQueries from "../sql/native-dispatch.js";
+import * as delegationsQueries from "../sql/delegations.js";
 import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import {
@@ -60,8 +63,8 @@ function editable(
     run.state === "queued" &&
     run.worker_id === null &&
     !run.active_since &&
-    !db.prepare("SELECT 1 FROM agent_checkpoints WHERE run_id=?").get(run.id) &&
-    !db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id)
+    !agentCheckpointsQueries.exists(db, run.id) &&
+    !nativeDispatchQueries.exists(db, run.id)
   );
 }
 
@@ -141,11 +144,7 @@ export function withdrawQueuedRun(
       if (
         run.kind !== "agent" ||
         !editable(run) ||
-        db
-          .prepare(
-            "SELECT 1 FROM delegations WHERE child_run_id=? UNION ALL SELECT 1 FROM workflow_steps WHERE child_run_id=?",
-          )
-          .get(run.id, run.id)
+        delegationsQueries.childOfDelegateOrWorkflow(db, run.id, run.id)
       )
         throw new Problem(
           409,
@@ -200,11 +199,7 @@ export function moveQueuedRun(owner: string, runId: string, body: unknown) {
       if (
         run.kind !== "agent" ||
         !editable(run) ||
-        db
-          .prepare(
-            "SELECT 1 FROM delegations WHERE child_run_id=? UNION ALL SELECT 1 FROM workflow_steps WHERE child_run_id=?",
-          )
-          .get(run.id, run.id)
+        delegationsQueries.childOfDelegateOrWorkflow(db, run.id, run.id)
       )
         throw new Problem(409, "Only a queued message you sent can be moved");
       assertFleetEffect(owner, "run", run.id);
