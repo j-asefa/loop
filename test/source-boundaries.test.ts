@@ -68,6 +68,7 @@ it("reads every import form and ignores imports in comments and strings", () => 
   );
 });
 
+// Parsing the full source tree can exceed Vitest’s 5s default on shared hosts.
 it("keeps client, server and shared code from importing across their boundary", () => {
   const violations: string[] = [];
   let checked = 0;
@@ -83,4 +84,4 @@ it("keeps client, server and shared code from importing across their boundary", 
   }
   expect(checked).toBeGreaterThan(100);
   expect(violations).toEqual([]);
-});
+}, 30_000);

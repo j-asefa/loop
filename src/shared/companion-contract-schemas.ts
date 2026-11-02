@@ -130,6 +130,11 @@ export const PublicUpgrade = z.object({
 export const PublicUpgradeView = z.object({
   upgrade: PublicUpgrade.nullable(),
   // Only the status producer supplies discovery help; mutation responses do not.
+  installedVersion: z.string().optional(),
+  latestVersion: z.string().optional(),
+  updateAvailable: z.boolean().optional(),
+  checkedAt: z.number().optional(),
+  checkHelp: z.string().optional(),
   canUpgrade: z.boolean().optional(),
   upgradeHelp: Text.optional(),
 });

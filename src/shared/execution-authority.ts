@@ -180,6 +180,11 @@ const Upgrade = z.strictObject({
 });
 const UpgradeView = z.strictObject({
   upgrade: Upgrade.nullable(),
+  installedVersion: z.string().optional(),
+  latestVersion: z.string().optional(),
+  updateAvailable: z.boolean().optional(),
+  checkedAt: z.number().optional(),
+  checkHelp: z.string().optional(),
   canUpgrade: z.boolean().optional(),
   upgradeHelp: z.string().optional(),
 });
@@ -295,7 +300,7 @@ export const executionOperations = {
     "session",
   ),
   "upgrade.status": method(
-    z.strictObject({ name: RuntimeHarness }),
+    z.strictObject({ name: RuntimeHarness, check: z.boolean().optional() }),
     UpgradeView,
   ),
   "upgrade.start": method(

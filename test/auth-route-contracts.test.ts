@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { workspaceApi } from "../src/shared/workspace-api";
 
+// Let the fixture report its own bounded 20s startup failure on shared hosts.
 let fixture: Awaited<ReturnType<typeof cardsFixture>>;
 beforeAll(async () => {
   // Building an OAuth authorization URL is local protocol work, not a provider
@@ -27,7 +28,7 @@ beforeAll(async () => {
       else process.env[key] = value;
     }
   }
-});
+}, 30_000);
 afterAll(async () => fixture?.close());
 
 it("projects actual account sessions while retaining refresh cookies and query semantics", async () => {

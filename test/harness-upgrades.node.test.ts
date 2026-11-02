@@ -602,3 +602,107 @@ test("self-updating harnesses keep their own update command in Settings", (t) =>
     );
   }
 });
+
+test("release checks coalesce per installation, never install, and invalidate after an upgrade", async (t) => {
+  const dir = fixture(t);
+  const { executable } = npmGlobal(dir);
+  const installed = { version: "0.159.0" };
+  const fake = fakeRunner(installed, () => {
+    installed.version = "0.160.0";
+  });
+  const manager = new HarnessUpgrades(join(dir, "upgrades.json"), fake.run);
+  const [first, concurrent] = await Promise.all([
+    manager.check("codex", executable),
+    manager.check("codex", executable),
+  ]);
+  assert.deepEqual(first, concurrent);
+  assert.equal(first.installedVersion, "0.159.0");
+  assert.equal(first.latestVersion, "0.160.0");
+  assert.equal(first.updateAvailable, true);
+  assert.equal(typeof first.checkedAt, "number");
+  await manager.check("codex", executable);
+  assert.deepEqual(
+    fake.calls.map((call) => call.slice(0, 2)),
+    [
+      [executable, "--version"],
+      ["npm", "view"],
+    ],
+  );
+  assert.equal(manager.status("codex"), null);
+  manager.start("codex", executable, randomUUID());
+  await settled(manager, "codex");
+  const after = await manager.check("codex", executable);
+  assert.equal(after.installedVersion, "0.160.0");
+  assert.equal(after.updateAvailable, false);
+});
+
+test("failed and malformed release checks expose safe guidance, never raw package output", async (t) => {
+  const dir = fixture(t);
+  const { executable } = npmGlobal(dir);
+  for (const latest of ["token=secret", "", "1.2.3\n4.5.6"]) {
+    const fake = fakeRunner(
+      { version: "0.159.0" },
+      () => assert.fail("no installer"),
+      latest,
+    );
+    const manager = new HarnessUpgrades(join(dir, "upgrades.json"), fake.run);
+    const result = await manager.check("codex", executable);
+    assert.equal(result.updateAvailable, undefined);
+    assert.equal(result.latestVersion, undefined);
+    assert.match(result.checkHelp!, /Could not check/);
+    assert(!JSON.stringify(result).includes("secret"));
+  }
+});
+
+test("self-updating harness checks never launch an executable or package manager", async (t) => {
+  const dir = fixture(t);
+  const manager = new HarnessUpgrades(join(dir, "upgrades.json"), async () =>
+    assert.fail("must not launch self updater"),
+  );
+  for (const name of ["muse", "grok", "antigravity"] as const) {
+    const result = await manager.check(name, "/not/an/executable");
+    assert.match(
+      manager.availability(name, "/not/an/executable").upgradeHelp,
+      /updates itself/,
+    );
+    assert.equal(result.latestVersion, undefined);
+  }
+});
+
+test("Homebrew checks use the owning brew for formulae and casks, including OpenCode", async (t) => {
+  const dir = fixture(t);
+  for (const name of ["codex", "opencode"] as const) {
+    for (const kind of ["Cellar", "Caskroom"]) {
+      const executable = join(dir, kind, name, "0.159.0/bin", name);
+      script(executable, "process.exit(97)");
+      const calls: string[][] = [];
+      const manager = new HarnessUpgrades(
+        join(dir, "upgrades.json"),
+        async (command, args, options) => {
+          calls.push([command, ...args]);
+          if (args[0] === "--version") return name + " 0.159.0";
+          assert.equal(
+            command,
+            join(dir, "bin/brew"),
+            "a Homebrew install must not query npm",
+          );
+          assert.equal(options.env.HOMEBREW_NO_AUTO_UPDATE, "1");
+          return JSON.stringify(
+            kind === "Cellar"
+              ? { formulae: [{ versions: { stable: "0.160.0" } }] }
+              : { casks: [{ version: "0.160.0" }] },
+          );
+        },
+      );
+      const result = await manager.check(name, executable);
+      assert.equal(result.updateAvailable, true);
+      assert.match(result.checkHelp!, /locally known release/);
+      assert.deepEqual(calls[1], [
+        join(dir, "bin/brew"),
+        "info",
+        "--json=v2",
+        name,
+      ]);
+    }
+  }
+});

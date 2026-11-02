@@ -352,7 +352,7 @@ export const workspaceRoutes = {
       .strict(),
     response: NativeProviderView,
   }),
-  runtimeUpgrade: endpoint({ ...base, method: "GET", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, response: companion.PublicUpgradeView }),
+  runtimeUpgrade: endpoint({ ...base, method: "GET", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, query: z.object({ check: z.enum(["1"]).optional() }), response: companion.PublicUpgradeView }),
   runtimeUpgradeStart: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, body: companion.CommandIdentity, response: companion.PublicUpgradeView }),
   runtimeUpgradeDismiss: endpoint({ ...base, method: "DELETE", path: "/workspace/runtimes/:name/upgrade", params: companion.RuntimeName, body: z.unknown(), response: companion.PublicUpgradeView }),
   runtimeUpgradeRecover: endpoint({ ...base, method: "POST", path: "/workspace/runtimes/:name/upgrade/recover", params: companion.RuntimeName, body: companion.UpgradeRecoverInput, response: companion.PublicUpgradeView }),

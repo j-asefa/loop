@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   workspaceApi,
   type RouteInput,
@@ -6,27 +6,42 @@ import {
 } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
 import { useSourceId } from "./SourceContext";
+import { viewGeneration } from "./viewCache";
 type UpgradeView = RouteResponse<typeof workspaceApi.runtimeUpgrade>;
 type Target = {
   runtime: RouteInput<typeof workspaceApi.runtimeUpgrade>["params"]["name"];
 };
 
-export function HarnessUpgrade({
+type Props = Target & {
+  label: string;
+  generation?: number;
+  disabled?: boolean;
+  onComplete?: () => void;
+};
+export function HarnessUpgrade(props: Props) {
+  const sourceId = useSourceId();
+  return (
+    <HarnessUpgradeControls
+      key={`${sourceId}:${props.runtime}:${props.generation}:${viewGeneration()}`}
+      {...props}
+      sourceId={sourceId}
+    />
+  );
+}
+function HarnessUpgradeControls({
   runtime,
   label,
   generation,
   disabled,
   onComplete,
-}: Target & {
-  label: string;
-  generation?: number;
-  disabled?: boolean;
-  onComplete?: () => void;
-}) {
-  const sourceId = useSourceId();
+  sourceId,
+}: Props & { sourceId: string }) {
   const [upgrade, setUpgrade] = useState<UpgradeView["upgrade"]>();
   const [availability, setAvailability] =
     useState<Pick<UpgradeView, "canUpgrade" | "upgradeHelp">>();
+  const [release, setRelease] = useState<UpgradeView>();
+  const [checkingRelease, setCheckingRelease] = useState(false);
+  const releaseRequested = useRef(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(0);
@@ -37,13 +52,16 @@ export function HarnessUpgrade({
   );
   useEffect(() => {
     let current = true;
+    if (disabled) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
+      const check = !releaseRequested.current;
+      if (check) setCheckingRelease(true);
       try {
         const value = await readRoute(
           workspaceApi.runtimeUpgrade,
-          { params: { name: runtime } },
+          { params: { name: runtime }, query: check ? { check: "1" } : {} },
           sourceId,
           controller.signal,
           () =>
@@ -54,6 +72,10 @@ export function HarnessUpgrade({
         if (!current) return;
         setUpgrade(value.upgrade);
         setAvailability(value);
+        if (check) {
+          releaseRequested.current = true;
+          setRelease(value);
+        }
         setError("");
         if (value.upgrade?.state === "running") timer = setTimeout(poll, 1500);
       } catch {
@@ -61,6 +83,8 @@ export function HarnessUpgrade({
           setError(
             "Upgrade status unavailable. Check status before starting another upgrade.",
           );
+      } finally {
+        if (current) setCheckingRelease(false);
       }
     }
     void poll();
@@ -69,13 +93,53 @@ export function HarnessUpgrade({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [runtime, sourceId, checking]);
+  }, [runtime, sourceId, checking, disabled]);
   useEffect(() => {
-    if (upgrade?.state === "complete") onComplete?.();
+    if (upgrade?.state === "complete") {
+      releaseRequested.current = false;
+      setChecking((n) => n + 1);
+      onComplete?.();
+    }
     // Refresh once per confirmed operation, not on every parent's render.
   }, [upgrade?.commandId, upgrade?.state]);
   return (
-    <div>
+    <div aria-label={`${label} updates`}>
+      {release?.latestVersion && (
+        <p role="status">
+          {release.updateAvailable
+            ? `Update available: ${release.installedVersion} → ${release.latestVersion}`
+            : release.updateAvailable === false
+              ? `No newer release found: ${release.installedVersion}`
+              : `Latest release: ${release.latestVersion}`}
+        </p>
+      )}
+      {release?.checkedAt && (
+        <p className="field-hint">
+          Checked {new Date(release.checkedAt).toLocaleTimeString()}. Checks are
+          cached for five minutes.
+        </p>
+      )}
+      {release?.checkHelp && <p className="note">{release.checkHelp}</p>}
+      {availability?.canUpgrade !== false && (
+        <button
+          type="button"
+          className="text-button"
+          disabled={
+            disabled ||
+            checkingRelease ||
+            sending ||
+            upgrade?.state === "running" ||
+            upgrade?.state === "unconfirmed" ||
+            upgrade?.state === "restart-required"
+          }
+          onClick={() => {
+            releaseRequested.current = false;
+            setChecking((n) => n + 1);
+          }}
+        >
+          {checkingRelease ? "Checking for updates…" : "Check for updates"}
+        </button>
+      )}
       <button
         type="button"
         className="text-button"
@@ -83,6 +147,7 @@ export function HarnessUpgrade({
           disabled ||
           !availability?.canUpgrade ||
           sending ||
+          checkingRelease ||
           upgrade === undefined ||
           upgrade?.state === "running" ||
           upgrade?.state === "unconfirmed" ||
@@ -100,6 +165,7 @@ export function HarnessUpgrade({
               sourceId,
             );
             setUpgrade(value.upgrade);
+            setRelease(undefined);
           } catch (e) {
             setError((e as Error).message);
           } finally {
@@ -114,6 +180,12 @@ export function HarnessUpgrade({
       </button>
       {availability?.upgradeHelp && (
         <p className="note">{availability.upgradeHelp}</p>
+      )}
+      {availability?.canUpgrade && (
+        <p className="field-hint">
+          Finish active runs and sign-in before upgrading. The installer checks
+          the latest release again when you upgrade.
+        </p>
       )}
       {upgrade && (
         <p role="status">

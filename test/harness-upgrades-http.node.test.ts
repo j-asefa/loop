@@ -33,11 +33,10 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
     `#!/usr/bin/env node\nconst fs=require('node:fs');\nif(process.argv[2]==='--version') { if(fs.existsSync(${JSON.stringify(gate)})) { fs.writeFileSync(${JSON.stringify(entered)},'entered'); const timer=setInterval(()=>{if(!fs.existsSync(${JSON.stringify(gate)})){clearInterval(timer);console.log(fs.readFileSync(${JSON.stringify(version)},'utf8'));}},10); } else console.log(fs.readFileSync(${JSON.stringify(version)}, 'utf8')); }\nelse if(process.argv[2]==='upgrade') { fs.appendFileSync(${JSON.stringify(calls)}, 'upgrade\\n'); fs.writeFileSync(${JSON.stringify(version)}, '1.18.40'); }\nelse process.exit(91);\n`,
     { mode: 0o755 },
   );
-  // Any package-manager call would be recorded here and fail; npm cannot
-  // reach a registry from this test.
+  // Only read-only release lookup is accepted; npm never reaches a registry.
   writeFileSync(
     join(bin, "npm"),
-    `#!/bin/sh\necho npm >> ${JSON.stringify(calls)}\nexit 92\n`,
+    `#!/usr/bin/env node\nconst fs=require('node:fs'); if(process.argv.slice(2).join(' ')==='view opencode-ai@latest version') { fs.appendFileSync(${JSON.stringify(calls)}, 'check\\n'); console.log('1.18.40'); } else process.exit(92);\n`,
     { mode: 0o755 },
   );
   process.env.npm_config_offline = "true";
@@ -133,6 +132,20 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
     400,
   );
   assert.equal((await fetch(base).then((r) => r.json())).canUpgrade, true);
+  const release = await fetch(base + "?check=1").then((r) => r.json());
+  assert.equal(release.installedVersion, "1.18.33");
+  assert.equal(release.latestVersion, "1.18.40");
+  assert.equal(release.updateAvailable, true);
+  assert.equal(typeof release.checkedAt, "number");
+  assert.equal(release.upgrade.state, "failed");
+  assert(!JSON.stringify(release).includes(bin));
+  await fetch(base + "?check=1");
+  await fetch(base);
+  assert.equal(
+    readFileSync(calls, "utf8"),
+    "check\n",
+    "checking and polling never start an installer; repeated checks use the cache",
+  );
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('busy','local-workspace','busy',1)",
   ).run();
@@ -210,7 +223,7 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
     (await post({ commandId }).then((r) => r.json())).upgrade.state,
     "complete",
   );
-  assert.equal(readFileSync(calls, "utf8"), "upgrade\n");
+  assert.equal(readFileSync(calls, "utf8"), "check\nupgrade\n");
 
   // Discovery yields before a sign-in starts. An upgrade that reserves during
   // that probe must still prevent the authority from opening a login driver.

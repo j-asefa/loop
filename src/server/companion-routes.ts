@@ -119,7 +119,12 @@ routes.on(workspaceApi.runtimeList, async (req, res) => {
 });
 routes.on(workspaceApi.runtimeUpgrade, async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json(await executionRequest("upgrade.status", { name: req.params.name }));
+  res.json(
+    await executionRequest("upgrade.status", {
+      name: req.params.name,
+      check: req.query.check === "1",
+    }),
+  );
 });
 routes.on(workspaceApi.runtimeUpgradeStart, async (req, res) => {
   const { commandId } = req.body;

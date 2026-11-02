@@ -23,6 +23,13 @@ export type UpgradeHarness =
   | "gemini"
   | "muse"
   | "grok";
+export type ReleaseCheck = {
+  installedVersion?: string;
+  latestVersion?: string;
+  updateAvailable?: boolean;
+  checkedAt?: number;
+  checkHelp?: string;
+};
 export type Upgrade = {
   commandId: string;
   name: UpgradeHarness;
@@ -223,13 +230,114 @@ function versioned(
   if (plan.args.length !== 1) return undefined;
   if (name === "claude" && plan.args[0] === "update")
     return { command: plan.command, args: ["install", version] };
-  if (name === "opencode" && plan.args[0] === "upgrade")
+  if (
+    name === "opencode" &&
+    plan.args.length === 1 &&
+    plan.args[0] === "upgrade"
+  )
     return { command: plan.command, args: ["upgrade", version] };
   return undefined;
 }
 
 export class HarnessUpgrades {
   private records: Record<string, UpgradeRecord> = {};
+  private checks = new Map<
+    string,
+    { expires: number; result: Promise<ReleaseCheck> }
+  >();
+  // Read-only release checks are coalesced and cached per detected installation.
+  // Polling upgrade status never starts a registry request or an installer.
+  async check(name: UpgradeHarness, executable: string): Promise<ReleaseCheck> {
+    const key = name + ":" + executable;
+    const cached = this.checks.get(key);
+    if (cached && cached.expires > Date.now()) return cached.result;
+    const result = this.checkRelease(name, executable);
+    this.checks.set(key, { expires: Date.now() + 5 * 60_000, result });
+    return result;
+  }
+  private async checkRelease(
+    name: UpgradeHarness,
+    executable: string,
+  ): Promise<ReleaseCheck> {
+    const availability = this.availability(name, executable);
+    if (!availability.canUpgrade) return {};
+    if (this.busy(name))
+      return {
+        checkHelp:
+          "Finish the upgrade or recovery before checking for updates.",
+      };
+    const installedVersion = await this.probe(executable, process.env);
+    const checkedAt = Date.now();
+    const result = { installedVersion, checkedAt };
+    if (this.busy(name))
+      return {
+        ...result,
+        checkHelp:
+          "Finish the upgrade or recovery before checking for updates.",
+      };
+    try {
+      const plan = upgradePlan(name, executable);
+      let latestVersion: string;
+      let checkHelp: string | undefined;
+      const options = {
+        env: { ...process.env, CI: "1", HOMEBREW_NO_AUTO_UPDATE: "1" },
+        timeout: 30_000,
+      };
+      if (
+        plan.command === "npm" ||
+        (name === "opencode" &&
+          plan.args.length === 1 &&
+          plan.args[0] === "upgrade")
+      ) {
+        latestVersion = (
+          await this.run(
+            "npm",
+            ["view", packages[name] + "@latest", "version"],
+            options,
+          )
+        ).trim();
+      } else if (plan.args[0] === "upgrade" && plan.args.length === 2) {
+        const info = JSON.parse(
+          await this.run(
+            plan.command,
+            ["info", "--json=v2", plan.args[1]],
+            options,
+          ),
+        );
+        latestVersion =
+          info.formulae?.[0]?.versions?.stable || info.casks?.[0]?.version;
+        checkHelp =
+          "Homebrew reports its locally known release. Upgrade refreshes its metadata before installing.";
+      } else {
+        return {
+          ...result,
+          checkHelp:
+            "The native updater checks its configured release channel when you choose Upgrade.",
+        };
+      }
+      if (!exact(latestVersion)) throw new Error("invalid release");
+      return {
+        ...result,
+        latestVersion,
+        checkHelp,
+        updateAvailable: installedVersion
+          ? compareVersions(latestVersion, installedVersion) > 0
+          : undefined,
+        ...(!installedVersion
+          ? {
+              checkHelp:
+                "The installed version could not be read. Check the installation before upgrading.",
+            }
+          : {}),
+      };
+    } catch {
+      return {
+        ...result,
+        checkHelp:
+          "Could not check for updates. Try again after the five-minute cache expires, or use the installation’s updater.",
+      };
+    }
+  }
   private lock?: { name: string; token: object };
   private reconciling = new Set<string>();
   readonly ready: Promise<void>;
@@ -396,6 +504,7 @@ export class HarnessUpgrades {
       record.commandId !== commandId
     )
       throw new Error("Only an unconfirmed upgrade can be recovered.");
+    this.checks.clear();
     record.state = record.restartRequired ? "restart-required" : "failed";
     record.message = record.restartRequired
       ? "Recovery confirmed. Restart the workspace to replace the shared Codex app-server before running Codex again."
@@ -428,6 +537,7 @@ export class HarnessUpgrades {
         executable,
         restartRequired: options.restartRequired,
       };
+      this.checks.clear();
       this.records[commandId] = record;
       this.save();
     } catch (error) {
@@ -443,6 +553,7 @@ export class HarnessUpgrades {
       })
       .finally(() => {
         release();
+        this.checks.clear();
         this.save();
       });
     return this.view(record);

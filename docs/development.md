@@ -130,6 +130,8 @@ npm run smoke:feed-events
 LOOP55_BROWSER=webkit npm run smoke:companion
 npm run smoke:reconnect
 LOOP55_BROWSER=webkit npm run smoke:reconnect
+node scripts/harness-upgrades-browser-smoke.mjs
+LOOP55_BROWSER=webkit node scripts/harness-upgrades-browser-smoke.mjs
 npm run smoke:fleet-controls
 LOOP55_BROWSER=webkit npm run smoke:fleet-controls
 npm run smoke:fleet-traces
@@ -147,6 +149,8 @@ LOOP55_BROWSER=webkit npm run smoke:journey
 `smoke:history` opens a long transcript and verifies that older activity is fetched only when requested, historical file reviews remain available, and live updates keep their own cursor.
 
 `smoke:math` uses the built UI and isolated message fixtures in Chromium and WebKit. It checks math in Feed cards, reading sheets and conversations, delayed and failed asset downloads, local fonts, 320/390px equation scrolling and streamed message updates. Set `LOOP55_BROWSER` to select one engine. It makes no provider requests and does not replace physical-phone validation.
+
+`node scripts/harness-upgrades-browser-smoke.mjs` drives the production provider cards and typed transport against an isolated HTTP fixture in a mobile viewport. It checks read-only release lookup, upgrade progress, version refresh, self-updater guidance and a restart hold across reload. It does not install or authenticate a live harness.
 
 `smoke:fleet-controls` drives the production native-question and sharing UI with source context against an isolated HTTP fixture. It checks read-only and mismatched-machine capabilities, source-bound command IDs, storage failure before dispatch, and source changes during a pending share preview. Reading a preview does not grant permission to send it. This is browser fixture evidence, not a native provider or live tunnel run.
 

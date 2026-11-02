@@ -102,9 +102,15 @@ export async function runtimeList({
 }
 export async function upgradeStatus({
   name,
+  check,
 }: ExecutionInput<"upgrade.status">) {
   const probe = await discover(name, savedRegistration(name)?.executable);
+  const release =
+    check && probe.installed
+      ? await upgrades.check(name, probe.executable!)
+      : {};
   return {
+    ...release,
     upgrade: upgrades.status(name),
     ...(probe.installed
       ? upgrades.availability(name, probe.executable!)

@@ -485,6 +485,23 @@ export function RuntimeSetup({
                     : "Add a desktop directory in Projects before signing in."}
                 </p>
               )}
+              <p className="field-hint">
+                {discovery.computer}
+                {runtime.version ? ` · Version ${runtime.version}` : ""}
+              </p>
+              {runtime.installed && (
+                <HarnessUpgrade
+                  key={scope}
+                  runtime={runtime.name}
+                  label={label}
+                  disabled={
+                    busy || settingUp || authenticating || !discovery.online
+                  }
+                  onComplete={() => {
+                    void refresh().catch((e) => setError(e.message));
+                  }}
+                />
+              )}
               {open && (
                 <Sheet
                   className="settings-sheet"
@@ -595,21 +612,6 @@ export function RuntimeSetup({
                       .map((c) => (
                         <ConnectionDetails key={c.id} connection={c} />
                       ))}
-                    {runtime.version && <p>Version {runtime.version}</p>}
-                    <HarnessUpgrade
-                      runtime={runtime.name}
-                      label={label}
-                      disabled={
-                        busy ||
-                        settingUp ||
-                        authenticating ||
-                        !discovery.online ||
-                        !runtime.installed
-                      }
-                      onComplete={() => {
-                        void refresh().catch((e) => setError(e.message));
-                      }}
-                    />
                     <p className="field-hint">
                       Native tools, instructions and session context stay with
                       this harness. Existing conversations keep their project.
