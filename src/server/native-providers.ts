@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { z } from "zod";
 import { createAuthDriver } from "../native-auth/drivers.js";
 import {
@@ -49,18 +50,7 @@ export function requireProviderIdle(name: string) {
       409,
       "Wait for the harness model refresh to finish.",
     );
-  if (
-    db
-      .prepare(
-        // Runs on other harnesses do not use these credentials, and dispatch
-        // is already held per harness by the provider-change reservation.
-        `SELECT 1 FROM runs r JOIN connections c
-          ON c.id=json_extract(r.payload,'$.connectionId') AND c.owner_id=r.owner_id
-          WHERE r.owner_id=? AND r.state IN ('running','pausing','awaiting_approval')
-          AND json_extract(c.metadata,'$.loop55Harness')=? LIMIT 1`,
-      )
-      .get(OWNER, name)
-  )
+  if (runsQueries.hasActiveProvider(db, OWNER, name))
     throw new ExecutionRefused(
       409,
       `Finish or cancel active ${name === "pi" ? "Pi" : "OpenCode"} runs before changing provider credentials.`,

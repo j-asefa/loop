@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { MessageMetadata, parseRun, parseRuns } from "./row-schemas.js";
 
 import { watchRun } from "./run-signal.js";
@@ -169,11 +170,7 @@ function finish(run: Run, content: string) {
   db.prepare(
     "INSERT OR REPLACE INTO agent_checkpoints(run_id,message_id,artifact_id,history,output,stage) VALUES(?,?,?,?,?,'done')",
   ).run(run.id, message, artifact, "[]", content);
-  db.prepare(
-    `UPDATE runs SET result=?,state='completed',worker_id=NULL,heartbeat=NULL,updated_at=?,
-      active_ms=active_ms+CASE WHEN active_since IS NOT NULL THEN max(0,?-active_since) ELSE 0 END,
-      active_since=NULL WHERE id=? AND owner_id=?`,
-  ).run(content, time, time, run.id, run.owner_id);
+  runsQueries.completePreview(db, content, time, time, run.id, run.owner_id);
   emit(run.owner_id, run.id, "completed", { preview: true });
 }
 
@@ -250,9 +247,8 @@ export function seedDesignPreview() {
       db.prepare(
         "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,?,?,?)",
       ).run(conversation, OWNER, agent.id, title, project, time);
-      db.prepare(
-        "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,error,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-      ).run(
+      runsQueries.insertPreview(
+        db,
         runId,
         OWNER,
         agent.id,
@@ -272,9 +268,7 @@ export function seedDesignPreview() {
         time,
         time,
       );
-      const run = parseRun(
-        db.prepare("SELECT * FROM runs WHERE id=?").get(runId),
-      );
+      const run = parseRun(runsQueries.get(db, runId));
       const turns = index === 0 ? 24 : 1;
       for (let turn = 0; turn < turns; turn++) {
         db.prepare(
@@ -353,13 +347,7 @@ export function startDesignSimulation() {
     });
   };
   const reconcile = () => {
-    const live = parseRuns(
-      db
-        .prepare(
-          "SELECT * FROM runs WHERE owner_id=? AND state IN ('queued','running','awaiting_approval')",
-        )
-        .all(OWNER),
-    );
+    const live = parseRuns(runsQueries.activePreviews(db, OWNER));
     const ids = new Set(live.map((run) => run.id));
     for (const [id, subscription] of watched)
       if (!ids.has(id)) {
@@ -396,15 +384,7 @@ export function startDesignSimulation() {
         if (!run) break;
         finish(run, REPLY);
       }
-      const steered = parseRuns(
-        db
-          .prepare(
-            `SELECT * FROM runs WHERE owner_id=? AND state IN ('running','awaiting_approval')
-            AND EXISTS(SELECT 1 FROM run_steering s WHERE s.owner_id=runs.owner_id AND s.run_id=runs.id AND s.state='pending')
-            ORDER BY created_at LIMIT 10`,
-          )
-          .all(OWNER),
-      );
+      const steered = parseRuns(runsQueries.steeredPreviews(db, OWNER));
       for (const run of steered) {
         if (run.state === "awaiting_approval") {
           new SteeringInbox(run).appendPending([]);

@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import type { z } from "zod";
 import type { PublicAgentTrace } from "../shared/agent-contract-schemas.js";
 import { db, now } from "./db.js";
@@ -99,11 +100,7 @@ const exportTooLarge = () =>
 // A complete public record of one run, final answer included, for download.
 export function runTraceExport(owner: string, agent: string, runId: string) {
   const a = ownedAgent(agent, owner);
-  const run = db
-    .prepare(
-      "SELECT id,input,state,error,conversation_id,created_at,updated_at FROM runs WHERE id=? AND owner_id=? AND agent_id=?",
-    )
-    .get(runId, owner, agent);
+  const run = runsQueries.traceExport(db, runId, owner, agent);
   if (!run) throw new Problem(404, "Run not found");
   const traceSelection = `FROM run_traces t WHERE t.owner_id=? AND t.run_id=?
       AND (t.kind!='message' OR length(trim(t.content))>0)

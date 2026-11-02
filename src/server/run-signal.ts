@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { changes, db } from "./db.js";
 import { Problem } from "../shared/problem.js";
 import type { Run } from "./queue.js";
@@ -27,15 +28,7 @@ function subscribe(run: Identity) {
     }
   };
   function check() {
-    const row = db
-      .prepare(
-        `SELECT r.state,
-      CASE WHEN r.kind='agent' THEN json_extract(r.payload,'$.connectionId') END connection_id,c.status
-      FROM runs r LEFT JOIN connections c
-      ON c.id=json_extract(r.payload,'$.connectionId') AND c.owner_id=r.owner_id
-      WHERE r.id=? AND r.owner_id=?`,
-      )
-      .get(run.id, run.owner_id) as
+    const row = runsQueries.signalState(db, run.id, run.owner_id) as
       | { state: string; connection_id: string | null; status: string | null }
       | undefined;
     state = row?.state;

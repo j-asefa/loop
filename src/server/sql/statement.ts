@@ -14,3 +14,17 @@ export function statement(sql: string) {
     return value;
   };
 }
+
+// Query modules build variants from placeholder arity and fixed predicates,
+// never bound values. Each variant still prepares lazily per connection.
+export function statementVariants() {
+  const variants = new Map<string, ReturnType<typeof statement>>();
+  return (sql: string, db: Database.Database) => {
+    let variant = variants.get(sql);
+    if (!variant) {
+      variant = statement(sql);
+      variants.set(sql, variant);
+    }
+    return variant(db);
+  };
+}

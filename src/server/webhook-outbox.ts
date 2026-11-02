@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { WebhookStop } from "../shared/webhooks.js";
@@ -50,17 +51,7 @@ export function enqueueStoppedWebhooks(
     )
     .all(event.owner_id) as { id: string }[];
   if (!subscriptions.length) return;
-  const run = db
-    .prepare(
-      `SELECT r.id,r.state,c.id conversation_id,c.title,c.project_id,c.team_id,
-    a.id agent_id,a.name agent_name,COALESCE((SELECT substr(content,1,4000) FROM artifacts
-    WHERE run_id=r.id AND owner_id=r.owner_id AND kind IN ('markdown','text','message')
-    ORDER BY created_at DESC,id DESC LIMIT 1),substr(r.result,1,4000),'') preview
-    FROM runs r LEFT JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
-    LEFT JOIN agents a ON a.id=r.agent_id AND a.owner_id=r.owner_id
-    WHERE r.id=? AND r.owner_id=?`,
-    )
-    .get(event.run_id, event.owner_id) as
+  const run = runsQueries.webhookContext(db, event.run_id, event.owner_id) as
     | {
         id: string;
         state: string;

@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import {
   RunReorderInput,
   QueuedRunInput,
@@ -8,7 +9,7 @@ import { db, emit, now } from "../db.js";
 import { ownedRun, Problem } from "../domain.js";
 import { submit } from "../agent-runtime.js";
 import { transition, type Run } from "../queue.js";
-import { NATIVE_CONNECTION_SQL } from "../native-connections.js";
+
 import { MAX_MESSAGE_FILES } from "../../shared/uploads.js";
 import { attachmentDescriptors } from "./shared.js";
 import {
@@ -21,28 +22,17 @@ import {
 // agent, and one conversation when both runs use a per-conversation (native)
 // connection. Running, paused and approval-waiting work never moves.
 function queuedPeers(owner: string, runId: string) {
-  const run = db
-    .prepare(
-      `SELECT r.agent_id,r.conversation_id,${perConversation("r")} per FROM runs r WHERE r.id=? AND r.owner_id=?`,
-    )
-    .get(runId, owner) as
+  const run = runsQueries.queueScope(db, runId, owner) as
     | { agent_id: string | null; conversation_id: string | null; per: number }
     | undefined;
   if (!run?.agent_id) return [];
   const per = run.per;
-  return db
-    .prepare(
-      `SELECT r.id,r.conversation_id,COALESCE(r.queue_rank,r.created_at) queue_key FROM runs r
-      WHERE r.owner_id=@owner AND r.agent_id=@agent AND r.state='queued'
-        AND (r.conversation_id=@conversation OR NOT @per OR NOT ${perConversation("r")})
-      ORDER BY COALESCE(r.queue_rank,r.created_at),r.rowid`,
-    )
-    .all({
-      owner,
-      agent: run.agent_id,
-      conversation: run.conversation_id,
-      per,
-    }) as { id: string; conversation_id: string | null; queue_key: number }[];
+  return runsQueries.queuePeers(db, {
+    owner,
+    agent: run.agent_id,
+    conversation: run.conversation_id,
+    per,
+  }) as { id: string; conversation_id: string | null; queue_key: number }[];
 }
 // A swap only crosses threads: each conversation's turns run in the order
 // they were sent, because its model history is built in that order.
@@ -61,8 +51,6 @@ function canSwap(
 
 // ---------------------------------------------------------------------------
 // 7. Queue management
-const perConversation = (r: string) =>
-  `EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${NATIVE_CONNECTION_SQL})`;
 const RANK_STEP = 1 / 1024;
 function editable(
   run: Pick<Run, "id" | "worker_id" | "active_since"> & { state: string },
@@ -106,9 +94,7 @@ export function reorderRun(owner: string, runId: string, body: unknown) {
         const rank = Math.max(keys[position], previous + RANK_STEP);
         previous = rank;
         if (rank !== peer.queue_key)
-          db.prepare(
-            "UPDATE runs SET queue_rank=? WHERE id=? AND owner_id=? AND state='queued'",
-          ).run(rank, peer.id, owner);
+          runsQueries.rankQueued(db, rank, peer.id, owner);
       });
       emit(owner, run.id, "queue.reordered", { direction });
       return { ok: true };
@@ -212,11 +198,7 @@ export function moveQueuedRun(owner: string, runId: string, body: unknown) {
         personal: true,
       };
       // A repeated move returns the run the first attempt created.
-      if (
-        db
-          .prepare("SELECT 1 FROM runs WHERE owner_id=? AND idempotency_key=?")
-          .get(owner, d.idempotencyKey)
-      )
+      if (runsQueries.hasIdempotency(db, owner, d.idempotencyKey))
         return submit(owner, request);
       if (
         run.kind !== "agent" ||

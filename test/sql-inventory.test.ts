@@ -136,7 +136,6 @@ const allowance = [
   "mcp/install.ts",
   "mcp/reverse.ts",
   "mcp/routes.ts",
-  "mcp/sessions.ts",
   "mcp/tool-budget.ts",
   "memory.ts",
   "message-replies.ts",

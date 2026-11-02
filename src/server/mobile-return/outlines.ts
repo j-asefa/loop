@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import { db } from "../db.js";
 import { ownedConversation } from "../domain.js";
 import { collapse, contains } from "./shared.js";
@@ -32,11 +33,7 @@ export function conversationOutline(
     created_at: number;
     seq: number;
   }[];
-  const runs = db
-    .prepare(
-      "SELECT r.id,r.state,r.error,(SELECT count(*) FROM approvals a WHERE a.run_id=r.id AND a.owner_id=r.owner_id) approvals FROM runs r WHERE r.owner_id=? AND r.conversation_id=?",
-    )
-    .all(owner, conversation) as {
+  const runs = runsQueries.outline(db, owner, conversation) as {
     id: string;
     state: string;
     error: string | null;

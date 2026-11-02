@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import { QueryRecords, type QueryRow } from "../query-records.js";
 
 import { maybeRun, workflowPayload } from "../row-schemas.js";
@@ -45,11 +46,7 @@ export function startWorkflow(
       throw new Problem(422, `Input ${name} is too large`);
     resolved[name] = value;
   }
-  const prior = maybeRun(
-    db
-      .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
-      .get(owner, key),
-  );
+  const prior = maybeRun(runsQueries.byIdempotency(db, owner, key));
   if (prior) {
     const p = prior.payload;
     if (
@@ -76,7 +73,7 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
   assertFleetEffect(run.owner_id, "run", run.id);
   const p = workflowPayload(run);
   const state = (
-    db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
+    runsQueries.state(db, run.id) as {
       state: string;
     }
   ).state;
@@ -87,10 +84,7 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
   }
   if (!p.startedAt) {
     p.startedAt = now();
-    db.prepare("UPDATE runs SET payload=? WHERE id=?").run(
-      JSON.stringify(p),
-      run.id,
-    );
+    runsQueries.setPayload(db, JSON.stringify(p), run.id);
   }
   // Approval waiting is excluded from active execution time; per-step provider calls also have timeouts.
   const activeSeconds =
@@ -185,9 +179,7 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
         db.prepare(
           "UPDATE workflow_steps SET state='running',child_run_id=? WHERE run_id=? AND step_id=?",
         ).run(child.id, run.id, step.id);
-        db.prepare(
-          "UPDATE runs SET worker_id=NULL,heartbeat=NULL WHERE id=?",
-        ).run(run.id);
+        runsQueries.clearLease(db, run.id);
         emit(run.owner_id, run.id, "workflow.step.started", {
           stepId: step.id,
           childRunId: child.id,
@@ -231,9 +223,7 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
         approvalId: approval.id,
         stepId: step.id,
       });
-      db.prepare(
-        "UPDATE runs SET worker_id=NULL,heartbeat=NULL WHERE id=?",
-      ).run(run.id);
+      runsQueries.clearLease(db, run.id);
       return false;
     } else {
       const content = outputs[step.source];
@@ -260,10 +250,7 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
   const result = Object.fromEntries(
     Object.entries(p.spec.outputs).map(([name, step]) => [name, outputs[step]]),
   );
-  db.prepare("UPDATE runs SET result=? WHERE id=?").run(
-    JSON.stringify(result),
-    run.id,
-  );
+  runsQueries.setResult(db, JSON.stringify(result), run.id);
   emit(run.owner_id, run.id, "workflow.completed", { outputs: result });
   return true;
 }

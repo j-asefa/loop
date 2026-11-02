@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import { approvalTokenWrite } from "../token-write-policies.js";
 import { registrar, projectResponse } from "../registrar.js";
 import { workspaceApi } from "../../shared/workspace-api.js";
@@ -95,11 +96,7 @@ routes.on(workspaceApi.workflowDetail, (req, res) => {
           "SELECT version,source,created_at FROM workflow_versions WHERE workflow_id=? ORDER BY version DESC",
         )
         .all(w.id),
-      runs: db
-        .prepare(
-          "SELECT * FROM runs WHERE owner_id=? AND kind='workflow' AND json_extract(payload,'$.workflowId')=? ORDER BY created_at DESC LIMIT 100",
-        )
-        .all(res.locals.owner, w.id),
+      runs: runsQueries.workflowHistory(db, res.locals.owner, w.id),
     }),
   );
 });

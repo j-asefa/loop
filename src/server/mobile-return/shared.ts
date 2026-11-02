@@ -46,16 +46,8 @@ export function decode<T>(
 
 // Top-level named projects keep their existing grouping. Workspace covers only
 // unassigned work and ordinary folders outside an explicit project.
-export const FOLDER_PROJECT = `folder_project(id,project_id) AS (
-  SELECT id,id FROM folders WHERE owner_id=@owner AND kind='project' AND parent_id IS NULL
-  UNION
-  SELECT folder_id,project_id FROM project_change_folders
-    WHERE owner_id=@owner AND project_id=(SELECT project_id FROM workspace_projects WHERE owner_id=@owner)
-  UNION
-  SELECT f.id,p.project_id FROM folders f JOIN folder_project p ON f.parent_id=p.id
-    WHERE f.owner_id=@owner AND p.project_id IS NOT (SELECT project_id FROM workspace_projects WHERE owner_id=@owner)
-)`;
-
+export { FOLDER_PROJECT } from "../sql/folders.js";
+import { FOLDER_PROJECT } from "../sql/folders.js";
 export function projectFor(owner: string, folder: string | null | undefined) {
   return (
     (db

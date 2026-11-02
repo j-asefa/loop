@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar, projectResponse } from "./registrar.js";
 import type { QueryRow } from "./query-records.js";
@@ -309,11 +310,7 @@ routes.on(workspaceApi.teamReview, (req, res) =>
 );
 routes.on(workspaceApi.reviewStatus, (req, res) => {
   ownedConversation(req.params.id, res.locals.owner);
-  const run = db
-    .prepare(
-      "SELECT json_extract(payload,'$.reviewId') reviewId FROM runs WHERE conversation_id=? AND owner_id=? ORDER BY rowid DESC LIMIT 1",
-    )
-    .get(req.params.id, res.locals.owner) as
+  const run = runsQueries.latestReview(db, req.params.id, res.locals.owner) as
     { reviewId: string | null } | undefined;
   res.json(
     projectResponse(

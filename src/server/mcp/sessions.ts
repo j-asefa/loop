@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { db } from "../db.js";
 import { connect, type MCPConnection } from "./client.js";
@@ -38,9 +39,8 @@ export async function connectForRun(
 }
 export async function closeFinishedSessions() {
   for (const [key, record] of sessions) {
-    const run = db
-      .prepare("SELECT state FROM runs WHERE id=?")
-      .get(record.run) as { state: string } | undefined;
+    const run = runsQueries.state(db, record.run) as
+      { state: string } | undefined;
     if (
       !run ||
       ["completed", "failed", "cancelled", "interrupted"].includes(run.state)

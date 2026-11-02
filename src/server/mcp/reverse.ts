@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import { MCP_TOOL_BUDGET } from "./tool-budget.js";
 import { watchRun } from "../run-signal.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -110,9 +111,8 @@ function queue(
     !catalog(source.owner_id, source.peer_id).some((tool) => tool.name === name)
   )
     throw new Problem(404, "Shared tool is unavailable");
-  const run = db
-    .prepare("SELECT state,owner_id FROM runs WHERE id=?")
-    .get(runKey) as { state: string; owner_id: string } | undefined;
+  const run = runsQueries.stateAndOwner(db, runKey) as
+    { state: string; owner_id: string } | undefined;
   if (
     !run ||
     run.owner_id !== source.owner_id ||
@@ -231,9 +231,7 @@ export function completeReverseCall(
 function notifySettled(owner: string, run: string, callId: string) {
   // Reverse-call identities outlive a deleted run; keep its known outcome even
   // when there is no run left on which to publish a notification.
-  if (
-    db.prepare("SELECT 1 FROM runs WHERE id=? AND owner_id=?").get(run, owner)
-  )
+  if (runsQueries.existsOwned(db, run, owner))
     emit(owner, run, "reverse.settled", { callId });
 }
 const waiters = new Map<string, Set<() => void>>();

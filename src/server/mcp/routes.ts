@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import { workspaceApi } from "../../shared/workspace-api.js";
 import { McpToolCallInput } from "../../shared/mcp-contract-schemas.js";
 import { registrar, projectResponse } from "../registrar.js";
@@ -338,7 +339,8 @@ export async function executeMcp(run: Run) {
       p.arguments,
     );
   if ("pending" in out) return false;
-  db.prepare("UPDATE runs SET result=? WHERE id=?").run(
+  runsQueries.setResult(
+    db,
     JSON.stringify({ artifactId: out.artifactId }),
     run.id,
   );

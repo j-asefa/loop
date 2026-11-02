@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import {
   AgentHandle as handle,
   AgentInput as agentInput,
@@ -29,9 +30,12 @@ export function owned(table: string, recordId: string, owner: string): unknown {
     "memory_sources",
   ];
   if (!tables.includes(table)) throw new Error("Invalid resource");
-  const record = db
-    .prepare(`SELECT * FROM ${table} WHERE id=? AND owner_id=?`)
-    .get(recordId, owner);
+  const record =
+    table === "runs"
+      ? runsQueries.owned(db, recordId, owner)
+      : db
+          .prepare(`SELECT * FROM ${table} WHERE id=? AND owner_id=?`)
+          .get(recordId, owner);
   if (!record) throw new Problem(404, "Item not found");
   return record;
 }
@@ -122,18 +126,12 @@ export function ownedRun(recordId: string, owner: string) {
   return rows.parseRun(owned("runs", recordId, owner));
 }
 export function ownedRunNotice(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.RunNotice,
-    owned("runs", recordId, owner),
-    "runs",
-  );
+  const record = runsQueries.ownedNotice(db, recordId, owner);
+  if (!record) throw new Problem(404, "Item not found");
+  return rows.parseRecord(rows.RunNotice, record, "runs");
 }
 export function ownedRunControl(recordId: string, owner: string) {
-  const record = db
-    .prepare(
-      "SELECT id,owner_id,state,worker_id,attention_dismissed_at FROM runs WHERE id=? AND owner_id=?",
-    )
-    .get(recordId, owner);
+  const record = runsQueries.ownedControl(db, recordId, owner);
   if (!record) throw new Problem(404, "Item not found");
   return rows.parseRecord(rows.RunControl, record, "runs");
 }

@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { z } from "zod";
 
 import { db, emit, now } from "./db.js";
@@ -21,21 +22,18 @@ function cancelChildren(
     db.prepare(
       "UPDATE approvals SET state='rejected' WHERE owner_id=? AND run_id=? AND state='pending'",
     ).run(owner, parent);
-    const children = z.array(RunIdentity).parse(
-      db
-        .prepare(
-          `
-      SELECT r.id,r.owner_id FROM runs r WHERE r.owner_id=? AND r.id IN (
-        SELECT child_run_id FROM delegations WHERE parent_run_id=?
-        UNION SELECT child_run_id FROM workflow_steps WHERE run_id=? AND child_run_id IS NOT NULL
-        UNION SELECT m.run_id FROM delegations d JOIN agent_mail m
-          ON m.sender_run_id=d.child_run_id AND m.kind='result' AND m.owner_id=?
-          JOIN runs result ON result.id=m.run_id AND result.owner_id=m.owner_id
-          WHERE d.parent_run_id=? AND d.background=1 AND result.state='queued'
-      )`,
-        )
-        .all(owner, parent, parent, owner, parent),
-    );
+    const children = z
+      .array(RunIdentity)
+      .parse(
+        runsQueries.cancellableChildren(
+          db,
+          owner,
+          parent,
+          parent,
+          owner,
+          parent,
+        ),
+      );
     for (const child of children) {
       transition(child, "cancelled", reason);
       pending.push(child.id);
@@ -77,9 +75,7 @@ export function dismissRun(owner: string, runId: string) {
         transition(run, "cancelled", reason);
         cancelChildren(owner, run.id, reason);
       }
-      db.prepare(
-        "UPDATE runs SET attention_dismissed_at=? WHERE id=? AND owner_id=?",
-      ).run(now(), run.id, owner);
+      runsQueries.dismissAttention(db, now(), run.id, owner);
       emit(owner, run.id, "attention.dismissed", {});
       return { ok: true };
     })
@@ -87,36 +83,15 @@ export function dismissRun(owner: string, runId: string) {
 }
 
 export function listRuns(owner: string, teams: string[] = [], active = false) {
-  const filters = teams.length
-    ? " AND json_extract(r.payload,'$.teamId') IN (" +
-      teams.map(() => "?").join(",") +
-      ")"
-    : "";
-  const states = active
-    ? ` AND r.state NOT IN ('completed','cancelled') AND r.attention_dismissed_at IS NULL
-        AND (r.state NOT IN ('failed','interrupted') OR NOT EXISTS (
-          SELECT 1 FROM runs newer WHERE newer.owner_id=r.owner_id
-            AND newer.conversation_id=r.conversation_id
-            AND (newer.created_at>r.created_at OR (newer.created_at=r.created_at AND newer.rowid>r.rowid))
-        ))`
-    : "";
-  const order = active
-    ? "CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NOT NULL THEN 0 WHEN r.state IN ('queued','running','pausing','awaiting_approval','paused') THEN 1 ELSE 2 END,"
-    : "";
-  return db
-    .prepare(
-      `SELECT r.*,CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END AS state,(SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.rowid<r.rowid))) queue_position,(SELECT substr(m.content,1,320) FROM messages m WHERE m.run_id=r.id AND m.role='assistant' ORDER BY m.rowid DESC LIMIT 1) preview,(SELECT step_id FROM workflow_steps s WHERE s.run_id=r.id ORDER BY position DESC LIMIT 1) stage FROM runs r WHERE r.owner_id=?${filters}${states} ORDER BY ${order}r.created_at DESC,r.rowid DESC LIMIT 200`,
-    )
-    .all(owner, ...teams)
-    .map((row) => {
-      const run = z.object({ id: z.string() }).passthrough().parse(row);
-      const { latest, artifact } = runPreview(owner, run.id);
-      return {
-        ...run,
-        ...(latest ? { preview: latest } : {}),
-        preview_artifact: artifact,
-      };
-    });
+  return runsQueries.attention(db, owner, teams, active).map((row) => {
+    const run = z.object({ id: z.string() }).passthrough().parse(row);
+    const { latest, artifact } = runPreview(owner, run.id);
+    return {
+      ...run,
+      ...(latest ? { preview: latest } : {}),
+      preview_artifact: artifact,
+    };
+  });
 }
 
 /**

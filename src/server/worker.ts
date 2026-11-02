@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { ConnectionMetadata, readJson } from "./row-schemas.js";
 import { UNKNOWN_RUN_FAILURE } from "../shared/run-errors.js";
 
@@ -90,9 +91,7 @@ export async function tick(
   const heartbeat = setInterval(
     () =>
       heartbeatWrite("run", () =>
-        db
-          .prepare("UPDATE runs SET heartbeat=? WHERE id=? AND worker_id=?")
-          .run(now(), run.id, workerId),
+        runsQueries.heartbeatLease(db, now(), run.id, workerId),
       ),
     10000,
   );
@@ -122,11 +121,13 @@ export async function tick(
     // A released or replaced lease cannot fail its former work. Keep the
     // lease check and failure transition atomic across API/worker processes.
     db.transaction(() => {
-      const updated = db
-        .prepare(
-          "UPDATE runs SET error=? WHERE id=? AND owner_id=? AND worker_id=? AND state IN ('running','pausing','awaiting_approval')",
-        )
-        .run(message, run.id, run.owner_id, workerId);
+      const updated = runsQueries.leaseError(
+        db,
+        message,
+        run.id,
+        run.owner_id,
+        workerId,
+      );
       if (!updated.changes) return;
       recordTrace(run, "run:failure", {
         kind: "tool",
@@ -348,11 +349,7 @@ export function startWorker() {
     // Shutdown owns this transition before native IO is terminated; a
     // resulting pipe failure must not reclassify an interrupted turn as failed.
     for (const run of RunIdentity.array().parse(
-      db
-        .prepare(
-          "SELECT id,owner_id FROM runs WHERE worker_id=? AND state IN ('running','pausing','awaiting_approval')",
-        )
-        .all(workerId),
+      runsQueries.workerIdentities(db, workerId),
     ))
       transition(run, "interrupted");
   };

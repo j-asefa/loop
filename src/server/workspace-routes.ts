@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import "../../runtime/environment.mjs";
 import { passiveWorkspaceRead } from "./workspace-read-context.js";
 import { recordCardRead, tokenResultPage } from "./card-tokens.js";
@@ -403,11 +404,7 @@ routes.on(workspaceApi.importList, (_req, res) =>
 );
 routes.on(workspaceApi.importStart, (req, res) => {
   const job = ownedImport(req.params.id, res.locals.owner);
-  const active = db
-    .prepare(
-      "SELECT * FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=? AND state IN ('queued','running','pausing','paused')",
-    )
-    .get(res.locals.owner, job.id);
+  const active = runsQueries.activeImport(db, res.locals.owner, job.id);
   if (active) {
     res.json(active as z.input<typeof workspaceApi.importStart.response>);
     return;
@@ -428,13 +425,7 @@ routes.on(workspaceApi.importCancel, (req, res) => {
   const jobId = req.params.id;
   const runs = z
     .array(RunIdentity)
-    .parse(
-      db
-        .prepare(
-          "SELECT id,owner_id FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=?",
-        )
-        .all(res.locals.owner, jobId),
-    );
+    .parse(runsQueries.importIdentities(db, res.locals.owner, jobId));
   runs.forEach((r) => transition(r, "cancelled"));
   db.prepare(
     "UPDATE imports SET status='cancelled' WHERE id=? AND status<>'completed'",

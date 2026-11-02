@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { assertFleetEffect } from "./fleet-effect-authorizations.js";
 import { MessageMetadata, readRunFolder, readRunReviewId, parseMessages, parseRuns, maybeRun, agentPayload } from "./row-schemas.js";
 import { QueryRecords, type QueryRow } from "./query-records.js";
@@ -73,11 +74,7 @@ export function nextTurnFolder(
   conversation?: string,
 ): string | null {
   const previous = conversation
-    ? (db
-        .prepare(
-          "SELECT id,payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-        )
-        .get(owner, conversation) as { id: string; payload: string } | undefined)
+    ? (runsQueries.latestConversationPayload(db, owner, conversation) as { id: string; payload: string } | undefined)
     : undefined;
   return previous
     ? (readRunFolder(previous.payload, previous.id) ?? null)
@@ -129,11 +126,7 @@ export function submit(
       let conversation = data.conversationId,
         teamId = data.teamId;
       if (data.steer && !conversation) {
-        const active = parseRuns(db
-          .prepare(
-            "SELECT r.* FROM runs r WHERE owner_id=? AND agent_id=? AND kind='agent' AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY created_at DESC",
-          )
-          .all(owner, agent.id));
+        const active = parseRuns(runsQueries.steerableForAgent(db, owner, agent.id));
         if (active.length > 1)
           throw new Problem(
             409,
@@ -153,9 +146,7 @@ export function submit(
         steeringConnection ? { connection_id: steeringConnection } : agent,
       );
       if (data.folderId) ownedFolder(data.folderId, owner);
-      const prior = maybeRun(db
-        .prepare("SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?")
-        .get(owner, data.idempotencyKey));
+      const prior = maybeRun(runsQueries.byIdempotency(db, owner, data.idempotencyKey));
       if (prior) {
         if (
           prior.input !== data.input ||
@@ -243,9 +234,7 @@ export function submit(
             "UPDATE teams SET conversation_id=? WHERE id=? AND owner_id=? AND manager_id=? AND conversation_id IS NULL AND deleted_at IS NULL",
           ).run(conversation, teamId, owner, agent.id);
       }
-      const previousReview = db.prepare(
-        "SELECT id,payload FROM runs WHERE owner_id=? AND conversation_id=? ORDER BY rowid DESC LIMIT 1",
-      ).get(owner, conversation) as { id: string; payload: string } | undefined;
+      const previousReview = runsQueries.latestConversationPayloadByRowid(db, owner, conversation) as { id: string; payload: string } | undefined;
       const reviewId = data.reviewId || (previousReview ? readRunReviewId(previousReview.payload, previousReview.id) : undefined);
       if (
         !reviewId &&
@@ -270,11 +259,7 @@ export function submit(
           connection.id === agent.connection_id
             ? agent.model
             : (
-                db
-                  .prepare(
-                    "SELECT json_extract(payload,'$.model') model FROM runs WHERE conversation_id=? ORDER BY rowid DESC LIMIT 1",
-                  )
-                  .get(conversation) as { model?: string } | undefined
+                runsQueries.latestConversationModel(db, conversation) as { model?: string } | undefined
               )?.model || agent.model,
         effort: agent.effort,
         permissionMode: agentPermissionMode(owner),
@@ -351,9 +336,7 @@ export function submit(
           replyTo,
           personal: data.personal === true,
           ...(data.automation ? { automation: data.automation } : {}),
-        })),
-        messageAt,
-      );
+        })), messageAt);
       return run;
     })
     .immediate();
@@ -659,7 +642,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
     for (;;) {
       signal.throwIfAborted();
       const boundary = (
-        db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
+        runsQueries.state(db, run.id) as {
           state: string;
         }
       ).state;
@@ -757,9 +740,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
               db.transaction(() => {
                 const state = ownedRun(run.id, run.owner_id).state;
                 if (state === "running" || state === "pausing") {
-                  db.prepare(
-                    "UPDATE runs SET worker_id=NULL,heartbeat=NULL,active_ms=active_ms+CASE WHEN active_since IS NOT NULL THEN max(0,?-active_since) ELSE 0 END,active_since=NULL WHERE id=?",
-                  ).run(now(), run.id);
+                  runsQueries.releaseForChildren(db, now(), run.id);
                   if (state === "pausing") transition(run, "paused");
                   else emit(run.owner_id, run.id, "waiting_children", {});
                 }
@@ -834,7 +815,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         ).run(run.id);
       }
       const state = (
-        db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
+        runsQueries.state(db, run.id) as {
           state: string;
         }
       ).state;
@@ -1062,7 +1043,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
             }
             saveTurn(true);
             persist(false);
-            db.prepare("UPDATE runs SET result=? WHERE id=?").run(output, run.id);
+            runsQueries.setResult(db, output, run.id);
             db.prepare(
               "UPDATE agent_checkpoints SET round=?,history=?,stage='done' WHERE run_id=?",
             ).run(round, JSON.stringify(history), run.id);
@@ -1071,7 +1052,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           .immediate();
         if (continuing) continue;
         const current = (
-          db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
+          runsQueries.state(db, run.id) as {
             state: string;
           }
         ).state;

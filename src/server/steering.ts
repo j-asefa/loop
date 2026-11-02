@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { MessageMetadata, parseRun } from "./row-schemas.js";
 import {
   recordFleetEffect,
@@ -31,12 +32,13 @@ type Input = {
  * reply queues for the next turn.
  */
 export function activeRun(owner: string, conversation: string, agent?: string) {
-  const run = db
-    .prepare(
-      `SELECT r.*,${RUN_LIVE_INPUT_SQL("r")} live_input FROM runs r WHERE r.owner_id=? AND r.conversation_id=? AND (? IS NULL OR r.agent_id=?) AND r.kind='agent' AND r.state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY r.created_at DESC LIMIT 1`,
-    )
-    .get(owner, conversation, agent ?? null, agent ?? null) as
-    (Run & { live_input: number }) | undefined;
+  const run = runsQueries.activeSteering(
+    db,
+    owner,
+    conversation,
+    agent ?? null,
+    agent ?? null,
+  ) as (Run & { live_input: number }) | undefined;
   if (!run) return;
   const { live_input, ...active } = run;
   return { run: parseRun(active), liveInput: live_input === 1 };

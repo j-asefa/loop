@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import { assertFleetAction } from "../fleet-action-context.js";
 import { ExecutionRefused } from "../execution-refusal.js";
 import {
@@ -227,8 +228,7 @@ export class NativeDecisions {
           .transaction(() => {
             const current = this.context.live.get(d.conversation_id);
             const runState = (
-              db.prepare("SELECT state FROM runs WHERE id=?").get(d.run_id) as
-                { state: string } | undefined
+              runsQueries.state(db, d.run_id) as { state: string } | undefined
             )?.state;
             let reopened = 0;
             if (

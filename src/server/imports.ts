@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { MessageMetadata } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 import { z } from "zod";
@@ -350,7 +351,7 @@ export async function executeImport(run: Run) {
   }
   for (let index = 0; index < parsed.conversations.length; index++) {
     const state = (
-      db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
+      runsQueries.state(db, run.id) as {
         state: string;
       }
     ).state;

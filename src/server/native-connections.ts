@@ -6,7 +6,8 @@ export const isNativeConnection = (connection: Pick<Connection, "metadata">) =>
 
 // Only these harness adapters take input mid-turn; API and subscription
 // runtimes do too. Replies to other harnesses queue for the next turn.
-const LIVE_INPUT_HARNESSES = new Set(["codex", "claude", "pi", "muse"]);
+import { LIVE_INPUT_HARNESSES } from "./sql/connections.js";
+
 export const acceptsLiveInput = (connection: Pick<Connection, "metadata">) => {
   const harness = connection.metadata.loop55Harness;
   return harness == null || LIVE_INPUT_HARNESSES.has(harness);
@@ -15,9 +16,5 @@ export const acceptsLiveInput = (connection: Pick<Connection, "metadata">) => {
 // payload snapshot), not the agent's or conversation's current one: an
 // agent can switch connections while a run is active. A run whose
 // connection is gone takes no live input.
-export const RUN_LIVE_INPUT_SQL = (r: string) =>
-  `(EXISTS(SELECT 1 FROM connections lc WHERE lc.id=json_extract(${r}.payload,'$.connectionId') AND lc.owner_id=${r}.owner_id AND COALESCE(json_extract(lc.metadata,'$.loop55Harness'),'') IN ('',${[...LIVE_INPUT_HARNESSES].map((h) => `'${h}'`).join(",")})))`;
-
-// Callers qualify metadata through the connections alias c.
-export const NATIVE_CONNECTION_SQL =
-  "json_extract(c.metadata,'$.loop55Harness') IS NOT NULL";
+export { RUN_LIVE_INPUT_SQL } from "./sql/runs.js";
+export { NATIVE_CONNECTION_SQL } from "./sql/connections.js";

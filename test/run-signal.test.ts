@@ -9,6 +9,7 @@ process.env.LOOP55_DATA_DIR = directory;
 const { db, changes, id } = await import("../src/server/db");
 const { enqueue, transition } = await import("../src/server/queue");
 const { watchRun } = await import("../src/server/run-signal");
+const runQueries = await import("../src/server/sql/runs");
 const { writeConnectionStatus } =
   await import("../src/server/connection-status");
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -34,13 +35,9 @@ it("shares one fallback read and subscription until the last consumer releases",
     expect(vi.getTimerCount()).toBe(1);
     expect(() => watchRun({ ...run, owner_id: "other" })).toThrow(/workspace/);
     await turn();
-    const prepare = vi.spyOn(db, "prepare");
+    const read = vi.spyOn(runQueries, "signalState");
     await vi.advanceTimersByTimeAsync(2000);
-    expect(
-      prepare.mock.calls.filter(([sql]) =>
-        sql.includes("FROM runs r LEFT JOIN connections"),
-      ),
-    ).toHaveLength(1);
+    expect(read).toHaveBeenCalledExactlyOnceWith(db, run.id, run.owner_id);
     expect(first).toHaveBeenCalledOnce();
     expect(second).toHaveBeenCalledOnce();
     one.release();

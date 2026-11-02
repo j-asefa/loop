@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { discover } from "../host-control.js";
 import { upgradeLauncher } from "../harness-upgrades.js";
@@ -130,13 +131,7 @@ export async function upgradeStart(
   try {
     if (nativeSignIns.inProgress(name) || providerChangeInProgress(name))
       throw new Problem(409, "Finish or cancel sign-in before upgrading.");
-    if (
-      db
-        .prepare(
-          "SELECT 1 FROM runs WHERE owner_id=? AND state IN ('running','pausing','awaiting_approval') LIMIT 1",
-        )
-        .get(OWNER)
-    )
+    if (runsQueries.hasActive(db, OWNER))
       throw new Problem(
         409,
         "Finish or cancel active runs before upgrading runtimes.",

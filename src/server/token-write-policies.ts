@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { z } from "zod";
 import { PublicRun } from "../shared/workspace-api.js";
 import { PublicWithdrawnDraft } from "../shared/mobile-contract-schemas.js";
@@ -33,10 +34,7 @@ function locator<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
   return parsed.data;
 }
 function runExists(owner: string, run: string) {
-  if (
-    !db.prepare("SELECT 1 FROM runs WHERE id=? AND owner_id=?").get(run, owner)
-  )
-    throw unavailable();
+  if (!runsQueries.existsOwned(db, run, owner)) throw unavailable();
 }
 function prepareRun(request: TokenRequest) {
   const { id } = Target.parse(request.input.params);

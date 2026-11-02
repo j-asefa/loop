@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import type Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
 import type { FleetGrantContext } from "../shared/fleet.js";
@@ -130,11 +131,12 @@ export class FleetWorkspaceFiles {
                 "SELECT f.size FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=?",
               )
               .get(id, this.owner)
-          : this.db
-              .prepare(
-                "SELECT 0 size FROM runs r JOIN agents a ON a.id=r.agent_id AND a.owner_id=r.owner_id WHERE a.id=? AND r.id=? AND r.owner_id=?",
-              )
-              .get(id, selection.query.run ?? "", this.owner);
+          : runsQueries.agentFileAccess(
+              this.db,
+              id,
+              selection.query.run ?? "",
+              this.owner,
+            );
     if (!row) throw new Problem(404, "The workspace file is unavailable.");
     const size = (row as { size: number }).size;
     if (!Number.isSafeInteger(size) || size < 0 || size > FLEET_FILE_BYTES)

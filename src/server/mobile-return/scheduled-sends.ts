@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import {
   ScheduleInput as scheduleInput,
   ScheduleUpdateInput,
@@ -76,11 +77,7 @@ export function createScheduledSend(owner: string, body: unknown) {
         return { created: false, row: prior };
       }
       validSendAt(d.sendAt);
-      if (
-        db
-          .prepare("SELECT 1 FROM runs WHERE owner_id=? AND idempotency_key=?")
-          .get(owner, d.idempotencyKey)
-      )
+      if (runsQueries.hasIdempotency(db, owner, d.idempotencyKey))
         throw new Problem(409, "This request key belongs to different work");
       const agent = ownedAgent(d.agentId, owner);
       if (agent.retired_at)

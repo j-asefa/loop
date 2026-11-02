@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import type { QueryRow } from "../query-records.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -91,11 +92,7 @@ export function revokeFederationPeer(
         )
         .all(now(), owner, peerId) as { id: string; run_key: string }[];
       for (const call of calls)
-        if (
-          db
-            .prepare("SELECT 1 FROM runs WHERE id=? AND owner_id=?")
-            .get(call.run_key, owner)
-        )
+        if (runsQueries.existsOwned(db, call.run_key, owner))
           emit(owner, call.run_key, "reverse.settled", { callId: call.id });
       return { peerId, revoked: true };
     })

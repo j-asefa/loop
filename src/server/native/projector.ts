@@ -1,3 +1,4 @@
+import * as runsQueries from "../sql/runs.js";
 import { MessageMetadata, agentPayload } from "../row-schemas.js";
 import type { QueryRow } from "../query-records.js";
 import { observeCompletedOutput } from "../run-verifications.js";
@@ -247,10 +248,7 @@ export class NativeProjector {
       ["completed", "failed", "interrupted", "stopped"].includes(event.status)
     ) {
       if (event.detail)
-        db.prepare("UPDATE runs SET error=? WHERE id=?").run(
-          event.detail.slice(0, 2000),
-          run.id,
-        );
+        runsQueries.setError(db, event.detail.slice(0, 2000), run.id);
       this.context.projectOutput(live, event.status !== "completed");
       live.requests.clear();
       live.waiting = false;
@@ -273,10 +271,7 @@ export class NativeProjector {
       if (unavailable) void this.context.dispose(live);
     }
     if (event.type === "error")
-      db.prepare("UPDATE runs SET error=? WHERE id=?").run(
-        event.message.slice(0, 2000),
-        run.id,
-      );
+      runsQueries.setError(db, event.message.slice(0, 2000), run.id);
     emit(run.owner_id, run.id, "native.event", {
       conversationId: live.binding.conversation_id,
       generation: live.generation,
@@ -301,9 +296,7 @@ export class NativeProjector {
       return;
     run.payload.resolvedModel = model;
     db.transaction(() => {
-      db.prepare(
-        "UPDATE runs SET payload=json_set(payload,'$.resolvedModel',?) WHERE id=? AND owner_id=?",
-      ).run(model, run.id, run.owner_id);
+      runsQueries.setResolvedModel(db, model, run.id, run.owner_id);
       if (run.payload.connectionId)
         db.prepare(
           "UPDATE connections SET models=(SELECT json_group_array(CASE WHEN json_extract(value,'$.id')='native-default' THEN json_set(value,'$.resolvedModel',?) ELSE json(value) END) FROM json_each(connections.models)) WHERE id=? AND owner_id=? AND json_valid(models)",
@@ -505,7 +498,7 @@ export class NativeProjector {
         db.prepare(
           "UPDATE agent_checkpoints SET output=?,stage=? WHERE run_id=?",
         ).run(output, partial ? "native" : "done", run.id);
-        db.prepare("UPDATE runs SET result=? WHERE id=?").run(output, run.id);
+        runsQueries.setResult(db, output, run.id);
       }
       const put = db.prepare(
         "INSERT INTO native_items VALUES(?,?,?,?,?) ON CONFLICT(conversation_id,native_id) DO UPDATE SET item=excluded.item,run_id=excluded.run_id,updated_at=excluded.updated_at",

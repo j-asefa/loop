@@ -1,9 +1,9 @@
+import * as runsQueries from "./sql/runs.js";
 import * as watchQueries from "./sql/pr-watches.js";
 import type Database from "better-sqlite3";
 import { summarize, type VerificationItem } from "../shared/verification.js";
 import { pullStateFromWatch, type WatchRow } from "../shared/pull-state.js";
 import type { FeedCardDetail } from "./feed-card-display.js";
-import { NATIVE_CONNECTION_SQL } from "./native-connections.js";
 
 type QueueRun = {
   id: string;
@@ -30,38 +30,23 @@ export type ThreadDetails = {
   watches: WatchCandidate[];
   queued_runs: FeedCardDetail["queued_runs"];
 };
-const perConversation = (r: string) =>
-  `EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${NATIVE_CONNECTION_SQL})`;
 
 export function queueDetails(
   db: Database.Database,
   owner: string,
   run: QueueRun,
 ) {
-  const position = db
-    .prepare(
-      `SELECT (SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id
-    AND older.state IN ('queued','running','pausing','paused','awaiting_approval')
-    AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at)
-      OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.rowid<r.rowid))) position
-    FROM runs r WHERE r.id=? AND r.owner_id=?`,
-    )
-    .get(run.id, owner) as { position: number };
+  const position = runsQueries.queuePosition(db, run.id, owner) as {
+    position: number;
+  };
   const peers = !run.agent_id
     ? []
-    : (db
-        .prepare(
-          `SELECT r.id,r.conversation_id FROM runs r
-    WHERE r.owner_id=@owner AND r.agent_id=@agent AND r.state='queued'
-      AND (r.conversation_id=@conversation OR NOT (SELECT ${perConversation("p")} FROM runs p WHERE p.id=@run) OR NOT ${perConversation("r")})
-    ORDER BY COALESCE(r.queue_rank,r.created_at),r.rowid`,
-        )
-        .all({
-          owner,
-          agent: run.agent_id,
-          conversation: run.conversation_id,
-          run: run.id,
-        }) as { id: string; conversation_id: string | null }[]);
+    : (runsQueries.projectionQueuePeers(db, {
+        owner,
+        agent: run.agent_id,
+        conversation: run.conversation_id,
+        run: run.id,
+      }) as { id: string; conversation_id: string | null }[]);
   const index = peers.findIndex((p) => p.id === run.id);
   const swap = (other: number) =>
     index >= 0 &&
@@ -91,11 +76,11 @@ export function threadDetails(
     )
     .all({ owner, conversation }) as ApprovalCandidate[];
   const watches = watchQueries.threadDetails(db, owner, conversation);
-  const queued = db
-    .prepare(
-      "SELECT * FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5",
-    )
-    .all(owner, conversation) as QueueRun[];
+  const queued = runsQueries.queuedInConversation(
+    db,
+    owner,
+    conversation,
+  ) as QueueRun[];
   return {
     approvals,
     watches,
@@ -130,9 +115,7 @@ export function runDetails(
     live_preview: null,
   };
   if (!runId) return detail;
-  const run = db
-    .prepare("SELECT * FROM runs WHERE id=? AND owner_id=?")
-    .get(runId, owner) as QueueRun | undefined;
+  const run = runsQueries.owned(db, runId, owner) as QueueRun | undefined;
   if (!run) return detail;
   const checkout = db
     .prepare("SELECT summary FROM run_checkouts WHERE run_id=? AND owner_id=?")

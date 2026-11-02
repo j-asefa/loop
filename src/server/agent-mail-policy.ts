@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { maybeConnection } from "./row-schemas.js";
 import { db } from "./db.js";
 import { Problem } from "./domain.js";
@@ -138,11 +139,7 @@ export function mailConversation(
     );
   if (
     row.execution_backend === "hapi" ||
-    db
-      .prepare(
-        "SELECT 1 FROM runs WHERE conversation_id=? AND owner_id=? AND json_extract(payload,'$.reviewId') IS NOT NULL LIMIT 1",
-      )
-      .get(conversation, owner)
+    runsQueries.hasReviewInConversation(db, conversation, owner)
   )
     throw new MailRefusal(
       409,
@@ -310,11 +307,11 @@ export function queuedMailFailure(runId: string): string | undefined {
         mail.recipient_agent_id,
         mail.recipient_conversation_id,
       );
-    const selected = db
-      .prepare(
-        "SELECT json_extract(r.payload,'$.connectionId') id,c.status,a.connection_id current_id FROM runs r JOIN agents a ON a.id=r.agent_id AND a.owner_id=r.owner_id LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') AND c.owner_id=r.owner_id WHERE r.id=?",
-      )
-      .get(runId) as { id: string; status: string | null; current_id: string };
+    const selected = runsQueries.mailConnection(db, runId) as {
+      id: string;
+      status: string | null;
+      current_id: string;
+    };
     // A queued turn retains its original provider selection. If that provider
     // is gone, or the agent has moved away from its disconnected provider,
     // fail visibly instead of waiting forever or silently changing billing.

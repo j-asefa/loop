@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { ApprovalRecord } from "./row-schemas.js";
 
 import { createHash } from "node:crypto";
@@ -86,7 +87,7 @@ export function decide(
           answer: { choice: decision },
         });
       if (resumesNative) {
-        db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+        runsQueries.resumeAfterApproval(db, run.id);
         emit(owner, run.id, "approval.decided", {
           approvalId,
           decision,
@@ -95,10 +96,7 @@ export function decide(
       } else if (decision === "approve")
         transition(run, "queued", { approvalId });
       else {
-        db.prepare("UPDATE runs SET error=? WHERE id=?").run(
-          "Approval was rejected.",
-          run.id,
-        );
+        runsQueries.setError(db, "Approval was rejected.", run.id);
         transition(run, "failed", { approvalId, reason: "Approval rejected" });
       }
       return { ok: true };
