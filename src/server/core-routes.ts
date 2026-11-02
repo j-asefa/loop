@@ -8,7 +8,8 @@ import * as artifactsQueries from "./sql/artifacts.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
 import { passiveWorkspaceRead } from "./workspace-read-context.js";
-import { submitTokenWrite, runControlTokenWrite } from "./token-write-policies.js";
+import { submitTokenWrite, runControlTokenWrite, approvalTokenWrite } from "./token-write-policies.js";
+import * as approvalsQueries from "./sql/approvals.js";
 import { recordCardRead, tokenResultPage } from "./card-tokens.js";
 import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi, PublicAgent, PublicConnection, PublicFolder, PublicMessage, ResultItem } from "../shared/workspace-api.js";
@@ -51,7 +52,7 @@ import {
 
 import { z } from "zod";
 import { db, emit, id, now } from "./db.js";
-import { owned, ownedAgent, ownedConversation, ownedArtifact, ownedConnection, ownedMessage, ownedRun, renameAgent, Problem, agentInput, validateEffort } from "./domain.js";
+import { owned, ownedAgent, ownedApproval, ownedConversation, ownedArtifact, ownedConnection, ownedMessage, ownedRun, renameAgent, Problem, agentInput, validateEffort } from "./domain.js";
 import { createWithPrompt } from "./agent-creation.js";
 import { suggestAgentName } from "./agent-names.js";
 import { adapter } from "./providers.js";
@@ -62,6 +63,7 @@ import { transition } from "./queue.js";
 import { assertFleetEffect, inheritFleetEffect } from "./fleet-effect-authorizations.js";
 
 import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
+import { decide } from "./approvals.js";
 import { assertTeamConnectionChange } from "./team-eligibility.js";
 import { viewportDiagnostics } from "./viewport-diagnostics.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
@@ -623,3 +625,19 @@ routes.on(workspaceApi.artifactDownload, (req, res) => {
   if (res.locals.bearer && res.req.method !== "HEAD") recordCardRead(res.locals.owner, res.locals.bearer.tokenId, ["a:" + req.params.id]);
   res.redirect(303, "/api/artifacts/" + req.params.id + "/file");
 });
+routes.on(workspaceApi.approvals, (req, res) => {
+  const teams = teamFilter(req.query.teams, res.locals.owner);
+  res.json(
+    approvalsQueries.pendingTeams(db, res.locals.owner, teams) as z.input<
+      typeof workspaceApi.approvals.response
+    >,
+  );
+});
+routes.on(
+  workspaceApi.approval,
+  (req, res) => {
+    ownedApproval(req.params.id, res.locals.owner);
+    res.json(decide(res.locals.owner, req.params.id, req.body.decision));
+  },
+  { tokenWrite: approvalTokenWrite },
+);

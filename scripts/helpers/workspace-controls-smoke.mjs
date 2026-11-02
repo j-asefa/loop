@@ -133,7 +133,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   const composer = page.locator(".composer");
   await expect(composer.getByLabel("Project", { exact: true })).toHaveCount(0);
   await expect(
-    composer.getByRole("button", { name: /Create an agent|Workflows/ }),
+    composer.getByRole("button", { name: /Create an agent/ }),
   ).toHaveCount(0);
   await expect(page.locator(".mobile-nav .running-count")).toHaveCSS(
     "background-color",

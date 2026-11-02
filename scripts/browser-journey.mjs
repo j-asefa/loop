@@ -242,7 +242,7 @@ try {
     kind: "project",
   });
   const child = await api("/folders", {
-    name: "Workflows",
+    name: "Reading",
     kind: "folder",
     parentId: folder.id,
   });
@@ -285,8 +285,8 @@ try {
     .getByRole("button", { name: "File", exact: true })
     .click();
   await page
-    .getByPlaceholder("Put this in Research Radar / Workflows")
-    .fill("Put this workflow in Research Radar / Workflows");
+    .getByPlaceholder("Put this in Research Radar / Reading")
+    .fill("Put this file in Research Radar / Reading");
   await page.getByRole("button", { name: "File it", exact: true }).click();
   await page.getByRole("button", { name: "Undo", exact: true }).waitFor();
   await page.getByRole("button", { name: "Undo", exact: true }).click();

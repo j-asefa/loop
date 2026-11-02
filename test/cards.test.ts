@@ -1105,7 +1105,7 @@ it("reconciles typed reader file links and display metadata without streaming bo
   expectCurrent("reader", { view: "saved" }, cache);
   expect(display()?.download).toBeNull();
   db.prepare(
-    "UPDATE artifacts SET metadata=json_set(metadata,'$.size',1024,'$.text',json('true'),'$.source',json(?),'$.connectionId','private','$.appResource',json(?),'$.workflowId','workflow') WHERE id=?",
+    "UPDATE artifacts SET metadata=json_set(metadata,'$.size',1024,'$.text',json('true'),'$.source',json(?),'$.connectionId','private','$.appResource',json(?)) WHERE id=?",
   ).run(
     '{"url":"https://example.com","title":"Reference"}',
     '{"html":"private app"}',
@@ -1118,7 +1118,6 @@ it("reconciles typed reader file links and display metadata without streaming bo
     source: { url: "https://example.com", title: "Reference" },
     refreshable: false,
     app: true,
-    workflow_id: "workflow",
   });
   expect(JSON.stringify(display())).not.toContain("private");
   db.prepare(

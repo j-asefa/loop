@@ -192,7 +192,6 @@ it.each([
     "Tool result",
     "demo tool result",
   ],
-  ["My workflow", "workflow", null, "Workflow", "My workflow"],
 ])(
   "keeps the typed card classification and heading for %s",
   (title, kind, tool, eyebrow, heading) => {
@@ -248,7 +247,6 @@ it.each([
         source: null,
         refreshable: false,
         app: false,
-        workflow_id: null,
       },
     };
     const html = renderToStaticMarkup(

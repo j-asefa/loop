@@ -27,7 +27,7 @@ function database(through = 122) {
   return db;
 }
 
-// Reference derivation, including delegated and workflow work.
+// Reference derivation, including delegated work.
 const current = `FROM runs r WHERE r.owner_id=c.owner_id AND r.conversation_id=c.id ORDER BY CASE WHEN r.state IN ('running','pausing','paused','awaiting_approval') THEN 0 ELSE 1 END,r.created_at DESC,r.rowid DESC LIMIT 1`;
 const reference = `SELECT
   (SELECT r.id ${current}) feed_run_id,
@@ -241,18 +241,6 @@ it("keeps every conversation's Feed state equal to the per-request derivation af
       () => db.prepare("DELETE FROM delegations WHERE child_run_id='r1'").run(),
     ],
     [
-      "a workflow step adopts a run",
-      () => {
-        w.run("wf", null, "running");
-        db.prepare(
-          "INSERT INTO workflow_steps(run_id,step_id,position,state,child_run_id) VALUES('wf','s',0,'running',NULL)",
-        ).run();
-        db.prepare(
-          "UPDATE workflow_steps SET child_run_id='r2' WHERE run_id='wf'",
-        ).run();
-      },
-    ],
-    [
       "a project is recorded",
       () => {
         db.prepare(
@@ -286,10 +274,7 @@ it("keeps every conversation's Feed state equal to the per-request derivation af
     ],
     [
       "a run is deleted",
-      () => {
-        db.prepare("DELETE FROM workflow_steps WHERE child_run_id='r2'").run();
-        db.prepare("DELETE FROM runs WHERE id='r2'").run();
-      },
+      () => db.prepare("DELETE FROM runs WHERE id='r2'").run(),
     ],
     [
       "an older-dated run is not the newest",

@@ -157,7 +157,7 @@ export function page(
   if (options.cursor) where += " AND p.sequence<?";
   if (saved) where += ` AND ${fileArtifactSql}`;
   else if (options.files)
-    where += ` AND ${fileArtifactSql} AND a.kind IN ('file','image','code','table','diagram','chart','workflow')`;
+    where += ` AND ${fileArtifactSql} AND a.kind IN ('file','image','code','table','diagram','chart')`;
   else where += ` AND ${resultOutputSql}`;
   return pageStatement(
     `SELECT a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,p.sequence AS cursor,g.name,g.provider,(SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id FROM artifacts a JOIN ${saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=a.id LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY p.sequence DESC LIMIT ?`,

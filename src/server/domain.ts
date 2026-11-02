@@ -4,7 +4,6 @@ import * as teamsQueries from "./sql/teams.js";
 import * as operationsQueries from "./sql/operations.js";
 import * as approvalsQueries from "./sql/approvals.js";
 import * as mcpConnectionsQueries from "./sql/mcp-connections.js";
-import * as workflowsQueries from "./sql/workflows.js";
 import * as importsQueries from "./sql/imports.js";
 import * as foldersQueries from "./sql/folders.js";
 import * as objectsQueries from "./sql/objects.js";
@@ -36,7 +35,6 @@ const ownedQueries = {
   objects: objectsQueries.owned,
   folders: foldersQueries.owned,
   imports: importsQueries.owned,
-  workflows: workflowsQueries.owned,
   mcp_connections: mcpConnectionsQueries.owned,
   approvals: approvalsQueries.owned,
   operations: operationsQueries.owned,
@@ -186,14 +184,6 @@ export function ownedImport(recordId: string, owner: string) {
     rows.ImportRecord,
     owned("imports", recordId, owner),
     "imports",
-  );
-}
-
-export function ownedWorkflow(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.WorkflowRecord,
-    owned("workflows", recordId, owner),
-    "workflows",
   );
 }
 

@@ -64,7 +64,7 @@ it("returns personal prompts across projects and maps the run recipient", () => 
   message("second", { project: "two" });
   message("other", { owner: "bob" });
   message("automated", { metadata: { personal: false, attachments: [] } });
-  message("workflow", { metadata: {} });
+  message("unmarked", { metadata: {} });
   message("answer", { role: "assistant" });
   message("native", { metadata: { backend: "hapi", attachments: [] } });
   message("legacy", { metadata: { attachments: [] } });

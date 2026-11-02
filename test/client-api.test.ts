@@ -93,7 +93,7 @@ it("returns server proxy redirects to the auth screen", async () => {
   Object.defineProperty(response, "redirected", { value: true });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
   await expect(
-    callRoute(workspaceApi.workflowList, {}, executionSourceId()),
+    callRoute(workspaceApi.teamList, {}, executionSourceId()),
   ).rejects.toThrow("Sign in to Loop55");
   expect(dispatchEvent.mock.calls[0][0].type).toBe("loop55-auth-expired");
 });
@@ -102,7 +102,7 @@ it("accepts JSON responses after a redirect", async () => {
   Object.defineProperty(response, "redirected", { value: true });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
   await expect(
-    callRoute(workspaceApi.workflowList, {}, executionSourceId()),
+    callRoute(workspaceApi.teamList, {}, executionSourceId()),
   ).resolves.toEqual([]);
 });
 it("keeps Social on the paired app while an agent source owns its conversations", async () => {
@@ -133,13 +133,13 @@ it("keeps Social on the paired app while an agent source owns its conversations"
     { params: { id: "hackernews" } },
     `docker:${id}`,
   );
-  await callRoute(workspaceApi.workflowList, {}, executionSourceId());
+  await callRoute(workspaceApi.teamList, {}, executionSourceId());
   expect(fetcher.mock.calls.map(([path]) => path)).toEqual([
     "/api/social/unread",
     "/api/social/feeds",
     "/session",
     "/api/social/feeds/hackernews",
-    `/api/agent-sources/docker%3A${id}/workflows`,
+    `/api/agent-sources/docker%3A${id}/teams`,
   ]);
 });
 it("opens old workspace links through the source route", async () => {
@@ -171,7 +171,7 @@ it("keeps the paired session when one source refuses authentication", async () =
       ),
   );
   await expect(
-    callRoute(workspaceApi.workflowList, {}, executionSourceId()),
+    callRoute(workspaceApi.teamList, {}, executionSourceId()),
   ).rejects.toThrow("Source sign-in needed");
   expect(dispatchEvent).not.toHaveBeenCalled();
 });
@@ -187,7 +187,7 @@ it.each(["truncated", "interrupted"])(
       );
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
     await expect(
-      callRoute(workspaceApi.workflowList, {}, executionSourceId()),
+      callRoute(workspaceApi.teamList, {}, executionSourceId()),
     ).rejects.toThrow("Connection unavailable. Try again.");
   },
 );
@@ -199,7 +199,7 @@ it("still expires the session when an unauthorized response has no JSON body", a
     vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 })),
   );
   await expect(
-    callRoute(workspaceApi.workflowList, {}, executionSourceId()),
+    callRoute(workspaceApi.teamList, {}, executionSourceId()),
   ).rejects.toThrow("Connection unavailable. Try again.");
   expect(dispatchEvent.mock.calls[0][0].type).toBe("loop55-auth-expired");
 });
@@ -216,7 +216,7 @@ it("treats the connection service's restart response as reconnecting, never as s
   vi.stubGlobal("window", { dispatchEvent });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(restarting()));
   const error = await callRoute(
-    workspaceApi.workflowList,
+    workspaceApi.teamList,
     {},
     executionSourceId(),
   ).catch((e) => e);
@@ -233,8 +233,8 @@ it("keeps a mutation's session and outcome uncertain while Loop55 restarts", asy
   const fetcher = vi.fn().mockResolvedValue(restarting());
   vi.stubGlobal("fetch", fetcher);
   const error = await callRoute(
-    workspaceApi.workflowSave,
-    { body: { source: "x" } },
+    workspaceApi.diagnostic,
+    { body: { key: "x" } },
     "",
   ).catch((e) => e);
   expect(error.status).toBe(503);

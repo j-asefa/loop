@@ -644,7 +644,6 @@ export function markInvalidUnleased(
 const cancellableChildrenStatement = statement(`
       SELECT r.id,r.owner_id FROM runs r WHERE r.owner_id=? AND r.id IN (
         SELECT child_run_id FROM delegations WHERE parent_run_id=?
-        UNION SELECT child_run_id FROM workflow_steps WHERE run_id=? AND child_run_id IS NOT NULL
         UNION SELECT m.run_id FROM delegations d JOIN agent_mail m
           ON m.sender_run_id=d.child_run_id AND m.kind='result' AND m.owner_id=?
           JOIN runs result ON result.id=m.run_id AND result.owner_id=m.owner_id
@@ -655,12 +654,11 @@ export function cancellableChildren(
   db: Database.Database,
   owner: string | null,
   parent: string | null,
-  workflowParent: string | null,
   mailOwner: string | null,
   mailParent: string | null,
 ) {
   return cancellableChildrenStatement(db)
-    .all(owner, parent, workflowParent, mailOwner, mailParent)
+    .all(owner, parent, mailOwner, mailParent)
     .map((row) => parseRecord(cancellableChildrenRow, row, "runs"));
 }
 
@@ -769,20 +767,6 @@ export function workerIdentities(db: Database.Database, worker: string | null) {
   return workerIdentitiesStatement(db)
     .all(worker)
     .map((row) => parseRecord(workerIdentitiesRow, row, "runs"));
-}
-
-const workflowHistoryStatement = statement(
-  "SELECT * FROM runs WHERE owner_id=? AND kind='workflow' AND json_extract(payload,'$.workflowId')=? ORDER BY created_at DESC LIMIT 100",
-);
-const workflowHistoryRow = QueryRecords.runs;
-export function workflowHistory(
-  db: Database.Database,
-  owner: string | null,
-  workflow: string | null,
-) {
-  return workflowHistoryStatement(db)
-    .all(owner, workflow)
-    .map((row) => parseRecord(workflowHistoryRow, row, "runs"));
 }
 
 const setPayloadStatement = statement("UPDATE runs SET payload=? WHERE id=?");
@@ -1098,12 +1082,11 @@ const claimCandidatesStatement = statement(`WITH candidates AS (
  WHERE runs.state IN ('queued','running','pausing','paused','awaiting_approval')
 )
 SELECT r.* FROM candidates r WHERE
- ((r.state='queued' AND r.worker_id IS NULL AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)) OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND (r.kind='workflow' OR EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id AND d.background=0))))
+ ((r.state='queued' AND r.worker_id IS NULL AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)) OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id AND d.background=0)))
  AND NOT EXISTS(SELECT 1 FROM candidates busy WHERE busy.owner_id=r.owner_id AND busy.agent_id=r.agent_id AND (r.is_mail OR busy.is_mail OR busy.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT busy.per_conversation) AND busy.id<>r.id AND ((busy.state IN ('running','pausing','awaiting_approval') AND busy.worker_id IS NOT NULL) OR ((r.is_mail OR busy.is_mail) AND busy.state IN ('running','pausing','paused','awaiting_approval'))))
  AND NOT EXISTS(SELECT 1 FROM candidates older WHERE older.owner_id=r.owner_id AND older.agent_id=r.agent_id AND (r.is_mail OR older.conversation_id=r.conversation_id OR NOT r.per_conversation OR (NOT older.is_mail AND NOT older.per_conversation)) AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.queue_order<r.queue_order))
    AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id AND delegated.background=0) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id AND waiting.background=0)))))
  AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND d.background=0 AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
- AND NOT EXISTS(SELECT 1 FROM workflow_steps s JOIN runs child ON child.id=s.child_run_id WHERE s.run_id=r.id AND child.state IN ('queued','running','pausing','paused','awaiting_approval'))
  ORDER BY COALESCE(r.queue_rank,r.created_at),r.queue_order`);
 export function claimCandidates(
   db: Database.Database,
@@ -1128,7 +1111,6 @@ const attentionStatements = statementVariants();
 const attentionRow = QueryRecords.runs.extend({
   queue_position: z.number(),
   preview: z.string().nullable(),
-  stage: z.string().nullable(),
 });
 export function attention(
   db: Database.Database,
@@ -1154,7 +1136,7 @@ export function attention(
     : "";
 
   return attentionStatements(
-    `SELECT r.*,CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END AS state,(SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.rowid<r.rowid))) queue_position,(SELECT substr(m.content,1,320) FROM messages m WHERE m.run_id=r.id AND m.role='assistant' ORDER BY m.rowid DESC LIMIT 1) preview,(SELECT step_id FROM workflow_steps s WHERE s.run_id=r.id ORDER BY position DESC LIMIT 1) stage FROM runs r WHERE r.owner_id=?${filters}${states} ORDER BY ${order}r.created_at DESC,r.rowid DESC LIMIT 200`,
+    `SELECT r.*,CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END AS state,(SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.rowid<r.rowid))) queue_position,(SELECT substr(m.content,1,320) FROM messages m WHERE m.run_id=r.id AND m.role='assistant' ORDER BY m.rowid DESC LIMIT 1) preview FROM runs r WHERE r.owner_id=?${filters}${states} ORDER BY ${order}r.created_at DESC,r.rowid DESC LIMIT 200`,
     db,
   )
     .all(owner, ...teams)

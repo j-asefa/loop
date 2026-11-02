@@ -270,7 +270,6 @@ const managementOrigin = {
 const sharedErrorGroups = new Set([
   "webhooks",
   "memory",
-  "workflows",
   "capabilities",
   "health",
   "build",

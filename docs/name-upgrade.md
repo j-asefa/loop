@@ -70,8 +70,7 @@ and preference keys migrate without overwriting newer values or changing their
 owner scopes.
 
 HTTP integration headers now use `x-loop55-*`, MCP workspace tools use
-`loop55_*`, and new workflow documents use `loop55.workflow/v1`. The old
-workflow DSL identifier remains accepted. Update external clients and upgrade
+`loop55_*`. Update external clients and upgrade
 all linked machines together; old and new header protocols are not a rolling
 mixed-version fleet. Native harness sessions retain their own context, so an
 older transcript can still contain historical tool names.

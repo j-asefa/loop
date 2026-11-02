@@ -144,7 +144,7 @@ export function withdrawQueuedRun(
       if (
         run.kind !== "agent" ||
         !editable(run) ||
-        delegationsQueries.childOfDelegateOrWorkflow(db, run.id, run.id)
+        delegationsQueries.delegatedChild(db, run.id)
       )
         throw new Problem(
           409,
@@ -199,7 +199,7 @@ export function moveQueuedRun(owner: string, runId: string, body: unknown) {
       if (
         run.kind !== "agent" ||
         !editable(run) ||
-        delegationsQueries.childOfDelegateOrWorkflow(db, run.id, run.id)
+        delegationsQueries.delegatedChild(db, run.id)
       )
         throw new Problem(409, "Only a queued message you sent can be moved");
       assertFleetEffect(owner, "run", run.id);

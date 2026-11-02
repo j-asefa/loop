@@ -1,10 +1,9 @@
 import { RowId as Id, Provider, ConnectionRecord, MessageRecord, ArtifactRecord, McpConnectionRecord, RuntimeHostRecord } from "./storage-schemas.js";
-export { AgentRecord, ConnectionRecord, ConversationRecord, MessageRecord, ArtifactRecord, ObjectRecord, FolderRecord, ImportRecord, WorkflowRecord, McpConnectionRecord, ApprovalRecord, OperationRecord, TeamRecord, RuntimeHostRecord, MemorySourceRecord } from "./storage-schemas.js";
+export { AgentRecord, ConnectionRecord, ConversationRecord, MessageRecord, ArtifactRecord, ObjectRecord, FolderRecord, ImportRecord, McpConnectionRecord, ApprovalRecord, OperationRecord, TeamRecord, RuntimeHostRecord, MemorySourceRecord } from "./storage-schemas.js";
 import { z } from "zod";
 import { Harness } from "../protocol.js";
 import { PERMISSION_MODES } from "../shared/permission-modes.js";
 import { RunState } from "../shared/run-state.js";
-import { workflowSchema } from "./workflows/schema.js";
 import { Problem } from "../shared/problem.js";
 
 const PermissionMode = z.enum(PERMISSION_MODES.map(mode => mode.value));
@@ -16,18 +15,13 @@ export const AgentSnapshot = z.strictObject({
   model: z.string().min(1), resolvedModel: z.string().optional(), effort: z.string().nullable().optional(), permissionMode: PermissionMode.optional(),
   instructions: z.string(), folderId: Id.nullable(), maxTokens: z.number().int().positive().optional(), maxSeconds: z.number().positive().optional(),
   source: Source.optional(), teamId: Id.optional(), reviewId: Id.optional(), attachmentIds: z.array(Id).optional(), mailId: Id.optional(), replyTo: Reply.optional(),
-  workflowRun: Id.optional(), workflowStep: Id.optional(), previewFixture: z.boolean().optional(),
+  previewFixture: z.boolean().optional(),
 });
 export type AgentSnapshot = z.infer<typeof AgentSnapshot>;
-export const WorkflowPayload = z.strictObject({
-  workflowId: Id, version: z.number().int().positive(), spec: workflowSchema,
-  inputs: z.record(z.string(), z.string()), bindings: z.record(z.string(), AgentSnapshot), startedAt: z.number().optional(),
-});
-// Queue infrastructure also carries import, workflow, MCP and diagnostic jobs.
+// Queue infrastructure also carries import, MCP and diagnostic jobs.
 // Present identity/permission fields are validated even before kind dispatch;
 // each executor requires its complete payload before causing an external effect.
 export const RunPayload = AgentSnapshot.partial().extend({
-  ...WorkflowPayload.partial().shape,
   importId: Id.optional(), tool: Id.optional(), arguments: z.record(z.string(), z.json()).optional(), idempotencyKey: Id.optional(),
   execution: z.strictObject({ backend: z.literal("hapi") }).optional(),
 });
@@ -48,7 +42,6 @@ export const MessageMetadata = RunPayload.extend({
 });
 export type MessageMetadata = z.infer<typeof MessageMetadata>;
 export const ArtifactMetadata = RunPayload.extend({
-  dsl: workflowSchema.shape.dsl.optional(),
   preview: z.boolean().optional(),
   messageId: Id.optional(), partial: z.boolean().optional(), final: z.boolean().optional(),
   upload: z.boolean().optional(), uploaded: z.boolean().optional(), objectId: Id.optional(), mime: z.string().optional(), size: z.number().nonnegative().optional(), text: z.boolean().optional(),
@@ -56,7 +49,7 @@ export const ArtifactMetadata = RunPayload.extend({
   toolResult: z.json().optional(), appResource: z.record(z.string(), z.json()).optional(),
   provider: z.string().optional(), snippet: z.boolean().optional(), edited: z.boolean().optional(),
   finalNativeItemId: Id.optional(), native: z.boolean().optional(), invocationId: Id.optional(), fetchedAt: z.number().optional(), isError: z.boolean().optional(), fixture: z.boolean().optional(), rawObjectId: Id.optional(),
-  stepId: Id.optional(), origin: z.string().optional(), externalId: z.string().optional(),
+  origin: z.string().optional(), externalId: z.string().optional(),
 });
 export type ArtifactMetadata = z.infer<typeof ArtifactMetadata>;
 export const ConnectionMetadata = z.strictObject({
@@ -177,7 +170,6 @@ export function maybeMessage(value: unknown) { return value === undefined ? unde
 export function parseMessages(values: unknown[]) { return values.map(parseMessage); }
 
 export function agentPayload(run: Run) { return readJson(AgentSnapshot.strip(), run.payload, "runs", run.id, "payload"); }
-export function workflowPayload(run: Run) { return readJson(WorkflowPayload, run.payload, "runs", run.id, "payload"); }
 
 export function requireSealedSecret(connection: Connection) {
   if (!SealedEnvelope.safeParse(connection.secret).success)

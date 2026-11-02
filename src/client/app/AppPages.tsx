@@ -124,8 +124,6 @@ export function renderAppPages(
     | "replyToArtifact"
     | "setFiling"
     | "selected"
-    | "setWorkflowId"
-    | "setWorkflowSource"
     | "setReviewTarget"
     | "dismissNotice"
     | "setDismissNotice"
@@ -213,8 +211,6 @@ export function renderAppPages(
     replyToArtifact,
     setFiling,
     selected,
-    setWorkflowId,
-    setWorkflowSource,
     setReviewTarget,
     dismissNotice,
     setDismissNotice,
@@ -901,11 +897,6 @@ export function renderAppPages(
             setFolder(id);
             setFolderChoice(undefined);
             focusComposer();
-          }}
-          onWorkflows={() => {
-            setWorkflowId(undefined);
-            setWorkflowSource(undefined);
-            setSheet("workflows");
           }}
           onTeams={() => setSheet("teamDirectory")}
           onReview={(id) => {

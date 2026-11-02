@@ -334,7 +334,6 @@ function apiToolActivity(
 function apiSessionActivities(
   run: Run,
   snapshot: Snapshot,
-  tools: boolean,
   runtime: "codex" | "claude" | undefined,
   reported: ReadonlySet<string>,
 ) {
@@ -374,7 +373,7 @@ function apiSessionActivities(
       ],
     },
   });
-  apiCapabilities(run, tools, runtime, reported);
+  apiCapabilities(run, runtime, reported);
 }
 // Structured features this conversation's runtime already reported, so a new
 // run does not reset them to undiscovered before its first result.
@@ -396,7 +395,6 @@ function reportedFeatures(run: Run, runtime: "codex" | "claude" | undefined) {
 // runtimes older than this build do not send them.
 function apiCapabilities(
   run: Run,
-  tools: boolean,
   runtime: "codex" | "claude" | undefined,
   reported: ReadonlySet<string> = new Set(),
 ) {
@@ -413,15 +411,11 @@ function apiCapabilities(
           reason: `Shown when the runtime reports its first structured ${what}. Runtimes older than this Loop55 version report only text traces.`,
         } as const);
   setActivityCapabilities(scope, { transport: "api", harness: runtime }, {
-    plans: tools
-      ? {
-          state: "supported",
-          source: runtime ? `loop55_plan tool and ${label}` : "loop55_plan tool",
-        }
-      : unavailable("Workflow runs do not receive workspace tools."),
-    tools: tools
-      ? { state: "supported", source: "loop55 tool broker" }
-      : unavailable("Workflow runs do not receive workspace tools."),
+    plans: {
+      state: "supported",
+      source: runtime ? `loop55_plan tool and ${label}` : "loop55_plan tool",
+    },
+    tools: { state: "supported", source: "loop55 tool broker" },
     diffs: runtime
       ? structured("diffs", "file change")
       : unavailable(
@@ -523,14 +517,13 @@ export async function executeAgent(run: Run): Promise<boolean> {
   apiSessionActivities(
     run,
     snapshot,
-    !snapshot.workflowRun,
     runtime,
     structured.reported,
   );
   const steering = new SteeringInbox(run, (message) => {
     history.push(message);
     agentCheckpointsQueries.history(db, JSON.stringify(history), run.id);
-  }, !snapshot.workflowRun && !snapshot.reviewId);
+  }, !snapshot.reviewId);
   const persist = db.transaction((partial: boolean) => {
     const metadata = JSON.stringify(MessageMetadata.parse({
       ...snapshot,
@@ -545,8 +538,8 @@ export async function executeAgent(run: Run): Promise<boolean> {
   const watched = watchRun(run);
   const controller = new AbortController();
   const signal = AbortSignal.any([watched.signal, controller.signal]);
-  // Native harnesses own their turns. Only an explicit workflow budget should
-  // impose a wall-clock deadline on a subscription run.
+  // Native harnesses own their turns. Only an explicit run budget, such as a
+  // review's, should impose a wall-clock deadline on a subscription run.
   const maxSeconds =
     (snapshot.maxSeconds && snapshot.maxSeconds > 0
       ? snapshot.maxSeconds
@@ -758,14 +751,12 @@ export async function executeAgent(run: Run): Promise<boolean> {
       const currentConnection = ownedConnection(snapshot.connectionId, run.owner_id);
       if (currentConnection.status !== "connected")
         throw new Problem(409, "Provider was disconnected.");
-      const bindings = snapshot.workflowRun
-        ? []
-        : snapshot.reviewId
-          ? nativeBindings(run)
-          : [
-            ...toolBindings(run.owner_id, run.agent_id!),
-            ...nativeBindings(run, { plans: true }),
-          ];
+      const bindings = snapshot.reviewId
+        ? nativeBindings(run)
+        : [
+          ...toolBindings(run.owner_id, run.agent_id!),
+          ...nativeBindings(run, { plans: true }),
+        ];
       const calls: ToolCall[] = [];
       let providerContent: unknown[] | undefined,
         paused = false;
@@ -857,7 +848,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
             if (structured.reported.size !== before)
               apiCapabilities(
                 run,
-                !snapshot.workflowRun,
                 runtime,
                 structured.reported,
               );

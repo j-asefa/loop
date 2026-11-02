@@ -1,5 +1,4 @@
 import { parse } from "./api";
-import { RichText } from "./components";
 
 // GitHub writes from the official GitHub connection. The approval shows the
 // exact target and arguments; the broker refuses merges without a head SHA.
@@ -39,15 +38,13 @@ export function describeApproval(encoded: string) {
   const title =
     request.type === "mcp_install"
       ? "Install workspace tools"
-      : request.type === "workflow_review"
-        ? "Review workflow output"
-        : request.tool && GITHUB_TITLES[request.tool]
-          ? GITHUB_TITLES[request.tool]
-          : request.tool === "browser_navigate"
-            ? "Open a webpage"
-            : request.tool
-              ? label(request.tool)
-              : "Review requested action";
+      : request.tool && GITHUB_TITLES[request.tool]
+        ? GITHUB_TITLES[request.tool]
+        : request.tool === "browser_navigate"
+          ? "Open a webpage"
+          : request.tool
+            ? label(request.tool)
+            : "Review requested action";
   const target =
     args.owner && args.repo && (args.pullNumber || args.pull_number)
       ? `${args.owner}/${args.repo} #${args.pullNumber || args.pull_number}`
@@ -126,11 +123,6 @@ export function ApprovalRequestDetails({
         <div className="approval-config">
           <h4>Tools to install</h4>
           <pre>{JSON.stringify(detail.request.config, null, 2)}</pre>
-        </div>
-      )}
-      {detail.request.content && (
-        <div className="approval-output">
-          <RichText content={detail.request.content} />
         </div>
       )}
     </>

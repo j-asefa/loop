@@ -452,9 +452,7 @@ export function resultPresentation(
             : "Webpage"
           : tool
             ? "Tool result"
-            : item.kind === "workflow"
-              ? "Workflow"
-              : "Result",
+            : "Result",
     title: web
       ? web.title
       : tool && item.title === `${tool} result`

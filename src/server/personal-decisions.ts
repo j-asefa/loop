@@ -224,7 +224,7 @@ export function personalDecisions(
       const preview = answerPreview(questions, response);
       const native = !!row.native_decision_id;
       // Bound the SQL projection before materializing rows in JavaScript:
-      // workflow outputs and tool arguments can be several megabytes each.
+      // tool arguments can be several megabytes each.
       let argumentsText = request.argumentsText;
       if (
         typeof argumentsText === "string" &&
@@ -238,7 +238,7 @@ export function personalDecisions(
       }
       const detail = native
         ? (request.detail ?? "")
-        : [request.message, request.content, argumentsText]
+        : [request.message, argumentsText]
             .filter((value) => typeof value === "string")
             .join("\n\n");
       const detailPreview = previewText(detail, PERSONAL_DECISION_DETAIL_LIMIT);
@@ -270,9 +270,7 @@ export function personalDecisions(
                   .replace(/^./, (c: string) => c.toUpperCase())
               : request.type === "mcp_install"
                 ? "Install workspace tools"
-                : request.type === "workflow_review"
-                  ? "Review workflow output"
-                  : "Review requested action",
+                : "Review requested action",
           1024,
         ),
         // Installation configuration can contain credentials. Only the public

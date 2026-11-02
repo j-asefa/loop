@@ -57,7 +57,6 @@ const pageStatement =
         'tool',substr(json_extract(a.request,'$.tool'),1,1025),
         'type',substr(json_extract(a.request,'$.type'),1,256),
         'message',substr(json_extract(a.request,'$.message'),1,${PERSONAL_DECISION_DETAIL_LIMIT + 1}),
-        'content',substr(json_extract(a.request,'$.content'),1,${PERSONAL_DECISION_DETAIL_LIMIT + 1}),
         'argumentsText',substr(json_extract(a.request,'$.arguments'),1,${PERSONAL_DECISION_DETAIL_LIMIT + 1})
       ) ELSE json_object(
         'title',substr(json_extract(d.request,'$.title'),1,1025),

@@ -221,7 +221,7 @@ for (const mode of ["server", "companion"] as const) {
     // linked gateway's 8 MiB frame limit without any individual giant result.
     const payload = JSON.stringify({ text: "x".repeat(96 * 1024) });
     const insert = f.db.prepare(
-      "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'run','workflow.completed',?,1)",
+      "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'run','progress',?,1)",
     );
     f.db.transaction(() => {
       for (let n = 0; n < 100; n++) insert.run(f.owner, payload);
@@ -236,7 +236,7 @@ for (const mode of ["server", "companion"] as const) {
     );
     expect(
       f.db
-        .prepare("SELECT payload FROM events WHERE owner_id=? AND type='workflow.completed' LIMIT 1")
+        .prepare("SELECT payload FROM events WHERE owner_id=? AND type='progress' LIMIT 1")
         .get(f.owner),
     ).toEqual({ payload });
     const next = emit(f, "after-large-replay");

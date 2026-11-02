@@ -51,15 +51,6 @@ it("preserves message insert defaults, owner reads and atomic cached updates", (
         '{"personal":true}',
         2,
       );
-      messages.insertWorkflowUser(
-        db,
-        "default",
-        "alice",
-        "alice",
-        "run",
-        "workflow",
-        3,
-      );
       messages.insertNativePlaceholder(
         db,
         "placeholder",
@@ -74,7 +65,6 @@ it("preserves message insert defaults, owner reads and atomic cached updates", (
     expect(messages.owned(db, "explicit", "alice")?.metadata).toBe(
       '{"personal":true}',
     );
-    expect(messages.owned(db, "default", "alice")?.metadata).toBe("{}");
     expect(messages.owned(db, "placeholder", "alice")).toMatchObject({
       role: "assistant",
       content: "",

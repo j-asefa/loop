@@ -108,6 +108,22 @@ async function invalid(
   expect(response.data).toEqual({ error: expect.any(String) });
 }
 
+it("no longer serves workflow routes to an authenticated owner", async () => {
+  expect((await request("/teams")).status).toBe(200);
+  for (const [path, body] of [
+    ["/workflows", undefined],
+    ["/workflows/validate", { source: "{}" }],
+    ["/workflows", { source: "{}" }],
+    ["/workflows/fixture", undefined],
+    [
+      "/workflows/fixture/run",
+      { version: 1, inputs: {}, idempotencyKey: "fixture" },
+    ],
+    ["/runs/fixture/steps", undefined],
+  ] as const)
+    expect((await request(path, body)).status, path).toBe(404);
+});
+
 it("projects public discovery, local identity, health, build and actual diagnostic/event rows", async () => {
   for (const contract of [
     workspaceApi.capabilities,

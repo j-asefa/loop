@@ -11,7 +11,7 @@
 | [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels and workspace recovery        |
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |
 | [Contract rules](contracts.md)               | API contract authoring, public projections and boundary evidence |
-| [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and workflows              |
+| [Workspace](workspace.md)                    | Connections, MCP, files, search and teams                         |
 | [Integration API](cards-api.md)                    | Scoped tokens, workspace reads and Cards synchronization |
 | [Development](development.md)                | Tests, builds, packaging and manual verification                  |
 | [Fleet acceptance](fleet-acceptance.md)       | Isolated fixture/tunnel runner and separate-host/phone checklist  |

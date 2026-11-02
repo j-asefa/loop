@@ -124,15 +124,6 @@ export const ImportRecord = z.object({
   summary: z.string(),
   created_at: z.number(),
 });
-export const WorkflowRecord = z.object({
-  id: Id,
-  owner_id: z.string(),
-  title: z.string(),
-  version: z.number(),
-  source: z.string(),
-  compiled: z.string(),
-  created_at: z.number(),
-});
 export const McpConnectionRecord = z.object({
   id: Id,
   owner_id: z.string(),

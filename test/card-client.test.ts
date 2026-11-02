@@ -334,7 +334,6 @@ it.each(["server", "companion", "multi-user"] as const)(
                 "source",
                 "refreshable",
                 "app",
-                "workflow_id",
               ])
                 delete card.display[key];
           };
@@ -352,7 +351,6 @@ it.each(["server", "companion", "multi-user"] as const)(
         source: null,
         refreshable: false,
         app: false,
-        workflow_id: null,
       });
       expect(await older.detail(oldCard.id)).toEqual(oldCard);
       fixture.db

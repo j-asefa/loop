@@ -202,7 +202,7 @@ export function Approvals({
                 <span className="eyebrow">Your approval is needed</span>
                 <strong>{d.title}</strong>
                 <span className="field-hint">
-                  {item.name ? "@" + item.name : "Workflow"}
+                  {item.name ? "@" + item.name : "Agent"}
                   {d.request.server ? " · " + d.request.server : ""}
                 </span>
                 {d.target && (
@@ -331,7 +331,7 @@ export function Approvals({
             </div>
             <div className="approval-identity">
               <Badge provider={selected.provider ?? undefined} />
-              <span>{selected.name ? "@" + selected.name : "Workflow"}</span>
+              <span>{selected.name ? "@" + selected.name : "Agent"}</span>
               {detail.request.server && <span>{detail.request.server}</span>}
             </div>
             {detail.request.deliveryUnknown && (

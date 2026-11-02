@@ -726,7 +726,7 @@ export class NativeSessions {
           () =>
             void this.interrupt(
               run.id,
-              "Workflow native turn reached its runtime budget.",
+              "Native turn reached its runtime budget.",
             ),
           snapshot.maxSeconds * 1000,
         )

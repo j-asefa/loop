@@ -20,7 +20,6 @@ const { requestApproval } = await import("../src/server/approvals");
 const { core } = await import("../src/server/core-routes");
 const { mobile } = await import("../src/server/mobile-routes");
 const { workspace } = await import("../src/server/workspace-routes");
-const { workflows } = await import("../src/server/workflows/routes");
 const { errorHandler } = await import("../src/server/error-handler");
 
 const agents = new Map<string, string>();
@@ -77,7 +76,7 @@ app.use((req, res, next) => {
   res.locals.owner = req.get("x-test-owner") || "alice";
   next();
 });
-app.use("/api", mobile, core, workspace, workflows);
+app.use("/api", mobile, core, workspace);
 app.use(errorHandler);
 let server: ReturnType<typeof app.listen>, origin: string;
 beforeAll(async () => {
@@ -115,25 +114,16 @@ it.each(["queued", "running", "awaiting_approval", "paused"] as const)(
   },
 );
 
-it.each(["delegation", "workflow", "background result"])(
+it.each(["delegation", "background result"])(
   "cancels malformed and healthy %s children together",
   async (kind) => {
-    const parent = make(
-      "running",
-      "alice",
-      kind === "workflow" ? "workflow" : "agent",
-    );
+    const parent = make("running", "alice", "agent");
     const bad = make(),
       healthy = make(),
       grandchild = make(),
       foreign = make("queued", "bob");
     const payload = corrupt(bad);
-    if (kind === "workflow") {
-      for (const [position, child] of [bad, healthy, foreign].entries())
-        db.prepare(
-          "INSERT INTO workflow_steps(run_id,step_id,position,state,child_run_id) VALUES(?,?,?,'running',?)",
-        ).run(parent.id, id(), position, child.id);
-    } else if (kind === "background result") {
+    if (kind === "background result") {
       const sender = make("completed");
       link(parent.id, sender.id, true);
       const thread = id();

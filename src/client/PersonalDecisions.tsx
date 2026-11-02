@@ -70,8 +70,8 @@ function PersonalApprovalSheet({
     <Sheet title="Original approval" onClose={onClose}>
       <div className="approval-detail">
         <div className="approval-identity">
-          <Avatar name={item.agent_name || "Workflow"} />
-          <span>{item.agent_name || "Workflow"}</span>
+          <Avatar name={item.agent_name || "Agent"} />
+          <span>{item.agent_name || "Agent"}</span>
           {approval?.source === "approval" && approval.request.server && (
             <span>{approval.request.server}</span>
           )}
@@ -368,9 +368,9 @@ export function PersonalDecisions({
         >
           <div className="card-byline">
             <div className="identity">
-              <Avatar name={item.agent_name || "Workflow"} />
+              <Avatar name={item.agent_name || "Agent"} />
               <span>
-                <strong>{item.agent_name || "Workflow"}</strong>
+                <strong>{item.agent_name || "Agent"}</strong>
                 <span className="subline">
                   <time
                     dateTime={new Date(item.created_at).toISOString()}

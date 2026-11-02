@@ -33,7 +33,6 @@ import { Notifications } from "../Notifications";
 import { RetireAgent } from "../RetireAgent";
 import { Tools } from "../Tools";
 import { PiCustomizations } from "../PiCustomizations";
-import { WorkflowEditor } from "../Workflows";
 import { TOOLS_CLOSED } from "../PullRequests";
 
 import { ActionSheet, LaterSheet, undoReminder } from "../ThreadTools";
@@ -184,8 +183,6 @@ export function renderApp(props: AppViewProps) {
     setActiveArtifact,
     revision,
     setSettingsParent,
-    setWorkflowId,
-    setWorkflowSource,
     setReviewTarget,
     setDismissNotice,
     archivedCard,
@@ -215,8 +212,6 @@ export function renderApp(props: AppViewProps) {
     shareAgent,
     setReturnTo,
     setShareAgent,
-    workflowId,
-    workflowSource,
     setRevision,
     returnTo,
     folder,
@@ -840,31 +835,6 @@ export function renderApp(props: AppViewProps) {
           onClose={closeSheet}
         />
       )}
-      {sheet === "workflows" && (
-        <WorkflowEditor
-          agents={data.agents}
-          folders={data.folders}
-          initialId={workflowId}
-          initialSource={workflowSource}
-          onCreateAgent={(source, id) => {
-            setWorkflowSource(source);
-            setWorkflowId(id);
-            setReturnTo("workflows");
-            setSheet("create");
-          }}
-          onClose={closeSheet}
-          onStarted={() => {
-            setTab("feed");
-            setFeedFilter("working");
-            void changed();
-          }}
-          onConversation={(c) => {
-            setSettingsParent(false);
-            setSheet("");
-            setConversation(c);
-          }}
-        />
-      )}
       {sheet === "connections" && (
         <Connections
           connections={data.connections}
@@ -938,18 +908,15 @@ export function renderApp(props: AppViewProps) {
             await bootstrap();
             setSelected(a.id);
             setFolder(f);
-            if (!["share", "workflows", "teams"].includes(returnTo))
+            if (!["share", "teams"].includes(returnTo))
               setSettingsParent(false);
             if (returnTo === "share") {
               setShareAgent(a.id);
               setSheet("share");
-            } else
-              setSheet(
-                ["workflows", "teams"].includes(returnTo) ? returnTo : "",
-              );
+            } else setSheet(returnTo === "teams" ? returnTo : "");
             if (
               a.initialRun?.conversation_id &&
-              !["share", "workflows", "teams"].includes(returnTo)
+              !["share", "teams"].includes(returnTo)
             ) {
               setTeamSelection([]);
               setProfile(null);
@@ -958,7 +925,7 @@ export function renderApp(props: AppViewProps) {
               setConversation(a.initialRun.conversation_id);
             } else if (
               !a.initialRun &&
-              !["share", "workflows", "teams"].includes(returnTo)
+              !["share", "teams"].includes(returnTo)
             ) {
               setConversation(null);
               setSelected(a.id);
@@ -1486,12 +1453,6 @@ export function renderApp(props: AppViewProps) {
             }}
             onChanged={() => void changed()}
             onReply={() => void replyToArtifact(activeArtifact)}
-            onWorkflow={(source) => {
-              setWorkflowSource(source);
-              setWorkflowId(undefined);
-              setActiveArtifact(null);
-              setSheet("workflows");
-            }}
             onRun={(text) => {
               setDraft(text);
               setActiveArtifact(null);

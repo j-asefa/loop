@@ -33,10 +33,10 @@ const read = (source = "") =>
   );
 const write = () =>
   callRoute(
-    workspaceApi.workflowRun,
+    workspaceApi.artifactRefresh,
     {
-      params: { id: "workflow" },
-      body: { version: 1, inputs: {}, idempotencyKey: "fixture-request" },
+      params: { id: "artifact" },
+      body: { idempotencyKey: "fixture-request" },
     },
     "",
   );

@@ -107,7 +107,7 @@ describe("fleet event projection", () => {
 
   it.each([
     ["running", { message: "Started the authorized run" }],
-    ["workflow.completed", { outputs: { result: "Completed result" } }],
+    ["import.progress", { completed: 1, total: 2 }],
     [
       "approval.requested",
       { approvalId: "approval", request: { title: "Review this action" } },

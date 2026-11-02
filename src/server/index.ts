@@ -40,7 +40,6 @@ import { toNodeHandler } from "better-auth/node";
 import { config } from "./config.js";
 import { db, workspaceClock } from "./db.js";
 import { enqueue } from "./queue.js";
-import { workflows } from "./workflows/routes.js";
 import { workspace } from "./workspace-routes.js";
 import { core } from "./core-routes.js";
 import { news } from "./news.js";
@@ -358,7 +357,6 @@ mountRoutes(app, feedWatches, "/api");
 mountRoutes(app, feedDigests, "/api");
 mountRoutes(app, core, "/api");
 mountRoutes(app, workspace, "/api");
-mountRoutes(app, workflows, "/api");
 mountRoutes(app, mcp, "/api");
 mountRoutes(app, sharing, "/api");
 app.use("/api", (_req, res) =>

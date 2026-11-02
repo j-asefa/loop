@@ -273,7 +273,7 @@ export function FileSheet({
               {...proseEntry}
               value={command}
               onChange={(e) => setCommand(e.target.value)}
-              placeholder="Put this in Research Radar / Workflows"
+              placeholder="Put this in Research Radar / Reading"
               rows={2}
             />
           </label>

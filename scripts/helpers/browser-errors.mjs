@@ -99,12 +99,7 @@ export async function legacyFallbackRecovery(browser, fixture) {
     hasTouch: true,
     serviceWorkers: "block",
   });
-  const slow = Promise.withResolvers();
-  const recovered = Promise.withResolvers();
-  let phase = "normal",
-    reads = 0,
-    legacyFrames = 0,
-    slowRequest;
+  let legacyFrames = 0;
   try {
     await page.routeWebSocket("**/api/events/ws?*", (route) => {
       const server = route.connectToServer();
@@ -123,94 +118,12 @@ export async function legacyFallbackRecovery(browser, fixture) {
         route.send(JSON.stringify(frame));
       });
     });
-    await page.route(
-      (url) => /^\/api\/runs\/[^/]+\/steps$/.test(url.pathname),
-      async (route) => {
-        if (phase === "slow") {
-          reads++;
-          slowRequest = route.request();
-          await slow.promise;
-        } else if (phase === "blocked") {
-          reads++;
-          if (reads <= 3)
-            return route.fulfill({
-              status: 503,
-              json: { error: "Workflow fallback outage" },
-            });
-          await recovered.promise;
-        }
-        await route.continue();
-      },
-    );
-    await page.goto(fixture.base);
-    await expect.poll(() => legacyFrames).toBeGreaterThan(0);
-    await page
-      .locator(".mobile-nav")
-      .getByRole("button", { name: "Projects", exact: true })
-      .click();
-    const allProjects = page.getByRole("button", {
-      name: "All projects",
-      exact: true,
-    });
-    if (await allProjects.isVisible()) await allProjects.click();
-    await page
-      .locator(".projects-view")
-      .getByRole("button", { name: /^Workflows/ })
-      .click();
-    const dialog = page.locator("dialog[open]").last();
-    await dialog
-      .getByRole("button", { name: "Save workflow", exact: true })
-      .click();
-    await dialog
-      .getByRole("button", { name: "Go for it · v1", exact: true })
-      .click();
-    await expect(dialog.locator(".workflow-trace")).toBeAttached();
-    await page.waitForTimeout(2500);
-
-    phase = "slow";
-    await expect.poll(() => reads).toBe(1);
-    // Span two fallback ticks with one unanswered production request.
-    await page.waitForTimeout(4100);
-    expect(reads).toBe(1);
-    phase = "normal";
-    slow.resolve();
-    const response = await slowRequest.response();
-    expect(response?.status()).toBe(200);
-    await response.finished();
-    await page.evaluate(
-      () =>
-        new Promise((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(resolve)),
-        ),
-    );
-
-    reads = 0;
-    phase = "blocked";
-    const marker = dialog.locator(".collection-read-error");
-    await expect(marker).toContainText("Workflow fallback outage", {
-      timeout: 12_000,
-    });
-    expect(reads).toBe(3);
-    // The next scheduled fallback may read again. Keep the exhausted notice
-    // visible while that read is pending, and let subsequent ticks coalesce.
-    await expect.poll(() => reads).toBe(4);
-    await expect(marker).toBeVisible();
-    await expect(
-      marker.getByRole("button", { name: "Retry connection", exact: true }),
-    ).toBeDisabled();
-    await page.waitForTimeout(2100);
-    expect(reads).toBe(4);
-    phase = "normal";
-    recovered.resolve();
-    await expect(marker).toHaveCount(0);
-
     // Saved exercises useCards' separate legacy timer. Seed through the real
     // save endpoint, then hold an unchanged successful delta after exhaustion.
     const saved = fixture.db
       .prepare("SELECT id FROM messages WHERE role='assistant' LIMIT 1")
       .get();
     await fixture.api(`/messages/${saved.id}/saved`, {});
-    legacyFrames = 0;
     await page.goto(fixture.base);
     await expect.poll(() => legacyFrames).toBeGreaterThan(0);
     await page
@@ -305,8 +218,6 @@ export async function legacyFallbackRecovery(browser, fixture) {
       }
     }
   } finally {
-    slow.resolve();
-    recovered.resolve();
     await page.close();
   }
 }

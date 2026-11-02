@@ -360,7 +360,6 @@ it("persists owner-scoped approval preferences and resumes only current MCP call
     waiting(other, foreign),
     waiting(owner, disabled),
     waiting(owner, connection, "mcp_install"),
-    waiting(owner, connection, "workflow_review"),
     waiting(owner, connection, "mcp_tool", true),
   ];
   expect((await api(owner, "/mcp/preferences")).data.approvalMode).toBe("ask");

@@ -1145,42 +1145,7 @@ for (const engine of selectedEngines()) {
           "Summarize the release notes and draft a short update",
         );
         await capture("search-your-prompts");
-        // Workflows moved from Settings to Projects → Across projects.
-        await nav("Projects");
-        const allProjects = page.getByRole("button", {
-          name: "All projects",
-          exact: true,
-        });
-        if (await allProjects.isVisible()) await allProjects.click();
-        await page
-          .locator(".projects-view")
-          .getByRole("button", { name: /^Workflows/ })
-          .click();
-        const prompt = dialog()
-          .getByRole("textbox", { name: "Prompt", exact: true })
-          .first();
-        await prompt.fill("An edited workflow prompt with {{inputs.topic}}");
-        await dialog()
-          .getByRole("button", { name: "Advanced JSON", exact: true })
-          .click();
-        await expect(dialog().locator(".workflow-source")).toHaveValue(
-          /An edited workflow prompt/,
-        );
-        await dialog()
-          .getByRole("button", { name: "Edit steps", exact: true })
-          .click();
-        await capture("workflow");
-        await dialog().getByRole("button", { name: "Save workflow", exact: true }).click();
-        await dialog().getByRole("button", { name: "Go for it · v1", exact: true }).click();
-        await expect(dialog().locator(".workflow-trace")).toBeAttached();
-        await collectionReadRecovery(page, {
-          route: (url) => /^\/api\/runs\/[^/]+\/steps$/.test(url.pathname),
-          scope: dialog().locator(".workflow-trace"),
-          start: () => signalCollection(page, "runs"),
-          recovered: () => signalCollection(page, "runs"),
-        });
         await legacyFallbackRecovery(browser, fixture);
-        await close();
         await openSettings();
         await dialog()
           .getByRole("button", { name: "Dark", exact: true })

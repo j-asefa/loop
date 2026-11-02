@@ -36,9 +36,6 @@ const { authorizeFleetEffect } =
   await import("../src/server/fleet-effect-authorizations.js");
 const { sendMail, sweepAgentMail } =
   await import("../src/server/agent-mail.js");
-const { startWorkflow, executeWorkflow } =
-  await import("../src/server/workflows/runtime.js");
-const { compile } = await import("../src/server/workflows/compiler.js");
 const { requestReview } = await import("../src/server/code-reviews.js");
 const { NativeDecisions } = await import("../src/server/native/decisions.js");
 const { core } = await import("../src/server/core-routes.js");
@@ -537,57 +534,6 @@ it("refuses delayed local mail after the sender peer is revoked", () => {
   expect(
     stored("SELECT state,run_id FROM agent_mail WHERE id=?", result.messageId),
   ).toEqual({ state: "refused", run_id: null });
-});
-
-it("workflow children retain the peer that resumed their parent", async () => {
-  const sender = peer(),
-    worker = agent(),
-    workflow = randomUUID();
-  const value = {
-    dsl: "loop55.workflow/v1",
-    title: "Fixture",
-    inputs: {},
-    agents: { worker: worker.id },
-    steps: [
-      { id: "work", type: "agent", agent: "worker", prompt: "Fixture work" },
-    ],
-    outputs: { result: "work" },
-    limits: {
-      maxCalls: 1,
-      maxOutputTokens: 300,
-      maxInputBytes: 3000,
-      maxRunSeconds: 60,
-    },
-  };
-  const source = JSON.stringify(value),
-    compiled = JSON.stringify(compile(source));
-  db.prepare("INSERT INTO workflows VALUES(?,?,?,?,?,?,?)").run(
-    workflow,
-    owner,
-    "Fixture",
-    1,
-    source,
-    compiled,
-    0,
-  );
-  db.prepare("INSERT INTO workflow_versions VALUES(?,?,?,?,?)").run(
-    workflow,
-    1,
-    source,
-    compiled,
-    0,
-  );
-  const { transition } = await import("../src/server/queue.js");
-  const parent = startWorkflow(owner, workflow, 1, {}, randomUUID());
-  transition(parent, "paused");
-  sender.act(() => transition(parent, "queued"));
-  await executeWorkflow(running(parent));
-  const child = stored(
-    "SELECT child_run_id FROM workflow_steps WHERE run_id=?",
-    parent.id,
-  ) as { child_run_id: string };
-  sender.revoke();
-  await blocked(ownedRun(child.child_run_id, owner));
 });
 
 it("agent-requested review fan-out inherits the requesting run's constraints", async () => {

@@ -16,7 +16,6 @@ const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { teams } = await import("../src/server/teams");
-const { workflows } = await import("../src/server/workflows/routes");
 const { sharing } = await import("../src/server/sharing");
 const { transition } = await import("../src/server/queue");
 const { requestApproval } = await import("../src/server/approvals");
@@ -34,7 +33,7 @@ app.use((req, res, next) => {
   res.locals.owner = req.get("x-owner");
   next();
 });
-app.use("/api", mobile, core, workspace, teams, workflows, sharing);
+app.use("/api", mobile, core, workspace, teams, sharing);
 app.use((e: any, _req: any, res: any, _next: any) =>
   res
     .status(e instanceof Problem ? e.status : e instanceof ZodError ? 400 : 500)
@@ -542,16 +541,12 @@ it.each(["failed", "interrupted"])("ignores legacy pending approvals and native 
   expect((await api(w.owner, "/approvals")).data).toEqual([]);
 });
 
-it.each(["delegation", "workflow"])("shows %s work through its Feed lifecycle", async (kind) => {
+it("shows delegation work through its Feed lifecycle", async () => {
   const w = workspaceFor(), manager = w.agent(), worker = w.agent();
   const parent = run(w.owner, manager.id, conversation(w.owner, manager.id), "running");
   const cid = conversation(w.owner, worker.id);
   const child = run(w.owner, worker.id, cid, "queued", { input: "Investigate the failure" });
-  if (kind === "delegation") {
-    db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')").run(parent, "delegate", child);
-  } else {
-    db.prepare("INSERT INTO workflow_steps(run_id,step_id,position,state,child_run_id) VALUES(?,?,0,'running',?)").run(parent, "investigate", child);
-  }
+  db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')").run(parent, "delegate", child);
   message(w.owner, cid, "user", "Investigate the failure", child);
   const cards = async (filter: string, owner: string = w.owner) =>
     (await api(owner, `/feed?filter=${filter}${filter === "done" ? "&expand=results" : ""}`)).data.items.filter((item: any) => item.conversation_id === cid);
@@ -2212,13 +2207,13 @@ it("reopens full recorded approval requests without exposing installation config
   expect((await api(w.owner, nativePath)).status).toBe(404);
 });
 
-it("bounds large workflow and tool request previews and resumes from any visible decision", async () => {
+it("bounds large tool request previews and resumes from any visible decision", async () => {
   const w = workspaceFor(), a = w.agent();
   const cid = conversation(w.owner, a.id, "Large request previews");
   const rid = run(w.owner, a.id, cid, "awaiting_approval");
   const huge = "Request prefix " + "x".repeat(4 * 1024 * 1024) + "TAIL_SHOULD_NOT_BE_SENT";
   for (const request of [
-    { type: "workflow_review", content: huge },
+    { type: "mcp_install", message: huge },
     { type: "mcp_tool", tool: "large_tool", arguments: { input: huge } },
     { type: "mcp_tool", tool: "large_message", message: huge },
   ]) {

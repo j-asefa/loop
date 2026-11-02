@@ -77,7 +77,6 @@ export const ResultCardSchema = z.object({
       .default(null),
     refreshable: z.boolean().default(false),
     app: z.boolean().default(false),
-    workflow_id: nullableText.default(null),
   }),
 });
 export const MessageCardSchema = z.object({

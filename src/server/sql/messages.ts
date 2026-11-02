@@ -459,28 +459,6 @@ export function insertUser(
   );
 }
 
-const insertWorkflowUserStatement = statement(
-  "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'user',?,?)",
-);
-export function insertWorkflowUser(
-  db: Database.Database,
-  id: string | null,
-  owner: string | null,
-  conversation: string | null,
-  run: string | null,
-  content: string | null,
-  created: number,
-) {
-  return insertWorkflowUserStatement(db).run(
-    id,
-    owner,
-    conversation,
-    run,
-    content,
-    created,
-  );
-}
-
 const sharedAttachmentReadableStatement = statement(
   `SELECT 1 FROM messages m, json_each(m.metadata,'$.attachments') a WHERE m.owner_id=? AND m.conversation_id=? AND json_extract(a.value,'$.id')=? AND ${READABLE_MAIL_SQL}`,
 );

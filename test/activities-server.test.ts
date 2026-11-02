@@ -194,8 +194,8 @@ it("adds plan guidance only when loop55_plan is advertised", () => {
     "Cite sources.\n\n" + PLAN_GUIDANCE,
   );
   expect(runtimeInstructions("  ", [plan])).toBe(PLAN_GUIDANCE);
-  // Workflow runs get no tools; an MCP tool that happens to share the name is
-  // not Loop55's plan tool.
+  // A run without bindings gets no guidance; an MCP tool that happens to share
+  // the name is not Loop55's plan tool.
   expect(runtimeInstructions("Cite sources.", [])).toBe("Cite sources.");
   expect(
     runtimeInstructions("Cite sources.", [

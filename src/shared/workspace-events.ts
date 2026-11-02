@@ -86,7 +86,6 @@ export const RunEventPayload = z.strictObject({
   message: Text.optional(),
   reason: Text.optional(),
   approvalId: Id.optional(),
-  stepId: Id.optional(),
   maintenance: z.boolean().optional(),
   resumed: z.boolean().optional(),
   native: z.boolean().optional(),
@@ -201,20 +200,6 @@ const Payloads = {
   }),
   "agent_mail.held": z.strictObject({ mailId: Id, threadId: Id }),
   "import.progress": z.strictObject({ completed: Count, total: Count }),
-  "workflow.step.completed": z.strictObject({
-    stepId: Id,
-    childRunId: Id,
-    conversationId: Id.nullable(),
-  }),
-  "workflow.step.started": z.strictObject({
-    stepId: Id,
-    childRunId: Id,
-    conversationId: Id,
-    agent: Text,
-  }),
-  "workflow.completed": z.strictObject({
-    outputs: z.record(z.string().max(1000), Text),
-  }),
   "feed.card": z.strictObject({
     conversationId: Id, cardKey: z.string().max(200),
     kind: z.enum(["thread", "result", "idle"]), removed: z.boolean(), card: Json.nullable(),
@@ -309,9 +294,6 @@ export const EmittedWorkspaceEvent = z.discriminatedUnion("type", [
   variant("agent_mail.sent"),
   variant("agent_mail.held"),
   variant("import.progress"),
-  variant("workflow.step.completed"),
-  variant("workflow.step.started"),
-  variant("workflow.completed"),
   variant("feed.changed"),
   variant("feed.card"),
   variant("approval.auto_approved"),

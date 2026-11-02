@@ -140,7 +140,7 @@ it("still cancels a subscription run after the former deadline and saves partial
   ).toEqual({ content: "Saved partial. " });
 });
 
-it("honors an explicit workflow time limit and reports the actual reason", async () => {
+it("honors an explicit run time limit and reports the actual reason", async () => {
   const running = await start(60);
   await vi.advanceTimersByTimeAsync(60000);
   expect((await running.result).error).toMatchObject({

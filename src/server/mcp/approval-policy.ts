@@ -33,8 +33,8 @@ export function setMcpApprovalMode(owner: string, mode: "ask" | "allow") {
       mcpPreferencesQueries.setApprovalMode(db, owner, mode);
       let resumed = 0;
       if (mode === "allow") {
-        // Only existing calls on connected MCPs are covered. Installation and
-        // workflow review approvals still require their own explicit decision.
+        // Only existing calls on connected MCPs are covered. Installation
+        // approvals still require their own explicit decision.
         const pending = approvalsQueries.pendingMcpCalls(db, owner, now()) as {
           id: string;
           run_id: string;

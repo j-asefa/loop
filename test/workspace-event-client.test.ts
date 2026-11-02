@@ -759,7 +759,7 @@ it.each([
   ["workspace metadata and global approvals", "metadata", 15000],
   ["Results edits, removals and continued pages", "results", 1800],
   ["Social unread counts and digest status", "social", 30000],
-  ["workflow step progress", "runs", 1800],
+  ["run progress", "runs", 1800],
   ["conversation memory preference changes", "metadata", 4000],
   ["reminders, labels and worker deadlines", "later", 30000],
   ["scheduled sends and failures", "scheduled", 30000],

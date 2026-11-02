@@ -1,6 +1,5 @@
 import {
   ImportRecord,
-  WorkflowRecord,
   McpConnectionRecord,
   OperationRecord,
   RuntimeHostRecord,
@@ -132,7 +131,6 @@ export const QueryRecords = {
     content: z.string(),
     created_at: z.number(),
   }),
-  workflows: WorkflowRecord,
   mcp_connections: McpConnectionRecord,
   operations: OperationRecord,
   runtime_hosts: RuntimeHostRecord,
@@ -769,23 +767,6 @@ export const QueryRecords = {
     approval_id: z.string().nullable(),
     result: z.string().nullable(),
     artifact_id: z.string().nullable(),
-    created_at: z.number(),
-  }),
-  workflow_steps: z.object({
-    run_id: z.string(),
-    step_id: z.string(),
-    position: z.number(),
-    state: z.string(),
-    child_run_id: z.string().nullable(),
-    approval_id: z.string().nullable(),
-    output: z.string().nullable(),
-    artifact_id: z.string().nullable(),
-  }),
-  workflow_versions: z.object({
-    workflow_id: z.string(),
-    version: z.number(),
-    source: z.string(),
-    compiled: z.string(),
     created_at: z.number(),
   }),
   memory_receipts: z.object({

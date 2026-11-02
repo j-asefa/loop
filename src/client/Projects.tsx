@@ -13,7 +13,6 @@ import {
   UserPlus,
   Pencil,
   Users,
-  Workflow,
 } from "lucide-react";
 import { callRoute } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -59,7 +58,6 @@ export function Projects({
   renderHistory,
   onEdit,
   onNewTask,
-  onWorkflows,
   onTeams,
   onReview,
   revision,
@@ -78,7 +76,6 @@ export function Projects({
   renderHistory: (id: string, view: ProjectHistory, query: string) => ReactNode;
   onEdit: () => void;
   onNewTask: (id: string) => void;
-  onWorkflows: () => void;
   onTeams: () => void;
   onReview?: (id: string) => void;
   revision: number;
@@ -422,13 +419,6 @@ export function Projects({
           )}
           <h2 className="section-title">Across projects</h2>
           <div className="settings-links">
-            <button onClick={onWorkflows}>
-              <Workflow size={20} />
-              <span>
-                Workflows<small>Connect agents into an executable plan</small>
-              </span>
-              <ArrowUpRight size={18} />
-            </button>
             <button onClick={onTeams}>
               <Users size={20} />
               <span>

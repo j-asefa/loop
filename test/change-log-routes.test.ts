@@ -1376,19 +1376,6 @@ it("publishes every internal reader dependency from committed worker writes with
       "activities",
     ],
     [
-      "workflow_steps",
-      {
-        run_id: "run",
-        step_id: "step",
-        position: 0,
-        state: "completed",
-        child_run_id: "child",
-      },
-      "run",
-      "run",
-      "feed",
-    ],
-    [
       "run_checkouts",
       {
         id: "checkout",

@@ -12,7 +12,6 @@ import { recordTrace } from "./traces.js";
 import { companionMode } from "./profile.js";
 import { executeMcp } from "./mcp/routes.js";
 import { closeFinishedSessions } from "./mcp/sessions.js";
-import { executeWorkflow } from "./workflows/runtime.js";
 import { Problem } from "./domain.js";
 import { db, changes, emit, id, now } from "./db.js";
 import { executeImport } from "./imports.js";
@@ -167,7 +166,6 @@ export async function execute(run: Run) {
     return;
   }
   if (run.kind === "mcp") return executeMcp(run);
-  if (run.kind === "workflow") return executeWorkflow(run);
   if (run.kind === "import") return executeImport(run);
   else return executeAgent(run);
 }

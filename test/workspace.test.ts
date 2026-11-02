@@ -128,15 +128,12 @@ it("moves and undoes atomically without duplicate objects and rejects stale undo
     "alice",
     p,
     "folder",
-    "Workflows",
+    "Reading",
     now(),
   );
   const a = saveArtifact("alice", { title: "Plan", content: "The plan" });
   expect(
-    naturalDestination(
-      "alice",
-      "Put this workflow in Research Radar / Workflows",
-    ),
+    naturalDestination("alice", "Put this file in Research Radar / Reading"),
   ).toBe(f);
   const move = moveArtifact("alice", a, f);
   expect(
@@ -220,16 +217,16 @@ it("applies project and type filters before the lexical candidate cap", () => {
   const target = saveArtifact("filter-user", {
     title: "routine searchable task",
     content: "routine searchable task",
-    kind: "workflow",
+    kind: "code",
     folder,
   });
   const result = lexical("filter-user", "routine", {
     folder,
-    kind: "workflow",
+    kind: "code",
   });
   expect(result.map((r) => r.id)).toEqual(["artifact:" + target]);
   expect(
-    lexical("other-user", "routine", { folder, kind: "workflow" }),
+    lexical("other-user", "routine", { folder, kind: "code" }),
   ).toHaveLength(0);
 });
 

@@ -40,7 +40,6 @@ export function cardArtifact(
     metadata: JSON.stringify({
       messageId: card.source.message_id,
       origin: card.display.imported ? "import" : undefined,
-      workflowId: card.display.workflow_id,
     }),
   };
 }

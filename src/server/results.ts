@@ -64,7 +64,6 @@ export function resultsUpdates(
     "table",
     "diagram",
     "chart",
-    "workflow",
   ]);
   for (const row of rows) {
     const {

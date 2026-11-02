@@ -33,6 +33,12 @@ unchanged after release, and leave completed migrations intact. Renumbering a
 file changes its order for new databases but does not make an existing database
 run that name again. Account for dependencies when choosing an order.
 
+A migration that removes a feature refuses to run while that feature's records
+remain, rather than dropping them or leaving them for code that no longer
+handles them. `148-remove-workflows.sql` aborts startup if any workflow,
+workflow step, workflow run or run started by a workflow step exists; Loop55
+provides no upgrade or archival path for those records.
+
 The API and worker use the same immediate startup transaction. The runner records
 successful files in `schema_migrations(name,prefix,applied_at)`; new SQL must not
 write completion records, including `schema_version`. Duplicate names and new

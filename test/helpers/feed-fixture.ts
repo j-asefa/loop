@@ -482,17 +482,8 @@ function seed(db: import("better-sqlite3").Database) {
     prompt: { automation: { kind: "pull_request", fromName: "owner/repo#7" } },
   });
 
-  // A workflow's child run is internal work too.
-  run("r-workflow", null, null, "running", { kind: "workflow", payload: {} });
+  tick();
   finished("workflow-child", "agent-api");
-  sql(
-    "INSERT INTO workflow_steps(run_id,step_id,position,state,child_run_id) VALUES(?,?,?,?,?)",
-    "r-workflow",
-    "step-1",
-    0,
-    "completed",
-    "r-workflow-child",
-  );
 
   // Saved: a message without a result (a prompt), alongside the pinned answer.
   sql(

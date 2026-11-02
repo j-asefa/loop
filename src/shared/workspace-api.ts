@@ -8,7 +8,6 @@ import { Capabilities } from "./capabilities.js";
 import * as app from "./app-contract-schemas.js";
 import * as mcp from "./mcp-contract-schemas.js";
 import * as memory from "./memory-contract-schemas.js";
-import * as workflows from "./workflow-contract-schemas.js";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
 import * as teams from "./team-contract-schemas.js";
@@ -74,11 +73,8 @@ export const PublicRun = z.object({
   worker_id: MaybeText.optional(), heartbeat: Time.nullable().optional(),
   active_ms: z.number().optional(), active_since: Time.nullable().optional(),
   queue_rank: z.number().nullable().optional(), attention_dismissed_at: Time.nullable().optional(),
-  queue_position: z.number().nullable().optional(), preview: MaybeText.optional(), stage: MaybeText.optional(),
+  queue_position: z.number().nullable().optional(), preview: MaybeText.optional(),
   preview_artifact: PublicArtifact.nullable().optional(), steeringId: Text.optional(),
-});
-export const PublicWorkflowStep = PublicRun.pick({ state: true, conversation_id: true }).extend({
-  ...workflows.WorkflowStepFields, child_state: PublicRun.shape.state.nullable(),
 });
 const PublicConversation = z.object({
   id: Text, owner_id: Text, agent_id: MaybeText, title: Text, origin: Text, external_id: MaybeText, created_at: Time,
@@ -187,12 +183,6 @@ export const workspaceRoutes = {
   memoryNoteUpdate: endpoint({ ...base, method: "PATCH", path: "/memory/notes/:id", params: Id, body: memory.MemoryNoteUpdateInput, response: Ok }),
   memoryNoteVersions: endpoint({ ...base, method: "GET", path: "/memory/notes/:id/versions", params: Id, response: memory.PublicMemoryVersions }),
   runMemory: endpoint({ ...base, method: "GET", path: "/runs/:id/memory", params: Id, response: memory.PublicMemoryReceipt }),
-  workflowList: endpoint({ ...base, method: "GET", path: "/workflows", response: z.array(workflows.PublicWorkflow) }),
-  workflowValidate: endpoint({ ...base, method: "POST", path: "/workflows/validate", body: workflows.WorkflowSourceInput, response: workflows.PublicWorkflowValidation }),
-  workflowSave: endpoint({ ...base, method: "POST", path: "/workflows", body: workflows.WorkflowSaveInput, response: workflows.PublicWorkflow }),
-  workflowDetail: endpoint({ ...base, method: "GET", path: "/workflows/:id", params: Id, response: workflows.PublicWorkflow.extend({ versions: z.array(workflows.PublicWorkflowVersion), runs: z.array(PublicRun) }) }),
-  workflowRun: endpoint({ ...base, method: "POST", path: "/workflows/:id/run", params: Id, body: workflows.WorkflowRunInput, response: PublicRun, status: 202 }),
-  workflowSteps: endpoint({ ...base, method: "GET", path: "/runs/:id/steps", params: Id, response: z.array(PublicWorkflowStep) }),
   agentSources: endpoint({ ...base, method: "GET", path: "/agent-sources", security: "paired-device", response: mcp.PublicAgentSources }),
   workspaceDevices: endpoint({ ...base, method: "GET", path: "/workspace/devices", security: "paired-device", response: z.array(app.PublicPairedDevice) }),
   workspaceRevoke: endpoint({ ...base, method: "POST", path: "/workspace/revoke", security: "paired-device", body: app.PairedDeviceRevokeInput, response: Ok }),

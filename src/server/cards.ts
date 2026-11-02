@@ -237,7 +237,6 @@ function toCard(row: Row): Card {
       })(),
       refreshable: artifactRefreshSource(row.agent_id, meta) !== null,
       app: !!meta.appResource,
-      workflow_id: text(meta.workflowId),
     },
   };
 }

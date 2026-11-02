@@ -28,7 +28,7 @@ export const FolderUpdateInput = z.object({
 export const ArtifactCreateInput = z.object({
   title: Text.min(1).max(180),
   kind: z
-    .enum(["markdown", "code", "table", "diagram", "file", "workflow"])
+    .enum(["markdown", "code", "table", "diagram", "file"])
     .default("markdown"),
   content: Text.max(200000),
   folder: Text.optional(),

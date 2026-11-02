@@ -201,7 +201,6 @@ export class NativeProjects {
       nativePause: false,
       settingsApplyTo: "next message",
       nativeTokenBudget: false,
-      boundedWorkflowTime: true,
       history:
         options.harness === "codex"
           ? "native read/list/fork"

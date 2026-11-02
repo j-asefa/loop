@@ -133,7 +133,6 @@ export function ArtifactViewer({
   onConversation,
   onChanged,
   onRun,
-  onWorkflow,
   onReply,
 }: {
   item: CardArtifact;
@@ -145,7 +144,6 @@ export function ArtifactViewer({
   onConversation: () => void;
   onChanged: () => void;
   onRun: (text: string) => void;
-  onWorkflow: (source: string) => void;
   onReply: () => void;
 }) {
   const call = useSourceRoute();
@@ -327,13 +325,6 @@ export function ArtifactViewer({
               <button onClick={() => setEditing(!editing)}>
                 <Code size={16} />
                 {editing ? "Preview" : "Edit"}
-              </button>
-              <button
-                onClick={() =>
-                  onWorkflow(text.replace(/^```(?:json)?\s*|\s*```$/g, ""))
-                }
-              >
-                Open as workflow source
               </button>
               <button onClick={() => onRun(text)}>
                 <Play size={16} />

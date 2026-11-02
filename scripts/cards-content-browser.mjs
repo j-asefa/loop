@@ -106,7 +106,6 @@ try {
                   "source",
                   "refreshable",
                   "app",
-                  "workflow_id",
                 ])
                   delete card.display[key];
             }

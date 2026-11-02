@@ -293,11 +293,6 @@
                     "minLength": 1,
                     "maxLength": 1000
                   },
-                  "stepId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
                   "maintenance": {
                     "type": "boolean"
                   },
@@ -354,11 +349,6 @@
                     "maxLength": 8388608
                   },
                   "approvalId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
-                  "stepId": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 1000
@@ -423,11 +413,6 @@
                     "minLength": 1,
                     "maxLength": 1000
                   },
-                  "stepId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
                   "maintenance": {
                     "type": "boolean"
                   },
@@ -484,11 +469,6 @@
                     "maxLength": 8388608
                   },
                   "approvalId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
-                  "stepId": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 1000
@@ -553,11 +533,6 @@
                     "minLength": 1,
                     "maxLength": 1000
                   },
-                  "stepId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
                   "maintenance": {
                     "type": "boolean"
                   },
@@ -614,11 +589,6 @@
                     "maxLength": 8388608
                   },
                   "approvalId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
-                  "stepId": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 1000
@@ -683,11 +653,6 @@
                     "minLength": 1,
                     "maxLength": 1000
                   },
-                  "stepId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
                   "maintenance": {
                     "type": "boolean"
                   },
@@ -748,11 +713,6 @@
                     "minLength": 1,
                     "maxLength": 1000
                   },
-                  "stepId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
                   "maintenance": {
                     "type": "boolean"
                   },
@@ -809,11 +769,6 @@
                     "maxLength": 8388608
                   },
                   "approvalId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
-                  "stepId": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 1000
@@ -1109,177 +1064,6 @@
                 "required": [
                   "completed",
                   "total"
-                ],
-                "additionalProperties": false
-              },
-              "scope": {
-                "$ref": "#/components/schemas/WorkspaceScope"
-              },
-              "subject": {
-                "$ref": "#/components/schemas/WorkspaceSubject"
-              },
-              "scopes": {
-                "minItems": 1,
-                "maxItems": 32,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/WorkspaceScope"
-                }
-              }
-            },
-            "required": [
-              "type",
-              "payload",
-              "scope"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "workflow.step.completed"
-              },
-              "payload": {
-                "type": "object",
-                "properties": {
-                  "stepId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
-                  "childRunId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
-                  "conversationId": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 1000
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "stepId",
-                  "childRunId",
-                  "conversationId"
-                ],
-                "additionalProperties": false
-              },
-              "scope": {
-                "$ref": "#/components/schemas/WorkspaceScope"
-              },
-              "subject": {
-                "$ref": "#/components/schemas/WorkspaceSubject"
-              },
-              "scopes": {
-                "minItems": 1,
-                "maxItems": 32,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/WorkspaceScope"
-                }
-              }
-            },
-            "required": [
-              "type",
-              "payload",
-              "scope"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "workflow.step.started"
-              },
-              "payload": {
-                "type": "object",
-                "properties": {
-                  "stepId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
-                  "childRunId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
-                  "conversationId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  },
-                  "agent": {
-                    "type": "string",
-                    "maxLength": 8388608
-                  }
-                },
-                "required": [
-                  "stepId",
-                  "childRunId",
-                  "conversationId",
-                  "agent"
-                ],
-                "additionalProperties": false
-              },
-              "scope": {
-                "$ref": "#/components/schemas/WorkspaceScope"
-              },
-              "subject": {
-                "$ref": "#/components/schemas/WorkspaceSubject"
-              },
-              "scopes": {
-                "minItems": 1,
-                "maxItems": 32,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/WorkspaceScope"
-                }
-              }
-            },
-            "required": [
-              "type",
-              "payload",
-              "scope"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": {
-                "type": "string",
-                "const": "workflow.completed"
-              },
-              "payload": {
-                "type": "object",
-                "properties": {
-                  "outputs": {
-                    "type": "object",
-                    "propertyNames": {
-                      "type": "string",
-                      "maxLength": 1000
-                    },
-                    "additionalProperties": {
-                      "type": "string",
-                      "maxLength": 8388608
-                    }
-                  }
-                },
-                "required": [
-                  "outputs"
                 ],
                 "additionalProperties": false
               },

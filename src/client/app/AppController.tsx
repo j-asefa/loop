@@ -972,7 +972,7 @@ export function useAppController() {
       return;
     }
     setSheet(
-      sheet === "create" && ["share", "workflows", "teams"].includes(returnTo)
+      sheet === "create" && ["share", "teams"].includes(returnTo)
         ? returnTo
         : sheet === "environments" && returnTo === "create"
           ? "create"
@@ -1009,10 +1009,6 @@ export function useAppController() {
       url.pathname + url.search + url.hash,
     );
   }, [tab, projectFilter, teamKey, project, feedFilter, pull]);
-  const [workflowId, setWorkflowId] = useState<string | undefined>(undefined);
-  const [workflowSource, setWorkflowSource] = useState<string | undefined>(
-    undefined,
-  );
   const [filing, setFiling] = useState<CardArtifact | null>(null),
     [revision, setRevision] = useState(0);
   const [collectionRevisions, setCollectionRevisions] = useState<
@@ -1404,13 +1400,6 @@ export function useAppController() {
     if (!current()) return;
     setContextArtifact(item);
     if (item.agent_id) setSelected(item.agent_id);
-    if (item.kind === "workflow") {
-      const meta = parse<any>(item.metadata, {});
-      setWorkflowId(meta.workflowId);
-      setWorkflowSource(item.content);
-      setSheet("workflows");
-      return;
-    }
     setActiveArtifact(item);
   }
   useEffect(() => {
@@ -1587,8 +1576,6 @@ export function useAppController() {
     searchScope,
     pull,
     setPull,
-    setWorkflowId,
-    setWorkflowSource,
     setReviewTarget,
     dismissNotice,
     setDismissNotice,
@@ -1619,8 +1606,6 @@ export function useAppController() {
     shareAgent,
     setReturnTo,
     setShareAgent,
-    workflowId,
-    workflowSource,
     setRevision,
     returnTo,
     folder,
