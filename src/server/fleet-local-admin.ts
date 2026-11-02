@@ -1,3 +1,8 @@
+import * as fleetDistributionQueries from "./sql/fleet-distribution.js";
+import * as fleetEnrollmentsQueries from "./sql/fleet-enrollments.js";
+import * as fleetHandoffJobsQueries from "./sql/fleet-handoff-jobs.js";
+import * as fleetBindingQueries from "./sql/fleet-binding.js";
+import * as fleetLocalConsentsQueries from "./sql/fleet-local-consents.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import {
@@ -43,22 +48,12 @@ export class FleetLocalAdmin {
     return this.authority.lineage(this.owner);
   }
   deliveries(cursor: string | null) {
-    const rows = this.db
-      .prepare(
-        `
-      SELECT d.peer_id,d.directory_digest,d.state,d.attempts
-      FROM fleet_distribution d
-      JOIN fleet_directory_history h ON h.owner_id=d.owner_id AND h.digest=d.directory_digest
-      WHERE d.owner_id=? AND (? IS NULL OR d.peer_id>?)
-        AND NOT EXISTS (
-          SELECT 1 FROM fleet_distribution newer
-          JOIN fleet_directory_history n ON n.owner_id=newer.owner_id AND n.digest=newer.directory_digest
-          WHERE newer.owner_id=d.owner_id AND newer.peer_id=d.peer_id AND n.rowid>h.rowid
-        )
-      ORDER BY d.peer_id LIMIT 51
-    `,
-      )
-      .all(this.owner, cursor, cursor) as {
+    const rows = fleetDistributionQueries.latestPage(
+      this.db,
+      this.owner,
+      cursor,
+      cursor,
+    ) as {
       peer_id: string;
       directory_digest: string;
       state: string;
@@ -98,19 +93,20 @@ export class FleetLocalAdmin {
             409,
             "Refresh the current directory before retrying synchronization.",
           );
-        const row = this.db
-          .prepare(
-            "SELECT state FROM fleet_distribution WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-          )
-          .get(this.owner, value.peerId, value.digest) as
-          { state: string } | undefined;
+        const row = fleetDistributionQueries.state(
+          this.db,
+          this.owner,
+          value.peerId,
+          value.digest,
+        ) as { state: string } | undefined;
         if (!row) throw new Problem(404, "Directory delivery was not found.");
         if (row.state !== "acked")
-          this.db
-            .prepare(
-              "UPDATE fleet_distribution SET state='pending',next_attempt=0 WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-            )
-            .run(this.owner, value.peerId, value.digest);
+          fleetDistributionQueries.restart(
+            this.db,
+            this.owner,
+            value.peerId,
+            value.digest,
+          );
         // Retain the durable packet. Only idempotent signed directory exchange
         // may retry; this endpoint cannot repeat enrollment or an agent effect.
       })
@@ -118,26 +114,23 @@ export class FleetLocalAdmin {
   }
   state() {
     const current = this.authority.status(this.owner);
-    const binding = this.db
-      .prepare("SELECT scope,grant_id FROM fleet_binding WHERE owner_id=?")
-      .get(this.owner) as { scope: string; grant_id: string } | undefined;
+    const binding = fleetBindingQueries.ownerGrant(this.db, this.owner) as
+      { scope: string; grant_id: string } | undefined;
     const consent = binding
-      ? (this.db
-          .prepare(
-            "SELECT previous_head FROM fleet_local_consents WHERE owner_id=? AND grant_id=? AND kind='recover'",
-          )
-          .get(this.owner, binding.grant_id) as
-          { previous_head: string | null } | undefined)
+      ? (fleetLocalConsentsQueries.recoveryParent(
+          this.db,
+          this.owner,
+          binding.grant_id,
+        ) as { previous_head: string | null } | undefined)
       : undefined;
     const prior = consent?.previous_head
       ? this.authority.directory(this.owner, consent.previous_head)
       : undefined;
     const lineage = this.lineage();
-    const pending = this.db
-      .prepare(
-        "SELECT directory_digest,count(DISTINCT peer_id) n FROM fleet_distribution WHERE owner_id=? AND state<>'acked' GROUP BY directory_digest",
-      )
-      .all(this.owner) as { directory_digest: string; n: number }[];
+    const pending = fleetDistributionQueries.unacked(this.db, this.owner) as {
+      directory_digest: string;
+      n: number;
+    }[];
     return FleetAdminState.parse({
       identity: this.authority.identity,
       origin: FleetOrigin.parse(this.origin()),
@@ -177,11 +170,12 @@ export class FleetLocalAdmin {
     );
     for (const peer of peers) {
       if (peer === this.authority.identity.machineId) continue;
-      this.db
-        .prepare(
-          "INSERT OR IGNORE INTO fleet_distribution(owner_id,peer_id,directory_digest,state) VALUES(?,?,?,'pending')",
-        )
-        .run(this.owner, peer, directoryDigest(directory.document));
+      fleetDistributionQueries.enqueue(
+        this.db,
+        this.owner,
+        peer,
+        directoryDigest(directory.document),
+      );
     }
   }
   create(input: z.infer<typeof fleetAdminApi.create.body>) {
@@ -248,17 +242,14 @@ export class FleetLocalAdmin {
   }
   list(cursor: z.infer<typeof FleetOperationCursor> | null) {
     FleetOperationCursor.nullable().parse(cursor);
-    const rows = this.db
-      .prepare(
-        "SELECT operation_id,created_at FROM fleet_enrollments WHERE owner_id=? AND role='source' AND (? IS NULL OR created_at<? OR (created_at=? AND operation_id<?)) ORDER BY created_at DESC,operation_id DESC LIMIT 51",
-      )
-      .all(
-        this.owner,
-        cursor?.createdAt ?? null,
-        cursor?.createdAt ?? 0,
-        cursor?.createdAt ?? 0,
-        cursor?.operationId ?? "",
-      ) as { operation_id: string; created_at: number }[];
+    const rows = fleetEnrollmentsQueries.sourcePage(
+      this.db,
+      this.owner,
+      cursor?.createdAt ?? null,
+      cursor?.createdAt ?? 0,
+      cursor?.createdAt ?? 0,
+      cursor?.operationId ?? "",
+    ) as { operation_id: string; created_at: number }[];
     const shown = rows.slice(0, 50),
       last = shown.at(-1);
     return FleetEnrollmentPage.parse({
@@ -271,17 +262,14 @@ export class FleetLocalAdmin {
   }
   handoffs(cursor: z.infer<typeof FleetOperationCursor> | null) {
     FleetOperationCursor.nullable().parse(cursor);
-    const rows = this.db
-      .prepare(
-        "SELECT operation_id,created_at FROM fleet_handoff_jobs WHERE owner_id=? AND (? IS NULL OR created_at<? OR (created_at=? AND operation_id<?)) ORDER BY created_at DESC,operation_id DESC LIMIT 51",
-      )
-      .all(
-        this.owner,
-        cursor?.createdAt ?? null,
-        cursor?.createdAt ?? 0,
-        cursor?.createdAt ?? 0,
-        cursor?.operationId ?? "",
-      ) as { operation_id: string; created_at: number }[];
+    const rows = fleetHandoffJobsQueries.page(
+      this.db,
+      this.owner,
+      cursor?.createdAt ?? null,
+      cursor?.createdAt ?? 0,
+      cursor?.createdAt ?? 0,
+      cursor?.operationId ?? "",
+    ) as { operation_id: string; created_at: number }[];
     const shown = rows.slice(0, 50),
       last = shown.at(-1);
     return FleetHandoffPage.parse({
@@ -294,11 +282,12 @@ export class FleetLocalAdmin {
   }
   pending(cursor: string | null) {
     z.string().uuid().nullable().parse(cursor);
-    const rows = this.db
-      .prepare(
-        "SELECT operation_id,request,prepared FROM fleet_enrollments WHERE owner_id=? AND role='destination' AND state='prepared' AND (? IS NULL OR operation_id>?) ORDER BY operation_id LIMIT 51",
-      )
-      .all(this.owner, cursor, cursor) as {
+    const rows = fleetEnrollmentsQueries.preparedPage(
+      this.db,
+      this.owner,
+      cursor,
+      cursor,
+    ) as {
       operation_id: string;
       request: string;
       prepared: string;

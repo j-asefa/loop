@@ -1,3 +1,4 @@
+import * as identityQueries from "./sql/fleet-machine-identity.js";
 import * as mailQueries from "./sql/agent-mail.js";
 import * as runsQueries from "./sql/runs.js";
 import { maybeConnection } from "./row-schemas.js";
@@ -17,10 +18,7 @@ import * as fleetSecrets from "./secrets.js";
 export class MailRefusal extends Problem {}
 let fleetAuthority: FleetAuthority | undefined;
 export function mailAuthority() {
-  if (
-    !companionMode ||
-    !db.prepare("SELECT 1 FROM fleet_machine_identity WHERE singleton=1").get()
-  )
+  if (!companionMode || !identityQueries.exists(db))
     throw new MailRefusal(403, "Remote mail is unavailable in this workspace.");
   // Read the same durable directory as the gateway. This instance performs no
   // enrollment, credential issuance or network activity in the execution worker.

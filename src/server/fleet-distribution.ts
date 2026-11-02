@@ -1,3 +1,6 @@
+import * as fleetDistributionInstancesQueries from "./sql/fleet-distribution-instances.js";
+import * as fleetDistributionQueries from "./sql/fleet-distribution.js";
+import * as fleetDistributionWorkQueries from "./sql/fleet-distribution-work.js";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
@@ -100,24 +103,20 @@ export class FleetDistribution {
       new FleetDirectoryReconcile(db, authority, owner, secrets, transport);
     this.ownsReconcile = !options.reconcile;
     db.transaction(() => {
-      db.prepare(
-        "INSERT INTO fleet_distribution_instances VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET instance_id=excluded.instance_id",
-      ).run(owner, this.instance);
+      fleetDistributionInstancesQueries.install(db, owner, this.instance);
       // Monotonic deadlines are process-relative. Only immutable stored pushes
       // can repeat after restart; resetting their scheduling does not grant work.
-      db.prepare(
-        "UPDATE fleet_distribution SET next_attempt=0 WHERE owner_id=? AND state='pending'",
-      ).run(owner);
+      fleetDistributionQueries.restartPending(db, owner);
     }).immediate();
   }
   private live() {
     this.lifetime.signal.throwIfAborted();
     if (
-      !this.db
-        .prepare(
-          "SELECT 1 FROM fleet_distribution_instances WHERE owner_id=? AND instance_id=?",
-        )
-        .get(this.owner, this.instance)
+      !fleetDistributionInstancesQueries.exists(
+        this.db,
+        this.owner,
+        this.instance,
+      )
     )
       throw new Problem(409, "This directory worker was replaced.");
   }
@@ -257,12 +256,12 @@ export class FleetDistribution {
     }
   }
   private stored(row: Row) {
-    return this.db
-      .prepare(
-        "SELECT request,protocol FROM fleet_distribution_work WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-      )
-      .get(this.owner, row.peer_id, row.directory_digest) as
-      { request: string; protocol: "directory" | "pending" } | undefined;
+    return fleetDistributionWorkQueries.saved(
+      this.db,
+      this.owner,
+      row.peer_id,
+      row.directory_digest,
+    ) as { request: string; protocol: "directory" | "pending" } | undefined;
   }
   private acknowledge(row: Row, head: string, request?: string) {
     this.db
@@ -273,17 +272,21 @@ export class FleetDistribution {
         // A verified destination head can acknowledge an older target. It cannot
         // acknowledge a descendant or unrelated fork based on an integer alone.
         this.between(row.directory_digest, head, false);
-        const acknowledge = this.db.prepare(
-          "UPDATE fleet_distribution SET state='acked',next_attempt=0 WHERE owner_id=? AND peer_id=? AND directory_digest=? AND state='pending'",
-        );
-        const clear = this.db.prepare(
-          "DELETE FROM fleet_distribution_work WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-        );
         // An authenticated newer revision supersedes earlier pending targets
         // on that same lineage; unrelated recovery work remains incompatible.
         for (const digest of this.ancestors(head)) {
-          acknowledge.run(this.owner, row.peer_id, digest);
-          clear.run(this.owner, row.peer_id, digest);
+          fleetDistributionQueries.acknowledgePending(
+            this.db,
+            this.owner,
+            row.peer_id,
+            digest,
+          );
+          fleetDistributionWorkQueries.remove(
+            this.db,
+            this.owner,
+            row.peer_id,
+            digest,
+          );
         }
       })
       .immediate();
@@ -451,11 +454,13 @@ export class FleetDistribution {
       .transaction(() => {
         this.live();
         if (this.target(row).head !== head) throw unavailable();
-        this.db
-          .prepare(
-            "INSERT OR IGNORE INTO fleet_distribution_work(owner_id,peer_id,directory_digest,request) VALUES(?,?,?,?)",
-          )
-          .run(this.owner, row.peer_id, row.directory_digest, encoded);
+        fleetDistributionWorkQueries.insert(
+          this.db,
+          this.owner,
+          row.peer_id,
+          row.directory_digest,
+          encoded,
+        );
       })
       .immediate();
   }
@@ -551,11 +556,12 @@ export class FleetDistribution {
               this.live();
               this.target(row);
               if (this.stored(row)?.request === replace)
-                this.db
-                  .prepare(
-                    "DELETE FROM fleet_distribution_work WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-                  )
-                  .run(this.owner, row.peer_id, row.directory_digest);
+                fleetDistributionWorkQueries.remove(
+                  this.db,
+                  this.owner,
+                  row.peer_id,
+                  row.directory_digest,
+                );
             })
             .immediate();
         return true;
@@ -621,21 +627,20 @@ export class FleetDistribution {
           (replace && this.stored(row)?.request !== replace)
         )
           throw unavailable();
-        this.db
-          .prepare(
-            "INSERT INTO fleet_distribution_work(owner_id,peer_id,directory_digest,request,protocol) VALUES(?,?,?,?,'pending') ON CONFLICT(owner_id,peer_id,directory_digest) DO UPDATE SET request=excluded.request,protocol='pending'",
-          )
-          .run(
-            this.owner,
-            row.peer_id,
-            row.directory_digest,
-            JSON.stringify(signed),
-          );
-        this.db
-          .prepare(
-            "UPDATE fleet_distribution SET attempts=0,next_attempt=? WHERE owner_id=? AND peer_id=? AND directory_digest=? AND state='pending'",
-          )
-          .run(this.now(), this.owner, row.peer_id, row.directory_digest);
+        fleetDistributionWorkQueries.pending(
+          this.db,
+          this.owner,
+          row.peer_id,
+          row.directory_digest,
+          JSON.stringify(signed),
+        );
+        fleetDistributionQueries.retryPending(
+          this.db,
+          this.now(),
+          this.owner,
+          row.peer_id,
+          row.directory_digest,
+        );
       })
       .immediate();
   }
@@ -686,11 +691,12 @@ export class FleetDistribution {
         .transaction(() => {
           this.live();
           if (this.stored(row)?.request !== encoded) throw unavailable();
-          this.db
-            .prepare(
-              "DELETE FROM fleet_distribution_work WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-            )
-            .run(this.owner, row.peer_id, row.directory_digest);
+          fleetDistributionWorkQueries.remove(
+            this.db,
+            this.owner,
+            row.peer_id,
+            row.directory_digest,
+          );
           this.save(
             row,
             target.head,
@@ -727,11 +733,12 @@ export class FleetDistribution {
         this.live();
         this.target(row);
         if (this.stored(row)?.request !== encoded) return;
-        this.db
-          .prepare(
-            "DELETE FROM fleet_distribution_work WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-          )
-          .run(this.owner, row.peer_id, row.directory_digest);
+        fleetDistributionWorkQueries.remove(
+          this.db,
+          this.owner,
+          row.peer_id,
+          row.directory_digest,
+        );
       })
       .immediate();
   }
@@ -743,12 +750,12 @@ export class FleetDistribution {
         stored = this.stored(row);
       }
       if (!stored) {
-        const state = this.db
-          .prepare(
-            "SELECT state FROM fleet_distribution WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-          )
-          .get(this.owner, row.peer_id, row.directory_digest) as
-          { state: string } | undefined;
+        const state = fleetDistributionQueries.state(
+          this.db,
+          this.owner,
+          row.peer_id,
+          row.directory_digest,
+        ) as { state: string } | undefined;
         if (state?.state === "pending") throw unavailable();
         return;
       }
@@ -792,16 +799,19 @@ export class FleetDistribution {
           this.target(row);
           if (this.stored(row)?.request !== stored!.request) return;
           if (response.ack.state === "removed") throw conflict();
-          this.db
-            .prepare(
-              "DELETE FROM fleet_distribution_work WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-            )
-            .run(this.owner, row.peer_id, row.directory_digest);
-          this.db
-            .prepare(
-              "UPDATE fleet_distribution SET attempts=0,next_attempt=? WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-            )
-            .run(this.now(), this.owner, row.peer_id, row.directory_digest);
+          fleetDistributionWorkQueries.remove(
+            this.db,
+            this.owner,
+            row.peer_id,
+            row.directory_digest,
+          );
+          fleetDistributionQueries.retry(
+            this.db,
+            this.now(),
+            this.owner,
+            row.peer_id,
+            row.directory_digest,
+          );
         })
         .immediate();
       this.notify();
@@ -848,11 +858,14 @@ export class FleetDistribution {
         // retires work; a transport status alone cannot prove that outcome.
         const state =
           failure instanceof IncompatibleDirectory ? "incompatible" : "pending";
-        this.db
-          .prepare(
-            "UPDATE fleet_distribution SET state=?,attempts=attempts+1,next_attempt=? WHERE owner_id=? AND peer_id=? AND directory_digest=? AND state='pending'",
-          )
-          .run(state, retry, this.owner, row.peer_id, row.directory_digest);
+        fleetDistributionQueries.recordAttempt(
+          this.db,
+          state,
+          retry,
+          this.owner,
+          row.peer_id,
+          row.directory_digest,
+        );
         this.notify();
       } catch {
         /* A stopped or replaced worker cannot change retry state. */
@@ -862,15 +875,11 @@ export class FleetDistribution {
   flush(): Promise<void> {
     if (this.pending) return this.pending;
     this.live();
-    const rows = this.db
-      .prepare(
-        `SELECT d.peer_id,d.directory_digest,d.attempts FROM fleet_distribution d
-      JOIN fleet_directory_history h ON h.owner_id=d.owner_id AND h.digest=d.directory_digest
-      WHERE d.owner_id=? AND d.state='pending' AND d.next_attempt<=?
-        AND NOT EXISTS(SELECT 1 FROM fleet_distribution newer JOIN fleet_directory_history n ON n.owner_id=newer.owner_id AND n.digest=newer.directory_digest WHERE newer.owner_id=d.owner_id AND newer.peer_id=d.peer_id AND newer.state='pending' AND n.rowid>h.rowid)
-      ORDER BY d.next_attempt,h.rowid,d.peer_id LIMIT 2`,
-      )
-      .all(this.owner, this.now()) as Row[];
+    const rows = fleetDistributionQueries.due(
+      this.db,
+      this.owner,
+      this.now(),
+    ) as Row[];
     const pending = Promise.all(rows.map((row) => this.one(row))).then(
       () => {},
     );

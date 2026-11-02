@@ -1,9 +1,9 @@
-import express, { type ErrorRequestHandler } from "express";
-import { ZodError } from "zod";
 import {
-  fleetDeviceAuthorization,
-  type FleetDeviceRequest,
-} from "../fleet-device-authorization.js";
+  fleetDeviceAuthenticator,
+  fleetLocalAdmission,
+  fleetHttpErrors,
+} from "./fleet-http-support.js";
+import express from "express";
 import { fleetGatewayApi } from "../shared/fleet-gateway-api.js";
 import { Problem } from "../shared/problem.js";
 import { registrar } from "./registrar.js";
@@ -25,41 +25,17 @@ export function createFleetCommandsHttp(
   const app = express();
   app.disable("x-powered-by");
   app.set("query parser", "simple");
-  const authenticate = (req: FleetDeviceRequest) => {
-    const authorization = req[fleetDeviceAuthorization];
-    if (
-      !authorization?.active ||
-      !authorization.current() ||
-      !pairing.device(authorization.deviceId)
-    )
-      throw new Problem(403, "Pair this device to check command receipts.");
-  };
-  let pending = 0;
-  app.use((req, res, next) => {
-    try {
-      authenticate(req);
-      if (pending >= 16)
-        throw new Problem(503, "Command receipts are busy. Try again later.");
-      pending++;
-      const timer = setTimeout(() => {
-        res.destroy();
-        req.destroy();
-      }, 45_000);
-      timer.unref();
-      let finished = false;
-      const release = () => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
-        pending--;
-      };
-      res.once("finish", release);
-      res.once("close", release);
-      next();
-    } catch (error) {
-      next(error);
-    }
-  });
+  const authenticate = fleetDeviceAuthenticator(
+    pairing,
+    "Pair this device to check command receipts.",
+  );
+  app.use(
+    fleetLocalAdmission(
+      authenticate,
+      45000,
+      "Command receipts are busy. Try again later.",
+    ),
+  );
   app.use(express.json({ limit: "4kb", strict: true }));
   const routes = registrar("fleet-local-commands", {
     prefix: "/api",
@@ -112,24 +88,11 @@ export function createFleetCommandsHttp(
   app.use((_req, res) =>
     res.status(404).json({ error: "Unknown fleet command endpoint." }),
   );
-  const errors: ErrorRequestHandler = (error, _req, res, _next) => {
-    if (res.destroyed || res.writableEnded) return;
-    if (res.headersSent) return res.end();
-    const status =
-      error instanceof Problem
-        ? error.status
-        : error?.status === 413
-          ? 413
-          : error instanceof ZodError || error?.type === "entity.parse.failed"
-            ? 400
-            : 500;
-    res.status(status).json({
-      error:
-        error instanceof Problem
-          ? error.message
-          : "The command receipt is unavailable. Keep its original identity.",
-    });
-  };
-  app.use(errors);
+  app.use(
+    fleetHttpErrors(
+      "The command receipt is unavailable. Keep its original identity.",
+      { skipClosedResponses: true },
+    ),
+  );
   return app;
 }

@@ -1,3 +1,4 @@
+import * as identityQueries from "./sql/fleet-machine-identity.js";
 import type Database from "better-sqlite3";
 import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
 import { FleetSignature, MachineIdentity } from "../shared/fleet.js";
@@ -82,11 +83,7 @@ export class FleetProof {
     private readonly secrets: Parameters<typeof initializeFleetIdentity>[1],
   ) {}
   sign(purpose: Purpose, parsed: unknown) {
-    const row = this.db
-      .prepare(
-        "SELECT private_key FROM fleet_machine_identity WHERE singleton=1",
-      )
-      .get() as { private_key: string };
+    const row = identityQueries.privateKey(this.db) as { private_key: string };
     const key = this.secrets.unseal(
       row.private_key,
       `fleet:machine:${this.identity.machineId}`,

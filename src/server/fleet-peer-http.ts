@@ -1,5 +1,5 @@
-import express, { type ErrorRequestHandler } from "express";
-import { ZodError } from "zod";
+import { fleetHttpErrors } from "./fleet-http-support.js";
+import express from "express";
 import { FleetOrigin } from "../shared/fleet.js";
 import { fleetWorkspaceApi } from "../shared/fleet-workspace-api.js";
 import { fleetWorkspaceActionApi } from "../shared/fleet-workspace-action-api.js";
@@ -14,7 +14,6 @@ import { fleetHandoffApi } from "../shared/fleet-handoff-api.js";
 import { fleetDirectoryApi } from "../shared/fleet-directory-api.js";
 import { fleetCredentialApi } from "../shared/fleet-credential-api.js";
 import { fleetPendingDirectoryApi } from "../shared/fleet-pending-directory-api.js";
-import { Problem } from "../shared/problem.js";
 import { registrar } from "./registrar.js";
 import type { FleetEnrollmentDestination } from "./fleet-enrollment.js";
 import type { FleetHandoffDestination } from "./fleet-handoff.js";
@@ -261,21 +260,6 @@ export function createFleetPeerHttp(
     );
   }
   app.use(routes.mount);
-  const errors: ErrorRequestHandler = (error, _req, res, _next) => {
-    if (res.headersSent) return res.end();
-    if (error instanceof Problem)
-      return res.status(error.status).json({ error: error.message });
-    const status =
-      error?.status === 413
-        ? 413
-        : error instanceof ZodError || error?.type === "entity.parse.failed"
-          ? 400
-          : 500;
-    // Body-parser and Zod diagnostics can include capability-bearing input.
-    return res
-      .status(status)
-      .json({ error: "The fleet protocol request is unavailable." });
-  };
-  app.use(errors);
+  app.use(fleetHttpErrors("The fleet protocol request is unavailable."));
   return app;
 }

@@ -1,3 +1,6 @@
+import * as fleetEnrollmentsQueries from "./sql/fleet-enrollments.js";
+import * as fleetBindingQueries from "./sql/fleet-binding.js";
+import * as fleetLocalConsentsQueries from "./sql/fleet-local-consents.js";
 import type Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -61,11 +64,11 @@ export class FleetEnrollmentDestination {
     this.proof = new FleetProof(db, authority.identity, secrets);
   }
   private record(operationId: string) {
-    const row = this.db
-      .prepare(
-        "SELECT * FROM fleet_enrollments WHERE owner_id=? AND role='destination' AND operation_id=?",
-      )
-      .get(this.owner, operationId);
+    const row = fleetEnrollmentsQueries.destination(
+      this.db,
+      this.owner,
+      operationId,
+    );
     // Peer callers must authenticate the recorded operation before learning
     // anything about it; unknown and unauthorized operations are both refused.
     if (!row) throw refused();
@@ -99,11 +102,11 @@ export class FleetEnrollmentDestination {
       if (result.prepared.prepared.member.grantId !== grantId) throw refused();
       return result;
     }
-    const row = this.db
-      .prepare(
-        "SELECT operation_id FROM fleet_enrollments WHERE owner_id=? AND role='destination' AND json_extract(prepared,'$.prepared.member.grantId')=? ORDER BY rowid DESC LIMIT 1",
-      )
-      .get(this.owner, grantId) as { operation_id: string } | undefined;
+    const row = fleetEnrollmentsQueries.latestDestinationGrant(
+      this.db,
+      this.owner,
+      grantId,
+    ) as { operation_id: string } | undefined;
     if (!row) throw refused();
     return this.record(row.operation_id);
   }
@@ -182,9 +185,10 @@ export class FleetEnrollmentDestination {
               advertised = directory.document.members.find(
                 (m) => m.machineId === this.authority.identity.machineId,
               );
-            const binding = this.db
-              .prepare("SELECT scope FROM fleet_binding WHERE owner_id=?")
-              .get(this.owner) as { scope: string } | undefined;
+            const binding = fleetBindingQueries.ownerScope(
+              this.db,
+              this.owner,
+            ) as { scope: string } | undefined;
             if (
               !member ||
               !advertised ||
@@ -209,11 +213,11 @@ export class FleetEnrollmentDestination {
             // cancelled or lost the commit. Fresh local consent may finish that
             // enrollment with the never-activated grant we originally issued.
             // A controller-provided UUID alone can never establish this fact.
-            const pending = this.db
-              .prepare(
-                "SELECT operation_id FROM fleet_enrollments WHERE owner_id=? AND role='destination' AND state IN ('prepared','cancelled') AND json_extract(prepared,'$.prepared.member.grantId')=?",
-              )
-              .all(this.owner, advertised.grantId) as {
+            const pending = fleetEnrollmentsQueries.destinationGrant(
+              this.db,
+              this.owner,
+              advertised.grantId,
+            ) as {
               operation_id: string;
             }[];
             const issuedHere = pending.some(({ operation_id }) => {
@@ -237,11 +241,11 @@ export class FleetEnrollmentDestination {
             });
             if (
               !issuedHere ||
-              this.db
-                .prepare(
-                  "SELECT 1 FROM fleet_local_consents WHERE owner_id=? AND grant_id=?",
-                )
-                .get(this.owner, advertised.grantId)
+              fleetLocalConsentsQueries.grant(
+                this.db,
+                this.owner,
+                advertised.grantId,
+              )
             )
               throw refused();
             grantId = advertised.grantId;
@@ -276,22 +280,15 @@ export class FleetEnrollmentDestination {
         });
         // A freshly redeemed local ceremony supersedes earlier pending
         // consent. Its scope/controller cannot race an older delayed commit.
-        this.db
-          .prepare(
-            "UPDATE fleet_enrollments SET state='cancelled' WHERE owner_id=? AND role='destination' AND state='prepared'",
-          )
-          .run(this.owner);
-        this.db
-          .prepare(
-            "INSERT INTO fleet_enrollments(owner_id,operation_id,role,request_digest,request,capability,prepared,committed,state) VALUES(?,?,'destination',?,?,NULL,?,NULL,'prepared')",
-          )
-          .run(
-            this.owner,
-            intent.operationId,
-            digest,
-            JSON.stringify({ intent, signature: value.signature }),
-            JSON.stringify(result),
-          );
+        fleetEnrollmentsQueries.cancelPreparedDestinations(this.db, this.owner);
+        fleetEnrollmentsQueries.insertDestination(
+          this.db,
+          this.owner,
+          intent.operationId,
+          digest,
+          JSON.stringify({ intent, signature: value.signature }),
+          JSON.stringify(result),
+        );
         return result;
       },
     );
@@ -412,9 +409,10 @@ export class FleetEnrollmentDestination {
               const member = current?.members.find(
                 (m) => m.machineId === this.authority.identity.machineId,
               );
-              const binding = this.db
-                .prepare("SELECT scope FROM fleet_binding WHERE owner_id=?")
-                .get(this.owner) as { scope: string } | undefined;
+              const binding = fleetBindingQueries.ownerScope(
+                this.db,
+                this.owner,
+              ) as { scope: string } | undefined;
               if (
                 !current ||
                 !member ||
@@ -490,11 +488,12 @@ export class FleetEnrollmentDestination {
               directory: signed,
             });
           }
-          this.db
-            .prepare(
-              "UPDATE fleet_enrollments SET state='complete',committed=? WHERE owner_id=? AND role='destination' AND operation_id=?",
-            )
-            .run(JSON.stringify(signed), this.owner, commit.operationId);
+          fleetEnrollmentsQueries.completeDestination(
+            this.db,
+            JSON.stringify(signed),
+            this.owner,
+            commit.operationId,
+          );
         }
         const receipt: SignedFleetEnrollmentReceipt["receipt"] = {
           version: 1,
@@ -524,11 +523,11 @@ export class FleetEnrollmentDestination {
             409,
             "This enrollment is already committed. Use directory removal.",
           );
-        this.db
-          .prepare(
-            "UPDATE fleet_enrollments SET state='cancelled' WHERE owner_id=? AND role='destination' AND operation_id=? AND state='prepared'",
-          )
-          .run(this.owner, operationId);
+        fleetEnrollmentsQueries.cancelPreparedDestination(
+          this.db,
+          this.owner,
+          operationId,
+        );
       })
       .immediate();
   }

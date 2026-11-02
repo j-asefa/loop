@@ -1,3 +1,5 @@
+import * as fleetPendingDirectoryQueries from "./sql/fleet-pending-directory.js";
+import * as fleetEnrollmentsQueries from "./sql/fleet-enrollments.js";
 import type Database from "better-sqlite3";
 import type { MachineIdentity, SignedFleetDirectory } from "../shared/fleet.js";
 import {
@@ -119,12 +121,11 @@ export class FleetPendingDirectory {
     }
     const { record, request, prepared } = enrollment;
     if (record.owner_id !== this.owner) throw refused();
-    const saved = this.db
-      .prepare(
-        "SELECT head,signed,receipt FROM fleet_pending_directory WHERE owner_id=? AND operation_id=?",
-      )
-      .get(this.owner, record.operation_id) as
-      { head: string; signed: string; receipt: string } | undefined;
+    const saved = fleetPendingDirectoryQueries.saved(
+      this.db,
+      this.owner,
+      record.operation_id,
+    ) as { head: string; signed: string; receipt: string } | undefined;
     let directory = request.intent.directory,
       receipt: SignedFleetPendingAck | undefined;
     if (saved) {
@@ -186,12 +187,12 @@ export class FleetPendingDirectory {
       )
     )
       throw refused();
-    const record = this.db
-      .prepare(
-        "SELECT operation_id FROM fleet_enrollments WHERE owner_id=? AND role='destination' AND json_extract(prepared,'$.prepared.member.grantId')=? AND operation_id IN (SELECT value FROM json_each(?)) ORDER BY rowid DESC LIMIT 1",
-      )
-      .get(this.owner, query.grantId, JSON.stringify(query.operationIds)) as
-      { operation_id: string } | undefined;
+    const record = fleetEnrollmentsQueries.latestSelectedDestinationGrant(
+      this.db,
+      this.owner,
+      query.grantId,
+      JSON.stringify(query.operationIds),
+    ) as { operation_id: string } | undefined;
     if (!record) throw refused();
     const context = this.context(query.grantId, record.operation_id);
     const directory =
@@ -327,22 +328,19 @@ export class FleetPendingDirectory {
         };
         if (state === "complete") return response;
         if (state === "cancelled")
-          this.db
-            .prepare(
-              "UPDATE fleet_enrollments SET state='cancelled' WHERE owner_id=? AND role='destination' AND operation_id=? AND state='prepared'",
-            )
-            .run(this.owner, context.record.operation_id);
-        this.db
-          .prepare(
-            "INSERT INTO fleet_pending_directory(owner_id,operation_id,head,signed,receipt) VALUES(?,?,?,?,?) ON CONFLICT(owner_id,operation_id) DO UPDATE SET head=excluded.head,signed=excluded.signed,receipt=excluded.receipt",
-          )
-          .run(
+          fleetEnrollmentsQueries.cancelPreparedDestination(
+            this.db,
             this.owner,
             context.record.operation_id,
-            ack.accepted,
-            JSON.stringify(accepted),
-            JSON.stringify(response),
           );
+        fleetPendingDirectoryQueries.save(
+          this.db,
+          this.owner,
+          context.record.operation_id,
+          ack.accepted,
+          JSON.stringify(accepted),
+          JSON.stringify(response),
+        );
         return response;
       })
       .immediate();

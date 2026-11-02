@@ -1200,6 +1200,18 @@ it("bounds administration bodies and keeps invalid capability input out of error
   expect(JSON.stringify(invalid.body)).not.toContain(
     "sensitive-fixture-capability",
   );
+  // Parsing failures must release their admission slot and redact raw input.
+  for (let attempt = 0; attempt < 17; attempt++) {
+    const malformed = await call(
+      a,
+      "begin",
+      '{"enrollment":"sensitive-fixture-capability"',
+    );
+    expect(malformed.status).toBe(400);
+    expect(malformed.body).toEqual({
+      error: "Fleet administration is unavailable.",
+    });
+  }
   const large = await call(a, "begin", { padding: "x".repeat(256 * 1024) });
   expect(large.status).toBe(413);
   expect((await call(a, "state")).body.state).toBe("standalone");

@@ -1,3 +1,7 @@
+import * as fleetEnrollmentInstancesQueries from "./sql/fleet-enrollment-instances.js";
+import * as fleetEnrollmentsQueries from "./sql/fleet-enrollments.js";
+import * as fleetDistributionQueries from "./sql/fleet-distribution.js";
+import * as fleetAdminReservationsQueries from "./sql/fleet-admin-reservations.js";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -69,20 +73,16 @@ export class FleetEnrollmentSource {
     // Retire callbacks from an earlier process/instance. A replacement may
     // query receipts but cannot infer whether an in-flight effect was sent.
     db.transaction(() => {
-      db.prepare(
-        "INSERT INTO fleet_enrollment_instances VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET instance_id=excluded.instance_id",
-      ).run(owner, this.instanceId);
-      db.prepare(
-        "UPDATE fleet_enrollments SET state='uncertain',attempt_id=NULL WHERE owner_id=? AND role='source' AND state IN ('preparing','uncertain')",
-      ).run(owner);
+      fleetEnrollmentInstancesQueries.install(db, owner, this.instanceId);
+      fleetEnrollmentsQueries.recoverSource(db, owner);
     }).immediate();
   }
   private currentInstance() {
-    return !!this.db
-      .prepare(
-        "SELECT 1 FROM fleet_enrollment_instances WHERE owner_id=? AND instance_id=?",
-      )
-      .get(this.owner, this.instanceId);
+    return !!fleetEnrollmentInstancesQueries.exists(
+      this.db,
+      this.owner,
+      this.instanceId,
+    );
   }
   private assertCurrentInstance() {
     if (!this.currentInstance())
@@ -93,11 +93,11 @@ export class FleetEnrollmentSource {
   }
   private record(operationId: string) {
     z.string().uuid().parse(operationId);
-    const raw = this.db
-      .prepare(
-        "SELECT * FROM fleet_enrollments WHERE owner_id=? AND role='source' AND operation_id=?",
-      )
-      .get(this.owner, operationId);
+    const raw = fleetEnrollmentsQueries.source(
+      this.db,
+      this.owner,
+      operationId,
+    );
     if (!raw)
       throw new Problem(
         404,
@@ -152,11 +152,9 @@ export class FleetEnrollmentSource {
     });
   }
   list() {
-    const rows = this.db
-      .prepare(
-        "SELECT operation_id FROM fleet_enrollments WHERE owner_id=? AND role='source' ORDER BY created_at DESC,operation_id LIMIT 50",
-      )
-      .all(this.owner) as { operation_id: string }[];
+    const rows = fleetEnrollmentsQueries.recentSources(this.db, this.owner) as {
+      operation_id: string;
+    }[];
     return rows.map((row) => this.status(row.operation_id));
   }
   begin(input: StartFleetEnrollment): FleetEnrollmentJob {
@@ -165,11 +163,11 @@ export class FleetEnrollmentSource {
     this.db
       .transaction(() => {
         this.assertCurrentInstance();
-        const prior = this.db
-          .prepare(
-            "SELECT 1 FROM fleet_enrollments WHERE owner_id=? AND role='source' AND operation_id=?",
-          )
-          .get(this.owner, id);
+        const prior = fleetEnrollmentsQueries.sourceExists(
+          this.db,
+          this.owner,
+          id,
+        );
         if (prior) {
           if (
             this.record(id).row.local_input_digest !== fleetPayloadDigest(value)
@@ -203,11 +201,7 @@ export class FleetEnrollmentSource {
         if (value.mode === "repair" && !member) throw refused();
         if (!member && directory.document.members.length >= 128)
           throw new Problem(409, "The fleet member limit has been reached.");
-        if (
-          this.db
-            .prepare("SELECT 1 FROM fleet_admin_reservations WHERE owner_id=?")
-            .get(this.owner)
-        )
+        if (fleetAdminReservationsQueries.exists(this.db, this.owner))
           throw new Problem(
             409,
             "Resolve the pending enrollment before editing the directory.",
@@ -228,25 +222,25 @@ export class FleetEnrollmentSource {
           intent,
           signature: this.proof.sign("enrollment-prepare", intent),
         };
-        this.db
-          .prepare(
-            "INSERT INTO fleet_enrollments(owner_id,operation_id,role,request_digest,local_input_digest,request,capability,prepared,committed,state,created_at) VALUES(?,?,'source',?,?,?,?,NULL,NULL,'ready',?)",
-          )
-          .run(
-            this.owner,
-            id,
-            fleetPayloadDigest(intent),
-            fleetPayloadDigest(value),
-            JSON.stringify(request),
-            this.secrets.seal(
-              value.link.enrollment,
-              `fleet:enrollment:${this.owner}:${id}`,
-            ),
-            Date.now(),
-          );
-        this.db
-          .prepare("INSERT INTO fleet_admin_reservations VALUES(?,?,?,NULL)")
-          .run(this.owner, id, value.expected);
+        fleetEnrollmentsQueries.insertSource(
+          this.db,
+          this.owner,
+          id,
+          fleetPayloadDigest(intent),
+          fleetPayloadDigest(value),
+          JSON.stringify(request),
+          this.secrets.seal(
+            value.link.enrollment,
+            `fleet:enrollment:${this.owner}:${id}`,
+          ),
+          Date.now(),
+        );
+        fleetAdminReservationsQueries.insert(
+          this.db,
+          this.owner,
+          id,
+          value.expected,
+        );
       })
       .immediate();
     return this.status(id);
@@ -331,17 +325,14 @@ export class FleetEnrollmentSource {
               )
             : [...intent.directory.document.members, prepared.prepared.member],
         };
-        const reservation = this.db
-          .prepare(
-            "UPDATE fleet_admin_reservations SET revision_digest=? WHERE owner_id=? AND operation_id=? AND expected_head=? AND (revision_digest IS NULL OR revision_digest=?)",
-          )
-          .run(
-            fleetPayloadDigest(revision),
-            this.owner,
-            operationId,
-            revision.expected,
-            fleetPayloadDigest(revision),
-          );
+        const reservation = fleetAdminReservationsQueries.reserveRevision(
+          this.db,
+          fleetPayloadDigest(revision),
+          this.owner,
+          operationId,
+          revision.expected,
+          fleetPayloadDigest(revision),
+        );
         if (!reservation.changes)
           throw new Problem(
             409,
@@ -359,30 +350,24 @@ export class FleetEnrollmentSource {
           commit,
           signature: this.proof.sign("enrollment-commit", commit),
         });
-        this.db
-          .prepare(
-            "UPDATE fleet_enrollments SET committed=?,state='published',capability=NULL,attempt_id=NULL WHERE owner_id=? AND role='source' AND operation_id=?",
-          )
-          .run(JSON.stringify(committed), this.owner, operationId);
+        fleetEnrollmentsQueries.publishSource(
+          this.db,
+          JSON.stringify(committed),
+          this.owner,
+          operationId,
+        );
         // The canonical revision is now durable. An unavailable destination
         // must not prevent later removals or controller administration. Its
         // uncertain enrollment stays recorded separately from this reservation.
-        this.db
-          .prepare(
-            "DELETE FROM fleet_admin_reservations WHERE owner_id=? AND operation_id=?",
-          )
-          .run(this.owner, operationId);
+        fleetAdminReservationsQueries.remove(this.db, this.owner, operationId);
         for (const member of directory.document.members) {
           if (member.machineId === this.authority.identity.machineId) continue;
-          this.db
-            .prepare(
-              "INSERT OR IGNORE INTO fleet_distribution(owner_id,peer_id,directory_digest,state) VALUES(?,?,?,'pending')",
-            )
-            .run(
-              this.owner,
-              member.machineId,
-              directoryDigest(directory.document),
-            );
+          fleetDistributionQueries.enqueue(
+            this.db,
+            this.owner,
+            member.machineId,
+            directoryDigest(directory.document),
+          );
         }
       })
       .immediate();
@@ -443,36 +428,30 @@ export class FleetEnrollmentSource {
               ? record.row.state
               : "prepared"
             : remote;
-        this.db
-          .prepare(
-            "UPDATE fleet_enrollments SET state=?,prepared=?,receipt=?,capability=NULL,attempt_id=? WHERE owner_id=? AND role='source' AND operation_id=?",
-          )
-          .run(
-            state,
-            JSON.stringify(value.receipt.prepared),
-            JSON.stringify(value),
-            remote === "prepared" && record.committed
-              ? record.row.attempt_id
-              : null,
+        fleetEnrollmentsQueries.sourceReceipt(
+          this.db,
+          state,
+          JSON.stringify(value.receipt.prepared),
+          JSON.stringify(value),
+          remote === "prepared" && record.committed
+            ? record.row.attempt_id
+            : null,
+          this.owner,
+          operationId,
+        );
+        if (state === "complete" || state === "cancelled")
+          fleetAdminReservationsQueries.remove(
+            this.db,
             this.owner,
             operationId,
           );
-        if (state === "complete" || state === "cancelled")
-          this.db
-            .prepare(
-              "DELETE FROM fleet_admin_reservations WHERE owner_id=? AND operation_id=?",
-            )
-            .run(this.owner, operationId);
         if (state === "complete")
-          this.db
-            .prepare(
-              "UPDATE fleet_distribution SET state='acked' WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-            )
-            .run(
-              this.owner,
-              record.request.intent.destination.machineId,
-              value.receipt.directory,
-            );
+          fleetDistributionQueries.acknowledge(
+            this.db,
+            this.owner,
+            record.request.intent.destination.machineId,
+            value.receipt.directory,
+          );
       })
       .immediate();
   }
@@ -518,11 +497,14 @@ export class FleetEnrollmentSource {
           `fleet:enrollment:${this.owner}:${operationId}`,
         ),
         attempt = randomUUID();
-      const claimed = this.db
-        .prepare(
-          "UPDATE fleet_enrollments SET state='preparing',attempt_id=?,capability=NULL WHERE owner_id=? AND role='source' AND operation_id=? AND state='ready' AND EXISTS(SELECT 1 FROM fleet_enrollment_instances WHERE owner_id=? AND instance_id=?)",
-        )
-        .run(attempt, this.owner, operationId, this.owner, this.instanceId);
+      const claimed = fleetEnrollmentsQueries.claimSource(
+        this.db,
+        attempt,
+        this.owner,
+        operationId,
+        this.owner,
+        this.instanceId,
+      );
       if (!claimed.changes) return this.status(operationId);
       try {
         const prepared = this.validatePrepared(
@@ -532,21 +514,24 @@ export class FleetEnrollmentSource {
             capability,
           }),
         );
-        const accepted = this.db
-          .prepare(
-            "UPDATE fleet_enrollments SET state='prepared',prepared=?,attempt_id=NULL WHERE owner_id=? AND role='source' AND operation_id=? AND state='preparing' AND attempt_id=?",
-          )
-          .run(JSON.stringify(prepared), this.owner, operationId, attempt);
+        const accepted = fleetEnrollmentsQueries.sourcePrepared(
+          this.db,
+          JSON.stringify(prepared),
+          this.owner,
+          operationId,
+          attempt,
+        );
         // A replacement may have reconciled the same receipt while this
         // callback was in flight. Only the current attempt may continue into
         // publication; reading its replacement's prepared state is not a claim.
         if (!accepted.changes) return this.status(operationId);
       } catch {
-        this.db
-          .prepare(
-            "UPDATE fleet_enrollments SET state='uncertain',attempt_id=NULL WHERE owner_id=? AND role='source' AND operation_id=? AND state='preparing' AND attempt_id=?",
-          )
-          .run(this.owner, operationId, attempt);
+        fleetEnrollmentsQueries.sourceUncertain(
+          this.db,
+          this.owner,
+          operationId,
+          attempt,
+        );
         return this.status(operationId);
       }
       record = this.record(operationId);
@@ -580,19 +565,20 @@ export class FleetEnrollmentSource {
           ) {
             // A local revision superseded this enrollment before its first
             // commit dispatch. Do not send a grant already known to be removed.
-            this.db
-              .prepare(
-                "UPDATE fleet_enrollments SET state='cancelled',attempt_id=NULL WHERE owner_id=? AND role='source' AND operation_id=? AND state='published'",
-              )
-              .run(this.owner, operationId);
+            fleetEnrollmentsQueries.cancelPublishedSource(
+              this.db,
+              this.owner,
+              operationId,
+            );
             return false;
           }
           return (
-            this.db
-              .prepare(
-                "UPDATE fleet_enrollments SET state='uncertain',attempt_id=? WHERE owner_id=? AND role='source' AND operation_id=? AND state='published'",
-              )
-              .run(attempt, this.owner, operationId).changes > 0
+            fleetEnrollmentsQueries.claimPublishedSource(
+              this.db,
+              attempt,
+              this.owner,
+              operationId,
+            ).changes > 0
           );
         })
         .immediate();
@@ -606,11 +592,12 @@ export class FleetEnrollmentSource {
       } catch {
         // The dispatch identity, exact signed payload and uncertain outcome
         // were committed before the wire effect. Only a receipt can settle it.
-        this.db
-          .prepare(
-            "UPDATE fleet_enrollments SET attempt_id=NULL WHERE owner_id=? AND role='source' AND operation_id=? AND attempt_id=?",
-          )
-          .run(this.owner, operationId, attempt);
+        fleetEnrollmentsQueries.releaseSource(
+          this.db,
+          this.owner,
+          operationId,
+          attempt,
+        );
       }
     }
     return this.status(operationId);
@@ -667,16 +654,8 @@ export class FleetEnrollmentSource {
             409,
             "Reconcile the committed effect, or cancel pending consent on the destination first.",
           );
-        this.db
-          .prepare(
-            "UPDATE fleet_enrollments SET state='cancelled',capability=NULL,attempt_id=NULL WHERE owner_id=? AND role='source' AND operation_id=?",
-          )
-          .run(this.owner, operationId);
-        this.db
-          .prepare(
-            "DELETE FROM fleet_admin_reservations WHERE owner_id=? AND operation_id=?",
-          )
-          .run(this.owner, operationId);
+        fleetEnrollmentsQueries.cancelSource(this.db, this.owner, operationId);
+        fleetAdminReservationsQueries.remove(this.db, this.owner, operationId);
         // Publication is irreversible: the directory keeps an unconfirmed member
         // until fresh destination consent resumes it or the user removes it.
       })

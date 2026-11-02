@@ -1,11 +1,10 @@
-import express, { type ErrorRequestHandler } from "express";
-import { ZodError } from "zod";
 import {
-  fleetDeviceAuthorization,
-  type FleetDeviceRequest,
-} from "../fleet-device-authorization.js";
+  fleetDeviceAuthenticator,
+  fleetLocalAdmission,
+  fleetHttpErrors,
+} from "./fleet-http-support.js";
+import express from "express";
 import { fleetAdminApi } from "../shared/fleet-admin-api.js";
-import { Problem } from "../shared/problem.js";
 import { registrar } from "./registrar.js";
 import type { FleetLocalAdmin } from "./fleet-local-admin.js";
 
@@ -13,47 +12,17 @@ export function createFleetAdminHttp(admin: FleetLocalAdmin) {
   const app = express();
   app.disable("x-powered-by");
   app.set("query parser", "simple");
-  let pending = 0;
-  const authenticate = (req: FleetDeviceRequest) => {
-    const authorization = (req as FleetDeviceRequest)[fleetDeviceAuthorization];
-    if (
-      !authorization?.active ||
-      !authorization.current() ||
-      !admin.pairing.device(authorization.deviceId)
-    )
-      throw new Problem(
-        403,
-        "Local device authorization is required for fleet administration.",
-      );
-  };
-  app.use((req, res, next) => {
-    try {
-      authenticate(req);
-      if (pending >= 16)
-        throw new Problem(
-          503,
-          "Fleet administration is busy. Try again later.",
-        );
-      pending++;
-      const timer = setTimeout(() => {
-        res.destroy();
-        req.destroy();
-      }, 60_000);
-      timer.unref();
-      let finished = false;
-      const release = () => {
-        if (finished) return;
-        finished = true;
-        pending--;
-        clearTimeout(timer);
-      };
-      res.once("finish", release);
-      res.once("close", release);
-      next();
-    } catch (error) {
-      next(error);
-    }
-  });
+  const authenticate = fleetDeviceAuthenticator(
+    admin.pairing,
+    "Local device authorization is required for fleet administration.",
+  );
+  app.use(
+    fleetLocalAdmission(
+      authenticate,
+      60000,
+      "Fleet administration is busy. Try again later.",
+    ),
+  );
   app.use(express.json({ limit: "256kb", strict: true }));
   app.use((req, _res, next) => {
     try {
@@ -146,25 +115,10 @@ export function createFleetAdminHttp(admin: FleetLocalAdmin) {
   app.use((_req, res) =>
     res.status(404).json({ error: "Unknown fleet administration endpoint." }),
   );
-  const errors: ErrorRequestHandler = (error, _req, res, _next) => {
-    if (res.destroyed || res.writableEnded) return;
-    if (res.headersSent) return res.end();
-    const status =
-      error instanceof Problem
-        ? error.status
-        : error?.status === 413
-          ? 413
-          : error instanceof ZodError || error?.type === "entity.parse.failed"
-            ? 400
-            : 500;
-    // Parsing and storage errors must never echo an enrollment capability.
-    res.status(status).json({
-      error:
-        error instanceof Problem
-          ? error.message
-          : "Fleet administration is unavailable.",
-    });
-  };
-  app.use(errors);
+  app.use(
+    fleetHttpErrors("Fleet administration is unavailable.", {
+      skipClosedResponses: true,
+    }),
+  );
   return app;
 }

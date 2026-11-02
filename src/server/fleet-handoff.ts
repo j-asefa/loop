@@ -1,3 +1,7 @@
+import * as fleetDistributionQueries from "./sql/fleet-distribution.js";
+import * as fleetHandoffInstancesQueries from "./sql/fleet-handoff-instances.js";
+import * as fleetHandoffJobsQueries from "./sql/fleet-handoff-jobs.js";
+import * as fleetHandoffsQueries from "./sql/fleet-handoffs.js";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -38,9 +42,12 @@ function distribute(
 ) {
   for (const member of directory.document.members) {
     if (member.machineId === local) continue;
-    db.prepare(
-      "INSERT OR IGNORE INTO fleet_distribution(owner_id,peer_id,directory_digest,state) VALUES(?,?,?,'pending')",
-    ).run(owner, member.machineId, directoryDigest(directory.document));
+    fleetDistributionQueries.enqueue(
+      db,
+      owner,
+      member.machineId,
+      directoryDigest(directory.document),
+    );
   }
 }
 
@@ -98,12 +105,11 @@ export class FleetHandoffDestination {
       )
     )
       throw refused();
-    const row = this.db
-      .prepare(
-        "SELECT proposal,result FROM fleet_handoffs WHERE owner_id=? AND digest=? AND state='committed'",
-      )
-      .get(this.owner, query.directory) as
-      { proposal: string; result: string } | undefined;
+    const row = fleetHandoffsQueries.committed(
+      this.db,
+      this.owner,
+      query.directory,
+    ) as { proposal: string; result: string } | undefined;
     let directory: SignedFleetDirectory | null = null;
     if (row) {
       const proposal = FleetHandoffProposal.parse(JSON.parse(row.proposal));
@@ -164,28 +170,20 @@ export class FleetHandoffSource {
   ) {
     this.proof = new FleetProof(db, authority.identity, secrets);
     db.transaction(() => {
-      db.prepare(
-        "INSERT INTO fleet_handoff_instances VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET instance_id=excluded.instance_id",
-      ).run(owner, this.instanceId);
-      db.prepare(
-        "UPDATE fleet_handoff_jobs SET attempt_id=NULL WHERE owner_id=? AND state='uncertain'",
-      ).run(owner);
+      fleetHandoffInstancesQueries.install(db, owner, this.instanceId);
+      fleetHandoffJobsQueries.recover(db, owner);
     }).immediate();
   }
   private currentInstance() {
-    return !!this.db
-      .prepare(
-        "SELECT 1 FROM fleet_handoff_instances WHERE owner_id=? AND instance_id=?",
-      )
-      .get(this.owner, this.instanceId);
+    return !!fleetHandoffInstancesQueries.exists(
+      this.db,
+      this.owner,
+      this.instanceId,
+    );
   }
   private record(operationId: string) {
     z.string().uuid().parse(operationId);
-    const raw = this.db
-      .prepare(
-        "SELECT * FROM fleet_handoff_jobs WHERE owner_id=? AND operation_id=?",
-      )
-      .get(this.owner, operationId);
+    const raw = fleetHandoffJobsQueries.get(this.db, this.owner, operationId);
     if (!raw)
       throw new Problem(404, "This controller handoff is not recorded here.");
     const row = Row.parse(raw),
@@ -224,12 +222,11 @@ export class FleetHandoffSource {
             409,
             "This controller handoff instance was replaced.",
           );
-        const prior = this.db
-          .prepare(
-            "SELECT input_digest FROM fleet_handoff_jobs WHERE owner_id=? AND operation_id=?",
-          )
-          .get(this.owner, value.operationId) as
-          { input_digest: string } | undefined;
+        const prior = fleetHandoffJobsQueries.inputDigest(
+          this.db,
+          this.owner,
+          value.operationId,
+        ) as { input_digest: string } | undefined;
         if (prior) {
           if (prior.input_digest !== fleetPayloadDigest(value))
             throw new Problem(
@@ -246,20 +243,17 @@ export class FleetHandoffSource {
           destination = proposal.document.members.find(
             (m) => m.machineId === value.destination.machineId,
           )!;
-        this.db
-          .prepare(
-            "INSERT INTO fleet_handoff_jobs(owner_id,operation_id,input,input_digest,proposal,directory_digest,origin,state,created_at) VALUES(?,?,?,?,?,?,?,'ready',?)",
-          )
-          .run(
-            this.owner,
-            value.operationId,
-            JSON.stringify(value),
-            fleetPayloadDigest(value),
-            JSON.stringify(proposal),
-            directoryDigest(proposal.document),
-            destination.origin,
-            Date.now(),
-          );
+        fleetHandoffJobsQueries.insert(
+          this.db,
+          this.owner,
+          value.operationId,
+          JSON.stringify(value),
+          fleetPayloadDigest(value),
+          JSON.stringify(proposal),
+          directoryDigest(proposal.document),
+          destination.origin,
+          Date.now(),
+        );
       })
       .immediate();
     return this.status(value.operationId);
@@ -301,29 +295,24 @@ export class FleetHandoffSource {
         }
         // A later explicit recovery is an independent local trust reset. Retain
         // proof of the historical handoff without replacing that newer decision.
-        this.db
-          .prepare(
-            "UPDATE fleet_handoff_jobs SET state='complete',attempt_id=NULL,result=? WHERE owner_id=? AND operation_id=?",
-          )
-          .run(JSON.stringify(directory), this.owner, operationId);
-        this.db
-          .prepare(
-            "UPDATE fleet_handoffs SET state='committed',result=? WHERE owner_id=? AND digest=? AND state='prepared'",
-          )
-          .run(
-            JSON.stringify(directory),
-            this.owner,
-            record.row.directory_digest,
-          );
-        this.db
-          .prepare(
-            "UPDATE fleet_distribution SET state='acked' WHERE owner_id=? AND peer_id=? AND directory_digest=?",
-          )
-          .run(
-            this.owner,
-            record.input.destination.machineId,
-            record.row.directory_digest,
-          );
+        fleetHandoffJobsQueries.complete(
+          this.db,
+          JSON.stringify(directory),
+          this.owner,
+          operationId,
+        );
+        fleetHandoffsQueries.commitPrepared(
+          this.db,
+          JSON.stringify(directory),
+          this.owner,
+          record.row.directory_digest,
+        );
+        fleetDistributionQueries.acknowledge(
+          this.db,
+          this.owner,
+          record.input.destination.machineId,
+          record.row.directory_digest,
+        );
       })
       .immediate();
   }
@@ -351,19 +340,16 @@ export class FleetHandoffSource {
           );
           if (known) this.complete(operationId, known);
           else
-            this.db
-              .prepare(
-                "UPDATE fleet_handoff_jobs SET state='superseded' WHERE owner_id=? AND operation_id=? AND state='ready'",
-              )
-              .run(this.owner, operationId);
+            fleetHandoffJobsQueries.supersede(this.db, this.owner, operationId);
           return false;
         }
         return (
-          this.db
-            .prepare(
-              "UPDATE fleet_handoff_jobs SET state='uncertain',attempt_id=? WHERE owner_id=? AND operation_id=? AND state='ready'",
-            )
-            .run(attempt, this.owner, operationId).changes > 0
+          fleetHandoffJobsQueries.claim(
+            this.db,
+            attempt,
+            this.owner,
+            operationId,
+          ).changes > 0
         );
       })
       .immediate();

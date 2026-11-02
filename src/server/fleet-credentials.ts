@@ -1,3 +1,4 @@
+import * as identityQueries from "./sql/fleet-machine-identity.js";
 import type Database from "better-sqlite3";
 import {
   createHash,
@@ -128,11 +129,7 @@ export class FleetCredentials {
   }
 
   private sign(purpose: Purpose, input: unknown) {
-    const row = this.db
-      .prepare(
-        "SELECT private_key FROM fleet_machine_identity WHERE singleton=1",
-      )
-      .get() as { private_key: string };
+    const row = identityQueries.privateKey(this.db) as { private_key: string };
     const key = this.secrets.unseal(
       row.private_key,
       `fleet:machine:${this.authority.identity.machineId}`,

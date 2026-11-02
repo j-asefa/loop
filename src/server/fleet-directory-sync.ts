@@ -1,3 +1,5 @@
+import * as fleetEnrollmentsQueries from "./sql/fleet-enrollments.js";
+import * as fleetRemovalHistoryQueries from "./sql/fleet-removal-history.js";
 import type Database from "better-sqlite3";
 import { MachineIdentity, SignedFleetDirectory } from "../shared/fleet.js";
 import {
@@ -140,16 +142,13 @@ export class FleetDirectorySync {
 
   private removalHead(local: SignedFleetDirectory, sender: MachineIdentity) {
     if (!local.document.tombstones.includes(sender.machineId)) throw refused();
-    const rows = this.db
-      .prepare(
-        "SELECT digest,parent_digest FROM fleet_removal_history WHERE owner_id=? AND peer_id=? AND public_key=? AND fleet_id=? ORDER BY rowid DESC LIMIT 128",
-      )
-      .all(
-        this.owner,
-        sender.machineId,
-        sender.publicKey,
-        local.document.fleetId,
-      ) as { digest: string; parent_digest: string }[];
+    const rows = fleetRemovalHistoryQueries.forPeer(
+      this.db,
+      this.owner,
+      sender.machineId,
+      sender.publicKey,
+      local.document.fleetId,
+    ) as { digest: string; parent_digest: string }[];
     for (const row of rows) {
       const parent = this.authority.directory(this.owner, row.parent_digest),
         removed = this.authority.directory(this.owner, row.digest);
@@ -313,11 +312,10 @@ export class FleetDirectorySync {
         if (!current.directory) throw refused();
         if (current.state === "removed") {
           // Pending repairs must not retain usable consent after local removal.
-          this.db
-            .prepare(
-              "UPDATE fleet_enrollments SET state='cancelled' WHERE owner_id=? AND role='destination' AND state='prepared'",
-            )
-            .run(this.owner);
+          fleetEnrollmentsQueries.cancelPreparedDestinations(
+            this.db,
+            this.owner,
+          );
         }
         const ack = SignedFleetDirectoryAck.shape.ack.parse({
           version: 1,

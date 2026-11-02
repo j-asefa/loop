@@ -1,3 +1,12 @@
+import * as fleetRemovalHistoryQueries from "./sql/fleet-removal-history.js";
+import * as fleetBindingQueries from "./sql/fleet-binding.js";
+import * as fleetDirectoryHistoryQueries from "./sql/fleet-directory-history.js";
+import * as fleetLocalConsentsQueries from "./sql/fleet-local-consents.js";
+import * as fleetPeerGrantsQueries from "./sql/fleet-peer-grants.js";
+import * as fleetAdminReceiptsQueries from "./sql/fleet-admin-receipts.js";
+import * as fleetAdminReservationsQueries from "./sql/fleet-admin-reservations.js";
+import * as fleetHandoffsQueries from "./sql/fleet-handoffs.js";
+import * as identityQueries from "./sql/fleet-machine-identity.js";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -104,15 +113,13 @@ export class FleetAuthority {
     // Build once during local startup, before accepting peer history queries.
     // Subsequent committed inserts extend the verified index, independently of
     // an untrusted caller's choice of cursor.
-    const binding = db
-      .prepare("SELECT owner_id FROM fleet_binding WHERE singleton=1")
-      .get() as { owner_id: string } | undefined;
+    const binding = fleetBindingQueries.owner(db) as
+      { owner_id: string } | undefined;
     if (binding && !db.inTransaction) {
-      const rows = db
-        .prepare(
-          "SELECT digest FROM fleet_directory_history WHERE owner_id=? ORDER BY rowid",
-        )
-        .all(binding.owner_id) as { digest: string }[];
+      const rows = fleetDirectoryHistoryQueries.digests(
+        db,
+        binding.owner_id,
+      ) as { digest: string }[];
       this.history(binding.owner_id).prime(rows.map((row) => row.digest));
     }
   }
@@ -159,13 +166,7 @@ export class FleetAuthority {
     FleetDigest.parse(cursor);
     // Random signed cursor probes perform one indexed existence check. They
     // cannot allocate cache entries or initiate a retained-history traversal.
-    if (
-      !this.db
-        .prepare(
-          "SELECT 1 FROM fleet_directory_history WHERE owner_id=? AND digest=?",
-        )
-        .get(owner, cursor)
-    )
+    if (!fleetDirectoryHistoryQueries.exists(this.db, owner, cursor))
       return this.history(owner).knownMissing(head, cursor);
     return this.history(owner).contains(head, cursor);
   }
@@ -180,9 +181,7 @@ export class FleetAuthority {
 
   private binding(owner: string): Binding | undefined {
     Owner.parse(owner);
-    const value = this.db
-      .prepare("SELECT * FROM fleet_binding WHERE singleton=1")
-      .get();
+    const value = fleetBindingQueries.current(this.db);
     if (!value) return;
     const row = Binding.parse(value);
     if (row.owner_id !== owner)
@@ -194,11 +193,8 @@ export class FleetAuthority {
     owner: string,
     digest: string,
   ): SignedFleetDirectory | undefined {
-    const row = this.db
-      .prepare(
-        "SELECT signed FROM fleet_directory_history WHERE owner_id=? AND digest=?",
-      )
-      .get(owner, digest) as { signed: string } | undefined;
+    const row = fleetDirectoryHistoryQueries.signed(this.db, owner, digest) as
+      { signed: string } | undefined;
     if (!row) return;
     const signed = verifyApprovedDirectory(JSON.parse(row.signed));
     if (directoryDigest(signed.document) !== digest)
@@ -208,21 +204,17 @@ export class FleetAuthority {
     // into an assertion that it was an ordinary successor of the old lineage.
     const anchor =
       signed.document.kind === "handoff" &&
-      this.db
-        .prepare(
-          "SELECT 1 FROM fleet_local_consents WHERE owner_id=? AND accepted_head=?",
-        )
-        .get(owner, digest);
+      fleetLocalConsentsQueries.acceptedHead(this.db, owner, digest);
     if (
       signed.document.kind === "handoff" &&
       signed.document.parent &&
       !anchor
     ) {
-      const parent = this.db
-        .prepare(
-          "SELECT signed FROM fleet_directory_history WHERE owner_id=? AND digest=?",
-        )
-        .get(owner, signed.document.parent) as { signed: string } | undefined;
+      const parent = fleetDirectoryHistoryQueries.signed(
+        this.db,
+        owner,
+        signed.document.parent,
+      ) as { signed: string } | undefined;
       if (parent) {
         const previous = verifyApprovedDirectory(JSON.parse(parent.signed));
         if (directoryDigest(previous.document) !== signed.document.parent)
@@ -307,11 +299,7 @@ export class FleetAuthority {
     document: FleetDirectory,
     purpose: "directory" | "handoff" = "directory",
   ) {
-    const row = this.db
-      .prepare(
-        "SELECT private_key FROM fleet_machine_identity WHERE singleton=1",
-      )
-      .get() as { private_key: string };
+    const row = identityQueries.privateKey(this.db) as { private_key: string };
     const key = this.secrets.unseal(
       row.private_key,
       `fleet:machine:${this.identity.machineId}`,
@@ -326,12 +314,12 @@ export class FleetAuthority {
 
   private checkMutation(owner: string, document: FleetDirectory) {
     const digest = directoryDigest(document);
-    const prior = this.db
-      .prepare(
-        "SELECT digest FROM fleet_directory_history WHERE owner_id=? AND fleet_id=? AND mutation_id=?",
-      )
-      .get(owner, document.fleetId, document.mutationId) as
-      { digest: string } | undefined;
+    const prior = fleetDirectoryHistoryQueries.mutation(
+      this.db,
+      owner,
+      document.fleetId,
+      document.mutationId,
+    ) as { digest: string } | undefined;
     if (prior && prior.digest !== digest)
       throw new Problem(
         409,
@@ -342,26 +330,20 @@ export class FleetAuthority {
 
   private remember(owner: string, signed: SignedFleetDirectory) {
     const digest = this.checkMutation(owner, signed.document);
-    this.db
-      .prepare(
-        "INSERT OR IGNORE INTO fleet_directory_history VALUES(?,?,?,?,?,?)",
-      )
-      .run(
-        owner,
-        digest,
-        signed.document.fleetId,
-        signed.document.mutationId,
-        JSON.stringify(signed),
-        Date.now(),
-      );
+    fleetDirectoryHistoryQueries.insert(
+      this.db,
+      owner,
+      digest,
+      signed.document.fleetId,
+      signed.document.mutationId,
+      JSON.stringify(signed),
+      Date.now(),
+    );
     this.warmHistory(owner, digest);
     const previous = signed.document.parent
       ? this.saved(owner, signed.document.parent)
       : undefined;
     if (previous && signed.document.kind === "revision") {
-      const record = this.db.prepare(
-        "INSERT OR IGNORE INTO fleet_removal_history VALUES(?,?,?,?,?,?)",
-      );
       for (const peer of previous.document.members) {
         if (
           signed.document.tombstones.includes(peer.machineId) &&
@@ -369,7 +351,8 @@ export class FleetAuthority {
             (member) => member.machineId === peer.machineId,
           )
         )
-          record.run(
+          fleetRemovalHistoryQueries.insert(
+            this.db,
             owner,
             peer.machineId,
             peer.publicKey,
@@ -406,25 +389,21 @@ export class FleetAuthority {
       : doc.controller.machineId === this.identity.machineId
         ? "controller"
         : "replica";
-    this.db
-      .prepare(
-        `INSERT INTO fleet_binding VALUES(1,?,?,?,?,?,?)
-      ON CONFLICT(singleton) DO UPDATE SET owner_id=excluded.owner_id,fleet_id=excluded.fleet_id,
-      grant_id=excluded.grant_id,scope=excluded.scope,head=excluded.head,state=excluded.state`,
-      )
-      .run(owner, doc.fleetId, grantId, JSON.stringify(scope), digest, state);
-    this.db
-      .prepare("UPDATE fleet_peer_grants SET active=0 WHERE owner_id=?")
-      .run(owner);
+    fleetBindingQueries.install(
+      this.db,
+      owner,
+      doc.fleetId,
+      grantId,
+      JSON.stringify(scope),
+      digest,
+      state,
+    );
+    fleetPeerGrantsQueries.deactivate(this.db, owner);
     if (local) {
-      const grant = this.db
-        .prepare(`INSERT INTO fleet_peer_grants VALUES(?,?,?,?,?,?,?,?,?,1)
-        ON CONFLICT(owner_id,grant_id,peer_id) DO UPDATE SET public_key=excluded.public_key,
-        fleet_id=excluded.fleet_id,directory_digest=excluded.directory_digest,epoch=excluded.epoch,
-        revision=excluded.revision,scope=excluded.scope,active=1`);
       for (const peer of doc.members)
         if (peer.machineId !== this.identity.machineId)
-          grant.run(
+          fleetPeerGrantsQueries.install(
+            this.db,
             owner,
             grantId,
             peer.machineId,
@@ -453,11 +432,11 @@ export class FleetAuthority {
     return this.db
       .transaction(() => {
         this.binding(owner);
-        const prior = this.db
-          .prepare(
-            "SELECT action,payload_digest,result FROM fleet_admin_receipts WHERE owner_id=? AND mutation_id=?",
-          )
-          .get(owner, mutationId) as
+        const prior = fleetAdminReceiptsQueries.mutation(
+          this.db,
+          owner,
+          mutationId,
+        ) as
           | { action: string; payload_digest: string; result: string }
           | undefined;
         if (prior) {
@@ -468,11 +447,10 @@ export class FleetAuthority {
             );
           return JSON.parse(prior.result) as T;
         }
-        const reservation = this.db
-          .prepare(
-            "SELECT operation_id,revision_digest FROM fleet_admin_reservations WHERE owner_id=?",
-          )
-          .get(owner) as
+        const reservation = fleetAdminReservationsQueries.pending(
+          this.db,
+          owner,
+        ) as
           { operation_id: string; revision_digest: string | null } | undefined;
         if (
           reservation &&
@@ -485,9 +463,14 @@ export class FleetAuthority {
             "Resolve the pending enrollment before editing the directory.",
           );
         const result = apply();
-        this.db
-          .prepare("INSERT INTO fleet_admin_receipts VALUES(?,?,?,?,?)")
-          .run(owner, mutationId, action, digest, JSON.stringify(result));
+        fleetAdminReceiptsQueries.insert(
+          this.db,
+          owner,
+          mutationId,
+          action,
+          digest,
+          JSON.stringify(result),
+        );
         return result;
       })
       .immediate();
@@ -540,29 +523,22 @@ export class FleetAuthority {
     grant: string,
     scope: FleetOperation[],
   ) {
-    if (
-      this.db
-        .prepare(
-          "SELECT 1 FROM fleet_local_consents WHERE owner_id=? AND grant_id=?",
-        )
-        .get(owner, grant)
-    )
+    if (fleetLocalConsentsQueries.grant(this.db, owner, grant))
       throw new Problem(
         409,
         "A new local consent requires a fresh destination grant.",
       );
-    this.db
-      .prepare("INSERT INTO fleet_local_consents VALUES(?,?,?,?,?,?,?,?)")
-      .run(
-        owner,
-        id,
-        kind,
-        previous,
-        directoryDigest(signed.document),
-        grant,
-        JSON.stringify(scope),
-        Date.now(),
-      );
+    fleetLocalConsentsQueries.insert(
+      this.db,
+      owner,
+      id,
+      kind,
+      previous,
+      directoryDigest(signed.document),
+      grant,
+      JSON.stringify(scope),
+      Date.now(),
+    );
   }
 
   /** Only explicit local consent can anchor an enrollment or reset. The caller
@@ -745,16 +721,15 @@ export class FleetAuthority {
         signature: this.sign(document),
       });
       this.checkMutation(owner, document);
-      this.db
-        .prepare("INSERT INTO fleet_handoffs VALUES(?,?,?,'prepared',NULL)")
-        .run(owner, directoryDigest(document), JSON.stringify(proposal));
+      fleetHandoffsQueries.prepare(
+        this.db,
+        owner,
+        directoryDigest(document),
+        JSON.stringify(proposal),
+      );
       // This transaction commits before any proposal leaves the process. There
       // is deliberately no timeout/automatic abort that could revive this writer.
-      this.db
-        .prepare(
-          "UPDATE fleet_binding SET state='handoff_pending' WHERE singleton=1",
-        )
-        .run();
+      fleetBindingQueries.handoffPending(this.db);
       this.changed(owner);
       return proposal;
     });
@@ -799,14 +774,13 @@ export class FleetAuthority {
           binding.grant_id,
           FleetCapabilities.parse(JSON.parse(binding.scope)),
         );
-        this.db
-          .prepare("INSERT INTO fleet_handoffs VALUES(?,?,?,'committed',?)")
-          .run(
-            owner,
-            directoryDigest(signed.document),
-            JSON.stringify(proposal),
-            JSON.stringify(signed),
-          );
+        fleetHandoffsQueries.insertCommitted(
+          this.db,
+          owner,
+          directoryDigest(signed.document),
+          JSON.stringify(proposal),
+          JSON.stringify(signed),
+        );
         return signed;
       })
       .immediate();
@@ -866,11 +840,7 @@ export class FleetAuthority {
             throw new Problem(403, "Conflicting fleet signature.");
           return known;
         }
-        if (
-          this.db
-            .prepare("SELECT 1 FROM fleet_admin_reservations WHERE owner_id=?")
-            .get(owner)
-        )
+        if (fleetAdminReservationsQueries.exists(this.db, owner))
           throw new Problem(
             409,
             "Resolve the pending enrollment before accepting another directory.",
@@ -893,21 +863,22 @@ export class FleetAuthority {
           this.saved(owner, binding.head)!.document,
         );
         if (binding.state === "handoff_pending") {
-          const prepared = this.db
-            .prepare(
-              "SELECT digest FROM fleet_handoffs WHERE owner_id=? AND digest=? AND state='prepared'",
-            )
-            .get(owner, digest);
+          const prepared = fleetHandoffsQueries.prepared(
+            this.db,
+            owner,
+            digest,
+          );
           if (!prepared)
             throw new Problem(
               409,
               "Resolve the prepared controller handoff first.",
             );
-          this.db
-            .prepare(
-              "UPDATE fleet_handoffs SET state='committed',result=? WHERE owner_id=? AND digest=?",
-            )
-            .run(JSON.stringify(signed), owner, digest);
+          fleetHandoffsQueries.commit(
+            this.db,
+            JSON.stringify(signed),
+            owner,
+            digest,
+          );
         }
         return this.install(
           owner,
@@ -929,9 +900,8 @@ export class FleetAuthority {
         403,
         "Fleet destination or peer identity does not match.",
       );
-    const binding = this.db
-      .prepare("SELECT owner_id FROM fleet_binding WHERE singleton=1")
-      .get() as { owner_id: string } | undefined;
+    const binding = fleetBindingQueries.owner(this.db) as
+      { owner_id: string } | undefined;
     if (!binding) throw new Problem(403, "This machine has no fleet grant.");
     const grant = this.acceptedGrant(
       binding.owner_id,
@@ -964,11 +934,13 @@ export class FleetAuthority {
   ): ActiveGrant {
     const binding = this.binding(owner);
     const current = binding && this.saved(owner, binding.head);
-    const grant = this.db
-      .prepare(
-        `SELECT * FROM fleet_peer_grants WHERE owner_id=? AND peer_id=? AND fleet_id=? AND grant_id=? AND active=1`,
-      )
-      .get(owner, peer, fleet, grantId) as ActiveGrant | undefined;
+    const grant = fleetPeerGrantsQueries.active(
+      this.db,
+      owner,
+      peer,
+      fleet,
+      grantId,
+    ) as ActiveGrant | undefined;
     if (
       !binding ||
       binding.state === "removed" ||

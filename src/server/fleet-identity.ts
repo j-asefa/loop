@@ -1,3 +1,5 @@
+import * as identityQueries from "./sql/fleet-machine-identity.js";
+import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { MachineIdentity } from "../shared/fleet.js";
@@ -21,16 +23,11 @@ export function initializeFleetIdentity(
 ): MachineIdentity {
   return db
     .transaction(() => {
-      const profile = db
-        .prepare("SELECT profile FROM deployment_profile WHERE singleton=1")
-        .get() as { profile: string } | undefined;
+      const profile = profileQueries.current(db) as
+        { profile: string } | undefined;
       if (profile?.profile !== "companion")
         throw new Error("Fleet identity requires a companion data directory.");
-      const row = db
-        .prepare(
-          "SELECT machine_id,public_key,private_key FROM fleet_machine_identity WHERE singleton=1",
-        )
-        .get();
+      const row = identityQueries.saved(db);
       if (row) {
         const saved = IdentityRow.parse(row);
         const identity = identityFromPrivateKey(
@@ -49,9 +46,8 @@ export function initializeFleetIdentity(
         return identity;
       }
       const { identity, privateKey } = generateMachineKey();
-      db.prepare(
-        "INSERT INTO fleet_machine_identity(singleton,machine_id,public_key,private_key,created_at) VALUES(1,?,?,?,?)",
-      ).run(
+      identityQueries.insert(
+        db,
         identity.machineId,
         identity.publicKey,
         secrets.seal(privateKey, `fleet:machine:${identity.machineId}`),
