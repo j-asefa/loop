@@ -1,3 +1,5 @@
+import * as messagesQueries from "../sql/messages.js";
+import * as runsQueries from "../sql/runs.js";
 import { assertFleetAction } from "../fleet-action-context.js";
 import { enqueueStoppedWebhooks } from "../webhook-outbox.js";
 import {
@@ -444,11 +446,10 @@ export class NativeSessions {
       const transfer = selectedContext(conversation);
       const earlier = transfer
         ? []
-        : (db
-            .prepare(
-              `SELECT m.role,m.content FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND m.content<>'' AND (m.run_id IS NULL OR r.rowid<(SELECT rowid FROM runs WHERE id=?)) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid`,
-            )
-            .all(conversation, run.id) as { role: string; content: string }[]);
+        : (messagesQueries.nativeTransferHistory(db, conversation, run.id) as {
+            role: string;
+            content: string;
+          }[]);
       while (earlier.length > 1 && JSON.stringify(earlier).length > 100000)
         earlier.shift();
       const context = transfer
@@ -664,19 +665,20 @@ export class NativeSessions {
     // The native session keeps the snapshot context after the first review turn.
     const opensReview =
       snapshot.reviewId &&
-      !db
-        .prepare(
-          "SELECT 1 FROM runs WHERE conversation_id=? AND rowid<(SELECT rowid FROM runs WHERE id=?)",
-        )
-        .get(run.conversation_id, run.id);
+      !runsQueries.hasEarlierConversationRun(db, run.conversation_id, run.id);
     const input =
       replyPrompt(run.input, snapshot.replyTo) +
       (opensReview ? "\n\n" + reviewContext(run) : "");
     db.transaction(() => {
       const messageId = id();
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','','{}',?)",
-      ).run(messageId, run.owner_id, run.conversation_id, run.id, now());
+      messagesQueries.insertNativePlaceholder(
+        db,
+        messageId,
+        run.owner_id,
+        run.conversation_id,
+        run.id,
+        now(),
+      );
       const artifact = saveArtifact(run.owner_id, {
         title: run.input.slice(0, 85),
         content: "",
@@ -807,7 +809,8 @@ export class NativeSessions {
         message,
         run.id,
       );
-      db.prepare("UPDATE runs SET error=? WHERE id=?").run(
+      runsQueries.setError(
+        db,
         "Native outcome unknown: " + message + ". No automatic retry was made.",
         run.id,
       );
@@ -832,8 +835,7 @@ export class NativeSessions {
     const live = [...this.live.values()].find((s) => s.run?.id === runId);
     if (!live || live.cancelling || live.closed) return;
     live.cancelling = true;
-    if (reason)
-      db.prepare("UPDATE runs SET error=? WHERE id=?").run(reason, runId);
+    if (reason) runsQueries.setError(db, reason, runId);
     const timeout = setTimeout(() => {
       if (live.run?.id === runId) {
         live.finish?.("interrupted");
@@ -883,15 +885,13 @@ export class NativeSessions {
   }
   recover() {
     db.transaction(() => {
-      const runs = db
-        .prepare(
-          "SELECT r.id,r.owner_id FROM runs r LEFT JOIN native_dispatch d ON d.run_id=r.id LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') WHERE (d.run_id IS NOT NULL OR json_extract(c.metadata,'$.loop55Harness') IS NOT NULL) AND (r.state IN ('running','pausing','awaiting_approval') OR (r.state='queued' AND d.run_id IS NOT NULL))",
-        )
-        .all() as Pick<Run, "id" | "owner_id">[];
+      const runs = runsQueries.orphanedNative(db) as Pick<
+        Run,
+        "id" | "owner_id"
+      >[];
       for (const run of runs) {
-        db.prepare(
-          "UPDATE runs SET state='interrupted',worker_id=NULL,error=?,updated_at=?,active_since=NULL WHERE id=?",
-        ).run(
+        runsQueries.interruptOrphanedNative(
+          db,
           `Host stopped for run ${run.id}. Native outcome may be incomplete; review and send an explicit follow-up. No prompt was replayed.`,
           now(),
           run.id,

@@ -1,3 +1,4 @@
+import * as runsQueries from "./sql/runs.js";
 import { spawn } from "node:child_process";
 import {
   copyFile,
@@ -951,21 +952,15 @@ async function captureClaimed(
     // Any sibling still active or ended after this run started is ambiguous.
     fields.overlap = JSON.stringify(
       (
-        db
-          .prepare(
-            `SELECT r.id FROM runs r JOIN companion_sessions s ON s.conversation_id=r.conversation_id
-             WHERE r.owner_id=? AND s.project=? AND r.id<>? AND r.state<>'queued' AND r.created_at<=?
-               AND (r.updated_at>=? OR r.state IN (${ACTIVE_STATES.map(() => "?").join(",")}))
-             ORDER BY r.created_at`,
-          )
-          .all(
-            row.owner_id,
-            row.directory,
-            row.run_id,
-            now(),
-            row.started_at,
-            ...ACTIVE_STATES,
-          ) as { id: string }[]
+        runsQueries.overlappingCheckoutRuns(
+          db,
+          row.owner_id,
+          row.directory,
+          row.run_id,
+          now(),
+          row.started_at,
+          ACTIVE_STATES,
+        ) as { id: string }[]
       ).map((r) => r.id),
     );
     fields.state = "captured";

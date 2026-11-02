@@ -1,3 +1,5 @@
+import * as messagesQueries from "./sql/messages.js";
+import * as runsQueries from "./sql/runs.js";
 import { FleetMailCaller } from "../shared/fleet-mail-worker.js";
 import { assertFleetAction, withFleetAction } from "./fleet-action-context.js";
 import { directoryDigest } from "./fleet-crypto.js";
@@ -101,7 +103,7 @@ export const MAIL_LIMITS = {
   pending: 100,
 } as const;
 const HOUR = 3_600_000;
-const ACTIVE = "('queued','running','pausing','paused','awaiting_approval')";
+const ACTIVE = runsQueries.ACTIVE;
 const FINISHED = "('completed','failed','cancelled','interrupted')";
 
 type Team = MailTeam;
@@ -352,11 +354,7 @@ function localAgentDirectory(
       const connected = db
         .prepare("SELECT status FROM connections WHERE id=? AND owner_id=?")
         .get(agent.connection_id, owner) as { status: string } | undefined;
-      const busy = !!db
-        .prepare(
-          `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND state IN ${ACTIVE} LIMIT 1`,
-        )
-        .get(owner, agent.id);
+      const busy = !!runsQueries.hasActiveForAgent(db, owner, agent.id);
       return {
         agentId: agent.id,
         name: agent.name,
@@ -449,19 +447,16 @@ function validConversation(
 // The team conversation the agent is working in (or has work queued in).
 const workingIn = (team: Team, agentId: string) =>
   (
-    db
-      .prepare(
-        `SELECT r.conversation_id FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id WHERE r.owner_id=? AND r.agent_id=? AND r.kind='agent' AND c.team_id=? AND r.state IN ${ACTIVE} ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1`,
-      )
-      .get(team.owner_id, agentId, team.id) as
+    runsQueries.activeTeamConversation(db, team.owner_id, agentId, team.id) as
       { conversation_id: string } | undefined
   )?.conversation_id;
 const activeIn = (team: Team, agentId: string, conversation: string) =>
-  !!db
-    .prepare(
-      `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND conversation_id=? AND kind='agent' AND state IN ${ACTIVE}`,
-    )
-    .get(team.owner_id, agentId, conversation);
+  !!runsQueries.hasActiveAgentConversation(
+    db,
+    team.owner_id,
+    agentId,
+    conversation,
+  );
 
 /**
  * The recipient's conversation for a message. Its active conversation on the
@@ -545,15 +540,8 @@ function steerable(owner: string, conversation: string, recipient: string) {
 // dispatching it. Recovery must keep that destination if the active task changes.
 function currentConversation(owner: string, recipient: string) {
   return (
-    db
-      .prepare(
-        `SELECT r.conversation_id FROM runs r
-         JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id AND c.agent_id=r.agent_id
-         WHERE r.owner_id=? AND r.agent_id=? AND r.kind='agent' AND r.state='running'
-           AND NOT EXISTS(SELECT 1 FROM agent_checkpoints p WHERE p.run_id=r.id AND p.stage='done')
-         ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1`,
-      )
-      .get(owner, recipient) as { conversation_id: string } | undefined
+    runsQueries.currentMailConversation(db, owner, recipient) as
+      { conversation_id: string } | undefined
   )?.conversation_id;
 }
 
@@ -598,9 +586,7 @@ function wrap(
     : "agent";
   const recipient = agentRow(mail.owner_id, mail.recipient_agent_id);
   const senderRun = mail.sender_run_id
-    ? (db
-        .prepare("SELECT id,payload FROM runs WHERE id=? AND owner_id=?")
-        .get(mail.sender_run_id, mail.owner_id) as
+    ? (runsQueries.ownedPayload(db, mail.sender_run_id, mail.owner_id) as
         { id: string; payload: string } | undefined)
     : undefined;
   let from =
@@ -767,11 +753,7 @@ function dispatch(
   const sender = mailSender(mail);
   const recipient = ownedAgent(mail.recipient_agent_id, mail.owner_id);
   const senderRun = mail.sender_run_id
-    ? maybeRunNotice(
-        db
-          .prepare("SELECT * FROM runs WHERE id=? AND owner_id=?")
-          .get(mail.sender_run_id, mail.owner_id),
-      )
+    ? maybeRunNotice(runsQueries.owned(db, mail.sender_run_id, mail.owner_id))
     : undefined;
   const binding = db
     .prepare(
@@ -787,11 +769,12 @@ function dispatch(
           conversationId: destination || undefined,
           active:
             !!destination &&
-            !!db
-              .prepare(
-                `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND conversation_id=? AND state IN ${ACTIVE}`,
-              )
-              .get(mail.owner_id, recipient.id, destination),
+            !!runsQueries.hasActiveConversation(
+              db,
+              mail.owner_id,
+              recipient.id,
+              destination,
+            ),
         }
       : route(team!, recipient.id, thread, senderRun, preferParent);
   const steer =
@@ -873,11 +856,12 @@ function dispatch(
         "steering",
       );
   }
-  const busy = !!db
-    .prepare(
-      `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND id<>? AND state IN ${ACTIVE}`,
-    )
-    .get(mail.owner_id, recipient.id, run.id);
+  const busy = !!runsQueries.hasOtherActive(
+    db,
+    mail.owner_id,
+    recipient.id,
+    run.id,
+  );
   const delivery = steeringId
     ? "steered"
     : routed.active || busy
@@ -1287,9 +1271,8 @@ function statusOf(mail: Mail): MailStatus {
         : "steering";
   }
   const state = (
-    db
-      .prepare("SELECT state FROM runs WHERE id=?")
-      .get(mail.requeued_run_id ?? mail.run_id) as { state: string } | undefined
+    runsQueries.state(db, mail.requeued_run_id ?? mail.run_id) as
+      { state: string } | undefined
   )?.state;
   if (
     state === "interrupted" &&
@@ -1490,12 +1473,13 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
 
 function mailContentReadable(mail: Mail, agentId: string | null) {
   if (mail.sender_agent_id === agentId) return true;
-  return !!db
-    .prepare(
-      `SELECT 1 FROM messages m WHERE m.owner_id=? AND m.run_id IN (?,?)
-       AND json_extract(m.metadata,'$.automation.mailId')=? AND ${READABLE_MAIL_SQL} LIMIT 1`,
-    )
-    .get(mail.owner_id, mail.run_id, mail.requeued_run_id, mail.id);
+  return !!messagesQueries.mailContentReadable(
+    db,
+    mail.owner_id,
+    mail.run_id,
+    mail.requeued_run_id,
+    mail.id,
+  );
 }
 
 function statusSubject(thread: Thread, agentId: string | null) {
