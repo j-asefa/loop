@@ -1,3 +1,7 @@
+import * as agentsQueries from "./sql/agents.js";
+import * as agentThreadsQueries from "./sql/agent-threads.js";
+import * as agentThreadMembersQueries from "./sql/agent-thread-members.js";
+import * as fleetMailThreadsQueries from "./sql/fleet-mail-threads.js";
 import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
@@ -80,15 +84,16 @@ export class FleetMailBindings {
     return { local, peer, directory };
   }
   private participants(binding: FleetMailThreadBinding) {
-    const thread = this.db
-      .prepare(
-        "SELECT scope,team_id FROM agent_threads WHERE owner_id=? AND id=?",
-      )
-      .get(this.owner, binding.thread_id) as
-      { scope: string; team_id: string | null } | undefined;
-    const local = this.db
-      .prepare("SELECT 1 FROM agents WHERE owner_id=? AND id=?")
-      .get(this.owner, binding.local_agent_id);
+    const thread = agentThreadsQueries.scope(
+      this.db,
+      this.owner,
+      binding.thread_id,
+    ) as { scope: string; team_id: string | null } | undefined;
+    const local = agentsQueries.ownerExists(
+      this.db,
+      this.owner,
+      binding.local_agent_id,
+    );
     if (
       !thread ||
       thread.scope !== "direct" ||
@@ -100,11 +105,10 @@ export class FleetMailBindings {
       machineId: binding.peer_id,
       agentId: binding.remote_agent_id,
     });
-    const members = this.db
-      .prepare(
-        "SELECT agent_id,conversation_id FROM agent_thread_members WHERE thread_id=?",
-      )
-      .all(binding.thread_id) as {
+    const members = agentThreadMembersQueries.members(
+      this.db,
+      binding.thread_id,
+    ) as {
       agent_id: string;
       conversation_id: string | null;
     }[];
@@ -118,19 +122,20 @@ export class FleetMailBindings {
     return { remote, members };
   }
   get(threadId: string) {
-    const row = this.db
-      .prepare(
-        "SELECT * FROM fleet_mail_threads WHERE owner_id=? AND thread_id=?",
-      )
-      .get(this.owner, Id.parse(threadId));
+    const row = fleetMailThreadsQueries.get(
+      this.db,
+      this.owner,
+      Id.parse(threadId),
+    );
     return row ? Binding.parse(row) : null;
   }
   find(origin: string, wireThreadId: string) {
-    const row = this.db
-      .prepare(
-        "SELECT * FROM fleet_mail_threads WHERE owner_id=? AND origin_id=? AND wire_thread_id=?",
-      )
-      .get(this.owner, MachineId.parse(origin), Id.parse(wireThreadId));
+    const row = fleetMailThreadsQueries.wire(
+      this.db,
+      this.owner,
+      MachineId.parse(origin),
+      Id.parse(wireThreadId),
+    );
     return row ? Binding.parse(row) : null;
   }
   originate(
@@ -187,19 +192,13 @@ export class FleetMailBindings {
           ) as (keyof FleetMailThreadBinding)[])
             if (field !== "remote_name" && binding[field] !== previous[field])
               throw refusal();
-          this.db
-            .prepare(
-              "UPDATE fleet_mail_threads SET remote_name=? WHERE owner_id=? AND thread_id=?",
-            )
-            .run(binding.remote_name, this.owner, binding.thread_id);
-        } else
-          this.db
-            .prepare(
-              `INSERT INTO fleet_mail_threads
-        (thread_id,owner_id,origin_id,wire_thread_id,local_agent_id,peer_id,remote_agent_id,remote_name,fleet_id,local_grant_id,peer_grant_id)
-        VALUES(@thread_id,@owner_id,@origin_id,@wire_thread_id,@local_agent_id,@peer_id,@remote_agent_id,@remote_name,@fleet_id,@local_grant_id,@peer_grant_id)`,
-            )
-            .run(binding);
+          fleetMailThreadsQueries.rename(
+            this.db,
+            binding.remote_name,
+            this.owner,
+            binding.thread_id,
+          );
+        } else fleetMailThreadsQueries.insert(this.db, binding);
         return binding;
       })
       .immediate();

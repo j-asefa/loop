@@ -591,3 +591,19 @@ export function queuedRuns(
       }
     });
 }
+
+const participantsStatement = statement(
+  "WITH participants AS (\n          SELECT sender_agent_id id FROM agent_mail WHERE owner_id=@owner AND thread_id=@thread\n          UNION SELECT recipient_agent_id FROM agent_mail WHERE owner_id=@owner AND thread_id=@thread\n        ) SELECT p.id,a.name FROM participants p\n        LEFT JOIN agents a ON a.id=p.id AND a.owner_id=@owner\n        WHERE a.id IS NOT NULL OR EXISTS (\n          SELECT 1 FROM fleet_mail_threads f WHERE f.owner_id=@owner AND f.thread_id=@thread\n          AND p.id='peer:'||f.peer_id||':'||f.remote_agent_id\n        ) ORDER BY a.name,p.id",
+);
+const participantsRow = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+});
+export function participants(
+  db: Database.Database,
+  key: { owner: string; thread: string },
+) {
+  return participantsStatement(db)
+    .all(key)
+    .map((row) => parseRecord(participantsRow, row, "agent_mail"));
+}

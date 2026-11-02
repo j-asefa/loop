@@ -1,3 +1,5 @@
+import * as objectsQueries from "./sql/objects.js";
+import * as artifactsQueries from "./sql/artifacts.js";
 import * as profileQueries from "./sql/deployment-profile.js";
 import * as runsQueries from "./sql/runs.js";
 import type Database from "better-sqlite3";
@@ -118,17 +120,9 @@ export class FleetWorkspaceFiles {
     const id = selection.params.id;
     const row =
       selection.route === "objectFile"
-        ? this.db
-            .prepare(
-              "SELECT length(bytes) size FROM objects WHERE id=? AND owner_id=?",
-            )
-            .get(id, this.owner)
+        ? objectsQueries.ownedSize(this.db, id, this.owner)
         : selection.route === "artifactFile"
-          ? this.db
-              .prepare(
-                "SELECT f.size FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.id=? AND a.owner_id=?",
-              )
-              .get(id, this.owner)
+          ? artifactsQueries.ownedFileSize(this.db, id, this.owner)
           : runsQueries.agentFileAccess(
               this.db,
               id,

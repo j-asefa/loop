@@ -1,3 +1,4 @@
+import * as agentThreadMembersQueries from "./sql/agent-thread-members.js";
 import * as identityQueries from "./sql/fleet-machine-identity.js";
 import * as mailQueries from "./sql/agent-mail.js";
 import * as runsQueries from "./sql/runs.js";
@@ -246,11 +247,10 @@ export function authorizeMail(
       );
     return team;
   }
-  const members = db
-    .prepare(
-      "SELECT agent_id,conversation_id FROM agent_thread_members WHERE thread_id=?",
-    )
-    .all(thread.id) as { agent_id: string; conversation_id: string | null }[];
+  const members = agentThreadMembersQueries.members(db, thread.id) as {
+    agent_id: string;
+    conversation_id: string | null;
+  }[];
   if (
     members.length !== 2 ||
     ![sender, recipient].every((a) => members.some((m) => m.agent_id === a))

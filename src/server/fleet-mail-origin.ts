@@ -1,3 +1,11 @@
+import * as connectionsQueries from "./sql/connections.js";
+import * as nativeDispatchQueries from "./sql/native-dispatch.js";
+import * as companionSessionsQueries from "./sql/companion-sessions.js";
+import * as agentThreadsQueries from "./sql/agent-threads.js";
+import * as agentThreadMembersQueries from "./sql/agent-thread-members.js";
+import * as fleetMailDispatchQueries from "./sql/fleet-mail-dispatch.js";
+import * as fleetMailRecordsQueries from "./sql/fleet-mail-records.js";
+import * as fleetMailEffectsQueries from "./sql/fleet-mail-effects.js";
 import * as mailQueries from "./sql/agent-mail.js";
 import type { MailStatus } from "../shared/agent-mail.js";
 import { FleetGrantContext } from "../shared/fleet.js";
@@ -64,31 +72,38 @@ export function captureFleetMailSender(run: Run, mail: OriginMail) {
   const reference = parseFleetAgentAddress(mail.recipient_agent_id);
   const sender = eligibleMailAgent(run.owner_id, run.agent_id!);
   const connection = maybeConnection(
-    db
-      .prepare("SELECT * FROM connections WHERE owner_id=? AND id=?")
-      .get(run.owner_id, run.payload.connectionId ?? null),
+    connectionsQueries.ownerConnection(
+      db,
+      run.owner_id,
+      run.payload.connectionId ?? null,
+    ),
   );
   if (!reference || !connection || sender.connection_id !== connection.id)
     throw refused();
   const native = !!connection.metadata.loop55Harness;
   const generation = native
-    ? (db
-        .prepare(
-          `SELECT d.generation FROM native_dispatch d
-        JOIN companion_sessions s ON s.conversation_id=? AND s.generation=d.generation AND s.state='running'
-        WHERE d.run_id=? AND d.state IN ('unknown','accepted')`,
-        )
-        .get(run.conversation_id, run.id) as { generation: string } | undefined)
+    ? (nativeDispatchQueries.activeConversationGeneration(
+        db,
+        run.conversation_id,
+        run.id,
+      ) as { generation: string } | undefined)
     : undefined;
   if (native && !generation) throw refused();
-  db.prepare(
-    `INSERT INTO fleet_mail_dispatch
-      (mail_id,connection_id,native_generation,native) VALUES(?,?,?,?)`,
-  ).run(mail.id, connection.id, generation?.generation ?? null, native ? 1 : 0);
-  db.prepare(
-    `INSERT INTO fleet_mail_records
-      (mail_id,owner_id,peer_id,message_id,direction,sender_name) VALUES(?,?,?,?,'outgoing',?)`,
-  ).run(mail.id, run.owner_id, reference.machineId, mail.id, sender.name);
+  fleetMailDispatchQueries.insert(
+    db,
+    mail.id,
+    connection.id,
+    generation?.generation ?? null,
+    native ? 1 : 0,
+  );
+  fleetMailRecordsQueries.insertOutgoing(
+    db,
+    mail.id,
+    run.owner_id,
+    reference.machineId,
+    mail.id,
+    sender.name,
+  );
 }
 
 function currentSender(mail: OriginMail) {
@@ -99,11 +114,11 @@ function currentSender(mail: OriginMail) {
   try {
     run = ownedRun(mail.sender_run_id, mail.owner_id);
     assertFleetEffect(mail.owner_id, "run", run.id);
-    const release = db
-      .prepare(
-        "SELECT grant_context FROM fleet_mail_effects WHERE mail_id=? AND owner_id=?",
-      )
-      .get(mail.id, mail.owner_id) as { grant_context: string } | undefined;
+    const release = fleetMailEffectsQueries.grant(
+      db,
+      mail.id,
+      mail.owner_id,
+    ) as { grant_context: string } | undefined;
     if (release)
       authorizeFleetEffect(
         mail.owner_id,
@@ -113,9 +128,8 @@ function currentSender(mail: OriginMail) {
     if (error instanceof Problem) throw refused();
     throw error;
   }
-  const captured = db
-    .prepare("SELECT * FROM fleet_mail_dispatch WHERE mail_id=?")
-    .get(mail.id) as Attribution | undefined;
+  const captured = fleetMailDispatchQueries.get(db, mail.id) as
+    Attribution | undefined;
   if (
     !captured ||
     run.agent_id !== sender.id ||
@@ -125,15 +139,12 @@ function currentSender(mail: OriginMail) {
     run.payload.reviewId ||
     run.payload.execution ||
     ["failed", "cancelled", "interrupted"].includes(run.state) ||
-    !db
-      .prepare("SELECT 1 FROM connections WHERE id=? AND owner_id=?")
-      .get(captured.connection_id, mail.owner_id)
+    !connectionsQueries.existsOwned(db, captured.connection_id, mail.owner_id)
   )
     throw refused();
   if (captured.native) {
-    const dispatch = db
-      .prepare("SELECT generation,state FROM native_dispatch WHERE run_id=?")
-      .get(run.id) as { generation: string; state: string } | undefined;
+    const dispatch = nativeDispatchQueries.generationState(db, run.id) as
+      { generation: string; state: string } | undefined;
     if (
       !dispatch ||
       dispatch.generation !== captured.native_generation ||
@@ -146,11 +157,11 @@ function currentSender(mail: OriginMail) {
     // task is active, only its current native generation may send it.
     if (
       run.state !== "completed" &&
-      !db
-        .prepare(
-          "SELECT 1 FROM companion_sessions WHERE conversation_id=? AND generation=? AND state='running'",
-        )
-        .get(run.conversation_id, captured.native_generation)
+      !companionSessionsQueries.runningGeneration(
+        db,
+        run.conversation_id,
+        captured.native_generation,
+      )
     )
       throw refused();
   }
@@ -181,9 +192,7 @@ export function authorizeFleetMailSender(
     envelope.sender.conversationId !== mail.sender_conversation_id
   )
     throw refused();
-  const thread = db
-    .prepare("SELECT * FROM agent_threads WHERE owner_id=? AND id=?")
-    .get(owner, mail.thread_id) as
+  const thread = agentThreadsQueries.ownerThread(db, owner, mail.thread_id) as
     | {
         id: string;
         owner_id: string;
@@ -228,11 +237,8 @@ export function enqueueFleetMail(mail: OriginMail, subject: string) {
     mail.sender_agent_id,
     mail.recipient_agent_id,
   );
-  const captured = db
-    .prepare(
-      "SELECT sender_name FROM fleet_mail_records WHERE mail_id=? AND direction='outgoing'",
-    )
-    .get(mail.id) as { sender_name: string } | undefined;
+  const captured = fleetMailRecordsQueries.outgoingSender(db, mail.id) as
+    { sender_name: string } | undefined;
   if (!captured) throw refused();
   const files = captureFleetMailFiles(
     currentSender(mail),
@@ -276,7 +282,8 @@ export function enqueueFleetMail(mail: OriginMail, subject: string) {
   if (action) {
     if (!db.inTransaction || action.owner !== mail.owner_id) throw refused();
     authorizeFleetEffect(mail.owner_id, action.grant);
-    db.prepare("INSERT INTO fleet_mail_effects VALUES(?,?,?,?)").run(
+    fleetMailEffectsQueries.insert(
+      db,
       mail.id,
       mail.owner_id,
       action.commandId,
@@ -348,10 +355,8 @@ export function reconcileFleetMail(owner: string, messageId: string) {
       // An interrupt's target belongs to that message, not an unresolved
       // ordinary thread default. The destination may later bind a different one.
       if (!mail.interrupt)
-        db.prepare(
-          `UPDATE agent_thread_members SET conversation_id=?
-          WHERE thread_id=? AND agent_id=? AND conversation_id IS NULL AND ? IS NOT NULL`,
-        ).run(
+        agentThreadMembersQueries.fillConversation(
+          db,
           admission.conversationId,
           mail.thread_id,
           mail.recipient_agent_id,
@@ -361,25 +366,17 @@ export function reconcileFleetMail(owner: string, messageId: string) {
     // An unchanged successful receipt may clear a transport error. Otherwise,
     // only a newly committed receipt should advance visible thread activity.
     if (!changed && !mail.projection_pending) return;
-    db.prepare(
-      "UPDATE fleet_mail_records SET projection_pending=0 WHERE owner_id=? AND mail_id=?",
-    ).run(owner, messageId);
+    fleetMailRecordsQueries.projected(db, owner, messageId);
     // Multiple genuine receipt transitions in one clock tick still publish.
-    db.prepare(
-      "UPDATE agent_threads SET updated_at=max(updated_at+1,?) WHERE owner_id=? AND id=?",
-    ).run(now(), owner, mail.thread_id);
+    agentThreadsQueries.advanceActivity(db, now(), owner, mail.thread_id);
   }).immediate();
 }
 
 /** Recover the receipt/projection commit gap, including settled outbox rows.
  * The partial index and batch limit keep idle passes and recovery bounded. */
 export function recoverFleetMailProjections(owner: string) {
-  const pending = db
-    .prepare(
-      `SELECT mail_id FROM fleet_mail_records
-      WHERE owner_id=? AND projection_pending=1 AND direction='outgoing'
-      ORDER BY mail_id LIMIT 100`,
-    )
-    .all(owner) as { mail_id: string }[];
+  const pending = fleetMailRecordsQueries.pendingProjections(db, owner) as {
+    mail_id: string;
+  }[];
   for (const { mail_id } of pending) reconcileFleetMail(owner, mail_id);
 }

@@ -1,3 +1,9 @@
+import * as agentsQueries from "./sql/agents.js";
+import * as runsQueries from "./sql/runs.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as approvalsQueries from "./sql/approvals.js";
+import * as foldersQueries from "./sql/folders.js";
+import * as nativeDecisionsQueries from "./sql/native-decisions.js";
 import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
@@ -26,6 +32,14 @@ import { fleetActionInput } from "../shared/fleet-action-input.js";
 /** Machine credentials reach only declared local handlers, with their original
  * command ID. The destination stores a receipt before any handler or native IO.
  * Unknown outcomes can only be queried; this service never replays an effect. */
+const ownedQueries = {
+  agents: agentsQueries.existsOwned,
+  runs: runsQueries.existsOwned,
+  conversations: conversationsQueries.existsOwned,
+  approvals: approvalsQueries.existsOwned,
+  folders: foldersQueries.existsOwned,
+};
+
 export class FleetWorkspaceActions {
   private readonly proof: FleetProof;
   private readonly commands: FleetCommands;
@@ -97,12 +111,7 @@ export class FleetWorkspaceActions {
       id: unknown,
     ) => {
       if (id === undefined) return;
-      if (
-        typeof id !== "string" ||
-        !this.db
-          .prepare(`SELECT 1 FROM ${table} WHERE id=? AND owner_id=?`)
-          .get(id, owner)
-      )
+      if (typeof id !== "string" || !ownedQueries[table](this.db, id, owner))
         throw new ExecutionRefused(404, "The workspace item is unavailable.");
     };
     if (["agentUpdate", "agentMailResume"].includes(input.route))
@@ -147,11 +156,7 @@ export class FleetWorkspaceActions {
       own("conversations", record.conversationId);
     if (
       input.route === "nativeAnswer" &&
-      !this.db
-        .prepare(
-          "SELECT 1 FROM native_decisions d JOIN runs r ON r.id=d.run_id WHERE d.id=? AND r.owner_id=?",
-        )
-        .get(input.params.id, owner)
+      !nativeDecisionsQueries.existsOwned(this.db, input.params.id, owner)
     )
       throw new ExecutionRefused(404, "The workspace decision is unavailable.");
   }

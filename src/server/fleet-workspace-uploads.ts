@@ -1,3 +1,5 @@
+import * as foldersQueries from "./sql/folders.js";
+import * as agentsQueries from "./sql/agents.js";
 import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
@@ -40,6 +42,11 @@ type Request = { requestId: string; commandId: string; credential: string };
  * Staging neither creates a workspace file nor grants agent access. Commit
  * records the original command before invoking the existing owning producer;
  * subsequent attempts only return that receipt, including after a restart. */
+const ownedQueries = {
+  folders: foldersQueries.existsOwned,
+  agents: agentsQueries.existsOwned,
+};
+
 export class FleetWorkspaceUploads {
   private readonly proof: FleetProof;
   private readonly commands: FleetCommands;
@@ -113,12 +120,7 @@ export class FleetWorkspaceUploads {
       ["folders", input.body.options.folderId],
       ["agents", input.body.options.agentId],
     ] as const) {
-      if (
-        id &&
-        !this.db
-          .prepare(`SELECT 1 FROM ${table} WHERE id=? AND owner_id=?`)
-          .get(id, this.owner)
-      )
+      if (id && !ownedQueries[table](this.db, id, this.owner))
         throw new ExecutionRefused(
           404,
           "The upload destination is unavailable.",

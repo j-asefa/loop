@@ -1,3 +1,4 @@
+import * as fleetEnrollmentsQueries from "./sql/fleet-enrollments.js";
 import type Database from "better-sqlite3";
 import { secret } from "../state.js";
 import { MachineId, type SignedFleetDirectory } from "../shared/fleet.js";
@@ -165,11 +166,10 @@ export class FleetDirectoryReconcile {
               for (const successor of [...entries].reverse()) {
                 this.authority.accept(this.owner, successor);
                 if (this.authority.status(this.owner).state === "removed") {
-                  this.db
-                    .prepare(
-                      "UPDATE fleet_enrollments SET state='cancelled' WHERE owner_id=? AND role='destination' AND state='prepared'",
-                    )
-                    .run(this.owner);
+                  fleetEnrollmentsQueries.cancelPreparedDestinations(
+                    this.db,
+                    this.owner,
+                  );
                   break;
                 }
               }

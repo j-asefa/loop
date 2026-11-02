@@ -1,3 +1,6 @@
+import * as agentMailQueries from "./sql/agent-mail.js";
+import * as agentThreadsQueries from "./sql/agent-threads.js";
+import * as artifactsQueries from "./sql/artifacts.js";
 import * as mailQueries from "./sql/agent-mail.js";
 import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
@@ -45,19 +48,7 @@ function summary(owner: string, thread: Thread): AgentThreadSummary {
       mailQueries.ownedThreadCount(db, owner, thread.id) as { n: number }
     ).n,
     participants: (
-      db
-        .prepare(
-          `WITH participants AS (
-          SELECT sender_agent_id id FROM agent_mail WHERE owner_id=@owner AND thread_id=@thread
-          UNION SELECT recipient_agent_id FROM agent_mail WHERE owner_id=@owner AND thread_id=@thread
-        ) SELECT p.id,a.name FROM participants p
-        LEFT JOIN agents a ON a.id=p.id AND a.owner_id=@owner
-        WHERE a.id IS NOT NULL OR EXISTS (
-          SELECT 1 FROM fleet_mail_threads f WHERE f.owner_id=@owner AND f.thread_id=@thread
-          AND p.id='peer:'||f.peer_id||':'||f.remote_agent_id
-        ) ORDER BY a.name,p.id`,
-        )
-        .all({ owner, thread: thread.id }) as {
+      agentMailQueries.participants(db, { owner, thread: thread.id }) as {
         id: string;
         name: string | null;
       }[]
@@ -87,46 +78,16 @@ export function listAgentThreads(
     const cursor = query.before
       ? decode(query.before, listCursor, "agent threads")
       : null;
-    const rows = db
-      .prepare(
-        `
-      SELECT t.*,max(m.created_at) activity_at FROM agent_threads t
-      JOIN agent_mail m ON m.owner_id=t.owner_id AND m.thread_id=t.id
-      WHERE t.owner_id=@owner
-        AND (@view='threads' OR EXISTS(SELECT 1 FROM agent_mail sent WHERE sent.owner_id=@owner AND sent.thread_id=t.id AND sent.state='sent'))
-        AND EXISTS (
-          SELECT 1 FROM agent_mail linked
-          LEFT JOIN conversations c ON c.owner_id=linked.owner_id AND c.id IN (linked.sender_conversation_id,linked.recipient_conversation_id)
-          LEFT JOIN runs r ON r.owner_id=linked.owner_id AND r.id IN (
-            CASE WHEN c.id=linked.sender_conversation_id THEN linked.sender_run_id END,
-            CASE WHEN c.id=linked.recipient_conversation_id THEN COALESCE(linked.requeued_run_id,linked.run_id) END
-          )
-          LEFT JOIN teams team ON team.owner_id=linked.owner_id AND team.deleted_at IS NULL
-            AND team.id=CASE WHEN t.scope='team' THEN t.team_id ELSE c.team_id END
-          WHERE linked.owner_id=@owner AND linked.thread_id=t.id
-            AND (@agent IS NULL OR @agent IN (linked.sender_agent_id,linked.recipient_agent_id))
-            AND (@teams IS NULL OR team.id IN (SELECT value FROM json_each(@teams)))
-            AND (@agent IS NOT NULL OR @teams IS NOT NULL OR NOT COALESCE(team.hide_results_from_feed,0))
-            AND (@folders IS NULL OR EXISTS (
-              SELECT 1 FROM json_each(@folders) folder WHERE
-                c.id IS NOT NULL AND folder.value IS CASE WHEN json_type(r.payload,'$.folderId') IS NOT NULL THEN json_extract(r.payload,'$.folderId') ELSE c.project_id END
-            ))
-        )
-      GROUP BY t.id
-      HAVING @at IS NULL OR (activity_at,t.id)<(@at,@id)
-      ORDER BY activity_at DESC,t.id DESC LIMIT @limit
-    `,
-      )
-      .all({
-        owner,
-        agent: query.agent ?? null,
-        teams: teams.length ? JSON.stringify(teams) : null,
-        folders: folders ? JSON.stringify(folders) : null,
-        view: query.view,
-        at: cursor?.[0] ?? null,
-        id: cursor?.[1] ?? null,
-        limit: query.limit + 1,
-      }) as (Thread & { activity_at: number })[];
+    const rows = agentThreadsQueries.feed(db, {
+      owner,
+      agent: query.agent ?? null,
+      teams: teams.length ? JSON.stringify(teams) : null,
+      folders: folders ? JSON.stringify(folders) : null,
+      view: query.view,
+      at: cursor?.[0] ?? null,
+      id: cursor?.[1] ?? null,
+      limit: query.limit + 1,
+    }) as (Thread & { activity_at: number })[];
     const more = rows.length > query.limit;
     if (more) rows.pop();
     const last = rows.at(-1);
@@ -143,11 +104,13 @@ export function readAgentThread(
   query: z.infer<typeof AgentThreadMessagesQuery>,
 ) {
   return db.transaction(() => {
-    const thread = db
-      .prepare(
-        "SELECT * FROM agent_threads WHERE owner_id=? AND id=? AND EXISTS(SELECT 1 FROM agent_mail WHERE owner_id=? AND thread_id=?)",
-      )
-      .get(owner, id, owner, id) as Thread | undefined;
+    const thread = agentThreadsQueries.visibleOwned(
+      db,
+      owner,
+      id,
+      owner,
+      id,
+    ) as Thread | undefined;
     if (!thread) throw new Problem(404, "Thread not found");
     const cursor = query.before
       ? decode(query.before, messageCursor, "agent messages")
@@ -181,11 +144,10 @@ export function readAgentThread(
               mail.id,
             ) as { id: string } | undefined
           )?.id ?? null,
-        attachments: db
-          .prepare(
-            "SELECT id,title name FROM artifacts WHERE owner_id=? AND id IN (SELECT value FROM json_each(?)) ORDER BY id",
-          )
-          .all(owner, mail.file_ids) as { id: string; name: string }[],
+        attachments: artifactsQueries.mailFiles(db, owner, mail.file_ids) as {
+          id: string;
+          name: string;
+        }[],
       })),
     };
   })();

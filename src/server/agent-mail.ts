@@ -1,3 +1,7 @@
+import * as agentThreadsQueries from "./sql/agent-threads.js";
+import * as agentThreadMembersQueries from "./sql/agent-thread-members.js";
+import * as fleetMailRecordsQueries from "./sql/fleet-mail-records.js";
+import * as fleetMailThreadsQueries from "./sql/fleet-mail-threads.js";
 import * as mailQueries from "./sql/agent-mail.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
@@ -406,9 +410,8 @@ function createThread(
     created_at: now(),
     updated_at: now(),
   };
-  db.prepare(
-    "INSERT INTO agent_threads(id,owner_id,team_id,scope,subject,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-  ).run(
+  agentThreadsQueries.insert(
+    db,
     thread.id,
     thread.owner_id,
     thread.team_id,
@@ -421,9 +424,7 @@ function createThread(
   return thread;
 }
 function join(thread: string, agent: string, conversation: string | null) {
-  db.prepare(
-    "INSERT INTO agent_thread_members(thread_id,agent_id,conversation_id) VALUES(?,?,?) ON CONFLICT(thread_id,agent_id) DO UPDATE SET conversation_id=CASE WHEN (SELECT scope FROM agent_threads WHERE id=excluded.thread_id)='direct' THEN COALESCE(agent_thread_members.conversation_id,excluded.conversation_id) ELSE COALESCE(excluded.conversation_id,agent_thread_members.conversation_id) END",
-  ).run(thread, agent, conversation);
+  agentThreadMembersQueries.remember(db, thread, agent, conversation);
 }
 
 function validConversation(
@@ -491,11 +492,7 @@ function route(
   const active = workingIn(team, recipient);
   if (active) return { conversationId: active, active: true };
   const member = (
-    db
-      .prepare(
-        "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
-      )
-      .get(thread.id, recipient) as
+    agentThreadMembersQueries.conversation(db, thread.id, recipient) as
       { conversation_id: string | null } | undefined
   )?.conversation_id;
   const delegated = senderRun?.conversation_id
@@ -557,12 +554,12 @@ function mailSender(mail: Mail): MailSender {
       connection_id: sender.connection_id,
     };
   }
-  const record = db
-    .prepare(
-      "SELECT sender_name FROM fleet_mail_records WHERE mail_id=? AND owner_id=? AND peer_id=? AND direction='incoming'",
-    )
-    .get(mail.id, mail.owner_id, reference.machineId) as
-    { sender_name: string } | undefined;
+  const record = fleetMailRecordsQueries.incomingSender(
+    db,
+    mail.id,
+    mail.owner_id,
+    reference.machineId,
+  ) as { sender_name: string } | undefined;
   if (!record)
     throw new MailRefusal(403, "The remote sender attribution is unavailable.");
   return {
@@ -625,9 +622,7 @@ function wrap(
 
 function hold(mail: Mail, thread: Thread, reason: string | null) {
   if (!thread.paused_at && reason) {
-    db.prepare(
-      "UPDATE agent_threads SET paused_at=?,paused_reason=?,updated_at=? WHERE id=?",
-    ).run(now(), reason, now(), thread.id);
+    agentThreadsQueries.pause(db, now(), reason, now(), thread.id);
     thread.paused_at = now();
     thread.paused_reason = reason;
   }
@@ -673,11 +668,9 @@ function limitReason(thread: Thread, mail: Mail) {
   // Resuming any thread between the two gives the pair a fresh allowance;
   // the held messages it releases don't count against it.
   const resumed = (
-    db
-      .prepare(
-        "SELECT max(t.resumed_order) at FROM agent_threads t WHERE t.owner_id=? AND EXISTS(SELECT 1 FROM agent_thread_members m WHERE m.thread_id=t.id AND m.agent_id=?) AND EXISTS(SELECT 1 FROM agent_thread_members m WHERE m.thread_id=t.id AND m.agent_id=?)",
-      )
-      .get(mail.owner_id, a, b) as { at: number | null }
+    agentThreadsQueries.pairResumeOrder(db, mail.owner_id, a, b) as {
+      at: number | null;
+    }
   ).at;
   if (
     mailQueries.pairMessageCount(
@@ -720,11 +713,11 @@ function dispatch(
   const senderRun = mail.sender_run_id
     ? maybeRunNotice(runsQueries.owned(db, mail.sender_run_id, mail.owner_id))
     : undefined;
-  const binding = db
-    .prepare(
-      "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
-    )
-    .get(thread.id, recipient.id) as { conversation_id: string | null };
+  const binding = agentThreadMembersQueries.conversation(
+    db,
+    thread.id,
+    recipient.id,
+  ) as { conversation_id: string | null };
   const destination = mail.recipient_conversation_id ?? binding.conversation_id;
   if (thread.scope === "direct" && destination)
     mailConversation(mail.owner_id, recipient.id, destination);
@@ -842,10 +835,7 @@ function dispatch(
     mail.id,
   );
   join(thread.id, recipient.id, run.conversation_id);
-  db.prepare("UPDATE agent_threads SET updated_at=? WHERE id=?").run(
-    now(),
-    thread.id,
-  );
+  agentThreadsQueries.touch(db, now(), thread.id);
   Object.assign(mail, {
     state: "sent",
     delivery,
@@ -881,9 +871,11 @@ function settled(mail: Mail, error: unknown) {
     return false;
   if (error instanceof Problem && error.status !== 409 && error.status !== 429)
     return true;
-  const thread = db
-    .prepare("SELECT * FROM agent_threads WHERE id=? AND owner_id=?")
-    .get(mail.thread_id, mail.owner_id) as Thread | undefined;
+  const thread = agentThreadsQueries.owned(
+    db,
+    mail.thread_id,
+    mail.owner_id,
+  ) as Thread | undefined;
   if (!thread) return true;
   try {
     authorizeMail(
@@ -1063,11 +1055,12 @@ export function sendMail(run: Run, callId: string, input: unknown) {
         );
       let thread: Thread;
       if (args.threadId) {
-        const found = db
-          .prepare(
-            "SELECT t.* FROM agent_threads t JOIN agent_thread_members m ON m.thread_id=t.id AND m.agent_id=? WHERE t.id=? AND t.owner_id=?",
-          )
-          .get(run.agent_id, args.threadId, run.owner_id) as Thread | undefined;
+        const found = agentThreadsQueries.member(
+          db,
+          run.agent_id,
+          args.threadId,
+          run.owner_id,
+        ) as Thread | undefined;
         if (
           !found ||
           (found.scope === "team" && found.team_id !== activeTeam?.id)
@@ -1081,12 +1074,11 @@ export function sendMail(run: Run, callId: string, input: unknown) {
           throw new Problem(409, "Scope conflicts with the stored thread.");
         authorizeMail(thread, run.agent_id!, recipientId);
         if (args.conversationId) {
-          const bound = db
-            .prepare(
-              "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
-            )
-            .get(thread.id, recipientId) as
-            { conversation_id: string | null } | undefined;
+          const bound = agentThreadMembersQueries.conversation(
+            db,
+            thread.id,
+            recipientId,
+          ) as { conversation_id: string | null } | undefined;
           if (
             thread.scope !== "direct" ||
             (!args.interrupt && bound?.conversation_id !== args.conversationId)
@@ -1142,11 +1134,9 @@ export function sendMail(run: Run, callId: string, input: unknown) {
         join(thread.id, recipientId, null);
       }
       let destination = (
-        db
-          .prepare(
-            "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
-          )
-          .get(thread.id, recipientId) as { conversation_id: string | null }
+        agentThreadMembersQueries.conversation(db, thread.id, recipientId) as {
+          conversation_id: string | null;
+        }
       ).conversation_id;
       if (remote)
         destination =
@@ -1276,9 +1266,11 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
           );
           let thread: Thread;
           if (stored) {
-            thread = db
-              .prepare("SELECT * FROM agent_threads WHERE owner_id=? AND id=?")
-              .get(owner, stored.thread_id) as Thread;
+            thread = agentThreadsQueries.ownerThread(
+              db,
+              owner,
+              stored.thread_id,
+            ) as Thread;
             if (!thread)
               return { state: "refused", reason: "thread_unavailable" };
             bindings.authorize(thread.id, sender, recipient.id);
@@ -1312,11 +1304,11 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
             peerGrantId: envelope.authority.sourceGrantId,
           });
           authorizeMail(thread, sender, recipient.id);
-          const bound = db
-            .prepare(
-              "SELECT conversation_id FROM agent_thread_members WHERE thread_id=? AND agent_id=?",
-            )
-            .get(thread.id, recipient.id) as { conversation_id: string | null };
+          const bound = agentThreadMembersQueries.conversation(
+            db,
+            thread.id,
+            recipient.id,
+          ) as { conversation_id: string | null };
           const explicit = envelope.thread.recipientConversationId;
           if (
             stored &&
@@ -1362,9 +1354,8 @@ export function fleetMailPolicyHandlers(owner: string): FleetMailHandlers {
             idempotency_key: `fleet-mail:${envelope.source.machineId}:${envelope.messageId}`,
             request: JSON.stringify(envelope),
           });
-          db.prepare(
-            "INSERT INTO fleet_mail_records(mail_id,owner_id,peer_id,message_id,direction,sender_name) VALUES(?,?,?,?,'incoming',?)",
-          ).run(
+          fleetMailRecordsQueries.insertIncoming(
+            db,
             mail.id,
             owner,
             envelope.source.machineId,
@@ -1439,12 +1430,12 @@ function describe(mail: Mail, agentId: string | null) {
     const remote = parseFleetAgentAddress(agent);
     if (!remote) return agentRow(mail.owner_id, agent)?.name ?? "former agent";
     if (agent === mail.sender_agent_id) {
-      const record = db
-        .prepare(
-          "SELECT sender_name FROM fleet_mail_records WHERE owner_id=? AND mail_id=? AND peer_id=? AND direction='incoming'",
-        )
-        .get(mail.owner_id, mail.id, remote.machineId) as
-        { sender_name: string } | undefined;
+      const record = fleetMailRecordsQueries.ownerIncomingSender(
+        db,
+        mail.owner_id,
+        mail.id,
+        remote.machineId,
+      ) as { sender_name: string } | undefined;
       if (record) return record.sender_name;
     }
     const binding = fleetMailBindings(mail.owner_id).get(mail.thread_id);
@@ -1476,12 +1467,13 @@ export function mailStatus(
   run = assertMailRun(run);
   const team = teamOf(run);
   if (args.threadId) {
-    const thread = db
-      .prepare(
-        "SELECT t.* FROM agent_threads t JOIN agent_thread_members m ON m.thread_id=t.id AND m.agent_id=? WHERE t.id=? AND t.owner_id=? AND (t.scope='direct' OR t.team_id=?)",
-      )
-      .get(run.agent_id, args.threadId, run.owner_id, team?.id ?? null) as
-      Thread | undefined;
+    const thread = agentThreadsQueries.memberScope(
+      db,
+      run.agent_id,
+      args.threadId,
+      run.owner_id,
+      team?.id ?? null,
+    ) as Thread | undefined;
     if (!thread)
       throw new Problem(404, "You are not in that thread on this team.");
     return {
@@ -1495,11 +1487,12 @@ export function mailStatus(
       ),
     };
   }
-  const threads = db
-    .prepare(
-      "SELECT t.* FROM agent_threads t JOIN agent_thread_members m ON m.thread_id=t.id AND m.agent_id=? WHERE t.owner_id=? AND (t.scope='direct' OR t.team_id=?) ORDER BY t.updated_at DESC LIMIT 10",
-    )
-    .all(run.agent_id, run.owner_id, team?.id ?? null) as Thread[];
+  const threads = agentThreadsQueries.recentMemberScope(
+    db,
+    run.agent_id,
+    run.owner_id,
+    team?.id ?? null,
+  ) as Thread[];
   return {
     threads: threads.map((thread) => {
       const last = mailQueries.latestInThread(db, thread.id) as
@@ -1624,9 +1617,11 @@ function requeue(mail: Mail) {
       refuse(mail, new Problem(409, CANCELLED));
       return;
     }
-    const thread = db
-      .prepare("SELECT * FROM agent_threads WHERE id=? AND owner_id=?")
-      .get(mail.thread_id, mail.owner_id) as Thread;
+    const thread = agentThreadsQueries.owned(
+      db,
+      mail.thread_id,
+      mail.owner_id,
+    ) as Thread;
     try {
       const team = authorizeMail(
         thread,
@@ -1730,9 +1725,7 @@ export function sweepAgentMail(time = now()) {
         return;
       }
       if (!mail) return;
-      const thread = db
-        .prepare("SELECT * FROM agent_threads WHERE id=?")
-        .get(mail.thread_id) as Thread;
+      const thread = agentThreadsQueries.get(db, mail.thread_id) as Thread;
       // Recheck after acquiring the write lock; several workers may sweep.
       if (mailQueries.hasEarlierPending(db, thread.id, mail.id)) return;
       dispatchPending(mail, thread, time);
@@ -1756,25 +1749,25 @@ export function resumeThread(
       assertFleetAction(owner);
       const team = teamId ? ownedTeam(teamId, owner) : undefined;
       if (team?.deleted_at) throw new Problem(404, "Team no longer exists");
-      const thread = db
-        .prepare(
-          "SELECT * FROM agent_threads WHERE id=? AND owner_id=? AND (? IS NULL OR team_id=?)",
-        )
-        .get(threadId, owner, teamId, teamId) as Thread | undefined;
+      const thread = agentThreadsQueries.ownedTeam(
+        db,
+        threadId,
+        owner,
+        teamId,
+        teamId,
+      ) as Thread | undefined;
       if (!thread) throw new Problem(404, "Thread not found");
       if (!thread.paused_at) return { released: 0, refused: 0, held: 0 };
       const time = now();
-      db.prepare(
-        "UPDATE agent_threads SET paused_at=NULL,paused_reason=NULL,resumed_at=?,resumed_order=(SELECT COALESCE(max(rowid),0) FROM agent_mail),updated_at=? WHERE id=?",
-      ).run(time, time, thread.id);
+      agentThreadsQueries.resume(db, time, time, thread.id);
       Object.assign(thread, {
         paused_at: null,
         paused_reason: null,
         resumed_at: time,
         resumed_order: (
-          db
-            .prepare("SELECT resumed_order FROM agent_threads WHERE id=?")
-            .get(thread.id) as { resumed_order: number }
+          agentThreadsQueries.resumeOrder(db, thread.id) as {
+            resumed_order: number;
+          }
         ).resumed_order,
       });
       const held = mailQueries.heldInThread(db, thread.id) as Mail[];
@@ -1791,9 +1784,12 @@ export function resumeThread(
             continue;
           }
           const reason = `A held message couldn't be sent yet: ${(error as Error).message} Resume again to retry.`;
-          db.prepare(
-            "UPDATE agent_threads SET paused_at=?,paused_reason=? WHERE id=?",
-          ).run(now(), reason.slice(0, 600), thread.id);
+          agentThreadsQueries.pauseAfterResume(
+            db,
+            now(),
+            reason.slice(0, 600),
+            thread.id,
+          );
           break;
         }
       }
@@ -1806,11 +1802,11 @@ export function resumeThread(
 export function teamMessages(owner: string, teamId: string) {
   const team = ownedTeam(teamId, owner);
   if (team.deleted_at) throw new Problem(404, "Team no longer exists");
-  const threads = db
-    .prepare(
-      "SELECT * FROM agent_threads WHERE owner_id=? AND team_id=? ORDER BY paused_at IS NULL,updated_at DESC LIMIT 30",
-    )
-    .all(owner, teamId) as Thread[];
+  const threads = agentThreadsQueries.teamThreads(
+    db,
+    owner,
+    teamId,
+  ) as Thread[];
   return describeThreads(threads);
 }
 
@@ -1823,12 +1819,13 @@ export function publicMailAgentReference(
 ): PublicMailAgentReference {
   const peer = parseFleetAgentAddress(address);
   if (peer) {
-    const binding = db
-      .prepare(
-        "SELECT remote_name FROM fleet_mail_threads WHERE owner_id=? AND thread_id=? AND peer_id=? AND remote_agent_id=?",
-      )
-      .get(owner, thread, peer.machineId, peer.agentId) as
-      { remote_name: string } | undefined;
+    const binding = fleetMailThreadsQueries.remoteName(
+      db,
+      owner,
+      thread,
+      peer.machineId,
+      peer.agentId,
+    ) as { remote_name: string } | undefined;
     return { kind: "peer", ...peer, name: binding?.remote_name ?? null };
   }
   const local = db
@@ -1905,24 +1902,16 @@ function describeThreads(threads: Thread[]): z.infer<typeof PublicMailThreads> {
       paused_reason: thread.paused_reason,
       updated_at: thread.updated_at,
       participants: (
-        db
-          .prepare(
-            "SELECT agent_id FROM agent_thread_members WHERE thread_id=? ORDER BY rowid",
-          )
-          .all(thread.id) as { agent_id: string }[]
+        agentThreadMembersQueries.orderedAgents(db, thread.id) as {
+          agent_id: string;
+        }[]
       ).map((m) => m.agent_id),
-      ...(db
-        .prepare(
-          "SELECT 1 FROM fleet_mail_threads WHERE owner_id=? AND thread_id=?",
-        )
-        .get(thread.owner_id, thread.id)
+      ...(fleetMailThreadsQueries.exists(db, thread.owner_id, thread.id)
         ? {
             participant_refs: (
-              db
-                .prepare(
-                  "SELECT agent_id FROM agent_thread_members WHERE thread_id=? ORDER BY rowid",
-                )
-                .all(thread.id) as { agent_id: string }[]
+              agentThreadMembersQueries.orderedAgents(db, thread.id) as {
+                agent_id: string;
+              }[]
             ).map((member) =>
               publicMailAgentReference(
                 thread.owner_id,
@@ -1952,11 +1941,7 @@ routes.on(workspaceApi.teamThreadResume, (req, res) =>
 export function agentMessages(owner: string, agentId: string) {
   ownedAgent(agentId, owner);
   return describeThreads(
-    db
-      .prepare(
-        "SELECT t.* FROM agent_threads t JOIN agent_thread_members m ON m.thread_id=t.id WHERE t.owner_id=? AND m.agent_id=? ORDER BY t.paused_at IS NULL,t.updated_at DESC,t.rowid DESC LIMIT 30",
-      )
-      .all(owner, agentId) as Thread[],
+    agentThreadsQueries.memberThreads(db, owner, agentId) as Thread[],
   );
 }
 routes.on(workspaceApi.agentMail, (req, res) =>
@@ -1966,11 +1951,12 @@ routes.on(workspaceApi.agentMailResume, (req, res) => {
   const owner = res.locals.owner;
   ownedAgent(req.params.id, owner);
   if (
-    !db
-      .prepare(
-        "SELECT 1 FROM agent_threads t JOIN agent_thread_members m ON m.thread_id=t.id WHERE t.id=? AND t.owner_id=? AND m.agent_id=?",
-      )
-      .get(req.params.threadId, owner, req.params.id)
+    !agentThreadsQueries.hasMember(
+      db,
+      req.params.threadId,
+      owner,
+      req.params.id,
+    )
   )
     throw new Problem(404, "Thread not found");
   res.json(resumeThread(owner, null, req.params.threadId));
