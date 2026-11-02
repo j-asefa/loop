@@ -1,3 +1,4 @@
+import * as fleetForwardedActionsQueries from "./sql/fleet-forwarded-actions.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { MachineId } from "../shared/fleet.js";
@@ -34,11 +35,11 @@ export class FleetForwardedCommands {
     private readonly owner: string,
   ) {}
   stored(commandId: string) {
-    const row = this.db
-      .prepare(
-        "SELECT * FROM fleet_forwarded_actions WHERE owner_id=? AND command_id=?",
-      )
-      .get(this.owner, commandId);
+    const row = fleetForwardedActionsQueries.get(
+      this.db,
+      this.owner,
+      commandId,
+    );
     return row ? Stored.parse(row) : undefined;
   }
   match(
@@ -73,21 +74,18 @@ export class FleetForwardedCommands {
           return false;
         }
         const now = Date.now();
-        this.db
-          .prepare(
-            "INSERT INTO fleet_forwarded_actions VALUES(?,?,?,?,?,?,?,'unknown',NULL,?,?)",
-          )
-          .run(
-            this.owner,
-            commandId,
-            target.member.machineId,
-            target.fleetId,
-            target.member.grantId,
-            input.route,
-            digest,
-            now,
-            now,
-          );
+        fleetForwardedActionsQueries.insert(
+          this.db,
+          this.owner,
+          commandId,
+          target.member.machineId,
+          target.fleetId,
+          target.member.grantId,
+          input.route,
+          digest,
+          now,
+          now,
+        );
         return true;
       })
       .immediate();
@@ -111,17 +109,19 @@ export class FleetForwardedCommands {
       json !== null && Buffer.byteLength(json) <= 64 * 1024 ? json : null;
     this.db
       .transaction(() => {
-        this.db
-          .prepare(
-            "UPDATE fleet_forwarded_actions SET state=?,result=?,updated_at=? WHERE owner_id=? AND command_id=? AND state IN ('unknown','started')",
-          )
-          .run(receipt.state, result, Date.now(), this.owner, commandId);
-        this.db
-          .prepare(
-            `UPDATE fleet_forwarded_actions SET result=NULL WHERE owner_id=? AND result IS NOT NULL AND rowid NOT IN
-        (SELECT rowid FROM fleet_forwarded_actions WHERE owner_id=? AND result IS NOT NULL ORDER BY updated_at DESC,rowid DESC LIMIT 64)`,
-          )
-          .run(this.owner, this.owner);
+        fleetForwardedActionsQueries.finish(
+          this.db,
+          receipt.state,
+          result,
+          Date.now(),
+          this.owner,
+          commandId,
+        );
+        fleetForwardedActionsQueries.pruneResults(
+          this.db,
+          this.owner,
+          this.owner,
+        );
       })
       .immediate();
     return this.view(commandId, this.stored(commandId)!);

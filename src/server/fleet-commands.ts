@@ -1,3 +1,4 @@
+import * as fleetCommandReceiptsQueries from "./sql/fleet-command-receipts.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { FleetGrantContext } from "../shared/fleet.js";
@@ -38,11 +39,7 @@ export class FleetCommands {
   ) {}
 
   private row(owner: string, commandId: string) {
-    const row = this.db
-      .prepare(
-        "SELECT * FROM fleet_command_receipts WHERE owner_id=? AND command_id=?",
-      )
-      .get(owner, commandId);
+    const row = fleetCommandReceiptsQueries.get(this.db, owner, commandId);
     return row ? ReceiptRow.parse(row) : undefined;
   }
 
@@ -112,22 +109,19 @@ export class FleetCommands {
         if (prior) return prior;
         const { owner } = this.authority.authorize(context);
         const now = Date.now();
-        this.db
-          .prepare(
-            "INSERT INTO fleet_command_receipts(owner_id,peer_id,command_id,fleet_id,grant_id,operation,payload_digest,state,result,created_at,updated_at,command_tag) VALUES(?,?,?,?,?,?,?,'refused',NULL,?,?,?)",
-          )
-          .run(
-            owner,
-            context.peer,
-            commandId,
-            context.fleetId,
-            context.grantId,
-            context.operation,
-            digest,
-            now,
-            now,
-            tag,
-          );
+        fleetCommandReceiptsQueries.refuse(
+          this.db,
+          owner,
+          context.peer,
+          commandId,
+          context.fleetId,
+          context.grantId,
+          context.operation,
+          digest,
+          now,
+          now,
+          tag,
+        );
         return { commandId, state: "refused" as const, result: null };
       })
       .immediate();
@@ -211,22 +205,19 @@ export class FleetCommands {
               "Fleet commands are busy. Retry later.",
             );
           const now = Date.now();
-          this.db
-            .prepare(
-              "INSERT INTO fleet_command_receipts(owner_id,peer_id,command_id,fleet_id,grant_id,operation,payload_digest,state,result,created_at,updated_at,command_tag) VALUES(?,?,?,?,?,?,?,'started',NULL,?,?,?)",
-            )
-            .run(
-              owner,
-              context.peer,
-              commandId,
-              context.fleetId,
-              context.grantId,
-              context.operation,
-              digest,
-              now,
-              now,
-              tag,
-            );
+          fleetCommandReceiptsQueries.start(
+            this.db,
+            owner,
+            context.peer,
+            commandId,
+            context.fleetId,
+            context.grantId,
+            context.operation,
+            digest,
+            now,
+            now,
+            tag,
+          );
         }
         return { owner, prior };
       })
@@ -263,20 +254,17 @@ export class FleetCommands {
           const saved = Buffer.byteLength(json) <= 64 * 1024 ? json : null;
           this.db
             .transaction(() => {
-              this.db
-                .prepare(
-                  "UPDATE fleet_command_receipts SET state='completed',result=?,updated_at=? WHERE owner_id=? AND peer_id=? AND command_id=? AND state='started'",
-                )
-                .run(saved, Date.now(), owner, context.peer, commandId);
+              fleetCommandReceiptsQueries.complete(
+                this.db,
+                saved,
+                Date.now(),
+                owner,
+                context.peer,
+                commandId,
+              );
               // Retain at most 64 bounded response bodies per local owner. Durable
               // identity tombstones remain, including failures and compacted results.
-              this.db
-                .prepare(
-                  `UPDATE fleet_command_receipts SET result=NULL WHERE owner_id=? AND result IS NOT NULL
-            AND rowid NOT IN (SELECT rowid FROM fleet_command_receipts WHERE owner_id=? AND result IS NOT NULL
-            ORDER BY updated_at DESC,rowid DESC LIMIT 64)`,
-                )
-                .run(owner, owner);
+              fleetCommandReceiptsQueries.pruneResults(this.db, owner, owner);
             })
             .immediate();
           return {
@@ -289,11 +277,14 @@ export class FleetCommands {
             !dispatched || error instanceof ExecutionRefused
               ? "refused"
               : "unknown";
-          this.db
-            .prepare(
-              "UPDATE fleet_command_receipts SET state=?,updated_at=? WHERE owner_id=? AND peer_id=? AND command_id=? AND state='started'",
-            )
-            .run(state, Date.now(), owner, context.peer, commandId);
+          fleetCommandReceiptsQueries.finish(
+            this.db,
+            state,
+            Date.now(),
+            owner,
+            context.peer,
+            commandId,
+          );
           // Do not persist or relay provider errors, request secrets, or raw native
           // responses. A failure after dispatch may have performed the effect.
           return { commandId, state, result: null };

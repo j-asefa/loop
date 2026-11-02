@@ -1,3 +1,4 @@
+import * as profileQueries from "./sql/deployment-profile.js";
 import * as runsQueries from "./sql/runs.js";
 import type Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
@@ -81,11 +82,8 @@ export class FleetWorkspaceFiles {
   private authorize(credential: string): Admission {
     if (
       this.stopped ||
-      (
-        this.db
-          .prepare("SELECT profile FROM deployment_profile WHERE singleton=1")
-          .get() as { profile: string } | undefined
-      )?.profile !== "companion"
+      (profileQueries.current(this.db) as { profile: string } | undefined)
+        ?.profile !== "companion"
     )
       throw new Problem(403, "This workspace does not admit fleet files.");
     const accepted = this.credentials.authenticate(credential);

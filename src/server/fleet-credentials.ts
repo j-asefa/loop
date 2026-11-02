@@ -1,3 +1,7 @@
+import * as fleetCredentialIssuerQueries from "./sql/fleet-credential-issuer.js";
+import * as fleetCredentialsQueries from "./sql/fleet-credentials.js";
+import * as fleetCredentialNoncesQueries from "./sql/fleet-credential-nonces.js";
+import * as fleetCredentialClockQueries from "./sql/fleet-credential-clock.js";
 import * as identityQueries from "./sql/fleet-machine-identity.js";
 import type Database from "better-sqlite3";
 import {
@@ -111,20 +115,15 @@ export class FleetCredentials {
     db.transaction(() => {
       // Replacing the issuer fences an overlapping old instance before clearing
       // receipts. It must never issue again against the newly empty nonce set.
-      db.prepare(
-        "INSERT INTO fleet_credential_issuer VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET issuer_session=excluded.issuer_session",
-      ).run(this.issuerSession);
-      db.prepare("DELETE FROM fleet_credentials").run();
-      db.prepare("DELETE FROM fleet_credential_nonces").run();
+      fleetCredentialIssuerQueries.install(db, this.issuerSession);
+      fleetCredentialsQueries.clear(db);
+      fleetCredentialNoncesQueries.clear(db);
     }).immediate();
   }
 
   private currentIssuer() {
-    const row = this.db
-      .prepare(
-        "SELECT issuer_session FROM fleet_credential_issuer WHERE singleton=1",
-      )
-      .get() as { issuer_session: string } | undefined;
+    const row = fleetCredentialIssuerQueries.current(this.db) as
+      { issuer_session: string } | undefined;
     if (row?.issuer_session !== this.issuerSession) throw refused();
   }
 
@@ -152,11 +151,8 @@ export class FleetCredentials {
 
   private now() {
     const now = this.clock.wall();
-    const prior = this.db
-      .prepare(
-        "SELECT observed_at FROM fleet_credential_clock WHERE singleton=1",
-      )
-      .get() as { observed_at: number } | undefined;
+    const prior = fleetCredentialClockQueries.current(this.db) as
+      { observed_at: number } | undefined;
     if (
       !Number.isSafeInteger(now) ||
       now < 0 ||
@@ -164,11 +160,7 @@ export class FleetCredentials {
     )
       throw refused();
     if (!prior || now > prior.observed_at)
-      this.db
-        .prepare(
-          "INSERT INTO fleet_credential_clock VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET observed_at=excluded.observed_at",
-        )
-        .run(now);
+      fleetCredentialClockQueries.set(this.db, now);
     return now;
   }
 
@@ -193,10 +185,8 @@ export class FleetCredentials {
       this.db
         .transaction(() => {
           this.currentIssuer();
-          const remove = this.db.prepare(
-            "DELETE FROM fleet_credentials WHERE token_hash=?",
-          );
-          for (const digest of expired) remove.run(digest);
+          for (const digest of expired)
+            fleetCredentialsQueries.remove(this.db, digest);
         })
         .immediate();
       for (const digest of expired) this.deadlines.delete(digest);
@@ -212,11 +202,7 @@ export class FleetCredentials {
         .immediate();
     } catch (error) {
       if (observed !== undefined)
-        this.db
-          .prepare(
-            "INSERT INTO fleet_credential_clock VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET observed_at=max(observed_at,excluded.observed_at)",
-          )
-          .run(observed);
+        fleetCredentialClockQueries.observe(this.db, observed);
       throw error;
     }
   }
@@ -313,28 +299,21 @@ export class FleetCredentials {
         )
       )
         throw refused();
-      this.db
-        .prepare(
-          "DELETE FROM fleet_credential_nonces WHERE expires_at<=? OR issuer_session<>? OR expires_at_monotonic<=?",
-        )
-        .run(now, this.issuerSession, started);
-      this.db
-        .prepare("DELETE FROM fleet_credentials WHERE expires_at<=?")
-        .run(now);
-      if (
-        this.db
-          .prepare("SELECT 1 FROM fleet_credential_nonces WHERE nonce_hash=?")
-          .get(hash(challenge.nonce))
-      )
+      fleetCredentialNoncesQueries.expire(
+        this.db,
+        now,
+        this.issuerSession,
+        started,
+      );
+      fleetCredentialsQueries.expire(this.db, now);
+      if (fleetCredentialNoncesQueries.exists(this.db, hash(challenge.nonce)))
         throw refused();
-      const total = this.db
-        .prepare("SELECT count(*) n FROM fleet_credentials")
-        .get() as { n: number };
-      const peer = this.db
-        .prepare(
-          "SELECT count(*) n FROM fleet_credentials WHERE owner_id=? AND peer_id=?",
-        )
-        .get(owner, context.peer) as { n: number };
+      const total = fleetCredentialsQueries.count(this.db) as { n: number };
+      const peer = fleetCredentialsQueries.peerCount(
+        this.db,
+        owner,
+        context.peer,
+      ) as { n: number };
       if (total.n >= 2048 || peer.n >= 64)
         throw new Problem(
           429,
@@ -343,25 +322,23 @@ export class FleetCredentials {
       const token = secret(),
         digest = hash(token),
         expires = now + FLEET_CREDENTIAL_LIFETIME_MS;
-      this.db
-        .prepare("INSERT INTO fleet_credential_nonces VALUES(?,?,?,?)")
-        .run(
-          hash(challenge.nonce),
-          challenge.expiresAt,
-          this.issuerSession,
-          challenge.expiresAtMonotonic,
-        );
-      this.db
-        .prepare("INSERT INTO fleet_credentials VALUES(?,?,?,?,?,?,?)")
-        .run(
-          digest,
-          owner,
-          context.peer,
-          JSON.stringify(context),
-          now,
-          expires,
-          now,
-        );
+      fleetCredentialNoncesQueries.insert(
+        this.db,
+        hash(challenge.nonce),
+        challenge.expiresAt,
+        this.issuerSession,
+        challenge.expiresAtMonotonic,
+      );
+      fleetCredentialsQueries.insert(
+        this.db,
+        digest,
+        owner,
+        context.peer,
+        JSON.stringify(context),
+        now,
+        expires,
+        now,
+      );
       const credential = FleetCredential.parse({
         version: 1,
         context,
@@ -420,9 +397,7 @@ export class FleetCredentials {
   authenticate(input: string) {
     const digest = hash(FleetSecret.parse(input));
     const result = this.timed((wall) => {
-      const value = this.db
-        .prepare("SELECT * FROM fleet_credentials WHERE token_hash=?")
-        .get(digest);
+      const value = fleetCredentialsQueries.get(this.db, digest);
       if (!value) throw refused();
       const row = Row.parse(value),
         mono = this.clock.monotonic();
@@ -438,9 +413,7 @@ export class FleetCredentials {
       if (mono >= deadline.mono) {
         // Persist an observed monotonic expiry even if the wall clock has
         // stalled; a restart must not rebuild a fresh in-memory deadline.
-        this.db
-          .prepare("DELETE FROM fleet_credentials WHERE token_hash=?")
-          .run(digest);
+        fleetCredentialsQueries.remove(this.db, digest);
         return undefined;
       }
       if (deadline.issued !== row.issued_at) throw refused();
@@ -451,11 +424,7 @@ export class FleetCredentials {
       const remaining = Math.min(row.expires_at - wall, deadline.mono - mono);
       const remainingMs = Math.floor(remaining);
       if (remainingMs <= 0) throw refused();
-      this.db
-        .prepare(
-          "UPDATE fleet_credentials SET observed_at=? WHERE token_hash=?",
-        )
-        .run(wall, digest);
+      fleetCredentialsQueries.observe(this.db, wall, digest);
       this.deadlines.set(digest, deadline);
       return { context, owner: granted.owner, remainingMs };
     });

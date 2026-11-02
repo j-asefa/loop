@@ -1,3 +1,4 @@
+import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import {
   FleetAgentPage,
@@ -57,11 +58,8 @@ export class FleetMailDestination {
   private authorize(credential: string) {
     if (
       this.stopped ||
-      (
-        this.db
-          .prepare("SELECT profile FROM deployment_profile WHERE singleton=1")
-          .get() as { profile: string } | undefined
-      )?.profile !== "companion"
+      (profileQueries.current(this.db) as { profile: string } | undefined)
+        ?.profile !== "companion"
     )
       throw new Problem(403, "Fleet mail is unavailable in this workspace.");
     const accepted = this.credentials.authenticate(credential);

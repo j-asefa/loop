@@ -1,3 +1,4 @@
+import * as profileQueries from "./sql/deployment-profile.js";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
@@ -51,11 +52,8 @@ export class FleetWorkspaceEvents {
   private authorize(token: string) {
     if (
       this.stopped ||
-      (
-        this.db
-          .prepare("SELECT profile FROM deployment_profile WHERE singleton=1")
-          .get() as { profile: string } | undefined
-      )?.profile !== "companion"
+      (profileQueries.current(this.db) as { profile: string } | undefined)
+        ?.profile !== "companion"
     )
       throw new Problem(403, "This workspace does not admit fleet events.");
     const result = this.credentials.authenticate(token);

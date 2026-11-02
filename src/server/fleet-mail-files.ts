@@ -1,3 +1,5 @@
+import * as fleetMailFilesQueries from "./sql/fleet-mail-files.js";
+import * as fleetMailFileChunksQueries from "./sql/fleet-mail-file-chunks.js";
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import type { z } from "zod";
@@ -42,30 +44,18 @@ export class FleetMailFiles {
     ] as const;
   }
   private row(envelope: FleetMailEnvelope, fileId: string) {
-    return this.db
-      .prepare(
-        "SELECT reservation_id,descriptor,received,complete FROM fleet_mail_files WHERE owner_id=? AND peer_id=? AND message_id=? AND file_id=?",
-      )
-      .get(...this.key(envelope, fileId)) as Row | undefined;
+    return fleetMailFilesQueries.get(this.db, ...this.key(envelope, fileId)) as
+      Row | undefined;
   }
   private chunks(envelope: FleetMailEnvelope, fileId: string) {
-    return this.db
-      .prepare(
-        "SELECT bytes FROM fleet_mail_file_chunks WHERE owner_id=? AND peer_id=? AND message_id=? AND file_id=? ORDER BY offset",
-      )
-      .all(...this.key(envelope, fileId)) as { bytes: Buffer }[];
+    return fleetMailFileChunksQueries.forFile(
+      this.db,
+      ...this.key(envelope, fileId),
+    ) as { bytes: Buffer }[];
   }
   prune() {
     // Capacity is shared across every mapped owner on this receiving machine.
-    this.db
-      .prepare(
-        `DELETE FROM fleet_mail_files WHERE expires_at<=? OR EXISTS (
-        SELECT 1 FROM fleet_mail_inbox i
-        WHERE i.owner_id=fleet_mail_files.owner_id AND i.peer_id=fleet_mail_files.peer_id
-          AND i.message_id=fleet_mail_files.message_id AND json_extract(i.admission,'$.state')<>'prepared'
-      )`,
-      )
-      .run(this.clock());
+    fleetMailFilesQueries.prune(this.db, this.clock());
   }
 
   stage(context: FleetGrantContext, input: unknown) {
@@ -94,11 +84,10 @@ export class FleetMailFiles {
         let row = this.row(envelope, file.fileId);
         if (!row) {
           if (request.offset !== 0) throw conflict();
-          const { size, peerSize } = this.db
-            .prepare(
-              "SELECT COALESCE(sum(size),0) size, COALESCE(sum(CASE WHEN peer_id=? THEN size ELSE 0 END),0) peerSize FROM fleet_mail_files",
-            )
-            .get(envelope.source.machineId) as {
+          const { size, peerSize } = fleetMailFilesQueries.reservedBytes(
+            this.db,
+            envelope.source.machineId,
+          ) as {
             size: number;
             peerSize: number;
           };
@@ -111,17 +100,14 @@ export class FleetMailFiles {
               429,
               "This machine's pending mail files are full.",
             );
-          this.db
-            .prepare(
-              "INSERT INTO fleet_mail_files(owner_id,peer_id,message_id,file_id,reservation_id,descriptor,size,expires_at) VALUES(?,?,?,?,?,?,?,?)",
-            )
-            .run(
-              ...key,
-              request.reservationId,
-              JSON.stringify(file),
-              file.bytes,
-              expiresAt,
-            );
+          fleetMailFilesQueries.insert(
+            this.db,
+            ...key,
+            request.reservationId,
+            JSON.stringify(file),
+            file.bytes,
+            expiresAt,
+          );
           row = this.row(envelope, file.fileId)!;
         }
         if (
@@ -129,11 +115,11 @@ export class FleetMailFiles {
           row.descriptor !== JSON.stringify(file)
         )
           throw conflict();
-        const prior = this.db
-          .prepare(
-            "SELECT bytes FROM fleet_mail_file_chunks WHERE owner_id=? AND peer_id=? AND message_id=? AND file_id=? AND offset=?",
-          )
-          .get(...key, request.offset) as { bytes: Buffer } | undefined;
+        const prior = fleetMailFileChunksQueries.get(
+          this.db,
+          ...key,
+          request.offset,
+        ) as { bytes: Buffer } | undefined;
         if (prior) {
           if (!prior.bytes.equals(bytes)) throw conflict();
           return {
@@ -142,28 +128,28 @@ export class FleetMailFiles {
           };
         }
         if (row.complete || row.received !== request.offset) throw conflict();
-        this.db
-          .prepare("INSERT INTO fleet_mail_file_chunks VALUES(?,?,?,?,?,?)")
-          .run(...key, request.offset, bytes);
+        fleetMailFileChunksQueries.insert(
+          this.db,
+          ...key,
+          request.offset,
+          bytes,
+        );
         const received = request.offset + bytes.length;
         if (received === file.bytes) {
           const hash = createHash("sha256");
           for (const chunk of this.chunks(envelope, file.fileId))
             hash.update(chunk.bytes);
           if (hash.digest("hex") !== file.digest) {
-            this.db
-              .prepare(
-                "DELETE FROM fleet_mail_files WHERE owner_id=? AND peer_id=? AND message_id=? AND file_id=?",
-              )
-              .run(...key);
+            fleetMailFilesQueries.remove(this.db, ...key);
             return { nextOffset: 0, corrupt: true };
           }
         }
-        this.db
-          .prepare(
-            "UPDATE fleet_mail_files SET received=?,complete=? WHERE owner_id=? AND peer_id=? AND message_id=? AND file_id=?",
-          )
-          .run(received, received === file.bytes ? 1 : 0, ...key);
+        fleetMailFilesQueries.progress(
+          this.db,
+          received,
+          received === file.bytes ? 1 : 0,
+          ...key,
+        );
         return {
           nextOffset: received === file.bytes ? null : received,
           corrupt: false,
@@ -221,11 +207,12 @@ export class FleetMailFiles {
             throw new Error("Mail file copies must finish inside admission");
           results.push(result);
         }
-        this.db
-          .prepare(
-            "DELETE FROM fleet_mail_files WHERE owner_id=? AND peer_id=? AND message_id=?",
-          )
-          .run(this.owner, value.source.machineId, value.messageId);
+        fleetMailFilesQueries.removeMessage(
+          this.db,
+          this.owner,
+          value.source.machineId,
+          value.messageId,
+        );
         return results;
       },
     );

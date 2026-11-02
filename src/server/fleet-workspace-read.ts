@@ -1,3 +1,4 @@
+import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import {
   FleetReadRequest,
@@ -38,11 +39,8 @@ export class FleetWorkspaceRead {
   private authorize(credential: string, catalog = false) {
     if (
       this.stopped ||
-      (
-        this.db
-          .prepare("SELECT profile FROM deployment_profile WHERE singleton=1")
-          .get() as { profile: string } | undefined
-      )?.profile !== "companion"
+      (profileQueries.current(this.db) as { profile: string } | undefined)
+        ?.profile !== "companion"
     )
       throw new Problem(403, "This workspace does not admit fleet reads.");
     const accepted = this.credentials.authenticate(credential);

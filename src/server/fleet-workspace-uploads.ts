@@ -1,3 +1,4 @@
+import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
 import type { FleetGrantContext } from "../shared/fleet.js";
@@ -63,11 +64,8 @@ export class FleetWorkspaceUploads {
   private active() {
     if (
       this.stopped ||
-      (
-        this.db
-          .prepare("SELECT profile FROM deployment_profile WHERE singleton=1")
-          .get() as { profile: string } | undefined
-      )?.profile !== "companion"
+      (profileQueries.current(this.db) as { profile: string } | undefined)
+        ?.profile !== "companion"
     )
       throw new ExecutionRefused(
         403,

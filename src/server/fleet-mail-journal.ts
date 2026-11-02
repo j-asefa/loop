@@ -1,3 +1,6 @@
+import * as deploymentProfileQueries from "./sql/deployment-profile.js";
+import * as fleetMailOutboxQueries from "./sql/fleet-mail-outbox.js";
+import * as fleetMailInboxQueries from "./sql/fleet-mail-inbox.js";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -59,9 +62,8 @@ export class FleetMailJournal {
   private profile() {
     if (
       (
-        this.db
-          .prepare("SELECT profile FROM deployment_profile WHERE singleton=1")
-          .get() as { profile: string } | undefined
+        deploymentProfileQueries.current(this.db) as
+          { profile: string } | undefined
       )?.profile !== "companion"
     )
       throw unavailable();
@@ -98,11 +100,8 @@ export class FleetMailJournal {
   }
   private outgoingRow(messageId: string) {
     z.string().uuid().parse(messageId);
-    return this.db
-      .prepare(
-        "SELECT * FROM fleet_mail_outbox WHERE owner_id=? AND message_id=?",
-      )
-      .get(this.owner, messageId) as Outgoing | undefined;
+    return fleetMailOutboxQueries.get(this.db, this.owner, messageId) as
+      Outgoing | undefined;
   }
   outgoing(messageId: string) {
     const row = this.outgoingRow(messageId);
@@ -123,42 +122,33 @@ export class FleetMailJournal {
   }
   unsettled(time = this.clock()) {
     return (
-      this.db
-        .prepare(
-          "SELECT message_id FROM fleet_mail_outbox WHERE owner_id=? AND settled=0 AND retry_at<=? ORDER BY updated_at,message_id LIMIT ?",
-        )
-        .all(this.owner, time, FLEET_MAIL_PENDING) as { message_id: string }[]
+      fleetMailOutboxQueries.due(
+        this.db,
+        this.owner,
+        time,
+        FLEET_MAIL_PENDING,
+      ) as { message_id: string }[]
     ).map((row) => row.message_id);
   }
   wake() {
-    this.db
-      .prepare(
-        "UPDATE fleet_mail_outbox SET retry_at=0 WHERE owner_id=? AND settled=0",
-      )
-      .run(this.owner);
+    fleetMailOutboxQueries.restart(this.db, this.owner);
   }
   defer(messageId: string, failed: boolean, time = this.clock()) {
-    const row = this.db
-      .prepare(
-        "SELECT attempts FROM fleet_mail_outbox WHERE owner_id=? AND message_id=? AND settled=0",
-      )
-      .get(this.owner, messageId) as { attempts: number } | undefined;
+    const row = fleetMailOutboxQueries.attempts(
+      this.db,
+      this.owner,
+      messageId,
+    ) as { attempts: number } | undefined;
     if (!row) return;
     const attempts = failed ? row.attempts + 1 : 0;
-    this.db
-      .prepare(
-        "UPDATE fleet_mail_outbox SET attempts=?,retry_at=? WHERE owner_id=? AND message_id=? AND settled=0",
-      )
-      .run(
-        attempts,
-        time +
-          Math.min(
-            300_000,
-            15_000 * 2 ** Math.min(Math.max(attempts - 1, 0), 5),
-          ),
-        this.owner,
-        messageId,
-      );
+    fleetMailOutboxQueries.retry(
+      this.db,
+      attempts,
+      time +
+        Math.min(300_000, 15_000 * 2 ** Math.min(Math.max(attempts - 1, 0), 5)),
+      this.owner,
+      messageId,
+    );
   }
   /** Only the sending machine's internal drainer may obtain an unsent body.
    * Unknown/accepted identities cannot supply a replayable envelope. */
@@ -196,11 +186,13 @@ export class FleetMailJournal {
         this.pins(this.outgoingRow(messageId)!, false);
         // Consume the observed preparation before IO. Restart must ask the
         // destination again; this cached observation cannot authorize a replay.
-        this.db
-          .prepare(
-            "UPDATE fleet_mail_outbox SET state='unknown',receipt=NULL,transmitted_at=?,updated_at=? WHERE owner_id=? AND message_id=?",
-          )
-          .run(this.clock(), this.clock(), this.owner, messageId);
+        fleetMailOutboxQueries.clearReceipt(
+          this.db,
+          this.clock(),
+          this.clock(),
+          this.owner,
+          messageId,
+        );
         return envelope;
       })
       .immediate();
@@ -236,11 +228,9 @@ export class FleetMailJournal {
         this.pins(pins, false);
         if (
           (
-            this.db
-              .prepare(
-                "SELECT count(*) n FROM fleet_mail_outbox WHERE owner_id=? AND settled=0",
-              )
-              .get(this.owner) as { n: number }
+            fleetMailOutboxQueries.pendingCount(this.db, this.owner) as {
+              n: number;
+            }
           ).n >= FLEET_MAIL_PENDING
         )
           throw new Problem(
@@ -248,24 +238,19 @@ export class FleetMailJournal {
             "This workspace has too much pending fleet mail.",
           );
         const now = Date.now();
-        this.db
-          .prepare(
-            `INSERT INTO fleet_mail_outbox
-        (owner_id,message_id,peer_id,fleet_id,source_grant_id,destination_grant_id,payload_digest,envelope,state,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,'pending',?,?)`,
-          )
-          .run(
-            this.owner,
-            envelope.messageId,
-            pins.peer_id,
-            pins.fleet_id,
-            pins.source_grant_id,
-            pins.destination_grant_id,
-            digest,
-            JSON.stringify(envelope),
-            now,
-            now,
-          );
+        fleetMailOutboxQueries.insert(
+          this.db,
+          this.owner,
+          envelope.messageId,
+          pins.peer_id,
+          pins.fleet_id,
+          pins.source_grant_id,
+          pins.destination_grant_id,
+          digest,
+          JSON.stringify(envelope),
+          now,
+          now,
+        );
         return this.outgoing(envelope.messageId)!;
       })
       .immediate();
@@ -286,11 +271,13 @@ export class FleetMailJournal {
         authorizeSender(structuredClone(envelope));
         this.pins(row, false);
         const now = Date.now();
-        this.db
-          .prepare(
-            "UPDATE fleet_mail_outbox SET state='unknown',transmitted_at=?,updated_at=? WHERE owner_id=? AND message_id=? AND state='pending'",
-          )
-          .run(now, now, this.owner, messageId);
+        fleetMailOutboxQueries.markTransmitted(
+          this.db,
+          now,
+          now,
+          this.owner,
+          messageId,
+        );
         return envelope;
       })
       .immediate();
@@ -302,12 +289,13 @@ export class FleetMailJournal {
     z.string().uuid().parse(messageId);
     FleetMailRefusal.parse(reason);
     return (
-      this.db
-        .prepare(
-          `UPDATE fleet_mail_outbox SET state='refused',local_refusal=?,
-      settled=1,envelope=NULL,updated_at=? WHERE owner_id=? AND message_id=? AND state='pending'`,
-        )
-        .run(reason, Date.now(), this.owner, messageId).changes === 1
+      fleetMailOutboxQueries.refusePending(
+        this.db,
+        reason,
+        Date.now(),
+        this.owner,
+        messageId,
+      ).changes === 1
     );
   }
 
@@ -344,22 +332,18 @@ export class FleetMailJournal {
           this.sameBinding(previous.admission, receipt.admission);
         }
         const settled = fleetMailSettled(receipt.admission);
-        this.db
-          .prepare(
-            `UPDATE fleet_mail_outbox SET state=?,receipt=?,settled=?,
-        envelope=CASE WHEN ? THEN NULL ELSE envelope END,updated_at=? WHERE owner_id=? AND message_id=?`,
-          )
-          .run(
-            receipt.admission.state === "prepared"
-              ? row.state
-              : receipt.admission.state,
-            JSON.stringify(receipt),
-            settled ? 1 : 0,
-            settled ? 1 : 0,
-            Date.now(),
-            this.owner,
-            messageId,
-          );
+        fleetMailOutboxQueries.receipt(
+          this.db,
+          receipt.admission.state === "prepared"
+            ? row.state
+            : receipt.admission.state,
+          JSON.stringify(receipt),
+          settled ? 1 : 0,
+          settled ? 1 : 0,
+          Date.now(),
+          this.owner,
+          messageId,
+        );
         return this.outgoing(messageId)!;
       })
       .immediate();
@@ -400,11 +384,8 @@ export class FleetMailJournal {
     return context;
   }
   private incomingRow(peer: string, messageId: string) {
-    return this.db
-      .prepare(
-        "SELECT * FROM fleet_mail_inbox WHERE owner_id=? AND peer_id=? AND message_id=?",
-      )
-      .get(this.owner, peer, messageId) as Incoming | undefined;
+    return fleetMailInboxQueries.get(this.db, this.owner, peer, messageId) as
+      Incoming | undefined;
   }
   private incomingReceipt(row: Incoming): FleetMailReceipt {
     return {
@@ -423,17 +404,14 @@ export class FleetMailJournal {
     );
     if (admission.state !== "prepared" || admission.expiresAt > this.clock())
       return row;
-    this.db
-      .prepare(
-        "UPDATE fleet_mail_inbox SET admission=?,revision=revision+1,settled=1,updated_at=? WHERE owner_id=? AND peer_id=? AND message_id=?",
-      )
-      .run(
-        JSON.stringify({ state: "refused", reason: "expired" }),
-        this.clock(),
-        this.owner,
-        row.peer_id,
-        row.message_id,
-      );
+    fleetMailInboxQueries.settle(
+      this.db,
+      JSON.stringify({ state: "refused", reason: "expired" }),
+      this.clock(),
+      this.owner,
+      row.peer_id,
+      row.message_id,
+    );
     return this.incomingRow(row.peer_id, row.message_id)!;
   }
   private refreshIncoming(
@@ -445,18 +423,15 @@ export class FleetMailJournal {
     const next = FleetMailAdmission.parse(inspect(structuredClone(previous)));
     this.sameBinding(previous, next);
     if (fleetPayloadDigest(previous) === fleetPayloadDigest(next)) return row;
-    this.db
-      .prepare(
-        "UPDATE fleet_mail_inbox SET admission=?,revision=revision+1,settled=?,updated_at=? WHERE owner_id=? AND peer_id=? AND message_id=?",
-      )
-      .run(
-        JSON.stringify(next),
-        fleetMailSettled(next) ? 1 : 0,
-        this.clock(),
-        this.owner,
-        row.peer_id,
-        row.message_id,
-      );
+    fleetMailInboxQueries.admission(
+      this.db,
+      JSON.stringify(next),
+      fleetMailSettled(next) ? 1 : 0,
+      this.clock(),
+      this.owner,
+      row.peer_id,
+      row.message_id,
+    );
     return this.incomingRow(row.peer_id, row.message_id)!;
   }
   private capacity(
@@ -466,11 +441,11 @@ export class FleetMailJournal {
     // At the quota, refresh bounded owner-local state without relying on a
     // sender's receipt poll or its continued grant. Identity tombstones remain;
     // inspection neither admits new mail nor dispatches native work.
-    const pending = this.db
-      .prepare(
-        "SELECT * FROM fleet_mail_inbox WHERE owner_id=? AND settled=0 LIMIT ?",
-      )
-      .all(this.owner, FLEET_MAIL_PENDING) as Incoming[];
+    const pending = fleetMailInboxQueries.pending(
+      this.db,
+      this.owner,
+      FLEET_MAIL_PENDING,
+    ) as Incoming[];
     const atLimit =
       pending.length === FLEET_MAIL_PENDING ||
       pending.filter((row) => row.peer_id === peer).length >=
@@ -480,11 +455,11 @@ export class FleetMailJournal {
       if (inspect && atLimit) this.refreshIncoming(current, inspect);
     }
     if (!atLimit) return;
-    const remaining = this.db
-      .prepare(
-        "SELECT count(*) n,coalesce(sum(peer_id=?),0) peers FROM fleet_mail_inbox WHERE owner_id=? AND settled=0",
-      )
-      .get(peer, this.owner) as { n: number; peers: number };
+    const remaining = fleetMailInboxQueries.pendingCounts(
+      this.db,
+      peer,
+      this.owner,
+    ) as { n: number; peers: number };
     if (
       remaining.n >= FLEET_MAIL_PENDING ||
       remaining.peers >= FLEET_MAIL_PEER_PENDING
@@ -535,24 +510,19 @@ export class FleetMailJournal {
           reservationId: randomUUID(),
           expiresAt: now + FLEET_MAIL_PREPARE_MS,
         };
-        this.db
-          .prepare(
-            `INSERT INTO fleet_mail_inbox
-        (owner_id,peer_id,message_id,fleet_id,source_grant_id,destination_grant_id,payload_digest,admission,revision,settled,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,1,0,?,?)`,
-          )
-          .run(
-            this.owner,
-            pins.peer_id,
-            offer.messageId,
-            pins.fleet_id,
-            pins.source_grant_id,
-            pins.destination_grant_id,
-            pins.payload_digest,
-            JSON.stringify(admission),
-            now,
-            now,
-          );
+        fleetMailInboxQueries.prepare(
+          this.db,
+          this.owner,
+          pins.peer_id,
+          offer.messageId,
+          pins.fleet_id,
+          pins.source_grant_id,
+          pins.destination_grant_id,
+          pins.payload_digest,
+          JSON.stringify(admission),
+          now,
+          now,
+        );
         return this.incomingReceipt(
           this.incomingRow(offer.source, offer.messageId)!,
         );
@@ -666,41 +636,33 @@ export class FleetMailJournal {
         this.pins(pins, true);
         const now = this.clock();
         if (existing) {
-          this.db
-            .prepare(
-              "UPDATE fleet_mail_inbox SET admission=?,revision=revision+1,settled=?,updated_at=? WHERE owner_id=? AND peer_id=? AND message_id=?",
-            )
-            .run(
-              JSON.stringify(admission),
-              fleetMailSettled(admission) ? 1 : 0,
-              now,
-              this.owner,
-              pins.peer_id,
-              envelope.messageId,
-            );
+          fleetMailInboxQueries.admission(
+            this.db,
+            JSON.stringify(admission),
+            fleetMailSettled(admission) ? 1 : 0,
+            now,
+            this.owner,
+            pins.peer_id,
+            envelope.messageId,
+          );
           return this.incomingReceipt(
             this.incomingRow(pins.peer_id, envelope.messageId)!,
           );
         }
-        this.db
-          .prepare(
-            `INSERT INTO fleet_mail_inbox
-        (owner_id,peer_id,message_id,fleet_id,source_grant_id,destination_grant_id,payload_digest,admission,revision,settled,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,1,?,?,?)`,
-          )
-          .run(
-            this.owner,
-            pins.peer_id,
-            envelope.messageId,
-            pins.fleet_id,
-            pins.source_grant_id,
-            pins.destination_grant_id,
-            digest,
-            JSON.stringify(admission),
-            fleetMailSettled(admission) ? 1 : 0,
-            now,
-            now,
-          );
+        fleetMailInboxQueries.insert(
+          this.db,
+          this.owner,
+          pins.peer_id,
+          envelope.messageId,
+          pins.fleet_id,
+          pins.source_grant_id,
+          pins.destination_grant_id,
+          digest,
+          JSON.stringify(admission),
+          fleetMailSettled(admission) ? 1 : 0,
+          now,
+          now,
+        );
         return this.incomingReceipt(
           this.incomingRow(pins.peer_id, envelope.messageId)!,
         );

@@ -1,3 +1,4 @@
+import * as fleetDevicesQueries from "./sql/fleet-devices.js";
 import type Database from "better-sqlite3";
 import {
   closeSync,
@@ -98,11 +99,9 @@ export class DeviceExpiryChecks {
     const pending = this.pending();
     if (!pending.length) return;
     db.transaction(() => {
-      const remove = db.prepare(
-        "DELETE FROM fleet_devices WHERE owner_id=? AND id=?",
-      );
       for (const check of pending)
-        for (const id of check.devices) remove.run(this.owner, id);
+        for (const id of check.devices)
+          fleetDevicesQueries.remove(db, this.owner, id);
     }).immediate();
     for (const check of pending) this.finish(check);
   }

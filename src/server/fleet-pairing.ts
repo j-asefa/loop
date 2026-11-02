@@ -1,3 +1,7 @@
+import * as fleetDeviceStoreQueries from "./sql/fleet-device-store.js";
+import * as fleetPairingCeremoniesQueries from "./sql/fleet-pairing-ceremonies.js";
+import * as fleetPairingClockQueries from "./sql/fleet-pairing-clock.js";
+import * as fleetDevicesQueries from "./sql/fleet-devices.js";
 import type Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -83,9 +87,8 @@ export class FleetPairing implements DeviceTrust {
     let importedCheck: DeviceExpiryCheck | undefined;
     const path = join(directory, "devices.json");
     db.transaction(() => {
-      const imported = db
-        .prepare("SELECT owner_id FROM fleet_device_store WHERE singleton=1")
-        .get() as { owner_id: string } | undefined;
+      const imported = fleetDeviceStoreQueries.owner(db) as
+        { owner_id: string } | undefined;
       if (imported) {
         if (imported.owner_id !== owner)
           throw new Problem(403, "Device trust belongs to another owner.");
@@ -109,7 +112,7 @@ export class FleetPairing implements DeviceTrust {
         const expires = Math.min(old.expires, maxExpires);
         if (expires > now) this.insertDevice({ ...old, expires, maxExpires });
       }
-      db.prepare("INSERT INTO fleet_device_store VALUES(1,?)").run(owner);
+      fleetDeviceStoreQueries.initialize(db, owner);
     }).immediate();
     if (importedCheck) this.checks.finish(importedCheck);
     this.checks.recover(db);
@@ -120,9 +123,7 @@ export class FleetPairing implements DeviceTrust {
     atomic(path, { version: 2, store: "workspace-database" });
     // Preserve completed receipts and device trust, but never reconstruct an
     // unused code's elapsed lifetime from wall time after a restart.
-    db.prepare(
-      "UPDATE fleet_pairing_ceremonies SET state='cancelled' WHERE owner_id=? AND state='pending'",
-    ).run(owner);
+    fleetPairingCeremoniesQueries.cancelPending(db, owner);
     this.expire();
   }
 
@@ -136,9 +137,8 @@ export class FleetPairing implements DeviceTrust {
         409,
         "Device expiry could not be persisted. Repair local storage and restart Loop55.",
       );
-    const prior = this.db
-      .prepare("SELECT observed_at FROM fleet_pairing_clock WHERE singleton=1")
-      .get() as { observed_at: number } | undefined;
+    const prior = fleetPairingClockQueries.current(this.db) as
+      { observed_at: number } | undefined;
     const value = Math.floor(this.wall());
     if (
       !Number.isSafeInteger(value) ||
@@ -151,19 +151,21 @@ export class FleetPairing implements DeviceTrust {
         "The local clock moved backwards. Restore the clock before pairing or authenticating.",
       );
     this.observedWall = value;
-    if (persist)
-      this.db
-        .prepare(
-          "INSERT INTO fleet_pairing_clock VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET observed_at=max(observed_at,excluded.observed_at)",
-        )
-        .run(value);
+    if (persist) fleetPairingClockQueries.observe(this.db, value);
     return value;
   }
   private insertDevice(device: TrustedDevice) {
     const d = Device.parse(device);
-    this.db
-      .prepare("INSERT INTO fleet_devices VALUES(?,?,?,?,?,?,?)")
-      .run(d.id, this.owner, d.name, d.hash, d.csrf, d.expires, d.maxExpires);
+    fleetDevicesQueries.insert(
+      this.db,
+      d.id,
+      this.owner,
+      d.name,
+      d.hash,
+      d.csrf,
+      d.expires,
+      d.maxExpires,
+    );
   }
   private checked(device: TrustedDevice) {
     if (this.clockFailed) return;
@@ -194,11 +196,8 @@ export class FleetPairing implements DeviceTrust {
     }
   }
   private selectDevices() {
-    return this.db
-      .prepare(
-        "SELECT id,name,hash,csrf,expires,max_expires AS maxExpires FROM fleet_devices WHERE owner_id=?",
-      )
-      .all(this.owner)
+    return fleetDevicesQueries
+      .list(this.db, this.owner)
       .map((row) => Device.parse(row));
   }
   devices() {
@@ -207,19 +206,11 @@ export class FleetPairing implements DeviceTrust {
     return this.selectDevices();
   }
   device(id: string) {
-    const row = this.db
-      .prepare(
-        "SELECT id,name,hash,csrf,expires,max_expires AS maxExpires FROM fleet_devices WHERE owner_id=? AND id=?",
-      )
-      .get(this.owner, id);
+    const row = fleetDevicesQueries.byId(this.db, this.owner, id);
     return row ? this.checked(Device.parse(row))?.device : undefined;
   }
   authenticate(digest: string) {
-    const row = this.db
-      .prepare(
-        "SELECT id,name,hash,csrf,expires,max_expires AS maxExpires FROM fleet_devices WHERE owner_id=? AND hash=?",
-      )
-      .get(this.owner, digest);
+    const row = fleetDevicesQueries.byHash(this.db, this.owner, digest);
     if (!row) return;
     const checked = this.checked(Device.parse(row));
     if (!checked) return;
@@ -231,11 +222,15 @@ export class FleetPairing implements DeviceTrust {
       }) as number;
       try {
         this.db.pragma("busy_timeout = 0");
-        const update = this.db
-          .prepare(
-            "UPDATE fleet_devices SET expires=max(expires,?) WHERE owner_id=? AND id=? AND hash=? AND expires>? AND max_expires>?",
-          )
-          .run(expires, this.owner, device.id, digest, now, now);
+        const update = fleetDevicesQueries.renew(
+          this.db,
+          expires,
+          this.owner,
+          device.id,
+          digest,
+          now,
+          now,
+        );
         if (!update.changes) return;
         device.expires = expires;
       } catch (error) {
@@ -248,9 +243,7 @@ export class FleetPairing implements DeviceTrust {
     return device;
   }
   revoke(id: string) {
-    this.db
-      .prepare("DELETE FROM fleet_devices WHERE owner_id=? AND id=?")
-      .run(this.owner, id);
+    fleetDevicesQueries.remove(this.db, this.owner, id);
   }
   private retire(id: string, check: DeviceExpiryCheck, now: number) {
     const timeout = this.db.pragma("busy_timeout", { simple: true }) as number;
@@ -258,14 +251,8 @@ export class FleetPairing implements DeviceTrust {
       this.db.pragma("busy_timeout = 0");
       this.db
         .transaction(() => {
-          this.db
-            .prepare(
-              "INSERT INTO fleet_pairing_clock VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET observed_at=max(observed_at,excluded.observed_at)",
-            )
-            .run(now);
-          this.db
-            .prepare("DELETE FROM fleet_devices WHERE owner_id=? AND id=?")
-            .run(this.owner, id);
+          fleetPairingClockQueries.observe(this.db, now);
+          fleetDevicesQueries.remove(this.db, this.owner, id);
         })
         .immediate();
       this.checks.finish(check);
@@ -284,11 +271,11 @@ export class FleetPairing implements DeviceTrust {
     for (const device of this.selectDevices()) this.checked(device);
   }
   originChanged(origin: string) {
-    this.db
-      .prepare(
-        "UPDATE fleet_pairing_ceremonies SET state='cancelled' WHERE owner_id=? AND state='pending' AND origin<>?",
-      )
-      .run(this.owner, origin);
+    fleetPairingCeremoniesQueries.cancelOtherOrigins(
+      this.db,
+      this.owner,
+      origin,
+    );
   }
   private mint(
     origin: string,
@@ -320,38 +307,23 @@ export class FleetPairing implements DeviceTrust {
         const id = randomUUID(),
           device = kind === "enrollment" ? null : secret(),
           enrollment = kind === "device" ? null : secret();
-        this.db
-          .prepare(
-            "DELETE FROM fleet_pairing_ceremonies WHERE owner_id=? AND state<>'enrollment' AND expires_at<=?",
-          )
-          .run(this.owner, now);
-        this.db
-          .prepare(
-            "UPDATE fleet_pairing_ceremonies SET state='cancelled' WHERE owner_id=? AND state='pending'",
-          )
-          .run(this.owner);
+        fleetPairingCeremoniesQueries.expire(this.db, this.owner, now);
+        fleetPairingCeremoniesQueries.cancelPending(this.db, this.owner);
         // Rapid minting is bounded as well as expiry; cancelled capabilities can
         // be removed because an absent ceremony can never be redeemed.
-        this.db
-          .prepare(
-            "DELETE FROM fleet_pairing_ceremonies WHERE owner_id=? AND state='cancelled'",
-          )
-          .run(this.owner);
-        this.db
-          .prepare(
-            "INSERT INTO fleet_pairing_ceremonies VALUES(?,?,?,?,?,?,?,?,?,'pending',NULL,NULL,NULL)",
-          )
-          .run(
-            id,
-            this.owner,
-            origin,
-            JSON.stringify(allowed),
-            state.head,
-            recovery ? "recover" : state.head ? "repair" : "enroll",
-            device && hash(device),
-            enrollment && hash(enrollment),
-            now + FLEET_PAIRING_LIFETIME_MS,
-          );
+        fleetPairingCeremoniesQueries.clearCancelled(this.db, this.owner);
+        fleetPairingCeremoniesQueries.insert(
+          this.db,
+          id,
+          this.owner,
+          origin,
+          JSON.stringify(allowed),
+          state.head,
+          recovery ? "recover" : state.head ? "repair" : "enroll",
+          device && hash(device),
+          enrollment && hash(enrollment),
+          now + FLEET_PAIRING_LIFETIME_MS,
+        );
         if (kind === "device") return { id, url: `${origin}/#pair=${device}` };
         const common = {
           version: 1 as const,
@@ -401,11 +373,11 @@ export class FleetPairing implements DeviceTrust {
     const now = this.now();
     return this.db
       .transaction(() => {
-        const row = this.db
-          .prepare(
-            "SELECT * FROM fleet_pairing_ceremonies WHERE owner_id=? AND device_hash=?",
-          )
-          .get(this.owner, hash(value.secret));
+        const row = fleetPairingCeremoniesQueries.device(
+          this.db,
+          this.owner,
+          hash(value.secret),
+        );
         if (!row) throw rejected();
         const ceremony = Ceremony.parse(row);
         if (
@@ -416,14 +388,10 @@ export class FleetPairing implements DeviceTrust {
           (value.ceremonyId && value.ceremonyId !== ceremony.id)
         )
           throw rejected();
-        this.db
-          .prepare(
-            "DELETE FROM fleet_devices WHERE owner_id=? AND (expires<=? OR max_expires<=?)",
-          )
-          .run(this.owner, now, now);
-        const count = this.db
-          .prepare("SELECT count(*) n FROM fleet_devices WHERE owner_id=?")
-          .get(this.owner) as { n: number };
+        fleetDevicesQueries.expire(this.db, this.owner, now, now);
+        const count = fleetDevicesQueries.count(this.db, this.owner) as {
+          n: number;
+        };
         if (count.n >= 10)
           throw new Problem(
             409,
@@ -439,11 +407,11 @@ export class FleetPairing implements DeviceTrust {
           expires,
           maxExpires: now + 2 * year,
         });
-        this.db
-          .prepare(
-            "UPDATE fleet_pairing_ceremonies SET state='device' WHERE id=? AND owner_id=?",
-          )
-          .run(ceremony.id, this.owner);
+        fleetPairingCeremoniesQueries.consumeDevice(
+          this.db,
+          ceremony.id,
+          this.owner,
+        );
         return { token, expires };
       })
       .immediate();
@@ -485,11 +453,12 @@ export class FleetPairing implements DeviceTrust {
     const now = this.now();
     return this.db
       .transaction(() => {
-        const raw = this.db
-          .prepare(
-            "SELECT * FROM fleet_pairing_ceremonies WHERE id=? AND owner_id=? AND enrollment_hash=?",
-          )
-          .get(value.ceremonyId, this.owner, hash(value.secret));
+        const raw = fleetPairingCeremoniesQueries.enrollment(
+          this.db,
+          value.ceremonyId,
+          this.owner,
+          hash(value.secret),
+        );
         if (!raw) throw rejected();
         const ceremony = Ceremony.parse(raw);
         if (ceremony.origin !== value.origin) throw rejected();
@@ -511,11 +480,11 @@ export class FleetPairing implements DeviceTrust {
         )
           throw rejected();
         if (
-          this.db
-            .prepare(
-              "SELECT 1 FROM fleet_pairing_ceremonies WHERE owner_id=? AND operation_id=?",
-            )
-            .get(this.owner, value.operationId)
+          fleetPairingCeremoniesQueries.operationExists(
+            this.db,
+            this.owner,
+            value.operationId,
+          )
         )
           throw new Problem(409, "Enrollment operation ID is already bound.");
         const result = response.parse(
@@ -528,11 +497,14 @@ export class FleetPairing implements DeviceTrust {
         const json = JSON.stringify(result);
         if (!json || Buffer.byteLength(json) > 64 * 1024)
           throw new Problem(413, "Enrollment receipt exceeds its bound.");
-        this.db
-          .prepare(
-            "UPDATE fleet_pairing_ceremonies SET state='enrollment',operation_id=?,payload_digest=?,result=? WHERE id=? AND owner_id=?",
-          )
-          .run(value.operationId, digest, json, ceremony.id, this.owner);
+        fleetPairingCeremoniesQueries.consumeEnrollment(
+          this.db,
+          value.operationId,
+          digest,
+          json,
+          ceremony.id,
+          this.owner,
+        );
         return result;
       })
       .immediate();

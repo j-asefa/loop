@@ -1,3 +1,5 @@
+import * as fleetEffectAuthorizationsQueries from "./sql/fleet-effect-authorizations.js";
+import * as fleetEffectEditAuthorizationsQueries from "./sql/fleet-effect-edit-authorizations.js";
 import { FleetGrantContext } from "../shared/fleet.js";
 import { db } from "./db.js";
 import { FleetAuthority } from "./fleet-authority.js";
@@ -27,16 +29,12 @@ function insertEdit(
   commandId: string,
   grantContext: string,
 ) {
-  const prior = db
-    .prepare(
-      `
-    SELECT grant_context FROM fleet_effect_authorizations
-    WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId AND command_id=@commandId
-    UNION ALL SELECT grant_context FROM fleet_effect_edit_authorizations
-    WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId AND command_id=@commandId
-  `,
-    )
-    .all({ owner, kind, effectId, commandId }) as { grant_context: string }[];
+  const prior = fleetEffectAuthorizationsQueries.commandGrants(db, {
+    owner,
+    kind,
+    effectId,
+    commandId,
+  }) as { grant_context: string }[];
   const digest = fleetPayloadDigest(JSON.parse(grantContext));
   if (
     prior.some(
@@ -47,11 +45,14 @@ function insertEdit(
       409,
       "This effect command belongs to a different fleet grant.",
     );
-  return db
-    .prepare(
-      "INSERT OR IGNORE INTO fleet_effect_edit_authorizations VALUES(?,?,?,?,?)",
-    )
-    .run(owner, kind, effectId, commandId, grantContext).changes;
+  return fleetEffectEditAuthorizationsQueries.insert(
+    db,
+    owner,
+    kind,
+    effectId,
+    commandId,
+    grantContext,
+  ).changes;
 }
 
 export function authorizeFleetEffect(owner: string, input: FleetGrantContext) {
@@ -86,7 +87,8 @@ export function recordFleetEffect(owner: string, kind: Kind, effectId: string) {
       "Fleet acceptance requires its owner transaction.",
     );
   authorizeFleetEffect(owner, context.grant);
-  db.prepare("INSERT INTO fleet_effect_authorizations VALUES(?,?,?,?,?)").run(
+  fleetEffectAuthorizationsQueries.insert(
+    db,
     owner,
     kind,
     effectId,
@@ -126,9 +128,13 @@ export function discardFleetEffectEdit(edit: FleetEffectEdit | undefined) {
   if (!edit) return;
   if (!db.inTransaction)
     throw new Error("Fleet edit recovery requires its owner transaction.");
-  db.prepare(
-    "DELETE FROM fleet_effect_edit_authorizations WHERE owner_id=? AND effect_kind=? AND effect_id=? AND command_id=?",
-  ).run(edit.owner, edit.kind, edit.effectId, edit.commandId);
+  fleetEffectEditAuthorizationsQueries.remove(
+    db,
+    edit.owner,
+    edit.kind,
+    edit.effectId,
+    edit.commandId,
+  );
 }
 
 /** Dependent work and its authorization share the owning transaction. Retain
@@ -147,14 +153,11 @@ export function inheritFleetEffect(
     );
   assertFleetAction(owner);
   assertFleetEffect(owner, kind, effectId);
-  const rows = db
-    .prepare(
-      `SELECT command_id,grant_context FROM fleet_effect_authorizations
-    WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId
-    UNION ALL SELECT command_id,grant_context FROM fleet_effect_edit_authorizations
-    WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId`,
-    )
-    .all({ owner, kind, effectId }) as {
+  const rows = fleetEffectAuthorizationsQueries.commands(db, {
+    owner,
+    kind,
+    effectId,
+  }) as {
     command_id: string;
     grant_context: string;
   }[];
@@ -165,12 +168,11 @@ export function inheritFleetEffect(
 /** Revalidate queued work after restart and immediately before native IO.
  * Address revisions may retain the approved grant; tombstones and resets cannot. */
 export function assertFleetEffect(owner: string, kind: Kind, effectId: string) {
-  const rows = db
-    .prepare(
-      `SELECT grant_context FROM fleet_effect_authorizations WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId
-       UNION ALL SELECT grant_context FROM fleet_effect_edit_authorizations WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId`,
-    )
-    .all({ owner, kind, effectId }) as { grant_context: string }[];
+  const rows = fleetEffectAuthorizationsQueries.grants(db, {
+    owner,
+    kind,
+    effectId,
+  }) as { grant_context: string }[];
   for (const row of rows)
     authorizeFleetEffect(
       owner,
@@ -185,15 +187,11 @@ export function withFleetEffect<T>(
   apply: () => T,
 ): T {
   assertFleetEffect(owner, kind, effectId);
-  const row = db
-    .prepare(
-      `SELECT command_id,grant_context FROM fleet_effect_authorizations
-       WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId
-       UNION ALL SELECT command_id,grant_context FROM fleet_effect_edit_authorizations
-       WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId LIMIT 1`,
-    )
-    .get({ owner, kind, effectId }) as
-    { command_id: string; grant_context: string } | undefined;
+  const row = fleetEffectAuthorizationsQueries.firstCommand(db, {
+    owner,
+    kind,
+    effectId,
+  }) as { command_id: string; grant_context: string } | undefined;
   if (!row) return withoutFleetAction(apply);
   const grant = FleetGrantContext.parse(JSON.parse(row.grant_context));
   // Either table supplies a durable context, including inherited constraints.
