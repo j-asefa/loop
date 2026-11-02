@@ -1,3 +1,8 @@
+import * as approvalsQueries from "./sql/approvals.js";
+import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
+import * as nativeDispatchQueries from "./sql/native-dispatch.js";
+import * as runCheckoutsQueries from "./sql/run-checkouts.js";
+import * as runVerificationsQueries from "./sql/run-verifications.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as watchQueries from "./sql/pr-watches.js";
@@ -66,16 +71,10 @@ export function threadDetails(
   owner: string,
   conversation: string,
 ): ThreadDetails {
-  const approvals = db
-    .prepare(
-      `SELECT a.id,a.run_id,a.expires_at,COALESCE(
-    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=@conversation AND m.run_id=a.run_id AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1),
-    (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=@conversation AND m.run_id=a.run_id AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at,m.rowid LIMIT 1)) message_id
-    FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-    WHERE a.owner_id=@owner AND r.conversation_id=@conversation AND r.state='awaiting_approval' AND a.state='pending'
-    ORDER BY a.created_at,a.rowid`,
-    )
-    .all({ owner, conversation }) as ApprovalCandidate[];
+  const approvals = approvalsQueries.feedPending(db, {
+    owner,
+    conversation,
+  }) as ApprovalCandidate[];
   const watches = watchQueries.threadDetails(db, owner, conversation);
   const queued = runsQueries.queuedInConversation(
     db,
@@ -93,10 +92,8 @@ export function threadDetails(
       can_edit:
         run.worker_id === null &&
         !run.active_since &&
-        !db
-          .prepare("SELECT 1 FROM agent_checkpoints WHERE run_id=?")
-          .get(run.id) &&
-        !db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id),
+        !agentCheckpointsQueries.existsForRun(db, run.id) &&
+        !nativeDispatchQueries.existsForRun(db, run.id),
     })),
   };
 }
@@ -118,15 +115,14 @@ export function runDetails(
   if (!runId) return detail;
   const run = runsQueries.owned(db, runId, owner) as QueueRun | undefined;
   if (!run) return detail;
-  const checkout = db
-    .prepare("SELECT summary FROM run_checkouts WHERE run_id=? AND owner_id=?")
-    .get(runId, owner) as { summary: string | null } | undefined;
+  const checkout = runCheckoutsQueries.feedSummary(db, runId, owner) as
+    { summary: string | null } | undefined;
   detail.checkout = checkout?.summary ? JSON.parse(checkout.summary) : null;
-  const verifications = db
-    .prepare(
-      "SELECT * FROM run_verifications WHERE owner_id=? AND run_id=? ORDER BY observed_at,rowid",
-    )
-    .all(owner, runId) as (Omit<VerificationItem, "tools" | "truncated"> & {
+  const verifications = runVerificationsQueries.forRun(
+    db,
+    owner,
+    runId,
+  ) as (Omit<VerificationItem, "tools" | "truncated"> & {
     tools: string;
     truncated: number;
   })[];
@@ -152,11 +148,8 @@ export function runDetails(
   if (
     ["running", "pausing", "paused", "awaiting_approval"].includes(run.state)
   ) {
-    const artifact = db
-      .prepare(
-        `SELECT a.content FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id AND a.owner_id=? JOIN runs r ON r.id=cp.run_id WHERE cp.run_id=?`,
-      )
-      .get(owner, runId) as { content: string } | undefined;
+    const artifact = agentCheckpointsQueries.feedContent(db, owner, runId) as
+      { content: string } | undefined;
     const latest = !artifact?.content
       ? (messagesQueries.latestAssistantContent(db, owner, runId) as
           { content: string } | undefined)

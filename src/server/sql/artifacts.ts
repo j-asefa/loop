@@ -1,3 +1,4 @@
+import type { CardSelection } from "../../shared/cards.js";
 import { FOLDER_PROJECT } from "./folders.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
@@ -428,9 +429,91 @@ export function updateNativeOutput(
   return updateNativeOutputStatement(db).run(content, metadata, updated, id);
 }
 
+const runFilesStatement = statement(
+  "SELECT a.id,a.title,a.metadata FROM artifacts a JOIN artifact_objects f ON f.artifact_id=a.id AND f.owner_id=a.owner_id WHERE a.owner_id=? AND a.run_id=? AND a.archived=0 ORDER BY a.created_at,a.rowid",
+);
+const runFilesRow = QueryRecords.artifacts.pick({
+  id: true,
+  title: true,
+  metadata: true,
+});
+export function runFiles(db: Database.Database, owner: string, run: string) {
+  return runFilesStatement(db)
+    .all(owner, run)
+    .map((row) => parseRecord(runFilesRow, row, "artifacts"));
+}
+
+const editStatement = statement(
+  "UPDATE artifacts SET title=?,content=?,pinned=?,archived=?,version=version+1,updated_at=? WHERE id=?",
+);
+export function edit(
+  db: Database.Database,
+  title: string,
+  content: string,
+  pinned: number,
+  archived: number,
+  time: number,
+  id: string,
+) {
+  return editStatement(db).run(title, content, pinned, archived, time, id);
+}
+
+const markEditedStatement = statement(
+  "UPDATE artifacts SET metadata=json_set(metadata,'$.partial',json('false'),'$.edited',json('true')) WHERE id=?",
+);
+export function markEdited(db: Database.Database, id: string) {
+  return markEditedStatement(db).run(id);
+}
+
+const workspaceListStatements = statementVariants();
+const workspaceListRow = QueryRecords.artifacts.extend({
+  cursor: z.number(),
+  name: z.string().nullable(),
+  provider: z.string().nullable(),
+});
+export function workspaceList(
+  db: Database.Database,
+  owner: string,
+  options: {
+    folder?: string;
+    workspace: boolean;
+    agent?: string;
+    pinned: boolean;
+    before?: number;
+  },
+) {
+  let where = "a.owner_id=? AND a.archived=0";
+  const args: unknown[] = [owner];
+  if (options.folder === "inbox") where += " AND a.folder_id IS NULL";
+  else if (options.folder) {
+    where += options.workspace
+      ? " AND (a.folder_id=? OR a.folder_id IS NULL)"
+      : " AND a.folder_id=?";
+    args.push(options.folder);
+  }
+  if (options.pinned) where += " AND a.pinned=1";
+  if (options.agent) {
+    where += " AND a.agent_id=?";
+    args.push(options.agent);
+  }
+  if (options.before !== undefined) {
+    where += " AND a.rowid<?";
+    args.push(options.before);
+  }
+  return workspaceListStatements(
+    "SELECT a.*,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,a.rowid AS cursor,g.name,g.provider FROM artifacts a LEFT JOIN agents g ON g.id=a.agent_id WHERE " +
+      where +
+      " ORDER BY a.rowid DESC LIMIT 60",
+    db,
+  )
+    .all(...args)
+    .map((row) => parseRecord(workspaceListRow, row, "artifacts"));
+}
+
 const pullReferencesStatement = statement(
   "SELECT content,created_at FROM artifacts WHERE owner_id=? AND conversation_id=? AND kind='github_pr' ORDER BY created_at DESC,rowid DESC",
 );
+
 export function* pullReferences(
   db: Database.Database,
   owner: string,
@@ -442,4 +525,161 @@ export function* pullReferences(
       row,
       "artifacts",
     );
+}
+
+const attachmentAuthorityStatement = statement(
+  "SELECT a.id,\n      (SELECT o.id FROM objects o WHERE o.owner_id=a.owner_id AND o.id=json_extract(a.metadata,'$.objectId')) object_id,\n      EXISTS(SELECT 1 FROM artifact_objects ao WHERE ao.artifact_id=a.id AND ao.owner_id=a.owner_id) published\n      FROM artifacts a WHERE a.id=? AND a.owner_id=?",
+);
+const attachmentAuthorityRow = QueryRecords.artifacts
+  .pick({ id: true })
+  .extend({ object_id: z.string().nullable(), published: z.number() });
+export function attachmentAuthority(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = attachmentAuthorityStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(attachmentAuthorityRow, row, "artifacts");
+}
+
+export type CardQuerySelection = CardSelection & {
+  teamIds: string[];
+  folders: (string | null)[] | null;
+};
+export const cardRow = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  content: z.string(),
+  metadata: z.string(),
+  created_at: z.number(),
+  updated_at: z.number().nullable(),
+  title: z.string().nullable(),
+  kind: z.string().nullable(),
+  version: z.number().nullable(),
+  role: z.string().nullable(),
+  conversation_id: z.string().nullable(),
+  conversation_title: z.string().nullable(),
+  run_id: z.string().nullable(),
+  folder_id: z.string().nullable(),
+  project_id: z.string().nullable(),
+  project_name: z.string().nullable(),
+  team_id: z.string().nullable(),
+  agent_id: z.string().nullable(),
+  agent_name: z.string().nullable(),
+  provider: z.string().nullable(),
+  personal: z.number(),
+  saved: z.number(),
+  feed_hidden: z.number(),
+  order_at: z.number(),
+  key: z.string(),
+  saved_at: z.number().nullable(),
+  label: z.string().nullable(),
+});
+export type CardQueryRow = z.infer<typeof cardRow>;
+export const resultCardSql = `a.archived=0 AND a.feed_hidden=0 AND p.sequence IS NOT NULL AND COALESCE(json_extract(a.metadata,'$.snippet'),0) IN (0,'') AND ${resultOutputSql}`;
+export const savedResultCardSql = `a.archived=0 AND a.pinned=1 AND b.sequence IS NOT NULL
+  AND ${fileArtifactSql} AND json_extract(a.metadata,'$.snippet') IS NULL`;
+
+const cardsStatement = statementVariants();
+const projects = `WITH card_projects(folder_id,project_id) AS (
+  SELECT folder_id,project_id FROM project_change_folders WHERE owner_id=@owner
+)`;
+
+export function cards(
+  db: Database.Database,
+  owner: string,
+  options: CardQuerySelection,
+  {
+    ids,
+    before,
+    limit = 100,
+  }: { ids?: string[]; before?: [number, string] | null; limit?: number } = {},
+) {
+  if (ids && !ids.length) return [];
+  if (options.view === "sent") return [];
+  const folder = "a.folder_id";
+  const agent = "a.agent_id";
+  const filterAgent = agent;
+  const source = "a";
+  const key = `'a:'||${source}.id`;
+  const at =
+    options.view === "saved"
+      ? "COALESCE(b.saved_at,a.updated_at)"
+      : "p.sequence";
+  const predicate =
+    options.view === "saved" ? savedResultCardSql : resultCardSql;
+  const search =
+    "(instr(card_lower(a.content),card_lower(@q))>0 OR instr(card_lower(a.title),card_lower(@q))>0 OR instr(card_lower(l.label),card_lower(@q))>0)";
+  return cardsStatement(
+    `${projects}
+    SELECT ${source}.id,${source}.owner_id,${source}.content,${source}.metadata,${source}.created_at,
+      a.updated_at,a.title,a.kind,a.version,NULL role,
+      c.id conversation_id,c.title conversation_title,r.id run_id,${folder} folder_id,
+      project.id project_id,project.name project_name,c.team_id,
+      g.id agent_id,g.name agent_name,g.provider,
+      0 personal,a.pinned saved,a.feed_hidden,
+      ${at} order_at,${key} key,
+      CASE WHEN a.pinned=1 THEN COALESCE(b.saved_at,a.updated_at) END saved_at,l.label
+    FROM artifacts a
+    LEFT JOIN conversations c ON c.id=${source}.conversation_id AND c.owner_id=${source}.owner_id
+    LEFT JOIN runs r ON r.id=${source}.run_id AND r.owner_id=${source}.owner_id
+    LEFT JOIN agents g ON g.id=(${agent}) AND g.owner_id=${source}.owner_id
+    LEFT JOIN artifact_publications p ON p.artifact_id=a.id LEFT JOIN artifact_bookmarks b ON b.artifact_id=a.id
+    LEFT JOIN saved_labels l ON l.owner_id=${source}.owner_id AND l.item_key=${key}
+    LEFT JOIN card_projects fp ON fp.folder_id IS ${folder}
+    LEFT JOIN folders project ON project.id=fp.project_id AND project.owner_id=${source}.owner_id
+    WHERE ${source}.owner_id=@owner AND (${source}.conversation_id IS NULL OR c.id IS NOT NULL)
+      AND (${predicate})
+      ${ids ? `AND ${source}.id IN (SELECT value FROM json_each(@ids))` : ""}
+      AND (@folders IS NULL OR EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS ${folder}))
+      AND (@agent IS NULL OR (${filterAgent})=@agent)
+      AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
+      AND (@q IS NULL OR ${search})
+      AND (@at IS NULL OR (${at},${key})<(@at,@key))
+    ORDER BY ${at} DESC,${key} DESC LIMIT @limit`,
+    db,
+  )
+    .all({
+      owner,
+      ids: ids ? JSON.stringify(ids) : null,
+      folders: options.folders ? JSON.stringify(options.folders) : null,
+      agent: options.agent || null,
+      teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
+      q: options.q || null,
+      at: before?.[0] ?? null,
+      key: before?.[1] ?? null,
+      limit,
+    })
+    .map((row) => parseRecord(cardRow, row, "artifacts"));
+}
+
+const representedSearchMessagesStatement = statement(
+  "SELECT 'message:'||m.id AS id FROM artifacts a\n      JOIN messages m ON (m.id=json_extract(a.metadata,'$.messageId') OR (a.run_id IS NOT NULL AND m.run_id=a.run_id))\n        AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id\n        AND m.role='assistant' AND json_extract(m.metadata,'$.progress') IS NOT 1 AND trim(replace(m.content,char(13),''))=trim(replace(a.content,char(13),''))\n      WHERE a.owner_id=? AND a.id IN (SELECT value FROM json_each(?))",
+);
+const representedSearchMessagesRow = z.object({ id: z.string() });
+export function representedSearchMessages(
+  db: Database.Database,
+  owner: string,
+  ids: string,
+) {
+  return representedSearchMessagesStatement(db)
+    .all(owner, ids)
+    .map((row) => parseRecord(representedSearchMessagesRow, row, "artifacts"));
+}
+
+const searchMessageStatement = statement(
+  "SELECT m.id AS message_id FROM artifacts a\n                 JOIN messages m ON (m.id=json_extract(a.metadata,'$.messageId') OR (a.run_id IS NOT NULL AND m.run_id=a.run_id))\n                   AND m.owner_id=a.owner_id AND m.conversation_id=a.conversation_id\n                   AND m.role='assistant' AND json_extract(m.metadata,'$.progress') IS NOT 1 AND trim(replace(m.content,char(13),''))=trim(replace(a.content,char(13),''))\n                 WHERE a.id=? AND a.owner_id=?",
+);
+const searchMessageRow = z.object({ message_id: z.string() });
+export function searchMessage(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = searchMessageStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(searchMessageRow, row, "artifacts");
 }

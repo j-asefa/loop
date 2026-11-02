@@ -1,3 +1,11 @@
+import * as approvalsQueries from "./sql/approvals.js";
+import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
+import * as designPreviewSeedQueries from "./sql/design-preview-seed.js";
+import * as agentsQueries from "./sql/agents.js";
+import * as connectionsQueries from "./sql/connections.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as workerHealthQueries from "./sql/worker-health.js";
+import * as eventsQueries from "./sql/events.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import { MessageMetadata, parseRun, parseRuns } from "./row-schemas.js";
@@ -112,7 +120,8 @@ export const designPreviewBoundary: RequestHandler = (req, res, next) => {
       const approved = req.body.decision === "approve";
       // Reuse ownership, expiry and rejection semantics; no dispatcher runs in design mode.
       decide(res.locals.owner, approval[1], req.body.decision);
-      db.prepare("UPDATE approvals SET state=?,result=? WHERE id=?").run(
+      approvalsQueries.previewDecision(
+        db,
         approved ? "completed" : "rejected",
         "Simulated decision; nothing was sent externally.",
         approval[1],
@@ -167,9 +176,14 @@ function finish(run: Run, content: string) {
     folder: run.payload.folderId,
     metadata: { messageId: message, preview: true, model: MODEL },
   });
-  db.prepare(
-    "INSERT OR REPLACE INTO agent_checkpoints(run_id,message_id,artifact_id,history,output,stage) VALUES(?,?,?,?,?,'done')",
-  ).run(run.id, message, artifact, "[]", content);
+  agentCheckpointsQueries.previewComplete(
+    db,
+    run.id,
+    message,
+    artifact,
+    "[]",
+    content,
+  );
   runsQueries.completePreview(db, content, time, time, run.id, run.owner_id);
   emit(run.owner_id, run.id, "completed", { preview: true });
 }
@@ -177,31 +191,22 @@ function finish(run: Run, content: string) {
 /** Seed once. A rebuild preserves edits and pairing rather than duplicating the fixture. */
 export function seedDesignPreview() {
   if (!designPreview) throw new Error("Sample data requires a design preview");
-  db.exec(
-    "CREATE TABLE IF NOT EXISTS design_preview_seed(version INTEGER PRIMARY KEY)",
-  );
-  if (db.prepare("SELECT 1 FROM design_preview_seed WHERE version=1").get())
-    return;
-  if (
-    db.prepare("SELECT 1 FROM agents LIMIT 1").get() ||
-    db.prepare("SELECT 1 FROM connections LIMIT 1").get()
-  )
+  designPreviewSeedQueries.initialize(db);
+  if (designPreviewSeedQueries.exists(db)) return;
+  if (agentsQueries.any(db) || connectionsQueries.any(db))
     throw new Error("Design previews require a fresh sample workspace.");
   db.transaction(() => {
     const project = ensureWorkspaceProject(OWNER),
       connection = id();
     writeConnectionStatus(connection, () =>
-      db
-        .prepare(
-          "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Preview simulator',?,'connected',?,'{\"preview\":true}',?)",
-        )
-        .run(
-          connection,
-          OWNER,
-          seal("preview-only-not-a-provider-key", OWNER),
-          JSON.stringify(models),
-          now(),
-        ),
+      connectionsQueries.insertPreview(
+        db,
+        connection,
+        OWNER,
+        seal("preview-only-not-a-provider-key", OWNER),
+        JSON.stringify(models),
+        now(),
+      ),
     );
     const agents = ["willow", "cedar", "iris", "fern", "maple"].map((name) =>
       createAgent(OWNER, {
@@ -244,9 +249,15 @@ export function seedDesignPreview() {
         conversation = id(),
         runId = id(),
         time = now() - (index + 1) * 3600000;
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,?,?,?)",
-      ).run(conversation, OWNER, agent.id, title, project, time);
+      conversationsQueries.insertPreview(
+        db,
+        conversation,
+        OWNER,
+        agent.id,
+        title,
+        project,
+        time,
+      );
       runsQueries.insertPreview(
         db,
         runId,
@@ -309,9 +320,8 @@ export function seedDesignPreview() {
             "\n\n- One post per session\n- Comments for progress and replies\n- Decisions stay easy to find\n\nThis is sample content. Send a message to try a simulated reply.",
         );
       if (state === "awaiting_approval")
-        db.prepare(
-          "INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES(?,?,?,?,?,'pending',?,?)",
-        ).run(
+        approvalsQueries.insertPreview(
+          db,
           id(),
           OWNER,
           runId,
@@ -327,7 +337,7 @@ export function seedDesignPreview() {
           now() + 365 * 86400000,
         );
     });
-    db.prepare("INSERT INTO design_preview_seed VALUES(1)").run();
+    designPreviewSeedQueries.insert(db);
   }).immediate();
 }
 
@@ -361,9 +371,7 @@ export function startDesignSimulation() {
   };
   const tick = () => {
     db.transaction(() => {
-      db.prepare(
-        "INSERT OR REPLACE INTO worker_health VALUES('design-preview',?)",
-      ).run(now());
+      workerHealthQueries.previewHeartbeat(db, now());
       for (let i = 0; i < 10; i++) {
         // Use the ordinary queue's approval, pause and ordering barriers without dispatching work.
         const run = claim(
@@ -373,11 +381,7 @@ export function startDesignSimulation() {
             candidate.kind === "agent" &&
             candidate.state === "queued" &&
             (!candidate.payload.previewFixture ||
-              !!db
-                .prepare(
-                  "SELECT 1 FROM events WHERE owner_id=? AND run_id=? AND type='queued' LIMIT 1",
-                )
-                .get(OWNER, candidate.id)),
+              !!eventsQueries.previewQueued(db, OWNER, candidate.id)),
         );
         if (!run) break;
         finish(run, REPLY);
@@ -417,12 +421,7 @@ export function startDesignSimulation() {
   tick();
   // The simulation still advertises liveness without polling run/steering rows.
   const timer = setInterval(
-    () =>
-      db
-        .prepare(
-          "INSERT OR REPLACE INTO worker_health VALUES('design-preview',?)",
-        )
-        .run(now()),
+    () => workerHealthQueries.previewHeartbeat(db, now()),
     5000,
   );
   return async () => {
@@ -431,6 +430,6 @@ export function startDesignSimulation() {
     unsubscribe();
     for (const subscription of watched.values()) subscription.release();
     clearInterval(timer);
-    db.prepare("DELETE FROM worker_health WHERE id='design-preview'").run();
+    workerHealthQueries.removePreview(db);
   };
 }

@@ -13,8 +13,8 @@ const source =
     : "../../src/");
 const { config } = await import(source + "server/config.js");
 const { db, changes } = await import(source + "server/db.js");
-installResultReadHook(db);
 installTokenCompletionHook(db);
+installResultReadHook(db);
 const { seal } = await import(source + "server/secrets.js");
 let close: () => Promise<void>;
 let stopListening: () => Promise<void>;

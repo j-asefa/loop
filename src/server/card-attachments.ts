@@ -1,3 +1,4 @@
+import * as artifactsQueries from "./sql/artifacts.js";
 import { db } from "./db.js";
 import type { Card } from "../shared/cards.js";
 export function cardAttachments(
@@ -17,14 +18,7 @@ export function cardAttachments(
       f.size < 0
     )
       return [];
-    const target = db
-      .prepare(
-        `SELECT a.id,
-      (SELECT o.id FROM objects o WHERE o.owner_id=a.owner_id AND o.id=json_extract(a.metadata,'$.objectId')) object_id,
-      EXISTS(SELECT 1 FROM artifact_objects ao WHERE ao.artifact_id=a.id AND ao.owner_id=a.owner_id) published
-      FROM artifacts a WHERE a.id=? AND a.owner_id=?`,
-      )
-      .get(f.id, owner) as
+    const target = artifactsQueries.attachmentAuthority(db, f.id, owner) as
       { id: string; object_id: string | null; published: number } | undefined;
     if (!target) return [];
     return [

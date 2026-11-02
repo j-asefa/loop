@@ -129,3 +129,14 @@ export function reconcileCandidates(
       ),
     );
 }
+
+const feedSummaryStatement = statement(
+  "SELECT summary FROM run_checkouts WHERE run_id=? AND owner_id=?",
+);
+const feedSummaryRow = QueryRecords.run_checkouts.pick({ summary: true });
+export function feedSummary(db: Database.Database, run: string, owner: string) {
+  const row = feedSummaryStatement(db).get(run, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(feedSummaryRow, row, "run_checkouts");
+}

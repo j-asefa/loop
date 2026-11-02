@@ -176,3 +176,18 @@ export function library(
       .map((row) => parseRecord(libraryChoice, row, "artifact_objects")),
   };
 }
+
+const cardPublishedStatement = statement(
+  "SELECT 1 FROM artifact_objects WHERE owner_id=? AND artifact_id=?",
+);
+const cardPublishedRow = z.object({ "1": z.number() });
+export function cardPublished(
+  db: Database.Database,
+  owner: string,
+  id: string,
+) {
+  const row = cardPublishedStatement(db).get(owner, id);
+  return row === undefined
+    ? undefined
+    : parseRecord(cardPublishedRow, row, "artifact_objects");
+}

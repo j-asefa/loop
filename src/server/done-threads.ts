@@ -1,3 +1,7 @@
+import * as doneCardReadsQueries from "./sql/done-card-reads.js";
+import * as doneThreadsQueries from "./sql/done-threads.js";
+import * as doneThreadMembersQueries from "./sql/done-thread-members.js";
+import * as doneThreadCreationsQueries from "./sql/done-thread-creations.js";
 import { db, now, emit } from "./db.js";
 import { ownedAgent, ownedFolder, Problem } from "./domain.js";
 import { doneCards } from "./done-cards.js";
@@ -24,25 +28,15 @@ import type {
 } from "../shared/done-threads.js";
 
 type ThreadRow = { id: string; title: string; created_at: number };
-const rows = db.prepare(
-  "SELECT id,title,created_at FROM done_threads WHERE owner_id=? ORDER BY created_at DESC,id",
-);
-const members = db.prepare(
-  "SELECT card_id FROM done_thread_members WHERE owner_id=? AND thread_id=? ORDER BY card_id",
-);
 function owned(owner: string, id: string): ThreadRow {
-  const row = db
-    .prepare(
-      "SELECT id,title,created_at FROM done_threads WHERE owner_id=? AND id=?",
-    )
-    .get(owner, id) as ThreadRow | undefined;
+  const row = doneThreadsQueries.owned(db, owner, id) as ThreadRow | undefined;
   if (!row) throw new Problem(404, "Thread not found");
   return row;
 }
 function cardIds(owner: string, id: string) {
-  return (members.all(owner, id) as { card_id: string }[]).map(
-    (row) => row.card_id,
-  );
+  return (
+    doneThreadMembersQueries.cards(db, owner, id) as { card_id: string }[]
+  ).map((row) => row.card_id);
 }
 function cards(
   owner: string,
@@ -124,10 +118,12 @@ export function listDoneThreads(
 ): DoneThreadSummary[] {
   return db.transaction(() => {
     const selected = selection(owner, query);
-    return (rows.all(owner) as ThreadRow[]).flatMap((row) => {
-      const value = summary(owner, row, selected);
-      return value ? [value] : [];
-    });
+    return (doneThreadsQueries.forOwner(db, owner) as ThreadRow[]).flatMap(
+      (row) => {
+        const value = summary(owner, row, selected);
+        return value ? [value] : [];
+      },
+    );
   })();
 }
 
@@ -181,18 +177,15 @@ export function listDoneThreadPage(
         400,
         "Thread page cursor belongs to another selection.",
       );
-    const page = db
-      .prepare(
-        "SELECT id,title,created_at FROM done_threads WHERE owner_id=? AND (? IS NULL OR created_at<? OR (created_at=? AND id>?)) ORDER BY created_at DESC,id LIMIT ?",
-      )
-      .all(
-        owner,
-        cursor?.at ?? null,
-        cursor?.at ?? null,
-        cursor?.at ?? null,
-        cursor?.id ?? "",
-        DONE_THREAD_PAGE_ITEMS + 1,
-      ) as ThreadRow[];
+    const page = doneThreadsQueries.page(
+      db,
+      owner,
+      cursor?.at ?? null,
+      cursor?.at ?? null,
+      cursor?.at ?? null,
+      cursor?.id ?? "",
+      DONE_THREAD_PAGE_ITEMS + 1,
+    ) as ThreadRow[];
     const threads: DoneThreadSummary[] = [];
     let bytes = 2048,
       consumed = 0;
@@ -287,24 +280,11 @@ export function setDoneThreadRead(
     .transaction(() => {
       assertFleetAction(owner);
       owned(owner, id);
-      const results = db
-        .prepare(
-          `SELECT m.card_id,m.conversation_id,p.card_key FROM done_thread_members m
-        JOIN feed_cards p ON p.owner_id=m.owner_id AND p.conversation_id=m.conversation_id
-          AND p.kind='result' AND p.card_key=substr(m.card_id,3)
-        WHERE m.owner_id=? AND m.thread_id=?`,
-        )
-        .all(owner, id) as {
+      const results = doneThreadMembersQueries.results(db, owner, id) as {
         card_id: string;
         conversation_id: string;
         card_key: string;
       }[];
-      const insert = db.prepare(
-        "INSERT OR IGNORE INTO done_card_reads(owner_id,conversation_id,card_key,read_at) VALUES(?,?,?,?)",
-      );
-      const remove = db.prepare(
-        "DELETE FROM done_card_reads WHERE owner_id=? AND conversation_id=? AND card_key=?",
-      );
       const unreadVersions: Record<string, number> = {};
       const time = now();
       for (const card of results) {
@@ -313,9 +293,20 @@ export function setDoneThreadRead(
             (versions[card.card_id] ?? 0) ===
             doneUnreadVersion(owner, card.conversation_id, card.card_key)
           )
-            insert.run(owner, card.conversation_id, card.card_key, time);
+            doneCardReadsQueries.insert(
+              db,
+              owner,
+              card.conversation_id,
+              card.card_key,
+              time,
+            );
         } else {
-          remove.run(owner, card.conversation_id, card.card_key);
+          doneCardReadsQueries.remove(
+            db,
+            owner,
+            card.conversation_id,
+            card.card_key,
+          );
           unreadVersions[card.card_id] = advanceDoneUnreadVersion(
             owner,
             card.conversation_id,
@@ -334,9 +325,7 @@ export function setDoneThreadRead(
     .immediate();
 }
 function changed(owner: string) {
-  db.prepare(
-    "DELETE FROM done_threads WHERE owner_id=? AND (SELECT count(*) FROM done_thread_members m WHERE m.owner_id=done_threads.owner_id AND m.thread_id=done_threads.id)<2",
-  ).run(owner);
+  doneThreadsQueries.prune(db, owner);
   emit(owner, { kind: "collection", id: "feed" }, "invalidate", {
     scope: { kind: "collection", id: "feed" },
   });
@@ -351,11 +340,14 @@ function move(owner: string, id: string, input: string[]) {
     throw new Problem(400, "A thread can contain up to 100 cards");
   if (combined.size < 2)
     throw new Problem(400, "Select at least two cards for a new thread");
-  const insert =
-    db.prepare(`INSERT INTO done_thread_members(owner_id,card_id,thread_id,conversation_id) VALUES(?,?,?,?)
-    ON CONFLICT(owner_id,card_id) DO UPDATE SET thread_id=excluded.thread_id,conversation_id=excluded.conversation_id`);
   for (const card of result)
-    insert.run(owner, card.id, id, card.source.conversation_id);
+    doneThreadMembersQueries.move(
+      db,
+      owner,
+      card.id,
+      id,
+      card.source.conversation_id,
+    );
   changed(owner);
   return describe(owned(owner, id), cardIds(owner, id));
 }
@@ -367,17 +359,12 @@ export function createDoneThread(
     .transaction(() => {
       assertFleetAction(owner);
       // A lost response recovers this grouping without moving its cards again.
-      const prior = db
-        .prepare("SELECT owner_id FROM done_thread_creations WHERE id=?")
-        .get(input.id) as { owner_id: string } | undefined;
+      const prior = doneThreadCreationsQueries.owner(db, input.id) as
+        { owner_id: string } | undefined;
       if (prior)
         return describe(owned(owner, input.id), cardIds(owner, input.id));
-      db.prepare(
-        "INSERT INTO done_thread_creations(id,owner_id) VALUES(?,?)",
-      ).run(input.id, owner);
-      db.prepare(
-        "INSERT INTO done_threads(id,owner_id,title,created_at) VALUES(?,?,?,?)",
-      ).run(input.id, owner, input.title, now());
+      doneThreadCreationsQueries.insert(db, input.id, owner);
+      doneThreadsQueries.insert(db, input.id, owner, input.title, now());
       return move(owner, input.id, input.cardIds);
     })
     .immediate();
@@ -396,15 +383,8 @@ export function removeDoneThread(owner: string, id: string, card?: string) {
     .transaction(() => {
       assertFleetAction(owner);
       owned(owner, id);
-      if (card)
-        db.prepare(
-          "DELETE FROM done_thread_members WHERE owner_id=? AND thread_id=? AND card_id=?",
-        ).run(owner, id, card);
-      else
-        db.prepare("DELETE FROM done_threads WHERE owner_id=? AND id=?").run(
-          owner,
-          id,
-        );
+      if (card) doneThreadMembersQueries.remove(db, owner, id, card);
+      else doneThreadsQueries.remove(db, owner, id);
       changed(owner);
       return { ok: true };
     })

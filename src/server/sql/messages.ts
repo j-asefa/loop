@@ -1,3 +1,4 @@
+import { cardRow, type CardQuerySelection } from "./artifacts.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -841,4 +842,81 @@ export function personalCount(
 ) {
   const row = personalCountStatement(db).get(...bindings);
   return parseRecord(personalCountSelection, row, "messages");
+}
+
+export const savedMessageCardSql = `b.message_id IS NOT NULL`;
+
+const cardsStatement = statementVariants();
+const projects = `WITH card_projects(folder_id,project_id) AS (
+  SELECT folder_id,project_id FROM project_change_folders WHERE owner_id=@owner
+)`;
+
+export function cards(
+  db: Database.Database,
+  owner: string,
+  options: CardQuerySelection,
+  {
+    ids,
+    before,
+    limit = 100,
+  }: { ids?: string[]; before?: [number, string] | null; limit?: number } = {},
+) {
+  if (ids && !ids.length) return [];
+  if (options.view === "results") return [];
+  const folder = "COALESCE(json_extract(r.payload,'$.folderId'),c.project_id)";
+  const agent = `CASE WHEN ${personalMessageSql} THEN r.agent_id ELSE COALESCE(r.agent_id,c.agent_id) END`;
+  const filterAgent = `CASE WHEN ${personalMessageSql} THEN r.agent_id END`;
+  const source = "m";
+  const key = `'m:'||${source}.id`;
+  const at = options.view === "saved" ? "b.created_at" : "m.created_at";
+  const predicate =
+    options.view === "saved" ? savedMessageCardSql : personalMessageSql;
+  const search =
+    options.view === "sent"
+      ? "instr(card_lower(m.content),card_lower(@q))>0"
+      : "(instr(card_lower(m.content),card_lower(@q))>0 OR instr(card_lower(c.title),card_lower(@q))>0 OR instr(card_lower(l.label),card_lower(@q))>0)";
+  return cardsStatement(
+    `${projects}
+    SELECT ${source}.id,${source}.owner_id,${source}.content,${source}.metadata,${source}.created_at,
+      NULL updated_at,NULL title,NULL kind,NULL version,m.role,
+      c.id conversation_id,c.title conversation_title,r.id run_id,${folder} folder_id,
+      project.id project_id,project.name project_name,c.team_id,
+      g.id agent_id,g.name agent_name,g.provider,
+      ${`COALESCE((${personalMessageSql}),0) personal,
+        (b.message_id IS NOT NULL OR EXISTS(SELECT 1 FROM artifacts sa WHERE sa.owner_id=m.owner_id
+          AND sa.conversation_id=m.conversation_id AND sa.pinned=1 AND sa.archived=0
+          AND json_extract(sa.metadata,'$.messageId')=m.id)) saved,0 feed_hidden`},
+      ${at} order_at,${key} key,
+      b.created_at saved_at,l.label
+    FROM messages m
+    JOIN conversations c ON c.id=${source}.conversation_id AND c.owner_id=${source}.owner_id
+    LEFT JOIN runs r ON r.id=${source}.run_id AND r.owner_id=${source}.owner_id
+    LEFT JOIN agents g ON g.id=(${agent}) AND g.owner_id=${source}.owner_id
+    LEFT JOIN message_bookmarks b ON b.message_id=m.id AND b.owner_id=m.owner_id
+    LEFT JOIN saved_labels l ON l.owner_id=${source}.owner_id AND l.item_key=${key}
+    LEFT JOIN card_projects fp ON fp.folder_id IS ${folder}
+    LEFT JOIN folders project ON project.id=fp.project_id AND project.owner_id=${source}.owner_id
+    WHERE ${source}.owner_id=@owner AND (${source}.conversation_id IS NULL OR c.id IS NOT NULL)
+      AND (${predicate})
+      ${ids ? `AND ${source}.id IN (SELECT value FROM json_each(@ids))` : ""}
+      AND (@folders IS NULL OR EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS ${folder}))
+      AND (@agent IS NULL OR (${filterAgent})=@agent)
+      AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
+      AND (@q IS NULL OR ${search})
+      AND (@at IS NULL OR (${at},${key})<(@at,@key))
+    ORDER BY ${at} DESC,${key} DESC LIMIT @limit`,
+    db,
+  )
+    .all({
+      owner,
+      ids: ids ? JSON.stringify(ids) : null,
+      folders: options.folders ? JSON.stringify(options.folders) : null,
+      agent: options.agent || null,
+      teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
+      q: options.q || null,
+      at: before?.[0] ?? null,
+      key: before?.[1] ?? null,
+      limit,
+    })
+    .map((row) => parseRecord(cardRow, row, "messages"));
 }

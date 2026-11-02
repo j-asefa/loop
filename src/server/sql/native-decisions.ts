@@ -200,12 +200,27 @@ export function finishDeciding(
     .immediate();
 }
 
+const pendingWebhookStatement = statement(
+  "SELECT id,json_extract(request,'$.kind') kind FROM native_decisions WHERE run_id=? AND state='pending' ORDER BY created_at,id LIMIT 1",
+);
+const pendingWebhookRow = QueryRecords.native_decisions
+  .pick({ id: true })
+  .extend({ kind: z.string().nullable() });
+export function pendingWebhook(db: Database.Database, run: string) {
+  const row = pendingWebhookStatement(db).get(run);
+  return row === undefined
+    ? undefined
+    : parseRecord(pendingWebhookRow, row, "native_decisions");
+}
+
 const ownedGenerationStatement = statement(
   "SELECT d.generation FROM native_decisions d JOIN runs r ON r.id=d.run_id JOIN conversations c ON c.id=d.conversation_id WHERE d.id=? AND r.owner_id=? AND c.owner_id=?",
 );
+
 const ownedGenerationRow = QueryRecords.native_decisions.pick({
   generation: true,
 });
+
 export function ownedGeneration(
   db: Database.Database,
   id: string,
@@ -221,9 +236,11 @@ export function ownedGeneration(
 const ownedGenerationStateStatement = statement(
   "SELECT d.state FROM native_decisions d JOIN runs r ON r.id=d.run_id JOIN conversations c ON c.id=d.conversation_id WHERE d.id=? AND d.generation=? AND r.owner_id=? AND c.owner_id=?",
 );
+
 const ownedGenerationStateRow = QueryRecords.native_decisions.pick({
   state: true,
 });
+
 export function ownedGenerationState(
   db: Database.Database,
   id: string,
@@ -240,21 +257,6 @@ export function ownedGenerationState(
   return row === undefined
     ? undefined
     : parseRecord(ownedGenerationStateRow, row, "native_decisions");
-}
-
-const pendingWebhookStatement = statement(
-  "SELECT id,json_extract(request,'$.kind') kind FROM native_decisions WHERE run_id=? AND state='pending' ORDER BY created_at,id LIMIT 1",
-);
-
-const pendingWebhookRow = QueryRecords.native_decisions
-  .pick({ id: true })
-  .extend({ kind: z.string().nullable() });
-
-export function pendingWebhook(db: Database.Database, run: string) {
-  const row = pendingWebhookStatement(db).get(run);
-  return row === undefined
-    ? undefined
-    : parseRecord(pendingWebhookRow, row, "native_decisions");
 }
 
 const conversationStatement = statement(

@@ -1,3 +1,4 @@
+import * as feedDigestsQueries from "./sql/feed-digests.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 
@@ -43,9 +44,7 @@ function validZone(zone: string) {
 }
 
 export function listDigests(owner: string) {
-  return db
-    .prepare("SELECT * FROM feed_digests WHERE owner_id=? ORDER BY created_at")
-    .all(owner) as FeedDigest[];
+  return feedDigestsQueries.forOwner(db, owner) as FeedDigest[];
 }
 
 export function saveDigest(owner: string, body: unknown, digestId?: string) {
@@ -57,9 +56,7 @@ export function saveDigest(owner: string, body: unknown, digestId?: string) {
   // The prompt already skips it; converting an empty selection to NULL would
   // accidentally widen the digest to every feed.
   const previous = digestId
-    ? (db
-        .prepare("SELECT * FROM feed_digests WHERE id=? AND owner_id=?")
-        .get(digestId, owner) as FeedDigest | undefined)
+    ? (feedDigestsQueries.owned(db, digestId, owner) as FeedDigest | undefined)
     : undefined;
   if (digestId && !previous) throw new Problem(404, "No such digest.");
   const previousFeeds: string[] = previous?.feeds
@@ -80,31 +77,18 @@ export function saveDigest(owner: string, body: unknown, digestId?: string) {
     at: now(),
   };
   if (digestId) {
-    const changed = db
-      .prepare(
-        `UPDATE feed_digests SET agent_id=@agent,conversation_id=@conversation,feeds=@feeds,
-         minute_of_day=@minute,zone=@zone,unread_only=@unread,enabled=@enabled,last_error=NULL
-         WHERE id=@id AND owner_id=@owner`,
-      )
-      .run(row).changes;
+    const changed = feedDigestsQueries.update(db, row).changes;
     if (!changed) throw new Problem(404, "No such digest.");
   } else {
     if (listDigests(owner).length >= PER_OWNER)
       throw new Problem(400, `You can have ${PER_OWNER} digests.`);
-    db.prepare(
-      `INSERT INTO feed_digests(id,owner_id,agent_id,conversation_id,feeds,minute_of_day,zone,unread_only,enabled,created_at)
-       VALUES(@id,@owner,@agent,@conversation,@feeds,@minute,@zone,@unread,@enabled,@at)`,
-    ).run(row);
+    feedDigestsQueries.insert(db, row);
   }
-  return db
-    .prepare("SELECT * FROM feed_digests WHERE id=? AND owner_id=?")
-    .get(row.id, owner) as FeedDigest;
+  return feedDigestsQueries.owned(db, row.id, owner) as FeedDigest;
 }
 
 export function removeDigest(owner: string, digestId: string) {
-  const changed = db
-    .prepare("DELETE FROM feed_digests WHERE id=? AND owner_id=?")
-    .run(digestId, owner).changes;
+  const changed = feedDigestsQueries.remove(db, digestId, owner).changes;
   if (!changed) throw new Problem(404, "No such digest.");
 }
 
@@ -143,10 +127,7 @@ export function dueDigests(at: number) {
   });
 }
 
-const listEnabled = () =>
-  db
-    .prepare("SELECT * FROM feed_digests WHERE enabled=1")
-    .all() as FeedDigest[];
+const listEnabled = () => feedDigestsQueries.enabled(db) as FeedDigest[];
 
 /** What Loop55 asks the agent, with the stories it is asking about. */
 export function digestPrompt(digest: FeedDigest, at: number) {
@@ -207,17 +188,14 @@ export function runDueDigests(at = now()) {
           steer: false,
           automation: { kind: "feed_digest", digestId: digest.id },
         });
-      db.prepare(
-        "UPDATE feed_digests SET last_run_at=?,last_error=NULL WHERE id=?",
-      ).run(at, digest.id);
+      feedDigestsQueries.delivered(db, at, digest.id);
       if (input) sent++;
     } catch (error) {
       // A thread or agent that is gone ends the digest; anything else is
       // worth reporting and trying again tomorrow.
       const gone = error instanceof Problem && error.status === 404;
-      db.prepare(
-        `UPDATE feed_digests SET last_run_at=?,last_error=?,enabled=? WHERE id=?`,
-      ).run(
+      feedDigestsQueries.failed(
+        db,
         at,
         String((error as Error).message).slice(0, 300),
         gone ? 0 : digest.enabled,

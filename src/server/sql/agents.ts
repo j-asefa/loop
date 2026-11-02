@@ -169,67 +169,10 @@ export function projectCounts(db: Database.Database, owner: string) {
     .map((row) => parseRecord(projectCountsRow, row, "agents"));
 }
 
-const mailTeamMembersStatement = statement(
-  "SELECT id,name,connection_id FROM agents WHERE owner_id=? AND retired_at IS NULL AND (id=? OR id IN (SELECT agent_id FROM team_members WHERE team_id=?)) ORDER BY id=? DESC,name",
-);
-
-const mailTeamMembersRow = QueryRecords.agents.pick({
-  id: true,
-  name: true,
-  connection_id: true,
-});
-
-export function mailTeamMembers(
-  db: Database.Database,
-  owner: string,
-  manager: string,
-  team: string,
-  sameManager: string,
-) {
-  return mailTeamMembersStatement(db)
-    .all(owner, manager, team, sameManager)
-    .map((row) => parseRecord(mailTeamMembersRow, row, "agents"));
-}
-
-const mailDirectoryStatement = statement(
-  "SELECT * FROM agents WHERE owner_id=? AND retired_at IS NULL AND id<>? AND (?='' OR instr(lower(name),lower(?))>0) ORDER BY normalized_name,id LIMIT ? OFFSET ?",
-);
-
-const mailDirectoryRow = QueryRecords.agents;
-
-export function mailDirectory(
-  db: Database.Database,
-  owner: string,
-  self: string,
-  query: string,
-  sameQuery: string,
-  limit: number,
-  offset: number,
-) {
-  return mailDirectoryStatement(db)
-    .all(owner, self, query, sameQuery, limit, offset)
-    .map((row) => parseRecord(mailDirectoryRow, row, "agents"));
-}
-
-const ownedNameStatement = statement(
-  "SELECT name FROM agents WHERE owner_id=? AND id=?",
-);
-
-const ownedNameRow = QueryRecords.agents.pick({ name: true });
-
-export function ownedName(db: Database.Database, owner: string, id: string) {
-  const row = ownedNameStatement(db).get(owner, id);
-  return row === undefined
-    ? undefined
-    : parseRecord(ownedNameRow, row, "agents");
-}
-
 const routingSuggestionStatement = statement(
   "SELECT a.* FROM agents a JOIN connections c ON c.id=a.connection_id AND c.owner_id=a.owner_id WHERE a.owner_id=? AND a.retired_at IS NULL AND c.status='connected' ORDER BY COALESCE((SELECT max(r.created_at) FROM runs r WHERE r.agent_id=a.id AND (? IS NULL OR json_extract(r.payload,'$.folderId')=?)),0) DESC,a.created_at DESC LIMIT 1",
 );
-
 const routingSuggestionRow = QueryRecords.agents;
-
 export function routingSuggestion(
   db: Database.Database,
   owner: string,
@@ -245,7 +188,6 @@ export function routingSuggestion(
 const insertImportedStatement = statement(
   "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,?,?,?,'Imported history','','import',?)",
 );
-
 export function insertImported(
   db: Database.Database,
   id: string,
@@ -321,6 +263,83 @@ export function insertNativeImport(
   );
 }
 
+const mailTeamMembersStatement = statement(
+  "SELECT id,name,connection_id FROM agents WHERE owner_id=? AND retired_at IS NULL AND (id=? OR id IN (SELECT agent_id FROM team_members WHERE team_id=?)) ORDER BY id=? DESC,name",
+);
+const mailTeamMembersRow = QueryRecords.agents.pick({
+  id: true,
+  name: true,
+  connection_id: true,
+});
+export function mailTeamMembers(
+  db: Database.Database,
+  owner: string,
+  manager: string,
+  team: string,
+  sameManager: string,
+) {
+  return mailTeamMembersStatement(db)
+    .all(owner, manager, team, sameManager)
+    .map((row) => parseRecord(mailTeamMembersRow, row, "agents"));
+}
+
+const mailDirectoryStatement = statement(
+  "SELECT * FROM agents WHERE owner_id=? AND retired_at IS NULL AND id<>? AND (?='' OR instr(lower(name),lower(?))>0) ORDER BY normalized_name,id LIMIT ? OFFSET ?",
+);
+const mailDirectoryRow = QueryRecords.agents;
+export function mailDirectory(
+  db: Database.Database,
+  owner: string,
+  self: string,
+  query: string,
+  sameQuery: string,
+  limit: number,
+  offset: number,
+) {
+  return mailDirectoryStatement(db)
+    .all(owner, self, query, sameQuery, limit, offset)
+    .map((row) => parseRecord(mailDirectoryRow, row, "agents"));
+}
+
+const ownedNameStatement = statement(
+  "SELECT name FROM agents WHERE owner_id=? AND id=?",
+);
+const ownedNameRow = QueryRecords.agents.pick({ name: true });
+export function ownedName(db: Database.Database, owner: string, id: string) {
+  const row = ownedNameStatement(db).get(owner, id);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedNameRow, row, "agents");
+}
+
+const forConnectionStatement = statement(
+  "SELECT id FROM agents WHERE owner_id=? AND connection_id=?",
+);
+const forConnectionRow = QueryRecords.agents.pick({ id: true });
+export function forConnection(
+  db: Database.Database,
+  owner: string,
+  connection: string,
+) {
+  return forConnectionStatement(db)
+    .all(owner, connection)
+    .map((row) => parseRecord(forConnectionRow, row, "agents"));
+}
+
+const ownedDisplayStatement = statement(
+  "SELECT name,provider FROM agents WHERE id=? AND owner_id=?",
+);
+const ownedDisplayRow = QueryRecords.agents.pick({
+  name: true,
+  provider: true,
+});
+export function ownedDisplay(db: Database.Database, id: string, owner: string) {
+  const row = ownedDisplayStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedDisplayRow, row, "agents");
+}
+
 const activeProfileCountStatement = statement(
   "SELECT count(*) n FROM agents WHERE owner_id=? AND retired_at IS NULL",
 );
@@ -333,4 +352,29 @@ export function activeProfileCount(db: Database.Database, owner: string) {
     activeProfileCountStatement(db).get(owner),
     "agents",
   );
+}
+
+const anyStatement = statement("SELECT 1 FROM agents LIMIT 1");
+const anyRow = z.object({ "1": z.number() });
+export function any(db: Database.Database) {
+  const row = anyStatement(db).get();
+  return row === undefined ? undefined : parseRecord(anyRow, row, "agents");
+}
+
+const searchIdentityStatement = statement(
+  "SELECT name,provider FROM agents WHERE id=? AND owner_id=?",
+);
+const searchIdentityRow = QueryRecords.agents.pick({
+  name: true,
+  provider: true,
+});
+export function searchIdentity(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = searchIdentityStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(searchIdentityRow, row, "agents");
 }

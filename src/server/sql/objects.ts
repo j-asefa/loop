@@ -37,3 +37,14 @@ export function insert(
 ) {
   return insertStatement(db).run(id, owner, name, mime, bytes, created);
 }
+
+const cardOwnedStatement = statement(
+  "SELECT 1 FROM objects WHERE owner_id=? AND id=?",
+);
+const cardOwnedRow = z.object({ "1": z.number() });
+export function cardOwned(db: Database.Database, owner: string, id: string) {
+  const row = cardOwnedStatement(db).get(owner, id);
+  return row === undefined
+    ? undefined
+    : parseRecord(cardOwnedRow, row, "objects");
+}

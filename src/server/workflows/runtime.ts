@@ -1,3 +1,7 @@
+import * as workflowVersionsQueries from "../sql/workflow-versions.js";
+import * as workflowStepsQueries from "../sql/workflow-steps.js";
+import * as conversationsQueries from "../sql/conversations.js";
+import * as approvalsQueries from "../sql/approvals.js";
 import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import { QueryRecords, type QueryRow } from "../query-records.js";
@@ -25,11 +29,8 @@ export function startWorkflow(
   key: string,
 ) {
   const workflow = ownedWorkflow(workflowId, owner);
-  const v = db
-    .prepare(
-      "SELECT * FROM workflow_versions WHERE workflow_id=? AND version=?",
-    )
-    .get(workflow.id, version) as QueryRow<"workflow_versions"> | undefined;
+  const v = workflowVersionsQueries.version(db, workflow.id, version) as
+    QueryRow<"workflow_versions"> | undefined;
   if (!v) throw new Problem(404, "Workflow version not found");
   const spec = compile(v.source),
     resolved: Record<string, string> = {};
@@ -89,42 +90,35 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
   }
   // Approval waiting is excluded from active execution time; per-step provider calls also have timeouts.
   const activeSeconds =
-    (
-      db
-        .prepare(
-          "SELECT COALESCE(sum(r.active_ms + CASE WHEN r.active_since IS NOT NULL THEN max(0,?-r.active_since) ELSE 0 END),0) ms FROM workflow_steps s JOIN runs r ON r.id=s.child_run_id WHERE s.run_id=?",
-        )
-        .get(now(), run.id) as { ms: number }
-    ).ms / 1000;
+    (workflowStepsQueries.activeTime(db, now(), run.id) as { ms: number }).ms /
+    1000;
   if (activeSeconds > p.spec.limits.maxRunSeconds)
     throw new Problem(422, "Workflow exceeded its active runtime budget");
   const outputs: Record<string, string> = {};
   for (let position = 0; position < p.spec.steps.length; position++) {
     const step = p.spec.steps[position];
-    let checkpoint = db
-      .prepare("SELECT * FROM workflow_steps WHERE run_id=? AND step_id=?")
-      .get(run.id, step.id) as QueryRow<"workflow_steps"> | undefined;
+    let checkpoint = workflowStepsQueries.step(db, run.id, step.id) as
+      QueryRow<"workflow_steps"> | undefined;
     if (checkpoint?.state === "completed") {
       outputs[step.id] = checkpoint.output || "";
       continue;
     }
     if (!checkpoint) {
-      db.prepare(
-        "INSERT INTO workflow_steps(run_id,step_id,position,state) VALUES(?,?,?,'pending')",
-      ).run(run.id, step.id, position);
+      workflowStepsQueries.insertPending(db, run.id, step.id, position);
       checkpoint = QueryRecords.workflow_steps.parse(
-        db
-          .prepare("SELECT * FROM workflow_steps WHERE run_id=? AND step_id=?")
-          .get(run.id, step.id),
+        workflowStepsQueries.step(db, run.id, step.id),
       );
     }
     if (step.type === "agent") {
       if (checkpoint.child_run_id) {
         const child = ownedRun(checkpoint.child_run_id, run.owner_id);
         if (child.state === "completed") {
-          db.prepare(
-            "UPDATE workflow_steps SET state='completed',output=? WHERE run_id=? AND step_id=?",
-          ).run(child.result || "", run.id, step.id);
+          workflowStepsQueries.complete(
+            db,
+            child.result || "",
+            run.id,
+            step.id,
+          );
           outputs[step.id] = child.result || "";
           emit(run.owner_id, run.id, "workflow.step.completed", {
             stepId: step.id,
@@ -149,9 +143,8 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
         throw new Problem(422, `Step ${step.id} exceeds its input budget`);
       db.transaction(() => {
         const conversation = id();
-        db.prepare(
-          "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,?,?,?)",
-        ).run(
+        conversationsQueries.insertOrigin(
+          db,
           conversation,
           run.owner_id,
           snapshot.agentId,
@@ -183,9 +176,7 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
           prompt,
           now(),
         );
-        db.prepare(
-          "UPDATE workflow_steps SET state='running',child_run_id=? WHERE run_id=? AND step_id=?",
-        ).run(child.id, run.id, step.id);
+        workflowStepsQueries.startChild(db, child.id, run.id, step.id);
         runsQueries.clearLease(db, run.id);
         emit(run.owner_id, run.id, "workflow.step.started", {
           stepId: step.id,
@@ -208,18 +199,17 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
           workflowId: p.workflowId,
           version: p.version,
         });
-        db.prepare(
-          "UPDATE workflow_steps SET approval_id=? WHERE run_id=? AND step_id=?",
-        ).run(approval.id, run.id, step.id);
+        workflowStepsQueries.approval(db, approval.id, run.id, step.id);
       }
       if (approval.state === "approved" || approval.state === "completed") {
         db.transaction(() => {
-          db.prepare("UPDATE approvals SET state='completed' WHERE id=?").run(
-            approval.id,
+          approvalsQueries.completeState(db, approval.id);
+          workflowStepsQueries.complete(
+            db,
+            outputs[step.source],
+            run.id,
+            step.id,
           );
-          db.prepare(
-            "UPDATE workflow_steps SET state='completed',output=? WHERE run_id=? AND step_id=?",
-          ).run(outputs[step.source], run.id, step.id);
         }).immediate();
         outputs[step.id] = outputs[step.source];
         continue;
@@ -247,9 +237,13 @@ export async function executeWorkflow(run: Run): Promise<boolean> {
             stepId: step.id,
           },
         });
-        db.prepare(
-          "UPDATE workflow_steps SET state='completed',output=?,artifact_id=? WHERE run_id=? AND step_id=?",
-        ).run(content, artifactId, run.id, step.id);
+        workflowStepsQueries.completeArtifact(
+          db,
+          content,
+          artifactId,
+          run.id,
+          step.id,
+        );
       }).immediate();
       outputs[step.id] = content;
     }

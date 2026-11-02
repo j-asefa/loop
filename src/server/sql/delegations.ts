@@ -1,9 +1,10 @@
+import { ACTIVE } from "./runs.js";
+const FINISHED = "('completed','failed','cancelled','interrupted')";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
-import { ACTIVE } from "./runs.js";
 
 const countStatement = statement(
   "SELECT count(*) n FROM delegations WHERE parent_run_id=?",
@@ -66,14 +67,21 @@ export function childOfDelegateOrWorkflow(
     : parseRecord(childOfDelegateOrWorkflowRow, row, "delegations");
 }
 
-const FINISHED = "('completed','failed','cancelled','interrupted')";
+const isChildStatement = statement(
+  "SELECT 1 FROM delegations WHERE parent_run_id=? AND child_run_id=?",
+);
+const isChildRow = z.object({ "1": z.number() });
+export function isChild(db: Database.Database, parent: string, child: string) {
+  const row = isChildStatement(db).get(parent, child);
+  return row === undefined
+    ? undefined
+    : parseRecord(isChildRow, row, "delegations");
+}
 
 const backgroundParentStateStatement = statement(
   "SELECT p.state FROM delegations d\n       JOIN runs child ON child.id=d.child_run_id AND child.owner_id=? AND child.agent_id=?\n       JOIN agents sender ON sender.id=child.agent_id AND sender.owner_id=child.owner_id\n       JOIN runs p ON p.id=d.parent_run_id AND p.owner_id=child.owner_id AND p.agent_id=?\n       WHERE d.child_run_id=? AND d.background=1 AND json_extract(p.payload,'$.teamId')=?",
 );
-
 const backgroundParentStateRow = z.object({ state: z.string() });
-
 export function backgroundParentState(
   db: Database.Database,
   owner: string,
@@ -97,11 +105,9 @@ export function backgroundParentState(
 const mailParentConversationStatement = statement(
   "SELECT p.conversation_id FROM delegations d JOIN runs p ON p.id=d.parent_run_id WHERE d.child_run_id=? AND p.agent_id=?",
 );
-
 const mailParentConversationRow = z.object({
   conversation_id: z.string().nullable(),
 });
-
 export function mailParentConversation(
   db: Database.Database,
   child: string,
@@ -116,11 +122,9 @@ export function mailParentConversation(
 const mailChildConversationStatement = statement(
   "SELECT ch.conversation_id FROM delegations d JOIN runs p ON p.id=d.parent_run_id JOIN runs ch ON ch.id=d.child_run_id WHERE p.owner_id=? AND p.conversation_id=? AND ch.agent_id=? ORDER BY ch.created_at DESC,ch.rowid DESC LIMIT 1",
 );
-
 const mailChildConversationRow = z.object({
   conversation_id: z.string().nullable(),
 });
-
 export function mailChildConversation(
   db: Database.Database,
   owner: string,
@@ -140,9 +144,7 @@ export function mailChildConversation(
 const hasBlockingChildStatement = statement(
   `SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=? AND d.background=0 AND child.state IN ${ACTIVE}`,
 );
-
 const hasBlockingChildRow = z.object({ "1": z.number() });
-
 export function hasBlockingChild(db: Database.Database, run: string) {
   const row = hasBlockingChildStatement(db).get(run);
   return row === undefined
@@ -159,44 +161,27 @@ const finishedMailResultsStatement =
          AND p.state<>'cancelled'
          AND NOT EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=p.owner_id AND m.idempotency_key='result:'||d.child_run_id||':'||c.state)
        ORDER BY c.updated_at LIMIT 200`);
-
 const finishedMailResultsRow = z.object({
   owner_id: z.string(),
   parent_run_id: z.string(),
   child_run_id: z.string(),
   state: z.string(),
 });
-
 export function finishedMailResults(db: Database.Database) {
   return finishedMailResultsStatement(db)
     .all()
     .map((row) => parseRecord(finishedMailResultsRow, row, "delegations"));
 }
 
-const isChildStatement = statement(
-  "SELECT 1 FROM delegations WHERE parent_run_id=? AND child_run_id=?",
-);
-
-const isChildRow = z.object({ "1": z.number() });
-
-export function isChild(db: Database.Database, parent: string, child: string) {
-  const row = isChildStatement(db).get(parent, child);
-  return row === undefined
-    ? undefined
-    : parseRecord(isChildRow, row, "delegations");
-}
-
 const reportsStatement = statement(
   "SELECT r.agent_id,r.state,r.result,r.error FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=? ORDER BY d.call_id",
 );
-
 const reportsRow = QueryRecords.runs.pick({
   agent_id: true,
   state: true,
   result: true,
   error: true,
 });
-
 export function reports(db: Database.Database, run: string | null) {
   return reportsStatement(db)
     .all(run)

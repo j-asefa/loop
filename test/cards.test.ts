@@ -17,6 +17,23 @@ const dir = mkdtempSync(join(tmpdir(), "loop55-cards-"));
 process.env.LOOP55_DATA_DIR = dir;
 process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db");
+// Observe executions so cached lazy statements participate in the same probes.
+const prepare = db.prepare.bind(db);
+let observeAll:
+  | ((sql: string, args: unknown[], read: () => unknown[]) => unknown[])
+  | undefined;
+db.prepare = ((sql: string) => {
+  const statement = prepare(sql);
+  if (
+    sql.startsWith("WITH card_projects(") ||
+    sql.includes("WITH RECURSIVE scope(id)")
+  ) {
+    const all = statement.all.bind(statement);
+    statement.all = (...args: unknown[]) =>
+      observeAll ? observeAll(sql, args, () => all(...args)) : all(...args);
+  }
+  return statement;
+}) as typeof db.prepare;
 const { listCards, cardDetail, cardChanges } =
   await import("../src/server/cards");
 const { setSaved, setSavedLabel, listSaved } =
@@ -361,25 +378,18 @@ it("uses ID lookups for actual detail and change queries and skips empty candida
   setSaved("targeted", "targeted-message", true);
   const saved = listCards("targeted", { view: "saved" });
   const results = listCards("targeted", {});
-  const prepare = db.prepare.bind(db);
   const plans: string[][] = [];
-  const spy = vi.spyOn(db, "prepare").mockImplementation((sql) => {
-    const statement = prepare(sql);
-    if (sql.startsWith("WITH card_projects(")) {
-      const all = statement.all.bind(statement);
-      vi.spyOn(statement, "all").mockImplementation((...args) => {
-        plans.push(
-          (
-            prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as {
-              detail: string;
-            }[]
-          ).map((r) => r.detail),
-        );
-        return all(...args);
-      });
-    }
-    return statement;
-  });
+  observeAll = (sql, args, read) => {
+    if (sql.startsWith("WITH card_projects("))
+      plans.push(
+        (
+          prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as {
+            detail: string;
+          }[]
+        ).map((row) => row.detail),
+      );
+    return read();
+  };
   try {
     expect(cardChanges("targeted", { after: results.revision }).items).toEqual(
       [],
@@ -407,7 +417,7 @@ it("uses ID lookups for actual detail and change queries and skips empty candida
       ).toBe(false);
     }
   } finally {
-    spy.mockRestore();
+    observeAll = undefined;
   }
 });
 
@@ -809,38 +819,32 @@ it.each(["list-out", "list-in", "changes-out", "changes-in"])(
     db.prepare(
       "UPDATE artifacts SET content='Changed before folder move' WHERE id=?",
     ).run(id);
-    const prepare = db.prepare.bind(db);
     let interleaved = false;
-    const spy = vi.spyOn(db, "prepare").mockImplementation((sql) => {
-      const statement = prepare(sql);
+    observeAll = (sql, _args, read) => {
+      const folders = read();
       if (sql.includes("WITH RECURSIVE scope(id)")) {
-        const read = statement.all.bind(statement);
-        vi.spyOn(statement, "all").mockImplementation((...args) => {
-          const folders = read(...args);
-          if (!interleaved) {
-            interleaved = true;
-            const writer = spawnSync(
-              process.execPath,
-              [
-                "-e",
-                `
+        if (!interleaved) {
+          interleaved = true;
+          const writer = spawnSync(
+            process.execPath,
+            [
+              "-e",
+              `
               const DB=require('better-sqlite3');
               const db=new DB(process.argv[1]); db.pragma('foreign_keys=ON');
               db.prepare('UPDATE folders SET parent_id=? WHERE id=?').run(process.argv[2],process.argv[3]);
               db.close();`,
-                join(dir, "loop55.db"),
-                scenario.endsWith("-out") ? other : owner,
-                child,
-              ],
-              { encoding: "utf8" },
-            );
-            expect(writer.status, writer.stderr).toBe(0);
-          }
-          return folders;
-        });
+              join(dir, "loop55.db"),
+              scenario.endsWith("-out") ? other : owner,
+              child,
+            ],
+            { encoding: "utf8" },
+          );
+          expect(writer.status, writer.stderr).toBe(0);
+        }
       }
-      return statement;
-    });
+      return folders;
+    };
     try {
       if (scenario.startsWith("list")) {
         const page = listCards(owner, selection);
@@ -858,7 +862,7 @@ it.each(["list-out", "list-in", "changes-out", "changes-in"])(
         cache.revision = delta.revision;
       }
     } finally {
-      spy.mockRestore();
+      observeAll = undefined;
     }
     expect(interleaved).toBe(true);
     expectCurrent(owner, selection, cache);

@@ -1,3 +1,12 @@
+import * as cardRevisionDomainQueries from "./sql/card-revision-domain.js";
+import * as doneCardRevisionsQueries from "./sql/done-card-revisions.js";
+import * as feedRevisionsQueries from "./sql/feed-revisions.js";
+import * as artifactQueries from "./sql/artifacts.js";
+import * as messageQueries from "./sql/messages.js";
+import * as connectionQueries from "./sql/connections.js";
+import * as objectQueries from "./sql/objects.js";
+import * as artifactObjectQueries from "./sql/artifact-objects.js";
+import type { CardQuerySelection, CardQueryRow } from "./sql/artifacts.js";
 import * as watchQueries from "./sql/pr-watches.js";
 import { fullCardRead, type TokenAdmission } from "../shared/token-scopes.js";
 import { cardAttachments } from "./card-attachments.js";
@@ -6,16 +15,9 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, now } from "./db.js";
 import { Problem, owned } from "./domain.js";
-import { personalMessageSql } from "./personal-history.js";
 import { runModelName } from "../shared/model-display.js";
 import { artifactRefreshSource } from "../shared/artifact-refresh.js";
-import {
-  fileArtifactSql,
-  projectFolders,
-  resultOutputSql,
-  resultUrl,
-  resultsRevision,
-} from "./results.js";
+import { projectFolders, resultUrl, resultsRevision } from "./results.js";
 import { teamFilter } from "./teams.js";
 import {
   CardChangesQuerySchema,
@@ -27,58 +29,8 @@ import {
   type CardView,
 } from "../shared/cards.js";
 
-// Reuse fixed statement plans across cards; each lookup still reads the current
-// owner-bound row so catalog edits, file deletion and revocation stay visible.
-const modelConnection = db.prepare(
-  "SELECT id,provider,models FROM connections WHERE owner_id=? AND id=?",
-);
-const ownedObject = db.prepare(
-  "SELECT 1 FROM objects WHERE owner_id=? AND id=?",
-);
-const publishedFile = db.prepare(
-  "SELECT 1 FROM artifact_objects WHERE owner_id=? AND artifact_id=?",
-);
-
-// One predicate per view, used by list, detail and delta projection. Saved is
-// deliberately broader than Results: hidden pins and saved uploads still exist.
-export const resultCardSql = `a.archived=0 AND a.feed_hidden=0 AND p.sequence IS NOT NULL AND COALESCE(json_extract(a.metadata,'$.snippet'),0) IN (0,'') AND ${resultOutputSql}`;
-export const savedResultCardSql = `a.archived=0 AND a.pinned=1 AND b.sequence IS NOT NULL
-  AND ${fileArtifactSql} AND json_extract(a.metadata,'$.snippet') IS NULL`;
-export const savedMessageCardSql = `b.message_id IS NOT NULL`;
-
-type Selection = CardSelection & {
-  teamIds: string[];
-  folders: (string | null)[] | null;
-};
-type Row = {
-  id: string;
-  owner_id: string;
-  content: string;
-  metadata: string;
-  created_at: number;
-  updated_at: number | null;
-  title: string | null;
-  kind: string | null;
-  version: number | null;
-  role: string | null;
-  conversation_id: string | null;
-  conversation_title: string | null;
-  run_id: string | null;
-  folder_id: string | null;
-  project_id: string | null;
-  project_name: string | null;
-  team_id: string | null;
-  agent_id: string | null;
-  agent_name: string | null;
-  provider: string | null;
-  personal: number;
-  saved: number;
-  feed_hidden: number;
-  order_at: number;
-  key: string;
-  saved_at: number | null;
-  label: string | null;
-};
+type Selection = CardQuerySelection;
+type Row = CardQueryRow;
 const text = (value: unknown): string | null =>
   typeof value === "string" ? value : null;
 const encode = (value: unknown) =>
@@ -101,9 +53,7 @@ function selection(owner: string, input: CardSelection): Selection {
   };
 }
 function fingerprint(owner: string, options: Selection) {
-  const { epoch } = db
-    .prepare("SELECT epoch FROM card_revision_domain WHERE singleton=1")
-    .get() as { epoch: string };
+  const { epoch } = cardRevisionDomainQueries.epoch(db);
   return createHash("sha256")
     .update(
       JSON.stringify([
@@ -165,110 +115,15 @@ db.function("card_lower", { deterministic: true }, (value) =>
   typeof value === "string" ? value.normalize("NFC").toLowerCase() : null,
 );
 
-const projects = `WITH card_projects(folder_id,project_id) AS (
-  SELECT folder_id,project_id FROM project_change_folders WHERE owner_id=@owner
-)`;
-
 function query(
   owner: string,
   options: Selection,
   type: "artifact" | "message",
-  {
-    ids,
-    before,
-    limit = 100,
-  }: { ids?: string[]; before?: [number, string] | null; limit?: number } = {},
-): Row[] {
-  const artifact = type === "artifact";
-  if (ids && !ids.length) return [];
-  if (
-    (artifact && options.view === "sent") ||
-    (!artifact && options.view === "results")
-  )
-    return [];
-  const folder = artifact
-    ? "a.folder_id"
-    : "COALESCE(json_extract(r.payload,'$.folderId'),c.project_id)";
-  const agent = artifact
-    ? "a.agent_id"
-    : `CASE WHEN ${personalMessageSql} THEN r.agent_id ELSE COALESCE(r.agent_id,c.agent_id) END`;
-  const filterAgent = artifact
-    ? agent
-    : `CASE WHEN ${personalMessageSql} THEN r.agent_id END`;
-  const source = artifact ? "a" : "m";
-  const key = `'${artifact ? "a" : "m"}:'||${source}.id`;
-  const at =
-    options.view === "saved"
-      ? artifact
-        ? "COALESCE(b.saved_at,a.updated_at)"
-        : "b.created_at"
-      : artifact
-        ? "p.sequence"
-        : "m.created_at";
-  const predicate = artifact
-    ? options.view === "saved"
-      ? savedResultCardSql
-      : resultCardSql
-    : options.view === "saved"
-      ? savedMessageCardSql
-      : personalMessageSql;
-  const search =
-    options.view === "sent"
-      ? "instr(card_lower(m.content),card_lower(@q))>0"
-      : artifact
-        ? "(instr(card_lower(a.content),card_lower(@q))>0 OR instr(card_lower(a.title),card_lower(@q))>0 OR instr(card_lower(l.label),card_lower(@q))>0)"
-        : "(instr(card_lower(m.content),card_lower(@q))>0 OR instr(card_lower(c.title),card_lower(@q))>0 OR instr(card_lower(l.label),card_lower(@q))>0)";
-  return db
-    .prepare(
-      `${projects}
-    SELECT ${source}.id,${source}.owner_id,${source}.content,${source}.metadata,${source}.created_at,
-      ${artifact ? "a.updated_at,a.title,a.kind,a.version,NULL role" : "NULL updated_at,NULL title,NULL kind,NULL version,m.role"},
-      c.id conversation_id,c.title conversation_title,r.id run_id,${folder} folder_id,
-      project.id project_id,project.name project_name,c.team_id,
-      g.id agent_id,g.name agent_name,g.provider,
-      ${
-        artifact
-          ? "0 personal,a.pinned saved,a.feed_hidden"
-          : `COALESCE((${personalMessageSql}),0) personal,
-        (b.message_id IS NOT NULL OR EXISTS(SELECT 1 FROM artifacts sa WHERE sa.owner_id=m.owner_id
-          AND sa.conversation_id=m.conversation_id AND sa.pinned=1 AND sa.archived=0
-          AND json_extract(sa.metadata,'$.messageId')=m.id)) saved,0 feed_hidden`
-      },
-      ${at} order_at,${key} key,
-      ${artifact ? "CASE WHEN a.pinned=1 THEN COALESCE(b.saved_at,a.updated_at) END" : "b.created_at"} saved_at,l.label
-    FROM ${artifact ? "artifacts a" : "messages m"}
-    ${artifact ? "LEFT JOIN" : "JOIN"} conversations c ON c.id=${source}.conversation_id AND c.owner_id=${source}.owner_id
-    LEFT JOIN runs r ON r.id=${source}.run_id AND r.owner_id=${source}.owner_id
-    LEFT JOIN agents g ON g.id=(${agent}) AND g.owner_id=${source}.owner_id
-    ${
-      artifact
-        ? "LEFT JOIN artifact_publications p ON p.artifact_id=a.id LEFT JOIN artifact_bookmarks b ON b.artifact_id=a.id"
-        : "LEFT JOIN message_bookmarks b ON b.message_id=m.id AND b.owner_id=m.owner_id"
-    }
-    LEFT JOIN saved_labels l ON l.owner_id=${source}.owner_id AND l.item_key=${key}
-    LEFT JOIN card_projects fp ON fp.folder_id IS ${folder}
-    LEFT JOIN folders project ON project.id=fp.project_id AND project.owner_id=${source}.owner_id
-    WHERE ${source}.owner_id=@owner AND (${source}.conversation_id IS NULL OR c.id IS NOT NULL)
-      AND (${predicate})
-      ${ids ? `AND ${source}.id IN (SELECT value FROM json_each(@ids))` : ""}
-      AND (@folders IS NULL OR EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS ${folder}))
-      AND (@agent IS NULL OR (${filterAgent})=@agent)
-      AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
-      AND (@q IS NULL OR ${search})
-      AND (@at IS NULL OR (${at},${key})<(@at,@key))
-    ORDER BY ${at} DESC,${key} DESC LIMIT @limit`,
-    )
-    .all({
-      owner,
-      ids: ids ? JSON.stringify(ids) : null,
-      folders: options.folders ? JSON.stringify(options.folders) : null,
-      agent: options.agent || null,
-      teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
-      q: options.q || null,
-      at: before?.[0] ?? null,
-      key: before?.[1] ?? null,
-      limit,
-    }) as Row[];
+  params: Parameters<typeof artifactQueries.cards>[3] = {},
+) {
+  return type === "artifact"
+    ? artifactQueries.cards(db, owner, options, params)
+    : messageQueries.cards(db, owner, options, params);
 }
 
 function toCard(row: Row): Card {
@@ -339,8 +194,11 @@ function toCard(row: Row): Card {
           !text(meta.resolvedModel) &&
           text(meta.model) &&
           text(meta.connectionId)
-            ? (modelConnection.get(row.owner_id, meta.connectionId) as
-                { id: string; provider: string; models: string } | undefined)
+            ? (connectionQueries.cardModel(
+                db,
+                row.owner_id,
+                text(meta.connectionId)!,
+              ) as { id: string; provider: string; models: string } | undefined)
             : undefined;
         return runModelName(meta, connection ? [connection] : []) || null;
       })(),
@@ -359,9 +217,9 @@ function toCard(row: Row): Card {
       text: meta.text === true,
       download: (() => {
         for (const id of [text(meta.objectId), text(meta.rawObjectId)])
-          if (id && ownedObject.get(row.owner_id, id))
+          if (id && objectQueries.cardOwned(db, row.owner_id, id))
             return "/api/objects/" + encodeURIComponent(id);
-        return publishedFile.get(row.owner_id, row.id)
+        return artifactObjectQueries.cardPublished(db, row.owner_id, row.id)
           ? "/api/artifacts/" + encodeURIComponent(row.id) + "/file"
           : null;
       })(),
@@ -410,13 +268,8 @@ export function listCards(owner: string, input: unknown) {
   // the watermark before resolving them so a concurrent move is replayed.
   const revision =
     options.view === "done"
-      ? (
-          db
-            .prepare(
-              "SELECT COALESCE(max(revision),0) revision FROM done_card_revisions WHERE owner_id=?",
-            )
-            .get(owner) as { revision: number }
-        ).revision
+      ? (doneCardRevisionsQueries.revision(db, owner) as { revision: number })
+          .revision
       : resultsRevision(owner);
   const selected = selection(owner, options),
     scope = fingerprint(owner, selected);
@@ -489,13 +342,8 @@ export function cardChanges(owner: string, input: unknown) {
     throw new Problem(400, "through is a Results publication bound only");
   const revision =
     options.view === "done"
-      ? (
-          db
-            .prepare(
-              "SELECT COALESCE(max(revision),0) revision FROM done_card_revisions WHERE owner_id=?",
-            )
-            .get(owner) as { revision: number }
-        ).revision
+      ? (doneCardRevisionsQueries.revision(db, owner) as { revision: number })
+          .revision
       : resultsRevision(owner);
   const selected = selection(owner, options),
     scope = fingerprint(owner, selected);
@@ -525,16 +373,10 @@ export function cardChanges(owner: string, input: unknown) {
   } else after = readRevision(options.after, scope, revision);
   // Scan all entities for this owner, including irrelevant candidates, to make
   // progress through removals. Both prompt/message entities map to one identity.
-  const changed = db
-    .prepare(
-      `SELECT revision,entity,object_id FROM ${options.view === "done" ? "done_card_revisions" : "feed_revisions"}
-    WHERE owner_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 200`,
-    )
-    .all(owner, after, revision) as {
-    revision: number;
-    entity: string;
-    object_id: string;
-  }[];
+  const changed =
+    options.view === "done"
+      ? doneCardRevisionsQueries.cardChanges(db, owner, after, revision)
+      : feedRevisionsQueries.cardChanges(db, owner, after, revision);
   if (options.view === "done") {
     // Approval and stopped-watch expiry can change cards without a write. Carry a
     // second, bounded cursor so timestamp ties and revision backlogs cannot

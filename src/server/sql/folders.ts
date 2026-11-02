@@ -154,10 +154,84 @@ export function parentProjectPath(
     : parseRecord(parentProjectPathRow, row, "folders");
 }
 
+const workspaceCatalogStatement = statement(
+  "SELECT f.*,EXISTS(SELECT 1 FROM workspace_projects w WHERE w.owner_id=f.owner_id AND w.project_id=f.id) is_workspace FROM folders f WHERE f.owner_id=? ORDER BY f.name",
+);
+const workspaceCatalogRow = QueryRecords.folders.extend({
+  is_workspace: z.number(),
+});
+export function workspaceCatalog(db: Database.Database, owner: string) {
+  return workspaceCatalogStatement(db)
+    .all(owner)
+    .map((row) => parseRecord(workspaceCatalogRow, row, "folders"));
+}
+
+const nameExistsStatement = statement(
+  "SELECT 1 FROM folders WHERE owner_id=? AND parent_id IS ? AND lower(name)=lower(?)",
+);
+const nameExistsRow = z.object({ "1": z.number() });
+export function nameExists(
+  db: Database.Database,
+  owner: string,
+  parent: string | null,
+  name: string,
+) {
+  const row = nameExistsStatement(db).get(owner, parent, name);
+  return row === undefined
+    ? undefined
+    : parseRecord(nameExistsRow, row, "folders");
+}
+
+const insertValuesStatement = statement(
+  "INSERT INTO folders VALUES(?,?,?,?,?,?)",
+);
+export function insertValues(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  parent: string | null,
+  kind: string,
+  name: string,
+  created: number,
+) {
+  return insertValuesStatement(db).run(id, owner, parent, kind, name, created);
+}
+
+const otherNameExistsStatement = statement(
+  "SELECT 1 FROM folders WHERE owner_id=? AND parent_id IS ? AND lower(name)=lower(?) AND id<>?",
+);
+const otherNameExistsRow = z.object({ "1": z.number() });
+export function otherNameExists(
+  db: Database.Database,
+  owner: string,
+  parent: string | null,
+  name: string,
+  id: string,
+) {
+  const row = otherNameExistsStatement(db).get(owner, parent, name, id);
+  return row === undefined
+    ? undefined
+    : parseRecord(otherNameExistsRow, row, "folders");
+}
+
+const renameAndParentStatement = statement(
+  "UPDATE folders SET name=?,parent_id=? WHERE id=?",
+);
+export function renameAndParent(
+  db: Database.Database,
+  name: string,
+  parent: string | null,
+  id: string,
+) {
+  return renameAndParentStatement(db).run(name, parent, id);
+}
+
 const rootProjectCountStatement = statement(
   "SELECT count(*) n FROM folders WHERE owner_id=? AND kind='project' AND parent_id IS NULL",
 );
+
 const rootProjectCountRow = z.object({ n: z.number() });
+
 export function rootProjectCount(db: Database.Database, owner: string) {
   return parseRecord(
     rootProjectCountRow,

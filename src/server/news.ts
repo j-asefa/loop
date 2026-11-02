@@ -1,3 +1,13 @@
+import * as feedSourcesQueries from "./sql/feed-sources.js";
+import * as feedSearchQueries from "./sql/feed-search.js";
+import * as feedStateQueries from "./sql/feed-state.js";
+import * as feedStoriesQueries from "./sql/feed-stories.js";
+import * as feedReadsQueries from "./sql/feed-reads.js";
+import * as feedDismissalsQueries from "./sql/feed-dismissals.js";
+import * as feedWatchHitsQueries from "./sql/feed-watch-hits.js";
+import * as feedMutesQueries from "./sql/feed-mutes.js";
+import * as feedPreferencesQueries from "./sql/feed-preferences.js";
+import * as feedSubscriptionsQueries from "./sql/feed-subscriptions.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 
@@ -100,7 +110,8 @@ export function withNewsFixture(
   const restore = withFeedFetch(fetcher);
   const clear = () => {
     forgetCachedStories();
-    db.exec("DELETE FROM feed_stories; DELETE FROM feed_state");
+    feedStoriesQueries.clear(db);
+    feedStateQueries.clear(db);
   };
   clear();
   return () => {
@@ -131,20 +142,17 @@ type FeedState = {
 };
 
 const feedState = (id: string) =>
-  db.prepare("SELECT * FROM feed_state WHERE feed_id=?").get(id) as
-    FeedState | undefined;
+  feedStateQueries.byFeed(db, id) as FeedState | undefined;
 
 /** The stories a feed last gave, or null if it has never been read. */
 function stored(id: string, state = feedState(id)): Shown | null {
   if (!state?.fetched_at) return null;
   const warm = hot.get(id);
   if (warm && warm.fetched_at === state.fetched_at) return warm;
-  const rows = db
-    .prepare(
-      `SELECT story,first_seen_at FROM feed_stories WHERE feed_id=?
-       ORDER BY COALESCE(published_at, first_seen_at) DESC, story_id LIMIT ?`,
-    )
-    .all(id, KEEP_PER_FEED) as { story: string; first_seen_at: number }[];
+  const rows = feedStoriesQueries.recent(db, id, KEEP_PER_FEED) as {
+    story: string;
+    first_seen_at: number;
+  }[];
   const shown = {
     stories: rows.map((row) => ({
       ...(JSON.parse(row.story) as NewsStory),
@@ -173,16 +181,9 @@ const keep = db.transaction(
     },
     at: number,
   ) => {
-    const insert = db.prepare(
-      `INSERT INTO feed_stories(feed_id,story_id,url,title,summary,story,published_at,first_seen_at,fetched_at)
-       VALUES(?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(feed_id,story_id) DO UPDATE SET
-         url=excluded.url, title=excluded.title, summary=excluded.summary,
-         story=excluded.story, published_at=excluded.published_at,
-         fetched_at=excluded.fetched_at`,
-    );
     for (const story of answer.stories)
-      insert.run(
+      feedStoriesQueries.upsert(
+        db,
         feed.id,
         story.id,
         story.url,
@@ -193,33 +194,13 @@ const keep = db.transaction(
         at,
         at,
       );
-    db.prepare(
-      `DELETE FROM feed_stories WHERE feed_id=@feed AND story_id NOT IN (
-         SELECT story_id FROM feed_stories WHERE feed_id=@feed
-         ORDER BY COALESCE(published_at, first_seen_at) DESC, story_id LIMIT @keep)
-       -- A story someone saved for later is kept however old it becomes.
-       AND NOT EXISTS(SELECT 1 FROM later_items l
-         WHERE l.kind='story' AND l.done_at IS NULL
-         AND l.target_id=@feed || ':' || feed_stories.story_id)`,
-    ).run({ feed: feed.id, keep: KEEP_PER_FEED });
+    feedStoriesQueries.prune(db, { feed: feed.id, keep: KEEP_PER_FEED });
     // A read mark or watch hit for a story that is gone can never be used.
-    for (const table of ["feed_reads", "feed_dismissals", "feed_watch_hits"])
-      db.prepare(
-        `DELETE FROM ${table} WHERE feed_id=@feed AND story_id NOT IN (
-           SELECT story_id FROM feed_stories WHERE feed_id=@feed)`,
-      ).run({ feed: feed.id });
-    const count = db
-      .prepare("SELECT count(*) n FROM feed_stories WHERE feed_id=?")
-      .get(feed.id) as { n: number };
-    db.prepare(
-      `INSERT INTO feed_state(feed_id,title,home,fetched_at,failed_at,failures,error,retry_at,etag,last_modified,stories)
-       VALUES(@feed,@title,@home,@at,NULL,0,NULL,NULL,@etag,@modified,@stories)
-       ON CONFLICT(feed_id) DO UPDATE SET
-         title=excluded.title, home=excluded.home, fetched_at=excluded.fetched_at,
-         failed_at=NULL, failures=0, error=NULL, retry_at=NULL,
-         etag=excluded.etag, last_modified=excluded.last_modified,
-         stories=excluded.stories`,
-    ).run({
+    feedReadsQueries.pruneMissing(db, feed.id);
+    feedDismissalsQueries.pruneMissing(db, feed.id);
+    feedWatchHitsQueries.pruneMissing(db, feed.id);
+    const count = feedStoriesQueries.count(db, feed.id) as { n: number };
+    feedStateQueries.received(db, {
       feed: feed.id,
       title: answer.title,
       home: answer.home,
@@ -233,9 +214,7 @@ const keep = db.transaction(
 
 /** Marks a feed as still good without having re-read it (a 304). */
 function touch(id: string, at: number) {
-  db.prepare(
-    "UPDATE feed_state SET fetched_at=?,failed_at=NULL,failures=0,error=NULL,retry_at=NULL WHERE feed_id=?",
-  ).run(at, id);
+  feedStateQueries.touch(db, at, id);
 }
 
 function recordFailure(feed: FeedEntry, error: unknown, at: number) {
@@ -244,13 +223,7 @@ function recordFailure(feed: FeedEntry, error: unknown, at: number) {
     failures,
     (error as { retryAfterMs?: number | null })?.retryAfterMs ?? null,
   );
-  db.prepare(
-    `INSERT INTO feed_state(feed_id,failed_at,failures,error,retry_at)
-     VALUES(@feed,@at,@failures,@error,@retry)
-     ON CONFLICT(feed_id) DO UPDATE SET
-       failed_at=excluded.failed_at, failures=excluded.failures,
-       error=excluded.error, retry_at=excluded.retry_at`,
-  ).run({
+  feedStateQueries.failed(db, {
     feed: feed.id,
     at,
     failures,
@@ -366,15 +339,7 @@ export async function feedStories(
 /** Feeds someone follows that are due to be read, oldest copy first. */
 function dueFeeds(at: number, limit = PER_PASS) {
   return (
-    db
-      .prepare(
-        `SELECT s.owner_id,s.feed_id FROM (${FOLLOWED}) s
-         LEFT JOIN feed_state f ON f.feed_id=s.feed_id
-         WHERE COALESCE(f.fetched_at,0)<=@stale AND COALESCE(f.retry_at,0)<=@at
-         GROUP BY s.feed_id
-         ORDER BY COALESCE(MIN(f.fetched_at),0), s.feed_id LIMIT @limit`,
-      )
-      .all({ stale: at - FRESH_MS, at, limit }) as {
+    feedSubscriptionsQueries.due(db, { stale: at - FRESH_MS, at, limit }) as {
       owner_id: string;
       feed_id: string;
     }[]
@@ -410,21 +375,16 @@ export async function refreshDueFeeds(at = Date.now()) {
 
 /** Stories of feeds nobody follows any more, a month after the last read. */
 export function forgetAbandoned(at = Date.now()) {
-  const gone = db
-    .prepare(
-      `SELECT feed_id FROM feed_state
-       WHERE COALESCE(fetched_at, failed_at, 0) < ?
-       AND feed_id NOT IN (SELECT feed_id FROM feed_subscriptions)
-       AND feed_id NOT IN (SELECT id FROM feed_sources)`,
-    )
-    .all(at - ABANDONED_MS) as { feed_id: string }[];
+  const gone = feedStateQueries.abandoned(db, at - ABANDONED_MS) as {
+    feed_id: string;
+  }[];
   for (const { feed_id } of gone)
     db.transaction(() => {
-      db.prepare("DELETE FROM feed_reads WHERE feed_id=?").run(feed_id);
-      db.prepare("DELETE FROM feed_dismissals WHERE feed_id=?").run(feed_id);
-      db.prepare("DELETE FROM feed_watch_hits WHERE feed_id=?").run(feed_id);
-      db.prepare("DELETE FROM feed_stories WHERE feed_id=?").run(feed_id);
-      db.prepare("DELETE FROM feed_state WHERE feed_id=?").run(feed_id);
+      feedReadsQueries.removeFeed(db, feed_id);
+      feedDismissalsQueries.removeFeed(db, feed_id);
+      feedWatchHitsQueries.removeFeed(db, feed_id);
+      feedStoriesQueries.removeFeed(db, feed_id);
+      feedStateQueries.removeFeed(db, feed_id);
       hot.delete(feed_id);
     })();
   return gone.length;
@@ -438,28 +398,20 @@ function catalogFeed(id: string) {
 
 // One row per feed an owner follows, of either kind: from the catalog, or
 // added by address.
-const FOLLOWED = `SELECT owner_id,feed_id,read_through_at FROM feed_subscriptions
- WHERE feed_id IN (${[...feedById.keys()].map((id) => "'" + id.replaceAll("'", "''") + "'").join(",")})
- UNION ALL SELECT owner_id,id,read_through_at FROM feed_sources`;
 
 /** Which of a feed's stories this owner has read, for the list it is building. */
 function readMarks(owner: string) {
   const through = new Map(
     (
-      db
-        .prepare(
-          `SELECT feed_id,read_through_at FROM (${FOLLOWED}) WHERE owner_id=?`,
-        )
-        .all(owner) as { feed_id: string; read_through_at: number | null }[]
+      feedSubscriptionsQueries.readThrough(db, owner) as {
+        feed_id: string;
+        read_through_at: number | null;
+      }[]
     ).map((row) => [row.feed_id, row.read_through_at ?? 0]),
   );
   const marks = new Map(
     (
-      db
-        .prepare(
-          "SELECT feed_id,story_id,is_read FROM feed_reads WHERE owner_id=?",
-        )
-        .all(owner) as {
+      feedReadsQueries.marks(db, owner) as {
         feed_id: string;
         story_id: string;
         is_read: number;
@@ -480,11 +432,10 @@ function readMarks(owner: string) {
 function dismissals(owner: string) {
   const gone = new Set(
     (
-      db
-        .prepare(
-          "SELECT feed_id,story_id FROM feed_dismissals WHERE owner_id=?",
-        )
-        .all(owner) as { feed_id: string; story_id: string }[]
+      feedDismissalsQueries.marks(db, owner) as {
+        feed_id: string;
+        story_id: string;
+      }[]
     ).map((row) => `${row.feed_id}:${row.story_id}`),
   );
   return (feed: string, story: { id: string }) =>
@@ -535,13 +486,7 @@ function splitStoryId(owner: string, value: string) {
 /** A stored story of a feed this owner follows, or 404. */
 function ownedStory(owner: string, storyId: string) {
   const { feed, story } = splitStoryId(owner, storyId);
-  const row = db
-    .prepare(
-      `SELECT s.story,s.first_seen_at FROM feed_stories s
-       JOIN (${FOLLOWED}) b ON b.feed_id=s.feed_id AND b.owner_id=?
-       WHERE s.feed_id=? AND s.story_id=?`,
-    )
-    .get(owner, feed, story) as
+  const row = feedStoriesQueries.owned(db, owner, feed, story) as
     { story: string; first_seen_at: number } | undefined;
   if (!row) throw new Problem(404, "No such story.");
   return {
@@ -581,12 +526,7 @@ export const markRead = db.transaction(
       const { feed, story } = identity;
       // Unread is recorded rather than deleted: a story the "mark all read"
       // watermark covers has no row to remove, and the mark has to stick.
-      db.prepare(
-        `INSERT INTO feed_reads(owner_id,feed_id,story_id,read_at,is_read)
-         VALUES(?,?,?,?,?)
-         ON CONFLICT(owner_id,feed_id,story_id) DO UPDATE SET
-           read_at=excluded.read_at, is_read=excluded.is_read`,
-      ).run(owner, feed, story, at, read ? 1 : 0);
+      feedReadsQueries.mark(db, owner, feed, story, at, read ? 1 : 0);
     }
     return unreadCount(owner);
   },
@@ -605,15 +545,8 @@ export const dismissStories = db.transaction(
         throw error;
       }
       const { feed, story } = identity;
-      if (dismissed)
-        db.prepare(
-          `INSERT OR IGNORE INTO feed_dismissals(owner_id,feed_id,story_id,dismissed_at)
-           VALUES(?,?,?,?)`,
-        ).run(owner, feed, story, at);
-      else
-        db.prepare(
-          "DELETE FROM feed_dismissals WHERE owner_id=? AND feed_id=? AND story_id=?",
-        ).run(owner, feed, story);
+      if (dismissed) feedDismissalsQueries.insert(db, owner, feed, story, at);
+      else feedDismissalsQueries.remove(db, owner, feed, story);
     }
     return unreadCount(owner);
   },
@@ -622,30 +555,17 @@ export const dismissStories = db.transaction(
 /** Marks everything a feed has listed so far read, or every feed's. */
 export function markAllRead(owner: string, feed?: string, at = now()) {
   if (feed) ownerFeed(owner, feed);
-  db.prepare(
-    `UPDATE feed_subscriptions SET read_through_at=?
-     WHERE owner_id=?${feed ? " AND feed_id=?" : ""}`,
-  ).run(...[at, owner, ...(feed ? [feed] : [])]);
-  db.prepare(
-    `UPDATE feed_sources SET read_through_at=?
-     WHERE owner_id=?${feed ? " AND id=?" : ""}`,
-  ).run(...[at, owner, ...(feed ? [feed] : [])]);
-  // The watermark covers them, so the rows are no longer needed.
-  db.prepare(
-    `DELETE FROM feed_reads WHERE owner_id=?${feed ? " AND feed_id=?" : ""}`,
-  ).run(...[owner, ...(feed ? [feed] : [])]);
+  feedSubscriptionsQueries.markThrough(db, at, owner, feed);
+  feedSourcesQueries.markThrough(db, at, owner, feed);
+  feedReadsQueries.clearMarks(db, owner, feed);
   return unreadCount(owner);
 }
 
 /** Words this owner never wants to see in Social. */
 export function mutes(owner: string) {
-  return (
-    db
-      .prepare(
-        "SELECT phrase FROM feed_mutes WHERE owner_id=? ORDER BY created_at",
-      )
-      .all(owner) as { phrase: string }[]
-  ).map((row) => row.phrase);
+  return (feedMutesQueries.phrases(db, owner) as { phrase: string }[]).map(
+    (row) => row.phrase,
+  );
 }
 
 export function muteWords(owner: string, phrase: string) {
@@ -654,17 +574,12 @@ export function muteWords(owner: string, phrase: string) {
     throw new Problem(400, "Enter a word or phrase to hide.");
   if (mutes(owner).length >= MAX_MUTES)
     throw new Problem(400, `You can hide ${MAX_MUTES} words.`);
-  db.prepare(
-    "INSERT OR IGNORE INTO feed_mutes(owner_id,phrase,created_at) VALUES(?,?,?)",
-  ).run(owner, word, now());
+  feedMutesQueries.insert(db, owner, word, now());
   return mutes(owner);
 }
 
 function unmuteWords(owner: string, phrase: string) {
-  db.prepare("DELETE FROM feed_mutes WHERE owner_id=? AND phrase=?").run(
-    owner,
-    phrase,
-  );
+  feedMutesQueries.remove(db, owner, phrase);
   return mutes(owner);
 }
 
@@ -684,18 +599,7 @@ export function searchStories(
   if (!feeds.length) return { stories: [] };
   const wasRead = readMarks(owner);
   const wasDismissed = dismissals(owner);
-  const rows = db
-    .prepare(
-      `SELECT s.feed_id,s.story_id,s.story,s.first_seen_at,
-         bm25(feed_search, 4.0, 1.0) rank
-       FROM feed_search JOIN feed_stories s ON s.rowid=feed_search.rowid
-       WHERE feed_search MATCH @match AND s.feed_id IN (${feeds
-         .map(() => "?")
-         .join(",")})
-       ORDER BY rank, COALESCE(s.published_at, s.first_seen_at) DESC
-       LIMIT @limit`,
-    )
-    .all({ match: ftsQuery(query), limit: 200 }, ...feeds) as {
+  const rows = feedSearchQueries.search(db, ftsQuery(query), feeds, 200) as {
     feed_id: string;
     story_id: string;
     story: string;
@@ -736,9 +640,8 @@ function ftsQuery(query: string) {
 
 /** Whether agents this owner asks may read the feeds they follow. */
 export function feedPreferences(owner: string) {
-  const row = db
-    .prepare("SELECT * FROM feed_preferences WHERE owner_id=?")
-    .get(owner) as { agent_access: number; images: number } | undefined;
+  const row = feedPreferencesQueries.owned(db, owner) as
+    { agent_access: number; images: number } | undefined;
   return {
     agent_access: !!row?.agent_access,
     images: !!row?.images,
@@ -754,11 +657,8 @@ export function setFeedPreferences(
   change: { agent_access?: boolean; images?: boolean },
 ) {
   const current = feedPreferences(owner);
-  db.prepare(
-    `INSERT INTO feed_preferences(owner_id,agent_access,images,updated_at) VALUES(?,?,?,?)
-     ON CONFLICT(owner_id) DO UPDATE SET agent_access=excluded.agent_access,
-       images=excluded.images, updated_at=excluded.updated_at`,
-  ).run(
+  feedPreferencesQueries.upsert(
+    db,
     owner,
     (change.agent_access ?? current.agent_access) ? 1 : 0,
     (change.images ?? current.images) ? 1 : 0,
@@ -888,13 +788,7 @@ function feedHealth(owner: string) {
 }
 
 export function addedFeeds(owner: string): string[] {
-  return (
-    db
-      .prepare(
-        "SELECT feed_id FROM feed_subscriptions WHERE owner_id=? ORDER BY created_at, feed_id",
-      )
-      .all(owner) as { feed_id: string }[]
-  )
+  return (feedSubscriptionsQueries.feeds(db, owner) as { feed_id: string }[])
     .map((row) => row.feed_id)
     .filter((id) => feedById.has(id));
 }
@@ -1157,15 +1051,11 @@ routes.on(workspaceApi.socialOpmlExport, (_req, res) => {
 });
 routes.on(workspaceApi.socialFeedAdd, (req, res) => {
   const feed = catalogFeed(req.params.id);
-  db.prepare(
-    "INSERT OR IGNORE INTO feed_subscriptions(owner_id, feed_id, created_at) VALUES(?,?,?)",
-  ).run(res.locals.owner, feed.id, now());
+  feedSubscriptionsQueries.insert(db, res.locals.owner, feed.id, now());
   res.json({ added: addedFeeds(res.locals.owner) });
 });
 routes.on(workspaceApi.socialFeedDelete, (req, res) => {
   const feed = catalogFeed(req.params.id);
-  db.prepare(
-    "DELETE FROM feed_subscriptions WHERE owner_id=? AND feed_id=?",
-  ).run(res.locals.owner, feed.id);
+  feedSubscriptionsQueries.remove(db, res.locals.owner, feed.id);
   res.json({ added: addedFeeds(res.locals.owner) });
 });

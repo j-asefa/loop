@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
-import { parseRecord } from "../row-schemas.js";
+import { InvalidRow, parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 export const LIVE_INPUT_HARNESSES = new Set(["codex", "claude", "pi", "muse"]);
 
@@ -150,22 +150,6 @@ export function nativeOwned(
     ? undefined
     : parseRecord(nativeOwnedRow, row, "connections");
 }
-// Revocation must remain available for damaged display/storage fields. Validate
-// ownership here; parseConnectionControl validates routing inside its caller's
-// recovery boundary before any external logout.
-const ownedForRevocationRow = QueryRecords.connections
-  .pick({ id: true, owner_id: true })
-  .extend({ provider: z.unknown(), metadata: z.unknown() });
-export function ownedForRevocation(
-  db: Database.Database,
-  id: string,
-  owner: string,
-) {
-  const row = ownedStatement(db).get(id, owner);
-  return row === undefined
-    ? undefined
-    : parseRecord(ownedForRevocationRow, row, "connections");
-}
 
 const ownerStatusStatement = statement(
   "SELECT owner_id,status FROM connections WHERE id=?",
@@ -181,29 +165,10 @@ export function ownerStatus(db: Database.Database, id: string) {
     : parseRecord(ownerStatusRow, row, "connections");
 }
 
-const statusStatement = statement(
-  "SELECT status FROM connections WHERE id=? AND owner_id=?",
-);
-
-const statusRow = QueryRecords.connections.pick({ status: true });
-
-export function status(
-  db: Database.Database,
-  id: string | null | undefined,
-  owner: string,
-) {
-  const row = statusStatement(db).get(id, owner);
-  return row === undefined
-    ? undefined
-    : parseRecord(statusRow, row, "connections");
-}
-
 const runtimeHostInUseStatement = statement(
   "SELECT 1 FROM connections WHERE owner_id=? AND json_extract(metadata,'$.runtimeHostId')=? AND status<>'disconnected'",
 );
-
 const runtimeHostInUseRow = z.object({ "1": z.number() });
-
 export function runtimeHostInUse(
   db: Database.Database,
   owner: string,
@@ -218,9 +183,7 @@ export function runtimeHostInUse(
 const resolvedNativeModelStatement = statement(
   "SELECT json_extract(value,'$.resolvedModel') model FROM connections,json_each(connections.models) WHERE connections.id=? AND connections.owner_id=? AND json_valid(connections.models) AND json_extract(value,'$.id')='native-default'",
 );
-
 const resolvedNativeModelRow = z.object({ model: z.string().nullable() });
-
 export function resolvedNativeModel(
   db: Database.Database,
   id: string,
@@ -235,7 +198,6 @@ export function resolvedNativeModel(
 const registerNativeStatement = statement(
   "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,?,'connected',?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label,status='connected',models=excluded.models,metadata=excluded.metadata",
 );
-
 export function registerNative(
   db: Database.Database,
   id: string,
@@ -262,7 +224,6 @@ export function registerNative(
 const registerDisconnectedNativeStatement = statement(
   "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,'','disconnected','[]',?,?) ON CONFLICT(id) DO UPDATE SET status='disconnected',models='[]' WHERE owner_id=excluded.owner_id",
 );
-
 export function registerDisconnectedNative(
   db: Database.Database,
   id: string,
@@ -285,12 +246,10 @@ export function registerDisconnectedNative(
 const statusModelsStatement = statement(
   "SELECT status,models FROM connections WHERE id=? AND owner_id=?",
 );
-
 const statusModelsRow = QueryRecords.connections.pick({
   status: true,
   models: true,
 });
-
 export function statusModels(db: Database.Database, id: string, owner: string) {
   const row = statusModelsStatement(db).get(id, owner);
   return row === undefined
@@ -301,12 +260,10 @@ export function statusModels(db: Database.Database, id: string, owner: string) {
 const statusMetadataStatement = statement(
   "SELECT status,metadata FROM connections WHERE id=? AND owner_id=?",
 );
-
 const statusMetadataRow = QueryRecords.connections.pick({
   status: true,
   metadata: true,
 });
-
 export function statusMetadata(
   db: Database.Database,
   id: string,
@@ -321,7 +278,6 @@ export function statusMetadata(
 const needsSignInStatement = statement(
   "UPDATE connections SET status='needs_sign_in' WHERE id=? AND owner_id=? AND status<>'disconnected'",
 );
-
 export function needsSignIn(db: Database.Database, id: string, owner: string) {
   return needsSignInStatement(db).run(id, owner);
 }
@@ -329,7 +285,6 @@ export function needsSignIn(db: Database.Database, id: string, owner: string) {
 const readModelsStatement = statement(
   "SELECT models FROM connections WHERE id=? AND owner_id=?",
 );
-
 export function readModels(db: Database.Database, id: string, owner: string) {
   const row = readModelsStatement(db).get(id, owner);
   return row === undefined
@@ -369,6 +324,70 @@ export function setResolvedNativeModel(
   owner: string,
 ) {
   return setResolvedNativeModelStatement(db).run(model, id, owner);
+}
+
+// Revocation must remain available for damaged display/storage fields. Validate
+// ownership here; parseConnectionControl validates routing inside its caller's
+// recovery boundary before any external logout.
+const ownedForRevocationRow = QueryRecords.connections
+  .pick({ id: true, owner_id: true })
+  .extend({ provider: z.unknown(), metadata: z.unknown() });
+export function ownedForRevocation(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = ownedStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedForRevocationRow, row, "connections");
+}
+
+const statusStatement = statement(
+  "SELECT status FROM connections WHERE id=? AND owner_id=?",
+);
+const statusRow = QueryRecords.connections.pick({ status: true });
+export function status(
+  db: Database.Database,
+  id: string | null | undefined,
+  owner: string,
+) {
+  const row = statusStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(statusRow, row, "connections");
+}
+
+const workerMetadataStatement = statement(
+  "SELECT metadata FROM connections WHERE id=? AND owner_id=?",
+);
+const workerMetadataRow = QueryRecords.connections.pick({ metadata: true });
+export function workerMetadata(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = workerMetadataStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(workerMetadataRow, row, "connections");
+}
+
+const legacyRuntimeCandidatesStatement = statement(
+  "SELECT * FROM connections WHERE (status='connected' OR (status='disconnected' AND json_extract(metadata,'$.retiredDirectRuntime')=1)) AND provider IN ('codex','anthropic')",
+);
+const legacyRuntimeCandidatesRow = QueryRecords.connections;
+export function legacyRuntimeCandidates(db: Database.Database) {
+  return legacyRuntimeCandidatesStatement(db)
+    .all()
+    .flatMap((row) => {
+      try {
+        return [parseRecord(legacyRuntimeCandidatesRow, row, "connections")];
+      } catch (error) {
+        if (error instanceof InvalidRow) return [];
+        throw error;
+      }
+    });
 }
 
 const subscriptionNeedsReconnectStatement = statement(
@@ -459,7 +478,9 @@ export function subscriptionNeedsSignIn(db: Database.Database, id: string) {
 const connectedExistsStatement = statement(
   "SELECT 1 FROM connections WHERE id=? AND owner_id=? AND status='connected'",
 );
+
 const connectedExistsRow = z.object({ "1": z.number() });
+
 export function connectedExists(
   db: Database.Database,
   id: string,
@@ -469,4 +490,42 @@ export function connectedExists(
   return row === undefined
     ? undefined
     : parseRecord(connectedExistsRow, row, "connections");
+}
+
+const cardModelStatement = statement(
+  "SELECT id,provider,models FROM connections WHERE owner_id=? AND id=?",
+);
+const cardModelRow = QueryRecords.connections.pick({
+  id: true,
+  provider: true,
+  models: true,
+});
+export function cardModel(db: Database.Database, owner: string, id: string) {
+  const row = cardModelStatement(db).get(owner, id);
+  return row === undefined
+    ? undefined
+    : parseRecord(cardModelRow, row, "connections");
+}
+
+const anyStatement = statement("SELECT 1 FROM connections LIMIT 1");
+const anyRow = z.object({ "1": z.number() });
+export function any(db: Database.Database) {
+  const row = anyStatement(db).get();
+  return row === undefined
+    ? undefined
+    : parseRecord(anyRow, row, "connections");
+}
+
+const insertPreviewStatement = statement(
+  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Preview simulator',?,'connected',?,'{\"preview\":true}',?)",
+);
+export function insertPreview(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  secret: string,
+  models: string,
+  created: number,
+) {
+  return insertPreviewStatement(db).run(id, owner, secret, models, created);
 }

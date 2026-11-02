@@ -1,3 +1,5 @@
+import * as feedWatchesQueries from "./sql/feed-watches.js";
+import * as feedWatchHitsQueries from "./sql/feed-watch-hits.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 
@@ -35,9 +37,7 @@ export type FeedWatch = {
 };
 
 export const listWatches = (owner: string) =>
-  db
-    .prepare("SELECT * FROM feed_watches WHERE owner_id=? ORDER BY created_at")
-    .all(owner) as FeedWatch[];
+  feedWatchesQueries.forOwner(db, owner) as FeedWatch[];
 
 function checked(owner: string, body: unknown) {
   const d = watchInput.parse(body);
@@ -51,46 +51,36 @@ export function saveWatch(owner: string, body: unknown, watchId?: string) {
   const d = checked(owner, body);
   const time = now();
   if (watchId) {
-    const changed = db
-      .prepare(
-        `UPDATE feed_watches SET query=?,feeds=CASE WHEN ? THEN ? ELSE feeds END,enabled=? WHERE id=? AND owner_id=?`,
-      )
-      .run(
-        d.query,
-        d.feeds !== undefined ? 1 : 0,
-        d.feeds?.length ? JSON.stringify(d.feeds) : null,
-        d.enabled ? 1 : 0,
-        watchId,
-        owner,
-      ).changes;
+    const changed = feedWatchesQueries.update(
+      db,
+      d.query,
+      d.feeds !== undefined ? 1 : 0,
+      d.feeds?.length ? JSON.stringify(d.feeds) : null,
+      d.enabled ? 1 : 0,
+      watchId,
+      owner,
+    ).changes;
     if (!changed) throw new Problem(404, "No such watch.");
   } else {
     if (listWatches(owner).length >= PER_OWNER)
       throw new Problem(400, `You can follow ${PER_OWNER} words or phrases.`);
     watchId = id();
-    db.prepare(
-      `INSERT INTO feed_watches(id,owner_id,query,feeds,created_at,since_at,enabled)
-       VALUES(?,?,?,?,?,?,?)`,
-    ).run(
+    feedWatchesQueries.insert(
+      db,
       watchId,
       owner,
       d.query,
       d.feeds?.length ? JSON.stringify(d.feeds) : null,
       time,
-      // A new watch is not a backlog of notifications: it starts from now.
       time,
       d.enabled ? 1 : 0,
     );
   }
-  return db
-    .prepare("SELECT * FROM feed_watches WHERE id=? AND owner_id=?")
-    .get(watchId, owner) as FeedWatch;
+  return feedWatchesQueries.owned(db, watchId, owner) as FeedWatch;
 }
 
 export function removeWatch(owner: string, watchId: string) {
-  const changed = db
-    .prepare("DELETE FROM feed_watches WHERE id=? AND owner_id=?")
-    .run(watchId, owner).changes;
+  const changed = feedWatchesQueries.remove(db, watchId, owner).changes;
   if (!changed) throw new Problem(404, "No such watch.");
 }
 
@@ -134,16 +124,8 @@ function candidates(
 }
 
 const pushedSince = (watchId: string, owner: string, at: number) =>
-  (
-    db
-      .prepare(
-        `SELECT count(*) n FROM feed_watch_hits h JOIN feed_watches w ON w.id=h.watch_id
-         WHERE h.pushed=1 AND h.matched_at>? AND ${
-           watchId ? "h.watch_id=?" : "w.owner_id=?"
-         }`,
-      )
-      .get(at - HOUR, watchId || owner) as { n: number }
-  ).n;
+  feedWatchHitsQueries.pushedSince(db, at - HOUR, watchId || owner, !!watchId)
+    .n;
 
 /**
  * Worker job: announces stories matching each watch, once each. Runs after
@@ -152,9 +134,7 @@ const pushedSince = (watchId: string, owner: string, at: number) =>
  */
 export function matchWatches(at = now()) {
   let pushed = 0;
-  const watches = db
-    .prepare("SELECT * FROM feed_watches WHERE enabled=1")
-    .all() as FeedWatch[];
+  const watches = feedWatchesQueries.enabled(db) as FeedWatch[];
   for (const watch of watches) {
     const terms = watchTerms(watch.query);
     const feeds: string[] | null = watch.feeds ? JSON.parse(watch.feeds) : null;
@@ -178,13 +158,15 @@ export function matchWatches(at = now()) {
       // The hit and its push commit together: a crash between them would
       // either announce a story twice or never.
       db.transaction(() => {
-        db.prepare(
-          `INSERT INTO feed_watch_hits(watch_id,feed_id,story_id,matched_at,pushed)
-           VALUES(?,?,?,?,?)`,
-        ).run(watch.id, feed_id, story.id, at, loud ? 0 : 1);
-        db.prepare(
-          "UPDATE feed_watches SET matches=matches+1,last_match_at=? WHERE id=?",
-        ).run(at, watch.id);
+        feedWatchHitsQueries.insert(
+          db,
+          watch.id,
+          feed_id,
+          story.id,
+          at,
+          loud ? 0 : 1,
+        );
+        feedWatchesQueries.matched(db, at, watch.id);
         if (loud) return;
         // A public headline is what is already on the page it links to, so it
         // is safe on a lock screen; nothing else from Loop55 goes in it.
@@ -221,11 +203,10 @@ export function matchWatches(at = now()) {
 const announced = (watchId: string) =>
   new Set(
     (
-      db
-        .prepare(
-          "SELECT feed_id,story_id FROM feed_watch_hits WHERE watch_id=?",
-        )
-        .all(watchId) as { feed_id: string; story_id: string }[]
+      feedWatchHitsQueries.announced(db, watchId) as {
+        feed_id: string;
+        story_id: string;
+      }[]
     ).map((row) => `${row.feed_id}:${row.story_id}`),
   );
 

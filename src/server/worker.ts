@@ -1,3 +1,7 @@
+import * as connectionsQueries from "./sql/connections.js";
+import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
+import * as importsQueries from "./sql/imports.js";
+import * as workerHealthQueries from "./sql/worker-health.js";
 import * as runsQueries from "./sql/runs.js";
 import { ConnectionMetadata, readJson } from "./row-schemas.js";
 import { UNKNOWN_RUN_FAILURE } from "../shared/run-errors.js";
@@ -68,10 +72,11 @@ export async function tick(
     if (!accepting()) return false;
     assertExecutionGeneration(workerId);
     const p = candidate.payload;
-    const c = db
-      .prepare("SELECT metadata FROM connections WHERE id=? AND owner_id=?")
-      .get(p.connectionId || "", candidate.owner_id) as
-      { metadata: string } | undefined;
+    const c = connectionsQueries.workerMetadata(
+      db,
+      p.connectionId || "",
+      candidate.owner_id,
+    ) as { metadata: string } | undefined;
     if (!c) return true;
     const harness =
       readJson(
@@ -101,9 +106,8 @@ export async function tick(
   } catch (error) {
     if (error instanceof RunDeferred && deferUndispatched(run, workerId))
       return true;
-    const checkpoint = db
-      .prepare("SELECT stage,round FROM agent_checkpoints WHERE run_id=?")
-      .get(run.id) as { stage: string; round: number } | undefined;
+    const checkpoint = agentCheckpointsQueries.workerStage(db, run.id) as
+      { stage: string; round: number } | undefined;
     const phase =
       checkpoint?.stage === "tools"
         ? "tool execution"
@@ -146,9 +150,7 @@ export async function tick(
       });
       emit(run.owner_id, run.id, "run.failed", { message, phase });
       if (run.kind === "import")
-        db.prepare(
-          "UPDATE imports SET status='failed' WHERE id=? AND owner_id=?",
-        ).run(run.payload.importId, run.owner_id);
+        importsQueries.failOwned(db, run.payload.importId, run.owner_id);
       transition(run, "failed");
     }).immediate();
   } finally {
@@ -179,9 +181,7 @@ export function startWorker() {
   const inflight = new Set<Promise<unknown>>();
   const heartbeat = () =>
     heartbeatWrite("worker", () =>
-      db
-        .prepare("INSERT OR REPLACE INTO worker_health VALUES(?,?)")
-        .run(workerId, now()),
+      workerHealthQueries.heartbeat(db, workerId, now()),
     );
   heartbeat();
   const maintenanceTimers: ReturnType<typeof setInterval>[] = [];
@@ -358,7 +358,7 @@ export function startWorker() {
     await nativeSessions.close();
     await Promise.allSettled(inflight);
     await closeFinishedSessions();
-    db.prepare("DELETE FROM worker_health WHERE id=?").run(workerId);
+    workerHealthQueries.remove(db, workerId);
   };
   return Object.assign(stop, { quiesce });
 }

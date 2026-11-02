@@ -1,3 +1,5 @@
+import * as connectionsQueries from "./sql/connections.js";
+import * as agentsQueries from "./sql/agents.js";
 import { parseConnection } from "./row-schemas.js";
 import { db } from "./db.js";
 import { companionMode } from "./profile.js";
@@ -14,11 +16,7 @@ import { runtimeGithubCredential } from "./runtime-github.js";
 // Retired direct connections keep their existing broker homes eligible.
 export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
   if (companionMode) return;
-  const connections = db
-    .prepare(
-      "SELECT * FROM connections WHERE (status='connected' OR (status='disconnected' AND json_extract(metadata,'$.retiredDirectRuntime')=1)) AND provider IN ('codex','anthropic')",
-    )
-    .all();
+  const connections = connectionsQueries.legacyRuntimeCandidates(db);
   for (const row of connections) {
     if (signal?.aborted) return;
     try {
@@ -35,9 +33,11 @@ export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
       )
         continue;
       const github = runtimeGithubCredential(connection.owner_id);
-      const agents = db
-        .prepare("SELECT id FROM agents WHERE owner_id=? AND connection_id=?")
-        .all(connection.owner_id, connection.id) as { id: string }[];
+      const agents = agentsQueries.forConnection(
+        db,
+        connection.owner_id,
+        connection.id,
+      ) as { id: string }[];
       if (!agents.length) continue;
       for (let i = 0; i < agents.length; i += 100) {
         if (signal?.aborted) return;

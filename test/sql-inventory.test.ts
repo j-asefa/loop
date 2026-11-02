@@ -54,26 +54,7 @@ const exemptions = new Map([
 // Named files still being migrated. Only remove entries as their final direct
 // call moves into sql/. Existing files can evolve without call-count churn;
 // new files must use query modules and fully migrated files cannot regress.
-const allowance = [
-  "card-attachments.ts",
-  "cards.ts",
-  "design-preview.ts",
-  "done-threads.ts",
-  "feed-card-details.ts",
-  "feed-card-read.ts",
-  "feed-digests.ts",
-  "feed-sources.ts",
-  "feed-watches.ts",
-  "index.ts",
-  "news.ts",
-  "search.ts",
-  "worker.ts",
-  "workflows/routes.ts",
-  "workflows/runtime.ts",
-  "workspace-cleanup.ts",
-  "workspace-events.ts",
-  "workspace-routes.ts",
-];
+const allowance: string[] = [];
 
 function inventory(file: string, text: string) {
   const { program, errors } = parseSync(file, text);

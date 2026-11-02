@@ -1,3 +1,5 @@
+import * as workerHealthQueries from "./sql/worker-health.js";
+import * as requestLimitsQueries from "./sql/request-limits.js";
 import "../../runtime/environment.mjs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { z } from "zod";
@@ -252,9 +254,7 @@ app.use(express.json({ limit: "12mb" }));
 const appHealth = registrar("app", { prefix: "/api", automaticOptions: false });
 mountRoutes(app, appHealth.mount);
 appHealth.on(workspaceApi.health, (_req, res) => {
-  const worker = db
-    .prepare("SELECT max(heartbeat) last FROM worker_health")
-    .get() as { last: number | null };
+  const worker = workerHealthQueries.latest(db) as { last: number | null };
   const ready = !!worker.last && Date.now() - worker.last < 15000;
   res.status(ready ? 200 : 503).json({
     ok: ready,
@@ -278,11 +278,7 @@ app.use("/api", async (req, res, next) => {
   }
   res.locals.owner = session.user.id;
   const window = Math.floor(Date.now() / 60000);
-  const count = db
-    .prepare(
-      "INSERT INTO request_limits VALUES(?,?,1) ON CONFLICT(owner_id) DO UPDATE SET window=excluded.window,count=CASE WHEN request_limits.window=excluded.window THEN request_limits.count+1 ELSE 1 END RETURNING count",
-    )
-    .get(session.user.id, window) as { count: number };
+  const count = requestLimitsQueries.increment(db, session.user.id, window) as { count: number };
   if (count.count > 600) {
     res.setHeader("Retry-After", "60");
     res

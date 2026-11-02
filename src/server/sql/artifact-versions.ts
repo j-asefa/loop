@@ -39,3 +39,17 @@ export function updateNativeOutput(
 ) {
   return updateNativeOutputStatement(db).run(content, artifact);
 }
+
+const insertValuesStatement = statement(
+  "INSERT INTO artifact_versions VALUES(?,?,?,?,?)",
+);
+export function insertValues(
+  db: Database.Database,
+  id: string,
+  artifact: string,
+  version: number,
+  content: string,
+  created: number,
+) {
+  return insertValuesStatement(db).run(id, artifact, version, content, created);
+}

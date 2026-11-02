@@ -167,67 +167,10 @@ export function owner(db: Database.Database, id: string) {
     : parseRecord(ownerRow, row, "conversations");
 }
 
-const ownedAgentConversationStatement = statement(
-  "SELECT * FROM conversations WHERE id=? AND owner_id=? AND agent_id=?",
-);
-
-const ownedAgentConversationRow = QueryRecords.conversations;
-
-export function ownedAgentConversation(
-  db: Database.Database,
-  id: string,
-  owner: string,
-  agent: string,
-) {
-  const row = ownedAgentConversationStatement(db).get(id, owner, agent);
-  return row === undefined
-    ? undefined
-    : parseRecord(ownedAgentConversationRow, row, "conversations");
-}
-
-const mailTeamConversationStatement = statement(
-  "SELECT id FROM conversations WHERE id=? AND owner_id=? AND agent_id=? AND team_id=?",
-);
-
-const mailTeamConversationRow = QueryRecords.conversations.pick({ id: true });
-
-export function mailTeamConversation(
-  db: Database.Database,
-  id: string,
-  owner: string,
-  agent: string,
-  team: string,
-) {
-  const row = mailTeamConversationStatement(db).get(id, owner, agent, team);
-  return row === undefined
-    ? undefined
-    : parseRecord(mailTeamConversationRow, row, "conversations");
-}
-
-const ownedAgentExistsStatement = statement(
-  "SELECT 1 FROM conversations WHERE id=? AND owner_id=? AND agent_id=?",
-);
-
-const ownedAgentExistsRow = z.object({ "1": z.number() });
-
-export function ownedAgentExists(
-  db: Database.Database,
-  id: string | null,
-  owner: string,
-  agent: string,
-) {
-  const row = ownedAgentExistsStatement(db).get(id, owner, agent);
-  return row === undefined
-    ? undefined
-    : parseRecord(ownedAgentExistsRow, row, "conversations");
-}
-
 const byOriginExternalStatement = statement(
   "SELECT id FROM conversations WHERE owner_id=? AND origin=? AND external_id=?",
 );
-
 const byOriginExternalRow = QueryRecords.conversations.pick({ id: true });
-
 export function byOriginExternal(
   db: Database.Database,
   owner: string,
@@ -243,7 +186,6 @@ export function byOriginExternal(
 const insertImportedStatement = statement(
   "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
 );
-
 export function insertImported(
   db: Database.Database,
   id: string,
@@ -277,6 +219,77 @@ export function insertNativeImport(
   created: number,
 ) {
   return insertNativeImportStatement(db).run(id, owner, agent, title, created);
+}
+
+const ownedAgentConversationStatement = statement(
+  "SELECT * FROM conversations WHERE id=? AND owner_id=? AND agent_id=?",
+);
+const ownedAgentConversationRow = QueryRecords.conversations;
+export function ownedAgentConversation(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  agent: string,
+) {
+  const row = ownedAgentConversationStatement(db).get(id, owner, agent);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedAgentConversationRow, row, "conversations");
+}
+
+const mailTeamConversationStatement = statement(
+  "SELECT id FROM conversations WHERE id=? AND owner_id=? AND agent_id=? AND team_id=?",
+);
+const mailTeamConversationRow = QueryRecords.conversations.pick({ id: true });
+export function mailTeamConversation(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  agent: string,
+  team: string,
+) {
+  const row = mailTeamConversationStatement(db).get(id, owner, agent, team);
+  return row === undefined
+    ? undefined
+    : parseRecord(mailTeamConversationRow, row, "conversations");
+}
+
+const ownedAgentExistsStatement = statement(
+  "SELECT 1 FROM conversations WHERE id=? AND owner_id=? AND agent_id=?",
+);
+const ownedAgentExistsRow = z.object({ "1": z.number() });
+export function ownedAgentExists(
+  db: Database.Database,
+  id: string | null,
+  owner: string,
+  agent: string,
+) {
+  const row = ownedAgentExistsStatement(db).get(id, owner, agent);
+  return row === undefined
+    ? undefined
+    : parseRecord(ownedAgentExistsRow, row, "conversations");
+}
+
+const insertOriginStatement = statement(
+  "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,?,?,?)",
+);
+export function insertOrigin(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  agent: string,
+  title: string,
+  origin: string,
+  created: number,
+) {
+  return insertOriginStatement(db).run(
+    id,
+    owner,
+    agent,
+    title,
+    origin,
+    created,
+  );
 }
 
 const ownedRunExistsStatement = statement(
@@ -318,6 +331,28 @@ export function insertExternal(
     title,
     origin,
     external,
+    created,
+  );
+}
+
+const insertPreviewStatement = statement(
+  "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,?,?,?)",
+);
+export function insertPreview(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  agent: string,
+  title: string,
+  project: string | null,
+  created: number,
+) {
+  return insertPreviewStatement(db).run(
+    id,
+    owner,
+    agent,
+    title,
+    project,
     created,
   );
 }

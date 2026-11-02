@@ -80,3 +80,38 @@ const markCompletedStatement = statement(
 export function markCompleted(db: Database.Database, id: string) {
   return markCompletedStatement(db).run(id);
 }
+
+const failOwnedStatement = statement(
+  "UPDATE imports SET status='failed' WHERE id=? AND owner_id=?",
+);
+export function failOwned(
+  db: Database.Database,
+  id: string | undefined,
+  owner: string,
+) {
+  return failOwnedStatement(db).run(id, owner);
+}
+
+const forOwnerStatement = statement(
+  "SELECT * FROM imports WHERE owner_id=? ORDER BY created_at DESC LIMIT 100",
+);
+const forOwnerRow = QueryRecords.imports;
+export function forOwner(db: Database.Database, owner: string) {
+  return forOwnerStatement(db)
+    .all(owner)
+    .map((row) => parseRecord(forOwnerRow, row, "imports"));
+}
+
+const queueStatement = statement(
+  "UPDATE imports SET status='queued' WHERE id=?",
+);
+export function queue(db: Database.Database, id: string) {
+  return queueStatement(db).run(id);
+}
+
+const cancelStatement = statement(
+  "UPDATE imports SET status='cancelled' WHERE id=? AND status<>'completed'",
+);
+export function cancel(db: Database.Database, id: string) {
+  return cancelStatement(db).run(id);
+}

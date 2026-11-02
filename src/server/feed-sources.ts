@@ -1,3 +1,6 @@
+import * as feedSourcesQueries from "./sql/feed-sources.js";
+import * as feedReadsQueries from "./sql/feed-reads.js";
+import * as feedDismissalsQueries from "./sql/feed-dismissals.js";
 import {
   SourceInput,
   SourceDiscoveryInput,
@@ -72,19 +75,11 @@ type SourceRow = {
 
 /** The feeds this owner added by URL, oldest first. */
 export function ownSources(owner: string): FeedEntry[] {
-  return (
-    db
-      .prepare(
-        "SELECT * FROM feed_sources WHERE owner_id=? ORDER BY created_at, id",
-      )
-      .all(owner) as SourceRow[]
-  ).map(asEntry);
+  return (feedSourcesQueries.forOwner(db, owner) as SourceRow[]).map(asEntry);
 }
 
 export function ownSource(owner: string, id: string) {
-  const row = db
-    .prepare("SELECT * FROM feed_sources WHERE owner_id=? AND id=?")
-    .get(owner, id) as SourceRow | undefined;
+  const row = feedSourcesQueries.owned(db, owner, id) as SourceRow | undefined;
   return row ? asEntry(row) : null;
 }
 
@@ -102,9 +97,7 @@ export async function addSource(owner: string, body: unknown) {
   if (feedById.has(id)) throw new Problem(409, "That feed is in the catalog.");
   const existing = ownSource(owner, id);
   if (existing) return existing;
-  const count = db
-    .prepare("SELECT count(*) n FROM feed_sources WHERE owner_id=?")
-    .get(owner) as { n: number };
+  const count = feedSourcesQueries.count(db, owner) as { n: number };
   if (count.n >= PER_OWNER)
     throw new Problem(
       400,
@@ -140,36 +133,23 @@ export async function addSource(owner: string, body: unknown) {
       // Recheck after downloading: another request may have followed this feed.
       const existing = ownSource(owner, id);
       if (existing) return existing;
-      const count = db
-        .prepare("SELECT count(*) n FROM feed_sources WHERE owner_id=?")
-        .get(owner) as { n: number };
+      const count = feedSourcesQueries.count(db, owner) as { n: number };
       if (count.n >= PER_OWNER)
         throw new Problem(
           400,
           `You can follow ${PER_OWNER} feeds of your own. Remove one first.`,
         );
-      db.prepare(
-        `INSERT INTO feed_sources(id,owner_id,url,title,home,category,kind,color,created_at)
-       VALUES(@id,@owner_id,@url,@title,@home,@category,@kind,@color,@created_at)`,
-      ).run(row);
+      feedSourcesQueries.insert(db, row);
       return ownSource(owner, id)!;
     })
     .immediate();
 }
 
 export function removeSource(owner: string, id: string) {
-  const changes = db
-    .prepare("DELETE FROM feed_sources WHERE owner_id=? AND id=?")
-    .run(owner, id).changes;
+  const changes = feedSourcesQueries.remove(db, owner, id).changes;
   if (!changes) throw new Problem(404, "No such feed.");
-  db.prepare("DELETE FROM feed_reads WHERE owner_id=? AND feed_id=?").run(
-    owner,
-    id,
-  );
-  db.prepare("DELETE FROM feed_dismissals WHERE owner_id=? AND feed_id=?").run(
-    owner,
-    id,
-  );
+  feedReadsQueries.removeOwnerFeed(db, owner, id);
+  feedDismissalsQueries.removeOwnerFeed(db, owner, id);
 }
 
 /**
@@ -301,7 +281,7 @@ export function importOpml(owner: string, document: unknown) {
   const found = outlines(text);
   const have = new Set(
     (
-      db.prepare("SELECT id FROM feed_sources WHERE owner_id=?").all(owner) as {
+      feedSourcesQueries.ids(db, owner) as {
         id: string;
       }[]
     ).map((row) => row.id),
@@ -329,10 +309,8 @@ export function importOpml(owner: string, document: unknown) {
       attribute(attrs, "title") || attribute(attrs, "text"),
       url,
     );
-    db.prepare(
-      `INSERT INTO feed_sources(id,owner_id,url,title,home,category,kind,color,created_at)
-       VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(owner_id,id) DO NOTHING`,
-    ).run(
+    feedSourcesQueries.insertIfAbsent(
+      db,
       id,
       owner,
       url.href,

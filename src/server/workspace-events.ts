@@ -1,3 +1,5 @@
+import * as changeWatermarkQueries from "./sql/change-watermark.js";
+import * as eventsQueries from "./sql/events.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { WebSocket } from "ws";
 import { db, changes, ensureWorkspaceOwner, workspaceClock } from "./db.js";
@@ -45,14 +47,7 @@ export function connectWorkspaceEvents(
   let stopped = false;
   let scheduled: ReturnType<typeof setImmediate> | undefined;
   const read = db.transaction(() => {
-    const bounds = db
-      .prepare(
-        `SELECT
-      (SELECT id FROM events WHERE owner_id=? ORDER BY id LIMIT 1) first,
-      last_event_id last, epoch FROM change_watermark WHERE owner_id=?
-    `,
-      )
-      .get(owner, owner) as { first: number | null; last: number; epoch: string };
+    const bounds = changeWatermarkQueries.bounds(db, owner, owner) as { first: number | null; last: number; epoch: string };
     const currentEpoch = v3 ? bounds.epoch : epoch;
     let reset =
       (v3 && !initial && currentEpoch !== epoch) ||
@@ -66,13 +61,7 @@ export function connectWorkspaceEvents(
     if (reset) cursor = bounds.last;
     let events = reset
       ? []
-      : (db
-          .prepare(
-            `SELECT id,run_id,subject_kind,subject_id,type,
-              CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload END payload
-             FROM events WHERE owner_id=? AND id>? ORDER BY id LIMIT 100`,
-          )
-          .all(MAX_EVENT_BYTES, owner, cursor) as {
+      : (eventsQueries.boundedReplay(db, MAX_EVENT_BYTES, owner, cursor) as {
           id: number;
           run_id: string | null;
           subject_kind: string;
