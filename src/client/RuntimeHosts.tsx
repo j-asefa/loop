@@ -84,7 +84,7 @@ LOOP55_RUNTIME_TOKEN_FILE="$HOME/.config/loop55/host-token" LOOP55_RUNTIME_WORKD
           label: "Codex app-server setup",
         }
       : {
-          url: "https://github.com/j-asefa/loop/blob/main/docs/feedback/RUNTIMES.md#native-host-for-claude-code-and-codex",
+          url: "https://github.com/j-asefa/loop/blob/main/docs/remote-runtimes.md#native-host-for-claude-code-and-codex",
           label: "Native host setup",
         };
   return (

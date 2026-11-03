@@ -55,9 +55,8 @@ node scripts/fleet-acceptance.mjs --quick-tunnels --package /absolute/path/loop5
 To exercise an existing workspace upgrade, supply a separately built, clean
 older **Loop55** package whose source includes fleet administration and ordinary
 peer reads but predates fleet event streaming, Done grouping and mail migrations.
-Both builds must use the same Loop55 header protocol. The pre-rename `loop`
-package is not a supported mixed-version peer in this scenario; follow
-[the name upgrade guide](name-upgrade.md) when moving an existing installation.
+Both builds must use the same Loop55 header protocol. A package from before
+the rename to Loop55 is not a supported peer in this scenario.
 Build the chosen older revision in an isolated checkout;
 do not change the source of a running test. The runner requires different clean
 source commits and at least one new migration, so changing only a package version

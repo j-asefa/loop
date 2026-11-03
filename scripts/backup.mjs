@@ -1,5 +1,5 @@
 import "../runtime/environment.mjs";
-import { retainedPath } from "../runtime/name-upgrade.ts";
+import { retainedPath } from "../runtime/retained-path.ts";
 import Database from "better-sqlite3";
 import { resolve } from "node:path";
 import { mkdirSync, chmodSync } from "node:fs";

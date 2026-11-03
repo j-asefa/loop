@@ -1,5 +1,5 @@
 import "../runtime/environment.mjs";
-import { retainedPath } from "../runtime/name-upgrade.ts";
+import { retainedPath } from "../runtime/retained-path.ts";
 // Explicit, test-owned acceptance journey. Never invoked by test/check/CI.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -52,7 +52,7 @@ if (values.help || (!values.fixtures && !values["quick-tunnels"])) {
   --package /absolute/path/loop55.tgz  Test an existing package in tunnel mode.
   --upgrade-from /absolute/path/older-loop55.tgz  Start A on an older fleet package,
       verify unavailable peer features, then upgrade its existing workspace in place.
-      Both packages must use Loop55 headers; see docs/name-upgrade.md.
+      Both packages must use Loop55 headers.
 
 Fixture mode runs focused boundary/native/browser checks and the package smoke.
 Tunnel mode installs a package and starts THREE ISOLATED TEST companions behind

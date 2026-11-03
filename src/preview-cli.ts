@@ -1,4 +1,4 @@
-import { retainedPath } from "./name-upgrade.js";
+import { retainedPath } from "./retained-path.js";
 import "../runtime/environment.mjs";
 import { parseArgs, promisify } from "node:util";
 import { spawn, execFile } from "node:child_process";

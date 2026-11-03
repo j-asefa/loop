@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { retainedPath } from "./name-upgrade.js";
+import { retainedPath } from "./retained-path.js";
 import "../runtime/environment.mjs";
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";

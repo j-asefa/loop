@@ -11,8 +11,7 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
-import { retainedPath } from "../src/name-upgrade";
-import { upgradeStorage } from "../src/client/name-upgrade";
+import { retainedPath } from "../src/retained-path";
 
 const directories: string[] = [];
 const temporary = () => {
@@ -65,38 +64,6 @@ it("loads legacy environment credentials and paths through the production server
     data: dir,
     url: "https://new.example",
     encryption: "fixture-only",
-  });
-});
-
-it("migrates owner-scoped browser keys without overwriting current values or moving uncertain journals", () => {
-  const map = new Map([
-    ["loop-draft-text:alice:thread", "Alice draft"],
-    ["loop-draft-text:bob:thread", "Bob draft"],
-    ["loop55-draft-text:bob:thread", "New Bob draft"],
-    ["loop:fleet-commands:v1:alice", "uncertain original command identity"],
-    ["unrelated", "keep"],
-  ]);
-  const storage = {
-    get length() {
-      return map.size;
-    },
-    key: (i: number) => [...map.keys()][i] ?? null,
-    getItem: (key: string) => map.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      map.set(key, value);
-    },
-    removeItem: (key: string) => {
-      map.delete(key);
-    },
-    clear: () => map.clear(),
-  } satisfies Storage;
-  upgradeStorage(storage);
-  upgradeStorage(storage);
-  expect(Object.fromEntries(map)).toEqual({
-    "loop55-draft-text:alice:thread": "Alice draft",
-    "loop55-draft-text:bob:thread": "New Bob draft",
-    "loop:fleet-commands:v1:alice": "uncertain original command identity",
-    unrelated: "keep",
   });
 });
 

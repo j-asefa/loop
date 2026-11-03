@@ -219,6 +219,45 @@ Only accounts with a role in the repository (owner, member or collaborator) are 
 
 Watching stops when the pull request is merged or closed, or when you choose **Stop watching**. It pauses after 5 follow-ups in an hour, so an agent cannot loop on its own pushes, and when GitHub rejects the connection. Nothing is lost while paused; **Resume** continues from where it stopped. One thread watches a pull request at a time. CI results come from GitHub check runs; legacy commit statuses are not read.
 
+## Retiring agents
+
+An agent profile has **Retire agent** and **Restore agent** actions. Retirement
+removes the agent from active pickers and blocks new work, including automatic
+routing and delegation. Already accepted work can finish; conversations, results,
+files and bookmarks remain. **Settings → Manage agents → Retired agents** provides
+access to retired profiles and restoration. A team manager must be restored before
+it can accept a new message. Deleting a team preserves its agents and history.
+Deletion uses one confirmation sheet, a bounded request and a retryable error state.
+
+## Notifications
+
+Enable **Settings → Notifications → Enable notifications** on each device.
+On iPhone, first add Loop55 to the Home Screen and open it there. The system permission
+request happens only after tapping Enable. This follows [WebKit's Home Screen Web
+Push requirements](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
+The app must be served over HTTPS (localhost is supported for development).
+
+Choose **Needs you**, **Completed work**, **Reminders** and **Social watches**
+independently on each device. Newly enabled devices start with only **Needs you**
+on: approvals, native questions, paused, failed or interrupted work, and scheduled
+messages that could not be sent. To receive only action alerts, leave the other
+three choices off. Existing subscriptions keep all categories enabled until you
+change them. Turning a category off discards its pending alerts; turning it back
+on does not replay history. Feed cards remain available regardless of these choices.
+
+With **Completed work** enabled, the worker sends encrypted Web Push when a new completed agent result is published,
+including while the app is closed. Notifications include the agent name and result
+title; tapping one opens that result. Earlier history, tool calls, imports and
+uploaded files do not trigger result alerts. Subscriptions and durable delivery
+receipts live in the workspace database; private VAPID and subscription keys use
+Loop55's existing encryption key. Preserve that key and the data volume on restart.
+No third-party notification account or additional deployment secret is required.
+`LOOP55_PUSH_CONTACT` can optionally set the VAPID contact URL or `mailto:` address.
+
+Delivery has a lease, bounded retries and duplicate-replacing notification tags.
+Expired subscriptions are removed when a push service returns 404 or 410. Turning
+notifications off removes this device's server subscription and browser subscription.
+
 ## Social feeds
 
 Social is a reader for public feeds, under **Your profile → Social**. Its catalog is checked in at [news.ts](../src/shared/news.ts): each entry was read with the shared parser before it was listed, so Social fetches only addresses in that list, and only redirects within a feed's own site. [syndication.ts](../src/server/syndication.ts) reads RSS 2.0 and 0.9x, RSS 1.0 (RDF), Atom and JSON Feed into one kind of card, and adds what a few sites carry beyond the formats: Hacker News points, a Reddit post's linked article and subreddit. Reddit itself is not in the catalog — its logged-out RSS answers 429 and `old.reddit.com` redirects feeds to a sign-in page. Run `npm run feeds:check` to read the whole catalog over the network.

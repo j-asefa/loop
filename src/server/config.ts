@@ -1,4 +1,4 @@
-import { retainedPath } from "../name-upgrade.js";
+import { retainedPath } from "../retained-path.js";
 import "../../runtime/environment.mjs";
 import { resolve } from "node:path";
 import { mkdirSync } from "node:fs";

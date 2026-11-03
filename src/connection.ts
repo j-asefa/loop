@@ -1,4 +1,4 @@
-import { retainedPath } from "./name-upgrade.js";
+import { retainedPath } from "./retained-path.js";
 import "../runtime/environment.mjs";
 /**
  * Shared records and private control protocol of the per-workspace connection

@@ -4,14 +4,13 @@
 
 | Guide                                        | Scope                                                             |
 | -------------------------------------------- | ----------------------------------------------------------------- |
-| [Loop55 upgrade](name-upgrade.md) | Rename compatibility, existing data, services and integrations |
 | [Server operation](server.md)                | API/worker, Docker, authentication, runtime machines and backups  |
 | [Remote server runtimes](remote-runtimes.md) | Remote broker, native host and Codex app-server                   |
 | [Harnesses](harnesses.md)                    | Native discovery, sign-in, models, team handoffs and services |
-| [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels and workspace recovery        |
+| [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels, recovery and fleets          |
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |
 | [Contract rules](contracts.md)               | API contract authoring, public projections and boundary evidence |
-| [Workspace](workspace.md)                    | Connections, MCP, files, search and teams                         |
+| [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and notifications          |
 | [Integration API](cards-api.md)                    | Scoped tokens, workspace reads and Cards synchronization |
 | [Development](development.md)                | Tests, builds, packaging and manual verification                  |
 | [Fleet acceptance](fleet-acceptance.md)       | Isolated fixture/tunnel runner and separate-host/phone checklist  |

@@ -1,4 +1,4 @@
-import { retainedPath } from "./name-upgrade.ts";
+import { retainedPath } from "./retained-path.ts";
 type NpmEntry = {
   integrity: string;
   resolved?: string;
