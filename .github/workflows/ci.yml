@@ -12,6 +12,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # CPU fixtures use bundled ONNX binaries; avoid optional CUDA/NuGet downloads.
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -51,4 +55,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: npm ci
-      - run: node scripts/test-runner.mjs vitest --shard=${{ matrix.shard }}/3
+      - run: node scripts/test-runner.mjs vitest --shard=${{ matrix.shard }}/3 --maxWorkers=1
