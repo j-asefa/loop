@@ -379,7 +379,8 @@ routes.on(workspaceApi.importStart, (req, res) => {
   res.json(runResponse(run));
 });
 routes.on(workspaceApi.importCancel, (req, res) => {
-  owned("imports", req.params.id, res.locals.owner);
+  if (!importsQueries.existsOwned(db, req.params.id, res.locals.owner))
+    throw new Problem(404, "Item not found");
   const jobId = req.params.id;
   const runs = z
     .array(RunIdentity)
