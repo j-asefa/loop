@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { FleetGrantContext } from "../shared/fleet.js";
 import { ExecutionRefused } from "./execution-refusal.js";
+import { registerDelegatedActionProbe } from "./effect-authority.js";
 
 export type FleetActionContext = {
   owner: string;
@@ -9,6 +10,7 @@ export type FleetActionContext = {
 };
 type Admission = FleetActionContext & { assertCurrent: () => void };
 const contexts = new AsyncLocalStorage<Admission>();
+registerDelegatedActionProbe(() => contexts.getStore() !== undefined);
 
 /** Internal authenticated delegation only. No request header selects this
  * context. The peer action boundary supplies it after mapping its credential

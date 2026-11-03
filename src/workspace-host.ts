@@ -27,6 +27,8 @@ import { observedBuild } from "./server/build-runtime.js";
 import { authorizeIntegrationToken } from "./server/index.js";
 import { createTokenEventSockets } from "./server/token-events.js";
 import { FleetAuthority } from "./server/fleet-authority.js";
+import { registerEffectAuthority } from "./server/effect-authority.js";
+import { fleetEffectAuthority } from "./server/fleet-effect-authorizations.js";
 import { FleetPairing } from "./server/fleet-pairing.js";
 import { FleetEnrollmentDestination } from "./server/fleet-enrollment.js";
 import {
@@ -104,6 +106,7 @@ export class WorkspaceHost {
     // protocol below verifies destination consent before installing a binding.
     if (!preview) this.fleet = new FleetAuthority(db, { seal, unseal });
     if (this.fleet) {
+      registerEffectAuthority(fleetEffectAuthority);
       let enabled = false;
       const update = () => {
         const state = this.fleet!.status(OWNER);

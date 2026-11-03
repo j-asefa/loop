@@ -1,6 +1,6 @@
 import { proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
-import { fleetOperationReason } from "./fleetCapabilities";
+import { operationBlockReason } from "./sourceAvailability";
 import { doneReadVersion, doneThreadReadVersions, writeDoneReadState, writeDoneUnreadState } from "./doneReadState";
 import type { CardReadTransport } from "../shared/card-client";
 import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
@@ -2104,7 +2104,7 @@ export function Feed({
     const cardKey = item.done_card_key;
     if (item.read_at === undefined || !cardKey) return;
     const generation = viewGeneration(), source = item.sourceId ?? scopedSource;
-    if (fleetOperationReason(source, allSources.find(entry => entry.id === source)?.capabilities, workspaceApi.feedRead)) return;
+    if (operationBlockReason(source, allSources.find(entry => entry.id === source)?.capabilities, workspaceApi.feedRead)) return;
     try {
       await writeDoneReadState(source, () =>
         callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey, unreadVersion: doneReadVersion(source, "d:" + cardKey, item.unread_version) } }, source));
@@ -2150,7 +2150,7 @@ export function Feed({
           ? unread ? workspaceApi.doneThreadUnread : workspaceApi.doneThreadRead
           : unread ? workspaceApi.feedUnread : workspaceApi.feedRead;
         try {
-          const reason = fleetOperationReason(source, allSources.find(entry => entry.id === source)?.capabilities, route);
+          const reason = operationBlockReason(source, allSources.find(entry => entry.id === source)?.capabilities, route);
           if (reason) throw new Error(reason);
           if (unread) await markUnread(row.item, row.thread, true);
           else if (row.thread) await markThreadRead(row.thread, true);
@@ -2175,7 +2175,7 @@ export function Feed({
   }
   async function markThreadRead(thread: SourcedDoneThread, bulk = false) {
     const generation = viewGeneration();
-    if (fleetOperationReason(thread.source, allSources.find(entry => entry.id === thread.source)?.capabilities, workspaceApi.doneThreadRead)) return;
+    if (operationBlockReason(thread.source, allSources.find(entry => entry.id === thread.source)?.capabilities, workspaceApi.doneThreadRead)) return;
     try {
       await writeDoneReadState(thread.source, () =>
         callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: thread.unreadVersions === undefined ? {} : { unreadVersions: doneThreadReadVersions(thread.source, thread.id, thread.unreadVersions) } }, thread.source));
@@ -2298,7 +2298,7 @@ export function Feed({
   }
   function actionsFor(item: FeedItem, thread?: SourcedDoneThread | null): Action[] {
     const unreadSource = thread?.source ?? item.sourceId ?? scopedSource;
-    const unreadReason = fleetOperationReason(unreadSource,
+    const unreadReason = operationBlockReason(unreadSource,
       allSources.find(source => source.id === unreadSource)?.capabilities,
       thread ? workspaceApi.doneThreadUnread : workspaceApi.feedUnread);
     // An open reader in the Unread selection retains its original card while

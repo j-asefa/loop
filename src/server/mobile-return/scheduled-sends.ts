@@ -17,11 +17,11 @@ import { attachedFiles } from "../uploads.js";
 import { messageReplyContext } from "../message-replies.js";
 import { attachmentDescriptors, encode, decode } from "./shared.js";
 import {
-  recordFleetEffect,
-  recordFleetEffectEdit,
-  inheritFleetEffect,
-  withFleetEffect,
-} from "../fleet-effect-authorizations.js";
+  recordEffect,
+  recordEffectEdit,
+  inheritEffect,
+  withEffect,
+} from "../effect-authority.js";
 
 // ---------------------------------------------------------------------------
 // 6. Scheduled sends
@@ -112,7 +112,7 @@ export function createScheduledSend(owner: string, body: unknown) {
           "You have 100 scheduled messages. Cancel some first.",
         );
       const sendId = id();
-      recordFleetEffect(owner, "scheduled", sendId);
+      recordEffect(owner, "scheduled", sendId);
       scheduledSendsQueries.insert(
         db,
         sendId,
@@ -239,7 +239,7 @@ export function editScheduledSend(
           );
       }
       if (d.sendAt !== undefined) validSendAt(d.sendAt);
-      recordFleetEffectEdit(owner, "scheduled", row.id);
+      recordEffectEdit(owner, "scheduled", row.id);
       scheduledSendsQueries.reschedule(
         db,
         d.input ?? row.input,
@@ -255,7 +255,7 @@ export function editScheduledSend(
 // Submits a scheduled message with its stored idempotency key, inside the
 // caller's transaction: if it was already accepted, submit() returns that run.
 function submitScheduled(row: ScheduledSend) {
-  const run = withFleetEffect(row.owner_id, "scheduled", row.id, () =>
+  const run = withEffect(row.owner_id, "scheduled", row.id, () =>
     submit(row.owner_id, {
       agentId: row.agent_id,
       conversationId: row.conversation_id ?? undefined,
@@ -272,7 +272,7 @@ function submitScheduled(row: ScheduledSend) {
       personal: true,
     }),
   );
-  inheritFleetEffect(row.owner_id, "scheduled", row.id, run.id);
+  inheritEffect(row.owner_id, "scheduled", row.id, run.id);
   scheduledSendsQueries.submitted(db, run.id, row.id);
   return run;
 }
@@ -298,7 +298,7 @@ export function retryScheduledSend(owner: string, sendId: string) {
           409,
           "Only a message that could not be sent can be retried",
         );
-      recordFleetEffectEdit(owner, "scheduled", row.id);
+      recordEffectEdit(owner, "scheduled", row.id);
       try {
         return {
           run: submitScheduled(row),

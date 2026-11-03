@@ -5,6 +5,11 @@ import { db } from "./db.js";
 import { FleetAuthority } from "./fleet-authority.js";
 import { seal, unseal } from "./secrets.js";
 import { ExecutionRefused } from "./execution-refusal.js";
+import {
+  registerEffectAuthority,
+  type EffectAuthority,
+  type EffectKind,
+} from "./effect-authority.js";
 import { fleetPayloadDigest } from "./fleet-crypto.js";
 import {
   currentFleetAction,
@@ -13,7 +18,7 @@ import {
   assertFleetAction,
 } from "./fleet-action-context.js";
 
-type Kind = "run" | "steering" | "scheduled";
+type Kind = EffectKind;
 type FleetEffectEdit = Readonly<{
   owner: string;
   kind: Kind;
@@ -202,3 +207,15 @@ export function withFleetEffect<T>(
     apply,
   );
 }
+
+/** The feed reaches these checks only through effect-authority.ts. */
+export const fleetEffectAuthority: EffectAuthority = {
+  record: recordFleetEffect,
+  recordEdit: recordFleetEffectEdit,
+  assert: assertFleetEffect,
+  inherit: inheritFleetEffect,
+  within: withFleetEffect,
+};
+// Core modules still import these checks directly, so loading this module
+// keeps the feed on the same authority as they are.
+registerEffectAuthority(fleetEffectAuthority);

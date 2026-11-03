@@ -22,6 +22,11 @@ const { requestApproval } = await import("../src/server/approvals");
 const { seal } = await import("../src/server/secrets");
 const { ensureWorkspaceProject } = await import("../src/server/workspace-project");
 const { deliverNotifications } = await import("../src/server/notifications");
+const effects = await import("../src/server/effect-authority");
+const { fleetEffectAuthority } = await import("../src/server/fleet-effect-authorizations");
+const { withFleetAction } = await import("../src/server/fleet-action-context");
+const { editQueuedRun } = await import("../src/server/mobile-return/queued-runs");
+const { ExecutionRefused } = await import("../src/server/execution-refusal");
 const { surfaceLater, deliverScheduledSends } = await import(
   "../src/server/mobile-return"
 );
@@ -2278,4 +2283,135 @@ it("keeps shared-source runs serialized and owner-scoped over HTTP", async () =>
   expect(JSON.parse(sent.data.payload)).toMatchObject({ agentId: a.id, source });
   expect((await api(w.owner, "/share/send", "POST", body)).data).toEqual(sent.data);
   expect((await api("intruder", "/share/send", "POST", body)).status).toBe(404);
+});
+
+// Effect authorization seam (open-source scope PR 2). With no implementation
+// registered the feed's own actions behave as before and write nothing; a
+// delegated fleet action is refused. Every test restores the fleet
+// implementation that loading the fleet module registers.
+const effectRows = (owner: string) =>
+  db
+    .prepare(
+      "SELECT (SELECT count(*) FROM fleet_effect_authorizations WHERE owner_id=?)+(SELECT count(*) FROM fleet_effect_edit_authorizations WHERE owner_id=?) n",
+    )
+    .get(owner, owner) as { n: number };
+const fixtureGrant = {
+  fleetId: "6f1d8a52-3c4b-4e1f-9a7d-2b5c8e0f1a3d",
+  grantId: "9b2e4c71-5d6a-4f8b-8c3e-1a7d9f0b2c4e",
+  destination: "m_" + "b".repeat(64),
+  peer: "m_" + "c".repeat(64),
+  directory: "a".repeat(64),
+  operation: "act" as const,
+};
+
+it("queues, edits, moves and cancels runs and schedules sends with no effect authority registered", async () => {
+  effects.resetEffectAuthorityForTests();
+  try {
+    const w = workspaceFor(),
+      a = w.agent(),
+      b = w.agent(),
+      cid = conversation(w.owner, a.id);
+    const queued = (
+      await api(w.owner, "/runs", "POST", {
+        agentId: a.id,
+        conversationId: cid,
+        input: "first",
+        idempotencyKey: "q-" + randomBytes(6).toString("hex"),
+        queue: true,
+      })
+    ).data;
+    expect(queued.state).toBe("queued");
+    expect((await api(w.owner, `/runs/${queued.id}`, "PATCH", { input: "edited" })).data).toEqual({ ok: true });
+    expect((db.prepare("SELECT input FROM runs WHERE id=?").get(queued.id) as any).input).toBe("edited");
+    const moved = await api(w.owner, `/runs/${queued.id}/move`, "POST", {
+      agentId: b.id,
+      idempotencyKey: "move-" + randomBytes(6).toString("hex"),
+    });
+    expect(moved.status).toBeLessThan(300);
+    expect(ownedRun(queued.id, w.owner).state).toBe("cancelled");
+    expect(moved.data).toMatchObject({ agent_id: b.id, state: "queued" });
+    expect((await api(w.owner, `/runs/${moved.data.id}/cancel`, "POST", {})).status).toBeLessThan(300);
+    expect(ownedRun(moved.data.id, w.owner).state).toBe("cancelled");
+
+    const key = "seam-" + randomBytes(6).toString("hex");
+    const created = await api(w.owner, "/scheduled-sends", "POST", {
+      agentId: a.id,
+      conversationId: cid,
+      input: "Morning check",
+      attachmentIds: [],
+      idempotencyKey: key,
+      sendAt: now() + 60000,
+    });
+    expect(created.status).toBe(201);
+    expect(
+      (await api(w.owner, `/scheduled-sends/${created.data.id}`, "PATCH", { input: "Evening check" })).data,
+    ).toMatchObject({ input: "Evening check" });
+    expect(deliverScheduledSends(now() + 120000)).toBeGreaterThanOrEqual(1);
+    const sent = db.prepare("SELECT state,run_id FROM scheduled_sends WHERE id=?").get(created.data.id) as any;
+    expect(sent.state).toBe("submitted");
+    expect(ownedRun(sent.run_id, w.owner)).toMatchObject({ state: "queued", input: "Evening check" });
+    expect(effectRows(w.owner)).toEqual({ n: 0 });
+  } finally {
+    effects.registerEffectAuthority(fleetEffectAuthority);
+  }
+});
+
+it("refuses a delegated fleet action when no effect authority is registered", async () => {
+  const w = workspaceFor(),
+    a = w.agent(),
+    cid = conversation(w.owner, a.id);
+  const queued = (
+    await api(w.owner, "/runs", "POST", {
+      agentId: a.id,
+      conversationId: cid,
+      input: "local",
+      idempotencyKey: "q-" + randomBytes(6).toString("hex"),
+      queue: true,
+    })
+  ).data;
+  effects.resetEffectAuthorityForTests();
+  try {
+    const delegated = <T,>(apply: () => T) =>
+      withFleetAction(
+        { owner: w.owner, commandId: id(), grant: fixtureGrant },
+        () => {},
+        apply,
+      );
+    expect(() =>
+      delegated(() => editQueuedRun(w.owner, queued.id, { input: "from a peer" })),
+    ).toThrow(ExecutionRefused);
+    expect(() =>
+      delegated(() =>
+        db.transaction(() => effects.recordEffect(w.owner, "run", queued.id))(),
+      ),
+    ).toThrow(ExecutionRefused);
+    expect(ownedRun(queued.id, w.owner).input).toBe("local");
+    expect(effectRows(w.owner)).toEqual({ n: 0 });
+  } finally {
+    effects.registerEffectAuthority(fleetEffectAuthority);
+  }
+});
+
+it("keeps one owner's recorded effect authority out of another owner's checks", () => {
+  const owner = id(),
+    other = id(),
+    effect = id(),
+    target = id();
+  db.prepare(
+    "INSERT INTO fleet_effect_authorizations(owner_id,effect_kind,effect_id,command_id,grant_context) VALUES(?,'run',?,?,?)",
+  ).run(owner, effect, id(), JSON.stringify(fixtureGrant));
+  // The grant names no accepted fleet membership, so it refuses its owner.
+  expect(() => effects.assertEffect(owner, "run", effect)).toThrow(ExecutionRefused);
+  // Another owner's assert and inherit never see that authorization.
+  expect(() => effects.assertEffect(other, "run", effect)).not.toThrow();
+  db.transaction(() => effects.inheritEffect(other, "run", effect, target))();
+  expect(effectRows(other)).toEqual({ n: 0 });
+  expect(() =>
+    db.transaction(() => effects.inheritEffect(owner, "run", effect, target))(),
+  ).toThrow(ExecutionRefused);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM fleet_effect_edit_authorizations WHERE effect_id=?")
+      .get(target),
+  ).toEqual({ n: 0 });
 });

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseSync } from "rolldown/utils";
 
@@ -84,4 +84,104 @@ it("keeps client, server and shared code from importing across their boundary", 
   }
   expect(checked).toBeGreaterThan(100);
   expect(violations).toEqual([]);
+}, 30_000);
+
+// The feed reaches fleet code only through neutral seams such as
+// src/server/effect-authority.ts and src/client/sourceAvailability.ts.
+const feed = [
+  "src/server/mobile-return/",
+  "src/server/mobile-return.ts",
+  "src/server/mobile-routes.ts",
+  "src/server/results.ts",
+  "src/client/Feed.tsx",
+  "src/client/app/",
+];
+const fleetModule = (path: string) =>
+  /fleet[-A-Za-z]*\.(ts|tsx|js)$/.test(path) ||
+  path.startsWith("src/client/Fleet");
+// Shrinking allowance: these views still render fleet UI directly. Fleet UI is
+// gated by the --fleet start option (open-source scope PR 3); remove an entry
+// once its file reaches fleet UI through a neutral hook.
+const feedFleetAllowance = new Set([
+  "src/client/app/AppPages.tsx",
+  "src/client/app/AppView.tsx",
+]);
+
+function resolveModule(file: string, specifier: string) {
+  const base = resolve(dirname(file), specifier);
+  const candidates = [
+    base,
+    ...[".ts", ".tsx", ".js"].map((extension) => base + extension),
+    ...(base.endsWith(".js")
+      ? [".ts", ".tsx"].map((extension) => base.slice(0, -3) + extension)
+      : []),
+  ];
+  const found = candidates.find(
+    (path) => existsSync(path) && statSync(path).isFile(),
+  );
+  return relative(root, found ?? base)
+    .split(sep)
+    .join("/");
+}
+
+function feedFleetImports(file: string, text: string) {
+  const path = relative(root, file).split(sep).join("/");
+  if (!feed.some((prefix) => path === prefix || path.startsWith(prefix)))
+    return [];
+  return specifiers(file, text)
+    .filter((specifier) => specifier.startsWith("."))
+    .map((specifier) => resolveModule(file, specifier))
+    .filter(fleetModule)
+    .map((target) => `${path} imports ${target}`);
+}
+
+it("refuses a feed file that imports a fleet module", () => {
+  const probe = join(root, "src/server/mobile-return/probe.ts");
+  expect(
+    feedFleetImports(
+      probe,
+      `import { recordFleetEffect } from "../fleet-effect-authorizations.js";`,
+    ),
+  ).toEqual([
+    "src/server/mobile-return/probe.ts imports src/server/fleet-effect-authorizations.ts",
+  ]);
+  expect(
+    feedFleetImports(
+      join(root, "src/client/app/Probe.tsx"),
+      `import { FleetSettings } from "../FleetSettings";\nimport { fleetComposerReason } from "../fleetCapabilities";`,
+    ),
+  ).toEqual([
+    "src/client/app/Probe.tsx imports src/client/FleetSettings.tsx",
+    "src/client/app/Probe.tsx imports src/client/fleetCapabilities.ts",
+  ]);
+  expect(
+    feedFleetImports(
+      probe,
+      `import { recordEffect } from "../effect-authority.js";`,
+    ),
+  ).toEqual([]);
+  // Outside the feed, fleet imports are not this rule's concern.
+  expect(
+    feedFleetImports(
+      join(root, "src/server/queue.ts"),
+      `import { assertFleetEffect } from "./fleet-effect-authorizations.js";`,
+    ),
+  ).toEqual([]);
+});
+
+it("keeps feed code from importing fleet modules", () => {
+  const violations: string[] = [];
+  const allowed = new Set<string>();
+  for (const file of source(join(root, "src")))
+    for (const violation of feedFleetImports(
+      file,
+      readFileSync(file, "utf8"),
+    )) {
+      const path = violation.split(" imports ")[0];
+      if (feedFleetAllowance.has(path)) allowed.add(path);
+      else violations.push(violation);
+    }
+  expect(violations).toEqual([]);
+  // The allowance only shrinks: every entry must still need it.
+  expect([...allowed].sort()).toEqual([...feedFleetAllowance].sort());
 }, 30_000);
