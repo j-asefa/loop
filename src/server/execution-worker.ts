@@ -95,6 +95,21 @@ const boot = (async () => {
   );
   if (stopping || !process.connected) return;
   recordOwnedProcesses(join(ownership.directory, "children.json"));
+  // A host started with --fleet forks its worker with it. Scheduled and
+  // queued effects delivered here keep their fleet authorization checks.
+  // Without it, effects a peer authorized earlier are refused, never run.
+  {
+    const { registerEffectAuthority } = await import("./effect-authority.js");
+    if (process.argv.includes("--fleet")) {
+      const { fleetEffectAuthority } =
+        await import("./fleet-effect-authorizations.js");
+      registerEffectAuthority(fleetEffectAuthority);
+    } else {
+      const { refuseRecordedEffects } = await import("./recorded-effects.js");
+      const { db } = await import("./db.js");
+      registerEffectAuthority(refuseRecordedEffects(db));
+    }
+  }
   authority = (await import("./execution-authority.js")).executionAuthority;
   const { FleetMailWorkerClient } =
     await import("./fleet-mail-worker-client.js");

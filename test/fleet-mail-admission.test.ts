@@ -50,6 +50,12 @@ const { AgentThreadMessagesQuery, AgentThreadDetail } =
 const { SteeringInbox } = await import("../src/server/steering.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
+// Fleets are on for this suite, as for a host started with --fleet.
+const { registerEffectAuthority } =
+  await import("../src/server/effect-authority.js");
+const { fleetEffectAuthority } =
+  await import("../src/server/fleet-effect-authorizations.js");
+registerEffectAuthority(fleetEffectAuthority);
 const owner = "local-owner",
   peerOwner = "independent-peer-owner";
 const origin = "https://recipient.example";

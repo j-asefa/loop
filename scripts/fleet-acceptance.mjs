@@ -285,6 +285,7 @@ async function launch(machine) {
       "existing",
       "--providers",
       "codex",
+      "--fleet",
     ],
     { env: machine.env },
   );

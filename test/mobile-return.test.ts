@@ -27,6 +27,8 @@ const { fleetEffectAuthority } = await import("../src/server/fleet-effect-author
 const { withFleetAction } = await import("../src/server/fleet-action-context");
 const { editQueuedRun } = await import("../src/server/mobile-return/queued-runs");
 const { ExecutionRefused } = await import("../src/server/execution-refusal");
+const { refuseRecordedEffects } = await import("../src/server/recorded-effects");
+const { executeAgent } = await import("../src/server/agent-runtime");
 const { surfaceLater, deliverScheduledSends } = await import(
   "../src/server/mobile-return"
 );
@@ -2286,9 +2288,8 @@ it("keeps shared-source runs serialized and owner-scoped over HTTP", async () =>
 });
 
 // Effect authorization seam (open-source scope PR 2). With no implementation
-// registered the feed's own actions behave as before and write nothing; a
-// delegated fleet action is refused. Every test restores the fleet
-// implementation that loading the fleet module registers.
+// registered, as on a host started without --fleet, the feed's own actions
+// behave as before and write nothing; a delegated fleet action is refused.
 const effectRows = (owner: string) =>
   db
     .prepare(
@@ -2352,7 +2353,7 @@ it("queues, edits, moves and cancels runs and schedules sends with no effect aut
     expect(ownedRun(sent.run_id, w.owner)).toMatchObject({ state: "queued", input: "Evening check" });
     expect(effectRows(w.owner)).toEqual({ n: 0 });
   } finally {
-    effects.registerEffectAuthority(fleetEffectAuthority);
+    effects.resetEffectAuthorityForTests();
   }
 });
 
@@ -2388,11 +2389,13 @@ it("refuses a delegated fleet action when no effect authority is registered", as
     expect(ownedRun(queued.id, w.owner).input).toBe("local");
     expect(effectRows(w.owner)).toEqual({ n: 0 });
   } finally {
-    effects.registerEffectAuthority(fleetEffectAuthority);
+    effects.resetEffectAuthorityForTests();
   }
 });
 
 it("keeps one owner's recorded effect authority out of another owner's checks", () => {
+  effects.registerEffectAuthority(fleetEffectAuthority);
+  try {
   const owner = id(),
     other = id(),
     effect = id(),
@@ -2414,4 +2417,84 @@ it("keeps one owner's recorded effect authority out of another owner's checks", 
       .prepare("SELECT count(*) n FROM fleet_effect_edit_authorizations WHERE effect_id=?")
       .get(target),
   ).toEqual({ n: 0 });
+  } finally {
+    effects.resetEffectAuthorityForTests();
+  }
+});
+
+it("refuses, without running, a scheduled send a peer authorized when the host runs without --fleet", async () => {
+  const w = workspaceFor(),
+    a = w.agent(),
+    cid = conversation(w.owner, a.id);
+  const local = await api(w.owner, "/scheduled-sends", "POST", {
+    agentId: a.id,
+    conversationId: cid,
+    input: "Local send",
+    attachmentIds: [],
+    idempotencyKey: "local-" + randomBytes(6).toString("hex"),
+    sendAt: now() + 60000,
+  });
+  const delegated = await api(w.owner, "/scheduled-sends", "POST", {
+    agentId: a.id,
+    conversationId: cid,
+    input: "Peer send",
+    attachmentIds: [],
+    idempotencyKey: "peer-" + randomBytes(6).toString("hex"),
+    sendAt: now() + 60000,
+  });
+  // As left by a peer before the host restarted without --fleet.
+  db.prepare(
+    "INSERT INTO fleet_effect_authorizations(owner_id,effect_kind,effect_id,command_id,grant_context) VALUES(?,'scheduled',?,?,?)",
+  ).run(w.owner, delegated.data.id, id(), JSON.stringify(fixtureGrant));
+  effects.registerEffectAuthority(refuseRecordedEffects(db));
+  try {
+    deliverScheduledSends(now() + 120000);
+    const row = (sendId: string) =>
+      db.prepare("SELECT state,run_id FROM scheduled_sends WHERE id=?").get(sendId) as any;
+    expect(row(local.data.id).state).toBe("submitted");
+    expect(row(delegated.data.id).state).not.toBe("submitted");
+    expect(row(delegated.data.id).run_id).toBeNull();
+    expect(
+      db
+        .prepare("SELECT count(*) n FROM runs WHERE owner_id=? AND input='Peer send'")
+        .get(w.owner),
+    ).toEqual({ n: 0 });
+    // The refusal also guards an assert or inherit of that recorded effect.
+    expect(() => effects.assertEffect(w.owner, "scheduled", delegated.data.id)).toThrow(
+      /Restart Loop55 with loop55 start --fleet/,
+    );
+  } finally {
+    effects.resetEffectAuthorityForTests();
+  }
+});
+
+it("refuses to execute a queued run a peer authorized when the host runs without --fleet", async () => {
+  const w = workspaceFor(),
+    a = w.agent(),
+    cid = conversation(w.owner, a.id);
+  const queued = (
+    await api(w.owner, "/runs", "POST", {
+      agentId: a.id,
+      conversationId: cid,
+      input: "Queued by a peer",
+      idempotencyKey: "q-" + randomBytes(6).toString("hex"),
+      queue: true,
+    })
+  ).data;
+  db.prepare(
+    "INSERT INTO fleet_effect_authorizations(owner_id,effect_kind,effect_id,command_id,grant_context) VALUES(?,'run',?,?,?)",
+  ).run(w.owner, queued.id, id(), JSON.stringify(fixtureGrant));
+  effects.registerEffectAuthority(refuseRecordedEffects(db));
+  try {
+    // The worker's execution path checks the run's fleet authorization
+    // directly; without --fleet that check refuses rather than validating.
+    await expect(executeAgent(ownedRun(queued.id, w.owner))).rejects.toThrow(
+      /Restart Loop55 with loop55 start --fleet/,
+    );
+    expect(
+      db.prepare("SELECT count(*) n FROM agent_checkpoints WHERE run_id=?").get(queued.id),
+    ).toEqual({ n: 0 });
+  } finally {
+    effects.resetEffectAuthorityForTests();
+  }
 });

@@ -84,6 +84,10 @@ try {
     )
       errors.push(error.message);
   });
+  // This host is started without --fleet: its fleet admin state is absent.
+  const fleetState = page.waitForResponse((response) =>
+    response.url().endsWith("/api/fleet/admin/state"),
+  );
   await page.goto(host.pair().url);
   await page.getByRole("button", { name: "Pair and open Loop55" }).click();
   await page
@@ -92,6 +96,17 @@ try {
     .waitFor();
   assert(!page.url().includes("#"));
   const workspaceUrl = page.url();
+  assert.equal((await fleetState).status(), 404);
+  // No fleet UI: authority notice, receipts, add-machine or fleet sheet.
+  await expect(page.locator(".fleet-authority-notice")).toHaveCount(0);
+  await page.getByRole("button", { name: "Open settings" }).first().click();
+  await expect(
+    page.getByRole("button", { name: "Check an action receipt" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: /Runtime machines/ }).click();
+  await page.getByRole("heading", { name: "Runtime machines" }).waitFor();
+  await expect(page.getByRole("button", { name: "Add machine" })).toHaveCount(0);
+  await page.goto(workspaceUrl);
   await agentSourcesBrowser(page, workspaceUrl);
   await settingsReliabilityBrowser(page, workspaceUrl, undefined, {
     companion: true,

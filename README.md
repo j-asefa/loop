@@ -94,7 +94,7 @@ npm run setup
 docker compose up --build -d
 ```
 
-See [server operation](docs/server.md) for accounts, remote access, runtime machines, backups and subscription runtimes.
+See [server operation](docs/server.md) for accounts, remote access, runtime machines, backups and subscription runtimes. Connecting several companion machines into one fleet is experimental and off by default; see [fleets](docs/pairing.md#fleets-experimental).
 
 ## Use a coding harness
 

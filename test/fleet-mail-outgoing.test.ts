@@ -63,6 +63,12 @@ const { installFleetMailTools, assertFleetMailTools } =
   await import("../src/server/fleet-mail-tools.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
+// Fleets are on for this suite, as for a host started with --fleet.
+const { registerEffectAuthority } =
+  await import("../src/server/effect-authority.js");
+const { fleetEffectAuthority } =
+  await import("../src/server/fleet-effect-authorizations.js");
+registerEffectAuthority(fleetEffectAuthority);
 const owner = "source-owner",
   peerOwner = "different-destination-owner";
 const authority = new FleetAuthority(db, secrets);

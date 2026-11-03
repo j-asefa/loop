@@ -14,6 +14,7 @@ const options = {
   project: process.env.FLEET_FIXTURE_PROJECT,
   executable: resolve("test/harness.mjs"),
   billing: "existing",
+  fleet: true,
 };
 const host = new WorkspaceHost(process.env.LOOP55_DATA_DIR, options);
 // Hold the real HTTP response at the fixture edge so the late-response case

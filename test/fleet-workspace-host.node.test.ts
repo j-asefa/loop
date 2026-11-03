@@ -71,6 +71,7 @@ const host = new WorkspaceHost(
     project: root,
     version: "fixture",
     billing: "existing",
+    fleet: true,
   },
   { open: async () => {}, schedule: async () => {}, close: async () => {} },
 );

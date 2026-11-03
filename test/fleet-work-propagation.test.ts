@@ -40,6 +40,12 @@ const { requestReview } = await import("../src/server/code-reviews.js");
 const { NativeDecisions } = await import("../src/server/native/decisions.js");
 const { core } = await import("../src/server/core-routes.js");
 const { mountRoutes } = await import("../src/server/registrar.js");
+// Fleets are on for this suite, as for a host started with --fleet.
+const { registerEffectAuthority } =
+  await import("../src/server/effect-authority.js");
+const { fleetEffectAuthority } =
+  await import("../src/server/fleet-effect-authorizations.js");
+registerEffectAuthority(fleetEffectAuthority);
 const owner = "local-workspace",
   account = randomUUID();
 const authority = new FleetAuthority(db, secrets);

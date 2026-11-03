@@ -37,6 +37,12 @@ const {
   editScheduledSend,
   retryScheduledSend,
 } = await import("../src/server/mobile-return/scheduled-sends.js");
+// Fleets are on for this suite, as for a host started with --fleet.
+const { registerEffectAuthority } =
+  await import("../src/server/effect-authority.js");
+const { fleetEffectAuthority } =
+  await import("../src/server/fleet-effect-authorizations.js");
+registerEffectAuthority(fleetEffectAuthority);
 const owner = "local-workspace",
   peerOwner = randomUUID();
 const peerDb = new Database(join(root, "peer.db"));

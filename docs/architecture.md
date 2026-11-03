@@ -37,7 +37,7 @@ Browser code in `src/client` and server code in `src/server` never import each o
 
 Device pairing and trust are core ([device-pairing.ts](../src/server/device-pairing.ts)) and need no machine identity; fleet enrollment extends them in [fleet-pairing.ts](../src/server/fleet-pairing.ts).
 
-Companion gateway startup maintains a durable Ed25519 machine identity in
+A companion gateway started with `--fleet` ([fleets](pairing.md#fleets-experimental)) maintains a durable Ed25519 machine identity in
 `fleet_machine_identity`. Its private key uses the existing encrypted secret
 store and stays on that installation; changing a tunnel origin does not replace
 it. Missing or inconsistent signing material fails startup rather than creating

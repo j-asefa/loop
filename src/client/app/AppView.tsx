@@ -6,6 +6,7 @@ import { workspaceApi } from "../../shared/workspace-api";
 import { callRoute } from "../workspace-api";
 import { StartCodeReview } from "../CodeReview";
 import { FleetSettings } from "../FleetSettings";
+import { WhenFleetAvailable } from "../FleetContext";
 import { SettingsHome } from "../SettingsHome";
 import { CardTokens } from "../CardTokens";
 import { Webhooks } from "../Webhooks";
@@ -536,10 +537,12 @@ export function renderApp(props: AppViewProps) {
           </div>
         </header>
         {!data.preview && (
-          <FleetCommandReceipts
-            owner={session.user.id}
-            sources={unified.sources}
-          />
+          <WhenFleetAvailable>
+            <FleetCommandReceipts
+              owner={session.user.id}
+              sources={unified.sources}
+            />
+          </WhenFleetAvailable>
         )}
         {renderAppPages({
           ...props,
@@ -594,16 +597,18 @@ export function renderApp(props: AppViewProps) {
             connections={data.connections}
           />
           {capabilities.profile === "companion" && !data.preview && (
-            <button
-              className="text-button"
-              onClick={() => {
-                setSettingsParent(false);
-                setSheet("");
-                showFleetCommandReceipts();
-              }}
-            >
-              Check an action receipt
-            </button>
+            <WhenFleetAvailable>
+              <button
+                className="text-button"
+                onClick={() => {
+                  setSettingsParent(false);
+                  setSheet("");
+                  showFleetCommandReceipts();
+                }}
+              >
+                Check an action receipt
+              </button>
+            </WhenFleetAvailable>
           )}
           <footer className="drawer-account">
             <Avatar name={displayName} />

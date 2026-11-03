@@ -1001,3 +1001,55 @@ test(
     assert.equal(state(lastRun.id), "interrupted");
   },
 );
+
+test(
+  "a host started with --fleet forks its execution worker with fleet authorization, and only then",
+  { timeout: 40_000, skip: process.platform !== "linux" },
+  () => {
+    for (const fleet of [true, false]) {
+      const dir = mkdtempSync(join(tmpdir(), "loop55-execution-fleet-"));
+      try {
+        const argv = execFileSync(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "--input-type=module",
+            "-e",
+            `
+      import { readFileSync } from "node:fs";
+      import { join } from "node:path";
+      const { ExecutionProcess } = await import("./src/server/execution-process.ts");
+      const host = new ExecutionProcess();
+      if (${fleet}) host.enableFleet();
+      await host.open();
+      try {
+        const { pid } = JSON.parse(readFileSync(join(process.env.LOOP55_DATA_DIR, "execution/owner.json"), "utf8"));
+        console.log(JSON.stringify(readFileSync("/proc/" + pid + "/cmdline", "utf8").split("\\0")));
+      } finally { await host.close(); }
+    `,
+          ],
+          {
+            encoding: "utf8",
+            env: {
+              ...Object.fromEntries(
+                Object.entries(process.env).filter(
+                  ([key]) => !key.startsWith("LOOP55_"),
+                ),
+              ),
+              LOOP55_PROFILE: "companion",
+              LOOP55_DATA_DIR: dir,
+            },
+            timeout: 30_000,
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
+        const args = JSON.parse(argv.trim().split("\n").at(-1)!) as string[];
+        assert(args.some((arg) => arg.endsWith("execution-worker.ts")));
+        assert.equal(args.includes("--fleet"), fleet);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+);

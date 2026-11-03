@@ -78,6 +78,12 @@ const { createFleetPeerHttp } =
 const { uploadFile } = await import("../src/server/uploads.js");
 const { saveArtifact } = await import("../src/server/artifacts.js");
 const secrets = await import("../src/server/secrets.js");
+// Fleets are on for this suite, as for a host started with --fleet.
+const { registerEffectAuthority } =
+  await import("../src/server/effect-authority.js");
+const { fleetEffectAuthority } =
+  await import("../src/server/fleet-effect-authorizations.js");
+registerEffectAuthority(fleetEffectAuthority);
 const sourceDb = new Database(join(root, "source.db"));
 applyMigrations(sourceDb);
 sourceDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();

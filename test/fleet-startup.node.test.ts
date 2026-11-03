@@ -26,7 +26,7 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
       "-e",
       `
       const { db } = await import('./src/server/db.ts');
-      let refused = false, lifecycle, workspaceServices = false, mailServices = false;
+      let refused = false, lifecycle, http, workspaceServices = false, mailServices = false;
       if (process.env.LOOP55_TEST_FLEET_IDENTITY_ONLY === '1') {
         const { initializeFleetIdentity } = await import('./src/server/fleet-identity.ts');
         const { seal, unseal } = await import('./src/server/secrets.ts');
@@ -35,7 +35,8 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
         const { WorkspaceHost } = await import('./src/workspace-host.ts');
         const options = {
           harness: 'codex', executable: process.execPath,
-          project: process.env.LOOP55_DATA_DIR, version: 'fixture', billing: 'existing'
+          project: process.env.LOOP55_DATA_DIR, version: 'fixture', billing: 'existing',
+          fleet: process.env.LOOP55_TEST_FLEET_OFF !== '1'
         };
         let mailBridge, bridgeInstalledBeforeOpen = false;
         const host = new WorkspaceHost(process.env.LOOP55_DATA_DIR, options,
@@ -46,6 +47,55 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
           } : undefined);
         workspaceServices = !!host.fleetWorkspace && !!host.gateway.workspace.sources && !!host.gateway.workspace.fleetCommandsHttp;
         mailServices = !!host.fleetMail;
+        if (process.env.LOOP55_TEST_FLEET_HTTP === '1') {
+          // Production gateway and routes, reached by a device paired here.
+          const { request } = await import('node:http');
+          const origin = 'https://workspace.example';
+          await host.gateway.listen();
+          host.setOrigin(origin);
+          const call = (path, body, headers = {}) => new Promise((resolve, reject) => {
+            const req = request({ hostname: '127.0.0.1', port: host.gateway.port, path,
+              method: body === undefined ? 'GET' : 'POST',
+              headers: { host: 'workspace.example', origin, 'content-type': 'application/json', ...headers } }, res => {
+              const chunks = [];
+              res.on('data', chunk => chunks.push(chunk));
+              res.on('end', () => {
+                const text = Buffer.concat(chunks).toString();
+                let json; try { json = JSON.parse(text); } catch {}
+                resolve({ status: res.statusCode, headers: res.headers, body: json });
+              });
+            });
+            req.on('error', reject);
+            req.end(body === undefined ? undefined : JSON.stringify(body));
+          });
+          const link = host.gateway.pair().url;
+          const { fleetDeviceFromLink } = await import('./src/shared/fleet-pairing.ts');
+          const device = link.includes('#pair=')
+            ? { secret: new URL(link).hash.replace(/^#pair=/, '') }
+            : fleetDeviceFromLink(link, origin);
+          const paired = await call('/pair', { ...device, name: 'Fixture' });
+          const cookie = paired.headers['set-cookie'][0].split(';')[0];
+          const csrf = (await call('/session', undefined, { cookie })).body.csrf;
+          const status = async (path, body) => (await call(path, body, { cookie, 'x-loop55-csrf': csrf })).status;
+          const capabilities = (await call('/api/capabilities', undefined, { cookie })).body;
+          http = {
+            link: link.includes('#pair=') && !link.includes('fleet'),
+            paired: paired.status,
+            capabilities: Object.hasOwn(capabilities, 'fleet'),
+            fleetRoutes: [
+              await status('/api/fleet/admin/state'),
+              await status('/api/fleet/commands/receipt', {}),
+              await status('/api/fleet/peer/v1/credentials/challenge', {}),
+            ],
+            coreRoutes: [
+              await status('/api/bootstrap'),
+              await status('/api/feed?filter=queued'),
+              await status('/api/scheduled-sends'),
+            ],
+            invalidSubmit: await status('/api/runs', {}),
+          };
+          await host.close();
+        }
         if (process.env.LOOP55_TEST_FLEET_WORKER === '1') {
           if (!host.fleetDistribution || !host.fleetMail) throw new Error('Missing fleet workers');
           const { fleetMailDiscovery } = await import('./src/server/fleet-mail-tools.ts');
@@ -84,6 +134,7 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
         integrity: db.pragma('integrity_check'),
         workers: db.prepare('SELECT count(*) n FROM fleet_distribution_instances').get().n,
         lifecycle,
+        http,
         workspaceServices,
         mailServices,
       }));
@@ -145,6 +196,41 @@ test("companion gateway startup keeps machine identity across process and origin
       readFileSync(join(directory, "encryption-key"), "utf8"),
       encryptionKey,
     );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("companion startup without --fleet creates no fleet identity or routes, keeps core routes, and --fleet mounts them", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "loop55-fleet-off-"));
+  try {
+    const result = await startup(directory, {
+      LOOP55_TEST_FLEET_OFF: "1",
+      LOOP55_TEST_FLEET_HTTP: "1",
+    });
+    assert.deepEqual(result.identities, []);
+    assert.equal(result.workers, 0);
+    assert.equal(result.workspaceServices, false);
+    assert.equal(result.mailServices, false);
+    assert.deepEqual(result.http, {
+      // Core device pairing: a device-only link, redeemed by the gateway.
+      link: true,
+      paired: 200,
+      capabilities: false,
+      fleetRoutes: [404, 404, 404],
+      coreRoutes: [200, 200, 200],
+      // The submit route is mounted and validates its input.
+      invalidSubmit: 400,
+    });
+    // The same routes exist when the host is started with --fleet.
+    const on = await startup(mkdtempSync(join(tmpdir(), "loop55-fleet-on-")), {
+      LOOP55_TEST_FLEET_HTTP: "1",
+    });
+    assert.equal(on.identities.length, 1);
+    assert.equal(on.http.paired, 200);
+    assert.equal(on.http.capabilities, false);
+    for (const route of on.http.fleetRoutes) assert.notEqual(route, 404);
+    assert.deepEqual(on.http.coreRoutes, [200, 200, 200]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

@@ -32,6 +32,8 @@ export type ExecutionLifecycle = {
   close(): Promise<void>;
   setOrigin?(origin: string): void;
   setFleetMail?(service?: FleetMailWorkerService): void;
+  /** The host runs the fleet extension; its worker authorizes fleet effects. */
+  enableFleet?(): void;
 };
 const disconnected = () =>
   new ExecutionProblem(
@@ -75,6 +77,10 @@ export class ExecutionProcess
   private appliedMailRevision = -1;
   private syncingMail?: { child: ChildProcess; promise: Promise<void> };
   private activeMail = 0;
+  private fleet = false;
+  enableFleet() {
+    this.fleet = true;
+  }
   status() {
     return { v: 1 as const, generation: this.generation, state: this.state };
   }
@@ -129,7 +135,7 @@ export class ExecutionProcess
             source ? "./execution-worker.ts" : "./execution-worker.js",
             import.meta.url,
           ),
-          [],
+          this.fleet ? ["--fleet"] : [],
           {
             execArgv: source ? ["--import", "tsx"] : [],
             env: {

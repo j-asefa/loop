@@ -299,11 +299,56 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
       w.loop(["--project", "."]),
       /Run loop55 stop before changing/,
     );
+    // Fleets are a start option of the running launch, never a live change.
+    assert.equal(
+      JSON.parse(
+        await readFile(join(w.dir, "launch.json"), "utf8"),
+      ).args.includes("--fleet"),
+      false,
+    );
+    await assert.rejects(
+      w.loop(["--fleet"]),
+      /Fleets are off in the running workspace\. Run loop55 stop, then loop55 start --fleet\./,
+    );
+    await assert.rejects(
+      w.loop(["restart", "--fleet"]),
+      /loop55 restart repeats the running launch/,
+    );
+    await assert.rejects(
+      w.loop(["server", "--fleet"]),
+      /--fleet applies to loop55 start/,
+    );
+    for (const command of ["status", "upgrade", "pair", "stop"])
+      await assert.rejects(
+        w.loop([command, "--fleet"]),
+        /--fleet applies to loop55 start/,
+      );
+    assert.equal((await w.status()).state, "ready");
 
     const stopped = JSON.parse((await w.loop(["stop", "--json"])).stdout);
     assert.equal(stopped.stopped, true);
     assert(!alive(pid), "loop55 stop waits for the detached process to exit");
     assert.equal((await w.status()).state, "stopped");
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test("loop55 start --fleet records the option for restart and upgrade", async () => {
+  const w = await workspace();
+  try {
+    await w.start("--fleet");
+    assert.equal((await w.status()).state, "ready");
+    assert(
+      JSON.parse(
+        await readFile(join(w.dir, "launch.json"), "utf8"),
+      ).args.includes("--fleet"),
+    );
+    // Repeating the same option on the running workspace is not a change.
+    assert.match(
+      (await w.loop([...w.harness, "--local-only", "--fleet"])).stdout,
+      /Enabled|#pair=/,
+    );
   } finally {
     await w.cleanup();
   }

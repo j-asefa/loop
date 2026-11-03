@@ -30,6 +30,8 @@ import { FleetAuthority } from "./server/fleet-authority.js";
 import { registerEffectAuthority } from "./server/effect-authority.js";
 import { fleetEffectAuthority } from "./server/fleet-effect-authorizations.js";
 import { FleetPairing } from "./server/fleet-pairing.js";
+import { DevicePairing } from "./server/device-pairing.js";
+import { refuseRecordedEffects } from "./server/recorded-effects.js";
 import { FleetEnrollmentDestination } from "./server/fleet-enrollment.js";
 import {
   FleetHandoffDestination,
@@ -94,7 +96,10 @@ export class WorkspaceHost {
   statusExtras: () => object = () => ({});
   constructor(
     dir: string,
-    options: Options,
+    options: Options & {
+      /** Run the fleet extension; off unless `loop55 start --fleet`. */
+      fleet?: boolean;
+    },
     private execution: ExecutionLifecycle = new ExecutionProcess(),
   ) {
     if (!companionMode)
@@ -104,9 +109,14 @@ export class WorkspaceHost {
     // Identity survives URL changes and application restarts. This does not
     // create fleet membership or grant peer access. The separate enrollment
     // protocol below verifies destination consent before installing a binding.
-    if (!preview) this.fleet = new FleetAuthority(db, { seal, unseal });
+    if (!preview && options.fleet)
+      this.fleet = new FleetAuthority(db, { seal, unseal });
+    // Without --fleet, previously delegated effects are refused, never run.
+    registerEffectAuthority(
+      this.fleet ? fleetEffectAuthority : refuseRecordedEffects(db),
+    );
     if (this.fleet) {
-      registerEffectAuthority(fleetEffectAuthority);
+      this.execution.enableFleet?.();
       let enabled = false;
       const update = () => {
         const state = this.fleet!.status(OWNER);
@@ -155,7 +165,9 @@ export class WorkspaceHost {
           terminal: false,
         },
       },
-      this.pairing,
+      // Device pairing is core; fleet enrollment extends it with --fleet.
+      // Isolated previews keep their own file store.
+      this.pairing ?? (preview ? undefined : new DevicePairing(db, OWNER, dir)),
     );
     if (this.fleet && this.pairing)
       this.enrollment = new FleetEnrollmentDestination(

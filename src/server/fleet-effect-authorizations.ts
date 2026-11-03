@@ -6,7 +6,7 @@ import { FleetAuthority } from "./fleet-authority.js";
 import { seal, unseal } from "./secrets.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import {
-  registerEffectAuthority,
+  registeredEffectAuthority,
   type EffectAuthority,
   type EffectKind,
 } from "./effect-authority.js";
@@ -178,6 +178,13 @@ export function assertFleetEffect(owner: string, kind: Kind, effectId: string) {
     kind,
     effectId,
   }) as { grant_context: string }[];
+  // A host started without --fleet never runs work a peer authorized, even
+  // when a core caller reaches this check directly.
+  if (rows.length && registeredEffectAuthority() !== fleetEffectAuthority)
+    throw new ExecutionRefused(
+      403,
+      "This work was authorized through a fleet. Restart Loop55 with loop55 start --fleet to run it.",
+    );
   for (const row of rows)
     authorizeFleetEffect(
       owner,
@@ -208,7 +215,8 @@ export function withFleetEffect<T>(
   );
 }
 
-/** The feed reaches these checks only through effect-authority.ts. */
+/** The feed reaches these checks only through effect-authority.ts. A host
+ * started with --fleet registers this implementation. */
 export const fleetEffectAuthority: EffectAuthority = {
   record: recordFleetEffect,
   recordEdit: recordFleetEffectEdit,
@@ -216,6 +224,3 @@ export const fleetEffectAuthority: EffectAuthority = {
   inherit: inheritFleetEffect,
   within: withFleetEffect,
 };
-// Core modules still import these checks directly, so loading this module
-// keeps the feed on the same authority as they are.
-registerEffectAuthority(fleetEffectAuthority);

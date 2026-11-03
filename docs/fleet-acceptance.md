@@ -4,6 +4,9 @@ Use this checklist on test-owned workspaces. Results belong in the implementatio
 PR or a dated acceptance report; this guide describes how to reproduce them.
 The [development guide](development.md) defines the ordinary PR checks, and
 [pairing and recovery](pairing.md) describes the supported operator workflow.
+Fleets are experimental and run only on companions started with `--fleet`
+([fleets](pairing.md#fleets-experimental)); the runner below starts its
+companions that way.
 
 ## Reproducible runner
 

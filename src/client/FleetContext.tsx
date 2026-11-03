@@ -25,6 +25,15 @@ const Context = createContext<FleetContextValue>({
   refresh: async () => {},
 });
 export const useFleet = () => useContext(Context);
+/** The gateway runs the fleet extension: its admin state answered, or failed
+ * for a reason other than being absent (404 without --fleet). */
+export function useFleetAvailable() {
+  const { state, error } = useFleet();
+  return state !== null || error !== "";
+}
+export function WhenFleetAvailable({ children }: { children: ReactNode }) {
+  return useFleetAvailable() ? <>{children}</> : null;
+}
 
 /** This state always belongs to the browser's gateway, independent of the
  * source of the selected conversation. It never persists capabilities or keys. */

@@ -58,6 +58,15 @@ export function registerDelegatedActionProbe(probe: () => boolean) {
   delegated = probe;
 }
 
+/** The implementation in effect, if any. */
+export function registeredEffectAuthority() {
+  return registered;
+}
+
+export function delegatedActionInProgress() {
+  return delegated();
+}
+
 function authority() {
   if (registered) return registered;
   if (delegated())

@@ -683,6 +683,7 @@ async function main() {
       from: { type: "string" },
       "upgraded-from": { type: "string" },
       "stopped-generation": { type: "string" },
+      fleet: { type: "boolean" },
     },
   });
   if (values.version) {
@@ -698,6 +699,8 @@ loop55                  Alias for loop55 start.
 loop55 start [--providers installed|codex,claude,opencode,pi,antigravity,muse,grok]
      [--execution native]
      [--project PATH] [--tunnel-name NAME --public-url https://HOST]
+     [--fleet]          Also run the experimental multi-machine fleet
+                        extension (off unless given). See docs/pairing.md.
 loop55 server             Start the full server in the foreground.
 loop55 codex|claude|pi|opencode|antigravity|gemini|muse|grok [--project PATH] [--executable PATH]
      [--billing subscription|existing] [--resume NATIVE_SESSION]
@@ -761,6 +764,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
         "execution",
         "tunnel-name",
         "tunnel-config",
+        "fleet",
       ] as const
     ).find((k) => values[k] !== undefined);
     if (companion)
@@ -805,6 +809,26 @@ Uninstall removes the package separately; workspace/native history is retained.`
   if (values["stopped-generation"] && action !== "recover-execution")
     throw new Error(
       "--stopped-generation applies only to loop55 recover-execution.",
+    );
+  if (
+    values.fleet &&
+    action !== "restart" &&
+    [
+      "connection",
+      "devices",
+      "doctor",
+      "logs",
+      "pair",
+      "recover-execution",
+      "service",
+      "status",
+      "stop",
+      "uninstall",
+      "upgrade",
+    ].includes(action)
+  )
+    throw new Error(
+      "--fleet applies to loop55 start or loop55 codex|claude|pi|opencode|antigravity|gemini|muse|grok. Run loop55 stop, then loop55 start --fleet.",
     );
   if (action === "recover-execution") {
     if (positionals.length !== 1)
@@ -972,6 +996,10 @@ Uninstall removes the package separately; workspace/native history is retained.`
   if (action === "restart") {
     if (positionals.length > 1)
       throw new Error("Unknown command. See loop55 --help.");
+    if (values.fleet)
+      throw new Error(
+        "loop55 restart repeats the running launch. To change fleets, run loop55 stop, then loop55 start --fleet.",
+      );
     await restartWorkspace(
       dir,
       connection,
@@ -1257,6 +1285,11 @@ Uninstall removes the package separately; workspace/native history is retained.`
       running,
       tunnelModeOf(values),
     );
+    // Fleets are a start option of the running launch, never a live change.
+    if (values.fleet && !(await launchArgs(dir)).includes("--fleet"))
+      throw new Error(
+        "Fleets are off in the running workspace. Run loop55 stop, then loop55 start --fleet.",
+      );
     if (neutral) {
       if (
         (values.providers &&
@@ -1311,6 +1344,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     ...(values["tunnel-config"]
       ? ["--tunnel-config", values["tunnel-config"]]
       : []),
+    ...(values.fleet ? ["--fleet"] : []),
   ];
   if (!values.foreground && !daemonChild)
     return daemonize(dir, [
@@ -1360,7 +1394,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     process.env.LOOP55_PROFILE = "companion";
     const { WorkspaceHost } = await import("./workspace-host.js");
     if (stopping) return;
-    host = new WorkspaceHost(dir, options);
+    host = new WorkspaceHost(dir, { ...options, fleet: !!values.fleet });
     host.gateway.onStop = () => stop();
     if (tunnelMode) {
       console.log(

@@ -19,7 +19,7 @@ loop55 stop
 Device trust survives restart and address changes. It renews on use for up to one year of inactivity, subject to a fixed two-year maximum lifetime. Older records without a maximum retain their existing expiry as that maximum. Revocation persists. Expired or revoked devices must pair again. The implementation is [src/host.ts](../src/host.ts).
 
 Companion workspaces store device trust in their workspace database through
-[FleetPairing](../src/server/fleet-pairing.ts). On first
+[device pairing](../src/server/device-pairing.ts), which needs no fleet. On first
 startup, they import the existing `devices.json` once and replace it with a
 migration marker before opening the gateway. Restore the complete workspace
 directory, including the database, `devices.json` and `device-expiry-checks/`,
@@ -39,6 +39,21 @@ device access until the clock/storage issue is repaired and Loop55 restarts.
 Local `loop55 devices` listing and revocation remain available independently of
 authentication eligibility. Valid devices can still authenticate during database
 writer contention; optional session renewal defers on contention.
+
+## Fleets (experimental)
+
+Fleets connect several companion machines into one workspace. They are an
+experimental extension and are off unless Loop55 is started with `--fleet`:
+
+```sh
+loop55 start --fleet
+```
+
+`loop55 restart` and `loop55 upgrade` repeat the option. Without it the
+companion creates no fleet machine identity, mounts none of the
+`/api/fleet/` routes, and shows no fleet UI. Device pairing works the same
+either way. The rest of this section applies only to companions started with
+`--fleet`.
 
 Companion gateways expose a dedicated [fleet protocol](fleet-openapi.json)
 at fixed `/api/fleet/peer/v1/` endpoints. Enrollment accepts machine proofs
@@ -74,7 +89,8 @@ without restoring their grants.
 
 ### Add and manage machines
 
-Open **Settings → Runtime machines** on a paired HTTPS companion. Choose
+Open **Settings → Runtime machines** on a paired HTTPS companion started with
+`--fleet`. Choose
 **Add machine**, or **Machines & fleet** if a fleet is already configured. Create a fleet
 on the machine that will control its directory, choosing its name and allowed
 operations. On another machine, run `loop55 pair`; use **Scan pairing QR** in the
