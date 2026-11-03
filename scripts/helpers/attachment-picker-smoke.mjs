@@ -69,7 +69,7 @@ export async function attachmentPickerSmoke(page, fixture) {
 
   // Playwright cannot render UIKit's native source menu. Emulate iOS identity
   // to verify that both production composers hand off directly to one picker,
-  // without mounting Loop55's duplicate sheet, and still upload selected files.
+  // without mounting Loop's duplicate sheet, and still upload selected files.
   for (const device of [
     {
       userAgent:

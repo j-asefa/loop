@@ -72,7 +72,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
   const close = async (sheet = menu) => {
     await sheet.getByRole("button", { name: "Close", exact: true }).click();
     await expect(sheet).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   const client =
     engine === "chromium" ? await page.context().newCDPSession(page) : null;
@@ -222,7 +222,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
     // A foreign drag payload is not a selection from this Feed.
     const transfer = await page.evaluateHandle(() => new DataTransfer());
     await transfer.evaluate(
-      (data, key) => data.setData("application/x-loop55-done-card", key),
+      (data, key) => data.setData("application/x-loop-done-card", key),
       await card(0).getAttribute("data-done-card"),
     );
     await card(1).dispatchEvent("drop", { dataTransfer: transfer });

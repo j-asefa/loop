@@ -1,5 +1,5 @@
 {
-  "name": "loop55",
+  "name": "@j-asefa/loop",
   "version": "0.1.0",
   "description": "A durable, phone-first agent workspace",
   "main": "index.js",
@@ -115,8 +115,8 @@
   },
   "private": true,
   "bin": {
-    "loop55": "dist/cli.js",
-    "loop55-job": "deployment/job-cli.mjs"
+    "loop": "dist/cli.js",
+    "loop-job": "deployment/job-cli.mjs"
   },
   "engines": {
     "node": ">=22.19"

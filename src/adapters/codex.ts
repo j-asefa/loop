@@ -188,12 +188,12 @@ export class Codex implements Adapter {
         status: "failed",
         detail: nativeFailureDetail(
           error,
-          "Codex exited. Use loop55 doctor, then resume the native thread.",
+          "Codex exited. Use loop doctor, then resume the native thread.",
         ),
       }),
     );
     await this.native.request("initialize", {
-      clientInfo: { name: "loop55_cli", title: "Loop55", version: "0.1.0" },
+      clientInfo: { name: "loop_cli", title: "Loop", version: "0.1.0" },
       capabilities: { experimentalApi: true },
     });
     await this.native.write({ method: "initialized" });
@@ -271,7 +271,7 @@ export class Codex implements Adapter {
       ...(this.options.workspaceTools
         ? {
             config: {
-              "mcp_servers.loop55_workspace": {
+              "mcp_servers.loop_workspace": {
                 url: this.options.workspaceTools.url,
                 http_headers: {
                   Authorization: "Bearer " + this.options.workspaceTools.token,
@@ -285,7 +285,7 @@ export class Codex implements Adapter {
       .request(
         this.options.resume ? "thread/resume" : "thread/start",
         this.options.resume
-          ? // Codex retains the full context. Loop55 already persists its display
+          ? // Codex retains the full context. Loop already persists its display
             // history; copying every old turn (including file data) into this
             // single response can exceed the transport's bounded frame size.
             {
@@ -307,7 +307,7 @@ export class Codex implements Adapter {
         )
           throw new NativeSetupError(
             "native_session_in_use",
-            "This conversation is in use by another Codex client, such as the desktop app. Stop or release the session there, then retry in Loop55. No prompt was sent.",
+            "This conversation is in use by another Codex client, such as the desktop app. Stop or release the session there, then retry in Loop. No prompt was sent.",
           );
         throw error;
       });
@@ -529,7 +529,7 @@ export class Codex implements Adapter {
               .join("\n"),
           },
         });
-      // Live prompts already have a durable Loop55 item.
+      // Live prompts already have a durable Loop item.
     } else if (
       !["reasoning", "enteredReviewMode", "exitedReviewMode"].includes(
         item.type,
@@ -671,7 +671,7 @@ export class Codex implements Adapter {
             id: m.id,
             error: {
               code: -32601,
-              message: "Unsupported Loop55 client request",
+              message: "Unsupported Loop client request",
             },
           })
           .catch(() => {});
@@ -729,7 +729,7 @@ export class Codex implements Adapter {
         this.emit({ type: "resolved", id });
       this.requests.clear();
       // Codex may finish its independent work while an async question is
-      // unanswered. Keep Loop55's decision live; an answer starts the next
+      // unanswered. Keep Loop's decision live; an answer starts the next
       // native turn in this same run and generation.
       if (p.turn.status === "completed" && this.asyncQuestions.size) {
         this.emit({ type: "status", status: "awaiting-input" });

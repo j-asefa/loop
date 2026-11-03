@@ -8,7 +8,7 @@ export function setShellSource(source: string) {
 // History state belongs to this document/navigation entry and survives reload.
 // A fresh deep link has no saved shell and still opens over the local Feed.
 export function initializeShellSource() {
-  const saved = history.state?.loop55ShellSource;
+  const saved = history.state?.loopShellSource;
   const source =
     typeof saved === "string" &&
     (saved === "" ||
@@ -19,7 +19,7 @@ export function initializeShellSource() {
         : routeSourceId();
   setShellSource(source);
   history.replaceState(
-    { ...history.state, loop55ShellSource: source, loop55Sheet: false },
+    { ...history.state, loopShellSource: source, loopSheet: false },
     "",
   );
 }

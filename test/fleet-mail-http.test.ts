@@ -36,10 +36,10 @@ import { fleetPeerApi } from "../src/shared/fleet-peer-api.js";
 import type { FleetOperation } from "../src/shared/fleet.js";
 import { secret } from "../src/state.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-mail-http-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-mail-http-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
@@ -221,7 +221,7 @@ async function fixture(scopes: FleetOperation[] = ["read", "mail", "files"]) {
           headers: {
             host: new URL(origin).host,
             "content-type": "application/json",
-            "x-loop55-fleet-version": "1",
+            "x-loop-fleet-version": "1",
             ...headers,
           },
         },
@@ -268,7 +268,7 @@ async function fixture(scopes: FleetOperation[] = ["read", "mail", "files"]) {
     const target = new URL(String(url));
     expect(target.origin).toBe(origin);
     const headers = new Headers(options?.headers);
-    for (const name of ["cookie", "authorization", "origin", "x-loop55-csrf"])
+    for (const name of ["cookie", "authorization", "origin", "x-loop-csrf"])
       expect(headers.has(name)).toBe(false);
     calls.push(target.pathname);
     if (mode === "offline") throw new Error("fixture offline");

@@ -94,14 +94,14 @@ it.each(["mutation", "socket"] as const)(
           user: { id: f.owner },
           mode: "paired",
         });
-        const received = response.headers.get("x-loop55-change-epoch");
+        const received = response.headers.get("x-loop-change-epoch");
         expect(received).toBeTruthy();
         if (epoch) expect(received).toBe(epoch);
         epoch = received;
-        expect(response.headers.get("x-loop55-change-cursor")).toBe("0");
-        expect(response.headers.get("x-loop55-next-deadline")).toBe("null");
+        expect(response.headers.get("x-loop-change-cursor")).toBe("0");
+        expect(response.headers.get("x-loop-next-deadline")).toBe("null");
         expect(
-          Number(response.headers.get("x-loop55-server-now")),
+          Number(response.headers.get("x-loop-server-now")),
         ).toBeGreaterThan(0);
         expect(
           f.db
@@ -131,12 +131,12 @@ it.each(["mutation", "socket"] as const)(
       headers: f.browser,
     });
     expect(after.status).toBe(200);
-    expect(after.headers.get("x-loop55-change-epoch")).toBe(epoch);
+    expect(after.headers.get("x-loop-change-epoch")).toBe(epoch);
     if (first === "mutation")
-      expect(
-        Number(after.headers.get("x-loop55-change-cursor")),
-      ).toBeGreaterThan(0);
-    else expect(after.headers.get("x-loop55-change-cursor")).toBe("0");
+      expect(Number(after.headers.get("x-loop-change-cursor"))).toBeGreaterThan(
+        0,
+      );
+    else expect(after.headers.get("x-loop-change-cursor")).toBe("0");
   },
   10_000,
 );
@@ -994,13 +994,13 @@ for (const mode of ["server", "companion"] as const)
       "tombstone",
     );
     const response = await f.request("/api/feed", { headers: f.browser });
-    expect(response.headers.get("x-loop55-change-epoch")).toBe(
+    expect(response.headers.get("x-loop-change-epoch")).toBe(
       stream.frames[0].epoch,
     );
-    expect(Number(response.headers.get("x-loop55-server-now"))).toBeGreaterThan(
+    expect(Number(response.headers.get("x-loop-server-now"))).toBeGreaterThan(
       Date.now() - 5000,
     );
-    expect(response.headers.get("x-loop55-next-deadline")).toBe("null");
+    expect(response.headers.get("x-loop-next-deadline")).toBe("null");
     expect(
       stream.frames
         .filter((frame) => frame.type === "events")
@@ -1112,10 +1112,10 @@ for (const mode of ["server", "companion"] as const)
       headers: f.browser,
     });
     expect(ownerResponse.status).toBe(200);
-    expect(ownerResponse.headers.get("x-loop55-next-deadline")).toBe(
+    expect(ownerResponse.headers.get("x-loop-next-deadline")).toBe(
       String(expires),
     );
-    expect(ownerResponse.headers.has("x-loop55-change-cursor")).toBe(true);
+    expect(ownerResponse.headers.has("x-loop-change-cursor")).toBe(true);
     for (const scope of ["results:read", "cards:read"] as const) {
       const created = await f.request("/api/card-tokens", {
         headers: f.browser,
@@ -1143,10 +1143,10 @@ for (const mode of ["server", "companion"] as const)
             const response = await f.request(path, { headers, method });
             expect(response.status).toBe(200);
             for (const header of [
-              "x-loop55-change-epoch",
-              "x-loop55-change-cursor",
-              "x-loop55-server-now",
-              "x-loop55-next-deadline",
+              "x-loop-change-epoch",
+              "x-loop-change-cursor",
+              "x-loop-server-now",
+              "x-loop-next-deadline",
             ])
               expect(
                 response.headers.has(header),
@@ -1177,7 +1177,7 @@ it("initializes deadlines after creation and advertises two expiries without any
     nextDeadline: first,
   });
   const snapshot = await f.request("/api/pr-watches", { headers: f.browser });
-  expect(snapshot.headers.get("x-loop55-next-deadline")).toBe(String(first));
+  expect(snapshot.headers.get("x-loop-next-deadline")).toBe(String(first));
   expect((await snapshot.json()).watches).toHaveLength(1);
   const nexts = () =>
     stream

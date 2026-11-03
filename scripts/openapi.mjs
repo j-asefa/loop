@@ -359,7 +359,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   }
   if (route.security === "local-setup")
     parameters.push({
-      name: "x-loop55-source-setup",
+      name: "x-loop-source-setup",
       in: "header",
       required: true,
       schema: { type: "string", const: "1" },
@@ -492,8 +492,8 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
             route.protocol === "mcp"
               ? "Opaque MCP JSON-RPC transport. The MCP handler owns all methods, authentication and responses, including streaming. Its 12 MB JSON parser runs before dispatch. The workspace registrar does not validate or project protocol messages. Browser Origin headers are refused."
               : "Better Auth owns request validation, session cookies, redirects and response bodies. This protocol endpoint bypasses workspace input/output projection; single-user installations retain their existing personal-workspace response or refusal.",
-          "x-loop55-transport": route.protocol,
-          ...(route.method === "ALL" ? { "x-loop55-method": "ALL" } : {}),
+          "x-loop-transport": route.protocol,
+          ...(route.method === "ALL" ? { "x-loop-method": "ALL" } : {}),
         }
       : {}),
     parameters,
@@ -600,7 +600,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
 const document = {
   openapi: "3.1.0",
   info: {
-    title: "Loop55 API",
+    title: "Loop API",
     version: "1",
     description:
       "Workspace HTTP contracts, integration-token admission and complete stored Cards content. See cards-api.md for scopes, deployment authentication and synchronization.",
@@ -625,7 +625,7 @@ const document = {
       LocalSourceSetup: {
         type: "apiKey",
         in: "header",
-        name: "x-loop55-source-setup",
+        name: "x-loop-source-setup",
         description:
           "Must equal 1 on an authenticated single-user request arriving at the local authority. This is a source-adapter capability unavailable through paired-browser proxies; remote or multi-user requests are refused.",
       },
@@ -639,7 +639,7 @@ const document = {
         type: "http",
         scheme: "bearer",
         bearerFormat:
-          "loop55_token_… (loop55_card_…, loop_token_… and loop_card_… accepted; preserve issued credentials verbatim)",
+          "loop_token_… (loop_card_… and credentials issued as loop55_token_… or loop55_card_… also accepted; preserve issued credentials verbatim)",
         description:
           "Owner/source-bound integration credential. Only contracts whose x-scopes intersect its grants admit it. Never send tokens in URLs. Every admitted write requires its x-request-identity body field. Identity is scoped to owner and token; changed validated input or operation conflicts. Completed requests replay the first status with the current result projection, without invoking the effect again. Pending outcomes are uncertain and replay as 409. Result data expires after 24 hours; permanent credential-lifetime markers refuse old keys with 409.",
         "x-scope-catalog": SCOPE_CATALOG,
@@ -647,7 +647,7 @@ const document = {
       CardBearer: {
         type: "http",
         scheme: "bearer",
-        bearerFormat: "loop55_card_… or loop_card_…",
+        bearerFormat: "loop_card_… or loop55_card_…",
         description:
           "Compatibility alias for IntegrationBearer for one release. Legacy results:read and cards:read retain their existing Cards-only permissions.",
       },
@@ -656,19 +656,19 @@ const document = {
         in: "header",
         name: "Cookie",
         description:
-          "Complete Cookie header from the authenticated Loop55 owner session, including cookie names. Preserve the deployment's names and values (HTTPS uses the __Secure- prefix). Browsers attach their cookie jar automatically; non-browser clients supply the complete header value.",
+          "Complete Cookie header from the authenticated Loop owner session, including cookie names. Preserve the deployment's names and values (HTTPS uses the __Secure- prefix). Browsers attach their cookie jar automatically; non-browser clients supply the complete header value.",
       },
       PairedDevice: {
         type: "apiKey",
         in: "header",
         name: "Cookie",
         description:
-          "Complete Cookie header from the paired device session, including cookie names. Preserve the deployment's names and values (__Host-loop55 on HTTPS, loop55_local on local HTTP, with an installation suffix for isolated previews; existing __Host-loop and loop_local cookies remain accepted). Browsers attach their cookie jar automatically; non-browser clients supply the complete header value. Management writes also require PairedCsrf.",
+          "Complete Cookie header from the paired device session, including cookie names. Preserve the deployment's names and values (__Host-loop on HTTPS, loop_local on local HTTP, with an installation suffix for isolated previews; existing __Host-loop and loop_local cookies remain accepted). Browsers attach their cookie jar automatically; non-browser clients supply the complete header value. Management writes also require PairedCsrf.",
       },
       PairedCsrf: {
         type: "apiKey",
         in: "header",
-        name: "x-loop55-csrf",
+        name: "x-loop-csrf",
         description:
           "Required together with PairedDevice for management writes. Read the csrf value from the authenticated /session response. Also send the matching workspace Origin header.",
       },

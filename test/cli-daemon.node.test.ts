@@ -40,7 +40,7 @@ const PAIR_URL = /http:\/\/127\.0\.0\.1:\d+\/#pair=[\w-]+/;
 async function workspace(extraEnv: Record<string, string> = {}) {
   // The fixture harness is executed, and the system temp dir may be noexec.
   await mkdir(".tmp", { recursive: true });
-  const base = await mkdtemp(join(resolve(".tmp"), "loop55-daemon-"));
+  const base = await mkdtemp(join(resolve(".tmp"), "loop-daemon-"));
   const project = join(base, "project");
   await mkdir(project);
   gitProject(project);
@@ -65,8 +65,8 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   const env = {
     ...process.env,
     PATH: bin + ":" + (process.env.PATH || ""),
-    LOOP55_HOME: join(base, "state"),
-    LOOP55_TEST_HARNESS: "codex",
+    LOOP_HOME: join(base, "state"),
+    LOOP_TEST_HARNESS: "codex",
     ...extraEnv,
   };
   const cli = ["--import", "tsx", "src/cli.ts"];
@@ -95,12 +95,12 @@ async function workspace(extraEnv: Record<string, string> = {}) {
     for (const pid of pids) if (alive(pid)) killFixtureProcess(pid);
     await rm(base, { recursive: true, force: true });
   };
-  const dir = join(env.LOOP55_HOME, "workspace");
+  const dir = join(env.LOOP_HOME, "workspace");
   return { loop, harness, start, status, cleanup, dir, env, cli };
 }
 
 test("the daemon log rotates at its size cap without losing or splitting a line", async () => {
-  const base = await mkdtemp(join(tmpdir(), "loop55-log-"));
+  const base = await mkdtemp(join(tmpdir(), "loop-log-"));
   const log = join(base, "daemon.log");
   try {
     const lines = Array.from({ length: 60 }, (_, i) => `line ${i}`);
@@ -139,7 +139,7 @@ function logged(log: string, script: string) {
 }
 
 test("a failed rotation keeps logging to the current file and says why", async () => {
-  const base = await mkdtemp(join(tmpdir(), "loop55-log-"));
+  const base = await mkdtemp(join(tmpdir(), "loop-log-"));
   const log = join(base, "daemon.log");
   try {
     // A non-empty directory can't be replaced by the rotated file.
@@ -162,7 +162,7 @@ test("a failed rotation keeps logging to the current file and says why", async (
 });
 
 test("a rotation whose new file fails to open resumes the current log later", async () => {
-  const base = await mkdtemp(join(tmpdir(), "loop55-log-"));
+  const base = await mkdtemp(join(tmpdir(), "loop-log-"));
   const log = join(base, "daemon.log");
   try {
     await logged(
@@ -194,7 +194,7 @@ test("a rotation whose new file fails to open resumes the current log later", as
 });
 
 test("a crash after rotations still leaves its trace in the current log", async () => {
-  const base = await mkdtemp(join(tmpdir(), "loop55-log-"));
+  const base = await mkdtemp(join(tmpdir(), "loop-log-"));
   const log = join(base, "daemon.log");
   try {
     await assert.rejects(
@@ -212,17 +212,17 @@ test("a crash after rotations still leaves its trace in the current log", async 
 });
 
 test("a relaunch retires the old log with pairing secrets redacted", async () => {
-  const base = await mkdtemp(join(tmpdir(), "loop55-log-"));
+  const base = await mkdtemp(join(tmpdir(), "loop-log-"));
   const log = join(base, "daemon.log");
   try {
     await writeFile(
       log,
-      "Loop55 workspace ready.\nhttp://127.0.0.1:1/#pair=AbC_d-123456789012345678901234567890123\nhttps://destination.example/#fleet=EncodedCombinedCapabilities\n",
+      "Loop workspace ready.\nhttp://127.0.0.1:1/#pair=AbC_d-123456789012345678901234567890123\nhttps://destination.example/#fleet=EncodedCombinedCapabilities\n",
       { mode: 0o644 },
     );
     await retireLog(log);
     const retired = await readFile(log + ".1", "utf8");
-    assert.match(retired, /Loop55 workspace ready/);
+    assert.match(retired, /Loop workspace ready/);
     assert.match(retired, /#pair=<redacted>/);
     assert.doesNotMatch(retired, /AbC_d/);
     assert.match(retired, /#fleet=<redacted>/);
@@ -288,7 +288,7 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
     assert.match(again.stdout, new RegExp(url.origin + "/#pair="));
 
     const logs = await w.loop(["logs"]);
-    assert.match(logs.stdout, /Loop55 workspace ready/);
+    assert.match(logs.stdout, /Loop workspace ready/);
     assert.doesNotMatch(
       logs.stdout,
       /#pair=/,
@@ -297,7 +297,7 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
 
     await assert.rejects(
       w.loop(["--project", "."]),
-      /Run loop55 stop before changing/,
+      /Run loop stop before changing/,
     );
     // Fleets are a start option of the running launch, never a live change.
     assert.equal(
@@ -308,33 +308,33 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
     );
     await assert.rejects(
       w.loop(["--fleet"]),
-      /Fleets are off in the running workspace\. Run loop55 stop, then loop55 start --fleet\./,
+      /Fleets are off in the running workspace\. Run loop stop, then loop start --fleet\./,
     );
     await assert.rejects(
       w.loop(["restart", "--fleet"]),
-      /loop55 restart repeats the running launch/,
+      /loop restart repeats the running launch/,
     );
     await assert.rejects(
       w.loop(["server", "--fleet"]),
-      /--fleet applies to loop55 start/,
+      /--fleet applies to loop start/,
     );
     for (const command of ["status", "upgrade", "pair", "stop"])
       await assert.rejects(
         w.loop([command, "--fleet"]),
-        /--fleet applies to loop55 start/,
+        /--fleet applies to loop start/,
       );
     assert.equal((await w.status()).state, "ready");
 
     const stopped = JSON.parse((await w.loop(["stop", "--json"])).stdout);
     assert.equal(stopped.stopped, true);
-    assert(!alive(pid), "loop55 stop waits for the detached process to exit");
+    assert(!alive(pid), "loop stop waits for the detached process to exit");
     assert.equal((await w.status()).state, "stopped");
   } finally {
     await w.cleanup();
   }
 });
 
-test("loop55 start --fleet records the option for restart and upgrade", async () => {
+test("loop start --fleet records the option for restart and upgrade", async () => {
   const w = await workspace();
   try {
     await w.start("--fleet");
@@ -373,11 +373,11 @@ test("a startup failure in the background process reaches the terminal", async (
 });
 
 test("crashed and hung workspaces: status, stop, relaunch and log rotation", async () => {
-  // The native harness must be stopped by loop55 stop, not by its pipes closing.
+  // The native harness must be stopped by loop stop, not by its pipes closing.
   const w = await workspace({
-    LOOP55_TEST_OUTLIVE_STDIN: "1",
+    LOOP_TEST_OUTLIVE_STDIN: "1",
     // A frozen workspace ignores SIGTERM until SIGKILL; don't wait 5s for it.
-    LOOP55_TEST_STOP_GRACE_MS: "1000",
+    LOOP_TEST_STOP_GRACE_MS: "1000",
   });
   let follower: ReturnType<typeof spawn> | undefined;
   const natives: number[] = [];
@@ -414,11 +414,11 @@ test("crashed and hung workspaces: status, stop, relaunch and log rotation", asy
     const second = await w.start();
     assert.match(
       await readFile(join(w.dir, "daemon.log.1"), "utf8"),
-      /Loop55 workspace ready/,
+      /Loop workspace ready/,
       "a relaunch rotates the previous log",
     );
     await until(
-      () => (followed.match(/Loop55 workspace ready/g)?.length ?? 0) >= 2,
+      () => (followed.match(/Loop workspace ready/g)?.length ?? 0) >= 2,
       10000,
     );
 
@@ -504,7 +504,7 @@ test("crashed and hung workspaces: status, stop, relaunch and log rotation", asy
   }
 });
 
-test("loop55 stop and status never act on a PID they can't confirm is the workspace", async () => {
+test("loop stop and status never act on a PID they can't confirm is the workspace", async () => {
   const w = await workspace();
   const other = spawn("sleep", ["60"]);
   try {
@@ -542,7 +542,7 @@ test("loop55 stop and status never act on a PID they can't confirm is the worksp
 });
 
 test("stop reaches a current execution process even when a root registry retains its reused PID", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop55-stop-reused-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop-stop-reused-"));
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1e9)"], {
     detached: true,
     stdio: "ignore",
@@ -574,7 +574,7 @@ test("stop reaches a current execution process even when a root registry retains
 });
 
 test("a forced stop kills group members that outlive their leader", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop55-group-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop-group-"));
   // A detached leader that exits on SIGTERM (noting it got a chance to shut
   // down cleanly), and a member of its process group that ignores SIGTERM.
   const mark = join(dir, "leader-signal");
@@ -616,7 +616,7 @@ test("a forced stop kills group members that outlive their leader", async () => 
 });
 
 test("a later stop still kills group members an interrupted one left behind", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop55-group-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop-group-"));
   const leader = spawn(
     process.execPath,
     [
@@ -664,7 +664,7 @@ test("a later stop still kills group members an interrupted one left behind", as
 });
 
 test("a retained native group and separate stop records survive registry replacement", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop55-group-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop-group-"));
   const registry = join(dir, "children.json");
   // A stand-in workspace: it records a detached leader with the real registry
   // writer, which retains a leader whose process group outlives it.
@@ -733,7 +733,7 @@ test("a retained native group and separate stop records survive registry replace
 });
 
 test("a group whose leader exited before the stop is kept and reported, not signalled", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop55-group-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop-group-"));
   const registry = join(dir, "children.json");
   // The leader starts a member of its group, then exits on its own.
   const leader = spawn(
@@ -778,7 +778,7 @@ test("a group whose leader exited before the stop is kept and reported, not sign
 });
 
 test("a forced stop that leaves survivors fails and keeps the records", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop55-survivor-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop-survivor-"));
   const child = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
   const registry = join(dir, "children.json");
   try {
@@ -787,7 +787,7 @@ test("a forced stop that leaves survivors fails and keeps the records", async ()
       JSON.stringify([{ pid: child.pid, identity: identity(child.pid!) }]),
     );
     // Signals that never land stand in for a process that survives SIGKILL.
-    process.env.LOOP55_TEST_STOP_GRACE_MS = "500";
+    process.env.LOOP_TEST_STOP_GRACE_MS = "500";
     await assert.rejects(
       forceStop(dir, undefined, "exited", () => {}),
       new RegExp(`Process\\(es\\) ${child.pid} did not exit`),
@@ -795,13 +795,13 @@ test("a forced stop that leaves survivors fails and keeps the records", async ()
     assert(existsSync(registry), "the record is kept for another attempt");
     assert(alive(child.pid!));
   } finally {
-    delete process.env.LOOP55_TEST_STOP_GRACE_MS;
+    delete process.env.LOOP_TEST_STOP_GRACE_MS;
     child.kill("SIGKILL");
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("loop55 stop preserves malformed execution registries and refuses to infer that native children stopped", async () => {
+test("loop stop preserves malformed execution registries and refuses to infer that native children stopped", async () => {
   const w = await workspace();
   const recorded = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
   const native = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
@@ -853,12 +853,12 @@ test("a workspace that acknowledges stop but never exits is terminated", async (
   const preload = join(resolve(".tmp"), `hang-${process.pid}.mjs`);
   await writeFile(
     preload,
-    'if (process.env.LOOP55_DAEMON_CHILD === "1") setInterval(() => {}, 1 << 30);\n',
+    'if (process.env.LOOP_DAEMON_CHILD === "1") setInterval(() => {}, 1 << 30);\n',
   );
   const w = await workspace({
     NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import ${pathToFileURL(preload)}`,
-    LOOP55_TEST_STOP_WAIT_MS: "2000",
-    LOOP55_TEST_STOP_GRACE_MS: "1000",
+    LOOP_TEST_STOP_WAIT_MS: "2000",
+    LOOP_TEST_STOP_GRACE_MS: "1000",
   });
   try {
     const { pid } = await w.start();
@@ -873,7 +873,7 @@ test("a workspace that acknowledges stop but never exits is terminated", async (
   }
 });
 
-test("loop55 logs --follow keeps the old file's tail across a rotation", async () => {
+test("loop logs --follow keeps the old file's tail across a rotation", async () => {
   const w = await workspace();
   const log = join(w.dir, "daemon.log");
   let follower: ReturnType<typeof spawn> | undefined;
@@ -917,7 +917,7 @@ async function nativeChild(dir: string, url: URL) {
       headers: {
         Cookie: cookie,
         Origin: url.origin,
-        "x-loop55-csrf": csrf,
+        "x-loop-csrf": csrf,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -982,7 +982,7 @@ test("local-only overrides a saved public URL and named tunnel", async () => {
   }
 });
 
-test("loop55 acp refuses a relative or missing executable with setup guidance", async () => {
+test("loop acp refuses a relative or missing executable with setup guidance", async () => {
   const w = await workspace();
   try {
     for (const executable of ["./missing-agent", "/missing/acp-agent"])
@@ -995,7 +995,7 @@ test("loop55 acp refuses a relative or missing executable with setup guidance", 
   }
 });
 
-test("loop55 start --direct pairs with no installed harness, reuses the host and survives restart", async () => {
+test("loop start --direct pairs with no installed harness, reuses the host and survives restart", async () => {
   const w = await workspace();
   try {
     // Automatic discovery must not depend on this machine's signed-in CLIs.
@@ -1020,7 +1020,7 @@ test("loop55 start --direct pairs with no installed harness, reuses the host and
       "--direct",
       "--local-only",
       "--project",
-      w.env.LOOP55_HOME,
+      w.env.LOOP_HOME,
     ]);
     assert.match(first.stdout, PAIR_URL);
     const status = await w.status();
@@ -1035,13 +1035,13 @@ test("loop55 start --direct pairs with no installed harness, reuses the host and
       "--direct",
       "--local-only",
       "--project",
-      w.env.LOOP55_HOME,
+      w.env.LOOP_HOME,
     ]);
     assert.match(again.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     await assert.rejects(
       w.loop(["start", "--local-only", "--providers", "pi"]),
-      /Run loop55 stop before changing the running workspace's providers/,
+      /Run loop stop before changing the running workspace's providers/,
     );
     // The same set in another order or spelling is not a change.
     assert.match(
@@ -1058,11 +1058,11 @@ test("loop55 start --direct pairs with no installed harness, reuses the host and
     const bare = await w.loop(["--direct", "--local-only"]);
     assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
-    const otherProject = join(w.env.LOOP55_HOME, "other-project");
+    const otherProject = join(w.env.LOOP_HOME, "other-project");
     await mkdir(otherProject);
     await assert.rejects(
       w.loop(["start", "--direct", "--local-only", "--project", otherProject]),
-      /Run loop55 stop before changing the running workspace/,
+      /Run loop stop before changing the running workspace/,
     );
     await assert.rejects(
       w.loop([
@@ -1103,9 +1103,9 @@ test("loop55 start --direct pairs with no installed harness, reuses the host and
       200,
     );
     await w.loop(["stop"]);
-    await assert.rejects(w.loop(["pair"]), /loop55 start/);
+    await assert.rejects(w.loop(["pair"]), /loop start/);
     const restarted = await w.loop(["--direct", "--local-only"]);
-    assert.equal((await w.status()).project, w.env.LOOP55_HOME);
+    assert.equal((await w.status()).project, w.env.LOOP_HOME);
     const nextOrigin = new URL(restarted.stdout.match(PAIR_URL)![0]).origin;
     const session = await fetch(nextOrigin + "/session", {
       headers: { cookie },
@@ -1129,7 +1129,7 @@ test("bare loop restores a saved managed project from another directory", async 
       "--direct",
       "--local-only",
       "--project",
-      w.env.LOOP55_HOME,
+      w.env.LOOP_HOME,
     ]);
     const running = await w.status();
     const preferencesPath = join(w.dir, "preferences.json");
@@ -1145,7 +1145,7 @@ test("bare loop restores a saved managed project from another directory", async 
     const bare = await w.loop(["--local-only"]);
     assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, running.pid);
-    assert.equal((await w.status()).project, w.env.LOOP55_HOME);
+    assert.equal((await w.status()).project, w.env.LOOP_HOME);
   } finally {
     await w.cleanup();
   }

@@ -7,8 +7,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NativeOutput, NATIVE_OUTPUT_BYTES } from "../src/server/native-output";
-const dir = mkdtempSync(join(tmpdir(), "loop55-projection-"));
-process.env.LOOP55_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop-projection-"));
+process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
@@ -97,7 +97,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     event({ id: "two", kind: "assistant", text: "updated" });
     await vi.advanceTimersByTimeAsync(999);
     expect(db.prepare("SELECT * FROM aggregate_writes").all()).toEqual([]);
-    const writer = new Database(join(dir, "loop55.db"));
+    const writer = new Database(join(dir, "loop.db"));
     const busyTimeout = db.pragma("busy_timeout", { simple: true });
     writer.exec("BEGIN IMMEDIATE");
     try {

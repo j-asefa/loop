@@ -10,13 +10,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-native-mcp-import-"));
+const root = mkdtempSync(join(tmpdir(), "loop-native-mcp-import-"));
 const oldHome = process.env.HOME;
 const oldPath = process.env.PATH;
 process.env.HOME = join(root, "home");
 process.env.PATH = join(root, "bin") + ":" + (oldPath || "");
-process.env.LOOP55_DATA_DIR = join(root, "data");
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_DATA_DIR = join(root, "data");
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 mkdirSync(process.env.HOME, { recursive: true });
 mkdirSync(join(root, "bin"));
 const codex = join(root, "bin", "codex");

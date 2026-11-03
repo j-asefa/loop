@@ -1,5 +1,4 @@
 import { installEventStreamProbe } from "./helpers/event-stream-probe.mjs";
-import "../runtime/environment.mjs";
 import { pendingSourceRefreshSmoke } from "./helpers/feed-pending-refresh-smoke.mjs";
 import { sourceRetryFeedSmoke } from "./helpers/feed-source-retry-smoke.mjs";
 import { drainPageRoutes, temporaryPageRoute } from "./helpers/temporary-page-route.mjs";
@@ -74,8 +73,8 @@ function complete({ db, owner }, label) {
     ).run(owner, label + " live final answer", now);
   }).immediate();
 }
-const engines = process.env.LOOP55_BROWSER
-  ? [process.env.LOOP55_BROWSER]
+const engines = process.env.LOOP_BROWSER
+  ? [process.env.LOOP_BROWSER]
   : ["chromium", "webkit"];
 for (const engine of engines) {
   const browser = await (engine === "webkit" ? webkit : chromium).launch({
@@ -96,7 +95,7 @@ for (const engine of engines) {
           remote = await cardsFixture("server", true, { projectedWrites: true });
           seed(remote, "Remote", 2, 0);
           // Fixture discovery, real source servers and real gateway forwarding.
-          dockerDir = mkdtempSync(join(tmpdir(), "loop55-events-docker-"));
+          dockerDir = mkdtempSync(join(tmpdir(), "loop-events-docker-"));
           const id = "a".repeat(64);
           writeFileSync(
             join(dockerDir, "inspect.json"),
@@ -167,7 +166,7 @@ for (const engine of engines) {
           window.__workspaceResets = 0;
           window.__feedReconciledCursor = 0;
           window.addEventListener(
-            "loop55-workspace-change",
+            "loop-workspace-change",
             event => {
               window.__workspaceUpdates++;
               if (event.detail?.changes?.some(change => change.source === "" && change.events.some(event =>
@@ -272,7 +271,7 @@ for (const engine of engines) {
               if(/could not refresh|load the Feed/i.test(alert.textContent)) window.__feedResetErrors.push(alert.textContent);
           });
           window.__feedResetObserver.observe(document.querySelector('.inbox'),{subtree:true,childList:true,characterData:true});
-          window.dispatchEvent(new CustomEvent("loop55-workspace-change",{detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"feed"}}]}]}}));
+          window.dispatchEvent(new CustomEvent("loop-workspace-change",{detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"feed"}}]}]}}));
         });
         await expect.poll(() => heldFeed).toBe(true);
         await working.evaluate(clock => {
@@ -305,7 +304,7 @@ for (const engine of engines) {
             const url = new URL(response.url());
             return url.pathname === "/api/feed" && url.searchParams.get("filter") === "working";
           });
-          await failedSource.evaluate(() => window.dispatchEvent(new CustomEvent("loop55-workspace-change", {
+          await failedSource.evaluate(() => window.dispatchEvent(new CustomEvent("loop-workspace-change", {
             detail: {sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"feed"}}]}]},
           })));
           await (await localRefresh).finished();
@@ -358,7 +357,7 @@ for (const engine of engines) {
             localNeeds++;
             return route.continue();
           });
-          await needsPage.evaluate(sources => window.dispatchEvent(new CustomEvent("loop55-workspace-change", {
+          await needsPage.evaluate(sources => window.dispatchEvent(new CustomEvent("loop-workspace-change", {
             detail:{sources,changes:sources.map(source => ({source,events:[{type:"invalidate",scope:{kind:"collection",id:"feed"}}]}))},
           })),sourceIds);
           await expect.poll(() => failedNeeds).toBeGreaterThan(0);
@@ -381,7 +380,7 @@ for (const engine of engines) {
             await route.fulfill({ response, json: body });
           });
           const refreshNeedsSources = sources => needsPage.evaluate(sources =>
-            window.dispatchEvent(new CustomEvent("loop55-workspace-change", {
+            window.dispatchEvent(new CustomEvent("loop-workspace-change", {
               detail: { sources, changes: sources.map(source => ({ source,
                 events: [{ type: "invalidate", scope: { kind: "collection", id: "feed" } }],
               })) },
@@ -434,7 +433,7 @@ for (const engine of engines) {
             route.fulfill({ json: [] }),
           );
           await working.evaluate(() =>
-            window.dispatchEvent(new Event("loop55-source-refresh")),
+            window.dispatchEvent(new Event("loop-source-refresh")),
           );
           await expect
             .poll(() =>
@@ -448,7 +447,7 @@ for (const engine of engines) {
           assert.equal(await localSockets(), 1);
           await stopDiscovery();
           await working.evaluate(() =>
-            window.dispatchEvent(new Event("loop55-source-refresh")),
+            window.dispatchEvent(new Event("loop-source-refresh")),
           );
           await expect
             .poll(() =>
@@ -484,7 +483,7 @@ for (const engine of engines) {
           await expect(metadataWarning).toBeVisible({timeout:revisionTimeout});
           const failedBeforeRuns = failedMetadataReads;
           const linkedSource = await working.evaluate(() => window.__eventStreams.find(stream => stream.source && stream.readyState === WebSocket.OPEN).source);
-          await working.evaluate(source => window.dispatchEvent(new CustomEvent("loop55-workspace-change",{
+          await working.evaluate(source => window.dispatchEvent(new CustomEvent("loop-workspace-change",{
             detail:{sources:[source],changes:[{source,events:[{type:"invalidate",scope:{kind:"collection",id:"runs"}}]}]},
           })),linkedSource);
           await expect.poll(() => failedMetadataReads,{timeout:revisionTimeout}).toBeGreaterThan(failedBeforeRuns);
@@ -510,7 +509,7 @@ for (const engine of engines) {
             deliveredDecision();
           });
           try {
-            await working.evaluate(() => window.dispatchEvent(new CustomEvent("loop55-workspace-change", {detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"decisions"}}]}]}})));
+            await working.evaluate(() => window.dispatchEvent(new CustomEvent("loop-workspace-change", {detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"decisions"}}]}]}})));
             await expect.poll(() => capturedDecision).toBe(true);
             fixture.db.prepare("UPDATE native_decisions SET state='resolved' WHERE id='late-decision'").run();
             await expect(decision).toHaveCount(0, {timeout:revisionTimeout});
@@ -565,7 +564,7 @@ for (const engine of engines) {
         try {
           await working.evaluate(() =>
             window.dispatchEvent(
-              new CustomEvent("loop55-workspace-change", {
+              new CustomEvent("loop-workspace-change", {
                 detail: {
                   sources: [""],
                   changes: [{ source: "", events: [{ type: "invalidate", scope: { kind: "collection", id: "feed" } }] }],
@@ -759,7 +758,7 @@ for (const engine of engines) {
           await expect(thread.locator('[data-message-id="snapshot-delete"]')).toHaveCount(1);
           await thread.evaluate(() => window.__eventSockets.forEach(socket => { socket.__forward = socket.onmessage; socket.onmessage = null; }));
           fixture.db.prepare("DELETE FROM messages WHERE id='snapshot-delete'").run();
-          await thread.evaluate(() => window.dispatchEvent(new Event("loop55-refresh")));
+          await thread.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
           await expect(thread.locator('[data-message-id="snapshot-delete"]')).toHaveCount(0);
           await thread.evaluate(() => window.__eventSockets.forEach(socket => { socket.onmessage = socket.__forward; }));
           console.log(`PASS ${engine} transcript gap recovery and explicit-refresh deletion reconciliation`);

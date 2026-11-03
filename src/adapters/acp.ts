@@ -222,7 +222,7 @@ export class Acp implements Adapter {
       const init = await within(
         this.connection.initialize({
           protocolVersion: PROTOCOL_VERSION,
-          clientInfo: { name: "Loop55", version: "0.1.0" },
+          clientInfo: { name: "Loop", version: "0.1.0" },
           clientCapabilities: {
             session: { configOptions: { boolean: {} } },
             plan: {},
@@ -232,7 +232,7 @@ export class Acp implements Adapter {
       );
       if (init.protocolVersion !== PROTOCOL_VERSION)
         throw new SafeAcpError(
-          `ACP protocol is unsupported; Loop55 supports v${PROTOCOL_VERSION}.`,
+          `ACP protocol is unsupported; Loop supports v${PROTOCOL_VERSION}.`,
         );
       this.capabilities.resume = init.agentCapabilities?.loadSession === true;
       this.activityCapabilities = Object.fromEntries(
@@ -269,7 +269,7 @@ export class Acp implements Adapter {
           ? [
               {
                 type: "http" as const,
-                name: "loop55-workspace",
+                name: "loop-workspace",
                 url: this.options.workspaceTools.url,
                 headers: [
                   {
@@ -527,7 +527,7 @@ export class Acp implements Adapter {
       // Invalid or oversized display metadata must not kill the agent session.
       this.emit({
         type: "error",
-        message: "ACP activity exceeded Loop55 display bounds",
+        message: "ACP activity exceeded Loop display bounds",
       });
     }
   }
@@ -834,7 +834,7 @@ export class Acp implements Adapter {
             content.push({
               type: "unavailable",
               label: c.content.type,
-              reason: "This ACP content type is not rendered by Loop55",
+              reason: "This ACP content type is not rendered by Loop",
             });
         } else if (c.type === "diff") {
           if (files.length >= ACTIVITY_LIMITS.files) {
@@ -866,7 +866,7 @@ export class Acp implements Adapter {
               tool,
               terminal: c.terminalId,
               unavailable:
-                "Agent referenced a terminal that Loop55 did not host; terminal output is unavailable",
+                "Agent referenced a terminal that Loop did not host; terminal output is unavailable",
             },
             this.loading,
           );

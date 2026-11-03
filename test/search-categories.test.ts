@@ -15,10 +15,10 @@ vi.mock("../src/server/local-embeddings.js", () => ({
   localModel: "fixture-search",
   localEmbeddings: async (texts: string[]) => texts.map(() => [1, 0]),
 }));
-const directory = mkdtempSync(join(tmpdir(), "loop55-search-categories-"));
-process.env.LOOP55_DATA_DIR = directory;
-process.env.LOOP55_PROFILE = "server";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop-search-categories-"));
+process.env.LOOP_DATA_DIR = directory;
+process.env.LOOP_PROFILE = "server";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { workspace } = await import("../src/server/workspace-routes");
 const { ownedRun } = await import("../src/server/domain");

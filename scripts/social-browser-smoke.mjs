@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -9,8 +8,8 @@ import { socialSmoke } from "./helpers/social-smoke.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 const evidence =
-  process.env.LOOP55_SOCIAL_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop55-v0", "evidence") : undefined);
+  process.env.LOOP_SOCIAL_SCREENSHOT_DIR ||
+  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
 if (evidence) mkdirSync(evidence, { recursive: true });
 for (const engine of selectedEngines()) {
   // Each engine gets its own workspace. The journey marks a story read, saves

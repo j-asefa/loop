@@ -197,18 +197,18 @@ function runtimeOf(owner: string, connectionId: string | null | undefined) {
   }
   if (!connection) return { runtime: "not connected", place: "unknown" };
   const meta = connection.metadata || "{}";
-  if (meta.loop55Harness)
+  if (meta.loopHarness)
     return {
-      runtime: HARNESSES[meta.loop55Harness] ?? meta.loop55Harness,
+      runtime: HARNESSES[meta.loopHarness] ?? meta.loopHarness,
       place: "companion",
     };
   return {
     runtime: `${connection.provider} ${isSubscription(connection) ? "subscription" : "API"}`,
-    place: meta.runtimeHostId ? "runtime:" + meta.runtimeHostId : "loop55",
+    place: meta.runtimeHostId ? "runtime:" + meta.runtimeHostId : "loop",
   };
 }
 
-/** Teammates an agent can message, for the loop55_message description. */
+/** Teammates an agent can message, for the loop_message description. */
 export function teamRoster(team: Team, owner: string, self: string) {
   return (
     agentsQueries.mailTeamMembers(
@@ -291,7 +291,7 @@ function mailDiscoveryGeneration(run: Run) {
   const connection = maybeConnection(
     connectionsQueries.owned(db, agent.connection_id, run.owner_id),
   );
-  if (!connection?.metadata.loop55Harness) return null;
+  if (!connection?.metadata.loopHarness) return null;
   const dispatch = nativeDispatchQueries.activeGeneration(
     db,
     run.conversation_id,
@@ -514,7 +514,7 @@ function route(
 
 // Steer only a running task whose runtime takes live input, and never one
 // waiting on blocking delegation: a Claude steer interrupts the turn, which
-// would cut off the manager's open loop55_delegate call.
+// would cut off the manager's open loop_delegate call.
 function steerable(owner: string, conversation: string, recipient: string) {
   const found = activeRun(owner, conversation, recipient);
   if (!found?.liveInput || found.run.state !== "running") return false;
@@ -607,7 +607,7 @@ function wrap(
     "",
     mail.body,
     "",
-    `To reply, call loop55_message with to "${sender.id}" and threadId "${thread.id}". Reply only when an answer is needed.`,
+    `To reply, call loop_message with to "${sender.id}" and threadId "${thread.id}". Reply only when an answer is needed.`,
   ].join("\n");
 }
 
@@ -965,9 +965,9 @@ const DELIVERY_NOTES = {
   queued: (name: string) =>
     `Queued in @${name}'s conversation. @${name} reads it when its current task finishes.`,
   new_turn: (name: string) =>
-    `Starts a new turn for @${name}, which can reply with loop55_message.`,
+    `Starts a new turn for @${name}, which can reply with loop_message.`,
   held: () =>
-    "This thread is paused because it reached its message limit. Loop55 keeps the message and sends it when the user resumes the thread. Don't send it again.",
+    "This thread is paused because it reached its message limit. Loop keeps the message and sends it when the user resumes the thread. Don't send it again.",
 };
 function receipt(mail: Mail) {
   const remoteStatus = fleetOutgoingStatus(mail);
@@ -1010,7 +1010,7 @@ function receipt(mail: Mail) {
   };
 }
 
-/** loop55_message. Refusals throw Problem; the caller returns them to the agent. */
+/** loop_message. Refusals throw Problem; the caller returns them to the agent. */
 export function sendMail(run: Run, callId: string, input: unknown) {
   const args = messageSchema.parse(input);
   args.to = normalizeMailAgentId(args.to);
@@ -1447,7 +1447,7 @@ function describe(mail: Mail, agentId: string | null) {
   };
 }
 
-/** loop55_message_status: delivery state of the agent's own threads. */
+/** loop_message_status: delivery state of the agent's own threads. */
 export function mailStatus(
   run: Run,
   input: unknown,
@@ -1503,7 +1503,7 @@ function resultBody(child: RunNotice, state: string) {
       ? child.result || "(The worker finished without a written answer.)"
       : `${state === "interrupted" ? "Interrupted" : state === "cancelled" ? "Cancelled" : "Failed"}${child.error ? ": " + child.error : "."}`;
   return [
-    `Your background task (loop55_delegate with wait: false) ${state === "completed" ? "finished" : "ended: " + state}.`,
+    `Your background task (loop_delegate with wait: false) ${state === "completed" ? "finished" : "ended: " + state}.`,
     "",
     "Task:",
     child.input.slice(0, 2000),
@@ -1575,9 +1575,9 @@ function deliverResult(row: {
 const UNSENT =
   "The run ended before this message could be delivered. Send it again to continue.";
 const REQUEUED =
-  "The task ended before this message was read. Loop55 queued it as a new turn instead.";
+  "The task ended before this message was read. Loop queued it as a new turn instead.";
 const CANCELLED =
-  "The task was cancelled before this message was read. Loop55 did not send it again.";
+  "The task was cancelled before this message was read. Loop did not send it again.";
 // A teammate's message steered into a task that ended before reading it is
 // sent again as a queued turn. Only never-sent input qualifies: a delivery the
 // harness could not confirm is never sent twice. A task you cancelled is not
@@ -1674,7 +1674,7 @@ function attempt(key: string, time: number, work: () => void) {
 
 /** Worker pass: deliver background delegation results, requeue stranded steering. */
 export function sweepAgentMail(time = now()) {
-  // Snapshot reviews are retrieved through loop55_review_status, not team mail.
+  // Snapshot reviews are retrieved through loop_review_status, not team mail.
   const finished = delegationsQueries.finishedMailResults(db) as Parameters<
     typeof deliverResult
   >[0][];

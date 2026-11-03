@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-const dir = mkdtempSync(join(tmpdir(), "loop55-core-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-core-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal, unseal } = await import("../src/server/secrets");
 const { ownedAgent, createAgent, renameAgent, owned } =
@@ -158,7 +158,7 @@ it("serializes native turns per conversation while allowing the same agent's oth
     return cid;
   };
   db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-    JSON.stringify({ loop55Harness: "codex" }),
+    JSON.stringify({ loopHarness: "codex" }),
     connectionId,
   );
   const firstConversation = conversation();
@@ -193,7 +193,7 @@ it("server execution rejects a native harness connection before dispatch", async
     idempotencyKey: id(),
   });
   db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-    JSON.stringify({ loop55Harness: "codex" }),
+    JSON.stringify({ loopHarness: "codex" }),
     connectionId,
   );
   await expect(executeAgent(run)).rejects.toThrow("companion deployment");
@@ -210,7 +210,7 @@ it("serializes mixed legacy and per-conversation work in either order", async ()
     const legacy = connection(owner);
     const native = connection(owner);
     db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-      JSON.stringify({ loop55Harness: "codex" }),
+      JSON.stringify({ loopHarness: "codex" }),
       native,
     );
     const agent = createAgent(owner, {

@@ -48,7 +48,7 @@ description: Implement and review a change.
 manager:
   name: feature-lead
   instructions: |
-    Own the implementation. Delegate an independent review with loop55_delegate,
+    Own the implementation. Delegate an independent review with loop_delegate,
     address confirmed findings, and report changes and checks to the user.
 members:
   - name: feature-reviewer

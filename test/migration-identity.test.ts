@@ -19,7 +19,7 @@ afterEach(() => {
   for (const dispose of resources.splice(0).reverse()) dispose();
 });
 function directory() {
-  const path = mkdtempSync(join(tmpdir(), "loop55-migration-identity-"));
+  const path = mkdtempSync(join(tmpdir(), "loop-migration-identity-"));
   resources.push(() => rmSync(path, { recursive: true, force: true }));
   return path;
 }
@@ -250,8 +250,8 @@ it("records historical completion by name at real startup and restarts without m
         {
           env: {
             ...process.env,
-            LOOP55_PROFILE: "server",
-            LOOP55_DATA_DIR: data,
+            LOOP_PROFILE: "server",
+            LOOP_DATA_DIR: data,
           },
           encoding: "utf8",
         },

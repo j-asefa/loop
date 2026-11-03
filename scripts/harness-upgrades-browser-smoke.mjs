@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { chromium, webkit, expect } from "@playwright/test";
 import { createServer } from "node:http";
@@ -9,8 +8,8 @@ import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 
 // Production provider cards and typed transport; all releases/installers are
 // deterministic HTTP fixtures, with no provider, registry or device traffic.
-const dir = await mkdtemp(join(tmpdir(), "loop55-harness-upgrades-browser-"));
-const engine = process.env.LOOP55_BROWSER === "webkit" ? webkit : chromium;
+const dir = await mkdtemp(join(tmpdir(), "loop-harness-upgrades-browser-"));
+const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
 let browser, server;
 let upgrade = null,
   installed = "0.159.0",

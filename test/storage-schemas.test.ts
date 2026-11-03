@@ -19,10 +19,10 @@ import {
   artifactResponse,
 } from "../src/server/row-schemas.js";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-storage-schemas-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "server";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-storage-schemas-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "server";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db.js");
 const { seal } = await import("../src/server/secrets.js");
 const {
@@ -209,7 +209,7 @@ it("matches storage schemas to worker-produced rows without changing their seria
   expect(ownedRunControl(queued.id, owner)).not.toHaveProperty("payload");
   expect(QueryRecords.runs.parse(rawRun()).payload).toBe(damaged);
   db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-    '{"loop55Harness":false}',
+    '{"loopHarness":false}',
     connection,
   );
   expect(() => ownedConnection(connection, owner)).toThrow(connection);
@@ -220,5 +220,5 @@ it("matches storage schemas to worker-produced rows without changing their seria
     ConnectionRecord.parse(
       db.prepare("SELECT * FROM connections WHERE id=?").get(connection),
     ).metadata,
-  ).toBe('{"loop55Harness":false}');
+  ).toBe('{"loopHarness":false}');
 });

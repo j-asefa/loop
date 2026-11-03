@@ -85,8 +85,8 @@ export function uploadFile(
     .immediate();
 }
 
-// A file an agent published (loop55_publish_file), passed to a teammate with
-// loop55_message. Its bytes live under the data directory, checked on read.
+// A file an agent published (loop_publish_file), passed to a teammate with
+// loop_message. Its bytes live under the data directory, checked on read.
 function publishedFile(artifact: Artifact, owner: string) {
   const row = artifactObjectsQueries.download(db, artifact.id, owner) as
     { object_key: string; mime: string; checksum: string } | undefined;
@@ -144,13 +144,13 @@ export function attachmentPrompt(content: string, files: UploadedFile[]) {
     JSON.stringify(
       files.map(({ id, name, mime, size }) => ({ id, name, mime, size })),
     ) +
-    "\nUse loop55_read_file with a file id to read the original contents. Text can be read in chunks. For binary files, request base64 chunks, decode to a local file, then use your native file tools. Do not claim to have read a file without retrieving it."
+    "\nUse loop_read_file with a file id to read the original contents. Text can be read in chunks. For binary files, request base64 chunks, decode to a local file, then use your native file tools. Do not claim to have read a file without retrieving it."
   );
 }
 
 // Budgets apply to encoded payloads, not upload size. Leave room for message,
 // instruction and tool framing below provider request limits. Original files
-// remain available through loop55_read_file when they cannot be sent inline.
+// remain available through loop_read_file when they cannot be sent inline.
 const INLINE_FILE_BUDGET = 20_000_000;
 const INLINE_IMAGE_BUDGET = 5_000_000;
 export function inlineAttachments(owner: string, messages: ChatMessage[]) {
@@ -189,7 +189,7 @@ export function inlineAttachments(owner: string, messages: ChatMessage[]) {
         (deferred.length
           ? "\nThese files were not included as inline image/PDF content because of API payload size: " +
             JSON.stringify(deferred) +
-            ". Use loop55_read_file to retrieve their original contents. If your tools cannot inspect the binary format, ask for a smaller file or a text excerpt; do not claim to have viewed it."
+            ". Use loop_read_file to retrieve their original contents. If your tools cannot inspect the binary format, ask for a smaller file or a text excerpt; do not claim to have viewed it."
           : ""),
     };
   });

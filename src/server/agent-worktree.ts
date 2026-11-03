@@ -281,7 +281,7 @@ export async function prepareAgentWorkspace(
       "worktree",
       "add",
       "-b",
-      "loop55/agent-" + paths.key,
+      "loop/agent-" + paths.key,
       paths.checkout,
       base,
     );
@@ -410,12 +410,13 @@ function worktreePaths(
       ]),
     )
     .digest("hex");
-  // Existing checkouts contain harness-owned context and possibly uncommitted work.
-  // Retain their registered path and branch; new agents use the Loop55 namespace.
-  const legacy = join(common, "loop-agent-worktrees", key);
-  const storage = existsSync(legacy)
-    ? join(common, "loop-agent-worktrees")
-    : join(common, "loop55-agent-worktrees");
+  // Existing checkouts contain harness-owned context and possibly uncommitted
+  // work. Ones created while the product was named Loop55 keep their path and
+  // branch; new agents use the Loop namespace.
+  const loop55 = join(common, "loop55-agent-worktrees");
+  const storage = existsSync(join(loop55, key))
+    ? loop55
+    : join(common, "loop-agent-worktrees");
   const checkout = join(storage, key);
   return {
     key,
@@ -547,7 +548,7 @@ export function agentWorktree(
       "worktree",
       "add",
       "-b",
-      "loop55/agent-" + key,
+      "loop/agent-" + key,
       checkout,
       newWorktreeBase(project),
     );

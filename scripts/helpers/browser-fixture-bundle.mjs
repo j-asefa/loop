@@ -12,7 +12,7 @@ export async function browserFixtureBundle(entry) {
     plugins: [react()],
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
-      __LOOP55_BUILD__: "null",
+      __LOOP_BUILD__: "null",
     },
     build: {
       write: false,

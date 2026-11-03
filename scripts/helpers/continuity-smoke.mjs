@@ -39,13 +39,13 @@ export async function continuitySmoke(page, fixture, capture) {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   const messageIn = (id) => thread().locator(`[id="message-${id}"]`);
   // Closing a sheet steps history back; let that finish before navigating.
   const settled = async () => {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   const db = fixture.db;
   const owner = fixture.owner;
@@ -355,7 +355,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.evaluate(
       ({ owner, id }) =>
         localStorage.setItem(
-          `loop55-draft-text:${owner}:${id}`,
+          `loop-draft-text:${owner}:${id}`,
           "Half-written follow-up",
         ),
       { owner, id: done.id },
@@ -810,7 +810,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.evaluate(
       ({ owner, id, file }) =>
         localStorage.setItem(
-          `loop55-draft-files:${owner}:${id}`,
+          `loop-draft-files:${owner}:${id}`,
           JSON.stringify([file]),
         ),
       { owner, id: working.id, file: attached },
@@ -833,7 +833,7 @@ export async function continuitySmoke(page, fixture, capture) {
         const cancel = originalClearTimeout.bind(window);
         const remove = Storage.prototype.removeItem;
         const held = new Map();
-        const fileKey = `loop55-draft-files:${owner}:${id}`;
+        const fileKey = `loop-draft-files:${owner}:${id}`;
         let armed = true;
         let captured = 0;
         let released = false;
@@ -919,8 +919,8 @@ export async function continuitySmoke(page, fixture, capture) {
       .poll(() =>
         page.evaluate(
           ({ owner, id }) => ({
-            text: localStorage.getItem(`loop55-draft-text:${owner}:${id}`),
-            files: localStorage.getItem(`loop55-draft-files:${owner}:${id}`),
+            text: localStorage.getItem(`loop-draft-text:${owner}:${id}`),
+            files: localStorage.getItem(`loop-draft-files:${owner}:${id}`),
           }),
           { owner, id: working.id },
         ),

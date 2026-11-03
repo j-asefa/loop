@@ -13,9 +13,9 @@ import {
   type CardEntry,
   type CardSelection,
 } from "../src/shared/cards";
-const dir = mkdtempSync(join(tmpdir(), "loop55-cards-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-cards-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db");
 // Observe executions so cached lazy statements participate in the same probes.
 const prepare = db.prepare.bind(db);
@@ -834,7 +834,7 @@ it.each(["list-out", "list-in", "changes-out", "changes-in"])(
               const db=new DB(process.argv[1]); db.pragma('foreign_keys=ON');
               db.prepare('UPDATE folders SET parent_id=? WHERE id=?').run(process.argv[2],process.argv[3]);
               db.close();`,
-              join(dir, "loop55.db"),
+              join(dir, "loop.db"),
               scenario.endsWith("-out") ? other : owner,
               child,
             ],

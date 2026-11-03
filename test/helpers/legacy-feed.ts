@@ -742,7 +742,7 @@ function feedItem(
           // So the card's menu offers Save or Remove from Saved, as the
           // thread and the result card already do.
           saved: !!row.message_saved,
-          // Sent by Loop55 for you (a watched pull request or a teammate
+          // Sent by Loop for you (a watched pull request or a teammate
           // agent), not typed by you.
           ...(message.automation ? { automation: message.automation } : {}),
           ...(message.automation_from
@@ -754,7 +754,7 @@ function feedItem(
       ? {
           ...run,
           input: run.input.slice(0, 1000),
-          // What Loop55 observed in the agent's worktree. Absent for API agents
+          // What Loop observed in the agent's worktree. Absent for API agents
           // and for runs that have not started, so those cards are unchanged.
           ...(() => {
             const checkout = checkoutSummary(owner, run.id);

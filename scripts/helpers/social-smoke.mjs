@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 
-// Social, driven against stories already in the store: Loop55 reads a feed from
+// Social, driven against stories already in the store: Loop reads a feed from
 // feed_stories, so this needs no network and no feed fixture server. It checks
 // what the page does with them — reading, saving, narrowing, searching — which
 // is where the behaviour lives.
@@ -24,7 +24,7 @@ const story = (n, title, extra = {}) => ({
   ...extra,
 });
 
-/** Two catalog feeds, followed, with stories Loop55 has already read. */
+/** Two catalog feeds, followed, with stories Loop has already read. */
 export function seedFeeds(db, owner) {
   const feeds = [
     [
@@ -346,9 +346,9 @@ export async function socialSmoke(page, fixture, shot) {
   assert.match(saved[0].preview, /What story \d is about/);
   assert.match(saved[0].url, /^https:\/\/example\.com\//);
 
-  // A feed's picture is fetched by Loop55, never by the browser: the page's own
+  // A feed's picture is fetched by Loop, never by the browser: the page's own
   // policy allows no third-party images, and the publisher should not learn
-  // who is reading. Turning the preference on must ask Loop55 for it.
+  // who is reading. Turning the preference on must ask Loop for it.
   const requested = [];
   page.on("request", (request) => {
     if (request.resourceType() === "image") requested.push(request.url());
@@ -367,12 +367,12 @@ export async function socialSmoke(page, fixture, shot) {
     `/api/social/image?story=${encodeURIComponent(
       await page.locator(".news-card").first().getAttribute("data-story"),
     )}`,
-    "A feed picture must be requested from Loop55",
+    "A feed picture must be requested from Loop",
   );
   await page.waitForFunction(() => !!document.querySelector(".news-image"));
   assert.ok(
     requested.some((url) => url.startsWith(fixture.base + "/api/social/image")),
-    `The picture must be fetched from Loop55: ${JSON.stringify(requested)}`,
+    `The picture must be fetched from Loop: ${JSON.stringify(requested)}`,
   );
   assert.deepEqual(
     requested.filter((url) => !url.startsWith(fixture.base)),
@@ -381,7 +381,7 @@ export async function socialSmoke(page, fixture, shot) {
   );
   await shot("social-images");
 
-  // The catalog sheet offers the feeds Loop55 ships and adding one by address.
+  // The catalog sheet offers the feeds Loop ships and adding one by address.
   await page.getByRole("button", { name: "Add feeds" }).click();
   const catalog = page.getByRole("region", { name: "Feed catalog" });
   await catalog.waitFor();
@@ -422,7 +422,7 @@ export async function socialSmoke(page, fixture, shot) {
     const downloadEvent = page.waitForEvent("download");
     await catalog.getByRole("link", { name: "Export OPML" }).click();
     const download = await downloadEvent;
-    assert.equal(download.suggestedFilename(), "loop55-feeds.opml");
+    assert.equal(download.suggestedFilename(), "loop-feeds.opml");
     const exported = await readFile(await download.path(), "utf8");
     assert(
       exported.includes("<opml") &&

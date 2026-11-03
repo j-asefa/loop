@@ -11,7 +11,7 @@ function render(
     <RuntimeSignIn
       runtime="codex"
       backend="direct"
-      location="loop55-dev"
+      location="loop-dev"
       name={name}
       label={label}
       signedIn={false}
@@ -42,14 +42,14 @@ it("keeps account sign-in copy for harnesses that own an account", () => {
   expect(html).not.toContain("model provider");
 });
 
-it("lets an account signed in outside Loop55 connect without a new sign-in", () => {
-  // Gemini and CLI harnesses do not report sign-ins made before Loop55's auth
+it("lets an account signed in outside Loop connect without a new sign-in", () => {
+  // Gemini and CLI harnesses do not report sign-ins made before Loop's auth
   // manager saw them; enabling verifies the account itself.
   const html = render(
     "gemini",
     "Gemini CLI",
     <button>Enable Gemini CLI</button>,
   );
-  expect(html).toContain("Already signed in on loop55-dev?");
+  expect(html).toContain("Already signed in on loop-dev?");
   expect(html).toContain("Enable Gemini CLI");
 });

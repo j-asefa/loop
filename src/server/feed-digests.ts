@@ -8,8 +8,8 @@ import { owned, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import { feedForAgent, ownerFeed, ownerFeeds } from "./news.js";
 
-// A digest Loop55 sends on a schedule: once a day, at a clock time in the
-// owner's own zone, into a thread they chose. Loop55 assembles the stories and
+// A digest Loop sends on a schedule: once a day, at a clock time in the
+// owner's own zone, into a thread they chose. Loop assembles the stories and
 // asks the agent to summarize them — the agent is not left to go and find
 // them, and nothing is marked read by a summary.
 
@@ -39,7 +39,7 @@ function validZone(zone: string) {
     new Intl.DateTimeFormat("en-GB", { timeZone: zone });
     return zone;
   } catch {
-    throw new Problem(400, "Choose a time zone Loop55 recognizes.");
+    throw new Problem(400, "Choose a time zone Loop recognizes.");
   }
 }
 
@@ -129,7 +129,7 @@ export function dueDigests(at: number) {
 
 const listEnabled = () => feedDigestsQueries.enabled(db) as FeedDigest[];
 
-/** What Loop55 asks the agent, with the stories it is asking about. */
+/** What Loop asks the agent, with the stories it is asking about. */
 export function digestPrompt(digest: FeedDigest, at: number) {
   const feeds: string[] | null = digest.feeds ? JSON.parse(digest.feeds) : null;
   // A digest that has never run covers the last day rather than everything

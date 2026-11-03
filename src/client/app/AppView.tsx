@@ -460,7 +460,7 @@ export function renderApp(props: AppViewProps) {
           }}
         >
           <Orbit />
-          loop55
+          loop
           <span className="wordmark-dot" />
         </button>
         <nav>{nav}</nav>
@@ -511,7 +511,7 @@ export function renderApp(props: AppViewProps) {
         <header className="topbar">
           <div className="wordmark mobile-brand">
             <Orbit />
-            loop55
+            loop
             <span className="wordmark-dot" />
           </div>
           <span className="desktop-breadcrumb">
@@ -884,7 +884,7 @@ export function renderApp(props: AppViewProps) {
               setSheet("");
               if (newAgentPrompt) setDraft("");
               setNewAgentPrompt("");
-              window.dispatchEvent(new Event("loop55-source-refresh"));
+              window.dispatchEvent(new Event("loop-source-refresh"));
               setConversation(
                 a.initialRun.conversation_id,
                 undefined,
@@ -1412,7 +1412,7 @@ export function renderApp(props: AppViewProps) {
             }}
             onWithdraw={withdrawToComposer}
             onSubmitted={() => {
-              window.dispatchEvent(new Event("loop55-source-refresh"));
+              window.dispatchEvent(new Event("loop-source-refresh"));
               void refresh();
             }}
           />

@@ -25,10 +25,10 @@ vi.mock("node:dns", async (original) => ({
   ...(await original<typeof import("node:dns")>()),
   lookup: dns.lookup,
 }));
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-http-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-http-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const { FleetEnrollmentHttpTransport } =
   await import("../src/server/fleet-enrollment-http.js");
@@ -94,7 +94,7 @@ it("sends strict enrollment-only requests through fixed paths and reconciles a l
     expect(init?.headers).toEqual({
       "Content-Type": "application/json",
       Accept: "application/json",
-      "X-Loop55-Fleet-Version": "1",
+      "X-Loop-Fleet-Version": "1",
     });
     expect(init?.signal).toBeInstanceOf(AbortSignal);
     expect(String(init?.body)).not.toContain(device.secret);

@@ -1,4 +1,3 @@
-import "../../runtime/environment.mjs";
 import { expect } from "@playwright/test";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
@@ -16,7 +15,7 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
           method: body ? "POST" : "GET",
           headers: {
             "Content-Type": "application/json",
-            "x-loop55-csrf": csrf,
+            "x-loop-csrf": csrf,
           },
           body: body ? JSON.stringify(body) : undefined,
         });
@@ -140,13 +139,13 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
       "completed",
     );
     assert.equal(
-      readFileSync(process.env.LOOP55_TEST_SETTING_AUDIT, "utf8"),
+      readFileSync(process.env.LOOP_TEST_SETTING_AUDIT, "utf8"),
       "plan\n",
     );
     await settings.getByRole("button", { name: "Close", exact: true }).click();
   } finally {
     page.off("request", observe);
     await page.unroute("**/api" + path + "/mode", seed);
-    delete process.env.LOOP55_TEST_SETTING_AUDIT;
+    delete process.env.LOOP_TEST_SETTING_AUDIT;
   }
 }

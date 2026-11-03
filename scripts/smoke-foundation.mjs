@@ -1,6 +1,5 @@
-import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
-const origin = process.env.LOOP55_URL || "http://localhost:3000";
+const origin = process.env.LOOP_URL || "http://localhost:3000";
 async function user() {
   const r = await fetch(`${origin}/api/auth/sign-up/email`, {
     method: "POST",

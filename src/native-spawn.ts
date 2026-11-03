@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 import {
   spawn,
   type SpawnOptions,
@@ -14,14 +13,14 @@ export function spawnNative(
   args: string[],
   options: SpawnOptions,
 ) {
-  const launcher = process.env.LOOP55_NATIVE_LAUNCHER;
+  const launcher = process.env.LOOP_NATIVE_LAUNCHER;
   if (launcher && !isAbsolute(launcher))
     throw new Error(
-      "LOOP55_NATIVE_LAUNCHER must be an absolute executable path.",
+      "LOOP_NATIVE_LAUNCHER must be an absolute executable path.",
     );
   const env = { ...(options.env ?? process.env) };
   // Old service settings must not restore automatic host-wide test admission.
-  const shims = [env.LOOP55_JOB_SHIMS, process.env.LOOP55_JOB_SHIMS].filter(
+  const shims = [env.LOOP_JOB_SHIMS, process.env.LOOP_JOB_SHIMS].filter(
     (path): path is string => Boolean(path && isAbsolute(path)),
   );
   if (shims.length)
@@ -32,18 +31,19 @@ export function spawnNative(
   // A harness runs arbitrary project commands. Importing that project's server
   // code must not inherit the host database, secrets or service identity and
   // migrate live data. Keep only the adapter's scoped tool/billing settings and
-  // fixture controls, including both names during the Loop55 transition.
+  // fixture controls. Settings left over from the Loop55 name never pass.
   for (const key of Object.keys(env)) {
-    const setting = /^LOOP(?:55)?_(.*)$/.exec(key)?.[1];
+    const [, stale, setting] = /^LOOP(55)?_(.*)$/.exec(key) ?? [];
     if (
-      setting &&
-      !setting.startsWith("TEST_") &&
-      !["TOOLS_URL", "TOOLS_TOKEN", "BILLING_MODE"].includes(setting)
+      setting !== undefined &&
+      (stale ||
+        (!setting.startsWith("TEST_") &&
+          !["TOOLS_URL", "TOOLS_TOKEN", "BILLING_MODE"].includes(setting)))
     )
       delete env[key];
   }
   delete env.BETTER_AUTH_SECRET;
-  env.LOOP55_HEAVY_SCHEDULING = "off";
+  env.LOOP_HEAVY_SCHEDULING = "off";
   const child = spawn(
     launcher || command,
     launcher ? [command, ...args] : args,

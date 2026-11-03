@@ -25,7 +25,7 @@ for (let i = 0; i < cases.length; i++) {
 }
 const report = {
   corpus: "synthetic-v1-32",
-  implementation: "existing Loop55 localEmbeddings (scoped cosine at 5)",
+  implementation: "existing Loop localEmbeddings (scoped cosine at 5)",
   model: localModel,
   questions: cases.length,
   recall5: matched,
@@ -37,7 +37,7 @@ const report = {
     "Host arm64; compare accuracy only with emulated amd64 MemSearch timings",
 };
 writeFileSync(
-  "/private/tmp/loop55-memory-validation/baseline-evaluation.json",
+  "/private/tmp/loop-memory-validation/baseline-evaluation.json",
   JSON.stringify(report, null, 2) + "\n",
 );
 console.log(report);

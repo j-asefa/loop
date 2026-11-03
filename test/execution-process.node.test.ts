@@ -36,8 +36,8 @@ function worker(dir: string, extraEnv: NodeJS.ProcessEnv = {}) {
     execArgv: [],
     env: {
       ...process.env,
-      LOOP55_PROFILE: "companion",
-      LOOP55_DATA_DIR: dir,
+      LOOP_PROFILE: "companion",
+      LOOP_DATA_DIR: dir,
       ...extraEnv,
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -92,7 +92,7 @@ test(
   "compiled worker keeps ownership while paused and fences replacement claims and controls",
   { timeout: 45_000 },
   async (t) => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-execution-lock-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop-execution-lock-"));
     const children: ChildProcess[] = [];
     let db: Database.Database | undefined;
     t.after(async () => {
@@ -103,7 +103,7 @@ test(
     const a = worker(dir);
     children.push(a.child);
     const generationA = await ready(a);
-    db = new Database(join(dir, "loop55.db"));
+    db = new Database(join(dir, "loop.db"));
     db.prepare(
       "INSERT INTO runs(id,owner_id,kind,input,state,idempotency_key,created_at,updated_at) VALUES('prior','local-workspace','agent','prior','running','prior',1,1)",
     ).run();
@@ -205,7 +205,7 @@ test(
 );
 
 test("compiled API imports leave upgrade recovery to the locked execution owner", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-execution-import-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-execution-import-"));
   try {
     const path = join(dir, "harness-upgrades.json");
     const state = JSON.stringify({
@@ -227,8 +227,8 @@ test("compiled API imports leave upgrade recovery to the locked execution owner"
       {
         env: {
           ...process.env,
-          LOOP55_PROFILE: "companion",
-          LOOP55_DATA_DIR: dir,
+          LOOP_PROFILE: "companion",
+          LOOP_DATA_DIR: dir,
         },
         timeout: 15_000,
       },
@@ -245,7 +245,7 @@ test("compiled API imports leave upgrade recovery to the locked execution owner"
 
 const macEnvironment = (boot: string) => ({
   NODE_OPTIONS: `--import=${pathToFileURL(resolve("test/fixtures/execution-macos-hooks.mjs")).href}`,
-  LOOP55_TEST_BOOT_SESSION: boot,
+  LOOP_TEST_BOOT_SESSION: boot,
 });
 for (const restart of [
   "container restart",
@@ -257,7 +257,7 @@ for (const restart of [
     `compiled recovery CLI requires a stopped generation after ${restart} and preserves data and the lock inode`,
     { timeout: 35_000 },
     async (t) => {
-      const root = mkdtempSync(join(tmpdir(), "loop55-execution-recovery-")),
+      const root = mkdtempSync(join(tmpdir(), "loop-execution-recovery-")),
         dir = join(root, "workspace");
       const children: ChildProcess[] = [];
       let db: Database.Database | undefined;
@@ -283,7 +283,7 @@ for (const restart of [
           process.execPath,
           [resolve("dist/cli.js"), "recover-execution", ...args],
           {
-            env: { ...process.env, ...environment, LOOP55_HOME: root },
+            env: { ...process.env, ...environment, LOOP_HOME: root },
             encoding: "utf8",
             timeout: 10_000,
             stdio: ["ignore", "pipe", "pipe"],
@@ -320,7 +320,7 @@ for (const restart of [
         join(dir, "execution/children.json"),
         '[{"pid":2,"identity":"foreign"}]',
       );
-      db = new Database(join(dir, "loop55.db"));
+      db = new Database(join(dir, "loop.db"));
       db.prepare(
         "INSERT INTO runs(id,owner_id,kind,input,state,idempotency_key,created_at,updated_at) VALUES('retained','local-workspace','agent','retained','running','retained',1,1)",
       ).run();
@@ -342,7 +342,7 @@ for (const restart of [
       assert.throws(
         () =>
           execFileSync(process.execPath, [resolve("dist/cli.js"), "stop"], {
-            env: { ...process.env, ...nextEnv, LOOP55_HOME: root },
+            env: { ...process.env, ...nextEnv, LOOP_HOME: root },
             timeout: 10_000,
             stdio: "pipe",
           }),
@@ -405,7 +405,7 @@ test(
   "compiled macOS worker refuses startup when its boot identity is unavailable",
   { timeout: 15_000 },
   async (t) => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-execution-mac-identity-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop-execution-mac-identity-"));
     const a = worker(dir, macEnvironment("unavailable"));
     t.after(async () => {
       await stop(a.child);
@@ -422,7 +422,7 @@ test(
     );
     assert.match(a.log(), /Could not establish execution/);
     assert(
-      !existsSync(join(dir, "loop55.db")),
+      !existsSync(join(dir, "loop.db")),
       "no application recovery before ownership is established",
     );
   },
@@ -452,7 +452,7 @@ for (const scenario of [
     `compiled macOS takeover respects ${scenario.name}`,
     { timeout: 20_000 },
     async (t) => {
-      const dir = mkdtempSync(join(tmpdir(), "loop55-execution-mac-timezone-"));
+      const dir = mkdtempSync(join(tmpdir(), "loop-execution-mac-timezone-"));
       const environment = macEnvironment(randomUUID()),
         children: ChildProcess[] = [];
       const native = spawn(
@@ -531,7 +531,7 @@ for (const stale of ["owner", "stop records"]) {
     `compiled macOS worker ignores a reused PID in stale ${stale} without signalling its new group`,
     { timeout: 20_000 },
     async (t) => {
-      const dir = mkdtempSync(join(tmpdir(), "loop55-execution-mac-reuse-"));
+      const dir = mkdtempSync(join(tmpdir(), "loop-execution-mac-reuse-"));
       const environment = macEnvironment(randomUUID()),
         children: ChildProcess[] = [];
       const unrelated = spawn(
@@ -583,7 +583,7 @@ test(
   "compiled forced-stop revalidation failure preserves the prior worker ownership record",
   { timeout: 20_000 },
   async (t) => {
-    const root = mkdtempSync(join(tmpdir(), "loop55-execution-stop-evidence-")),
+    const root = mkdtempSync(join(tmpdir(), "loop-execution-stop-evidence-")),
       dir = join(root, "workspace");
     const a = worker(dir);
     t.after(async () => {
@@ -606,7 +606,7 @@ test(
     import promises from "node:fs/promises";
     import { syncBuiltinESMExports } from "node:module";
     import { join } from "node:path";
-    const dir = process.env.LOOP55_DATA_DIR, registry = join(dir, "children.json");
+    const dir = process.env.LOOP_DATA_DIR, registry = join(dir, "children.json");
     const read = promises.readFile;
     let reads = 0;
     promises.readFile = async function(path, ...args) {
@@ -626,8 +626,8 @@ test(
       {
         env: {
           ...process.env,
-          LOOP55_PROFILE: "companion",
-          LOOP55_DATA_DIR: dir,
+          LOOP_PROFILE: "companion",
+          LOOP_DATA_DIR: dir,
         },
         timeout: 10_000,
         stdio: ["ignore", "pipe", "pipe"],
@@ -640,7 +640,7 @@ test(
   "compiled host close retires resolved execution records and preserves root records",
   { timeout: 20_000 },
   () => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-execution-retirement-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop-execution-retirement-"));
     try {
       const record = JSON.parse(
         execFileSync(
@@ -666,7 +666,7 @@ test(
       import { writeFileSync, existsSync, readFileSync, statSync } from "node:fs";
       import { join } from "node:path";
       import { ExecutionProcess } from ${JSON.stringify(pathToFileURL(resolve("dist/server/execution-process.js")).href)};
-      const dir = process.env.LOOP55_DATA_DIR, records = ${JSON.stringify(JSON.stringify([record]))};
+      const dir = process.env.LOOP_DATA_DIR, records = ${JSON.stringify(JSON.stringify([record]))};
       const host = new ExecutionProcess();
       await host.open();
       const lock = join(dir, "execution/ownership.sqlite"), inode = statSync(lock).ino;
@@ -687,8 +687,8 @@ test(
         {
           env: {
             ...process.env,
-            LOOP55_PROFILE: "companion",
-            LOOP55_DATA_DIR: dir,
+            LOOP_PROFILE: "companion",
+            LOOP_DATA_DIR: dir,
           },
           timeout: 15_000,
           stdio: ["ignore", "pipe", "pipe"],
@@ -704,7 +704,7 @@ test(
   "compiled forced stop retires a stopped execution owner while preserving its lock and application data",
   { timeout: 20_000 },
   async (t) => {
-    const root = mkdtempSync(join(tmpdir(), "loop55-execution-force-stop-")),
+    const root = mkdtempSync(join(tmpdir(), "loop-execution-force-stop-")),
       dir = join(root, "workspace");
     const a = worker(dir);
     const children = [a.child];
@@ -715,7 +715,7 @@ test(
     const generation = await ready(a);
     const lock = join(dir, "execution/ownership.sqlite"),
       inode = statSync(lock).ino;
-    const db = new Database(join(dir, "loop55.db"));
+    const db = new Database(join(dir, "loop.db"));
     db.prepare(
       "INSERT INTO runs(id,owner_id,kind,input,state,idempotency_key,created_at,updated_at) VALUES('retained','local-workspace','agent','retained','running','retained',1,1)",
     ).run();
@@ -731,8 +731,8 @@ test(
       {
         env: {
           ...process.env,
-          LOOP55_HOME: root,
-          LOOP55_TEST_STOP_GRACE_MS: "200",
+          LOOP_HOME: root,
+          LOOP_TEST_STOP_GRACE_MS: "200",
         },
         encoding: "utf8",
         timeout: 10_000,
@@ -746,7 +746,7 @@ test(
       "a verified stop must not require foreign-namespace recovery later",
     );
     assert.equal(statSync(lock).ino, inode);
-    const preserved = new Database(join(dir, "loop55.db"));
+    const preserved = new Database(join(dir, "loop.db"));
     assert.equal(
       (
         preserved
@@ -767,7 +767,7 @@ test(
   "compiled paired host replaces crashed workers without replay and parent death stops detached natives",
   { timeout: 70_000 },
   async (t) => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-execution-crash-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop-execution-crash-"));
     mkdirSync(join(dir, "project"));
     gitProject(join(dir, "project"));
     const audit = join(dir, "audit"),
@@ -777,13 +777,13 @@ test(
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       env: {
         ...process.env,
-        LOOP55_PROFILE: "companion",
-        LOOP55_DATA_DIR: dir,
-        LOOP55_TEST_HARNESS: "codex",
-        LOOP55_TEST_AUDIT: audit,
-        LOOP55_TEST_OUTLIVE_STDIN: "1",
-        LOOP55_TEST_DECISION_HOLD: hold,
-        LOOP55_TEST_DECISION_AUDIT: join(dir, "answers"),
+        LOOP_PROFILE: "companion",
+        LOOP_DATA_DIR: dir,
+        LOOP_TEST_HARNESS: "codex",
+        LOOP_TEST_AUDIT: audit,
+        LOOP_TEST_OUTLIVE_STDIN: "1",
+        LOOP_TEST_DECISION_HOLD: hold,
+        LOOP_TEST_DECISION_AUDIT: join(dir, "answers"),
         NODE_OPTIONS: `--import=${pathToFileURL(resolve("test/fixtures/execution-process-hooks.mjs")).href}`,
       },
     });
@@ -835,7 +835,7 @@ test(
         headers: {
           cookie,
           Origin: origin,
-          "x-loop55-csrf": csrf,
+          "x-loop-csrf": csrf,
           "Content-Type": "application/json",
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -854,7 +854,7 @@ test(
       );
       return value;
     };
-    db = new Database(join(dir, "loop55.db"));
+    db = new Database(join(dir, "loop.db"));
     const state = (id: string) =>
       (db!.prepare("SELECT state FROM runs WHERE id=?").get(id) as any).state;
     const count = () => readFileSync(audit, "utf8").trim().split("\n").length;
@@ -1007,7 +1007,7 @@ test(
   { timeout: 40_000, skip: process.platform !== "linux" },
   () => {
     for (const fleet of [true, false]) {
-      const dir = mkdtempSync(join(tmpdir(), "loop55-execution-fleet-"));
+      const dir = mkdtempSync(join(tmpdir(), "loop-execution-fleet-"));
       try {
         const argv = execFileSync(
           process.execPath,
@@ -1024,7 +1024,7 @@ test(
       if (${fleet}) host.enableFleet();
       await host.open();
       try {
-        const { pid } = JSON.parse(readFileSync(join(process.env.LOOP55_DATA_DIR, "execution/owner.json"), "utf8"));
+        const { pid } = JSON.parse(readFileSync(join(process.env.LOOP_DATA_DIR, "execution/owner.json"), "utf8"));
         console.log(JSON.stringify(readFileSync("/proc/" + pid + "/cmdline", "utf8").split("\\0")));
       } finally { await host.close(); }
     `,
@@ -1034,11 +1034,11 @@ test(
             env: {
               ...Object.fromEntries(
                 Object.entries(process.env).filter(
-                  ([key]) => !key.startsWith("LOOP55_"),
+                  ([key]) => !key.startsWith("LOOP_"),
                 ),
               ),
-              LOOP55_PROFILE: "companion",
-              LOOP55_DATA_DIR: dir,
+              LOOP_PROFILE: "companion",
+              LOOP_DATA_DIR: dir,
             },
             timeout: 30_000,
             stdio: ["ignore", "pipe", "pipe"],

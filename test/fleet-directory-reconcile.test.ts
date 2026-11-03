@@ -16,10 +16,10 @@ import { FleetProof } from "../src/server/fleet-proof.js";
 import { secret } from "../src/state.js";
 import type { SignedFleetDirectory } from "../src/shared/fleet.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-directory-reconcile-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-directory-reconcile-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 // Migration setup is shared; each peer uses an independent durable database.
 const template = new Database(":memory:");

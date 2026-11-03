@@ -263,7 +263,7 @@ export function setActivityCapabilities(
   const complete = Object.fromEntries(
     ACTIVITY_FEATURES.map((f) => [
       f,
-      capabilities[f] || { state: "undiscovered", source: "loop55" },
+      capabilities[f] || { state: "undiscovered", source: "loop" },
     ]),
   );
   const record = {

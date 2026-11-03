@@ -14,7 +14,7 @@ const windowValue = (value) =>
     : null;
 
 export function claudeUsageFile(configDir) {
-  return join(configDir, "loop55-subscription-usage.json");
+  return join(configDir, "loop-subscription-usage.json");
 }
 
 export async function captureClaudeUsage(input, file) {
@@ -96,7 +96,7 @@ export async function readCodexUsage({ endpoint, token, WebSocketCtor, timeoutMs
       socket.once("close", () => reject(new Error("Codex app-server unavailable")));
       socket.once("error", reject);
     });
-    await request("initialize", { clientInfo: { name: "loop55-subscription-usage", version: "1" } });
+    await request("initialize", { clientInfo: { name: "loop-subscription-usage", version: "1" } });
     socket.send(JSON.stringify({ jsonrpc: "2.0", method: "initialized" }));
     const result = await request("account/rateLimits/read");
     const project = (item) => item && ({

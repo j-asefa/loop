@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 // A real isolated MCP process through the broker; no model/provider credentials.
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
@@ -14,10 +13,10 @@ await new Promise((resolve, reject) => {
 });
 const port = listener.address().port;
 await new Promise((resolve) => listener.close(resolve));
-const data = mkdtempSync(join(tmpdir(), "loop55-mcp-smoke-"));
-process.env.LOOP55_DATA_DIR = data;
-process.env.LOOP55_RUNTIME_URL = "http://127.0.0.1:" + port;
-process.env.LOOP55_RUNTIME_TOKEN = crypto.randomUUID() + crypto.randomUUID();
+const data = mkdtempSync(join(tmpdir(), "loop-mcp-smoke-"));
+process.env.LOOP_DATA_DIR = data;
+process.env.LOOP_RUNTIME_URL = "http://127.0.0.1:" + port;
+process.env.LOOP_RUNTIME_TOKEN = crypto.randomUUID() + crypto.randomUUID();
 const broker = spawn(process.execPath, ["runtime/broker.ts"], {
   env: { ...process.env, PORT: String(port) },
   stdio: ["ignore", "pipe", "pipe"],
@@ -29,16 +28,16 @@ const { RuntimeTransport } =
   await import("../src/server/mcp/runtime-transport.ts");
 const { catalog } = await import("../src/server/mcp/catalog-data.ts");
 const { catalogSecret } = await import("../src/server/mcp/catalog.ts");
-const client = new Client({ name: "loop55-runtime-smoke", version: "1" });
+const client = new Client({ name: "loop-runtime-smoke", version: "1" });
 try {
   let ready = false;
   for (let i = 0; i < 100; i++) {
     try {
       if (
         (
-          await fetch(process.env.LOOP55_RUNTIME_URL + "/health", {
+          await fetch(process.env.LOOP_RUNTIME_URL + "/health", {
             headers: {
-              authorization: "Bearer " + process.env.LOOP55_RUNTIME_TOKEN,
+              authorization: "Bearer " + process.env.LOOP_RUNTIME_TOKEN,
             },
           })
         ).ok

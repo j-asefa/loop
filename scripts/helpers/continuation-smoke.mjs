@@ -111,7 +111,7 @@ export async function continuationSmoke(page, fixture) {
     .getByRole("button", { name: "Start continuation", exact: true })
     .click();
   await expect(dialog().getByRole("alert")).toContainText(
-    "Couldn’t reach Loop55",
+    "Couldn’t reach Loop",
   );
   await expect(
     dialog().getByRole("textbox", {
@@ -256,7 +256,7 @@ export async function continuationSmoke(page, fixture) {
     .getByRole("button", { name: "Start continuation", exact: true })
     .click();
   await expect(dialog().getByRole("alert")).toContainText(
-    "Couldn’t reach Loop55",
+    "Couldn’t reach Loop",
   );
   fixture.db
     .prepare("UPDATE messages SET run_id=NULL WHERE run_id=?")
@@ -388,7 +388,7 @@ export async function continuationTabsSmoke(page, fixture) {
       .getByRole("button", { name: "Start continuation", exact: true })
       .click();
     await expect(dialog(item.tab).getByRole("alert")).toContainText(
-      "Couldn’t reach Loop55",
+      "Couldn’t reach Loop",
     );
   }
   const recoveryTab = await page.context().newPage();
@@ -524,7 +524,7 @@ export async function continuationLegacySmoke(page, fixture) {
   assert.equal(
     fixture.db
       .prepare(
-        "SELECT count(*) n FROM conversations WHERE origin='loop55-continuation'",
+        "SELECT count(*) n FROM conversations WHERE origin='loop-continuation'",
       )
       .get().n,
     0,
@@ -564,7 +564,7 @@ export async function continuationRecoverySmoke(page, fixture) {
   await page.evaluate(() => {
     window.continuationSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key, value) {
-      if (key.startsWith("loop55-continuation:"))
+      if (key.startsWith("loop-continuation:"))
         throw new Error("Fixture storage full");
       return window.continuationSetItem.call(this, key, value);
     };
@@ -583,7 +583,7 @@ export async function continuationRecoverySmoke(page, fixture) {
     .getByRole("button", { name: "Start continuation", exact: true })
     .click();
   await expect(dialog().getByRole("alert")).toContainText(
-    "Couldn’t reach Loop55",
+    "Couldn’t reach Loop",
   );
   fixture.db
     .prepare("UPDATE agents SET retired_at=? WHERE id=?")
@@ -640,7 +640,7 @@ export async function continuationRecoverySmoke(page, fixture) {
   await page.evaluate(() => {
     window.continuationRemoveItem = Storage.prototype.removeItem;
     Storage.prototype.removeItem = function (key) {
-      if (key.startsWith("loop55-continuation:"))
+      if (key.startsWith("loop-continuation:"))
         throw new Error("Fixture cleanup blocked");
       return window.continuationRemoveItem.call(this, key);
     };

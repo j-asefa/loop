@@ -12,10 +12,10 @@ import { Problem, ExecutionProblem } from "../src/shared/problem";
 import { registrar, mountedRoute } from "../src/server/registrar";
 import { cardTokenRequest } from "../src/shared/card-access";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-route-contracts-"));
-process.env.LOOP55_DATA_DIR = directory;
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop-route-contracts-"));
+process.env.LOOP_DATA_DIR = directory;
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -208,12 +208,10 @@ it("serves a credential-free bootstrap from the production HTTP app and retains 
       nativeCredential: "private",
     }),
   ).toEqual(connection);
-  expect(result.headers.get("x-loop55-change-epoch")).toEqual(
-    expect.any(String),
-  );
+  expect(result.headers.get("x-loop-change-epoch")).toEqual(expect.any(String));
   const session = await request("/auth/get-session");
   expect(session.data.user.id).toBe(owner);
-  expect(session.headers.get("x-loop55-change-epoch")).toEqual(
+  expect(session.headers.get("x-loop-change-epoch")).toEqual(
     expect.any(String),
   );
 });
@@ -349,10 +347,10 @@ it("keeps unavailable payloads readable in run lists and binds projection bodies
     const result = await request(path);
     expect(result.status, JSON.stringify(result.data)).toBe(200);
     expect(result.data.projection.cursor).toBe(
-      Number(result.headers.get("x-loop55-change-cursor")),
+      Number(result.headers.get("x-loop-change-cursor")),
     );
     expect(result.data.projection.epoch).toBe(
-      result.headers.get("x-loop55-change-epoch"),
+      result.headers.get("x-loop-change-epoch"),
     );
   }
   const page = await request(

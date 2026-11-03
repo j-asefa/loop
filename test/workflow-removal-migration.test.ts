@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 function beforeRemoval() {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-workflow-removal-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-workflow-removal-"));
   dirs.push(dir);
   const old = join(dir, "migrations");
   mkdirSync(old);

@@ -10,12 +10,12 @@ let local: typeof import("../src/server/db");
 let foreign: Database.Database;
 beforeEach(async () => {
   vi.resetModules();
-  directory = mkdtempSync(join(tmpdir(), "loop55-changes-"));
-  vi.stubEnv("LOOP55_DATA_DIR", directory);
+  directory = mkdtempSync(join(tmpdir(), "loop-changes-"));
+  vi.stubEnv("LOOP_DATA_DIR", directory);
   // Ordering tests must finish before a foreign-commit poll could help them.
-  vi.stubEnv("LOOP55_CHANGE_POLL_MS", "60000");
+  vi.stubEnv("LOOP_CHANGE_POLL_MS", "60000");
   local = await import("../src/server/db");
-  foreign = new Database(join(directory, "loop55.db"));
+  foreign = new Database(join(directory, "loop.db"));
   foreign.pragma("journal_mode = WAL");
   for (const owner of ["one", "two"])
     local.db

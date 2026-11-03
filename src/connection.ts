@@ -1,8 +1,6 @@
-import { retainedPath } from "./retained-path.js";
-import "../runtime/environment.mjs";
 /**
  * Shared records and private control protocol of the per-workspace connection
- * service. The service owns Cloudflared and a stable local relay; the Loop55
+ * service. The service owns Cloudflared and a stable local relay; the Loop
  * application registers behind it once per launch. See docs/pairing.md.
  */
 import { request } from "node:http";
@@ -19,14 +17,14 @@ export const CONNECTION_RECORD = "connection.json";
 export const CONNECTION_LOCK = {
   name: "connection.lock",
   owner:
-    "Another Loop55 connection service is starting or running for this workspace. Wait for it, then retry; no process was stopped.",
+    "Another Loop connection service is starting or running for this workspace. Wait for it, then retry; no process was stopped.",
 };
 // Unix socket paths are limited to 104 bytes on macOS and 108 on Linux.
 const MAX_SOCKET_PATH = 100;
 const BACKEND_SOCKET = /^app-[a-f0-9]{16}\.sock$/;
 
 export function connectionDir(root: string) {
-  return resolve(process.env.LOOP55_CONNECTION_DIR || join(root, "connection"));
+  return resolve(process.env.LOOP_CONNECTION_DIR || join(root, "connection"));
 }
 
 function privateDirectory(path: string) {
@@ -57,7 +55,7 @@ export function runDir(dir: string) {
     return local;
   const key = createHash("sha256").update(dir).digest("hex").slice(0, 16);
   const uid = process.getuid?.() ?? 0;
-  return retainedPath("/tmp", `loop55-${uid}/${key}`, `loop-${uid}/${key}`);
+  return join("/tmp", `loop-${uid}/${key}`);
 }
 export function ensureRunDir(dir: string) {
   const run = runDir(dir);

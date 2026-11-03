@@ -107,7 +107,7 @@ export async function catalogJourney(page, api, base) {
     .locator(".sheet-body")
     .evaluate((el) => el.scrollTo(0, 0));
   await page.screenshot({
-    path: join(tmpdir(), "loop55-mcp-catalog.png"),
+    path: join(tmpdir(), "loop-mcp-catalog.png"),
     fullPage: false,
   });
   await closeSheets(page);

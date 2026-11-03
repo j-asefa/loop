@@ -16,7 +16,7 @@ import {
 } from "./types.js";
 import type { Billing } from "../protocol.js";
 
-/** Native HTTP/SSE stays on loopback; only normalized Loop55 WebSockets reach the phone. */
+/** Native HTTP/SSE stays on loopback; only normalized Loop WebSockets reach the phone. */
 export class OpenCode implements Adapter {
   private controlState?: DirectControls;
   private get displayControls() {
@@ -144,7 +144,7 @@ export class OpenCode implements Adapter {
     // OAuth alone is not sufficient. Keep the native configuration only with explicit consent.
     if (this.options.billing === "subscription")
       throw new Error(
-        "OpenCode does not expose a verified effective subscription mode through this server interface. Check your provider in opencode, then explicitly use --billing existing to retain it. Loop55 never substitutes an API provider.",
+        "OpenCode does not expose a verified effective subscription mode through this server interface. Check your provider in opencode, then explicitly use --billing existing to retain it. Loop never substitutes an API provider.",
       );
     const environmentConfig = this.options.workspaceTools
       ? JSON.parse(process.env.OPENCODE_CONFIG_CONTENT || "{}")
@@ -162,7 +162,7 @@ export class OpenCode implements Adapter {
                   ...environmentConfig,
                   mcp: {
                     ...environmentConfig.mcp,
-                    loop55_workspace: {
+                    loop_workspace: {
                       type: "remote",
                       url: this.options.workspaceTools.url,
                       headers: {
@@ -174,7 +174,7 @@ export class OpenCode implements Adapter {
                 }),
               }
             : {}),
-          OPENCODE_SERVER_USERNAME: "loop55",
+          OPENCODE_SERVER_USERNAME: "loop",
           OPENCODE_SERVER_PASSWORD: this.password,
         },
         stdio: "pipe",
@@ -289,7 +289,7 @@ export class OpenCode implements Adapter {
   private headers() {
     return {
       authorization:
-        "Basic " + Buffer.from("loop55:" + this.password).toString("base64"),
+        "Basic " + Buffer.from("loop:" + this.password).toString("base64"),
       "content-type": "application/json",
     };
   }

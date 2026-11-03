@@ -29,7 +29,7 @@ export function ConnectionDetails({
         {location} · {connection.status}
       </p>
       <p>{billing}</p>
-      {metadata.loop55Harness && (
+      {metadata.loopHarness && (
         <p className="note">
           This is saved connection information, not a live sign-in or runtime
           availability check. Sign-in stays on this computer.

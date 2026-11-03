@@ -49,7 +49,7 @@ export function setMcpApprovalMode(owner: string, mode: "ask" | "allow") {
             );
             alwaysAsk =
               !tool ||
-              (tool._meta?.loop55 ?? tool._meta?.loop)?.alwaysAsk === true;
+              (tool._meta?.loop ?? tool._meta?.loop)?.alwaysAsk === true;
           } catch {
             // An unreadable catalog cannot authorize a queued effect.
           }

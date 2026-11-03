@@ -8,10 +8,10 @@ import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 import { callRoute, fetchStream, routeUrl } from "../src/client/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-personal-contracts-"));
-process.env.LOOP55_DATA_DIR = directory;
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop-personal-contracts-"));
+process.env.LOOP_DATA_DIR = directory;
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const { withTestAdapter } = await import("../src/server/providers");

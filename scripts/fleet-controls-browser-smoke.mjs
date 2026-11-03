@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 // Actual source context, native-question UI and typed browser transport against
 // an isolated deterministic HTTP fixture. No provider or user workspace is used.
 import { chromium, webkit, expect } from "@playwright/test";
@@ -10,9 +9,9 @@ import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 
-const dir = await mkdtemp(join(tmpdir(), "loop55-fleet-controls-"));
+const dir = await mkdtemp(join(tmpdir(), "loop-fleet-controls-"));
 const peer = "peer:m_" + "1".repeat(64);
-const engine = process.env.LOOP55_BROWSER === "webkit" ? webkit : chromium;
+const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
 const decision = randomUUID(),
   conversation = randomUUID();
 const submissions = [];
@@ -329,10 +328,10 @@ try {
         body: Buffer.concat(chunks),
       }).formData();
       const manifest = JSON.parse(String(form.get("manifest")));
-      const id = req.headers["x-loop55-command-id"],
-        receiptOnly = req.headers["x-loop55-receipt-only"] === "1";
+      const id = req.headers["x-loop-command-id"],
+        receiptOnly = req.headers["x-loop-receipt-only"] === "1";
       assert.match(id, /^[a-f0-9-]{36}$/);
-      assert.equal(req.headers["x-loop55-csrf"], "fixture-only");
+      assert.equal(req.headers["x-loop-csrf"], "fixture-only");
       assert.equal(form.has("file"), !receiptOnly);
       if (!receiptOnly)
         assert.equal(form.get("file").size, manifest.body.file.size);
@@ -358,8 +357,8 @@ try {
             size: manifest.body.file.size,
           },
           {
-            "x-loop55-command-id": id,
-            "x-loop55-command-state": "completed",
+            "x-loop-command-id": id,
+            "x-loop-command-state": "completed",
           },
         );
       return;
@@ -389,7 +388,7 @@ try {
       for await (const chunk of req) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString());
       if (req.url.endsWith("/preview")) {
-        assert.equal(req.headers["x-loop55-command-id"], undefined);
+        assert.equal(req.headers["x-loop-command-id"], undefined);
         previews.push({ path: req.url, body });
         if (holdPreview)
           await new Promise((resolve) => {
@@ -406,10 +405,10 @@ try {
           },
         });
       } else {
-        assert.match(req.headers["x-loop55-command-id"], /^[a-f0-9-]{36}$/);
-        assert.equal(body.idempotencyKey, req.headers["x-loop55-command-id"]);
-        const id = req.headers["x-loop55-command-id"],
-          receiptOnly = req.headers["x-loop55-receipt-only"] === "1";
+        assert.match(req.headers["x-loop-command-id"], /^[a-f0-9-]{36}$/);
+        assert.equal(body.idempotencyKey, req.headers["x-loop-command-id"]);
+        const id = req.headers["x-loop-command-id"],
+          receiptOnly = req.headers["x-loop-receipt-only"] === "1";
         shared.push({ path: req.url, id, receiptOnly });
         if (id === refusedSharedId || (id === shared[0].id && receiptOnly)) {
           refusedSharedId = id;
@@ -419,7 +418,7 @@ try {
               error: "Fixture shared command was confirmed absent",
               executionOutcome: "refused",
             },
-            { "x-loop55-command-id": id, "x-loop55-command-state": "refused" },
+            { "x-loop-command-id": id, "x-loop-command-state": "refused" },
           );
           return;
         }
@@ -450,12 +449,12 @@ try {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString());
-      const id = req.headers["x-loop55-command-id"],
-        receiptOnly = req.headers["x-loop55-receipt-only"] === "1";
+      const id = req.headers["x-loop-command-id"],
+        receiptOnly = req.headers["x-loop-receipt-only"] === "1";
       assert.match(id, /^[a-f0-9-]{36}$/);
       assert.equal(body.idempotencyKey, id);
       assert.equal(body.connectionId, createConnection);
-      assert.equal(req.headers["x-loop55-csrf"], "fixture-only");
+      assert.equal(req.headers["x-loop-csrf"], "fixture-only");
       creations.push({ path: req.url, id, receiptOnly });
       if (!receiptOnly) {
         creationEffects++;
@@ -474,10 +473,10 @@ try {
             connection_id: createConnection,
             model: body.model,
             instructions: body.instructions || "",
-            origin: "loop55",
+            origin: "loop",
             created_at: 1,
           },
-          { "x-loop55-command-id": id, "x-loop55-command-state": "completed" },
+          { "x-loop-command-id": id, "x-loop-command-state": "completed" },
         );
       }
       return;
@@ -516,15 +515,15 @@ try {
     if (
       req.method === "POST" &&
       req.url === prefix + "/" + decision &&
-      req.headers["x-loop55-csrf"] === "fixture-only"
+      req.headers["x-loop-csrf"] === "fixture-only"
     ) {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString());
-      assert.equal(body.commandId, req.headers["x-loop55-command-id"]);
+      assert.equal(body.commandId, req.headers["x-loop-command-id"]);
       submissions.push({
         ...body,
-        receiptOnly: req.headers["x-loop55-receipt-only"],
+        receiptOnly: req.headers["x-loop-receipt-only"],
       });
       refusedId ??= body.commandId;
       if (body.commandId === refusedId) {
@@ -532,28 +531,28 @@ try {
           409,
           { error: "Fixture pre-forward refusal", executionOutcome: "refused" },
           {
-            "x-loop55-command-id": body.commandId,
-            "x-loop55-command-state": "refused",
+            "x-loop-command-id": body.commandId,
+            "x-loop-command-state": "refused",
           },
         );
         return;
       }
       if (!effectId) {
-        assert.equal(req.headers["x-loop55-receipt-only"], undefined);
+        assert.equal(req.headers["x-loop-receipt-only"], undefined);
         effectId = body.commandId;
         effects++;
         reply(503, { error: "Fixture reply lost" });
         return;
       }
       assert.equal(body.commandId, effectId);
-      assert.equal(req.headers["x-loop55-receipt-only"], "1");
+      assert.equal(req.headers["x-loop-receipt-only"], "1");
       answered = true;
       reply(
         200,
         { state: "resolved" },
         {
-          "x-loop55-command-id": body.commandId,
-          "x-loop55-command-state": "completed",
+          "x-loop-command-id": body.commandId,
+          "x-loop-command-state": "completed",
         },
       );
       return;

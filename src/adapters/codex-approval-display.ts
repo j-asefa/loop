@@ -12,13 +12,11 @@ export function codexApprovalDetail(params: any): string {
   // Older Codex versions identify the tool only in this generated message.
   // Do not summarize arbitrary commands, forms, or other servers' arguments.
   const publish =
-    approval?.server === "loop55_workspace" &&
+    approval?.server === "loop_workspace" &&
     approval.message ===
-      'Allow the loop55_workspace MCP server to run tool "loop55_publish_file"?' &&
-    (meta.tool_name === undefined ||
-      meta.tool_name === "loop55_publish_file") &&
-    (meta.tool_title === undefined ||
-      meta.tool_title === "loop55_publish_file");
+      'Allow the loop_workspace MCP server to run tool "loop_publish_file"?' &&
+    (meta.tool_name === undefined || meta.tool_name === "loop_publish_file") &&
+    (meta.tool_title === undefined || meta.tool_title === "loop_publish_file");
   if (
     !publish ||
     !args ||

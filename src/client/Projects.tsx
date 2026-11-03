@@ -82,7 +82,7 @@ export function Projects({
 }) {
   const [adding, setAdding] = useState(false),
     [page, setPage] = useState(() =>
-      projectTab(sessionStorage.getItem("loop55-project-tab")),
+      projectTab(sessionStorage.getItem("loop-project-tab")),
     ),
     [summary, setSummary] = useState<Summary[] | null>(null),
     [busy, setBusy] = useState(false),
@@ -108,8 +108,8 @@ export function Projects({
     setPage(
       projectTab(
         requested ||
-          sessionStorage.getItem("loop55-project-tab:" + selected) ||
-          sessionStorage.getItem("loop55-project-tab"),
+          sessionStorage.getItem("loop-project-tab:" + selected) ||
+          sessionStorage.getItem("loop-project-tab"),
       ),
     );
   }, [selected]);
@@ -161,7 +161,7 @@ export function Projects({
     )
       .then((result) => {
         if (result?.surfaced)
-          window.dispatchEvent(new Event("loop55-later-change"));
+          window.dispatchEvent(new Event("loop-later-change"));
       })
       .catch(() => {});
   }, [selected]);
@@ -295,11 +295,8 @@ export function Projects({
                   setHistory(null);
                   setPage(value);
                   consumeRequestedTab();
-                  sessionStorage.setItem("loop55-project-tab", value);
-                  sessionStorage.setItem(
-                    "loop55-project-tab:" + selected,
-                    value,
-                  );
+                  sessionStorage.setItem("loop-project-tab", value);
+                  sessionStorage.setItem("loop-project-tab:" + selected, value);
                 }}
               >
                 {value[0].toUpperCase() + value.slice(1)}

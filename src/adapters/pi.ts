@@ -36,7 +36,7 @@ export class Pi implements Adapter {
         async () => {
           const result = await this.native.request("get_commands", {}, false);
           return (result.commands || [])
-            .filter((c: any) => c.name !== "loop55-status")
+            .filter((c: any) => c.name !== "loop-status")
             .map((c: any) => ({
               name: c.name,
               token: "/" + c.name,
@@ -87,7 +87,7 @@ export class Pi implements Adapter {
   private interrupted = false;
   private failed = false;
   // From an accepted prompt until Pi settles. Pi queues a steer it receives
-  // while idle for its next prompt, so Loop55 only steers a live turn.
+  // while idle for its next prompt, so Loop only steers a live turn.
   private turnActive = false;
   private steering: Promise<unknown> = Promise.resolve();
   private requests = new Map<string, { m: any; timer?: NodeJS.Timeout }>();
@@ -257,11 +257,11 @@ export class Pi implements Adapter {
       this.options.project,
       {
         ...process.env,
-        LOOP55_BILLING_MODE: this.options.billing,
+        LOOP_BILLING_MODE: this.options.billing,
         ...(this.options.workspaceTools
           ? {
-              LOOP55_TOOLS_URL: this.options.workspaceTools.url,
-              LOOP55_TOOLS_TOKEN: this.options.workspaceTools.token,
+              LOOP_TOOLS_URL: this.options.workspaceTools.url,
+              LOOP_TOOLS_TOKEN: this.options.workspaceTools.token,
             }
           : {}),
       },
@@ -285,7 +285,7 @@ export class Pi implements Adapter {
             ? error
             : new NativeSetupError(
                 "native_start_failed",
-                // Native failures carry Loop55-authored transport messages only.
+                // Native failures carry Loop-authored transport messages only.
                 `Pi could not start (${String(error.message).replace(/\.$/, "")}). Check its executable, version and extension loading. No prompt was sent.`,
               ),
         );
@@ -370,7 +370,7 @@ export class Pi implements Adapter {
     }
     const catalog = await this.native.request("get_commands", {}, false);
     this.commands = (catalog.commands || [])
-      .filter((c: any) => c.name !== "loop55-status")
+      .filter((c: any) => c.name !== "loop-status")
       .map((c: any) => ({
         name: c.name,
         token: "/" + c.name,
@@ -434,7 +434,7 @@ export class Pi implements Adapter {
     if (this.options.workspaceTools && this.info?.toolsReady === false)
       throw new NativeSetupError(
         "native_tools_unavailable",
-        "Pi could not load workspace tools. Check the local Loop55 bridge; no prompt was sent.",
+        "Pi could not load workspace tools. Check the local Loop bridge; no prompt was sent.",
       );
     if (!this.info?.configured)
       throw new NativeSetupError(
@@ -450,7 +450,7 @@ export class Pi implements Adapter {
   async prompt(text: string, beforeDispatch?: () => void) {
     beforeDispatch?.();
     const metadata = this.waitInfo();
-    await this.native.request("prompt", { message: "/loop55-status" }, false);
+    await this.native.request("prompt", { message: "/loop-status" }, false);
     await metadata;
     this.checkBilling();
     beforeDispatch?.();
@@ -468,7 +468,7 @@ export class Pi implements Adapter {
   }
   // Pi delivers steering after the current tool calls, before its next model
   // call. A turn that ends without another model call still reads it first.
-  // One steer at a time, so Pi's queue never holds two of Loop55's at once.
+  // One steer at a time, so Pi's queue never holds two of Loop's at once.
   steer(text: string, beforeDispatch?: () => void) {
     const sent = this.steering.then(() => this.steerOnce(text, beforeDispatch));
     this.steering = sent.catch(() => {});
@@ -485,7 +485,7 @@ export class Pi implements Adapter {
     // when it is the sole entry, and put back anything else that was removed.
     // Otherwise leave it queued and report it as unconfirmed, never resent.
     const queued =
-      "Pi finished its turn before Loop55 could confirm it read this input. Anything still queued waits for Pi's next prompt.";
+      "Pi finished its turn before Loop could confirm it read this input. Anything still queued waits for Pi's next prompt.";
     // Pi exposes text, not durable queue-entry identities. A guarded input
     // cannot safely clear/restore a queue that another native writer may change:
     // restoration would need each entry's own authorization. Keep the native
@@ -641,7 +641,7 @@ export class Pi implements Adapter {
           this.startup(
             new NativeSetupError(
               "native_startup_question",
-              "A Pi extension asked a question while Pi was starting, and Pi cannot receive an answer from Loop55 until startup finishes. Run pi once in a terminal on the execution computer to answer it, then refresh Pi. No prompt was sent.",
+              "A Pi extension asked a question while Pi was starting, and Pi cannot receive an answer from Loop until startup finishes. Run pi once in a terminal on the execution computer to answer it, then refresh Pi. No prompt was sent.",
             ),
           );
           void this.native.dispose();

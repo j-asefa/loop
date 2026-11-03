@@ -208,16 +208,16 @@ it("delivers snapshot clocks for the actual source and drops responses from a pr
   const target = new EventTarget();
   vi.stubGlobal("window", target);
   const received: any[] = [];
-  target.addEventListener("loop55-workspace-clock", (event) =>
+  target.addEventListener("loop-workspace-clock", (event) =>
     received.push((event as CustomEvent).detail),
   );
   const response = (epoch: string, body: unknown = { memoryIncluded: true }) =>
     Response.json(body, {
       headers: {
-        "x-loop55-change-epoch": epoch,
-        "x-loop55-change-cursor": "19",
-        "x-loop55-server-now": "1000",
-        "x-loop55-next-deadline": "2000",
+        "x-loop-change-epoch": epoch,
+        "x-loop-change-cursor": "19",
+        "x-loop-server-now": "1000",
+        "x-loop-next-deadline": "2000",
       },
     });
   fetcher.mockImplementation(async () => response("epoch"));

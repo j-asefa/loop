@@ -11,5 +11,5 @@ void loadCapabilities()
   })
   .catch(() => {
     document.getElementById("root")!.textContent =
-      "Cannot connect to Loop55. Reload to try again.";
+      "Cannot connect to Loop. Reload to try again.";
   });

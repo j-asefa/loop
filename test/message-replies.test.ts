@@ -9,9 +9,9 @@ import type { Run } from "../src/server/queue";
 import { NativeOutput } from "../src/server/native-output";
 import { replyPrompt } from "../src/shared/replies";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-replies-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-replies-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");

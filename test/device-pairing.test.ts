@@ -10,10 +10,10 @@ import { applyMigrations } from "../src/server/migrations.js";
 import { DevicePairing } from "../src/server/device-pairing.js";
 import { hash, secret } from "../src/state.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-device-pairing-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-device-pairing-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const { FleetAuthority } = await import("../src/server/fleet-authority.js");
 const { FleetPairing } = await import("../src/server/fleet-pairing.js");

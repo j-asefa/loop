@@ -26,7 +26,7 @@ vi.mock("../src/server/mcp/client.js", async (original) => ({
   ...(await original<object>()),
   authorize: native.authorize,
 }));
-const directory = mkdtempSync(join(tmpdir(), "loop55-mcp-contracts-"));
+const directory = mkdtempSync(join(tmpdir(), "loop-mcp-contracts-"));
 native.home = join(directory, "native");
 mkdirSync(native.home);
 const bin = join(directory, "bin");
@@ -46,13 +46,13 @@ writeFileSync(
     },
   }),
 );
-process.env.LOOP55_DATA_DIR = join(directory, "data");
-process.env.LOOP55_PROFILE = "server";
-process.env.LOOP55_AUTH_MODE = "single-user";
-process.env.LOOP55_URL = "http://127.0.0.1";
-process.env.LOOP55_BIND_ADDRESS = "127.0.0.1";
-process.env.LOOP55_GATEWAY_TOKEN = "";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_DATA_DIR = join(directory, "data");
+process.env.LOOP_PROFILE = "server";
+process.env.LOOP_AUTH_MODE = "single-user";
+process.env.LOOP_URL = "http://127.0.0.1";
+process.env.LOOP_BIND_ADDRESS = "127.0.0.1";
+process.env.LOOP_GATEWAY_TOKEN = "";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 process.env.BETTER_AUTH_SECRET = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");
 const { config } = await import("../src/server/config");
@@ -701,7 +701,7 @@ it("projects paired-host discovery and real Docker sharing without weakening pai
     const session = (await fetch(host.origin + "/session", {
       headers: { cookie },
     }).then((response) => response.json())) as { csrf: string };
-    const headers = { cookie, "x-loop55-csrf": session.csrf };
+    const headers = { cookie, "x-loop-csrf": session.csrf };
     const local = (
       path: string,
       body?: unknown,
@@ -746,7 +746,7 @@ it("projects paired-host discovery and real Docker sharing without weakening pai
       (
         await local("/mcp-sharing", input, "POST", {
           cookie,
-          "x-loop55-csrf": "invalid",
+          "x-loop-csrf": "invalid",
         })
       ).status,
     ).toBe(403);
@@ -826,7 +826,7 @@ it("projects paired-host discovery and real Docker sharing without weakening pai
     });
     expect(previewPair.status).toBe(200);
     headers.cookie = previewPair.headers.get("set-cookie")!.split(";")[0];
-    headers["x-loop55-csrf"] = (
+    headers["x-loop-csrf"] = (
       (await fetch(host.origin + "/session", {
         headers: { cookie: headers.cookie },
       }).then((response) => response.json())) as { csrf: string }

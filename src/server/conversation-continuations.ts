@@ -110,7 +110,7 @@ export function continueConversation(
         owner,
         agent.id,
         ("Continuation: " + source.title).slice(0, 200),
-        "loop55-continuation",
+        "loop-continuation",
         null,
         now(),
       );

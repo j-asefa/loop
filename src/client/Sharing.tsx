@@ -70,7 +70,7 @@ export function SourceCard({
         <blockquote>{source.excerpt.slice(0, 1500)}</blockquote>
       )}
       <small>
-        Link only. Loop55 has not fetched the page; any excerpt was supplied by
+        Link only. Loop has not fetched the page; any excerpt was supplied by
         you.
       </small>
     </aside>
@@ -170,7 +170,7 @@ function ShareForm({
     }
   }
   return (
-    <Sheet title="Bring it into Loop55" onClose={onClose}>
+    <Sheet title="Bring it into Loop" onClose={onClose}>
       <p className="muted">
         Share a link, add a question, and give it somewhere to go.
       </p>
@@ -314,7 +314,7 @@ export function InstallHelp({
   );
   const [detail, setDetail] = useState("");
   return (
-    <Sheet title="Install Loop55" onClose={onClose}>
+    <Sheet title="Install Loop" onClose={onClose}>
       <p className="settings-intro">Open it from your Home Screen.</p>
       <SettingsSegmented
         label="Platform"
@@ -329,7 +329,7 @@ export function InstallHelp({
       {platform === "iphone" ? (
         <SettingsSteps>
           <li>
-            <p>Open this Loop55 address in Safari.</p>
+            <p>Open this Loop address in Safari.</p>
           </li>
           <li>
             <p>Tap Share → Add to Home Screen.</p>
@@ -341,14 +341,14 @@ export function InstallHelp({
       ) : (
         <SettingsSteps>
           <li>
-            <p>Open this Loop55 address in your browser.</p>
+            <p>Open this Loop address in your browser.</p>
           </li>
           <li>
             <p>
               Choose Install app from the address bar or the browser menu.
               <small className="field-hint">
                 Browsers supporting Web Share Target can send a URL or text
-                straight to the installed Loop55 app.
+                straight to the installed Loop app.
               </small>
             </p>
           </li>
@@ -357,20 +357,18 @@ export function InstallHelp({
       <SettingsNote
         icon={personal ? Check : Info}
         tone={personal ? "ready" : "muted"}
-        title={
-          personal ? "No Loop55 account needed" : "Sign in once in the app"
-        }
+        title={personal ? "No Loop account needed" : "Sign in once in the app"}
       >
         {personal
-          ? "Launch Loop55 from the new icon: this personal workspace opens directly."
-          : "Launch Loop55 from the new icon and sign in. Some Safari versions keep app and browser sign-ins separate."}
+          ? "Launch Loop from the new icon: this personal workspace opens directly."
+          : "Launch Loop from the new icon and sign in. Some Safari versions keep app and browser sign-ins separate."}
       </SettingsNote>
       <SettingsSection title="Once installed">
         <SettingsList>
           {platform === "iphone" && (
             <SettingsRow
               icon={Share}
-              title="Share links into Loop55"
+              title="Share links into Loop"
               description="Set up the iPhone Shortcut"
               onClick={() => setDetail(detail === "share" ? "" : "share")}
             />
@@ -387,11 +385,11 @@ export function InstallHelp({
         <div className="settings-card">
           <h3>Share a link from iPhone</h3>
           <p className="field-hint">
-            Use a Shortcut to open a shared link as a Loop55 draft. Native Web
+            Use a Shortcut to open a shared link as a Loop draft. Native Web
             Share Target is not assumed on Safari. Accept URLs or Text from the
             Share Sheet, URL Encode the Shortcut Input, build the text below
-            with that encoded value, then Open URLs. Loop55 opens a draft for
-            you to review.
+            with that encoded value, then Open URLs. Loop opens a draft for you
+            to review.
           </p>
           <code className="wrap-code">
             {location.origin}/share?text=[URL-encoded Shortcut Input]
@@ -407,7 +405,7 @@ export function InstallHelp({
         <div className="settings-card">
           <h3>Connection &amp; updates</h3>
           <p className="field-hint">
-            Active runs continue on the server when you close Loop55. New work
+            Active runs continue on the server when you close Loop. New work
             needs a connection. The current screen remains readable offline;
             private history is not stored in the service-worker cache. Save your
             draft before accepting an update.

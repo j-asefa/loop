@@ -458,7 +458,7 @@ export function renderAppPages(
                 type="button"
                 className="text-button"
                 onClick={() =>
-                  window.dispatchEvent(new Event("loop55-source-refresh"))
+                  window.dispatchEvent(new Event("loop-source-refresh"))
                 }
               >
                 Retry connection

@@ -317,7 +317,7 @@ for (const engine of selectedEngines()) {
     );
     // Loading history must leave the live cursor at the newest snapshot.
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-workspace-change")),
+      window.dispatchEvent(new Event("loop-workspace-change")),
     );
     await expect
       .poll(
@@ -361,14 +361,14 @@ for (const engine of selectedEngines()) {
       await page.locator("dialog.conversation-sheet[open] > .sheet-inner > .sheet-head")
         .getByRole("button", { name: "Close", exact: true }).click();
       await expect(page.locator("dialog.conversation-sheet[open]")).toHaveCount(0);
-      await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+      await page.waitForFunction(() => history.state?.loopSheet !== true);
     };
     const openThread = async (id, source = "") => {
       await page.evaluate(({ id, source }) => {
         const url = new URL(location.href);
         url.search = new URLSearchParams({ conversation: id, ...(source ? { source } : {}) }).toString();
         navigator.serviceWorker.dispatchEvent(new MessageEvent("message", {
-          data: { type: "loop55-open", url: url.href },
+          data: { type: "loop-open", url: url.href },
         }));
       }, { id, source });
     };
@@ -414,7 +414,7 @@ for (const engine of selectedEngines()) {
     await expect(transcript.locator('[role="alert"]')).toHaveCount(0);
     await expect(transcript.getByRole("button", { name: "Load earlier messages", exact: true })).toBeDisabled();
     // A push invalidation and the retained fallback must respect the deadline.
-    await page.evaluate(() => window.dispatchEvent(new Event("loop55-workspace-change")));
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-workspace-change")));
     await page.waitForTimeout(1000);
     assert.equal(readsAfterLimit, 0);
     await expect.poll(() => readsAfterLimit).toBeGreaterThan(0);
@@ -611,14 +611,14 @@ for (const engine of selectedEngines()) {
         await route.fulfill({ status: 429, headers: { "Retry-After": "8" }, json: { error: "Too many requests" } });
       } else await route.continue();
     });
-    await page.evaluate(() => window.dispatchEvent(new Event("loop55-workspace-change")));
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-workspace-change")));
     await expect.poll(() => approvalLimitedAt).toBeGreaterThan(0);
     // The fixture flag is set before fulfillment. Wait for the browser to
     // consume the 429 before dispatching a signal that relies on its cooldown.
     await expect(transcript.getByText("Updates are paused briefly. Retrying automatically…", {exact:true})).toBeVisible();
     // Complete sources have no approval poll. A scoped notification during
     // the same source cooldown must retain the notice and schedule its read.
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent("loop55-workspace-change", {detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"approvals"}}]}]}})));
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("loop-workspace-change", {detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"approvals"}}]}]}})));
     await expect(transcript.getByRole("status").filter({ hasText: "Approval updates are paused" })).toBeVisible({ timeout: 7000 });
     await expect(transcript.locator('[role="alert"]')).toHaveCount(0);
     await expect.poll(() => approvalReadTimes.filter(time => time - approvalLimitedAt >= 7950).length, { timeout: 15_000 }).toBeGreaterThan(0);
@@ -632,7 +632,7 @@ for (const engine of selectedEngines()) {
     await transcript.locator(".approval-card").first().getByRole("button", { name: "Approve", exact: true }).click();
     await expect(transcript.getByRole("alert").filter({ hasText: "Approval action refused" })).toBeVisible();
     failApprovalRead = true;
-    await page.evaluate(() => window.dispatchEvent(new CustomEvent("loop55-workspace-change", {detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"approvals"}}]}]}})));
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("loop-workspace-change", {detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"approvals"}}]}]}})));
     await expect(transcript.getByRole("alert").filter({ hasText: "Approval read temporarily unavailable" })).toBeVisible({ timeout: 7000 });
     failApprovalRead = false;
     await expect(transcript.getByRole("alert").filter({ hasText: "Approval read temporarily unavailable" })).toHaveCount(0, { timeout: 7000 });
@@ -704,7 +704,7 @@ async function anchoredLiveTail(engine) {
     const open = async anchor => page.evaluate(({conversation,anchor}) => {
       const url = new URL(location.href);
       url.search = new URLSearchParams({conversation,...(anchor?{message:anchor}:{})}).toString();
-      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop55-open",url:url.href}}));
+      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop-open",url:url.href}}));
     },{conversation,anchor});
     await open();
     await expect(page.locator(`[data-message-id="${saved}"]`)).toBeInViewport();
@@ -723,7 +723,7 @@ async function anchoredLiveTail(engine) {
     await expect(page.locator(`[data-message-id="${liveAnswer}"]`)).toContainText("Live answer after an old resume streaming");
     assert.equal(reads.length,before,"Tail appends must apply without snapshot reads");
     await page.locator("dialog.conversation-sheet[open] > .sheet-inner > .sheet-head").getByRole("button",{name:"Close",exact:true}).click();
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
     await open(saved);
     await expect(page.locator(`[data-message-id="${saved}"]`)).toBeInViewport();
     await expect(page.locator(`[data-message-id="${liveAnswer}"]`)).toHaveCount(0);
@@ -746,7 +746,7 @@ async function anchoredLiveTail(engine) {
     await opening.evaluate(({conversation,saved}) => {
       const url = new URL(location.href);
       url.search = new URLSearchParams({conversation,message:saved}).toString();
-      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop55-open",url:url.href}}));
+      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop-open",url:url.href}}));
     },{conversation,saved});
     await expect(opening.locator(`[data-message-id="${saved}"]`)).toBeInViewport();
     assert.equal(anchoredReads,1,"An unloaded streaming delta must not restart the anchored snapshot");
@@ -810,7 +810,7 @@ async function anchoredLiveTail(engine) {
       await gate; await route.fulfill({response});
     });
     try {
-      await page.evaluate(() => window.dispatchEvent(new Event("loop55-refresh")));
+      await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
       await expect.poll(() => held).toBe(true);
       const beforeRemove = await page.evaluate(id => window.__messageInvalidations[id],saved);
       db.prepare("UPDATE messages SET content=? WHERE id=?").run("Invalidated before removal " + replacement,saved);
@@ -881,11 +881,11 @@ async function snapshotRecovery(engine) {
     });
     await page.evaluate(id => {
       const url = new URL(location.href); url.search = new URLSearchParams({conversation:id}).toString();
-      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop55-open",url:url.href}}));
+      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop-open",url:url.href}}));
     },conversation.id);
     const alert = page.locator(".conversation-sheet [role=alert]");
     await expect(alert).toContainText("Couldn’t load these messages");
-    await page.evaluate(() => window.dispatchEvent(new Event("loop55-refresh")));
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
     await page.waitForTimeout(1500);
     assert.equal(reads,1,"Invalid snapshots must stop instead of exhausting the request budget");
     malformed = false;
@@ -904,7 +904,7 @@ async function snapshotRecovery(engine) {
     await page.waitForTimeout(2500);
     await page.evaluate(id => {
       const url = new URL(location.href); url.search = new URLSearchParams({conversation:id}).toString();
-      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop55-open",url:url.href}}));
+      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop-open",url:url.href}}));
     },conversation.id);
     await expect(page.locator(`[data-message-id="${row.id}"]`)).toHaveCount(1,{timeout:9000});
     assert.equal(failures,3,"A quiet cold transcript must recover both HTML and empty 5xx responses");

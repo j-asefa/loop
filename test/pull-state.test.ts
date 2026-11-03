@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { pullStateFromWatch, pullStateLine } from "../src/shared/pull-state";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-pull-state-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-pull-state-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { pullStatus } = await import("../src/server/pr-watches");
 

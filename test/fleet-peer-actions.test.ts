@@ -35,11 +35,11 @@ import {
   SignedFleetActionResponse,
 } from "../src/shared/fleet-workspace-action-api.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-forward-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = join(root, "destination");
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-mkdirSync(process.env.LOOP55_DATA_DIR);
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-forward-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = join(root, "destination");
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+mkdirSync(process.env.LOOP_DATA_DIR);
 const { FleetCredentialHttpTransport } =
   await import("../src/server/fleet-credential-http.js");
 const { FleetWorkspaceActionHttpTransport } =
@@ -128,10 +128,10 @@ const pairing = new FleetPairing(
   db,
   destination,
   OWNER,
-  process.env.LOOP55_DATA_DIR,
+  process.env.LOOP_DATA_DIR,
 );
 const host = new Host(
-  process.env.LOOP55_DATA_DIR,
+  process.env.LOOP_DATA_DIR,
   {
     harness: "codex",
     version: "fixture",
@@ -187,7 +187,7 @@ beforeAll(async () => {
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture','','connected',?,'{}',0)",
   ).run(connectionId, OWNER, JSON.stringify([{ id: "fixture" }]));
   db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,'Other owner','other-owner','openai','fixture','untouched','loop55',0)",
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,'Other owner','other-owner','openai','fixture','untouched','loop',0)",
   ).run(foreignAgent, foreignOwner);
   await host.listen();
   host.setOrigin(origin);
@@ -217,7 +217,7 @@ function call(body: unknown, path: string, signal?: AbortSignal) {
         headers: {
           host: new URL(origin).host,
           "content-type": "application/json",
-          "x-loop55-fleet-version": "1",
+          "x-loop-fleet-version": "1",
         },
       },
       (res) => {
@@ -263,7 +263,7 @@ const fetcher: typeof undiciFetch = async (input, init) => {
   const url = new URL(String(input));
   expect(url.origin).toBe(origin);
   const headers = new Headers(init?.headers);
-  for (const name of ["cookie", "authorization", "origin", "x-loop55-csrf"])
+  for (const name of ["cookie", "authorization", "origin", "x-loop-csrf"])
     expect(headers.has(name)).toBe(false);
   const isAction =
     url.pathname === "/api" + fleetWorkspaceActionApi.action.path;

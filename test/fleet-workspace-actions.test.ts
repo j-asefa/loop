@@ -21,11 +21,11 @@ import {
 } from "../src/server/fleet-crypto.js";
 import { fleetWorkspaceActionApi } from "../src/shared/fleet-workspace-action-api.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-actions-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = join(root, "destination");
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-mkdirSync(process.env.LOOP55_DATA_DIR);
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-actions-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = join(root, "destination");
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+mkdirSync(process.env.LOOP_DATA_DIR);
 const { app } = await import("../src/server/index.js");
 const { db } = await import("../src/server/db.js");
 const { OWNER, nativeSessions } =
@@ -117,10 +117,10 @@ const pairing = new FleetPairing(
   db,
   destination,
   OWNER,
-  process.env.LOOP55_DATA_DIR,
+  process.env.LOOP_DATA_DIR,
 );
 const host = new Host(
-  process.env.LOOP55_DATA_DIR,
+  process.env.LOOP_DATA_DIR,
   {
     harness: "codex",
     version: "fixture",
@@ -165,7 +165,7 @@ beforeAll(async () => {
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture','','connected',?,'{}',0)",
   ).run(connectionId, OWNER, JSON.stringify([{ id: "fixture" }]));
   db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,'Other owner','other-owner','openai','fixture','untouched','loop55',0)",
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,'Other owner','other-owner','openai','fixture','untouched','loop',0)",
   ).run(foreignAgent, foreignOwner);
   await host.listen();
   host.setOrigin(origin);
@@ -199,7 +199,7 @@ function call(
           headers: {
             host: new URL(origin).host,
             "content-type": "application/json",
-            "x-loop55-fleet-version": "1",
+            "x-loop-fleet-version": "1",
             ...headers,
           },
         },

@@ -1,4 +1,4 @@
-process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -41,15 +41,15 @@ test(
   "a host resource launcher preserves native RPC, metadata, PID, arguments and environment",
   { skip: process.platform === "win32" },
   async () => {
-    const directory = mkdtempSync(join(tmpdir(), "loop55-native-launcher-"));
+    const directory = mkdtempSync(join(tmpdir(), "loop-native-launcher-"));
     const launcher = join(directory, "launcher.sh");
     writeFileSync(
       launcher,
-      '#!/bin/sh\nexport LOOP55_TEST_LAUNCHED=yes\nexec "$@"\n',
+      '#!/bin/sh\nexport LOOP_TEST_LAUNCHED=yes\nexec "$@"\n',
       { mode: 0o700 },
     );
-    const previous = process.env.LOOP55_NATIVE_LAUNCHER;
-    process.env.LOOP55_NATIVE_LAUNCHER = launcher;
+    const previous = process.env.LOOP_NATIVE_LAUNCHER;
+    process.env.LOOP_NATIVE_LAUNCHER = launcher;
     let native: Native | undefined;
     try {
       native = new Native(
@@ -61,9 +61,9 @@ test(
         const request = JSON.parse(line);
         require('node:fs').writeSync(3, JSON.stringify({kind:'fixture-metadata'})+'\\n');
         process.stdout.write(JSON.stringify({id:request.id,result:{pid:process.pid,
-          argument:process.argv[1],launched:process.env.LOOP55_TEST_LAUNCHED,
-          setting:process.env.LOOP55_TEST_SETTING,launcher:process.env.LOOP55_NATIVE_LAUNCHER??null,
-          supervisor:process.env.LOOP55_SERVICE??null}})+'\\n');
+          argument:process.argv[1],launched:process.env.LOOP_TEST_LAUNCHED,
+          setting:process.env.LOOP_TEST_SETTING,launcher:process.env.LOOP_NATIVE_LAUNCHER??null,
+          supervisor:process.env.LOOP_SERVICE??null}})+'\\n');
       });
     `,
           "spaces; $literal argument",
@@ -71,9 +71,9 @@ test(
         directory,
         {
           ...process.env,
-          LOOP55_NATIVE_LAUNCHER: "/ignored-child-setting",
-          LOOP55_SERVICE: "systemd",
-          LOOP55_TEST_SETTING: "preserved",
+          LOOP_NATIVE_LAUNCHER: "/ignored-child-setting",
+          LOOP_SERVICE: "systemd",
+          LOOP_TEST_SETTING: "preserved",
         },
       );
       const metadata = once(native, "metadata");
@@ -88,8 +88,8 @@ test(
       assert.deepEqual((await metadata)[0], { kind: "fixture-metadata" });
     } finally {
       await native?.dispose();
-      if (previous === undefined) delete process.env.LOOP55_NATIVE_LAUNCHER;
-      else process.env.LOOP55_NATIVE_LAUNCHER = previous;
+      if (previous === undefined) delete process.env.LOOP_NATIVE_LAUNCHER;
+      else process.env.LOOP_NATIVE_LAUNCHER = previous;
       rmSync(directory, { recursive: true, force: true });
     }
   },
@@ -99,8 +99,8 @@ test(
   "a refused resource placement never falls back to executing the harness",
   { skip: process.platform === "win32" },
   async () => {
-    const previous = process.env.LOOP55_NATIVE_LAUNCHER;
-    process.env.LOOP55_NATIVE_LAUNCHER = "/bin/false";
+    const previous = process.env.LOOP_NATIVE_LAUNCHER;
+    process.env.LOOP_NATIVE_LAUNCHER = "/bin/false";
     const native = new Native(
       process.execPath,
       ["-e", "process.stdout.write('should not execute')"],
@@ -114,8 +114,8 @@ test(
       );
     } finally {
       await native.dispose();
-      if (previous === undefined) delete process.env.LOOP55_NATIVE_LAUNCHER;
-      else process.env.LOOP55_NATIVE_LAUNCHER = previous;
+      if (previous === undefined) delete process.env.LOOP_NATIVE_LAUNCHER;
+      else process.env.LOOP_NATIVE_LAUNCHER = previous;
     }
   },
 );
@@ -201,11 +201,11 @@ for (const output of ["null\n", "not-json\n", '{"id":1']) {
 }
 for (const explicit of [false, true]) {
   test(`native children do not inherit service ownership (${explicit ? "explicit" : "default"} environment)`, async () => {
-    const previous = process.env.LOOP55_SERVICE;
-    process.env.LOOP55_SERVICE = "systemd";
+    const previous = process.env.LOOP_SERVICE;
+    process.env.LOOP_SERVICE = "systemd";
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      LOOP55_TEST_NATIVE_SETTING: "fixture-setting",
+      LOOP_TEST_NATIVE_SETTING: "fixture-setting",
     };
     let native: Native;
     try {
@@ -217,8 +217,8 @@ for (const explicit of [false, true]) {
         require('node:readline').createInterface({input:process.stdin}).on('line', line => {
           const request = JSON.parse(line);
           process.stdout.write(JSON.stringify({id:request.id,result:{
-            supervisor:process.env.LOOP55_SERVICE ?? null,
-            setting:process.env.LOOP55_TEST_NATIVE_SETTING ?? null,
+            supervisor:process.env.LOOP_SERVICE ?? null,
+            setting:process.env.LOOP_TEST_NATIVE_SETTING ?? null,
             path:process.env.PATH,
           }}) + '\\n');
         });
@@ -228,19 +228,19 @@ for (const explicit of [false, true]) {
         explicit ? env : undefined,
       );
     } finally {
-      if (previous === undefined) delete process.env.LOOP55_SERVICE;
-      else process.env.LOOP55_SERVICE = previous;
+      if (previous === undefined) delete process.env.LOOP_SERVICE;
+      else process.env.LOOP_SERVICE = previous;
     }
     try {
       assert.deepEqual(await native.request("environment"), {
         supervisor: null,
         setting: explicit
           ? "fixture-setting"
-          : (process.env.LOOP55_TEST_NATIVE_SETTING ?? null),
+          : (process.env.LOOP_TEST_NATIVE_SETTING ?? null),
         path: process.env.PATH,
       });
       assert.equal(
-        env.LOOP55_SERVICE,
+        env.LOOP_SERVICE,
         "systemd",
         "the caller's environment remains unchanged",
       );

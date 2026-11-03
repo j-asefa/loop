@@ -55,7 +55,7 @@ export function RetireAgent({
             } catch (e) {
               setError(
                 (e as Error).name === "TimeoutError"
-                  ? "Loop55 took too long to respond. Try again."
+                  ? "Loop took too long to respond. Try again."
                   : (e as Error).message,
               );
             } finally {

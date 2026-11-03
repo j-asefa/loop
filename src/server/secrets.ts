@@ -1,4 +1,3 @@
-import "../../runtime/environment.mjs";
 import { companionMode } from "./profile.js";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, chmodSync } from "node:fs";
@@ -6,9 +5,9 @@ import { join } from "node:path";
 import { config } from "./config.js";
 function key() {
   const path = join(config.data, "encryption-key");
-  let value = process.env.LOOP55_ENCRYPTION_KEY;
+  let value = process.env.LOOP_ENCRYPTION_KEY;
   if (!value && !companionMode)
-    throw new Error("LOOP55_ENCRYPTION_KEY must be 32 random bytes in hex");
+    throw new Error("LOOP_ENCRYPTION_KEY must be 32 random bytes in hex");
   if (!value) {
     try {
       value = readFileSync(path, "utf8");
@@ -27,7 +26,7 @@ function key() {
     chmodSync(path, 0o600);
   }
   if (!value || !/^[a-f\d]{64}$/i.test(value))
-    throw new Error("LOOP55_ENCRYPTION_KEY must be 32 random bytes in hex");
+    throw new Error("LOOP_ENCRYPTION_KEY must be 32 random bytes in hex");
   return Buffer.from(value, "hex");
 }
 export function seal(value: string, owner: string) {

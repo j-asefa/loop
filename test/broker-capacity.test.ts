@@ -9,7 +9,7 @@ import { MAX_CONCURRENT_RUNS } from "../runtime/concurrency.ts";
 it("the broker enforces capacity and releases it on disconnect", async () => {
   expect(MAX_CONCURRENT_RUNS).toBe(32);
   const fixtureCapacity = 2;
-  const dir = mkdtempSync(join(tmpdir(), "loop55-broker-capacity-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-broker-capacity-"));
   cpSync(resolve("runtime"), dir, { recursive: true });
   // Keep the production broker path, but bound this process-heavy fixture.
   writeFileSync(
@@ -43,10 +43,10 @@ setInterval(() => {}, 1000);
     {
       env: {
         ...process.env,
-        LOOP55_RUNTIME_MODE: "host",
-        LOOP55_RUNTIME_WORKDIR: dir,
-        LOOP55_RUNTIME_TOKEN: token,
-        LOOP55_RUNTIME_TOKEN_FILE: "",
+        LOOP_RUNTIME_MODE: "host",
+        LOOP_RUNTIME_WORKDIR: dir,
+        LOOP_RUNTIME_TOKEN: token,
+        LOOP_RUNTIME_TOKEN_FILE: "",
       },
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     },

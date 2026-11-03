@@ -9,10 +9,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { fleetActor } from "./fleet-action-fixture.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-tools-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-tools-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db.js");
 const secrets = await import("../src/server/secrets.js");
 const { createAgent, ownedRun } = await import("../src/server/domain.js");
@@ -137,7 +137,7 @@ for (const boundary of [
         const local = boundary === "model-local-tool";
         const binding = input.tools!.find((tool) =>
           local
-            ? tool.name === "loop55_diagram"
+            ? tool.name === "loop_diagram"
             : tool.description.includes("write_fixture"),
         )!;
         yield {
@@ -165,7 +165,7 @@ for (const boundary of [
       expect(outcome).toMatchObject({ status: 403 });
       expect(effects).toBe(0);
       const local = nativeBindings(run).find(
-        (tool) => tool.tool === "loop55_diagram",
+        (tool) => tool.tool === "loop_diagram",
       )!;
       await expect(
         invokeNative(run, local, "direct-revoked-call", {

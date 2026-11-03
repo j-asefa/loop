@@ -11,7 +11,7 @@ test(
   "paired conversation latency is measured outside the streaming native host",
   { timeout: 60_000 },
   async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), "loop55-latency-"));
+    const directory = await mkdtemp(join(tmpdir(), "loop-latency-"));
     const child = fork(
       new URL("./fixtures/companion-latency.ts", import.meta.url),
       [],
@@ -19,9 +19,9 @@ test(
         execArgv: ["--import", "tsx"],
         env: {
           ...process.env,
-          LOOP55_PROFILE: "companion",
-          LOOP55_DATA_DIR: directory,
-          LOOP55_TEST_HARNESS: "codex",
+          LOOP_PROFILE: "companion",
+          LOOP_DATA_DIR: directory,
+          LOOP_TEST_HARNESS: "codex",
         },
         stdio: ["ignore", "pipe", "pipe", "ipc"],
       },
@@ -75,7 +75,7 @@ test(
         headers: {
           cookie,
           Origin: origin,
-          "x-loop55-csrf": csrf,
+          "x-loop-csrf": csrf,
           "Content-Type": "application/json",
         },
         body: body ? JSON.stringify(body) : undefined,

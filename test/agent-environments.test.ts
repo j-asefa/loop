@@ -27,9 +27,9 @@ it("uses the discovered Docker workspace name instead of appending its internal 
     agentEnvironment(agent, connections, {
       id: "docker:two",
       kind: "docker",
-      name: "Docker · project/loop55",
+      name: "Docker · project/loop",
     }),
-  ).toBe("Docker · project/loop55");
+  ).toBe("Docker · project/loop");
 });
 
 it("keeps distinct local Docker destinations and resolves legacy names from a Docker source", () => {

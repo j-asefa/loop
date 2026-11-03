@@ -22,7 +22,7 @@ async function fixture({
   fastIdle = false,
   compiled = false,
 } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-shared-codex-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-shared-codex-"));
   const bin = join(dir, "bin");
   mkdirSync(bin);
   if (compiled) {
@@ -69,10 +69,10 @@ process.on('SIGTERM',()=>p.kill('SIGTERM'));p.on('exit',code=>process.exit(code|
         ...process.env,
         PATH: bin + ":" + process.env.PATH,
         HOME: dir,
-        LOOP55_RUNTIME_MODE: managed ? "container" : "host",
-        LOOP55_RUNTIME_WORKDIR: dir,
-        LOOP55_RUNTIME_TOKEN: token,
-        LOOP55_RUNTIME_TOKEN_FILE: "",
+        LOOP_RUNTIME_MODE: managed ? "container" : "host",
+        LOOP_RUNTIME_WORKDIR: dir,
+        LOOP_RUNTIME_TOKEN: token,
+        LOOP_RUNTIME_TOKEN_FILE: "",
         OPENAI_API_KEY: "must-not-inherit",
         CODEX_API_KEY: "must-not-inherit-either",
       },

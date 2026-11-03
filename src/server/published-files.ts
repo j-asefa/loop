@@ -210,11 +210,11 @@ export async function publishRunFile(
   const connection = ownedConnection(snapshot.connectionId, run.owner_id);
   const metadata = connection.metadata;
   const binding =
-    companionMode && metadata.loop55Harness
+    companionMode && metadata.loopHarness
       ? (companionSessionsQueries.project(db, run.conversation_id) as
           { project: string } | undefined)
       : undefined;
-  if (metadata.loop55Harness && !binding)
+  if (metadata.loopHarness && !binding)
     throw new Problem(409, "Native workspace unavailable");
   if (!binding && metadata.authMode !== "subscription")
     throw new Problem(

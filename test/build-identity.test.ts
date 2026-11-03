@@ -13,9 +13,9 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
-import { LOOP55_REPOSITORY, type BuildStamp } from "../src/shared/build";
+import { LOOP_REPOSITORY, type BuildStamp } from "../src/shared/build";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-build-identity-"));
+const dir = mkdtempSync(join(tmpdir(), "loop-build-identity-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 it("builds from an immutable clean source snapshot, and leaves dirty or gitless sources unverified", () => {
@@ -71,7 +71,7 @@ it("builds from an immutable clean source snapshot, and leaves dirty or gitless 
   );
   expect(result).toMatchObject({
     stamp: {
-      repository: LOOP55_REPOSITORY,
+      repository: LOOP_REPOSITORY,
       commit,
       clean: true,
       ancestors: [commit],
@@ -119,7 +119,7 @@ const args=process.argv.slice(2);
 fs.writeFileSync(process.env.FIXTURE_DOCKERFILE,'changed after snapshot');
 const option=args.findIndex(x=>x==='-f'||x==='--file');
 const file=option>=0?args[option+1]:args.find(x=>x.startsWith('--file=')).slice(7);
-console.log(JSON.stringify({file:fs.readFileSync(file,'utf8'),stamp:JSON.parse(fs.readFileSync(path.join(args.at(-1),'.loop55-build-source.json'),'utf8'))}));
+console.log(JSON.stringify({file:fs.readFileSync(file,'utf8'),stamp:JSON.parse(fs.readFileSync(path.join(args.at(-1),'.loop-build-source.json'),'utf8'))}));
 `,
   );
   chmodSync(fake, 0o755);
@@ -146,7 +146,7 @@ console.log(JSON.stringify({file:fs.readFileSync(file,'utf8'),stamp:JSON.parse(f
     );
     expect(result).toMatchObject({
       file: "FROM committed-source\n",
-      stamp: { clean: true, repository: LOOP55_REPOSITORY },
+      stamp: { clean: true, repository: LOOP_REPOSITORY },
     });
     expect(readFileSync(dockerfile, "utf8")).toBe("changed after snapshot");
   }
@@ -295,7 +295,7 @@ it("keeps the loaded identity after files are replaced and revokes clean provena
   mkdirSync(join(folder, "server"), { recursive: true });
   const old: BuildStamp = {
     id: "old-build",
-    repository: LOOP55_REPOSITORY,
+    repository: LOOP_REPOSITORY,
     commit: "a".repeat(40),
     clean: true,
     builtAt: 1,
@@ -307,7 +307,7 @@ it("keeps the loaded identity after files are replaced and revokes clean provena
     bundle: true,
     platform: "node",
     format: "esm",
-    define: { __LOOP55_BUILD__: JSON.stringify(old) },
+    define: { __LOOP_BUILD__: JSON.stringify(old) },
   });
   writeFileSync(join(folder, "build-id.json"), JSON.stringify({ id: old.id }));
   const result = JSON.parse(

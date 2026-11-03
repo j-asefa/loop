@@ -323,7 +323,7 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
     await expect(marker).toHaveCount(0);
     phase = "refresh";
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect.poll(() => refreshReads.length).toBeGreaterThan(0);
     expect(refreshReads[0].searchParams.get("filter")).toBe("working");
@@ -703,7 +703,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     // no combined cache exists yet. Discovery churn must retain that page.
     discoveredSources = [sources[1]];
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(first).toHaveCount(0);
     // Destination discovery publishes before metadata. Finish removal from
@@ -717,7 +717,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     unavailableFeeds.add(sources[0].id);
     discoveredSources = sources;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(first).toBeVisible();
     slowFeed.resolve();
@@ -726,7 +726,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     await expect(feedOutage).toBeVisible();
     unavailableFeeds.clear();
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(feedOutage).toHaveCount(0);
     await expect(rows).toHaveCount(2);
@@ -760,7 +760,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     );
     refresh = Promise.withResolvers();
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     const refreshRequests = await Promise.all(refreshed);
     await expect.poll(() => refreshReads).toBeGreaterThanOrEqual(2);
@@ -803,7 +803,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     // page must survive the failed refresh, for both feed API contracts.
     discoveredSources = [sources[0]];
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(second).toHaveCount(0);
     await expect(
@@ -818,21 +818,21 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     unavailableFeeds.add(sources[1].id);
     discoveredSources = sources;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(feedOutage).toBeVisible();
     await expect(first).toBeVisible();
     await expect(second).toBeVisible();
     unavailableFeeds.clear();
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(feedOutage).toHaveCount(0);
 
     // An outage stays visible until its metadata retry actually succeeds.
     metadataFails = true;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     const outage = page.getByText(
       /temporarily unavailable\. Last loaded agents are still shown\./,
@@ -923,7 +923,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     });
     workingRevision = 1;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await fastWorkingRefresh;
     await page.evaluate(
@@ -942,7 +942,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     await page.evaluate(
       (source) =>
         window.dispatchEvent(
-          new CustomEvent("loop55-workspace-change", {
+          new CustomEvent("loop-workspace-change", {
             detail: {
               sources: [source],
               changes: [
@@ -995,7 +995,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
       );
     });
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await emptyWorkingRefresh;
     await page.evaluate(
@@ -1088,7 +1088,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     ).toBeVisible();
     discoveredSources = sources;
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(second).toBeVisible();
     await expect(page.locator('.inbox-row[data-retained="yes"]')).toBeVisible();
@@ -1114,7 +1114,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     localUnavailable = false;
     unavailableFeeds.clear();
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-source-refresh")),
+      window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(first).toBeVisible();
     await expect(second).toBeVisible();

@@ -10,8 +10,8 @@ describe("viewing repository files", () => {
   it("chooses how to show a file by its name", () => {
     expect(repoFileKind("README.md")).toBe("markdown");
     expect(repoFileKind("docs/Guide.MARKDOWN")).toBe("markdown");
-    expect(repoFileKind("docs/media/loop55-demo.gif")).toBe("image");
-    expect(repoFileKind("docs/media/loop55-demo.mp4")).toBe("video");
+    expect(repoFileKind("docs/media/loop-demo.gif")).toBe("image");
+    expect(repoFileKind("docs/media/loop-demo.mp4")).toBe("video");
     expect(repoFileKind("src/app.ts")).toBe("text");
     expect(repoFileKind("Makefile")).toBe("text");
     expect(repoFileKind("site/index.html")).toBe("text");

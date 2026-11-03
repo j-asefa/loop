@@ -26,7 +26,7 @@ export function observeApiEventLoop() {
     started = performance.now();
     histogram.enable();
     timer = setInterval(() => {
-      // The managed launcher's daemon log is also the source for `loop55 logs`.
+      // The managed launcher's daemon log is also the source for `loop logs`.
       console.log(
         JSON.stringify({ diagnostic: "api-event-loop", ...eventLoopHealth() }),
       );

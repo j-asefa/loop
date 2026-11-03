@@ -7,9 +7,9 @@ import { randomBytes } from "node:crypto";
 import type { ReviewSnapshot } from "../src/server/review-snapshot";
 import type { Run } from "../src/server/queue";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-review-access-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-review-access-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { createAgent, ownedRun } = await import("../src/server/domain");
 const { readReview, reviewRecord, reviewContext, assertReviewIdentity } =

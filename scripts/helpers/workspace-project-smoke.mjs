@@ -46,8 +46,8 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
     "Workspace notes are ready.",
   );
   await page.evaluate((project) => {
-    sessionStorage.setItem("loop55-project-tab", "brief");
-    sessionStorage.setItem("loop55-project-tab:" + project, "brief");
+    sessionStorage.setItem("loop-project-tab", "brief");
+    sessionStorage.setItem("loop-project-tab:" + project, "brief");
   }, project.id);
   await page.goto(
     fixture.base +

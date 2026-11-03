@@ -79,7 +79,7 @@ export function createFleetPeerHttp(
         "origin",
         "cookie",
         "authorization",
-        "x-loop55-csrf",
+        "x-loop-csrf",
         "x-http-method-override",
         "x-method-override",
       ].some((header) => req.headers[header] !== undefined) ||
@@ -96,7 +96,7 @@ export function createFleetPeerHttp(
       return res
         .status(405)
         .json({ error: "Use POST for the fleet protocol." });
-    if (req.headers["x-loop55-fleet-version"] !== "1")
+    if (req.headers["x-loop-fleet-version"] !== "1")
       return res
         .status(400)
         .json({ error: "Unsupported fleet protocol version." });

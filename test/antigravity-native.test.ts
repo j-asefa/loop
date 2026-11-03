@@ -5,10 +5,10 @@ import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-antigravity-native-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_TEST_AGY_LOG = join(dir, "requests");
+const dir = mkdtempSync(join(tmpdir(), "loop-antigravity-native-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_TEST_AGY_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
@@ -24,16 +24,16 @@ afterAll(async () => {
   await sessions.close();
   db.close();
   for (const name of [
-    "LOOP55_TEST_AGY_LOG",
-    "LOOP55_TEST_AGY_MODE",
-    "LOOP55_TEST_AGY_SESSION_ID",
-    "LOOP55_TEST_AGY_SLOW_STOP",
+    "LOOP_TEST_AGY_LOG",
+    "LOOP_TEST_AGY_MODE",
+    "LOOP_TEST_AGY_SESSION_ID",
+    "LOOP_TEST_AGY_SLOW_STOP",
   ])
     delete process.env[name];
   rmSync(dir, { recursive: true, force: true });
 });
 const requests = () =>
-  readFileSync(process.env.LOOP55_TEST_AGY_LOG!, "utf8")
+  readFileSync(process.env.LOOP_TEST_AGY_LOG!, "utf8")
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
@@ -44,7 +44,7 @@ it.each([
 ])(
   "returns safe, actionable %s guidance from runtime enable without registering or sending a prompt",
   async (mode, code, message) => {
-    process.env.LOOP55_TEST_AGY_MODE = mode;
+    process.env.LOOP_TEST_AGY_MODE = mode;
     try {
       await expect(
         sessions.enable({
@@ -68,12 +68,12 @@ it.each([
         requests().every((request) => request.args?.[0] === "models"),
       ).toBe(true);
     } finally {
-      delete process.env.LOOP55_TEST_AGY_MODE;
+      delete process.env.LOOP_TEST_AGY_MODE;
     }
   },
 );
 function task(key: string) {
-  process.env.LOOP55_TEST_AGY_SESSION_ID = key;
+  process.env.LOOP_TEST_AGY_SESSION_ID = key;
   const agent = createAgent(OWNER, {
     name: key,
     connectionId: "native-antigravity",
@@ -119,7 +119,7 @@ it("registers Antigravity separately from Gemini with honest capabilities and ow
     owner_id: OWNER,
   });
   expect(connection.metadata).toMatchObject({
-    loop55Harness: "antigravity",
+    loopHarness: "antigravity",
     authMode: "native-existing",
     capabilities: {
       billingVerified: false,
@@ -214,7 +214,7 @@ it("an explicit Gemini-to-Antigravity switch retains the agent workspace and sta
 it.each(["disconnect", "WAITING"])(
   "production dispatch never replays an uncertain Antigravity %s",
   async (mode) => {
-    process.env.LOOP55_TEST_AGY_MODE = mode;
+    process.env.LOOP_TEST_AGY_MODE = mode;
     const { run } = task("agy-uncertain-" + mode.toLowerCase());
     const claimed = claim(
       "antigravity-fixture",
@@ -250,15 +250,15 @@ it.each(["disconnect", "WAITING"])(
     expect(requests().filter((r) => r.event === "user")).toHaveLength(
       before + 1,
     );
-    delete process.env.LOOP55_TEST_AGY_MODE;
+    delete process.env.LOOP_TEST_AGY_MODE;
   },
 );
 
 it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
   "an immediate explicit follow-up after %s waits for shutdown and resumes without replaying the task",
   async (mode) => {
-    process.env.LOOP55_TEST_AGY_MODE = mode === "cancel" ? "hang" : mode;
-    process.env.LOOP55_TEST_AGY_SLOW_STOP = "1";
+    process.env.LOOP_TEST_AGY_MODE = mode === "cancel" ? "hang" : mode;
+    process.env.LOOP_TEST_AGY_SLOW_STOP = "1";
     const { run } = task("agy-after-" + mode.toLowerCase());
     const claimed = claim(
       "antigravity-fixture",
@@ -288,8 +288,8 @@ it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
     expect(() =>
       sessions.current(run.conversation_id!, original.generation, false),
     ).toThrow(/not active/);
-    delete process.env.LOOP55_TEST_AGY_MODE;
-    delete process.env.LOOP55_TEST_AGY_SLOW_STOP;
+    delete process.env.LOOP_TEST_AGY_MODE;
+    delete process.env.LOOP_TEST_AGY_SLOW_STOP;
     const next = enqueue(OWNER, "Explicit follow-up", run.id + "-follow-up", {
       conversation: run.conversation_id!,
       agent: run.agent_id!,

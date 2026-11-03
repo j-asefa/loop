@@ -76,10 +76,10 @@ export class NativeMemoryMonitor {
       if (
         !group?.startsWith("/") ||
         group.split("/").includes("..") ||
-        !group.includes("/loop55-agents.slice/") ||
-        !new RegExp(
-          `^loop55-agent-${this.child.pid}-[a-f0-9]{32}\\.scope$`,
-        ).test(basename(group))
+        !group.includes("/loop-agents.slice/") ||
+        !new RegExp(`^loop-agent-${this.child.pid}-[a-f0-9]{32}\\.scope$`).test(
+          basename(group),
+        )
       )
         return;
       this.scope = join(this.roots.cgroups, group.slice(1));

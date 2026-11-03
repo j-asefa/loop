@@ -533,7 +533,7 @@ test("shipped helper pins reach existing installs without downgrading a newer in
     join(helpers, "package.json"),
     JSON.stringify({ dependencies: { ...pins, "@openai/codex": "0.161.0" } }),
   );
-  // A Loop55 release bumps another pin: it is taken, the newer upgrade is kept.
+  // A Loop release bumps another pin: it is taken, the newer upgrade is kept.
   ship({ ...pins, "@anthropic-ai/claude-code": "2.1.290" });
   assert.deepEqual(nativeHelperInstall(helpers, source), [
     "install",
@@ -559,7 +559,7 @@ test("shipped helper pins reach existing installs without downgrading a newer in
   assert.equal(installedManifest()["@openai/codex"], "0.162.0");
 });
 
-test("Loop55's shipped codex pin replaces an older helper manifest", (t) => {
+test("Loop's shipped codex pin replaces an older helper manifest", (t) => {
   const dir = fixture(t);
   const helpers = join(dir, "helpers/native");
   mkdirSync(helpers, { recursive: true });

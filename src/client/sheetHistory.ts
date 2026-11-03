@@ -20,8 +20,8 @@ function leaveSheetEntry() {
     if (pendingBack === null) return;
     const url = pendingBack;
     pendingBack = null;
-    if (history.state?.loop55Sheet === true)
-      history.replaceState({ ...history.state, loop55Sheet: false }, "", url);
+    if (history.state?.loopSheet === true)
+      history.replaceState({ ...history.state, loopSheet: false }, "", url);
     reconcile();
   }, 1000);
 }
@@ -36,7 +36,7 @@ function reconcile() {
     if (pendingBack !== null) return;
     if (sheets.length && !ownsEntry) {
       history.pushState(
-        { ...history.state, loop55Sheet: true },
+        { ...history.state, loopSheet: true },
         "",
         location.href,
       );

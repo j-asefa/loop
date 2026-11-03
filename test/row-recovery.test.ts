@@ -7,10 +7,10 @@ import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { RunState } from "../src/shared/run-state";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-row-recovery-"));
-process.env.LOOP55_DATA_DIR = directory;
-process.env.LOOP55_PROFILE = "server";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = mkdtempSync(join(tmpdir(), "loop-row-recovery-"));
+process.env.LOOP_DATA_DIR = directory;
+process.env.LOOP_PROFILE = "server";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");

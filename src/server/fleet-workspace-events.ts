@@ -82,11 +82,11 @@ export class FleetWorkspaceEvents {
         req.headers.host !== new URL(parsed.data).host ||
         req.url !== FLEET_EVENTS_PATH ||
         req.method !== "GET" ||
-        req.headers["x-loop55-fleet-version"] !== "1" ||
+        req.headers["x-loop-fleet-version"] !== "1" ||
         [
           "origin",
           "cookie",
-          "x-loop55-csrf",
+          "x-loop-csrf",
           "x-http-method-override",
           "x-method-override",
           "sec-websocket-protocol",

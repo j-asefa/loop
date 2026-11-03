@@ -53,7 +53,7 @@ db.transaction(() => {
       .get() as { profile: string };
     if (stored.profile !== capabilities.profile)
       throw new Error(
-        `This data directory belongs to the ${stored.profile} profile. Choose a separate LOOP55_DATA_DIR for ${capabilities.profile}.`,
+        `This data directory belongs to the ${stored.profile} profile. Choose a separate LOOP_DATA_DIR for ${capabilities.profile}.`,
       );
   }).immediate();
   projectFeed(db, emit);

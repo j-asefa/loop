@@ -1,5 +1,3 @@
-import "../runtime/environment.mjs";
-import { retainedPath } from "../runtime/retained-path.ts";
 // Explicit, test-owned acceptance journey. Never invoked by test/check/CI.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -49,10 +47,10 @@ if (values.help || (!values.fixtures && !values["quick-tunnels"])) {
   console.log(`Fleet acceptance (run from a source checkout with installed dependencies)
   node scripts/fleet-acceptance.mjs --fixtures --output /tmp/fleet-fixtures.json
   node scripts/fleet-acceptance.mjs --quick-tunnels --output /tmp/fleet-transport.json
-  --package /absolute/path/loop55.tgz  Test an existing package in tunnel mode.
-  --upgrade-from /absolute/path/older-loop55.tgz  Start A on an older fleet package,
+  --package /absolute/path/loop.tgz  Test an existing package in tunnel mode.
+  --upgrade-from /absolute/path/older-loop.tgz  Start A on an older fleet package,
       verify unavailable peer features, then upgrade its existing workspace in place.
-      Both packages must use Loop55 headers.
+      Both packages must use Loop headers.
 
 Fixture mode runs focused boundary/native/browser checks and the package smoke.
 Tunnel mode installs a package and starts THREE ISOLATED TEST companions behind
@@ -107,7 +105,7 @@ const planned = values.fixtures
       "signed-controller-handoff",
       "unavailable-controller-per-member-recovery",
     ];
-const base = await mkdtemp(join(tmpdir(), "loop55-fleet-acceptance-"));
+const base = await mkdtemp(join(tmpdir(), "loop-fleet-acceptance-"));
 await chmod(base, 0o700);
 const output = resolve(
   values.output ?? join(tmpdir(), `fleet-${mode}-${Date.now()}.json`),
@@ -134,7 +132,7 @@ const report = {
   ],
 };
 // Preserve CA/proxy configuration needed by the environment, but do not inherit
-// Loop55 state, provider keys, tool tokens or selected live credentials.
+// Loop state, provider keys, tool tokens or selected live credentials.
 let cleanEnv = Object.fromEntries(
   Object.entries(process.env).filter(([key]) =>
     [
@@ -388,7 +386,7 @@ async function pair(machine) {
         headers: {
           Cookie: cookie,
           Origin: origin,
-          "x-loop55-csrf": csrf,
+          "x-loop-csrf": csrf,
           "Content-Type": "application/json",
           ...options.headers,
         },
@@ -552,11 +550,7 @@ async function confirmMail(sender, recipient, caseId, file = false) {
 
 function durableCounts(machine, commandId) {
   const database = new Database(
-    retainedPath(
-      join(machine.env.LOOP55_HOME, "workspace"),
-      "loop55.db",
-      "loop.db",
-    ),
+    join(join(machine.env.LOOP_HOME, "workspace"), "loop.db"),
     { readonly: true, fileMustExist: true },
   );
   try {
@@ -617,7 +611,7 @@ async function gatewayLoss(gateway, destination, alternate) {
     held = response;
     void gateway
       .api(sourcePath(destination, "/runs"), body, {
-        headers: { "x-loop55-command-id": commandId },
+        headers: { "x-loop-command-id": commandId },
       })
       .then(accepted, () => refused(new Error("Gateway dispatch failed")));
   });
@@ -663,7 +657,7 @@ async function gatewayLoss(gateway, destination, alternate) {
     assert.equal(receipt.state, "completed");
     assert.equal(receipt.result.id, run.id);
     const same = await alternate.api(sourcePath(destination, "/runs"), body, {
-      headers: { "x-loop55-command-id": commandId },
+      headers: { "x-loop-command-id": commandId },
     });
     assert.equal(same.id, run.id);
     await alternate.api(
@@ -672,7 +666,7 @@ async function gatewayLoss(gateway, destination, alternate) {
         ...body,
         input: "Changed acceptance payload must be refused",
       },
-      { headers: { "x-loop55-command-id": commandId }, status: 409 },
+      { headers: { "x-loop-command-id": commandId }, status: 409 },
     );
     const absentCommandId = randomUUID(),
       absentCaseId = "gateway-absent-effect";
@@ -697,7 +691,7 @@ async function gatewayLoss(gateway, destination, alternate) {
       runs: [],
     });
     await alternate.api(sourcePath(destination, "/runs"), absentBody, {
-      headers: { "x-loop55-command-id": absentCommandId },
+      headers: { "x-loop-command-id": absentCommandId },
       status: 409,
     });
     await eventually("single native effect", async () => {
@@ -1030,7 +1024,7 @@ try {
       await step(name, async () => {
         const env = testEnvironment(cleanEnv, suite);
         if (name === "webkit" || name === "source-feed-webkit")
-          env.LOOP55_BROWSER = "webkit";
+          env.LOOP_BROWSER = "webkit";
         await command(name, executable, args, {
           env,
           timeout: 1_800_000,
@@ -1084,8 +1078,8 @@ try {
       ]);
       return { exit: 0 };
     });
-    bin = join(target, "node_modules/.bin/loop55");
-    const packageRoot = join(target, "node_modules/loop55");
+    bin = join(target, "node_modules/.bin/loop");
+    const packageRoot = join(target, "node_modules/@j-asefa/loop");
     report.build = await packageBuild(packageRoot);
     const links = await import(
       pathToFileURL(join(packageRoot, "dist/shared/fleet-pairing.js"))
@@ -1108,11 +1102,26 @@ try {
           ],
           { env },
         );
-        const packageRoot = join(prefix, "lib/node_modules/loop55");
+        // Older packages predate the scoped name (unscoped loop55, then
+        // loop) and their command names; read both from the package itself.
+        const manifest = JSON.parse(
+          (
+            await execute("tar", [
+              "-xOzf",
+              resolve(values["upgrade-from"]),
+              "package/package.json",
+            ])
+          ).stdout,
+        );
+        const packageRoot = join(prefix, "lib/node_modules", manifest.name);
+        const cli = Object.entries(manifest.bin ?? {}).find(
+          ([, path]) => path === "dist/cli.js",
+        )?.[0];
+        assert(cli, "The older package has no CLI command.");
         older = {
           prefix,
           packageRoot,
-          bin: join(prefix, "bin/loop55"),
+          bin: join(prefix, "bin", cli),
           build: await packageBuild(packageRoot),
           links: await import(
             pathToFileURL(join(packageRoot, "dist/shared/fleet-pairing.js"))
@@ -1173,12 +1182,12 @@ try {
         env: {
           ...cleanEnv,
           ...(name === "a" && older ? { npm_config_prefix: older.prefix } : {}),
-          LOOP55_HOME: join(directory, "state"),
-          LOOP55_TEST_HARNESS: "codex",
-          LOOP55_TEST_FLEET_ACCEPTANCE_HELPER: pathToFileURL(
+          LOOP_HOME: join(directory, "state"),
+          LOOP_TEST_HARNESS: "codex",
+          LOOP_TEST_FLEET_ACCEPTANCE_HELPER: pathToFileURL(
             join(root, "test/fixtures/fleet-acceptance-client.mjs"),
           ).href,
-          LOOP55_TEST_FLEET_ACCEPTANCE_AUDIT: audit,
+          LOOP_TEST_FLEET_ACCEPTANCE_AUDIT: audit,
         },
       };
       machines.push(machine);
@@ -1192,7 +1201,7 @@ try {
             workspaces: machines.map((item) => ({
               name: item.name,
               cli: machineBin(item),
-              loopHome: item.env.LOOP55_HOME,
+              loopHome: item.env.LOOP_HOME,
             })),
           },
           null,
@@ -1249,11 +1258,7 @@ try {
         const directory = (await a.api("/fleet/admin/state")).head;
         const migrations = () => {
           const db = new Database(
-            retainedPath(
-              join(a.env.LOOP55_HOME, "workspace"),
-              "loop55.db",
-              "loop.db",
-            ),
+            join(join(a.env.LOOP_HOME, "workspace"), "loop.db"),
             {
               readonly: true,
               fileMustExist: true,
@@ -1476,7 +1481,7 @@ try {
           input: "Isolated acceptance task",
           idempotencyKey: commandId,
         };
-      const options = { headers: { "x-loop55-command-id": commandId } };
+      const options = { headers: { "x-loop-command-id": commandId } };
       const first = await a.api(sourcePath(b, "/runs"), body, options);
       const repeated = await a.api(sourcePath(b, "/runs"), body, options);
       assert.equal(first.id, repeated.id);
@@ -1679,7 +1684,7 @@ try {
     console.error(
       "Test-owned cleanup needs attention at " +
         base +
-        "; inspect its own loop55 status --json and stop any remaining processes before removing state.",
+        "; inspect its own loop status --json and stop any remaining processes before removing state.",
     );
   } else await rm(base, { recursive: true, force: true });
   report.finishedAt = new Date().toISOString();

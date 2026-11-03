@@ -1,4 +1,4 @@
-# Working on Loop55
+# Working on Loop
 
 Start with [README.md](README.md) for build and run commands. Load only the guide relevant to the task; [docs/README.md](docs/README.md) is the full index.
 

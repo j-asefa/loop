@@ -9,7 +9,7 @@ if (!image)
     "Usage: node scripts/execution-container-recovery-smoke.mjs IMAGE [COMPILED_DIST]",
   );
 const suffix = randomUUID().slice(0, 8),
-  name = `loop55-execution-recovery-${suffix}`,
+  name = `loop-execution-recovery-${suffix}`,
   volume = `${name}-data`;
 const docker = (args) => {
   const result = spawnSync("docker", args, {
@@ -46,7 +46,7 @@ const parent = `
   let db;
   child.on('message', m=>{
     if(m.type==='ready') {
-      db=new Database('/data/workspace/loop55.db');
+      db=new Database('/data/workspace/loop.db');
       const prior=db.prepare("SELECT state FROM runs WHERE id='retained'").get();
       if(!prior) {
         db.prepare("INSERT INTO runs(id,owner_id,kind,input,state,idempotency_key,created_at,updated_at) VALUES('retained','local-workspace','agent','fixture','running','retained',1,1)").run();
@@ -89,9 +89,9 @@ try {
     "none",
     ...mounted,
     "--env",
-    "LOOP55_PROFILE=companion",
+    "LOOP_PROFILE=companion",
     "--env",
-    "LOOP55_DATA_DIR=/data/workspace",
+    "LOOP_DATA_DIR=/data/workspace",
     "--entrypoint",
     "node",
     image,
@@ -123,7 +123,7 @@ try {
       "none",
       ...mounted,
       "--env",
-      "LOOP55_HOME=/data",
+      "LOOP_HOME=/data",
       "--entrypoint",
       "node",
       image,
@@ -153,9 +153,9 @@ try {
       docker([
         "exec",
         "--env",
-        "LOOP55_HOME=/data",
+        "LOOP_HOME=/data",
         "--env",
-        "LOOP55_TEST_STOP_GRACE_MS=200",
+        "LOOP_TEST_STOP_GRACE_MS=200",
         name,
         "node",
         "/app/dist/cli.js",

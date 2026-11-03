@@ -39,7 +39,7 @@ function linkUrl(input: string) {
   if (input.length > 4096) throw new Error("This pairing link is too large.");
   const url = new URL(input);
   if (url.username || url.password || url.pathname !== "/" || url.search)
-    throw new Error("Use the complete pairing link printed by Loop55.");
+    throw new Error("Use the complete pairing link printed by Loop.");
   return url;
 }
 function parseFleetLink(url: URL): FleetPairLink {
@@ -100,7 +100,7 @@ export function fleetDeviceFromLink(
   const value = parseFleetLink(url);
   if (value.kind !== "combined")
     throw new Error(
-      "This link enrolls a machine. Run loop55 pair to pair this device.",
+      "This link enrolls a machine. Run loop pair to pair this device.",
     );
   return { secret: value.device, ceremonyId: value.ceremonyId };
 }

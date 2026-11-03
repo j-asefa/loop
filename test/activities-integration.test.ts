@@ -19,8 +19,8 @@ import {
   mergeActivities,
   type ActivityItem,
 } from "../src/client/activityView";
-const dir = mkdtempSync(join(tmpdir(), "loop55-activity-integration-"));
-process.env.LOOP55_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop-activity-integration-"));
+process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { applyActivity, listActivities, ingestNativeActivity } =
@@ -340,14 +340,14 @@ it("client merge keeps the newest record per key and renders the production acti
   expect(render()).toContain("y · completed");
 });
 
-it("offers loop55_plan with a provider-compatible, validated schema and agent-facing description", () => {
+it("offers loop_plan with a provider-compatible, validated schema and agent-facing description", () => {
   conversation("schema");
   enqueue("owner", "t", "k-schema", { conversation: "schema" });
   const run = claim("w")!;
   const plan = nativeBindings(run, { plans: true }).find(
-    (b) => b.tool === "loop55_plan",
+    (b) => b.tool === "loop_plan",
   )!;
-  expect(nativeBindings(run).some((b) => b.tool === "loop55_plan")).toBe(false);
+  expect(nativeBindings(run).some((b) => b.tool === "loop_plan")).toBe(false);
   const schema = plan.inputSchema as any;
   // OpenAI (strict: false) and Anthropic both require a top-level object without refs.
   expect(schema.type).toBe("object");

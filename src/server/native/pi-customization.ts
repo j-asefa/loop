@@ -59,8 +59,7 @@ export class PiCustomization {
       return {
         ...resource,
         trusted: stored.trusted === 1,
-        decision:
-          stored.trusted === 1 ? "trusted in Loop55" : "declined in Loop55",
+        decision: stored.trusted === 1 ? "trusted in Loop" : "declined in Loop",
         override: stored.trusted === 1,
       };
     if (stored)
@@ -317,7 +316,7 @@ export class PiCustomization {
   }
   private piPackageContext(agent: any) {
     const connection = ownedConnection(agent.connection_id, OWNER);
-    if (connection.metadata.loop55Harness !== "pi")
+    if (connection.metadata.loopHarness !== "pi")
       throw new Problem(
         422,
         "Choose a direct Pi agent for Pi package management.",

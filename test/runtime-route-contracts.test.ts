@@ -7,18 +7,18 @@ import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-runtime-contracts-"));
-process.env.LOOP55_DATA_DIR = directory;
-process.env.LOOP55_PROFILE = "server";
-process.env.LOOP55_AUTH_MODE = "single-user";
-process.env.LOOP55_URL = "http://127.0.0.1";
+const directory = mkdtempSync(join(tmpdir(), "loop-runtime-contracts-"));
+process.env.LOOP_DATA_DIR = directory;
+process.env.LOOP_PROFILE = "server";
+process.env.LOOP_AUTH_MODE = "single-user";
+process.env.LOOP_URL = "http://127.0.0.1";
 process.env.BETTER_AUTH_SECRET = randomBytes(32).toString("hex");
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { codexFixture, fixtureToken } = await import(
   resolve("test/helpers/codex-server.mjs")
 );
 const codex = await codexFixture();
-process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS = new URL(codex.url).origin;
+process.env.LOOP_ALLOWED_RUNTIME_ORIGINS = new URL(codex.url).origin;
 const { db } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const server = app.listen(0, "127.0.0.1");

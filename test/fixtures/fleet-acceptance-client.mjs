@@ -16,7 +16,7 @@ export async function acceptance(text, bridge, pi = false) {
   const task = JSON.parse(Buffer.from(encoded[1], "base64url").toString());
   assert.match(task.caseId, /^[a-z0-9-]{1,64}$/);
   assert(["send", "receive", "ack"].includes(task.kind));
-  const audit = process.env.LOOP55_TEST_FLEET_ACCEPTANCE_AUDIT;
+  const audit = process.env.LOOP_TEST_FLEET_ACCEPTANCE_AUDIT;
   assert(audit, "Missing test-owned audit path");
   const record = (value) =>
     appendFileSync(
@@ -48,7 +48,7 @@ export async function acceptance(text, bridge, pi = false) {
       return response.json();
     };
     if (!pi) {
-      client = new Client({ name: "loop55-fleet-acceptance", version: "1" });
+      client = new Client({ name: "loop-fleet-acceptance", version: "1" });
       await client.connect(
         new StreamableHTTPClientTransport(target, { requestInit: { headers } }),
       );
@@ -56,7 +56,7 @@ export async function acceptance(text, bridge, pi = false) {
     const catalog = pi
       ? await piCall({ method: "tools/list" })
       : await client.listTools();
-    assert(catalog.tools.some((tool) => tool.name === "loop55_message"));
+    assert(catalog.tools.some((tool) => tool.name === "loop_message"));
     const invoke = async (name, args) => {
       const result = pi
         ? await piCall({
@@ -75,7 +75,7 @@ export async function acceptance(text, bridge, pi = false) {
     if (task.kind === "send" && task.content !== undefined) {
       assert.equal(typeof task.content, "string");
       assert(task.content.length <= 4096);
-      const file = await invoke("loop55_publish_file", {
+      const file = await invoke("loop_publish_file", {
         title: task.caseId + ".txt",
         content: task.content,
         encoding: "utf8",
@@ -90,7 +90,7 @@ export async function acceptance(text, bridge, pi = false) {
       assert(attached, "The recipient did not receive attachment metadata");
       const files = JSON.parse(attached[1]);
       assert.equal(files.length, 1);
-      const file = await invoke("loop55_read_file", {
+      const file = await invoke("loop_read_file", {
         fileId: files[0].id,
         encoding: "utf8",
       });
@@ -112,7 +112,7 @@ export async function acceptance(text, bridge, pi = false) {
         : undefined;
     if (task.kind === "receive")
       assert(threadId, "Missing destination thread identity");
-    const sent = await invoke("loop55_message", {
+    const sent = await invoke("loop_message", {
       to: task.kind === "send" ? task.to : task.replyTo,
       body: acceptancePrompt(outgoing),
       scope: "direct",

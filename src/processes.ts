@@ -4,7 +4,7 @@ import { atomic } from "./state.js";
 import { groupAlive, groupMembers, processState } from "./daemon.js";
 const identities = new WeakMap<ChildProcess, string>();
 
-/** Only call for children launched detached by Loop55: their process group is ours. */
+/** Only call for children launched detached by Loop: their process group is ours. */
 export function killOwned(child: ChildProcess, signal: NodeJS.Signals) {
   if (!child.pid) return;
   const recorded = identities.get(child),
@@ -18,7 +18,7 @@ export function killOwned(child: ChildProcess, signal: NodeJS.Signals) {
 }
 
 // Detached children run in their own process groups and outlive a killed
-// workspace, so the workspace records them for a forced `loop55 stop`.
+// workspace, so the workspace records them for a forced `loop stop`.
 let registry: string | undefined;
 const owned = new Map<number, string>();
 let stopping = false;
@@ -36,7 +36,7 @@ export function recordOwnedProcesses(path: string) {
   registry = path;
   persist();
 }
-/** Records a child launched detached by Loop55 until it exits. */
+/** Records a child launched detached by Loop until it exits. */
 export function own(child: ChildProcess) {
   const pid = child.pid;
   if (!pid) return;

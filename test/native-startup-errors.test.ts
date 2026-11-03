@@ -12,9 +12,9 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop55-native-startup-")));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = dir;
+const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-native-startup-")));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = dir;
 gitProject(dir);
 const { db } = await import("../src/server/db");
 db.prepare(
@@ -37,13 +37,13 @@ db.prepare("INSERT INTO harnesses VALUES('pi',?,'{}','{}','[]',0)").run(
 );
 db.prepare(
   "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-pi','local-workspace','pi','Pi','','connected','[]',?,0)",
-).run(JSON.stringify({ loop55Harness: "pi" }));
+).run(JSON.stringify({ loopHarness: "pi" }));
 
 afterEach(() => {
   vi.restoreAllMocks();
-  delete process.env.LOOP55_TEST_HARNESS;
-  delete process.env.LOOP55_TEST_PI_AUTH;
-  delete process.env.LOOP55_TEST_AUDIT;
+  delete process.env.LOOP_TEST_HARNESS;
+  delete process.env.LOOP_TEST_PI_AUTH;
+  delete process.env.LOOP_TEST_AUDIT;
 });
 
 it.each([
@@ -92,16 +92,16 @@ it.each([
 ])(
   "preserves actionable %s startup failures through the real worker without dispatch or raw diagnostics",
   async (name, error, expected, code) => {
-    process.env.LOOP55_TEST_HARNESS = "codex";
+    process.env.LOOP_TEST_HARNESS = "codex";
     const audit = join(dir, `startup-${name}.log`);
-    process.env.LOOP55_TEST_AUDIT = audit;
+    process.env.LOOP_TEST_AUDIT = audit;
     db.prepare(
       "INSERT OR REPLACE INTO harnesses VALUES('codex',?,'{}','{}','[]',0)",
     ).run(
       JSON.stringify({ ...options, harness: "codex", billing: "existing" }),
     );
     db.prepare(
-      "INSERT OR IGNORE INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-codex','local-workspace','codex','Codex','','connected','[]','{\"loop55Harness\":\"codex\"}',0)",
+      "INSERT OR IGNORE INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-codex','local-workspace','codex','Codex','','connected','[]','{\"loopHarness\":\"codex\"}',0)",
     ).run();
     const conversation = `startup-${name}`;
     db.prepare(
@@ -165,7 +165,7 @@ it.each([
   },
 );
 it("persists a running agent's confirmed memory failure for cards without replaying the turn", async () => {
-  process.env.LOOP55_TEST_HARNESS = "codex";
+  process.env.LOOP_TEST_HARNESS = "codex";
   const conversation = "running-memory";
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'local-workspace','Memory test',0)",
@@ -214,15 +214,15 @@ it("persists a running agent's confirmed memory failure for cards without replay
 afterAll(async () => {
   await nativeSessions.close();
   db.close();
-  delete process.env.LOOP55_PROFILE;
+  delete process.env.LOOP_PROFILE;
   rmSync(dir, { recursive: true, force: true });
 });
 
 it("preserves safe subscription setup guidance through the real worker and trace boundary without dispatch", async () => {
-  process.env.LOOP55_TEST_HARNESS = "pi";
-  process.env.LOOP55_TEST_PI_AUTH = "api";
+  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP_TEST_PI_AUTH = "api";
   const audit = join(dir, "prompts.log");
-  process.env.LOOP55_TEST_AUDIT = audit;
+  process.env.LOOP_TEST_AUDIT = audit;
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('startup','local-workspace','Setup test',0)",
   ).run();
@@ -278,8 +278,8 @@ it("preserves safe subscription setup guidance through the real worker and trace
 });
 
 it("also returns safe setup guidance when enabling Pi", async () => {
-  process.env.LOOP55_TEST_HARNESS = "pi";
-  process.env.LOOP55_TEST_PI_AUTH = "api";
+  process.env.LOOP_TEST_HARNESS = "pi";
+  process.env.LOOP_TEST_PI_AUTH = "api";
   await expect(nativeSessions.enable(options as any)).rejects.toMatchObject({
     status: 422,
     diagnostic: { phase: "native startup", code: "native_billing_mismatch" },

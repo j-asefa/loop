@@ -425,7 +425,7 @@ export function captureSnapshot(
       scope === "uncommitted" &&
       !diff.includes(`b/${path}`)
     )
-      diff += `\nNew file: ${JSON.stringify(path)} (read its full contents with loop55_review_read)\n`;
+      diff += `\nNew file: ${JSON.stringify(path)} (read its full contents with loop_review_read)\n`;
   }
   if (!selected.length)
     throw new Problem(422, "No reviewable changes in this scope");

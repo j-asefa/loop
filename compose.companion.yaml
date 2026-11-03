@@ -1,10 +1,10 @@
 # Deliberately separate from compose.yaml: no server secrets or server services.
-# loop55-connection owns cloudflared and the relay; it keeps the public address
-# while loop55-companion restarts or is replaced. Update the application alone:
-#   docker compose -f compose.companion.yaml up -d --build --no-deps loop55-companion
+# loop-connection owns cloudflared and the relay; it keeps the public address
+# while loop-companion restarts or is replaced. Update the application alone:
+#   docker compose -f compose.companion.yaml up -d --build --no-deps loop-companion
 # `down` stops both (a new Quick Tunnel address); omit -v to keep your data.
 services:
-  loop55-connection:
+  loop-connection:
     build:
       context: .
       dockerfile: Dockerfile.connection
@@ -12,8 +12,8 @@ services:
     restart: unless-stopped
     stop_grace_period: 15s
     volumes:
-      - loop55-companion-connection:/data/loop55-connection
-  loop55-companion:
+      - loop-companion-connection:/data/loop-connection
+  loop-companion:
     build:
       context: .
       dockerfile: Dockerfile.companion
@@ -23,19 +23,19 @@ services:
     # Started, not healthy: the application waits for the tunnel itself, and
     # the connection never waits for the application.
     depends_on:
-      - loop55-connection
+      - loop-connection
     environment:
-      LOOP55_CONNECTION_DIR: /data/loop55-connection
-      LOOP55_CONNECTION_MANAGED: external
-      LOOP55_ENVIRONMENT_NAME: "${LOOP55_ENVIRONMENT_NAME:-${COMPOSE_PROJECT_NAME}/loop55-companion}"
+      LOOP_CONNECTION_DIR: /data/loop-connection
+      LOOP_CONNECTION_MANAGED: external
+      LOOP_ENVIRONMENT_NAME: "${LOOP_ENVIRONMENT_NAME:-${COMPOSE_PROJECT_NAME}/loop-companion}"
     volumes:
-      - loop55-companion-data:/data/loop55
-      - loop55-companion-projects:/workspaces
-      - loop55-companion-connection:/data/loop55-connection
+      - loop-companion-data:/data/loop
+      - loop-companion-projects:/workspaces
+      - loop-companion-connection:/data/loop-connection
 volumes:
-  loop55-companion-data:
-    name: "${LOOP55_COMPANION_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_loop55-companion-data}"
-  loop55-companion-projects:
-    name: "${LOOP55_COMPANION_PROJECTS_VOLUME:-${COMPOSE_PROJECT_NAME}_loop55-companion-projects}"
-  loop55-companion-connection:
-    name: "${LOOP55_COMPANION_CONNECTION_VOLUME:-${COMPOSE_PROJECT_NAME}_loop55-companion-connection}"
+  loop-companion-data:
+    name: "${LOOP_COMPANION_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_loop-companion-data}"
+  loop-companion-projects:
+    name: "${LOOP_COMPANION_PROJECTS_VOLUME:-${COMPOSE_PROJECT_NAME}_loop-companion-projects}"
+  loop-companion-connection:
+    name: "${LOOP_COMPANION_CONNECTION_VOLUME:-${COMPOSE_PROJECT_NAME}_loop-companion-connection}"

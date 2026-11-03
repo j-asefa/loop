@@ -18,7 +18,7 @@ export function patchSources(read) {
   edit(
     provider,
     'import os from "os"',
-    'import { guardSDK } from "../loop55-execution-guard"\nimport os from "os"',
+    'import { guardSDK } from "../loop-execution-guard"\nimport os from "os"',
   );
   edit(
     provider,
@@ -29,7 +29,7 @@ export function patchSources(read) {
   edit(
     oauth,
     'import os from "os"',
-    'import { guardOAuth } from "../../loop55-execution-guard"\nimport os from "os"',
+    'import { guardOAuth } from "../../loop-execution-guard"\nimport os from "os"',
   );
   edit(
     oauth,
@@ -40,7 +40,7 @@ export function patchSources(read) {
   edit(
     llm,
     "import { LayerNode }",
-    'import { guardRuntime } from "../loop55-execution-guard"\nimport { LayerNode }',
+    'import { guardRuntime } from "../loop-execution-guard"\nimport { LayerNode }',
   );
   edit(
     llm,
@@ -52,17 +52,17 @@ export function patchSources(read) {
   edit(
     health,
     "import { Config }",
-    'import { executionGuardStatus } from "@/loop55-execution-guard"\nimport { Config }',
+    'import { executionGuardStatus } from "@/loop-execution-guard"\nimport { Config }',
   );
   edit(
     health,
     "return { healthy: true as const, version: InstallationVersion }",
-    "return { healthy: true as const, version: InstallationVersion, loop55ExecutionGuard: executionGuardStatus() }",
+    "return { healthy: true as const, version: InstallationVersion, loopExecutionGuard: executionGuardStatus() }",
   );
   edit(
     "packages/opencode/src/server/routes/instance/httpapi/groups/global.ts",
     "  healthy: Schema.Literal(true),\n  version: Schema.String,",
-    "  healthy: Schema.Literal(true),\n  version: Schema.String,\n  loop55ExecutionGuard: Schema.Struct({ revision: Schema.String, active: Schema.Boolean }),",
+    "  healthy: Schema.Literal(true),\n  version: Schema.String,\n  loopExecutionGuard: Schema.Struct({ revision: Schema.String, active: Schema.Boolean }),",
   );
   return changes;
 }
@@ -87,7 +87,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     return source;
   });
   changes.set(
-    "packages/opencode/src/loop55-execution-guard.ts",
+    "packages/opencode/src/loop-execution-guard.ts",
     readFileSync(
       new URL("./opencode-execution-guard.ts", import.meta.url),
       "utf8",

@@ -8,9 +8,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { z } from "zod";
-const dir = mkdtempSync(join(tmpdir(), "loop55-mcp-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-mcp-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -31,7 +31,7 @@ let externalCalls = 0;
 let resourceReads = 0;
 const fixtureMcp = async () => {
   const server = new McpServer({
-    name: "Loop55 deterministic fixture",
+    name: "Loop deterministic fixture",
     version: "1",
   });
   server.registerTool(
@@ -89,7 +89,7 @@ const fixtureMcp = async () => {
   );
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
-  const client = new Client({ name: "loop55-fixture-client", version: "1" });
+  const client = new Client({ name: "loop-fixture-client", version: "1" });
   await client.connect(b);
   return client;
 };
@@ -550,7 +550,7 @@ it("runs repeated MCP calls automatically, records them, and restores prompting 
 
 it("serializes a preference update with the worker's policy read and waiting transition", async () => {
   setMcpApprovalMode("alice", "ask");
-  const writer = new Database(join(dir, "loop55.db"));
+  const writer = new Database(join(dir, "loop.db"));
   writer.pragma("busy_timeout = 0");
   let writerError: string | undefined;
   const snapshot = vi
@@ -652,7 +652,7 @@ it("negotiates production connections without interactive app capabilities", asy
         "io.modelcontextprotocol/ui"
       ],
     ).toBeUndefined();
-    expect(server.server.getClientVersion()?.name).toBe("loop55");
+    expect(server.server.getClientVersion()?.name).toBe("loop");
   } finally {
     transport.mockRestore();
     await client?.close();
@@ -722,19 +722,19 @@ it("marks connected tools deferred for the provider and replays its ordered tool
     }
     expect(state()).toBe("completed");
     expect(seen).toHaveLength(2);
-    // Loop55's own tools stay loaded; every connected MCP tool is deferred.
+    // Loop's own tools stay loaded; every connected MCP tool is deferred.
     const flags = new Map(
       seen[0].tools.map((t: any) => [t.name, t.deferLoading]),
     );
-    expect(flags.get("loop55_plan")).toBe(false);
-    expect(flags.get("loop55_publish_file")).toBe(false);
+    expect(flags.get("loop_plan")).toBe(false);
+    expect(flags.get("loop_publish_file")).toBe(false);
     expect(
       seen[0].tools
         .filter((t: any) => t.deferLoading)
         .map((t: any) => t.description),
     ).toEqual(["Fixture MCP metrics: Fixture metrics. No real Datadog data."]);
     // The checkpoint carried the ordered content across the approval pause,
-    // alongside Loop55's own text and tool-call record of the same turn.
+    // alongside Loop's own text and tool-call record of the same turn.
     const assistant = seen[1].messages.find(
       (m: any) => m.role === "assistant" && m.toolCalls?.length,
     );

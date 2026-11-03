@@ -28,7 +28,7 @@ const FAKE = resolve("test/fixtures/fake-cloudflared.mjs");
 async function workspace(extraEnv: Record<string, string> = {}) {
   await mkdir(".tmp", { recursive: true });
   await chmod(FAKE, 0o755);
-  const base = await mkdtemp(join(resolve(".tmp"), "loop55-cli-connection-"));
+  const base = await mkdtemp(join(resolve(".tmp"), "loop-cli-connection-"));
   const project = join(base, "project");
   await mkdir(project);
   gitProject(project);
@@ -39,12 +39,12 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   const audit = join(base, "prompts.log");
   const env = {
     ...process.env,
-    LOOP55_HOME: join(base, "state"),
-    LOOP55_TEST_HARNESS: "codex",
-    LOOP55_TEST_CLOUDFLARED: FAKE,
-    LOOP55_TEST_TUNNEL_LOG: tunnels,
-    LOOP55_TEST_AUDIT: audit,
-    LOOP55_TEST_STOP_GRACE_MS: "1000",
+    LOOP_HOME: join(base, "state"),
+    LOOP_TEST_HARNESS: "codex",
+    LOOP_TEST_CLOUDFLARED: FAKE,
+    LOOP_TEST_TUNNEL_LOG: tunnels,
+    LOOP_TEST_AUDIT: audit,
+    LOOP_TEST_STOP_GRACE_MS: "1000",
     ...extraEnv,
   };
   const loop = (args: string[], timeout = 60000) =>
@@ -87,7 +87,7 @@ async function workspace(extraEnv: Record<string, string> = {}) {
     pids,
     cleanup,
     audit,
-    connection: join(env.LOOP55_HOME, "connection"),
+    connection: join(env.LOOP_HOME, "connection"),
   };
 }
 
@@ -109,7 +109,7 @@ function browser(relay: string, origin: string) {
               host: new URL(origin).host,
               origin,
               ...(cookie ? { cookie } : {}),
-              ...(csrf ? { "x-loop55-csrf": csrf } : {}),
+              ...(csrf ? { "x-loop-csrf": csrf } : {}),
               ...(body ? { "content-type": "application/json" } : {}),
             },
           },
@@ -168,7 +168,7 @@ test("restart replaces only the application: same service, cloudflared, address,
     assert.equal(service.url, before.url);
     assert.match(
       before.url,
-      /^https:\/\/loop55-fixture-\d+\.trycloudflare\.com$/,
+      /^https:\/\/loop-fixture-\d+\.trycloudflare\.com$/,
     );
     assert.equal(w.tunnelPids().length, 1);
     assert.equal(service.tunnel.pid, w.tunnelPids()[0]);
@@ -181,7 +181,7 @@ test("restart replaces only the application: same service, cloudflared, address,
     assert.equal(devices.length, 1);
 
     const restarted = await w.loop(["restart"]);
-    assert.match(restarted.stdout, /Same address: https:\/\/loop55-fixture-/);
+    assert.match(restarted.stdout, /Same address: https:\/\/loop-fixture-/);
     assert.doesNotMatch(
       restarted.stdout,
       /#(?:pair|fleet)=/,
@@ -201,7 +201,7 @@ test("restart replaces only the application: same service, cloudflared, address,
     assert.equal(after.harnesses[0].billing.mode, "existing");
     assert.equal(after.project, before.project);
     const launch = JSON.parse(
-      readFileSync(join(w.env.LOOP55_HOME, "workspace", "launch.json"), "utf8"),
+      readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
     );
     assert.deepEqual(launch.args.slice(0, 1), ["codex"]);
 
@@ -228,7 +228,7 @@ test("restart replaces only the application: same service, cloudflared, address,
     await until(() => !alive(after.pid));
     const down = await phone.send("GET", "/api/bootstrap");
     assert.equal(down.status, 503);
-    assert.equal(down.headers["x-loop55-unavailable"], "restarting");
+    assert.equal(down.headers["x-loop-unavailable"], "restarting");
     const crashed = await w.status();
     assert.equal(crashed.state, "crashed");
     assert.equal(crashed.url, before.url);
@@ -352,7 +352,7 @@ test("concurrent starts converge on one service and one cloudflared; a hung appl
 });
 
 test("a stalled application is withdrawn, then returns by itself without re-pairing", async () => {
-  const w = await workspace({ LOOP55_TEST_LEASE_TIMEOUT_MS: "1500" });
+  const w = await workspace({ LOOP_TEST_LEASE_TIMEOUT_MS: "1500" });
   try {
     const started = await w.loop(w.harness);
     const status = await w.status();
@@ -400,7 +400,7 @@ test("a stalled application is withdrawn, then returns by itself without re-pair
   }
 });
 
-test("a crashed connection service leaves no cloudflared behind after loop55 stop", async () => {
+test("a crashed connection service leaves no cloudflared behind after loop stop", async () => {
   const w = await workspace();
   try {
     await w.loop(w.harness);
@@ -421,7 +421,7 @@ test("a crashed connection service leaves no cloudflared behind after loop55 sto
   }
 });
 
-test("loop55 start restores a crashed connection service behind the running application", async () => {
+test("loop start restores a crashed connection service behind the running application", async () => {
   const w = await workspace();
   try {
     await w.loop(w.harness);
@@ -457,7 +457,7 @@ test("loop55 start restores a crashed connection service behind the running appl
     assert.equal(after.url, service.url, "the application adopted it");
     assert.match(stdout, /public address changed/);
     assert(
-      stdout.includes(after.url + "/#fleet="),
+      stdout.includes(after.url + "/#pair="),
       "the code is for the new address",
     );
     await until(() => !alive(tunnel.pid));
@@ -472,7 +472,7 @@ test("loop55 start restores a crashed connection service behind the running appl
   }
 });
 
-test("loop55 pair refuses a code once the connection service is gone", async () => {
+test("loop pair refuses a code once the connection service is gone", async () => {
   const w = await workspace();
   try {
     await w.loop(w.harness);
@@ -498,14 +498,10 @@ test("loop55 pair refuses a code once the connection service is gone", async () 
     assert.equal(
       attempt.failed,
       true,
-      "loop55 pair reported success: " + attempt.stdout,
+      "loop pair reported success: " + attempt.stdout,
     );
     assert.match(attempt.stderr, /connection service is not running/);
-    assert.match(
-      attempt.stderr,
-      /loop55 start/,
-      "the error says how to recover",
-    );
+    assert.match(attempt.stderr, /loop start/, "the error says how to recover");
     assert(
       !/#(?:pair|fleet)=/.test(attempt.stdout + attempt.stderr),
       "no code was issued",
@@ -521,7 +517,7 @@ test("loop55 pair refuses a code once the connection service is gone", async () 
     const serving = await w.status();
     assert.equal(serving.connection.registered, true);
     assert(
-      paired.stdout.includes(serving.url + "/#fleet="),
+      paired.stdout.includes(serving.url + "/#pair="),
       "the code is for the live address",
     );
   } finally {
@@ -571,7 +567,7 @@ test("restart from another directory repeats a foreground launch's project and p
     w.pids.add(before.pid);
     assert.equal(before.project, project);
     const launch = JSON.parse(
-      readFileSync(join(w.env.LOOP55_HOME, "workspace", "launch.json"), "utf8"),
+      readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
     ).args;
     assert.equal(launch[launch.indexOf("--project") + 1], project);
     assert.equal(
@@ -634,7 +630,7 @@ test("an incompatible connection service is reported, never silently replaced", 
       }),
       { mode: 0o600 },
     );
-    await assert.rejects(w.loop(w.harness), /protocol 99.*loop55 stop/s);
+    await assert.rejects(w.loop(w.harness), /protocol 99.*loop stop/s);
     assert.equal(w.tunnelPids().length, 0, "no replacement tunnel was started");
     assert(alive(process.pid));
   } finally {
@@ -655,10 +651,7 @@ test("local-only mode never starts the connection service or cloudflared", async
     assert.equal(w.tunnelPids().length, 0);
     assert(!existsSync(join(w.connection, "connection.json")));
     const launch = JSON.parse(
-      await readFile(
-        join(w.env.LOOP55_HOME, "workspace", "launch.json"),
-        "utf8",
-      ),
+      await readFile(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
     );
     assert(launch.args.includes("--local-only"));
     await w.loop(["restart"]);
@@ -686,7 +679,7 @@ import { spawn } from "node:child_process";
 import { openSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-const file = process.env.LOOP55_TEST_LAUNCHD_JOB;
+const file = process.env.LOOP_TEST_LAUNCHD_JOB;
 const job = JSON.parse(readFileSync(file, "utf8"));
 const alive = () => { if (!job.pid) return false; try { process.kill(job.pid, 0); if (process.platform === "linux" && readFileSync("/proc/" + job.pid + "/stat", "utf8").split(") ")[1][0] === "Z") return false; return true; } catch { return false; } };
 const save = (next) => writeFileSync(file, JSON.stringify({ ...job, ...next }));
@@ -706,7 +699,7 @@ const start = (args) => {
   // A plist names the built CLI; this repository runs from TypeScript, which
   // the real build does not need.
   const argv = args[0].endsWith(".ts") ? ["--import", "tsx", ...args] : args;
-  const child = spawn(process.execPath, argv, { detached: true, stdio: ["ignore", out, out], env: { ...process.env, LOOP55_SERVICE: process.env.LOOP55_TEST_SUPERVISOR ?? "launchd" } });
+  const child = spawn(process.execPath, argv, { detached: true, stdio: ["ignore", out, out], env: { ...process.env, LOOP_SERVICE: process.env.LOOP_TEST_SUPERVISOR ?? "launchd" } });
   child.unref();
   save({ pid: child.pid, args });
 };
@@ -727,7 +720,7 @@ if (command[0] === "kickstart") stop(() => start(job.args));
 else if (command[0] === "bootout") stop(() => save({ pid: 0 }));
 else if (command[0] === "bootstrap") stop(() => start(written(command[2])));
 else if (command.includes("daemon-reload"))
-  save({ args: written(join(homedir(), ".config/systemd/user", "loop55.service")) });
+  save({ args: written(join(homedir(), ".config/systemd/user", "loop.service")) });
 else if (command.includes("restart")) stop(() => start(job.args));
 else process.exit(1);
 `;
@@ -759,8 +752,8 @@ test("a stopped or hung application under an installed service restarts inside i
     const job = join(w.base, "launchd-job.json");
     Object.assign(w.env, {
       PATH: `${bin}:${process.env.PATH}`,
-      LOOP55_TEST_LAUNCHD_JOB: job,
-      LOOP55_TEST_SUPERVISOR: supervisor,
+      LOOP_TEST_LAUNCHD_JOB: job,
+      LOOP_TEST_SUPERVISOR: supervisor,
       HOME: home,
     });
     const project = w.harness[w.harness.indexOf("--project") + 1];
@@ -773,7 +766,7 @@ test("a stopped or hung application under an installed service restarts inside i
         process.platform,
         process.execPath,
         resolve("src/cli.ts"),
-        w.env.LOOP55_HOME,
+        w.env.LOOP_HOME,
         project,
         `${bin}:${process.env.PATH}`,
         null,
@@ -793,7 +786,7 @@ test("a stopped or hung application under an installed service restarts inside i
       const app = spawn(process.execPath, args, {
         detached: true,
         stdio: ["ignore", openSync(log, "a"), openSync(log, "a")],
-        env: { ...w.env, LOOP55_SERVICE: supervisor },
+        env: { ...w.env, LOOP_SERVICE: supervisor },
       });
       app.unref();
       writeFileSync(job, JSON.stringify({ pid: app.pid, args, log }));
@@ -862,12 +855,12 @@ test("an upgrade points a checkout-installed service at the newly installed buil
     const job = join(w.base, "launchd-job.json");
     Object.assign(w.env, {
       PATH: `${bin}:${process.env.PATH}`,
-      LOOP55_TEST_LAUNCHD_JOB: job,
-      LOOP55_TEST_SUPERVISOR: supervisor,
+      LOOP_TEST_LAUNCHD_JOB: job,
+      LOOP_TEST_SUPERVISOR: supervisor,
       HOME: home,
     });
     // The service was installed from a checkout, so its unit names that
-    // checkout's CLI. loop55 upgrade installs into npm's global prefix and hands
+    // checkout's CLI. loop upgrade installs into npm's global prefix and hands
     // the restart to the CLI it installed: a different absolute path.
     const checkout = join(w.base, "checkout", "dist", "cli.js");
     const installed = resolve("src/cli.ts");
@@ -889,7 +882,7 @@ test("an upgrade points a checkout-installed service at the newly installed buil
         process.platform,
         process.execPath,
         checkout,
-        w.env.LOOP55_HOME,
+        w.env.LOOP_HOME,
         project,
         `${bin}:${process.env.PATH}`,
         null,
@@ -902,7 +895,7 @@ test("an upgrade points a checkout-installed service at the newly installed buil
     const app = spawn(process.execPath, args, {
       detached: true,
       stdio: ["ignore", openSync(log, "a"), openSync(log, "a")],
-      env: { ...w.env, LOOP55_SERVICE: supervisor },
+      env: { ...w.env, LOOP_SERVICE: supervisor },
     });
     app.unref();
     writeFileSync(job, JSON.stringify({ pid: app.pid, args, log }));
@@ -931,7 +924,7 @@ test("an upgrade points a checkout-installed service at the newly installed buil
     assert.equal(JSON.parse(readFileSync(job, "utf8")).args[0], checkout);
     before = restarted;
 
-    // The handoff loop55 upgrade performs once the new build is installed.
+    // The handoff loop upgrade performs once the new build is installed.
     const { stdout } = await w.loop(
       ["restart", "--upgraded-from", "0.0.0-previous"],
       120000,
@@ -964,16 +957,16 @@ test("an upgrade points a checkout-installed service at the newly installed buil
     assert(!alive(before.pid));
     assert.match(
       stdout,
-      /Pointed the Loop55 service at the newly installed build/,
+      /Pointed the Loop service at the newly installed build/,
     );
-    assert.match(stdout, /Loop55 restarted under its service/);
+    assert.match(stdout, /Loop restarted under its service/);
 
     // Already the installed build: the next restart is an ordinary one.
     const again = await w.loop(
       ["restart", "--upgraded-from", "0.0.0-previous"],
       120000,
     );
-    assert.doesNotMatch(again.stdout, /Pointed the Loop55 service/);
+    assert.doesNotMatch(again.stdout, /Pointed the Loop service/);
     const last = await w.status();
     w.pids.add(last.pid);
     assert.notEqual(last.pid, after.pid);
@@ -984,7 +977,7 @@ test("an upgrade points a checkout-installed service at the newly installed buil
 
 for (const mode of [
   ["--local-only"],
-  ["--public-url", "https://loop55-proxy.example.test"],
+  ["--public-url", "https://loop-proxy.example.test"],
 ])
   test(`a service-managed ${mode[0]} launch restarts without a connection lease`, async () => {
     const w = await workspace();
@@ -1005,7 +998,7 @@ for (const mode of [
       process.platform,
       process.execPath,
       resolve("src/cli.ts"),
-      w.env.LOOP55_HOME,
+      w.env.LOOP_HOME,
       w.base,
       process.env.PATH!,
       null,
@@ -1016,8 +1009,8 @@ for (const mode of [
     const job = join(w.base, "launchd-job.json");
     Object.assign(w.env, {
       PATH: `${bin}:${process.env.PATH}`,
-      LOOP55_TEST_LAUNCHD_JOB: job,
-      LOOP55_TEST_SUPERVISOR: supervisor,
+      LOOP_TEST_LAUNCHD_JOB: job,
+      LOOP_TEST_SUPERVISOR: supervisor,
       HOME: home,
     });
     try {
@@ -1033,7 +1026,7 @@ for (const mode of [
       const app = spawn(process.execPath, args, {
         detached: true,
         stdio: ["ignore", openSync(log, "a"), openSync(log, "a")],
-        env: { ...w.env, LOOP55_SERVICE: supervisor },
+        env: { ...w.env, LOOP_SERVICE: supervisor },
       });
       app.unref();
       writeFileSync(job, JSON.stringify({ pid: app.pid, args, log }));
@@ -1055,7 +1048,7 @@ for (const mode of [
       );
 
       const { stdout } = await w.loop(["restart"], 60000);
-      assert.match(stdout, /Loop55 restarted under its service/);
+      assert.match(stdout, /Loop restarted under its service/);
       const after = await w.status();
       w.pids.add(after.pid);
       assert.notEqual(after.pid, before.pid);
@@ -1084,7 +1077,7 @@ for (const mode of [
 for (const installation of ["absent", "another workspace"])
   test(`an inherited supervisor cannot restart a service for ${installation}`, async () => {
     const supervisor = process.platform === "darwin" ? "launchd" : "systemd";
-    const w = await workspace({ LOOP55_SERVICE: supervisor });
+    const w = await workspace({ LOOP_SERVICE: supervisor });
     const home = join(w.base, "home");
     const bin = join(w.base, "bin");
     const calls = join(w.base, "manager-calls.log");
@@ -1093,13 +1086,13 @@ for (const installation of ["absent", "another workspace"])
       await mkdir(home);
       await mkdir(bin);
       // A broken ownership check fails against a fixture manager. It can
-      // never invoke the host's real service manager, even when run in Loop55.
+      // never invoke the host's real service manager, even when run in Loop.
       for (const name of ["launchctl", "systemctl"])
         writeFileSync(
           join(bin, name),
           `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
-appendFileSync(process.env.LOOP55_TEST_MANAGER_LOG, process.argv.join(" ") + "\\n");
+appendFileSync(process.env.LOOP_TEST_MANAGER_LOG, process.argv.join(" ") + "\\n");
 process.exit(91);
 `,
           { mode: 0o755 },
@@ -1107,7 +1100,7 @@ process.exit(91);
       Object.assign(w.env, {
         HOME: home,
         PATH: `${bin}:${process.env.PATH}`,
-        LOOP55_TEST_MANAGER_LOG: calls,
+        LOOP_TEST_MANAGER_LOG: calls,
       });
       if (installation === "another workspace") {
         const mac = process.platform === "darwin";

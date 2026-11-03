@@ -51,7 +51,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
         protocolVersion: mode === "wrong-version" ? 99 : 1,
         agentCapabilities: {
           loadSession: mode !== "no-load",
-          ...(process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+          ...(process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER
             ? { mcpCapabilities: { http: true } }
             : {}),
         },
@@ -62,9 +62,9 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       },
     });
   else if (request.method === "session/new") {
-    if (process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER) {
+    if (process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER) {
       const { acpBridge } = await import(
-        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+        process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER
       );
       fleetBridge = acpBridge(request.params.mcpServers);
     }
@@ -78,7 +78,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     send({
       id: request.id,
       result: {
-        sessionId: process.env.LOOP55_TEST_ACP_SESSION_ID || "fake-session",
+        sessionId: process.env.LOOP_TEST_ACP_SESSION_ID || "fake-session",
         ...([
           "rich",
           "slow-setting",
@@ -90,9 +90,9 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       },
     });
   } else if (request.method === "session/load") {
-    if (process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER) {
+    if (process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER) {
       const { acpBridge } = await import(
-        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+        process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER
       );
       fleetBridge = acpBridge(request.params.mcpServers);
     }
@@ -147,11 +147,11 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       .map((part) => part.text ?? "")
       .join("\n");
     if (
-      process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER &&
+      process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER &&
       text.startsWith("Fleet discovery fixture: ")
     ) {
       const { discover } = await import(
-        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+        process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER
       );
       await discover(text, fleetBridge);
       update(request.params.sessionId, {

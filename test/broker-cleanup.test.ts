@@ -20,7 +20,7 @@ it.each([
 ] as const)(
   "waits for idle %s work and excludes new work during cleanup (deadline=%s)",
   async (provider, timeout) => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-broker-cleanup-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop-broker-cleanup-"));
     cpSync(resolve("runtime"), join(dir, "runtime"), { recursive: true });
     writeFileSync(join(dir, "package.json"), '{"type":"commonjs"}');
     writeFileSync(join(dir, "runtime", "package.json"), '{"type":"module"}');
@@ -79,9 +79,9 @@ input.on('line', line => {
         env: {
           ...process.env,
           PATH: join(dir, "bin") + ":" + process.env.PATH,
-          LOOP55_RUNTIME_MODE: "docker",
-          LOOP55_RUNTIME_TOKEN: token,
-          LOOP55_RUNTIME_TOKEN_FILE: "",
+          LOOP_RUNTIME_MODE: "docker",
+          LOOP_RUNTIME_TOKEN: token,
+          LOOP_RUNTIME_TOKEN_FILE: "",
           CLEANUP_CALLS: join(dir, "calls"),
           CLEANUP_FAST_DEADLINE: timeout ? "1" : "",
         },

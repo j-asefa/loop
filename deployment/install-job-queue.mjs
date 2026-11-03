@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Opt-in, per-user queue setup. Does not restart Loop55 or interrupt agent runs.
+// Opt-in, per-user queue setup. Does not restart Loop or interrupt agent runs.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
@@ -46,14 +46,14 @@ if (!asset || typeof process.execve !== "function")
   throw new Error(
     "Job queue setup requires Node 24 on Linux or macOS (x64/arm64).",
   );
-const root = join(homedir(), ".local", "lib", "loop55", "job-queue");
+const root = join(homedir(), ".local", "lib", "loop", "job-queue");
 const configDir = join(
   process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
-  "loop55",
+  "loop",
 );
 const state = join(
   process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"),
-  "loop55-jobs",
+  "loop-jobs",
 );
 const configPath = join(configDir, "jobs.json");
 const pueueConfig = join(configDir, "pueue.yml");
@@ -99,7 +99,6 @@ for (const [index, name] of ["pueue", "pueued"].entries()) {
 }
 const source = dirname(fileURLToPath(import.meta.url));
 const files = [
-  "../runtime/environment.mjs",
   "job-client.mjs",
   "job-worker.mjs",
   "job-shim.mjs",
@@ -119,7 +118,6 @@ await mkdir(join(generationDir, "deployment"), {
   recursive: true,
   mode: 0o700,
 });
-await mkdir(join(generationDir, "runtime"), { recursive: true, mode: 0o700 });
 await mkdir(join(generationDir, "scripts"), { recursive: true, mode: 0o700 });
 for (const name of files)
   await copyFile(join(source, name), join(generationDir, "deployment", name));
@@ -150,7 +148,7 @@ const config = {
   pueue: join(tools, "pueue"),
   config: pueueConfig,
   jobs: join(state, "controls"),
-  group: "loop55-heavy",
+  group: "loop-heavy",
   worker: join(generationDir, "deployment/job-worker.mjs"),
   shims: bin,
   commands,
@@ -184,8 +182,8 @@ await rename(configPath + ".partial", configPath);
 const shell = (value) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
 await removeJobShims(configPath);
 await writeFile(
-  join(bin, "loop55-job"),
-  "#!/bin/sh\nexport LOOP55_JOB_QUEUE_CONFIG=" +
+  join(bin, "loop-job"),
+  "#!/bin/sh\nexport LOOP_JOB_QUEUE_CONFIG=" +
     shell(configPath) +
     "\nexec " +
     [commands.node, join(generationDir, "deployment/job-cli.mjs")]
@@ -201,19 +199,19 @@ if (process.platform === "linux") {
     "systemd/user",
   );
   await mkdir(units, { recursive: true });
-  const slice = join(units, "loop55-agents-jobs.slice");
+  const slice = join(units, "loop-agents-jobs.slice");
   try {
     await access(slice);
   } catch {
     await writeFile(
       slice,
-      "[Unit]\nDescription=Loop55 build and test memory budget\n[Slice]\nMemoryAccounting=yes\nMemoryHigh=infinity\nMemoryMax=3G\nMemorySwapMax=512M\nCPUQuota=200%\nCPUWeight=50\n",
+      "[Unit]\nDescription=Loop build and test memory budget\n[Slice]\nMemoryAccounting=yes\nMemoryHigh=infinity\nMemoryMax=3G\nMemorySwapMax=512M\nCPUQuota=200%\nCPUWeight=50\n",
       { mode: 0o600 },
     );
   }
   await writeFile(
-    join(units, "loop55-job-queue.service"),
-    "[Unit]\nDescription=Loop55 heavy command queue\n[Service]\nType=simple\nSlice=loop55-agents-jobs.slice\nExecStart=" +
+    join(units, "loop-job-queue.service"),
+    "[Unit]\nDescription=Loop heavy command queue\n[Service]\nType=simple\nSlice=loop-agents-jobs.slice\nExecStart=" +
       unitString(join(tools, "pueued")) +
       " --config " +
       unitString(pueueConfig) +
@@ -223,7 +221,7 @@ if (process.platform === "linux") {
   execFileSync("systemctl", ["--user", "daemon-reload"], { stdio: "inherit" });
   execFileSync(
     "systemctl",
-    ["--user", "enable", "--now", "loop55-job-queue.service"],
+    ["--user", "enable", "--now", "loop-job-queue.service"],
     { stdio: "inherit" },
   );
 } else {
@@ -233,7 +231,7 @@ if (process.platform === "linux") {
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;");
-  const label = "dev.loop55.job-queue",
+  const label = "dev.loop.job-queue",
     domain = "gui/" + process.getuid();
   const agents = join(homedir(), "Library/LaunchAgents");
   await mkdir(agents, { recursive: true });
@@ -272,13 +270,13 @@ for (let i = 0; i < 50; i++) {
   await new Promise((resolve) => setTimeout(resolve, 200));
 }
 if (!ready)
-  throw new Error("Queue service is not ready; Loop55 was not restarted.");
+  throw new Error("Queue service is not ready; Loop was not restarted.");
 if (!ready.groups[config.group])
   await queueCommand(config, ["group", "add", "--parallel", "1", config.group]);
 console.log("Explicit job queue is ready: " + configPath);
-console.log("Inspect with: " + join(bin, "loop55-job") + " status");
+console.log("Inspect with: " + join(bin, "loop-job") + " status");
 console.log(
   "Submit only the commands you want queued with: " +
-    join(bin, "loop55-job") +
+    join(bin, "loop-job") +
     " run -- COMMAND ...",
 );

@@ -268,7 +268,7 @@ export function FileSheet({
             Move here
           </button>
           <label>
-            Or tell Loop55 where
+            Or tell Loop where
             <textarea
               {...proseEntry}
               value={command}
@@ -545,7 +545,7 @@ function SearchIndexStatus() {
     </div>
   );
 }
-const RECENT_SEARCHES = "loop55-recent-searches";
+const RECENT_SEARCHES = "loop-recent-searches";
 function recentSearches(): string[] {
   try {
     return parse<string[]>(
@@ -725,8 +725,8 @@ export function SearchWorkspace({
   };
   useEffect(() => {
     const refresh = () => rerun.current();
-    window.addEventListener("loop55-refresh", refresh);
-    return () => window.removeEventListener("loop55-refresh", refresh);
+    window.addEventListener("loop-refresh", refresh);
+    return () => window.removeEventListener("loop-refresh", refresh);
   }, []);
   // One card per thread: a conversation and the results it produced share a card.
   const groups: { key: string; items: SearchItem[] }[] = [];
@@ -1320,7 +1320,7 @@ export function SearchSettings({
   const chosen = embedding.find((c) => c.id === connection);
   return (
     <Sheet title="Search preferences" onClose={onClose}>
-      <p className="settings-intro">How Loop55 finds your past work.</p>
+      <p className="settings-intro">How Loop finds your past work.</p>
       <SettingsList>
         <SettingsRow
           icon={Search}

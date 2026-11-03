@@ -3,7 +3,6 @@ import * as pushSubscriptionsQueries from "./sql/push-subscriptions.js";
 import * as pushPreferencesQueries from "./sql/push-preferences.js";
 import * as pushDeliveriesQueries from "./sql/push-deliveries.js";
 import * as pushMessagesQueries from "./sql/push-messages.js";
-import "../../runtime/environment.mjs";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
 import { plainPreview } from "../shared/text.js";
@@ -158,7 +157,7 @@ export function resultNotification(result: {
   const topic = plainPreview(result.thread || result.title, 60);
   const title = result.name
     ? `@${result.name}${topic ? " · " + topic : " has a new result"}`
-    : topic || "New result in Loop55";
+    : topic || "New result in Loop";
   const answer = TEXT_KINDS.has(result.kind)
     ? plainPreview(result.content, 180)
     : "";
@@ -201,7 +200,7 @@ export async function deliverNotifications(send = webpush.sendNotification) {
         message_key: null,
         payload: {
           ...resultNotification(job),
-          tag: `loop55-result-${job.artifact_id}`,
+          tag: `loop-result-${job.artifact_id}`,
           url: `/?artifact=${encodeURIComponent(job.artifact_id)}`,
         },
       }));
@@ -277,7 +276,7 @@ export async function deliverNotifications(send = webpush.sendNotification) {
         await send(subscription, JSON.stringify(job.payload), {
           vapidDetails: {
             subject:
-              process.env.LOOP55_PUSH_CONTACT ||
+              process.env.LOOP_PUSH_CONTACT ||
               "https://github.com/j-asefa/loop",
             ...keys,
           },

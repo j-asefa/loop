@@ -4,12 +4,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 COPY package*.json ./
 RUN npm ci
 COPY . .
-ARG LOOP55_BUILD_SOURCE_FILE
-RUN LOOP55_BUILD_SOURCE_FILE="$LOOP55_BUILD_SOURCE_FILE" npm run build && npm prune --omit=dev
+ARG LOOP_BUILD_SOURCE_FILE
+RUN LOOP_BUILD_SOURCE_FILE="$LOOP_BUILD_SOURCE_FILE" npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim
 WORKDIR /app
-ENV NODE_ENV=production PORT=3000 LOOP55_DATA_DIR=/data LOOP55_LISTEN_HOST=0.0.0.0
+ENV NODE_ENV=production PORT=3000 LOOP_DATA_DIR=/data LOOP_LISTEN_HOST=0.0.0.0
 COPY --from=build --chown=node:node /app /app
 RUN mkdir /data && chown node:node /data
 USER node

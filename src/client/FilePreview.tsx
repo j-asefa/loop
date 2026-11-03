@@ -7,11 +7,7 @@ import { RichText, Sheet } from "./components";
 import { isHtmlFile } from "../shared/file-preview";
 import { viewGeneration } from "./viewCache";
 
-export function loop55FileUrl(
-  href?: string,
-  source?: string,
-  preview?: "html",
-) {
+export function loopFileUrl(href?: string, source?: string, preview?: "html") {
   if (!href) return;
   try {
     const url = new URL(href, location.href);
@@ -194,7 +190,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
           controller.signal,
         );
         if (response.redirected || response.status === 401)
-          throw new Error("Sign in to Loop55 to open this file.");
+          throw new Error("Sign in to Loop to open this file.");
         if (!response.ok)
           throw new Error("Could not load this file. Please try again.");
         const blob = await response.blob();
@@ -207,7 +203,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
             : responseType;
         const file = new File([blob], fileName, { type });
         const htmlUrl = isHtmlFile(fileName, type)
-          ? loop55FileUrl(url, undefined, "html")
+          ? loopFileUrl(url, undefined, "html")
           : undefined;
         const html = !!htmlUrl;
         const image = [
@@ -271,7 +267,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
     setSharing(true);
     try {
       // The file is prepared before the tap so iOS retains user activation.
-      // Its share sheet offers Save to Files without navigating away from Loop55.
+      // Its share sheet offers Save to Files without navigating away from Loop.
       await navigator.share({ files: [ready.file] });
     } catch (error) {
       if ((error as Error).name !== "AbortError")
@@ -346,7 +342,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
           ) : ready.text !== undefined ? (
             <>
               {ready.markdown ? (
-                // The same renderer as chat answers: no raw HTML, and Loop55
+                // The same renderer as chat answers: no raw HTML, and Loop
                 // file links open in their own preview.
                 <RichText content={ready.text} />
               ) : (

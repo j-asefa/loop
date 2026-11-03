@@ -1,6 +1,6 @@
 // Claude's streaming input queues ordinary user messages. Interrupt its current
 // generation, wait for its terminal result, then resume the same native session.
-// No tool call or original prompt is replayed by Loop55.
+// No tool call or original prompt is replayed by Loop.
 export class ClaudeSteering {
   waiting?: { resolve: () => void };
   async steer(

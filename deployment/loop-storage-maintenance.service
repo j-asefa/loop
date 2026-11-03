@@ -1,5 +1,5 @@
 [Unit]
-Description=Verify off-host Loop55 backups and enforce storage retention
+Description=Verify off-host Loop backups and enforce storage retention
 
 [Service]
 Type=oneshot

@@ -9,10 +9,10 @@ import { reduceFeedPage } from "../src/shared/feed-projection";
 import { z } from "zod";
 import { ReplyState } from "../src/shared/steering-replies";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-replies-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "server";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-replies-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "server";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { createAgent, ownedRun } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
@@ -114,7 +114,7 @@ function replyTool(
   callId = id(),
 ) {
   const binding = nativeBindings(f.run).find(
-    (tool) => tool.tool === "loop55_reply",
+    (tool) => tool.tool === "loop_reply",
   )!;
   return invokeNative(f.run, binding, callId, input);
 }
@@ -192,7 +192,7 @@ it("publishes from the API runtime without finishing the task and keeps replies 
       return [];
     },
     async *stream(_secret, input) {
-      expect(input.tools?.some((tool) => tool.name === "loop55_reply")).toBe(
+      expect(input.tools?.some((tool) => tool.name === "loop_reply")).toBe(
         true,
       );
       expect(
@@ -204,7 +204,7 @@ it("publishes from the API runtime without finishing the task and keeps replies 
         yield {
           toolCall: {
             id: "reply-first",
-            name: "loop55_reply",
+            name: "loop_reply",
             arguments: {
               replyTo: question.message_id,
               body: "I found a reconnect race.",
@@ -218,7 +218,7 @@ it("publishes from the API runtime without finishing the task and keeps replies 
         yield {
           toolCall: {
             id: "reply-second",
-            name: "loop55_reply",
+            name: "loop_reply",
             arguments: {
               replyTo: question.message_id,
               body: "The race is now fixed; testing continues.",
@@ -472,7 +472,7 @@ it("enforces owner, run and human steering scope and preserves immutable call id
       ...f.run,
       payload: { ...f.run.payload, reviewId: id() },
     }).map((tool) => tool.tool),
-  ).toEqual(["loop55_review_read"]);
+  ).toEqual(["loop_review_read"]);
 });
 
 it("returns reply validation errors to the API model so it can correct them and finish its task", async () => {
@@ -489,7 +489,7 @@ it("returns reply validation errors to the API model so it can correct them and 
         yield {
           toolCall: {
             id: "wrong-id",
-            name: "loop55_reply",
+            name: "loop_reply",
             arguments: { replyTo: id(), body: "An answer" },
           },
         };
@@ -502,7 +502,7 @@ it("returns reply validation errors to the API model so it can correct them and 
         yield {
           toolCall: {
             id: `correction-${round}`,
-            name: "loop55_reply",
+            name: "loop_reply",
             arguments:
               round === 2
                 ? { replyTo: question.message_id }

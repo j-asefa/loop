@@ -9,7 +9,7 @@ export async function feedbackJourney(page, api, base, dir) {
   // The fixture runs many independent journeys as one user. Keep this one
   // from inheriting earlier journeys' per-minute request budget.
   {
-    const limits = new Database(join(dir, "loop55.db"));
+    const limits = new Database(join(dir, "loop.db"));
     limits.pragma("busy_timeout = 10000");
     limits.prepare("DELETE FROM request_limits").run();
     limits.close();
@@ -191,12 +191,12 @@ export async function feedbackJourney(page, api, base, dir) {
   assert.ok(bothTeams > 0);
   await expect(page.locator(".inbox-card")).toHaveCount(bothTeams);
   await page.screenshot({
-    path: join(tmpdir(), "loop55-feedback-mobile.png"),
+    path: join(tmpdir(), "loop-feedback-mobile.png"),
     fullPage: true,
   });
 
   // Deep-link into a long conversation, well before the newest page.
-  const fixture = new Database(join(dir, "loop55.db"));
+  const fixture = new Database(join(dir, "loop.db"));
   fixture.pragma("busy_timeout = 10000");
   const owner = (await api("/bootstrap")).agents.find(
     (a) => a.id === manager.id,
@@ -243,7 +243,7 @@ export async function feedbackJourney(page, api, base, dir) {
   // The composer and diagram resize after the initial deep-link scroll.
   await expect(anchor).toBeInViewport();
   await page.screenshot({
-    path: join(tmpdir(), "loop55-feedback-diagram.png"),
+    path: join(tmpdir(), "loop-feedback-diagram.png"),
   });
   await closeSheets(page);
   for (const width of [320, 390, 430, 1024]) {

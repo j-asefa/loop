@@ -43,10 +43,10 @@ import type {
   FleetOperation,
 } from "../src/shared/fleet.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-handoff-http-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-handoff-http-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
@@ -235,7 +235,7 @@ async function fixture(pendingEnrollment = false) {
             headers: {
               host: new URL(b.origin).host,
               "content-type": "application/json",
-              "x-loop55-fleet-version": "1",
+              "x-loop-fleet-version": "1",
               ...headers,
             },
           },
@@ -941,7 +941,7 @@ it("rejects browser credentials, wrong identities, owner injection and preview o
     { origin: f.b.origin },
     { cookie: "device=fixture" },
     { authorization: "Bearer fixture-card" },
-    { "x-loop55-csrf": "fixture" },
+    { "x-loop-csrf": "fixture" },
     { "sec-fetch-site": "same-origin" },
     { host: "wrong.example" },
   ];

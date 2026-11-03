@@ -12,7 +12,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799646840000,
         "last_message": {
           "id": "m-worker-child-answer",
@@ -58,7 +58,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799646420000,
         "last_message": {
           "id": "m-automation-answer",
@@ -106,7 +106,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799646000000,
         "last_message": {
           "id": "m-dismissed-card-answer",
@@ -152,7 +152,7 @@
         "project_id": "proj",
         "project_name": "Project",
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799645640000,
         "last_message": {
           "id": "m-project-answer",
@@ -198,7 +198,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": "team-1",
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799645280000,
         "last_message": {
           "id": "m-team-answer",
@@ -244,7 +244,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799644620000,
         "last_message": {
           "id": "m-surfaced-answer",
@@ -295,7 +295,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799642220000,
         "last_message": {
           "id": "m-delegate-answer",
@@ -341,7 +341,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799641380000,
         "last_message": {
           "id": "m-done-native-answer",
@@ -387,7 +387,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799640960000,
         "last_message": {
           "id": "m-done-api-answer",

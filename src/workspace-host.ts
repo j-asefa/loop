@@ -97,14 +97,14 @@ export class WorkspaceHost {
   constructor(
     dir: string,
     options: Options & {
-      /** Run the fleet extension; off unless `loop55 start --fleet`. */
+      /** Run the fleet extension; off unless `loop start --fleet`. */
       fleet?: boolean;
     },
     private execution: ExecutionLifecycle = new ExecutionProcess(),
   ) {
     if (!companionMode)
       throw new Error(
-        "WorkspaceHost requires LOOP55_PROFILE=companion before loading the application",
+        "WorkspaceHost requires LOOP_PROFILE=companion before loading the application",
       );
     // Identity survives URL changes and application restarts. This does not
     // create fleet membership or grant peer access. The separate enrollment
@@ -308,7 +308,7 @@ export class WorkspaceHost {
           executionClient.connected &&
           !!db
             .prepare(
-              "SELECT 1 FROM connections WHERE owner_id=? AND status='connected' AND json_extract(metadata,'$.loop55Harness') IS NOT NULL",
+              "SELECT 1 FROM connections WHERE owner_id=? AND status='connected' AND json_extract(metadata,'$.loopHarness') IS NOT NULL",
             )
             .get(OWNER),
         harnesses: nativeSessions.registrations(),

@@ -1,4 +1,3 @@
-import { retainedPath } from "./retained-path.ts";
 type NpmEntry = {
   integrity: string;
   resolved?: string;
@@ -495,10 +494,10 @@ function discover(
         !entry.isDirectory() ||
         [
           ".git",
-          ".loop55",
+          ".loop",
           ".loop",
           ".loop-cleanup",
-          ".loop55-cleanup",
+          ".loop-cleanup",
           ".cache",
           ".bun",
           ".npm",
@@ -609,8 +608,8 @@ function neededPayloads(home: string): Set<string> {
       if (
         [
           ".git",
-          ".loop55",
-          ".loop55-cleanup",
+          ".loop",
+          ".loop-cleanup",
           ".loop",
           ".loop-cleanup",
           ".cache",
@@ -684,7 +683,7 @@ export function cleanupStorage({
     workspaceKeys.some((key) => !/^[a-f0-9]{64}$/.test(key))
   )
     throw new Error("Invalid cleanup workspaces");
-  const stateDir = retainedPath(home, ".loop55-storage", ".loop-storage");
+  const stateDir = join(home, ".loop-storage");
   if (
     stat(stateDir) &&
     (!stat(stateDir)!.isDirectory() || realpathSync(stateDir) !== stateDir)
@@ -778,11 +777,7 @@ export function cleanupStorage({
       if (candidate.kind === "dependencies") {
         dependencies++;
         const used = stat(
-          retainedPath(
-            candidate.workspace,
-            ".loop55-last-used",
-            ".loop-last-used",
-          ),
+          join(candidate.workspace, ".loop-last-used"),
         );
         if (used && !used.isFile())
           throw new Error("Invalid workspace activity marker");

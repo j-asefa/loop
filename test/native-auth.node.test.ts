@@ -8,8 +8,8 @@ import { until } from "./helpers.js";
 import type { AuthDriver, AuthInteraction } from "../src/server/native-auth.js";
 await mkdir(".tmp", { recursive: true });
 const dir = await mkdtemp(resolve(".tmp/native-auth-test-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "companion";
 const { NativeSignIns } = await import("../src/server/native-auth.js");
 const { db } = await import("../src/server/db.js");
 const {
@@ -222,7 +222,7 @@ for (const name of [
     const executable = join(project, name);
     await writeFile(
       executable,
-      `#!/bin/sh\nexport LOOP55_TEST_HARNESS=${name}\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
     const auth = new NativeSignIns(createAuthDriver);
@@ -230,10 +230,10 @@ for (const name of [
       name,
       executable,
       project,
-      env: { HOME: project, LOOP55_TEST_CLEAN_ENV: "1" },
+      env: { HOME: project, LOOP_TEST_CLEAN_ENV: "1" },
     };
-    const priorHostOnly = process.env.LOOP55_TEST_HOST_ONLY;
-    process.env.LOOP55_TEST_HOST_ONLY = "must-not-reach-runner";
+    const priorHostOnly = process.env.LOOP_TEST_HOST_ONLY;
+    process.env.LOOP_TEST_HOST_ONLY = "must-not-reach-runner";
     try {
       const catalog = await auth.catalog(opts);
       assert.doesNotMatch(JSON.stringify(catalog), /fixture-private/);
@@ -283,8 +283,8 @@ for (const name of [
       if (name === "gemini") assert.match(audit, /gemini:authenticate/);
     } finally {
       await auth.close();
-      if (priorHostOnly === undefined) delete process.env.LOOP55_TEST_HOST_ONLY;
-      else process.env.LOOP55_TEST_HOST_ONLY = priorHostOnly;
+      if (priorHostOnly === undefined) delete process.env.LOOP_TEST_HOST_ONLY;
+      else process.env.LOOP_TEST_HOST_ONLY = priorHostOnly;
     }
   });
 }
@@ -295,24 +295,24 @@ test("Pi rejects invalid prompts and lets the next sign-in start", async () => {
   const executable = join(project, "pi");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=pi\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=pi\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(createAuthDriver);
   const opts = { name: "pi", executable, project };
-  process.env.LOOP55_TEST_PI_BAD_PROMPT = "1";
+  process.env.LOOP_TEST_PI_BAD_PROMPT = "1";
   try {
     const catalog = await auth.catalog(opts);
     await auth.start(opts, catalog.providers[0].id, "oauth", randomUUID());
     await until(() => auth.status("pi").attempt?.state === "failed");
-    delete process.env.LOOP55_TEST_PI_BAD_PROMPT;
+    delete process.env.LOOP_TEST_PI_BAD_PROMPT;
     await auth.start(opts, catalog.providers[0].id, "oauth", randomUUID());
     await until(() => !!auth.status("pi").attempt?.prompt);
     const attempt = auth.status("pi").attempt!;
     auth.answer("pi", attempt.id, attempt.prompt!.id, "fixture-code");
     await until(() => auth.status("pi").attempt?.state === "complete");
   } finally {
-    delete process.env.LOOP55_TEST_PI_BAD_PROMPT;
+    delete process.env.LOOP_TEST_PI_BAD_PROMPT;
     await auth.close();
   }
 });
@@ -323,7 +323,7 @@ test("Gemini ends a sign-in on a rejected code without authenticating or relayin
   const executable = join(project, "gemini");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=gemini\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(createAuthDriver);
@@ -362,7 +362,7 @@ for (const failure of ["retired", "retired-stderr", "unknown"]) {
     const executable = join(project, "gemini");
     await writeFile(
       executable,
-      `#!/bin/sh\nexport LOOP55_TEST_HARNESS=gemini\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
     const auth = new NativeSignIns(createAuthDriver);
@@ -373,7 +373,7 @@ for (const failure of ["retired", "retired-stderr", "unknown"]) {
       env: {
         ...process.env,
         HOME: project,
-        LOOP55_TEST_GEMINI_AUTH_FAILURE: failure,
+        LOOP_TEST_GEMINI_AUTH_FAILURE: failure,
       },
     };
     setGeminiSignInScreenWait(200);
@@ -419,7 +419,7 @@ test("Antigravity signs in through agy's terminal sign-in and confirms with agy 
   const executable = join(project, "agy");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=antigravity\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   setAntigravityExchangeWait(5000);
@@ -481,7 +481,7 @@ test("Antigravity completes when agy exits after saving its credential", async (
   const executable = join(project, "agy");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=antigravity\nexport LOOP55_TEST_AGY_EXIT_AFTER_SIGN_IN=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_EXIT_AFTER_SIGN_IN=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(createAuthDriver);
@@ -506,7 +506,7 @@ test("Cancelling Antigravity during its account check stops every check", async 
   const executable = join(project, "agy");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=antigravity\nexport LOOP55_TEST_AGY_SLOW_MODELS=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_SLOW_MODELS=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const pids = async (file = "models-pids") =>
@@ -550,7 +550,7 @@ test("Antigravity ends a sign-in whose terminal never shows its link", async () 
   const executable = join(project, "agy");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=antigravity\nexport LOOP55_TEST_AGY_STALL=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_STALL=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   setAntigravityStartWait(1000);
@@ -590,7 +590,7 @@ test("Muse stores an API key through its own account API and signs out", async (
   const executable = join(project, "muse");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=muse\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=muse\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   // Real Muse 1.4.12 also notifies completion; the account state alone must
@@ -601,8 +601,8 @@ test("Muse stores an API key through its own account API and signs out", async (
     project,
     env: {
       ...process.env,
-      LOOP55_TEST_AUTH_DIR: project,
-      LOOP55_TEST_MUSE_SILENT_KEY: "1",
+      LOOP_TEST_AUTH_DIR: project,
+      LOOP_TEST_MUSE_SILENT_KEY: "1",
     },
   });
   try {
@@ -638,7 +638,7 @@ test("Gemini with cached Google credentials completes without a code", async () 
   const executable = join(project, "gemini");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=gemini\nexport LOOP55_TEST_GEMINI_CACHED=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexport LOOP_TEST_GEMINI_CACHED=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   setGeminiSignInScreenWait(200);
@@ -669,7 +669,7 @@ test("Gemini relays the fresh URL when its sign-in screen opens after the cached
   const executable = join(project, "gemini");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=gemini\nexport LOOP55_TEST_GEMINI_DELAY_MS=500\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexport LOOP_TEST_GEMINI_DELAY_MS=500\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   setGeminiSignInScreenWait(100);
@@ -682,7 +682,7 @@ test("Gemini relays the fresh URL when its sign-in screen opens after the cached
   };
   try {
     await auth.start(opts, "google", "oauth", randomUUID());
-    // Gemini read Loop55's initialize frame as a bad code and asked again.
+    // Gemini read Loop's initialize frame as a bad code and asked again.
     await until(() => !!auth.status("gemini").attempt?.prompt);
     const attempt = auth.status("gemini").attempt!;
     assert.equal(new URL(attempt.url!).hostname, "accounts.google.com");
@@ -704,7 +704,7 @@ test("Gemini refuses an authorization URL carrying credentials without crashing"
   const executable = join(project, "gemini");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=gemini\nexport LOOP55_TEST_GEMINI_URL='https://x@accounts.google.com/o/oauth2/v2/auth'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexport LOOP_TEST_GEMINI_URL='https://x@accounts.google.com/o/oauth2/v2/auth'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(createAuthDriver);
@@ -729,12 +729,12 @@ test("Pi restarts an auth process that exited while idle", async () => {
   const executable = join(project, "pi");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=pi\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=pi\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(createAuthDriver);
   const opts = { name: "pi", executable, project };
-  process.env.LOOP55_TEST_PI_EXIT_IDLE = "1";
+  process.env.LOOP_TEST_PI_EXIT_IDLE = "1";
   try {
     const catalog = await auth.catalog(opts);
     await until(() => existsSync(join(project, "pi-exited-once")));
@@ -745,7 +745,7 @@ test("Pi restarts an auth process that exited while idle", async () => {
     auth.answer("pi", attempt.id, attempt.prompt!.id, "fixture-code");
     await until(() => auth.status("pi").attempt?.state === "complete");
   } finally {
-    delete process.env.LOOP55_TEST_PI_EXIT_IDLE;
+    delete process.env.LOOP_TEST_PI_EXIT_IDLE;
     await auth.close();
   }
 });
@@ -757,7 +757,7 @@ for (const method of ["1", "2"]) {
     const executable = join(project, "opencode");
     await writeFile(
       executable,
-      `#!/bin/sh\nexport LOOP55_TEST_HARNESS=opencode\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=opencode\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
     const auth = new NativeSignIns(createAuthDriver);

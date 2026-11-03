@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Host } from "../src/host";
 import { workspaceApi } from "../src/shared/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-device-contracts-"));
+const directory = mkdtempSync(join(tmpdir(), "loop-device-contracts-"));
 const hosts: Host[] = [];
 afterAll(async () => {
   await Promise.all(hosts.map((host) => host.close()));
@@ -55,7 +55,7 @@ async function pair(host: Host, name: string) {
   const session = await fetch(host.origin + "/session", {
     headers: { cookie },
   }).then((r) => r.json());
-  return { cookie, "x-loop55-csrf": session.csrf as string };
+  return { cookie, "x-loop-csrf": session.csrf as string };
 }
 function send(
   host: Host,
@@ -141,7 +141,7 @@ it("projects real paired devices and revokes only within their authorized host",
   );
   const secondId = devices.find((device) => device.name === "Second phone")!.id;
   for (const headers of [
-    { ...first, "x-loop55-csrf": "invalid" },
+    { ...first, "x-loop-csrf": "invalid" },
     { ...first, origin: "https://foreign.example" },
   ])
     expect(

@@ -41,7 +41,7 @@ import {
 // owner, while which feeds you follow, what you have read and what you saved
 // are yours alone.
 //
-// Stories are shown to you. An agent can read them only through loop55_feed,
+// Stories are shown to you. An agent can read them only through loop_feed,
 // and only once you have turned agent access on — it is off by default,
 // because a tool that lists your feed puts what you follow into a model's
 // context. Nothing else here reaches an agent.
@@ -76,7 +76,7 @@ const PER_PASS = 8;
 /** Words one owner may hide. */
 const MAX_MUTES = 100;
 
-/** A stored story carries when Loop55 first read it, which the list sorts by. */
+/** A stored story carries when Loop first read it, which the list sorts by. */
 type StoredStory = NewsStory & { first_seen_at: number };
 type Shown = { stories: StoredStory[]; fetched_at: number };
 type Failure = {
@@ -165,7 +165,7 @@ function stored(id: string, state = feedState(id)): Shown | null {
 }
 
 /**
- * Keeps what a feed gave: new stories are added with the time Loop55 first saw
+ * Keeps what a feed gave: new stories are added with the time Loop first saw
  * them, stories it still lists are left as they were, and only the newest
  * KEEP_PER_FEED survive.
  */
@@ -584,7 +584,7 @@ function unmuteWords(owner: string, phrase: string) {
 }
 
 /**
- * Search the stories Loop55 has stored, across the feeds this owner follows.
+ * Search the stories Loop has stored, across the feeds this owner follows.
  * Reaches further back than the page does, which is the point of it: a story
  * from last week is no longer in the list but is still in the store.
  */
@@ -683,7 +683,7 @@ export function feedForAgent(
     query?: string;
     unreadOnly?: boolean;
     since?: number;
-    /** Only stories Loop55 first read after this, which is what a digest covers. */
+    /** Only stories Loop first read after this, which is what a digest covers. */
     arrivedSince?: number;
     limit?: number;
   } = {},
@@ -741,7 +741,7 @@ export function feedForAgent(
 }
 
 /**
- * Stories of these feeds, newest first, that Loop55 first read after `since`.
+ * Stories of these feeds, newest first, that Loop first read after `since`.
  * For watches, which look at what has arrived rather than at the page.
  */
 export function storiesForWatch(
@@ -914,7 +914,7 @@ export async function socialStories(
       });
     }
   });
-  // An undated story sorts by when Loop55 first read it, which for the feeds
+  // An undated story sorts by when Loop first read it, which for the feeds
   // that date nothing is the only order there is.
   for (const key of dismissed) kept.delete(key);
   const stories = [...kept.values()].sort(
@@ -960,7 +960,7 @@ routes.on(workspaceApi.socialSearch, (req, res) => {
   );
 });
 /**
- * The picture a feed offered for a story, passed through Loop55 rather than
+ * The picture a feed offered for a story, passed through Loop rather than
  * loaded by the browser: the page's own CSP stays `img-src 'self'`, and the
  * publisher never sees who is reading. Only the address stored on a story of
  * a feed this owner follows is ever fetched.
@@ -1041,7 +1041,7 @@ routes.on(workspaceApi.socialOpmlImport, (req, res) => {
 routes.on(workspaceApi.socialOpmlExport, (_req, res) => {
   res
     .type("application/xml")
-    .set("content-disposition", 'attachment; filename="loop55-feeds.opml"')
+    .set("content-disposition", 'attachment; filename="loop-feeds.opml"')
     .send(
       exportOpml(
         res.locals.owner,

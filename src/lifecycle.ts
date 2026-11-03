@@ -90,7 +90,7 @@ function dead(owner: Owner) {
 const WORKSPACE_LOCK = {
   name: "host.lock",
   owner:
-    "Another Loop55 host is starting or running. Wait for it, then run loop again; no process was stopped.",
+    "Another Loop host is starting or running. Wait for it, then run loop again; no process was stopped.",
 };
 /** Complete records are installed atomically. A separate recovery lock serializes stale takeover. */
 export function workspaceLock(

@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 import { runSupervised } from "../scripts/heavy-command.mjs";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-heavy-test-"));
+const directory = mkdtempSync(join(tmpdir(), "loop-heavy-test-"));
 const moduleUrl = new URL("../scripts/heavy-command.mjs", import.meta.url).href;
 const options = {
   stdio: "ignore" as const,
@@ -34,10 +34,6 @@ test("the design entrypoint preserves the first failure when cancelling siblings
   mkdirSync(join(project, "scripts"), { recursive: true });
   mkdirSync(join(project, "runtime"));
   writeFileSync(
-    join(project, "runtime", "environment.mjs"),
-    readFileSync(new URL("../runtime/environment.mjs", import.meta.url)),
-  );
-  writeFileSync(
     join(project, "scripts", "design-browser-smoke.mjs"),
     readFileSync(
       new URL("../scripts/design-browser-smoke.mjs", import.meta.url),
@@ -49,7 +45,7 @@ test("the design entrypoint preserves the first failure when cancelling siblings
     import { appendFileSync } from 'node:fs';
     export async function runSupervised(_command, args, { signal }) {
       appendFileSync('started', args[1] + '\\n');
-      if (args[1] === 'models') return new Promise(resolve => setTimeout(() => resolve(Number(process.env.LOOP55_TEST_STATUS)), 50));
+      if (args[1] === 'models') return new Promise(resolve => setTimeout(() => resolve(Number(process.env.LOOP_TEST_STATUS)), 50));
       if (signal.aborted) return 143;
       return new Promise(resolve => signal.addEventListener('abort', () => resolve(143), { once: true }));
     }
@@ -64,8 +60,8 @@ test("the design entrypoint preserves the first failure when cancelling siblings
         cwd: project,
         env: {
           ...process.env,
-          LOOP55_BROWSER_WORKERS: "2",
-          LOOP55_TEST_STATUS: String(expected),
+          LOOP_BROWSER_WORKERS: "2",
+          LOOP_TEST_STATUS: String(expected),
         },
         stdio: "ignore",
       },
@@ -90,9 +86,9 @@ test(
       join(project, "node_modules/vitest/vitest.mjs"),
       `
     import { writeFileSync } from "node:fs";
-    writeFileSync("observed.json", JSON.stringify({ profile: process.env.LOOP55_PROFILE,
-      live: process.env.LOOP55_DATA_DIR, keep: process.env.LOOP55_TEST_KEEP,
-      reservation: process.env.LOOP55_HEAVY_SLOT, args: process.argv.slice(2) }));
+    writeFileSync("observed.json", JSON.stringify({ profile: process.env.LOOP_PROFILE,
+      live: process.env.LOOP_DATA_DIR, keep: process.env.LOOP_TEST_KEEP,
+      reservation: process.env.LOOP_HEAVY_SLOT, args: process.argv.slice(2) }));
   `,
     );
     const runner = spawn(
@@ -106,9 +102,9 @@ test(
         env: {
           ...process.env,
           XDG_RUNTIME_DIR: join(project, "runtime"),
-          LOOP55_HEAVY_RESERVE_MB: "invalid-old-setting",
-          LOOP55_DATA_DIR: "must-not-reach-tests",
-          LOOP55_TEST_KEEP: "yes",
+          LOOP_HEAVY_RESERVE_MB: "invalid-old-setting",
+          LOOP_DATA_DIR: "must-not-reach-tests",
+          LOOP_TEST_KEEP: "yes",
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -154,14 +150,14 @@ test(
           env: {
             ...process.env,
             XDG_RUNTIME_DIR: runtime,
-            LOOP55_HEAVY_RESERVE_MB: "invalid-old-setting",
+            LOOP_HEAVY_RESERVE_MB: "invalid-old-setting",
           },
           encoding: "utf8",
         },
       );
       assert.equal(checked.status, 0, checked.stderr);
       assert.equal(
-        existsSync(join(runtime, "loop55-typecheck")),
+        existsSync(join(runtime, "loop-typecheck")),
         false,
         `${extra.join(" ")} never creates a host slot`,
       );

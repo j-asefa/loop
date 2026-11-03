@@ -160,7 +160,7 @@ export function PresetTeamForm({
       }}
     >
       <p>
-        Loop55 creates {preset.roles.length} agents with these roles:{" "}
+        Loop creates {preset.roles.length} agents with these roles:{" "}
         {preset.roles.map((r) => r.name).join(", ")}. You can change their
         settings later.
       </p>

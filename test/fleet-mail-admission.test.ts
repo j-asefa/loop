@@ -23,10 +23,10 @@ import {
 import { fleetMailApi } from "../src/shared/fleet-mail-api.js";
 import { FLEET_MAIL_FILE_CHUNK_BYTES } from "../src/shared/fleet-mail-files.js";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-fleet-mail-admission-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-fleet-mail-admission-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const { db, id, now } = await import("../src/server/db.js");
 const { createAgent, ownedRun } = await import("../src/server/domain.js");
@@ -202,7 +202,7 @@ async function call(
         headers: {
           host: new URL(origin).host,
           "content-type": "application/json",
-          "x-loop55-fleet-version": "1",
+          "x-loop-fleet-version": "1",
         },
       },
       (res) => {
@@ -232,7 +232,7 @@ function agent(ownerId = owner, harness?: string) {
     ownerId,
     secrets.seal("fixture", ownerId),
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify(harness ? { loop55Harness: harness } : {}),
+    JSON.stringify(harness ? { loopHarness: harness } : {}),
     now(),
   );
   return createAgent(ownerId, {

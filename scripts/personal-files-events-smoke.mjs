@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { chromium, webkit, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
@@ -23,8 +22,8 @@ function publish(fixture, first, last) {
   }).immediate();
 }
 
-for (const engine of process.env.LOOP55_BROWSER
-  ? [process.env.LOOP55_BROWSER]
+for (const engine of process.env.LOOP_BROWSER
+  ? [process.env.LOOP_BROWSER]
   : ["chromium", "webkit"]) {
   const browser = await (engine === "webkit" ? webkit : chromium).launch({
     headless: true,
@@ -108,7 +107,7 @@ for (const engine of process.env.LOOP55_BROWSER
         await more.evaluate((button) =>
           button.addEventListener(
             "pointerdown",
-            () => window.dispatchEvent(new Event("loop55-refresh")),
+            () => window.dispatchEvent(new Event("loop-refresh")),
             { once: true },
           ),
         );
@@ -157,7 +156,7 @@ for (const engine of process.env.LOOP55_BROWSER
         const sourceReads = reads;
         await page.evaluate(() =>
           window.dispatchEvent(
-            new CustomEvent("loop55-workspace-change", {
+            new CustomEvent("loop-workspace-change", {
               detail: { sources: ["unrelated-source"] },
             }),
           ),
@@ -221,7 +220,7 @@ for (const engine of process.env.LOOP55_BROWSER
           }),
         );
         await page.evaluate(() =>
-          window.dispatchEvent(new Event("loop55-refresh")),
+          window.dispatchEvent(new Event("loop-refresh")),
         );
         await expect(page.locator(".personal-files [role=alert]")).toBeVisible({
           timeout: 20000,
@@ -272,8 +271,8 @@ for (const engine of process.env.LOOP55_BROWSER
           await thread.addInitScript(() => {
             window.__filesLastNotification = Date.now();
             for (const name of [
-              "loop55-workspace-frame",
-              "loop55-workspace-change",
+              "loop-workspace-frame",
+              "loop-workspace-change",
             ])
               window.addEventListener(name, () => {
                 window.__filesLastNotification = Date.now();
@@ -312,7 +311,7 @@ for (const engine of process.env.LOOP55_BROWSER
             url.search = "?conversation=thread";
             navigator.serviceWorker.dispatchEvent(
               new MessageEvent("message", {
-                data: { type: "loop55-open", url: url.href },
+                data: { type: "loop-open", url: url.href },
               }),
             );
           });
@@ -346,7 +345,7 @@ for (const engine of process.env.LOOP55_BROWSER
           injectFailure = true;
           await thread.evaluate(() =>
             window.dispatchEvent(
-              new CustomEvent("loop55-workspace-change", {
+              new CustomEvent("loop-workspace-change", {
                 detail: {
                   sources: [""],
                   changes: [

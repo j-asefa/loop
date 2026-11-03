@@ -183,7 +183,7 @@ export function assertFleetEffect(owner: string, kind: Kind, effectId: string) {
   if (rows.length && registeredEffectAuthority() !== fleetEffectAuthority)
     throw new ExecutionRefused(
       403,
-      "This work was authorized through a fleet. Restart Loop55 with loop55 start --fleet to run it.",
+      "This work was authorized through a fleet. Restart Loop with loop start --fleet to run it.",
     );
   for (const row of rows)
     authorizeFleetEffect(

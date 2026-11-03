@@ -31,9 +31,9 @@ import {
 export { checkoutLine };
 
 /**
- * A run's checkout record: what Loop55 itself observed in the agent's worktree
+ * A run's checkout record: what Loop itself observed in the agent's worktree
  * when the run started and when it ended. It is evidence captured with
- * read-only Git, not activity the harness reported. Loop55 never commits,
+ * read-only Git, not activity the harness reported. Loop never commits,
  * pushes, fetches or reverts here, and never runs a command the repository's
  * own configuration asks for.
  *
@@ -134,7 +134,7 @@ type GitResult = {
 };
 /**
  * Where a capture command reads its repository state from. Commands that
- * inspect the working tree run against an isolated Git directory that Loop55
+ * inspect the working tree run against an isolated Git directory that Loop
  * owns: a minimal configuration, a copy of the checkout's HEAD, index and
  * refs, and the repository's objects attached through alternates. Nothing a
  * writer can change under the repository's own .git directory (filters, diff
@@ -356,7 +356,7 @@ async function isolate(directory: string): Promise<Iso> {
     } else if (tracking?.test(key) || comparison.test(key))
       carried.set(key, value);
   }
-  const gitDir = await mkdtemp(join(tmpdir(), "loop55-checkout-"));
+  const gitDir = await mkdtemp(join(tmpdir(), "loop-checkout-"));
   const cleanup = () => {
     void rm(gitDir, { recursive: true, force: true }).catch(() => {});
   };

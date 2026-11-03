@@ -100,7 +100,7 @@ export class FleetMailDrainer {
       if (stored && !stored.settled) {
         const message =
           stored.state === "unknown"
-            ? "Delivery is unconfirmed. Loop55 will check the original destination receipt."
+            ? "Delivery is unconfirmed. Loop will check the original destination receipt."
             : error instanceof Problem && error.status === 403
               ? "The original peer grant is unavailable."
               : error instanceof Problem && error.status === 409

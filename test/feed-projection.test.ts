@@ -384,7 +384,7 @@ it("drains once for nested writes and RETURNING, and survives a writer killed be
   `,
     ],
     {
-      env: { ...process.env, LOOP55_DATA_DIR: dirname(db.name) },
+      env: { ...process.env, LOOP_DATA_DIR: dirname(db.name) },
       encoding: "utf8",
       timeout: 20_000,
     },
@@ -449,11 +449,11 @@ it("bounds dirty work for unrelated folders, queued payloads and connection scop
   }).immediate();
   const queue = () => readers.feed(OWNER, {filter:"queued"}).items.find(row => row.conversation_id === "c-queue")!;
   expect(queue().queued_runs?.at(-1)?.can_move_down).toBe(false);
-  expect(marked(() => db.prepare("UPDATE connections SET metadata=json_remove(metadata,'$.loop55Harness') WHERE id='conn-native'").run()))
+  expect(marked(() => db.prepare("UPDATE connections SET metadata=json_remove(metadata,'$.loopHarness') WHERE id='conn-native'").run()))
     .toEqual([{conversation_id:"c-queue"}, {conversation_id:"projection-peer"}]);
   expect(queue().queued_runs?.at(-1)?.can_move_down).toBe(true);
   await equivalent();
-  db.prepare("UPDATE connections SET metadata=json_set(metadata,'$.loop55Harness','codex') WHERE id='conn-native'").run();
+  db.prepare("UPDATE connections SET metadata=json_set(metadata,'$.loopHarness','codex') WHERE id='conn-native'").run();
   await equivalent();
 }, 30_000);
 

@@ -370,8 +370,8 @@ export function Tools({
         <section className="tool-sharing">
           <h3>Share tools across execution sources</h3>
           <p className="field-hint">
-            Connect a Docker Loop55 source once to let agents on either source
-            use its connected MCP tools. Accounts stay on their original source.
+            Connect a Docker Loop source once to let agents on either source use
+            its connected MCP tools. Accounts stay on their original source.
           </p>
           {sharingSources.map((source) => (
             <div className="tool-sharing-source" key={source.id}>
@@ -428,7 +428,7 @@ export function Tools({
         <section className="tool-sharing">
           <h3>Import from installed harnesses</h3>
           <p className="field-hint">
-            Choose a server to make it available to all Loop55 agents. Its
+            Choose a server to make it available to all Loop agents. Its
             configuration is read on this source; credentials stay on this
             backend and are never sent to your browser.
           </p>
@@ -447,7 +447,7 @@ export function Tools({
                     });
                     setNotice(
                       result[0]?.status === "connected"
-                        ? `${candidate.name} is available to Loop55 agents.`
+                        ? `${candidate.name} is available to Loop agents.`
                         : `${candidate.name} was saved. Test or reconnect it in Installed tools.`,
                     );
                   })
@@ -506,7 +506,7 @@ export function Tools({
             <label>
               Run command servers on
               <select value={host} onChange={(e) => setHost(e.target.value)}>
-                <option value="">Loop55 server</option>
+                <option value="">Loop server</option>
                 {hosts.map((h) => (
                   <option key={h.id} value={h.id}>
                     {h.name}

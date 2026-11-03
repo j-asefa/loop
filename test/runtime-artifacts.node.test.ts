@@ -15,9 +15,10 @@ import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import Database from "better-sqlite3";
 
-for (const name of ["loop.db", "loop55.db"]) {
-  test(`backup reads the active ${name} and preserves its contents`, () => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-backup-upgrade-"));
+{
+  const name = "loop.db";
+  test("backup reads the workspace database and preserves its contents", () => {
+    const dir = mkdtempSync(join(tmpdir(), "loop-backup-"));
     try {
       for (const file of [name, "auth.db"]) {
         const db = new Database(join(dir, file));
@@ -28,7 +29,7 @@ for (const name of ["loop.db", "loop55.db"]) {
       }
       const target = join(dir, "snapshot.db");
       execFileSync(process.execPath, [resolve("scripts/backup.mjs"), target], {
-        env: { PATH: process.env.PATH, LOOP55_DATA_DIR: dir },
+        env: { PATH: process.env.PATH, LOOP_DATA_DIR: dir },
       });
       for (const file of [target, target + "-auth.db"]) {
         const db = new Database(file, { readonly: true });
@@ -37,10 +38,6 @@ for (const name of ["loop.db", "loop55.db"]) {
         ]);
         db.close();
       }
-      if (name === "loop.db")
-        assert.throws(
-          () => new Database(join(dir, "loop55.db"), { fileMustExist: true }),
-        );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -48,14 +45,11 @@ for (const name of ["loop.db", "loop55.db"]) {
 }
 
 test("the guard copied into OpenCode imports without checkout dependencies", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-guard-upgrade-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-guard-"));
   try {
-    const file = join(dir, "loop55-execution-guard.ts");
+    const file = join(dir, "loop-execution-guard.ts");
     copyFileSync(resolve("native/opencode-execution-guard.ts"), file);
-    for (const setting of [
-      "LOOP_OPENCODE_SUBSCRIPTION_ONLY",
-      "LOOP55_OPENCODE_SUBSCRIPTION_ONLY",
-    ]) {
+    for (const setting of ["LOOP_OPENCODE_SUBSCRIPTION_ONLY"]) {
       const output = execFileSync(
         process.execPath,
         [
@@ -72,8 +66,8 @@ test("the guard copied into OpenCode imports without checkout dependencies", () 
   }
 });
 
-test("service-worker activation retires legacy shell caches and fetch uses its own cache", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-worker-upgrade-"));
+test("service-worker activation retires earlier shell caches and fetch uses its own cache", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-worker-"));
   try {
     mkdirSync(join(dir, "dist/client"), { recursive: true });
     mkdirSync(join(dir, "public"));

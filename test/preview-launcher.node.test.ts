@@ -48,7 +48,7 @@ function browser(
             ...(cookies.size
               ? { cookie: [...cookies.values()].join("; ") }
               : {}),
-            ...(csrf ? { "x-loop55-csrf": csrf } : {}),
+            ...(csrf ? { "x-loop-csrf": csrf } : {}),
             ...(data ? { "content-type": "application/json" } : {}),
           },
         },
@@ -102,7 +102,7 @@ async function fixture() {
     live = join(base, "everyday");
   await mkdir(source);
   await mkdir(live);
-  await writeFile(join(live, "sentinel"), "everyday Loop55 is untouched");
+  await writeFile(join(live, "sentinel"), "everyday Loop is untouched");
   const git = gitProject(source);
   await mkdir(join(source, "src"));
   await cp(
@@ -118,7 +118,7 @@ async function fixture() {
   await writeFile(
     join(source, "package.json"),
     JSON.stringify({
-      name: "loop55",
+      name: "loop",
       version: "0.1.0",
       type: "module",
       scripts: { build: "node build.mjs" },
@@ -165,18 +165,18 @@ else {const child=spawnSync('npm',process.argv.slice(2),{stdio:'inherit',env:{..
   const env = {
     ...process.env,
     NODE_ENV: "test",
-    LOOP55_PREVIEWS_DIR: registry,
+    LOOP_PREVIEWS_DIR: registry,
     PATH: bin + ":" + process.env.PATH,
-    LOOP55_TEST_HARNESS: "codex",
-    LOOP55_TEST_AUDIT: join(base, "prompts.log"),
-    LOOP55_HOME: live,
-    LOOP55_DATA_DIR: live,
-    LOOP55_ENCRYPTION_KEY: "invalid-inherited-key",
-    LOOP55_CONNECTION_DIR: join(live, "connection"),
-    LOOP55_CONNECTION_MANAGED: "external",
-    LOOP55_SERVICE: "systemd",
-    LOOP55_TEST_CLOUDFLARED: fake,
-    LOOP55_TEST_TUNNEL_LOG: join(base, "tunnels.log"),
+    LOOP_TEST_HARNESS: "codex",
+    LOOP_TEST_AUDIT: join(base, "prompts.log"),
+    LOOP_HOME: live,
+    LOOP_DATA_DIR: live,
+    LOOP_ENCRYPTION_KEY: "invalid-inherited-key",
+    LOOP_CONNECTION_DIR: join(live, "connection"),
+    LOOP_CONNECTION_MANAGED: "external",
+    LOOP_SERVICE: "systemd",
+    LOOP_TEST_CLOUDFLARED: fake,
+    LOOP_TEST_TUNNEL_LOG: join(base, "tunnels.log"),
   };
   const loop = (...args: string[]) =>
     exec(process.execPath, [cli, "preview", ...args], {
@@ -624,7 +624,7 @@ syncBuiltinESMExports();`,
       );
       assert.equal((await samplePhone.send("GET", "/session")).status, 200);
       assert.equal((await localPhone.send("GET", "/session")).status, 200);
-      if (process.env.LOOP55_TEST_PREVIEW_BROWSER === "1") {
+      if (process.env.LOOP_TEST_PREVIEW_BROWSER === "1") {
         const link = (await f.loop("open", "other")).stdout.match(
           /http:\/\/[^\s]+#pair=[\w-]+/,
         )![0];
@@ -645,7 +645,7 @@ syncBuiltinESMExports();`,
           page.on("pageerror", (e) => errors.push(e.message));
           await page.goto(link);
           await page
-            .getByRole("button", { name: "Pair and open Loop55" })
+            .getByRole("button", { name: "Pair and open Loop" })
             .click();
           await page.getByText("Preview · other", { exact: true }).waitFor();
           await page
@@ -658,7 +658,7 @@ syncBuiltinESMExports();`,
             )![0],
           );
           await second
-            .getByRole("button", { name: "Pair and open Loop55" })
+            .getByRole("button", { name: "Pair and open Loop" })
             .click();
           await second.getByText("Preview · branch", { exact: true }).waitFor();
           await page.reload();
@@ -869,8 +869,8 @@ syncBuiltinESMExports();`,
         exec(process.execPath, [cli, "server"], {
           env: {
             ...process.env,
-            LOOP55_DATA_DIR: previewData,
-            LOOP55_PREVIEW_MANIFEST: "",
+            LOOP_DATA_DIR: previewData,
+            LOOP_PREVIEW_MANIFEST: "",
           },
           timeout: 10000,
         }),
@@ -911,7 +911,7 @@ syncBuiltinESMExports();`,
       );
       assert.equal(
         await readFile(join(f.live, "sentinel"), "utf8"),
-        "everyday Loop55 is untouched",
+        "everyday Loop is untouched",
       );
       assert(!existsSync(join(f.live, "workspace")));
       assert(!existsSync(join(f.live, "connection")));
@@ -985,7 +985,7 @@ test(
       assert(!existsSync(join(f.live, "workspace")));
       const previewDir = join(f.registry, "previews", "working");
       const db = new Database(
-        join(previewDir, "runtime", "workspace", "loop55.db"),
+        join(previewDir, "runtime", "workspace", "loop.db"),
       );
       const pending = randomUUID();
       try {

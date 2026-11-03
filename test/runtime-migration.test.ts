@@ -6,9 +6,9 @@ import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
 it("clears legacy conversation hiding without guessing which Done card was dismissed", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-done-card-migration-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-done-card-migration-"));
   try {
-    const db = new Database(join(dir, "loop55.db"));
+    const db = new Database(join(dir, "loop.db"));
     db.exec(
       "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
     );
@@ -35,7 +35,7 @@ it("clears legacy conversation hiding without guessing which Done card was dismi
       ],
       {
         cwd: resolve("."),
-        env: { ...process.env, LOOP55_PROFILE: "server", LOOP55_DATA_DIR: dir },
+        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
         encoding: "utf8",
       },
     );
@@ -51,9 +51,9 @@ it("clears legacy conversation hiding without guessing which Done card was dismi
 
 for (const branch of ["main", "hapi"] as const)
   it(`migrates the ${branch} session schema without losing its history`, () => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-schema-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop-schema-"));
     try {
-      const db = new Database(join(dir, "loop55.db"));
+      const db = new Database(join(dir, "loop.db"));
       db.exec(
         "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
       );
@@ -95,8 +95,8 @@ for (const branch of ["main", "hapi"] as const)
           cwd: resolve("."),
           env: {
             ...process.env,
-            LOOP55_PROFILE: "server",
-            LOOP55_DATA_DIR: dir,
+            LOOP_PROFILE: "server",
+            LOOP_DATA_DIR: dir,
           },
           encoding: "utf8",
         },
@@ -119,9 +119,9 @@ for (const [label, [trust, recovery], before] of [
   ["42/43", [42, 43], 41],
 ] as const)
   it(`upgrades databases created by the Pi branch's ${label} migration numbers`, () => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-pi-schema-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop-pi-schema-"));
     try {
-      const db = new Database(join(dir, "loop55.db"));
+      const db = new Database(join(dir, "loop.db"));
       db.exec(
         "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
       );
@@ -159,8 +159,8 @@ for (const [label, [trust, recovery], before] of [
           cwd: resolve("."),
           env: {
             ...process.env,
-            LOOP55_PROFILE: "server",
-            LOOP55_DATA_DIR: dir,
+            LOOP_PROFILE: "server",
+            LOOP_DATA_DIR: dir,
           },
           encoding: "utf8",
         },
@@ -182,9 +182,9 @@ for (const [label, [trust, recovery], before] of [
   });
 
 it("upgrades databases that ran the trace-envelope cleanup as migration 45", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-envelope-schema-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-envelope-schema-"));
   try {
-    const db = new Database(join(dir, "loop55.db"));
+    const db = new Database(join(dir, "loop.db"));
     db.exec(
       "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
     );
@@ -213,7 +213,7 @@ it("upgrades databases that ran the trace-envelope cleanup as migration 45", () 
       ],
       {
         cwd: resolve("."),
-        env: { ...process.env, LOOP55_PROFILE: "server", LOOP55_DATA_DIR: dir },
+        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
         encoding: "utf8",
       },
     );
@@ -287,11 +287,9 @@ it("applies agent mail and feed archive migrations in either upgrade order", () 
 });
 
 it("repairs workspaces that recorded migration 37 without its conversation positions table", () => {
-  const dir = mkdtempSync(
-    join(tmpdir(), "loop55-conversation-position-repair-"),
-  );
+  const dir = mkdtempSync(join(tmpdir(), "loop-conversation-position-repair-"));
   try {
-    const db = new Database(join(dir, "loop55.db"));
+    const db = new Database(join(dir, "loop.db"));
     db.exec(
       "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
     );
@@ -314,7 +312,7 @@ it("repairs workspaces that recorded migration 37 without its conversation posit
       ],
       {
         cwd: resolve("."),
-        env: { ...process.env, LOOP55_PROFILE: "server", LOOP55_DATA_DIR: dir },
+        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
         encoding: "utf8",
       },
     );
@@ -330,11 +328,9 @@ it("repairs workspaces that recorded migration 37 without its conversation posit
 });
 
 it("preserves permission-branch databases that used feed migration number 51", () => {
-  const dir = mkdtempSync(
-    join(tmpdir(), "loop55-permission-migration-repair-"),
-  );
+  const dir = mkdtempSync(join(tmpdir(), "loop-permission-migration-repair-"));
   try {
-    const db = new Database(join(dir, "loop55.db"));
+    const db = new Database(join(dir, "loop.db"));
     db.exec(
       "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
     );
@@ -359,7 +355,7 @@ it("preserves permission-branch databases that used feed migration number 51", (
       ],
       {
         cwd: resolve("."),
-        env: { ...process.env, LOOP55_PROFILE: "server", LOOP55_DATA_DIR: dir },
+        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
         encoding: "utf8",
       },
     );

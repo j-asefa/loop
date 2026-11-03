@@ -27,10 +27,10 @@ import { Codex } from "../src/adapters/codex.js";
 import { FleetAdminState } from "../src/shared/fleet-admin-api.js";
 import { mailConversationTarget } from "../src/client/mailReferences.js";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-fleet-mail-outgoing-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-fleet-mail-outgoing-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { FleetCredentialHttpTransport } =
   await import("../src/server/fleet-credential-http.js");
 const { FleetMailHttpTransport } =
@@ -223,7 +223,7 @@ const fetcher: typeof PeerFetch = async (url, options) => {
           headers: {
             host: target.host,
             "content-type": "application/json",
-            "x-loop55-fleet-version": "1",
+            "x-loop-fleet-version": "1",
           },
         },
         (res) => {
@@ -304,7 +304,7 @@ function source(harness?: string) {
     owner,
     secrets.seal("fixture", owner),
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify(harness ? { loop55Harness: harness } : {}),
+    JSON.stringify(harness ? { loopHarness: harness } : {}),
     now(),
   );
   const agent = createAgent(owner, {

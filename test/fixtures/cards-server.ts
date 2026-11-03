@@ -7,10 +7,8 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { join } from "node:path";
 const source =
-  process.env.LOOP55_TEST_CARDS_SOURCE ||
-  (process.env.LOOP55_TEST_CARDS_COMPILED === "1"
-    ? "../../dist/"
-    : "../../src/");
+  process.env.LOOP_TEST_CARDS_SOURCE ||
+  (process.env.LOOP_TEST_CARDS_COMPILED === "1" ? "../../dist/" : "../../src/");
 const { config } = await import(source + "server/config.js");
 const { db, changes } = await import(source + "server/db.js");
 installTokenCompletionHook(db);
@@ -26,7 +24,7 @@ function observeTokenSocket(req: IncomingMessage, socket: Duplex) {
   tokenSockets.add(socket);
   socket.once("close", () => tokenSockets.delete(socket));
 }
-if (process.env.LOOP55_PROFILE === "companion") {
+if (process.env.LOOP_PROFILE === "companion") {
   const { WorkspaceHost } = await import(source + "workspace-host.js");
   const { OWNER } = await import(source + "server/native-sessions.js");
   const host = new WorkspaceHost(config.data, {
@@ -45,7 +43,7 @@ if (process.env.LOOP55_PROFILE === "companion") {
     observeTokenSocket(req, socket);
     upgrade(req, socket, head);
   };
-  if (process.env.LOOP55_TEST_CARDS_RELAY === "1") {
+  if (process.env.LOOP_TEST_CARDS_RELAY === "1") {
     const { Relay } = await import(source + "relay.js");
     const relay = new Relay();
     const path = join(config.data, "gateway.sock");
@@ -54,7 +52,7 @@ if (process.env.LOOP55_PROFILE === "companion") {
     // Model the TLS edge: the local relay receives HTTP with the public HTTPS
     // Host/Origin, just as it does behind cloudflared. No live tunnel is used.
     transportOrigin = "http://127.0.0.1:" + relay.port;
-    origin = "https://cards-fixture.loop55.test";
+    origin = "https://cards-fixture.loop.test";
     host.setOrigin(origin);
     relay.setBackend({ generation: 1, path });
     close = async () => {

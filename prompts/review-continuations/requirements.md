@@ -1,6 +1,6 @@
 # Required behavior and scope
 
-The primary scope is `loop55_request_review` and the subsequent consolidated snapshot-review outcome. It is not generic polling of GitHub PR reviews or redesign of every background task. The implementation must work independently of which supported harness requested the review.
+The primary scope is `loop_request_review` and the subsequent consolidated snapshot-review outcome. It is not generic polling of GitHub PR reviews or redesign of every background task. The implementation must work independently of which supported harness requested the review.
 
 ## Observable contract
 

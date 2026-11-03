@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-memory-capture-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-memory-capture-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { captureMemory } = await import("../src/server/memory");
 
@@ -89,7 +89,7 @@ it("does not let another owner's saved source suppress capture", () => {
     mid = message(alice, "Owner-specific answer");
   db.prepare(
     `INSERT INTO memory_sources(id,owner_id,kind,source_id,origin,role,revision,content_hash,content,title,eligible,created_at,updated_at)
-    VALUES(?,?,'message',?,'loop55','user',1,'existing',?,'Other owner',1,?,?)`,
+    VALUES(?,?,'message',?,'loop','user',1,'existing',?,'Other owner',1,?,?)`,
   ).run(id(), bob, mid, "Owner-specific answer", now(), now() + 1000);
   captureMemory();
   expect(

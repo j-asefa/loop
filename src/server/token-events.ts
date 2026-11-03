@@ -213,7 +213,7 @@ export function createTokenEventSockets(
       socket.on("error", () => socket.destroy());
       try {
         if (closing) throw new Problem(503, "Server is shutting down");
-        const url = new URL(req.url || "", "http://loop55");
+        const url = new URL(req.url || "", "http://loop");
         const query = workspaceApi.channels.tokenEvents.query.safeParse(
           Object.fromEntries(url.searchParams),
         );
@@ -257,7 +257,7 @@ export function createTokenEventSockets(
             streams.set(tokenId, stream);
             stream.start();
             const replay = new URL(
-              "http://loop55/api/events/stream?v=3&projection=1",
+              "http://loop/api/events/stream?v=3&projection=1",
             );
             replay.searchParams.set(
               "cursor",

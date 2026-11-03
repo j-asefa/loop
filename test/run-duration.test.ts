@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-run-duration-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP55_RUNTIME_URL = "http://runtime.fixture";
-process.env.LOOP55_RUNTIME_TOKEN =
+const dir = mkdtempSync(join(tmpdir(), "loop-run-duration-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_RUNTIME_URL = "http://runtime.fixture";
+process.env.LOOP_RUNTIME_TOKEN =
   "duration-fixture-token-with-at-least-32-characters";
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");

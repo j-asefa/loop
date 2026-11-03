@@ -33,9 +33,9 @@ for (const [name, route] of Object.entries(fleetGatewayApi)) {
       description:
         "Available only through the companion Host's local paired-device boundary. Peers, Cards tokens, server sessions and previews cannot authorize this route. " +
         (mutation
-          ? "Requires matching Origin and X-Loop55-CSRF; the local owner is selected by the host."
+          ? "Requires matching Origin and X-Loop-CSRF; the local owner is selected by the host."
           : "Reads explicit public fields for the local owner."),
-      "x-loop55-access": route.access,
+      "x-loop-access": route.access,
       security: [
         mutation ? { LocalDevice: [], LocalCSRF: [] } : { LocalDevice: [] },
       ],
@@ -83,7 +83,7 @@ for (const [name, route] of Object.entries(fleetGatewayApi)) {
 const document = {
   openapi: "3.1.0",
   info: {
-    title: "Loop55 local fleet command receipts",
+    title: "Loop local fleet command receipts",
     version: "1",
     description:
       "Receipt lookup for a paired device on this gateway. The immutable destination, command ID, route and payload digest select an original receipt; no action body is retained or replayed. Bodies are bounded to 4 KiB, with 16 active requests and a 45-second deadline.",
@@ -92,8 +92,8 @@ const document = {
   components: {
     schemas,
     securitySchemes: {
-      LocalDevice: { type: "apiKey", in: "cookie", name: "__Host-loop55" },
-      LocalCSRF: { type: "apiKey", in: "header", name: "X-Loop55-CSRF" },
+      LocalDevice: { type: "apiKey", in: "cookie", name: "__Host-loop" },
+      LocalCSRF: { type: "apiKey", in: "header", name: "X-Loop-CSRF" },
     },
   },
 };

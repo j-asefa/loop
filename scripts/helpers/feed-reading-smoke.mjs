@@ -87,7 +87,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   for (const [filter, state] of [
     ["done", "completed"],
@@ -167,7 +167,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
         );
       seedCheck(item, "npm test", "test", "passed", 0);
       await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop55-source-refresh")),
+        window.dispatchEvent(new Event("loop-source-refresh")),
       );
       await expect(
         reader.locator(".checkout-chip, .verification-chip"),
@@ -214,9 +214,9 @@ export async function feedReadingSmoke(page, fixture, capture) {
   const draft = "An unsent follow-up.\n\n" + "Draft details. ".repeat(30);
   await page.evaluate(
     ({ owner, id, draft }) => {
-      localStorage.setItem(`loop55-draft-text:${owner}:${id}`, draft);
+      localStorage.setItem(`loop-draft-text:${owner}:${id}`, draft);
       localStorage.setItem(
-        `loop55-draft-text:another-owner:${id}`,
+        `loop-draft-text:another-owner:${id}`,
         "Private draft",
       );
     },

@@ -74,7 +74,7 @@ const handlers: Handlers = {
   "runtime.enable": runtimeEnable,
   "runtime.refresh": ({ connectionId }) => {
     const connection = ownedConnection(connectionId, OWNER);
-    const name = connection.metadata.loop55Harness;
+    const name = connection.metadata.loopHarness;
     if (!name) throw new Problem(409, "Connection has no native harness");
     return nativeSessions.enable(nativeSessions.registration(name));
   },

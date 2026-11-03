@@ -18,15 +18,15 @@ import { createHash, randomUUID } from "node:crypto";
 import { gitProject } from "./git-project.js";
 import { until } from "./helpers.js";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-authority-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = join(directory, "data");
-process.env.LOOP55_TEST_HARNESS = "claude";
-process.env.LOOP55_TEST_PROBE_AUDIT = join(directory, "probes");
-process.env.LOOP55_TEST_PROBE_FAIL_FILE = join(directory, "refuse-probe");
-process.env.LOOP55_TEST_AUDIT = join(directory, "prompts");
-process.env.LOOP55_TEST_SETTING_AUDIT = join(directory, "settings");
-process.env.LOOP55_TEST_SETTING_DROP = "1";
+const directory = mkdtempSync(join(tmpdir(), "loop-authority-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = join(directory, "data");
+process.env.LOOP_TEST_HARNESS = "claude";
+process.env.LOOP_TEST_PROBE_AUDIT = join(directory, "probes");
+process.env.LOOP_TEST_PROBE_FAIL_FILE = join(directory, "refuse-probe");
+process.env.LOOP_TEST_AUDIT = join(directory, "prompts");
+process.env.LOOP_TEST_SETTING_AUDIT = join(directory, "settings");
+process.env.LOOP_TEST_SETTING_DROP = "1";
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db } = await import("../src/server/db.js");
 const { executionAuthority } =
@@ -88,7 +88,7 @@ test(
         headers: {
           cookie,
           Origin: origin,
-          "x-loop55-csrf": csrf,
+          "x-loop-csrf": csrf,
           "Content-Type": "application/json",
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -112,7 +112,7 @@ test(
       (folder: { path?: string }) => folder.path === project,
     ).id;
     const countProbes = () =>
-      readFileSync(process.env.LOOP55_TEST_PROBE_AUDIT!, "utf8")
+      readFileSync(process.env.LOOP_TEST_PROBE_AUDIT!, "utf8")
         .trim()
         .split("\n").length;
 
@@ -258,7 +258,7 @@ test(
         };
         const before = countProbes();
         writeFileSync(
-          process.env.LOOP55_TEST_PROBE_FAIL_FILE!,
+          process.env.LOOP_TEST_PROBE_FAIL_FILE!,
           "fixture startup refuses before any task prompt",
         );
         try {
@@ -272,7 +272,7 @@ test(
           assert.match(refusal.error, /No prompt was sent/);
           assert.match(refusal.error, /Provider connections/);
         } finally {
-          unlinkSync(process.env.LOOP55_TEST_PROBE_FAIL_FILE!);
+          unlinkSync(process.env.LOOP_TEST_PROBE_FAIL_FILE!);
         }
         assert.equal(countProbes(), before + 1);
         assert.equal(
@@ -280,7 +280,7 @@ test(
           "claude",
         );
         assert.equal(countProbes(), before + 2);
-        assert.equal(existsSync(process.env.LOOP55_TEST_AUDIT!), false);
+        assert.equal(existsSync(process.env.LOOP_TEST_AUDIT!), false);
       },
     );
     await t.test(
@@ -523,7 +523,7 @@ test(
         assert.equal((await api(path)).generation, input.generation);
         controls = await api(path + "/mode", input, "PATCH");
         assert.equal(
-          readFileSync(process.env.LOOP55_TEST_SETTING_AUDIT!, "utf8"),
+          readFileSync(process.env.LOOP_TEST_SETTING_AUDIT!, "utf8"),
           "default\n",
         );
       },
@@ -562,7 +562,7 @@ test(
           "acceptEdits",
         );
         assert.equal(
-          readFileSync(process.env.LOOP55_TEST_SETTING_AUDIT!, "utf8"),
+          readFileSync(process.env.LOOP_TEST_SETTING_AUDIT!, "utf8"),
           "default\nacceptEdits\n",
         );
         normal();
@@ -667,7 +667,7 @@ test(
         assert.equal(retry.status, 409);
         assert.match((await retry.json()).error, /unknown.*not replayed/i);
         assert.equal(
-          readFileSync(process.env.LOOP55_TEST_SETTING_AUDIT!, "utf8"),
+          readFileSync(process.env.LOOP_TEST_SETTING_AUDIT!, "utf8"),
           "default\nacceptEdits\n",
         );
       },
@@ -689,7 +689,7 @@ test(
         assert.equal(retry.status, 409);
         assert.match((await retry.json()).error, /unknown.*not replayed/i);
         assert.equal(
-          readFileSync(process.env.LOOP55_TEST_SETTING_AUDIT!, "utf8"),
+          readFileSync(process.env.LOOP_TEST_SETTING_AUDIT!, "utf8"),
           "default\nacceptEdits\nplan\n",
         );
       },

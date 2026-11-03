@@ -6,7 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 export async function discover(text, bridge, pi = false) {
-  const audit = process.env.LOOP55_TEST_FLEET_DISCOVERY_AUDIT;
+  const audit = process.env.LOOP_TEST_FLEET_DISCOVERY_AUDIT;
   let client;
   try {
     assert(bridge?.url, "The adapter did not supply its private tool endpoint");
@@ -30,7 +30,7 @@ export async function discover(text, bridge, pi = false) {
         }
       : undefined;
     if (!pi) {
-      client = new Client({ name: "loop55-fleet-fixture", version: "1" });
+      client = new Client({ name: "loop-fleet-fixture", version: "1" });
       await client.connect(
         new StreamableHTTPClientTransport(target, {
           requestInit: { headers },
@@ -40,7 +40,7 @@ export async function discover(text, bridge, pi = false) {
     const catalog = pi
       ? await call({ method: "tools/list" })
       : await client.listTools();
-    assert(catalog.tools.some((tool) => tool.name === "loop55_agents"));
+    assert(catalog.tools.some((tool) => tool.name === "loop_agents"));
     const invoke = async (name, args, id) => {
       const result = pi
         ? await call({
@@ -55,14 +55,14 @@ export async function discover(text, bridge, pi = false) {
         result.content.find((item) => item.type === "text").text,
       );
     };
-    const local = await invoke("loop55_agents", {}, "local-discover");
+    const local = await invoke("loop_agents", {}, "local-discover");
     const sourceId = text.slice("Fleet discovery fixture: ".length).trim();
-    const remote = await invoke("loop55_agents", { sourceId }, "peer-discover");
+    const remote = await invoke("loop_agents", { sourceId }, "peer-discover");
     let mail;
-    if (process.env.LOOP55_TEST_FLEET_MAIL_SEND === "1") {
+    if (process.env.LOOP_TEST_FLEET_MAIL_SEND === "1") {
       const to = remote.agents[0].agentId;
       const sent = await invoke(
-        "loop55_message",
+        "loop_message",
         {
           to,
           scope: "direct",
@@ -72,7 +72,7 @@ export async function discover(text, bridge, pi = false) {
       );
       assert.equal(sent.delivery, "transport_pending");
       const handoff = await invoke(
-        "loop55_handoff",
+        "loop_handoff",
         {
           to,
           threadId: sent.threadId,
@@ -84,7 +84,7 @@ export async function discover(text, bridge, pi = false) {
       );
       assert.equal(handoff.delivery, "transport_pending");
       const status = await invoke(
-        "loop55_message_status",
+        "loop_message_status",
         {
           threadId: sent.threadId,
         },
@@ -116,7 +116,7 @@ export async function discover(text, bridge, pi = false) {
 }
 
 export const acpBridge = (servers) => {
-  const server = servers?.find((item) => item.name === "loop55-workspace");
+  const server = servers?.find((item) => item.name === "loop-workspace");
   return (
     server && {
       url: server.url,

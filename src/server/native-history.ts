@@ -63,7 +63,7 @@ export function historyActivities(thread: any): ActivityUpdate[] {
         );
   return updates.slice(-500);
 }
-// Read-only view for a thread Loop55 does not own, folded by the shared reducer.
+// Read-only view for a thread Loop does not own, folded by the shared reducer.
 export function historyProjection(thread: any) {
   const records = reduceActivities(
     historyActivities(thread).map((update) => ({ update, turn: "history" })),

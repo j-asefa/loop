@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Rpc } from "../runtime/protocol.ts";
-const home = mkdtempSync(join(tmpdir(), "loop55-shared-codex-smoke-"));
+const home = mkdtempSync(join(tmpdir(), "loop-shared-codex-smoke-"));
 mkdirSync(join(home, ".codex"));
 const child = spawn(
   "codex",
@@ -32,7 +32,7 @@ const rpc = new Rpc(child);
 const timer = setTimeout(() => child.kill("SIGKILL"), 30000);
 try {
   await rpc.call("initialize", {
-    clientInfo: { name: "loop55-smoke", version: "0.2.0" },
+    clientInfo: { name: "loop-smoke", version: "0.2.0" },
   });
   rpc.send({ method: "initialized", params: {} });
   const start = async (name) => {
@@ -45,7 +45,7 @@ try {
       ephemeral: true,
       config: {
         forced_login_method: "chatgpt",
-        "shell_environment_policy.set": { LOOP55_SMOKE_MARKER: name },
+        "shell_environment_policy.set": { LOOP_SMOKE_MARKER: name },
       },
     });
   };
@@ -61,7 +61,7 @@ try {
     [a, b].map(({ thread }) =>
       rpc.call("thread/shellCommand", {
         threadId: thread.id,
-        command: 'printf "%s:%s" "$LOOP55_SMOKE_MARKER" "$PWD"',
+        command: 'printf "%s:%s" "$LOOP_SMOKE_MARKER" "$PWD"',
         timeoutMs: 5000,
       }),
     ),

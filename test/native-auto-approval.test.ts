@@ -18,8 +18,8 @@ import {
 } from "../src/shared/personal-decisions";
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
 import codexReviewApproval from "./fixtures/codex-review-approval.json" with { type: "json" };
-const dir = mkdtempSync(join(tmpdir(), "loop55-auto-approval-"));
-process.env.LOOP55_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop-auto-approval-"));
+process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
@@ -219,7 +219,7 @@ function fileApproval(bytes = 100000) {
   return {
     ...codexToolApproval,
     message:
-      'Allow the loop55_workspace MCP server to run tool "loop55_publish_file"?',
+      'Allow the loop_workspace MCP server to run tool "loop_publish_file"?',
     _meta: {
       codex_approval_kind: "mcp_tool_call",
       tool_params: { title: "preview.png", encoding: "base64", content },

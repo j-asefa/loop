@@ -231,7 +231,7 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
   // refresh failure blocks creation and never silently uses the old catalog.
   fixture.db
     .prepare(
-      "UPDATE connections SET metadata=json_set(metadata,'$.loop55Harness','codex') WHERE id=?",
+      "UPDATE connections SET metadata=json_set(metadata,'$.loopHarness','codex') WHERE id=?",
     )
     .run(connection.id);
   let catalogRequests = 0;

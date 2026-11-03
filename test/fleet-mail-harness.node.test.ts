@@ -15,21 +15,21 @@ import Database from "better-sqlite3";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-mail-harness-"));
+const root = mkdtempSync(join(tmpdir(), "loop-mail-harness-"));
 const project = join(root, "project");
 mkdirSync(project);
 gitProject(project);
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = join(root, "data");
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER = resolve(
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = join(root, "data");
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER = resolve(
   "test/fixtures/fleet-discovery-client.mjs",
 );
-process.env.LOOP55_TEST_FLEET_ACCEPTANCE_HELPER = resolve(
+process.env.LOOP_TEST_FLEET_ACCEPTANCE_HELPER = resolve(
   "test/fixtures/fleet-acceptance-client.mjs",
 );
-process.env.LOOP55_TEST_MUSE_DIR = root;
-process.env.LOOP55_TEST_FLEET_MAIL_SEND = "1";
+process.env.LOOP_TEST_MUSE_DIR = root;
+process.env.LOOP_TEST_FLEET_MAIL_SEND = "1";
 writeFileSync(
   join(root, "muse-credential.json"),
   JSON.stringify({ state: "accountLogin" }),
@@ -93,11 +93,11 @@ for (const harness of [
     `${harness} discovers peers and persists remote mail, handoff and status through its production native bridge`,
     { timeout: 60_000 },
     async (t) => {
-      process.env.LOOP55_TEST_HARNESS = harness;
+      process.env.LOOP_TEST_HARNESS = harness;
       const auditPath = join(root, `${harness}-discovery.jsonl`);
-      process.env.LOOP55_TEST_FLEET_DISCOVERY_AUDIT = auditPath;
+      process.env.LOOP_TEST_FLEET_DISCOVERY_AUDIT = auditPath;
       const acceptanceAudit = join(root, `${harness}-acceptance.jsonl`);
-      process.env.LOOP55_TEST_FLEET_ACCEPTANCE_AUDIT = acceptanceAudit;
+      process.env.LOOP_TEST_FLEET_ACCEPTANCE_AUDIT = acceptanceAudit;
       const execution = new ExecutionProcess();
       t.after(() => execution.close());
       const machineId = peer.identity.machineId,
@@ -163,7 +163,7 @@ for (const harness of [
       });
       const connection = db
         .prepare(
-          "SELECT id FROM connections WHERE owner_id=? AND json_extract(metadata,'$.loop55Harness')=?",
+          "SELECT id FROM connections WHERE owner_id=? AND json_extract(metadata,'$.loopHarness')=?",
         )
         .get(OWNER, harness) as { id: string };
       assert(connection);

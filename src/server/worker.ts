@@ -84,7 +84,7 @@ export async function tick(
         "connections",
         p.connectionId || "",
         "metadata",
-      ).loop55Harness || "";
+      ).loopHarness || "";
     return (
       !harnessUpgrades.busy(harness) &&
       !providerChangeInProgress(harness) &&
@@ -120,7 +120,7 @@ export async function tick(
         ? error.message
         : errorSummary(error, [], false) === "Error"
           ? UNKNOWN_RUN_FAILURE
-          : `Loop55 could not complete this run (${errorSummary(error, [], false)}). Review any saved progress before retrying.`;
+          : `Loop could not complete this run (${errorSummary(error, [], false)}). Review any saved progress before retrying.`;
     // A released or replaced lease cannot fail its former work. Keep the
     // lease check and failure transition atomic across API/worker processes.
     db.transaction(() => {
@@ -369,5 +369,5 @@ if (process.argv[1]?.match(/\/worker\.(ts|js)$/)) {
   const stop = startWorker();
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.once(signal, () => void stop());
-  console.log("Loop55 worker ready");
+  console.log("Loop worker ready");
 }

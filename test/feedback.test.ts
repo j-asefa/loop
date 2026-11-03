@@ -8,11 +8,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ownInstructions } from "./helpers/instructions";
-const dir = mkdtempSync(join(tmpdir(), "loop55-feedback-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP55_RUNTIME_URL = "http://127.0.0.1:31999";
-process.env.LOOP55_RUNTIME_TOKEN =
+const dir = mkdtempSync(join(tmpdir(), "loop-feedback-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_RUNTIME_URL = "http://127.0.0.1:31999";
+process.env.LOOP_RUNTIME_TOKEN =
   "fixture-runtime-token-with-at-least-32-characters";
 vi.mock("../src/server/local-embeddings.js", () => ({
   localModel: "local:all-MiniLM-L6-v2:q8",
@@ -253,7 +253,7 @@ it("runs worker tasks, resumes the manager with results, and filters team feeds 
         yield {
           toolCall: {
             id: "delegate_test_%",
-            name: "loop55_delegate",
+            name: "loop_delegate",
             arguments: {
               tasks: [
                 { agentId: first.id, input: "Research the question" },
@@ -369,13 +369,13 @@ it("avoids cross-team manager deadlocks and cancels only the selected team's chi
     },
     async *stream(_key, input) {
       if (
-        input.tools?.some((t) => t.name === "loop55_delegate") &&
+        input.tools?.some((t) => t.name === "loop_delegate") &&
         !input.messages.some((m) => m.role === "tool")
       )
         yield {
           toolCall: {
             id: "reciprocal-delegate",
-            name: "loop55_delegate",
+            name: "loop_delegate",
             arguments: {
               tasks: [
                 {
@@ -471,7 +471,7 @@ it("accepts the reported Playwright JSON, rejects invalid blocks, and requires a
   const claimed = claim("installer")!;
   expect(claimed.id).toBe(run.id);
   const currentBinding = nativeBindings(claimed).find(
-    (b) => b.tool === "loop55_install_mcp",
+    (b) => b.tool === "loop_install_mcp",
   )!;
   const binding = {
     ...currentBinding,
@@ -554,7 +554,7 @@ it("creates native diagrams without a provider or external MCP call", async () =
     });
   const run = claim("diagram")!;
   expect(run.id).toBe(submitted.id);
-  const binding = nativeBindings(run).find((b) => b.tool === "loop55_diagram")!;
+  const binding = nativeBindings(run).find((b) => b.tool === "loop_diagram")!;
   const result = await invokeNative(run, binding, "diagram", {
     title: "Flow",
     source: "flowchart TD\nA[Start] --> B[Finish]",

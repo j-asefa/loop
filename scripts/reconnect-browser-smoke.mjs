@@ -1,5 +1,4 @@
-import "../runtime/environment.mjs";
-// A paired mobile browser across `loop55 restart`, through the shipped CLI, the
+// A paired mobile browser across `loop restart`, through the shipped CLI, the
 // connection service and a local TLS edge standing in for Cloudflare. The
 // tunnel helper is the deterministic fixture; this is not live-network evidence.
 import { chromium, webkit, expect } from "@playwright/test";
@@ -23,7 +22,7 @@ import { join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 const exec = promisify(execFile);
-const base = await mkdtemp(join(tmpdir(), "loop55-reconnect-browser-"));
+const base = await mkdtemp(join(tmpdir(), "loop-reconnect-browser-"));
 // Rebuild a disposable installation without replacing the developer's dist or
 // inheriting the checkout's Git identity. Both builds use the shipped CLI.
 const installation = join(base, "installation");
@@ -58,7 +57,7 @@ await exec("git", [
   "-C",
   project,
   "-c",
-  "user.name=Loop55 fixture",
+  "user.name=Loop fixture",
   "-c",
   "user.email=fixture@example.test",
   "commit",
@@ -72,9 +71,9 @@ await chmod(fixture, 0o755);
 await chmod("test/fixtures/fake-cloudflared.mjs", 0o755);
 const env = {
   ...testEnvironment(process.env, "native"),
-  LOOP55_HOME: join(base, "state"),
-  LOOP55_TEST_HARNESS: "codex",
-  LOOP55_TEST_CLOUDFLARED: resolve("test/fixtures/fake-cloudflared.mjs"),
+  LOOP_HOME: join(base, "state"),
+  LOOP_TEST_HARNESS: "codex",
+  LOOP_TEST_CLOUDFLARED: resolve("test/fixtures/fake-cloudflared.mjs"),
 };
 const loop = (...args) =>
   exec(process.execPath, ["dist/cli.js", ...args], {
@@ -147,7 +146,7 @@ try {
   )[0];
   const before = await status();
   relayPort = Number(new URL(before.connection.service.relay).port);
-  const engine = process.env.LOOP55_BROWSER === "webkit" ? webkit : chromium;
+  const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
   browser = await engine.launch({
     headless: true,
     proxy: { server: `http://127.0.0.1:${proxy.address().port}` },
@@ -192,7 +191,7 @@ try {
   );
   const enrollmentCapability = fleetEnrollmentFromLink(pairUrl).enrollment;
   await expect(
-    page.getByRole("button", { name: "Pair and open Loop55" }),
+    page.getByRole("button", { name: "Pair and open Loop" }),
   ).toBeVisible();
   assert.equal(
     new URL(page.url()).hash,
@@ -204,7 +203,7 @@ try {
       new URL(request.url()).pathname === "/pair" &&
       request.method() === "POST",
   );
-  await page.getByRole("button", { name: "Pair and open Loop55" }).click();
+  await page.getByRole("button", { name: "Pair and open Loop" }).click();
   const submitted = (await pairRequest).postDataJSON();
   assert.deepEqual(submitted, { ...deviceCapability, name: "Phone" });
   assert(
@@ -247,7 +246,7 @@ try {
             method: "POST",
             headers: {
               "content-type": "application/json",
-              "x-loop55-csrf": token,
+              "x-loop-csrf": token,
             },
             body: JSON.stringify(b),
           })
@@ -298,7 +297,7 @@ try {
   // The thread is a modal sheet: the notice must show inside it, not behind it.
   const sheet = page.getByRole("dialog");
   await expect(
-    sheet.getByRole("status").filter({ hasText: /Loop55 is reconnecting/ }),
+    sheet.getByRole("status").filter({ hasText: /Loop is reconnecting/ }),
   ).toBeVisible({
     timeout: 30000,
   });
@@ -318,7 +317,7 @@ try {
   assert.equal(page.url(), location);
   await expect(reply).toHaveValue("draft typed before the restart");
   await expect(
-    page.getByRole("button", { name: "Pair and open Loop55" }),
+    page.getByRole("button", { name: "Pair and open Loop" }),
   ).toHaveCount(0);
   await expect(page.getByText("Fixture done").first()).toBeVisible();
   assert.equal(await authenticated("/api/bootstrap"), 200);
@@ -328,8 +327,8 @@ try {
     ),
     devices,
   );
-  // A checkout rebuilt while Loop55 runs (git pull && bash install), then
-  // `loop55 restart`: the open page offers the new assets but never reloads itself.
+  // A checkout rebuilt while Loop runs (git pull && bash install), then
+  // `loop restart`: the open page offers the new assets but never reloads itself.
   const indexPath = join(installation, "dist/web/index.html");
   const original = await readFile(indexPath, "utf8");
   const servingBuild = () =>
@@ -388,11 +387,11 @@ try {
   const down = await fresh.goto(new URL("/", pairUrl).href);
   assert.equal(down.status(), 503);
   await expect(
-    fresh.getByRole("heading", { name: "Loop55 is reconnecting…" }),
+    fresh.getByRole("heading", { name: "Loop is reconnecting…" }),
   ).toBeVisible();
   assert.deepEqual(errors, []);
   console.log(
-    `PASS (${process.env.LOOP55_BROWSER || "chromium"}): paired page kept its thread, draft and session across loop55 restart; a rebuilt checkout offered Reload to update and kept the draft; same address and tunnel process; reconnect page while down. Fixture tunnel and local TLS edge.`,
+    `PASS (${process.env.LOOP_BROWSER || "chromium"}): paired page kept its thread, draft and session across loop restart; a rebuilt checkout offered Reload to update and kept the draft; same address and tunnel process; reconnect page while down. Fixture tunnel and local TLS edge.`,
   );
 } finally {
   await browser?.close();

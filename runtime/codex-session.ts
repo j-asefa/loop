@@ -117,7 +117,7 @@ export class CodexSession {
     );
     this.ready = this.rpc
       .call("initialize", {
-        clientInfo: { name: "loop55", version: "0.2.0" },
+        clientInfo: { name: "loop", version: "0.2.0" },
       })
       .then(() => this.rpc.send({ method: "initialized", params: {} }));
     // Startup can fail before the first command arrives.

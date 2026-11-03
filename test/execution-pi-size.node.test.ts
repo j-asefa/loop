@@ -14,10 +14,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { gitProject } from "./git-project.js";
 import { until } from "./helpers.js";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-execution-size-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = join(directory, "data");
-process.env.LOOP55_TEST_HARNESS = "claude";
+const directory = mkdtempSync(join(tmpdir(), "loop-execution-size-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = join(directory, "data");
+process.env.LOOP_TEST_HARNESS = "claude";
 process.env.PI_CODING_AGENT_DIR = join(directory, "pi");
 mkdirSync(process.env.PI_CODING_AGENT_DIR);
 const { WorkspaceHost } = await import("../src/workspace-host.js");
@@ -70,7 +70,7 @@ test(
         headers: {
           cookie,
           Origin: origin,
-          "x-loop55-csrf": csrf,
+          "x-loop-csrf": csrf,
           "Content-Type": "application/json",
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -91,9 +91,9 @@ test(
       "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) SELECT 'native-pi',owner_id,'pi','Pi','',status,models,?,created_at FROM connections WHERE id='native-claude'",
     ).run(
       JSON.stringify({
-        loop55Harness: "pi",
+        loopHarness: "pi",
         authMode: "native-existing",
-        runtimeKind: "loop55-local",
+        runtimeKind: "loop-local",
       }),
     );
     const agent = await api("/agents", {
@@ -189,11 +189,11 @@ test(
         );
       },
     );
-    process.env.LOOP55_TEST_HARNESS = "pi";
-    process.env.LOOP55_TEST_PI_MODEL_COUNT = "150";
-    process.env.LOOP55_TEST_PI_LONG_MODEL_ID = "1";
-    process.env.LOOP55_TEST_PI_COMMAND_METADATA = "1";
-    process.env.LOOP55_TEST_PI_MODEL_AUDIT = join(directory, "model-audit");
+    process.env.LOOP_TEST_HARNESS = "pi";
+    process.env.LOOP_TEST_PI_MODEL_COUNT = "150";
+    process.env.LOOP_TEST_PI_LONG_MODEL_ID = "1";
+    process.env.LOOP_TEST_PI_COMMAND_METADATA = "1";
+    process.env.LOOP_TEST_PI_MODEL_AUDIT = join(directory, "model-audit");
     await t.test(
       "runtime enablement preserves complete native model identifiers",
       async () => {
@@ -213,7 +213,7 @@ test(
     await t.test(
       "the new-chat model catalog returns every native model up to the registration bound",
       async () => {
-        process.env.LOOP55_TEST_PI_MODEL_COUNT = "354";
+        process.env.LOOP_TEST_PI_MODEL_COUNT = "354";
         try {
           const { models } = await api("/connections/native-pi/models");
           assert.equal(models.length, 357);
@@ -223,22 +223,22 @@ test(
                 model.id === "openai-codex/custom-" + "x".repeat(250),
             ),
           );
-          process.env.LOOP55_TEST_PI_MODEL_COUNT = "5000";
+          process.env.LOOP_TEST_PI_MODEL_COUNT = "5000";
           const refused = await fetch(
             origin + "/api/connections/native-pi/models",
-            { headers: { cookie, Origin: origin, "x-loop55-csrf": csrf } },
+            { headers: { cookie, Origin: origin, "x-loop-csrf": csrf } },
           );
           assert.equal(refused.status, 422);
           assert.match(
             (await refused.json()).error,
-            /reported 5003 models; Loop55 accepts up to 5000/,
+            /reported 5003 models; Loop accepts up to 5000/,
           );
           const stored = db
             .prepare("SELECT models FROM connections WHERE id='native-pi'")
             .get() as { models: string };
           assert.equal(JSON.parse(stored.models).length, 357);
         } finally {
-          process.env.LOOP55_TEST_PI_MODEL_COUNT = "150";
+          process.env.LOOP_TEST_PI_MODEL_COUNT = "150";
           await api("/connections/native-pi/models");
         }
       },
@@ -285,7 +285,7 @@ test(
         );
         assert.deepEqual(await api(path + "/model", input, "PATCH"), changed);
         assert.equal(
-          readFileSync(process.env.LOOP55_TEST_PI_MODEL_AUDIT!, "utf8"),
+          readFileSync(process.env.LOOP_TEST_PI_MODEL_AUDIT!, "utf8"),
           "model-149\n",
         );
         assert.equal(
@@ -317,8 +317,8 @@ test(
     await t.test(
       "native catalogs between 2 and 8 MiB retain all commands",
       async () => {
-        process.env.LOOP55_TEST_PI_LARGE_CATALOG = "1";
-        process.env.LOOP55_TEST_PI_SESSION_ID = randomUUID();
+        process.env.LOOP_TEST_PI_LARGE_CATALOG = "1";
+        process.env.LOOP_TEST_PI_SESSION_ID = randomUUID();
         const turn = await api("/runs", {
           agentId: agent.id,
           input: "fixture",

@@ -170,10 +170,10 @@ export function useSessionLifecycle(
       setSettingsParent(false);
       setSheet("");
     };
-    window.addEventListener("loop55-auth-expired", expire);
+    window.addEventListener("loop-auth-expired", expire);
     return () => {
       controller.abort();
-      window.removeEventListener("loop55-auth-expired", expire);
+      window.removeEventListener("loop-auth-expired", expire);
     };
   }, []);
 }

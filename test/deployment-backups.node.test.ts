@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 function fixture(count = 4) {
-  const root = mkdtempSync(join(tmpdir(), "loop55-backup-archive-"));
+  const root = mkdtempSync(join(tmpdir(), "loop-backup-archive-"));
   roots.push(root);
   const releases = Array.from({ length: count }, (_, index) => {
     const release = join(
@@ -41,7 +41,7 @@ function fixture(count = 4) {
     );
     const backup = join(release, backupName);
     mkdirSync(join(backup, "empty"), { recursive: true, mode: 0o700 });
-    writeFileSync(join(backup, "loop55.db"), Buffer.from([0, 255, index, 10]));
+    writeFileSync(join(backup, "loop.db"), Buffer.from([0, 255, index, 10]));
     writeFileSync(join(backup, "credentials"), "fixture credentials\n", {
       mode: 0o600,
     });
@@ -78,7 +78,7 @@ test("archives old backups with usable contents and permissions, retaining recen
   const { root, releases } = fixture(6);
   const old = join(releases[1], backupName);
   symlinkSync("credentials", join(old, "credential-link"));
-  linkSync(join(old, "loop55.db"), join(old, "database-hardlink"));
+  linkSync(join(old, "loop.db"), join(old, "database-hardlink"));
   const alias = join(root, "main-20261030T000000Z-abcdef1");
   mkdirSync(alias);
   symlinkSync(join(releases[0], backupName), join(alias, backupName));
@@ -101,7 +101,7 @@ test("archives old backups with usable contents and permissions, retaining recen
   const restored = join(root, "restored");
   restore(releases[1], restored);
   assert.deepEqual(
-    readFileSync(join(restored, backupName, "loop55.db")),
+    readFileSync(join(restored, backupName, "loop.db")),
     Buffer.from([0, 255, 1, 10]),
   );
   assert.equal(
@@ -154,7 +154,7 @@ test("a corrupt existing archive never replaces or removes its source backup", (
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Backup archival failed/);
   assert.deepEqual(
-    readFileSync(join(releases[0], backupName, "loop55.db")),
+    readFileSync(join(releases[0], backupName, "loop.db")),
     Buffer.from([0, 255, 0, 10]),
   );
   assert.equal(readFileSync(archive, "utf8"), "interrupted or corrupt archive");
@@ -166,7 +166,7 @@ test("a valid archive with different source bytes prevents deletion", () => {
   const archive = readFileSync(join(releases[0], archiveName));
   restore(releases[0], releases[0]);
   writeFileSync(
-    join(releases[0], backupName, "loop55.db"),
+    join(releases[0], backupName, "loop.db"),
     Buffer.from([0, 254, 0, 10]),
   );
   const result = run(root);
@@ -194,7 +194,7 @@ test("incomplete or corrupt gzip trailers preserve the original backup", () => {
       0,
       "must verify the gzip trailer before deleting the backup",
     );
-    assert(existsSync(join(releases[0], backupName, "loop55.db")));
+    assert(existsSync(join(releases[0], backupName, "loop.db")));
   }
 });
 
@@ -237,7 +237,7 @@ test("rejects missing or extra entries in an existing archive", () => {
       recursive: true,
     });
     if (extra) writeFileSync(join(staging, backupName, "extra"), "unexpected");
-    else rmSync(join(staging, backupName, "loop55.db"));
+    else rmSync(join(staging, backupName, "loop.db"));
     const packed = spawnSync(
       "tar",
       ["-czf", join(releases[0], archiveName), "-C", staging, backupName],
@@ -245,7 +245,7 @@ test("rejects missing or extra entries in an existing archive", () => {
     );
     assert.equal(packed.status, 0, packed.stderr);
     assert.notEqual(run(root).status, 0);
-    assert(existsSync(join(releases[0], backupName, "loop55.db")));
+    assert(existsSync(join(releases[0], backupName, "loop.db")));
   }
 });
 

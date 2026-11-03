@@ -10,14 +10,14 @@ import { ToolMailStatus } from "../src/shared/agent-mail";
 import { DEFINITION_EXAMPLES } from "../src/shared/agent-definitions";
 import { gitProject } from "./git-project";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-team-contracts-"));
+const directory = mkdtempSync(join(tmpdir(), "loop-team-contracts-"));
 const project = join(directory, "project");
 mkdirSync(project);
 gitProject(project);
 writeFileSync(join(project, "tracked.txt"), "review this change");
-process.env.LOOP55_DATA_DIR = directory;
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_DATA_DIR = directory;
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const { nativeSessions, OWNER: owner } =
@@ -531,7 +531,7 @@ it("viewportDiagnostics validates numeric-only geometry and keeps the empty 204 
       await request("/ui/viewport-diagnostics", input),
     );
     expect(info).toHaveBeenCalledWith(
-      "loop55-viewport-diagnostics",
+      "loop-viewport-diagnostics",
       JSON.stringify(input),
     );
     expect(

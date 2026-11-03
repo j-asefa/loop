@@ -30,10 +30,10 @@ import type {
   SignedFleetDirectory,
 } from "../src/shared/fleet.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-authority-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-authority-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const databases: Database.Database[] = [];
 afterAll(() => {
@@ -678,7 +678,7 @@ it("never replays an effect when its process exits before recording completion",
     });
   `;
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP55_")),
+    Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")),
   );
   const child = spawnSync(
     process.execPath,
@@ -688,9 +688,9 @@ it("never replays an effect when its process exits before recording completion",
       timeout: 15000,
       env: {
         ...env,
-        LOOP55_PROFILE: "companion",
-        LOOP55_DATA_DIR: root,
-        LOOP55_ENCRYPTION_KEY: process.env.LOOP55_ENCRYPTION_KEY,
+        LOOP_PROFILE: "companion",
+        LOOP_DATA_DIR: root,
+        LOOP_ENCRYPTION_KEY: process.env.LOOP_ENCRYPTION_KEY,
       },
     },
   );

@@ -69,9 +69,9 @@ export function invalidateProviderConnection(name: string) {
       name,
       name === "pi" ? "Pi" : "OpenCode",
       JSON.stringify({
-        loop55Harness: name,
+        loopHarness: name,
         authMode: "native-existing",
-        runtimeKind: "loop55-local",
+        runtimeKind: "loop-local",
       }),
       now(),
     ),
@@ -192,12 +192,12 @@ async function syncModels(
       syncError: undefined,
     };
   } catch (error) {
-    // Specific setup guidance is Loop55-authored (NativeSetupError), never
+    // Specific setup guidance is Loop-authored (NativeSetupError), never
     // provider output; other startup failures keep the refresh hint.
     const syncError =
       error instanceof ExecutionRefused && error.status === 422
         ? error.message
-        : "Loop55 could not refresh the harness models. Check its configuration and saved billing policy, then refresh models.";
+        : "Loop could not refresh the harness models. Check its configuration and saved billing policy, then refresh models.";
     syncErrors.set(target.name, syncError);
     return {
       ...view,

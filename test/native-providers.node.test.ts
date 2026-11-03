@@ -7,8 +7,8 @@ import { until } from "./helpers.js";
 
 await mkdir(".tmp", { recursive: true });
 const dir = await mkdtemp(resolve(".tmp/provider-management-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "companion";
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db } = await import("../src/server/db.js");
 
@@ -19,7 +19,7 @@ test("native provider settings save independent keys, preserve billing, refresh 
   for (const name of ["pi", "opencode"])
     await writeFile(
       join(bin, name),
-      `#!/bin/sh\nexport LOOP55_TEST_HARNESS=${name}\nexport LOOP55_TEST_PROVIDER_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/fixtures/provider-harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_PROVIDER_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/fixtures/provider-harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
   process.env.PATH = bin + ":" + originalPath;
@@ -57,7 +57,7 @@ test("native provider settings save independent keys, preserve billing, refresh 
         headers: {
           "Content-Type": "application/json",
           ...(authenticated ? { cookie, Origin: host.origin } : {}),
-          ...(validCsrf ? { "x-loop55-csrf": csrf } : {}),
+          ...(validCsrf ? { "x-loop-csrf": csrf } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
       });
@@ -116,7 +116,7 @@ test("native provider settings save independent keys, preserve billing, refresh 
         "provider-run-" + harness,
         harness,
         harness,
-        JSON.stringify({ loop55Harness: harness }),
+        JSON.stringify({ loopHarness: harness }),
       );
     const activeRun = db.prepare(
       "INSERT INTO runs(id,owner_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,'local-workspace','','running',?,?,0,0)",
@@ -474,7 +474,7 @@ test("native provider settings save independent keys, preserve billing, refresh 
       await rm(join(dir, "fail-pi-version"), { force: true });
       const failedSync = await api(base("pi") + "?projectId=" + projectId);
       assert.equal(failedSync.enabled, false);
-      // A process exit reports Loop55's Pi setup guidance; discovery stays generic.
+      // A process exit reports Loop's Pi setup guidance; discovery stays generic.
       assert.match(
         failedSync.syncError,
         /could not refresh|Pi could not start/,

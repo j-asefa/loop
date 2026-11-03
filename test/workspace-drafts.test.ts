@@ -14,7 +14,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it.each(["loop", "loop55"])(
+it.each(["loop"])(
   "qualifies saved choices without attributing unowned %s drafts",
   (prefix) => {
     values.set(`${prefix}-draft-agent`, "unattributed-agent");

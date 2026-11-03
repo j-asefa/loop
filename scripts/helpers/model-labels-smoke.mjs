@@ -70,7 +70,7 @@ export async function modelLabelsSmoke(page, fixture, capture) {
     await page.getByRole("tab", { name: "Results", exact: true }).click();
     await expect(card().locator(".card-model")).toHaveText("Claude Opus 5.5");
     await capture("resolved-default-profile-result");
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
     // Running cards (with a per-run model label) were replaced by Feed rows;
     // the run on the default model still appears under Working.
     await page.goto(fixture.base + "/?filter=working", {

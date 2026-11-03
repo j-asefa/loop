@@ -5,8 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NativeOutput } from "../src/server/native-output";
-const dir = mkdtempSync(join(tmpdir(), "loop55-activity-native-"));
-process.env.LOOP55_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop-activity-native-"));
+process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { listActivities, ingestNativeActivity } =

@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -49,7 +48,7 @@ const bundled = await build({
 const appHtml = `<!doctype html><meta charset="utf-8"><title>Contract MCP app</title>
   <p>Checking isolation</p><pre></pre><button disabled>Request metrics</button><output></output>
   <script>${bundled.outputFiles[0].text.replaceAll("</script", "<\\/script")}</script>`;
-const evidence = process.env.LOOP55_MCP_SCREENSHOT_DIR;
+const evidence = process.env.LOOP_MCP_SCREENSHOT_DIR;
 if (evidence) mkdirSync(evidence, { recursive: true });
 
 for (const engine of selectedEngines()) {
@@ -137,7 +136,7 @@ for (const engine of selectedEngines()) {
       {
         env: {
           ...(await isolatedBrowserEnv()),
-          LOOP55_DATA_DIR: dirname(fixture.db.name),
+          LOOP_DATA_DIR: dirname(fixture.db.name),
         },
         input: JSON.stringify({
           owner: fixture.owner,
@@ -161,7 +160,7 @@ for (const engine of selectedEngines()) {
       },
     ).trim();
     await page.goto(`${fixture.base}/?artifact=${artifactId}`);
-    const iframe = page.getByTitle("MCP app, isolated from Loop55", {
+    const iframe = page.getByTitle("MCP app, isolated from Loop", {
       exact: true,
     });
     await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
@@ -170,7 +169,7 @@ for (const engine of selectedEngines()) {
       `/api/artifacts/${artifactId}/app`,
     );
     const frame = page.frameLocator(
-      'iframe[title="MCP app, isolated from Loop55"]',
+      'iframe[title="MCP app, isolated from Loop"]',
     );
     await expect(
       frame.getByText("Isolated from parent", { exact: true }),

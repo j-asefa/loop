@@ -15,9 +15,9 @@ it.each(["companion", "server"])(
   "%s schedules 32 running tasks and admits the 33rd only after a slot is released",
   async (profile) => {
     vi.resetModules();
-    const dir = mkdtempSync(join(tmpdir(), "loop55-worker-capacity-"));
-    vi.stubEnv("LOOP55_PROFILE", profile);
-    vi.stubEnv("LOOP55_DATA_DIR", dir);
+    const dir = mkdtempSync(join(tmpdir(), "loop-worker-capacity-"));
+    vi.stubEnv("LOOP_PROFILE", profile);
+    vi.stubEnv("LOOP_DATA_DIR", dir);
     const { db, changes } = await import("../src/server/db");
     const { enqueue, transition } = await import("../src/server/queue");
     const { startWorker } = await import("../src/server/worker");
@@ -71,9 +71,9 @@ it.each(["companion", "server"])(
 
 it("claims through the two-second fallback when local change wakes are unavailable", async () => {
   vi.resetModules();
-  const dir = mkdtempSync(join(tmpdir(), "loop55-worker-fallback-"));
-  vi.stubEnv("LOOP55_PROFILE", "server");
-  vi.stubEnv("LOOP55_DATA_DIR", dir);
+  const dir = mkdtempSync(join(tmpdir(), "loop-worker-fallback-"));
+  vi.stubEnv("LOOP_PROFILE", "server");
+  vi.stubEnv("LOOP_DATA_DIR", dir);
   const { db, changes } = await import("../src/server/db");
   const { enqueue } = await import("../src/server/queue");
   const { startWorker } = await import("../src/server/worker");
@@ -106,9 +106,9 @@ it("claims through the two-second fallback when local change wakes are unavailab
 
 it("wakes maintenance for mail and published artifacts while retaining its time-based pass", async () => {
   vi.resetModules();
-  const directory = mkdtempSync(join(tmpdir(), "loop55-worker-maintenance-"));
-  vi.stubEnv("LOOP55_PROFILE", "server");
-  vi.stubEnv("LOOP55_DATA_DIR", directory);
+  const directory = mkdtempSync(join(tmpdir(), "loop-worker-maintenance-"));
+  vi.stubEnv("LOOP_PROFILE", "server");
+  vi.stubEnv("LOOP_DATA_DIR", directory);
   const { db, changes, emit } = await import("../src/server/db");
   const { enqueue } = await import("../src/server/queue");
   const notifications = await import("../src/server/notifications");

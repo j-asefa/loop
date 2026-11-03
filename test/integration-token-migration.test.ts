@@ -12,9 +12,7 @@ import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations";
 
 it("upgrades both scalar grants atomically without losing identities, disclosures, revocations or rate windows", () => {
-  const directory = mkdtempSync(
-    join(tmpdir(), "loop55-integration-migration-"),
-  );
+  const directory = mkdtempSync(join(tmpdir(), "loop-integration-migration-"));
   const db = new Database(":memory:");
   try {
     db.pragma("foreign_keys = ON");

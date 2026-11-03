@@ -32,7 +32,7 @@ export function installEventSockets(
     const failed = () => socket.destroy();
     const timeout = setTimeout(failed, 10_000);
     try {
-      const url = new URL(req.url || "", "http://loop55");
+      const url = new URL(req.url || "", "http://loop");
       if (url.pathname === "/api" + workspaceApi.channels.tokenEvents.path) {
         if (
           (req.headers.origin && !allowedOrigin(req)) ||

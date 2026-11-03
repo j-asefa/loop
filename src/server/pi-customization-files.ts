@@ -92,7 +92,7 @@ const FINGERPRINT_ENTRIES = 20_000;
  * Adds a resource and everything below it to the fingerprint: each entry's
  * relative path, type, size and modification time, following symlinks (their
  * targets count too). Editing or adding any file then changes the
- * fingerprint, so Loop55 asks for trust again. File contents are not read.
+ * fingerprint, so Loop asks for trust again. File contents are not read.
  */
 function fingerprintTree(
   hash: ReturnType<typeof createHash>,
@@ -288,7 +288,7 @@ export function updatePiPackageFilters(
     else next[kind] = filters[kind];
   }
   settings.packages[index] = next;
-  const temp = path + `.loop55-${process.pid}-${Date.now()}`;
+  const temp = path + `.loop-${process.pid}-${Date.now()}`;
   writeFileSync(temp, JSON.stringify(settings, null, 2) + "\n", {
     mode: 0o600,
   });

@@ -1,13 +1,13 @@
 {
-  "serverName": "loop55_workspace",
+  "serverName": "loop_workspace",
   "mode": "form",
   "_meta": {
     "codex_approval_kind": "mcp_tool_call",
     "persist": ["session", "always"],
-    "tool_title": "loop55_delegate",
+    "tool_title": "loop_delegate",
     "tool_description": "Delegate focused tasks to this team's workers.",
     "tool_params": { "agent": "reviewer", "task": "Review the proposed plan." }
   },
-  "message": "Allow **loop55_delegate** to assign this task to the reviewer?",
+  "message": "Allow **loop_delegate** to assign this task to the reviewer?",
   "requestedSchema": { "type": "object", "properties": {} }
 }

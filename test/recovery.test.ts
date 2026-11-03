@@ -7,9 +7,9 @@ import { spawn } from "node:child_process";
 import { Worker } from "node:worker_threads";
 import { once } from "node:events";
 import { createRequire } from "node:module";
-const dir = mkdtempSync(join(tmpdir(), "loop55-recovery-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-recovery-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
@@ -167,7 +167,7 @@ it("keeps approval transitions durable during independent API database writes", 
       eval: true,
       workerData: {
         module: createRequire(import.meta.url).resolve("better-sqlite3"),
-        path: join(dir, "loop55.db"),
+        path: join(dir, "loop.db"),
         shared,
       },
     },
@@ -225,7 +225,7 @@ it("initializes a fresh database safely from simultaneous API and worker process
         ],
         {
           cwd: process.cwd(),
-          env: { ...process.env, LOOP55_DATA_DIR: cold },
+          env: { ...process.env, LOOP_DATA_DIR: cold },
           stdio: ["ignore", "pipe", "pipe", "ipc"],
         },
       ),

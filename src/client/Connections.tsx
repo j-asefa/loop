@@ -457,7 +457,7 @@ function ServerConnections({
       <div className="connections-flow">
         {screen.page === "accounts" && (
           <>
-            <p className="settings-intro">Accounts Loop55 can use.</p>
+            <p className="settings-intro">Accounts Loop can use.</p>
             <div className="connection-accounts settings-list">
               {connections.map(accountFrom).map((account) => {
                 const provider = providers[account.brand],
@@ -477,7 +477,7 @@ function ServerConnections({
                       ? account.runtimeHostId
                         ? hosts.find((h) => h.id === account.runtimeHostId)
                             ?.name || "remote machine"
-                        : "Loop55 server"
+                        : "Loop server"
                       : "",
                   ]
                     .filter(Boolean)
@@ -710,7 +710,7 @@ function ServerConnections({
                     onChange={(e) => setRuntimeHostId(e.target.value)}
                     disabled={busy}
                   >
-                    <option value="">Loop55 server</option>
+                    <option value="">Loop server</option>
                     {hosts
                       .filter(
                         (host) =>
@@ -843,7 +843,7 @@ function ServerConnections({
                   {signing.runtimeHostId
                     ? hosts.find((h) => h.id === signing.runtimeHostId)?.name ||
                       "Remote machine"
-                    : "Loop55 server"}
+                    : "Loop server"}
                 </p>
               </div>
             </div>

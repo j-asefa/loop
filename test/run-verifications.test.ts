@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-verification-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-verification-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 
 const { db, id, now } = await import("../src/server/db");
 const { ownedRun } = await import("../src/server/domain");
@@ -97,7 +97,7 @@ it("recognises test, type-check and lint commands, and nothing else", () => {
   expect(tools("prettier --check .")).toEqual(["lint:prettier --check"]);
   expect(tools("tsc --noEmit")).toEqual(["typecheck:tsc"]);
   expect(tools("./node_modules/.bin/eslint src")).toEqual(["lint:eslint"]);
-  // Not verification, or not a literal chain Loop55 can read.
+  // Not verification, or not a literal chain Loop can read.
   expect(tools("npm install")).toEqual([]);
   expect(tools("npm run build")).toEqual([]);
   expect(tools("git status")).toEqual([]);
@@ -194,7 +194,7 @@ it("keeps one observation per invocation when a later update brings the exit", (
   });
 });
 
-it("records the exit Loop55 saw, including failures, unknown exits and cut output", () => {
+it("records the exit Loop saw, including failures, unknown exits and cut output", () => {
   const run = runFixture("thread-exits");
   observeCompletedOutput(run, output("npm test", {}, "12 passed\n"));
   observeCompletedOutput(

@@ -1,4 +1,3 @@
-import "./environment.mjs";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { IncomingMessage, ServerResponse } from "node:http";
 type ActiveRuntime = {
@@ -40,19 +39,19 @@ import {
   LoginTimeoutError,
   LOGIN_START_MS,
 } from "./login-deadline.ts";
-const hostMode = process.env.LOOP55_RUNTIME_MODE === "host";
+const hostMode = process.env.LOOP_RUNTIME_MODE === "host";
 const workdir = hostMode
-  ? realpathSync(process.env.LOOP55_RUNTIME_WORKDIR || process.cwd())
+  ? realpathSync(process.env.LOOP_RUNTIME_WORKDIR || process.cwd())
   : undefined;
-const token = process.env.LOOP55_RUNTIME_TOKEN_FILE
-  ? readFileSync(process.env.LOOP55_RUNTIME_TOKEN_FILE, "utf8").trim()
-  : process.env.LOOP55_RUNTIME_TOKEN;
+const token = process.env.LOOP_RUNTIME_TOKEN_FILE
+  ? readFileSync(process.env.LOOP_RUNTIME_TOKEN_FILE, "utf8").trim()
+  : process.env.LOOP_RUNTIME_TOKEN;
 if (!token || token.length < 32)
-  throw new Error("Set LOOP55_RUNTIME_TOKEN with scripts/setup.mjs");
+  throw new Error("Set LOOP_RUNTIME_TOKEN with scripts/setup.mjs");
 // A durable provider-home volume identity: changing this would abandon native accounts.
 const prefix =
   "loop-sub-" + createHash("sha256").update(token).digest("hex").slice(0, 12);
-const image = process.env.LOOP55_RUNTIME_IMAGE || "loop55-runtime:0.2";
+const image = process.env.LOOP_RUNTIME_IMAGE || "loop-runtime:0.2";
 const pending = new Map<string, Promise<unknown>>(),
   active = new Map<string, ActiveRuntime>(),
   logins = new Map<string, Login>(),
@@ -111,7 +110,7 @@ function spawnRuntime(key: string, entry: string) {
         ],
         {
           cwd: workdir,
-          env: { ...process.env, LOOP55_RUNTIME_WORKDIR: workdir },
+          env: { ...process.env, LOOP_RUNTIME_WORKDIR: workdir },
           detached: process.platform !== "win32",
           stdio: ["pipe", "pipe", "pipe"],
         },
@@ -317,7 +316,7 @@ const json = (res: ServerResponse, data: unknown, code = 200) => {
 };
 const handleMcp = mcpHandler(
   prefix,
-  process.env.LOOP55_MCP_IMAGE || "loop55-mcp:0.1",
+  process.env.LOOP_MCP_IMAGE || "loop-mcp:0.1",
   body,
   json,
   remove,
@@ -491,7 +490,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     // Pair the host user's existing login; never start login or sign out the
-    // shared Codex/Claude installation on behalf of a Loop55 connection.
+    // shared Codex/Claude installation on behalf of a Loop connection.
     if (hostMode && ["login", "status"].includes(action)) {
       if (
         pending.has(key) ||
@@ -819,7 +818,7 @@ const server = createServer(async (req, res) => {
 });
 // Remove only this deployment's orphaned operation containers after a broker restart.
 if (!hostMode) {
-  for (const label of ["loop55.runtime", "loop.runtime"]) {
+  for (const label of ["loop.runtime"]) {
     const orphan = docker([
       "ps",
       "-aq",
@@ -844,7 +843,7 @@ if (!hostMode) {
 }
 server.listen(
   Number(process.env.PORT || (hostMode ? 3101 : 3100)),
-  process.env.LOOP55_RUNTIME_BIND || (hostMode ? "127.0.0.1" : "0.0.0.0"),
+  process.env.LOOP_RUNTIME_BIND || (hostMode ? "127.0.0.1" : "0.0.0.0"),
 );
 process.on("SIGTERM", () => {
   for (const a of active.values()) a.cancel();

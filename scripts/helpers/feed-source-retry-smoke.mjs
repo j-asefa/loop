@@ -19,7 +19,7 @@ export async function sourceRetryFeedSmoke(
   const refresh = (sources) =>
     page.evaluate((sources) => {
       window.dispatchEvent(
-        new CustomEvent("loop55-workspace-change", {
+        new CustomEvent("loop-workspace-change", {
           detail: {
             sources,
             changes: sources.map((source) => ({

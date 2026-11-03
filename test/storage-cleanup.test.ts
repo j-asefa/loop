@@ -140,7 +140,7 @@ function install(path: string, value = 42, format = "ustar", root = "package") {
   return packages;
 }
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "loop55-storage-"));
+  home = mkdtempSync(join(tmpdir(), "loop-storage-"));
   // macOS /var is a symlink; use the canonical managed root, as Docker does.
   home = execFileSync(process.execPath, [
     "-e",
@@ -182,7 +182,7 @@ it("previews and then removes a populated stale npm installation without a PR or
     removed: false,
   });
   expect(existsSync(modules)).toBe(true);
-  expect(existsSync(join(home, ".loop55-storage"))).toBe(false);
+  expect(existsSync(join(home, ".loop-storage"))).toBe(false);
   expect(run()[0]).toMatchObject({ eligible: true, removed: true });
   expect(existsSync(modules)).toBe(false);
   expect(readFileSync(join(repo, "source.ts"), "utf8")).toBe("valuable source");
@@ -198,7 +198,7 @@ it("runs storage inspection through the shipped cleanup entrypoint without GitHu
         action: "cleanup",
         workspaceKeys: [key],
       }) + "\n",
-    env: { ...process.env, HOME: home, LOOP55_RUNTIME_MODE: "docker" },
+    env: { ...process.env, HOME: home, LOOP_RUNTIME_MODE: "docker" },
     encoding: "utf8",
   });
   const response = JSON.parse(text.trim());
@@ -298,11 +298,7 @@ it("keeps recent module reads and recent agent turns, even with an old installat
   expect(run()[0].reason).toBe("Recently used dependencies");
   utimesSync(file, new Date(1000), new Date(1000));
   managedWorkspace(home, key, true);
-  utimesSync(
-    join(workspace, ".loop55-last-used"),
-    new Date(now),
-    new Date(now),
-  );
+  utimesSync(join(workspace, ".loop-last-used"), new Date(now), new Date(now));
   expect(run()[0].reason).toBe("Recently used dependencies");
 });
 
@@ -373,8 +369,8 @@ it("restricts discovery to supplied agent identities and rejects symlinked maint
   expect(() => cleanupStorage({ home, workspaceKeys: ["../escape"] })).toThrow(
     "Invalid cleanup",
   );
-  rmSync(join(home, ".loop55-storage"), { recursive: true });
-  symlinkSync(repo, join(home, ".loop55-storage"));
+  rmSync(join(home, ".loop-storage"), { recursive: true });
+  symlinkSync(repo, join(home, ".loop-storage"));
   expect(() => run()).toThrow("Invalid storage maintenance");
 });
 
@@ -505,11 +501,11 @@ it("continues past unreadable discovery directories", () => {
 });
 
 it("does not let an invalid activity marker break turns or leak temporary files", () => {
-  mkdirSync(join(workspace, ".loop55-last-used"));
+  mkdirSync(join(workspace, ".loop-last-used"));
   expect(() => managedWorkspace(home, key, true)).not.toThrow();
   expect(
     readdirSync(workspace).filter((name) =>
-      name.startsWith(".loop55-last-used-"),
+      name.startsWith(".loop-last-used-"),
     ),
   ).toEqual([]);
   expect(run()[0].reason).toBe("Invalid workspace activity marker");
@@ -532,7 +528,7 @@ it("preserves backdated browser edits after the retention window", async () => {
 
 it("bounds maintenance work and replaces legacy unbounded cursor state", () => {
   put(
-    join(home, ".loop55-storage/checked.json"),
+    join(home, ".loop-storage/checked.json"),
     JSON.stringify(
       Object.fromEntries(
         Array.from({ length: 30000 }, (_, i) => ["workspaces/old-" + i, i]),
@@ -544,9 +540,9 @@ it("bounds maintenance work and replaces legacy unbounded cursor state", () => {
     true,
   );
   expect(existsSync(modules)).toBe(true);
-  expect(
-    statSync(join(home, ".loop55-storage/checked.json")).size,
-  ).toBeLessThan(10000);
+  expect(statSync(join(home, ".loop-storage/checked.json")).size).toBeLessThan(
+    10000,
+  );
 });
 
 it("discovers later workspace roots despite a large earlier tree", () => {
@@ -563,8 +559,8 @@ it("discovers later workspace roots despite a large earlier tree", () => {
 });
 
 it("runs registered checkout inspection even when storage metadata is invalid", () => {
-  put(join(home, ".loop55-storage"), "invalid metadata");
-  const registry = join(workspace, ".loop55-cleanup");
+  put(join(home, ".loop-storage"), "invalid metadata");
+  const registry = join(workspace, ".loop-cleanup");
   put(
     join(registry, "f".repeat(64) + ".json"),
     JSON.stringify({
@@ -587,7 +583,7 @@ it("runs registered checkout inspection even when storage metadata is invalid", 
       ...process.env,
       HOME: home,
       PATH: bin + ":" + process.env.PATH,
-      LOOP55_RUNTIME_MODE: "docker",
+      LOOP_RUNTIME_MODE: "docker",
     },
     encoding: "utf8",
   });
@@ -687,7 +683,7 @@ it("visits mixed-case dependency paths fairly across bounded passes", () => {
 
 it("starts bounded cache discovery after its persisted shard cursor", () => {
   put(
-    join(home, ".loop55-storage/checked.json"),
+    join(home, ".loop-storage/checked.json"),
     JSON.stringify({
       version: 2,
       batches: {},
@@ -723,7 +719,7 @@ it("starts bounded cache discovery after its persisted shard cursor", () => {
     ).toBe(true);
     expect(existsSync(path)).toBe(true);
     const saved = JSON.parse(
-      readFileSync(join(home, ".loop55-storage/checked.json"), "utf8"),
+      readFileSync(join(home, ".loop-storage/checked.json"), "utf8"),
     );
     expect(saved.caches["npm-discovery"]).not.toBe("fe/ff");
   } finally {

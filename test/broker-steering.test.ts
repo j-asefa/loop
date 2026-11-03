@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 
 it("delivers control to exactly the active invocation, validates identity, and does not replay duplicate input", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-broker-steering-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-broker-steering-"));
   cpSync(resolve("runtime"), dir, { recursive: true });
   writeFileSync(
     join(dir, "listen.mjs"),
@@ -38,10 +38,10 @@ for await (const line of input) {
     {
       env: {
         ...process.env,
-        LOOP55_RUNTIME_MODE: "host",
-        LOOP55_RUNTIME_WORKDIR: dir,
-        LOOP55_RUNTIME_TOKEN: token,
-        LOOP55_RUNTIME_TOKEN_FILE: "",
+        LOOP_RUNTIME_MODE: "host",
+        LOOP_RUNTIME_WORKDIR: dir,
+        LOOP_RUNTIME_TOKEN: token,
+        LOOP_RUNTIME_TOKEN_FILE: "",
       },
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     },
@@ -93,7 +93,7 @@ for await (const line of input) {
     );
     // Exercise the production inbox against this same broker. Freezing the
     // recovery interval proves a committed steering event drives delivery.
-    vi.stubEnv("LOOP55_DATA_DIR", join(dir, "database"));
+    vi.stubEnv("LOOP_DATA_DIR", join(dir, "database"));
     const { db, changes } = await import("../src/server/db");
     const { enqueue, claim, transition } = await import("../src/server/queue");
     const { SteeringInbox, saveSteering } =

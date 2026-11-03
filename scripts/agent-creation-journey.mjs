@@ -166,7 +166,7 @@ export async function agentCreationJourney(page, api) {
       false,
     );
     await page.screenshot({
-      path: join(tmpdir(), `loop55-agent-creation-${width}.png`),
+      path: join(tmpdir(), `loop-agent-creation-${width}.png`),
     });
   }
   // Typing the prompt on a phone: the keyboard shrinks the sheet, and the
@@ -193,7 +193,7 @@ export async function agentCreationJourney(page, api) {
     "The Create button does not cover the prompt while typing",
   );
   await page.screenshot({
-    path: join(tmpdir(), "loop55-agent-creation-keyboard.png"),
+    path: join(tmpdir(), "loop-agent-creation-keyboard.png"),
   });
   await page.evaluate(() => {
     delete window.visualViewport.height;

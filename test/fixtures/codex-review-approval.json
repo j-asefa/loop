@@ -1,7 +1,7 @@
 {
   "threadId": "review-thread",
   "turnId": "review-turn",
-  "serverName": "loop55_workspace",
+  "serverName": "loop_workspace",
   "mode": "form",
   "_meta": {
     "codex_approval_kind": "mcp_tool_call",
@@ -13,6 +13,6 @@
       "teamId": "review-team"
     }
   },
-  "message": "Allow the loop55_workspace MCP server to run tool \"loop55_request_review\"?",
+  "message": "Allow the loop_workspace MCP server to run tool \"loop_request_review\"?",
   "requestedSchema": { "type": "object", "properties": {} }
 }

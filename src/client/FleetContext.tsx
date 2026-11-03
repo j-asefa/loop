@@ -115,7 +115,7 @@ export function FleetProvider({
     void refresh();
     document.addEventListener("visibilitychange", foreground);
     window.addEventListener("online", reconnect);
-    window.addEventListener("loop55-workspace-change", changed);
+    window.addEventListener("loop-workspace-change", changed);
     // Authority is not part of older gateways' workspace event projections.
     // One shared visible-page check catches handoff in another browser tab
     // and recovers an exhausted first read. Unsupported (404) and healthy
@@ -134,7 +134,7 @@ export function FleetProvider({
       clearInterval(timer);
       document.removeEventListener("visibilitychange", foreground);
       window.removeEventListener("online", reconnect);
-      window.removeEventListener("loop55-workspace-change", changed);
+      window.removeEventListener("loop-workspace-change", changed);
     };
   }, [owner, refresh]);
   return (

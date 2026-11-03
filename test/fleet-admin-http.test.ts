@@ -27,10 +27,10 @@ import {
 } from "../src/shared/fleet-pairing.js";
 import { fleetAdminApi } from "../src/shared/fleet-admin-api.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-admin-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-admin-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const { FleetEnrollmentHttpTransport } =
   await import("../src/server/fleet-enrollment-http.js");
@@ -249,7 +249,7 @@ async function machine(): Promise<Machine> {
   const headers = {
     cookie,
     origin: host.origin,
-    "x-loop55-csrf": session.body.csrf,
+    "x-loop-csrf": session.body.csrf,
   };
   const result = {
     db,
@@ -339,7 +339,7 @@ async function pairFreshOrigin(m: Machine) {
   m.headers = {
     cookie: m.cookie,
     origin: m.host.origin,
-    "x-loop55-csrf": session.body.csrf,
+    "x-loop-csrf": session.body.csrf,
   };
   m.device = session.body.device;
 }
@@ -482,7 +482,7 @@ it("admits only a local paired device with Origin/CSRF and an internal authoriza
   };
   for (const headers of [
     {},
-    { ...a.headers, "x-loop55-csrf": "wrong" },
+    { ...a.headers, "x-loop-csrf": "wrong" },
     { ...a.headers, origin: "https://attacker.example" },
     { ...a.headers, authorization: "Bearer public-token" },
     { ...a.headers, "x-method-override": "GET" },
@@ -1145,7 +1145,7 @@ it("keeps preview and absent integrations outside local fleet administration", a
   const headers = {
     cookie,
     origin: a.host.origin,
-    "x-loop55-csrf": session.body.csrf,
+    "x-loop-csrf": session.body.csrf,
   };
   expect((await call(a, "state", undefined, headers)).status).toBe(404);
   a.host.workspace!.isolated = false;

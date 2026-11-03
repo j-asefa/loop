@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { runInNewContext } from "node:vm";
 import express from "express";
-const dir = mkdtempSync(join(tmpdir(), "loop55-workspace-lifecycle-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-workspace-lifecycle-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { core } = await import("../src/server/core-routes");
@@ -377,7 +377,7 @@ it("a background push displays a notification and opens its link on the same ori
   runInNewContext(readFileSync("public/push-events.js", "utf8"), {
     URL,
     self: {
-      location: { origin: "https://loop55.example" },
+      location: { origin: "https://loop.example" },
       addEventListener: (name: string, fn: any) => {
         handlers[name] = fn;
       },
@@ -413,14 +413,14 @@ it("a background push displays a notification and opens its link on the same ori
     await pending;
   }
   expect(openWindow).toHaveBeenCalledExactlyOnceWith(
-    "https://loop55.example/?artifact=one",
+    "https://loop.example/?artifact=one",
   );
   // A loading app has no message listener: navigate before focusing it.
   const focus = vi.fn(async () => {});
   const navigate = vi.fn(async () => ({ focus }));
   windows = [
     { url: "https://unrelated.example/", navigate },
-    { url: "https://loop55.example/?page=later", navigate },
+    { url: "https://loop.example/?page=later", navigate },
   ];
   const click = async (url = "/?artifact=one") => {
     handlers.notificationclick({
@@ -433,7 +433,7 @@ it("a background push displays a notification and opens its link on the same ori
   };
   await click();
   expect(navigate).toHaveBeenCalledExactlyOnceWith(
-    "https://loop55.example/?artifact=one",
+    "https://loop.example/?artifact=one",
   );
   expect(focus).toHaveBeenCalledTimes(1);
   expect(openWindow).toHaveBeenCalledTimes(1);
@@ -446,7 +446,7 @@ it("a background push displays a notification and opens its link on the same ori
     },
     async () => null,
   ]) {
-    windows = [{ url: "https://loop55.example/", navigate }];
+    windows = [{ url: "https://loop.example/", navigate }];
     await click();
   }
   expect(openWindow).toHaveBeenCalledTimes(4);
@@ -457,7 +457,7 @@ it("a background push displays a notification and opens its link on the same ori
   // Focus failure does not undo successful navigation or open duplicates.
   windows = [
     {
-      url: "https://loop55.example/",
+      url: "https://loop.example/",
       navigate: async () => ({
         focus: async () => {
           throw new Error("cannot focus");
@@ -474,7 +474,7 @@ it("result notifications name the thread and lead with the answer as plain text"
     resultNotification({
       name: "swift",
       thread:
-        "Is there a way to surface subscription usage for codex & Claude code into Loop55?",
+        "Is there a way to surface subscription usage for codex & Claude code into Loop?",
       title: "Is there a way to surface subscription usage",
       kind: "markdown",
       content:

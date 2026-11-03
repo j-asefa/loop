@@ -109,7 +109,7 @@ for (const engine of selectedEngines()) {
       await page.unroute(mathAsset, hold);
       update(done, content);
       await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop55-source-refresh")),
+        window.dispatchEvent(new Event("loop-source-refresh")),
       );
       await expect(card.locator(".katex")).toHaveCount(7);
       await card.locator(".inbox-row").click();
@@ -165,7 +165,7 @@ for (const engine of selectedEngines()) {
         ).toBeInViewport();
       }
       await page.screenshot({
-        path: join(tmpdir(), `loop55-math-${engine.name()}.png`),
+        path: join(tmpdir(), `loop-math-${engine.name()}.png`),
       });
       await reader.getByRole("button", { name: "Reply", exact: true }).click();
       const thread = page.locator("dialog.conversation-sheet[open]");
@@ -186,7 +186,7 @@ for (const engine of selectedEngines()) {
       ]) {
         update(working, text);
         await page.evaluate(() =>
-          window.dispatchEvent(new Event("loop55-source-refresh")),
+          window.dispatchEvent(new Event("loop-source-refresh")),
         );
         await expect(reader.locator(selector)).toHaveCount(1);
         await expect(reader).toContainText("tail");

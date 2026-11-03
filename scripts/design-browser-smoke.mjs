@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 // Each scenario owns its database, server and browser context. Child processes
 // also isolate helper-level environment mutations. Existing smoke:design stays full.
 import { runSupervised } from "./heavy-command.mjs";
@@ -66,9 +65,9 @@ const selected = process.argv.slice(2);
 if (selected.some((name) => !names.includes(name)))
   throw new Error("Unknown design scenario");
 const queue = selected.length ? selected : names;
-const workers = Number(process.env.LOOP55_BROWSER_WORKERS || 1);
+const workers = Number(process.env.LOOP_BROWSER_WORKERS || 1);
 if (![1, 2].includes(workers))
-  throw new Error("LOOP55_BROWSER_WORKERS must be 1 or 2");
+  throw new Error("LOOP_BROWSER_WORKERS must be 1 or 2");
 const controller = new AbortController();
 let failed = false,
   next = 0;

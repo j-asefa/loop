@@ -10,9 +10,9 @@ it.each(["companion", "server"])(
   "%s rejects unsupported team connection edits, submissions and persisted dispatches",
   async (profile) => {
     vi.resetModules();
-    const dir = mkdtempSync(join(tmpdir(), "loop55-agy-team-"));
-    process.env.LOOP55_DATA_DIR = join(dir, "data");
-    process.env.LOOP55_PROFILE = profile;
+    const dir = mkdtempSync(join(tmpdir(), "loop-agy-team-"));
+    process.env.LOOP_DATA_DIR = join(dir, "data");
+    process.env.LOOP_PROFILE = profile;
     gitProject(dir);
     writeFileSync(join(dir, "review.ts"), "export const reviewed = true;\n");
     const { db, id } = await import("../src/server/db");
@@ -59,7 +59,7 @@ it.each(["companion", "server"])(
           "agy",
           "antigravity",
           {
-            loop55Harness: "antigravity",
+            loopHarness: "antigravity",
             authMode: "native-existing",
             capabilities: { workspaceTools: false },
           },

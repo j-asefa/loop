@@ -59,7 +59,7 @@ it("reserves outbound HTTP capacity while sharing bounded event sockets", async 
     for (const header of headers)
       expect(header).toMatchObject({
         authorization: `Bearer ${token}`,
-        "x-loop55-fleet-version": "1",
+        "x-loop-fleet-version": "1",
       });
     await expect(
       transport.connect(

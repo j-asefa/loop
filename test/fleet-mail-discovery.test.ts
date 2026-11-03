@@ -25,10 +25,10 @@ import {
   type FleetAgentPage,
 } from "../src/shared/fleet-mail-api.js";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-fleet-mail-discovery-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-fleet-mail-discovery-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { FleetCredentialHttpTransport } =
   await import("../src/server/fleet-credential-http.js");
 const { FleetMailHttpTransport } =
@@ -215,7 +215,7 @@ const fetcher: typeof PeerFetch = async (url, options) => {
           headers: {
             host: target.host,
             "content-type": "application/json",
-            "x-loop55-fleet-version": "1",
+            "x-loop-fleet-version": "1",
           },
         },
         (res) => {
@@ -292,7 +292,7 @@ function source(harness?: string) {
     owner,
     secrets.seal("fixture", owner),
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify(harness ? { loop55Harness: harness } : {}),
+    JSON.stringify(harness ? { loopHarness: harness } : {}),
     now(),
   );
   const agent = createAgent(owner, {
@@ -323,7 +323,7 @@ async function tool(
   args: Record<string, unknown>,
 ) {
   const binding = nativeBindings(run).find(
-    (binding) => binding.tool === "loop55_agents",
+    (binding) => binding.tool === "loop_agents",
   )!;
   const reply = await invokeNative(run, binding, id(), args);
   if (!("result" in reply)) throw new Error("Unexpected pending discovery");

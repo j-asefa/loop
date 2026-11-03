@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 // Production source-loading and composer-lifetime hooks in real browsers with
 // isolated HTTP fixtures. This measures browser scheduling, not live tunnels.
 import { chromium, webkit, expect } from "@playwright/test";
@@ -10,7 +9,7 @@ import assert from "node:assert/strict";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 import { profileCapabilities } from "../src/shared/capabilities.ts";
 
-const dir = await mkdtemp(join(tmpdir(), "loop55-fleet-feed-"));
+const dir = await mkdtemp(join(tmpdir(), "loop-fleet-feed-"));
 const sources = Array.from({ length: 9 }, (_, index) => ({
   id: "peer:m_" + String(index + 1).repeat(64),
   name: `Machine ${index}`,
@@ -49,7 +48,7 @@ function trackResponse(metrics, res) {
   res.once("finish", done);
 }
 const engineName =
-  process.env.LOOP55_BROWSER === "webkit" ? "webkit" : "chromium";
+  process.env.LOOP_BROWSER === "webkit" ? "webkit" : "chromium";
 try {
   const entry = join(dir, "entry.mjs");
   await writeFile(
@@ -281,7 +280,7 @@ try {
   await page.evaluate(
     (source) =>
       window.dispatchEvent(
-        new CustomEvent("loop55-workspace-change", {
+        new CustomEvent("loop-workspace-change", {
           detail: { sources: [source] },
         }),
       ),
@@ -406,7 +405,7 @@ try {
   await page.evaluate(
     (source) =>
       window.dispatchEvent(
-        new CustomEvent("loop55-workspace-change", {
+        new CustomEvent("loop-workspace-change", {
           detail: { sources: [source] },
         }),
       ),
@@ -439,7 +438,7 @@ try {
   mode = "app";
   fixtureOwner = "alice";
   await page.evaluate(() => {
-    for (const prefix of ["loop", "loop55"]) {
+    for (const prefix of ["loop"]) {
       sessionStorage.setItem(`${prefix}-draft-agent`, "foreign-agent");
       sessionStorage.setItem(
         `${prefix}-draft-context`,

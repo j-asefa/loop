@@ -106,7 +106,7 @@ export function readPublishedChunk(
       throw new FileRejected("File changed or is not a regular workspace file");
     if (st.size > MAX_PUBLISHED_BYTES)
       throw new FileRejected(
-        `This file is ${megabytes(st.size)}; Loop55 publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.`,
+        `This file is ${megabytes(st.size)}; Loop publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.`,
       );
     if (offset > st.size)
       throw new FileRejected("File changed during publication");

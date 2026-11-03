@@ -92,7 +92,7 @@ export function directActivityUpdate(
               ...((declined || activity.truncated) && {
                 reason: declined
                   ? "The change was declined and not applied."
-                  : "The adapter truncated this diff before Loop55 received it.",
+                  : "The adapter truncated this diff before Loop received it.",
               }),
             },
           ],

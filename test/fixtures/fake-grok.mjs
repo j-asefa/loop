@@ -35,8 +35,8 @@ const update = (text) =>
 let pending, fleetBridge;
 for await (const line of readline.createInterface({ input: process.stdin })) {
   const req = JSON.parse(line);
-  if (process.env.LOOP55_TEST_GROK_LOG)
-    appendFileSync(process.env.LOOP55_TEST_GROK_LOG, line + "\n");
+  if (process.env.LOOP_TEST_GROK_LOG)
+    appendFileSync(process.env.LOOP_TEST_GROK_LOG, line + "\n");
   if (req.method === "initialize")
     send({
       id: req.id,
@@ -54,9 +54,9 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       },
     });
   else if (["session/new", "session/load"].includes(req.method)) {
-    if (process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER) {
+    if (process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER) {
       const { acpBridge } = await import(
-        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+        process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER
       );
       fleetBridge = acpBridge(req.params.mcpServers);
     }
@@ -65,7 +65,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       method: "_x.ai/session/setup",
       params: { method: req.method, phase: "auth", sessionId: null },
     });
-    if (process.env.LOOP55_TEST_GROK_SIGNED_OUT) {
+    if (process.env.LOOP_TEST_GROK_SIGNED_OUT) {
       // Grok 1.0.70's signed-out answer to session/new.
       send({
         id: req.id,
@@ -80,7 +80,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     if (req.method === "session/load") {
       sessionId = req.params.sessionId;
       // ACP loadSession replays the conversation before answering.
-      if (!process.env.LOOP55_TEST_GROK_EMPTY_LOAD) update("replayed answer");
+      if (!process.env.LOOP_TEST_GROK_EMPTY_LOAD) update("replayed answer");
     }
     send({
       id: req.id,
@@ -95,20 +95,20 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
   } else if (req.method === "session/prompt") {
     const text = req.params.prompt.map((part) => part.text ?? "").join("\n");
     if (
-      process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER &&
+      process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER &&
       text.startsWith("Fleet discovery fixture: ")
     ) {
       const { discover } = await import(
-        process.env.LOOP55_TEST_FLEET_DISCOVERY_HELPER
+        process.env.LOOP_TEST_FLEET_DISCOVERY_HELPER
       );
       await discover(text, fleetBridge);
       update("Fixture discovery done");
       send({ id: req.id, result: { stopReason: "end_turn" } });
       continue;
     }
-    if (process.env.LOOP55_TEST_GROK_REJECT_PROMPT) {
+    if (process.env.LOOP_TEST_GROK_REJECT_PROMPT) {
       // A first turn Grok rejects before retaining it.
-      delete process.env.LOOP55_TEST_GROK_REJECT_PROMPT;
+      delete process.env.LOOP_TEST_GROK_REJECT_PROMPT;
       send({ id: req.id, error: { code: -32603, message: "Internal error" } });
       continue;
     }
@@ -138,7 +138,7 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     send({ id: pending, result: { stopReason: "cancelled" } });
     pending = undefined;
   } else if (req.method === "authenticate") {
-    // Loop55 must never call authenticate; fail loudly if it does.
+    // Loop must never call authenticate; fail loudly if it does.
     process.exit(92);
   } else if (req.method)
     send({ id: req.id, error: { code: -32601, message: "Unexpected method" } });

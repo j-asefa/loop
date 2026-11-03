@@ -8,9 +8,9 @@ import { join } from "node:path";
 it.each(["main", "hapi-preview", "both"])(
   "preserves both migrations after upgrading %s's version 68",
   (branch) => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-hapi-lease-migration-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop-hapi-lease-migration-"));
     try {
-      const db = new Database(join(dir, "loop55.db"));
+      const db = new Database(join(dir, "loop.db"));
       db.exec(
         "CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)",
       );
@@ -57,8 +57,8 @@ it.each(["main", "hapi-preview", "both"])(
         {
           env: {
             ...process.env,
-            LOOP55_PROFILE: "server",
-            LOOP55_DATA_DIR: dir,
+            LOOP_PROFILE: "server",
+            LOOP_DATA_DIR: dir,
           },
           encoding: "utf8",
         },

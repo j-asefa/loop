@@ -6,9 +6,9 @@ import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import express from "express";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-workspace-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-workspace-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { ownedConnection } = await import("../src/server/domain");
@@ -99,10 +99,10 @@ beforeAll(async () => {
     server.once("listening", resolve);
     server.once("error", reject);
   });
-  process.env.LOOP55_RUNTIME_URL =
+  process.env.LOOP_RUNTIME_URL =
     "http://127.0.0.1:" + (server.address() as any).port;
-  process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS = process.env.LOOP55_RUNTIME_URL;
-  process.env.LOOP55_RUNTIME_TOKEN = "fixture-runtime-authentication-token";
+  process.env.LOOP_ALLOWED_RUNTIME_ORIGINS = process.env.LOOP_RUNTIME_URL;
+  process.env.LOOP_RUNTIME_TOKEN = "fixture-runtime-authentication-token";
 });
 afterEach(() => {
   db.exec(
@@ -195,8 +195,8 @@ it("forwards auth outside model context only to managed runtimes and redacts all
   db.prepare(
     "INSERT INTO runtime_hosts(id,owner_id,name,url,secret,kind,created_at) VALUES('native','alice','Native',?,?,'native-host',?)",
   ).run(
-    process.env.LOOP55_RUNTIME_URL,
-    seal(process.env.LOOP55_RUNTIME_TOKEN!, "alice"),
+    process.env.LOOP_RUNTIME_URL,
+    seal(process.env.LOOP_RUNTIME_TOKEN!, "alice"),
     now(),
   );
   for (const metadata of [{ runtimeHostId: "native" }, {}]) {
@@ -267,7 +267,7 @@ it("maintains owner-scoped managed storage without GitHub and only forwards allo
   // later owners. It remains stored, but no cleanup request may use it.
   const damaged = addConnection("damaged", "codex", {
     authMode: "subscription",
-    loop55Harness: null,
+    loopHarness: null,
   });
   addAgent("damaged", damaged);
   const alice = addConnection("alice", "codex", { authMode: "subscription" });
@@ -299,8 +299,8 @@ it("maintains owner-scoped managed storage without GitHub and only forwards allo
   db.prepare(
     "INSERT INTO runtime_hosts(id,owner_id,name,url,secret,kind,created_at) VALUES('native','alice','Native',?,?,'native-host',?)",
   ).run(
-    process.env.LOOP55_RUNTIME_URL,
-    seal(process.env.LOOP55_RUNTIME_TOKEN!, "alice"),
+    process.env.LOOP_RUNTIME_URL,
+    seal(process.env.LOOP_RUNTIME_TOKEN!, "alice"),
     now(),
   );
   addAgent(

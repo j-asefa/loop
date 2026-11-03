@@ -33,7 +33,7 @@ const exists = async (path: string) =>
 const savePr = () => writeFile(join(root, "pr.json"), JSON.stringify(pr));
 beforeEach(async () => {
   root = await realpath(
-    await mkdtemp(join(tmpdir(), "loop55-worktree-cleanup-")),
+    await mkdtemp(join(tmpdir(), "loop-worktree-cleanup-")),
   );
   repo = join(root, "repo");
   job = join(root, "job");
@@ -231,7 +231,7 @@ it("persists registration while a PR is open and cleans it on a later merge chec
   pr.merged = false;
   await savePr();
   expect((await cleanupRegistered(root, env))[0].retired).toBe(false);
-  expect((await readdir(join(root, ".loop55-cleanup"))).length).toBe(1);
+  expect((await readdir(join(root, ".loop-cleanup"))).length).toBe(1);
   pr.merged = true;
   await savePr();
   for (const path of [
@@ -244,15 +244,15 @@ it("persists registration while a PR is open and cleans it on a later merge chec
     await rm(join(job, path), { recursive: true });
   }
   expect((await cleanupRegistered(root, env))[0].retired).toBe(true);
-  expect(await readdir(join(root, ".loop55-cleanup"))).toEqual([]);
+  expect(await readdir(join(root, ".loop-cleanup"))).toEqual([]);
   expect(await cleanupRegistered(root, env)).toEqual([]);
 });
 
 it("refuses out-of-workspace paths and symlinked cleanup registries", async () => {
   await expect(cleanupWorktree(repo, job, url, env)).rejects.toThrow("inside");
   await expect(trackPullRequest(repo, job, url)).rejects.toThrow("inside");
-  await rm(join(repo, ".loop55-cleanup"), { recursive: true });
-  await symlink(job, join(repo, ".loop55-cleanup"));
+  await rm(join(repo, ".loop-cleanup"), { recursive: true });
+  await symlink(job, join(repo, ".loop-cleanup"));
   await expect(trackPullRequest(repo, job, url)).rejects.toThrow("registry");
   expect(await exists(join(job, "node_modules"))).toBe(true);
 });
@@ -271,7 +271,7 @@ it("preflights an eligible registered checkout without deleting it or updating i
     await rm(join(job, path), { recursive: true });
   await mkdir(join(job, "dist"));
   await trackPullRequest(root, job, url);
-  const registry = join(root, ".loop55-cleanup");
+  const registry = join(root, ".loop-cleanup");
   const [file] = await readdir(registry);
   const before = await readFile(join(registry, file), "utf8");
   expect((await cleanupWorkspaces([root], env, true))[0]).toMatchObject({

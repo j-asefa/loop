@@ -53,7 +53,7 @@ vi.mock("../src/server/execution-client", async (importOriginal) => {
   };
 });
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-companion-contracts-"));
+const directory = mkdtempSync(join(tmpdir(), "loop-companion-contracts-"));
 const project = join(directory, "project"),
   bin = join(directory, "bin"),
   version = join(directory, "version"),
@@ -62,10 +62,10 @@ mkdirSync(project);
 mkdirSync(bin);
 gitProject(project);
 const originalPath = process.env.PATH;
-process.env.LOOP55_DATA_DIR = directory;
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP55_TEST_HISTORY_PROJECT = project;
+process.env.LOOP_DATA_DIR = directory;
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_TEST_HISTORY_PROJECT = project;
 for (const name of [
   "codex",
   "claude",
@@ -77,7 +77,7 @@ for (const name of [
 ]) {
   writeFileSync(
     join(bin, name),
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=${name}\nexport LOOP55_TEST_AUTH_DIR='${directory}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${directory}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
 }

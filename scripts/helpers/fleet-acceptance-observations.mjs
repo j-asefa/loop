@@ -15,7 +15,7 @@ export async function stopAcceptanceCompanion(command) {
       if (
         error.code !== 1 ||
         error.stdout?.trim() !== "" ||
-        error.stderr?.trim() !== "Loop55: No workspace is running."
+        error.stderr?.trim() !== "Loop: No workspace is running."
       )
         throw error;
       alreadyStopped = true;

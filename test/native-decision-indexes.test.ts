@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { Live } from "../src/server/native-sessions";
 import { NativeOutput } from "../src/server/native-output";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-decision-indexes-"));
-process.env.LOOP55_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop-decision-indexes-"));
+process.env.LOOP_DATA_DIR = dir;
 const { db, id } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");

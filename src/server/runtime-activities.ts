@@ -14,7 +14,7 @@ import { applyActivity } from "./activities.js";
 // an API-runtime run. The same extractors serve the direct native adapters,
 // so a command or file change renders identically whichever path ran it.
 //
-// The runtime is Loop55's own executor, but its payload is still validated: the
+// The runtime is Loop's own executor, but its payload is still validated: the
 // extractors read only known fields, and applyActivity validates and bounds
 // every update. Records are scoped to the run from trusted server context and
 // never apply a change or run a command.

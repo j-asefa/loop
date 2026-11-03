@@ -57,7 +57,7 @@ it.each(["server", "companion", "multi-user"] as const)(
     });
     expect(created.status).toBe(201);
     const { token, secret } = await created.json();
-    expect(secret).toMatch(/^loop55_token_[\w-]{43}$/);
+    expect(secret).toMatch(/^loop_token_[\w-]{43}$/);
     expect(token).toMatchObject({ scopes: ["read"] });
     const headers = { ...f.browser, authorization: "Bearer " + secret };
     // Unknown storage columns must not become public fields just because the
@@ -169,7 +169,7 @@ it.each(["server", "companion", "multi-user"] as const)(
         expect(body).not.toContain(foreign.agent);
         expect(body).not.toContain(foreign.run);
         expect(body).not.toContain(foreign.artifact);
-        expect(response.headers.get("x-loop55-change-cursor")).toBeNull();
+        expect(response.headers.get("x-loop-change-cursor")).toBeNull();
         if (
           method === "GET" &&
           status === 200 &&
@@ -287,7 +287,7 @@ it.each(["server", "companion", "multi-user"] as const)(
         await f.request("/api/bootstrap", {
           headers: {
             ...headers,
-            authorization: "Bearer loop55_token_" + "x".repeat(43),
+            authorization: "Bearer loop_token_" + "x".repeat(43),
           },
         })
       ).status,
@@ -367,9 +367,9 @@ it.each(["server", "companion"] as const)(
         scope === "results:read" || scope === "cards:read"
           ? cardTokenRequest(scope, scope)
           : integrationTokenRequest(scope, [scope]);
-      const wrongPrefix = input.secret.startsWith("loop55_card_")
-        ? input.secret.replace("loop55_card_", "loop55_token_")
-        : input.secret.replace("loop55_token_", "loop55_card_");
+      const wrongPrefix = input.secret.startsWith("loop_card_")
+        ? input.secret.replace("loop_card_", "loop_token_")
+        : input.secret.replace("loop_token_", "loop_card_");
       expect(
         (
           await f.request("/api/card-tokens", {
@@ -578,12 +578,12 @@ it.each(["server", "companion"] as const)(
 );
 
 it.each(["server", "companion", "multi-user"] as const)(
-  "%s retains original digest-bound integration credentials after the rename",
+  "%s keeps authenticating integration credentials issued under the Loop55 name",
   async (mode) => {
     const f = await cardsFixture(mode);
     try {
       const request = integrationTokenRequest("Existing integration", ["read"]);
-      request.secret = request.secret.replace(/^loop55_/, "loop_");
+      request.secret = request.secret.replace(/^loop_/, "loop55_");
       const created = await f.request("/api/card-tokens", {
         headers: f.browser,
         body: request,

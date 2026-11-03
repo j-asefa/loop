@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 program = Path(sys.argv[0]).name
-config_path = Path(os.environ.get("LOOP55_STORAGE_CONFIG", Path.home() / "setup/storage-policy.json"))
+config_path = Path(os.environ.get("LOOP_STORAGE_CONFIG", Path.home() / "setup/storage-policy.json"))
 config = json.loads(config_path.read_text())
 executable = config["executables"][program]
 if not Path(executable).is_absolute() or Path(executable).resolve() == Path(__file__).resolve():

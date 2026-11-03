@@ -14,7 +14,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
   const row = (title) => page.locator(`.inbox-row[aria-label^="${title}"]`);
   const settled = async () => {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   const closeThread = async () => {
     await thread()
@@ -256,7 +256,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
         navigator.serviceWorker.dispatchEvent(
           new MessageEvent("message", {
             data: {
-              type: "loop55-open",
+              type: "loop-open",
               url: `${location.origin}/?conversation=${conversation}&message=${message}`,
             },
           }),
@@ -328,7 +328,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       change: () => signalCollection(page, "later"),
       start: () =>
         page.evaluate(() =>
-          window.dispatchEvent(new Event("loop55-later-change")),
+          window.dispatchEvent(new Event("loop-later-change")),
         ),
     });
     await expect(reminder).toHaveCount(1);
@@ -339,7 +339,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       change: () => signalCollection(page, "scheduled"),
       start: () =>
         page.evaluate(() =>
-          window.dispatchEvent(new Event("loop55-scheduled-change")),
+          window.dispatchEvent(new Event("loop-scheduled-change")),
         ),
     });
     await laterTab("Reminders").click();

@@ -49,7 +49,7 @@ export type Live = {
   permissionMode?: PermissionMode;
   /**
    * The native permission mode chosen for this session in Session settings.
-   * It outranks the workspace level for Loop55's automatic answers.
+   * It outranks the workspace level for Loop's automatic answers.
    */
   sessionMode?: string;
 };

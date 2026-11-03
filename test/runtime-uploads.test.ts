@@ -24,9 +24,9 @@ import {
   writeUploadChunk,
 } from "../runtime/uploads.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-uploads-"));
-process.env.LOOP55_DATA_DIR = join(dir, "data");
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-uploads-"));
+process.env.LOOP_DATA_DIR = join(dir, "data");
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { uploadFile } = await import("../src/server/uploads");
 const { subscriptionStream } = await import("../src/server/subscriptions");
@@ -179,7 +179,7 @@ app.post("/runtime", (req, res) => {
       res.status(500).json({ error: "disk full" });
       return;
     }
-    res.json(writeUploadChunk(join(workspace, ".loop55", "uploads"), req.body));
+    res.json(writeUploadChunk(join(workspace, ".loop", "uploads"), req.body));
     return;
   }
   res
@@ -192,9 +192,9 @@ app.post("/runtime", (req, res) => {
 });
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((r) => server.once("listening", r));
-process.env.LOOP55_RUNTIME_URL = `http://127.0.0.1:${(server.address() as any).port}`;
-process.env.LOOP55_ALLOWED_RUNTIME_ORIGINS = process.env.LOOP55_RUNTIME_URL;
-process.env.LOOP55_RUNTIME_TOKEN =
+process.env.LOOP_RUNTIME_URL = `http://127.0.0.1:${(server.address() as any).port}`;
+process.env.LOOP_ALLOWED_RUNTIME_ORIGINS = process.env.LOOP_RUNTIME_URL;
+process.env.LOOP_RUNTIME_TOKEN =
   "upload-fixture-runtime-token-at-least-32-chars";
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
@@ -247,7 +247,7 @@ it("copies the current turn's uploads into the runtime workspace before the turn
   );
   const path = join(
     realpathSync(workspace),
-    ".loop55",
+    ".loop",
     "uploads",
     image.id,
     "IMG_8960.png",
@@ -265,7 +265,7 @@ it("copies the current turn's uploads into the runtime workspace before the turn
   expect(requests[0].data).toBeUndefined();
   // A runtime restart or recreated workspace removes the copy: the next turn
   // stages it again instead of pointing at a missing path.
-  rmSync(join(workspace, ".loop55", "uploads", image.id), { recursive: true });
+  rmSync(join(workspace, ".loop", "uploads", image.id), { recursive: true });
   requests.length = 0;
   expect(await turn(c, [image])).toContain(JSON.stringify(path));
   expect(
@@ -280,7 +280,7 @@ it("copies the current turn's uploads into the runtime workspace before the turn
   expect(requests.map((r) => r.action)).toEqual(["write-upload", "turn"]);
 });
 
-it("falls back to loop55_read_file when the runtime cannot store an upload", async () => {
+it("falls back to loop_read_file when the runtime cannot store an upload", async () => {
   failUploads = true;
   const file = uploadFile("alice", {
     originalname: "notes.pdf",
@@ -289,12 +289,10 @@ it("falls back to loop55_read_file when the runtime cannot store an upload", asy
   });
   const content = await turn(connection(), [file]);
   expect(content).toContain(
-    `These files could not be copied to this machine: ["${file.id}"]. Use loop55_read_file`,
+    `These files could not be copied to this machine: ["${file.id}"]. Use loop_read_file`,
   );
   expect(content).not.toContain("Use native file tools");
-  expect(existsSync(join(workspace, ".loop55", "uploads", file.id))).toBe(
-    false,
-  );
+  expect(existsSync(join(workspace, ".loop", "uploads", file.id))).toBe(false);
 });
 
 it("stores uploads through a native-host broker outside the project directory", async () => {
@@ -310,9 +308,9 @@ it("stores uploads through a native-host broker outside the project directory", 
     env: {
       ...process.env,
       HOME: home,
-      LOOP55_RUNTIME_MODE: "host",
-      LOOP55_RUNTIME_WORKDIR: project,
-      LOOP55_RUNTIME_TOKEN: token,
+      LOOP_RUNTIME_MODE: "host",
+      LOOP_RUNTIME_WORKDIR: project,
+      LOOP_RUNTIME_TOKEN: token,
       PORT: String(port),
     },
     stdio: "ignore",
@@ -355,7 +353,7 @@ it("stores uploads through a native-host broker outside the project directory", 
     const result = await response.json();
     expect(result).toMatchObject({ complete: true, size: bytes.length });
     expect(result.path).toBe(
-      join(realpathSync(home), ".loop55", "uploads", fileId, "photo.png"),
+      join(realpathSync(home), ".loop", "uploads", fileId, "photo.png"),
     );
     expect(readFileSync(result.path).equals(bytes)).toBe(true);
     expect(readdirSync(project)).toEqual([]);

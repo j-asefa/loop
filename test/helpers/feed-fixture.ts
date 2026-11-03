@@ -21,9 +21,9 @@ export const resetStatements = () => {
 };
 
 export async function createFeedFixture() {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-feed-fixture-"));
-  process.env.LOOP55_DATA_DIR = dir;
-  process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+  const dir = mkdtempSync(join(tmpdir(), "loop-feed-fixture-"));
+  process.env.LOOP_DATA_DIR = dir;
+  process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
   const { db } = await import("../../src/server/db");
   countStatements(db);
   seed(db);
@@ -82,7 +82,7 @@ function seed(db: import("better-sqlite3").Database) {
     "",
     "connected",
     models,
-    json({ loop55Harness: "codex" }),
+    json({ loopHarness: "codex" }),
     tick(),
   );
   const agent = (

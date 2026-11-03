@@ -211,7 +211,7 @@ function TraceList({
   };
   const download = (trace: Trace) => {
     if (current())
-      saveJson(`loop55-trace-${trace.run_id}-${trace.id}.json`, trace);
+      saveJson(`loop-trace-${trace.run_id}-${trace.id}.json`, trace);
   };
   const downloadRun = async (id: string) => {
     if (!current() || downloadReason || downloading.current) return;
@@ -227,7 +227,7 @@ function TraceList({
       if (!operation.current()) return;
       const text = await file.text();
       if (operation.current())
-        saveJson(`loop55-run-${id}-traces.json`, JSON.parse(text));
+        saveJson(`loop-run-${id}-traces.json`, JSON.parse(text));
     } catch (e) {
       if (operation.current()) setError((e as Error).message);
     } finally {
@@ -404,7 +404,7 @@ function TraceList({
                   {!item.content && failed && (
                     <p className="field-hint">
                       {item.invocation_state === "unknown"
-                        ? "The tool's external outcome is unknown. Its detailed error was not recorded by this version of Loop55."
+                        ? "The tool's external outcome is unknown. Its detailed error was not recorded by this version of Loop."
                         : "This step stopped without a recorded error message."}
                     </p>
                   )}

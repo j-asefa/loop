@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 import { chooseAgentModel } from "./helpers/agent-model-options.mjs";
 import { architectureSettingsJourney } from "./architecture-settings-journey.mjs";
 import {
@@ -25,7 +24,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-const dir = mkdtempSync(join(tmpdir(), "loop55-browser-"));
+const dir = mkdtempSync(join(tmpdir(), "loop-browser-"));
 import { spawn } from "node:child_process";
 import { chromium, webkit, expect } from "@playwright/test";
 import assert from "node:assert/strict";
@@ -37,10 +36,10 @@ const server = spawn(
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...fixtureEnv,
-      LOOP55_DATA_DIR: dir,
+      LOOP_DATA_DIR: dir,
       PORT: String(port),
-      LOOP55_URL: base,
-      LOOP55_AUTH_MODE: "single-user",
+      LOOP_URL: base,
+      LOOP_AUTH_MODE: "single-user",
     },
   },
 );
@@ -51,9 +50,9 @@ const worker = spawn(
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...fixtureEnv,
-      LOOP55_DATA_DIR: dir,
+      LOOP_DATA_DIR: dir,
       PORT: String(port),
-      LOOP55_URL: base,
+      LOOP_URL: base,
     },
   },
 );
@@ -68,7 +67,7 @@ try {
     await new Promise((r) => setTimeout(r, 100));
   }
   browser =
-    process.env.LOOP55_BROWSER === "webkit"
+    process.env.LOOP_BROWSER === "webkit"
       ? await webkit.launch({ headless: true })
       : await chromium.launch({
           executablePath: process.env.CHROMIUM_PATH || undefined,
@@ -81,7 +80,7 @@ try {
   });
   const errors = [];
   page.on("pageerror", (e) => {
-    if (!isWebKitNavigationFetchError(process.env.LOOP55_BROWSER, e, base))
+    if (!isWebKitNavigationFetchError(process.env.LOOP_BROWSER, e, base))
       errors.push(e.message);
   });
   await page.goto(base);
@@ -196,7 +195,7 @@ try {
     const r = await fetch("/api/auth/get-session");
     return r.json();
   });
-  const fixtureDb = new Database(join(dir, "loop55.db"));
+  const fixtureDb = new Database(join(dir, "loop.db"));
   const connection = crypto.randomUUID();
   fixtureDb
     .prepare(
@@ -222,7 +221,7 @@ try {
       "&question=" +
       encodeURIComponent("What could this become?"),
   );
-  await page.getByRole("heading", { name: "Bring it into Loop55" }).waitFor();
+  await page.getByRole("heading", { name: "Bring it into Loop" }).waitFor();
   assert.equal(
     await page.getByLabel("Source URL", { exact: true }).inputValue(),
     "https://github.com/example/fixture",
@@ -239,7 +238,7 @@ try {
     .getByRole("dialog")
     .getByRole("button", { name: "Start chatting", exact: true })
     .click();
-  await page.getByRole("heading", { name: "Bring it into Loop55" }).waitFor();
+  await page.getByRole("heading", { name: "Bring it into Loop" }).waitFor();
   assert.equal(
     await page.getByLabel("Your question").inputValue(),
     "What could this become?",
@@ -267,7 +266,7 @@ try {
   await page.locator("dialog[open]").last().waitFor({ state: "hidden" });
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
-  await page.getByRole("heading", { name: "Bring it into Loop55" }).waitFor();
+  await page.getByRole("heading", { name: "Bring it into Loop" }).waitFor();
   await closeSheets(page);
   const cached = await page.evaluate(async () => {
     const all = [];
@@ -284,10 +283,10 @@ try {
   await page.getByRole("status").filter({ hasText: "offline" }).waitFor();
   // Playwright WebKit aborts an offline reload before navigation. Chromium
   // exercises the cached fallback; both browsers check the notice and reconnect.
-  if (process.env.LOOP55_BROWSER !== "webkit") {
+  if (process.env.LOOP_BROWSER !== "webkit") {
     await page.reload();
     await page
-      .getByRole("heading", { name: "Your work is still in Loop55." })
+      .getByRole("heading", { name: "Your work is still in Loop." })
       .waitFor();
   }
   await page.context().setOffline(false);

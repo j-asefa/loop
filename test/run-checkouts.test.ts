@@ -13,9 +13,9 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { gitProject } from "./git-project.js";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop55-checkout-")));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-checkout-")));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const project = join(dir, "repo");
 mkdirSync(project);
 gitProject(project);
@@ -93,14 +93,14 @@ const checkout = agentWorktree(project, project, {
   projectId: project,
 });
 
-it("records the worktree before and after a run, as Loop55 observed it", async () => {
+it("records the worktree before and after a run, as Loop observed it", async () => {
   const run = runFixture("thread-1");
   bind("thread-1", checkout);
   await startCheckout(run, checkout, project, "g1");
   const started = checkoutDetail(owner, run.id)!;
   expect(started.state).toBe("started");
   expect(started.start_head).toBe(git(project, "rev-parse", "HEAD"));
-  expect(started.branch).toMatch(/^loop55\/agent-/);
+  expect(started.branch).toMatch(/^loop\/agent-/);
   expect(started.base_sha).toBe(git(project, "rev-parse", "HEAD"));
   expect(started.start_dirty).toBe(0);
   expect(started.generation).toBe("g1");
@@ -841,7 +841,7 @@ it("compares the working tree the way the repository does, line endings included
   git(checkout, "add", "crlf.txt");
   git(checkout, "commit", "-m", "lf in the index");
   // The repository checks text files out with CRLF; Git calls that clean,
-  // and so must Loop55, although a reader without the setting would not.
+  // and so must Loop, although a reader without the setting would not.
   git(project, "config", "core.autocrlf", "true");
   rmSync(join(checkout, "crlf.txt"));
   git(checkout, "checkout", "--", "crlf.txt");
@@ -891,7 +891,7 @@ it("honours line-ending attributes, exclusions and worktree-scoped settings", as
   writeFileSync(join(project, ".git", "info", "exclude"), "build/\n");
   git(project, "config", "extensions.worktreeConfig", "true");
   git(checkout, "config", "--worktree", "core.autocrlf", "true");
-  // A file whose attributes select a filter Loop55 will not run.
+  // A file whose attributes select a filter Loop will not run.
   writeFileSync(join(checkout, "blob.bin"), "expanded content\n");
   try {
     await startCheckout(run, checkout, project, "g1");

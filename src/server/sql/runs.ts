@@ -8,7 +8,7 @@ import { statement, statementVariants } from "./statement.js";
 import { READY_REVIEW_CONTINUATION } from "./review-continuations.js";
 
 export const RUN_LIVE_INPUT_SQL = (r: string) =>
-  `(EXISTS(SELECT 1 FROM connections lc WHERE lc.id=json_extract(${r}.payload,'$.connectionId') AND lc.owner_id=${r}.owner_id AND COALESCE(json_extract(lc.metadata,'$.loop55Harness'),'') IN ('',${[...LIVE_INPUT_HARNESSES].map((h) => `'${h}'`).join(",")})))`;
+  `(EXISTS(SELECT 1 FROM connections lc WHERE lc.id=json_extract(${r}.payload,'$.connectionId') AND lc.owner_id=${r}.owner_id AND COALESCE(json_extract(lc.metadata,'$.loopHarness'),'') IN ('',${[...LIVE_INPUT_HARNESSES].map((h) => `'${h}'`).join(",")})))`;
 
 export const perConversation = (r: string) =>
   `EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${NATIVE_CONNECTION_SQL})`;
@@ -466,7 +466,7 @@ export function hasEarlierConversationRun(
 }
 
 const orphanedNativeStatement = statement(
-  "SELECT r.id,r.owner_id FROM runs r LEFT JOIN native_dispatch d ON d.run_id=r.id LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') WHERE (d.run_id IS NOT NULL OR json_extract(c.metadata,'$.loop55Harness') IS NOT NULL) AND (r.state IN ('running','pausing','awaiting_approval') OR (r.state='queued' AND d.run_id IS NOT NULL))",
+  "SELECT r.id,r.owner_id FROM runs r LEFT JOIN native_dispatch d ON d.run_id=r.id LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') WHERE (d.run_id IS NOT NULL OR json_extract(c.metadata,'$.loopHarness') IS NOT NULL) AND (r.state IN ('running','pausing','awaiting_approval') OR (r.state='queued' AND d.run_id IS NOT NULL))",
 );
 const orphanedNativeRow = QueryRecords.runs.pick({ id: true, owner_id: true });
 export function orphanedNative(db: Database.Database) {
@@ -1012,7 +1012,7 @@ const hasActiveProviderStatement =
   statement(`SELECT 1 FROM runs r JOIN connections c
           ON c.id=json_extract(r.payload,'$.connectionId') AND c.owner_id=r.owner_id
           WHERE r.owner_id=? AND r.state IN ('running','pausing','awaiting_approval')
-          AND json_extract(c.metadata,'$.loop55Harness')=? LIMIT 1`);
+          AND json_extract(c.metadata,'$.loopHarness')=? LIMIT 1`);
 const hasActiveProviderRow = z.object({ "1": z.number() });
 export function hasActiveProvider(
   db: Database.Database,

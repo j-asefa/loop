@@ -2,15 +2,13 @@
  * The switch is captured once, before project/configuration loading. It is not
  * a native configuration option and cannot be changed by a config reload.
  */
-const required =
-  (process.env.LOOP55_OPENCODE_SUBSCRIPTION_ONLY ??
-    process.env.LOOP_OPENCODE_SUBSCRIPTION_ONLY) === "1";
+const required = process.env.LOOP_OPENCODE_SUBSCRIPTION_ONLY === "1";
 export function executionGuardStatus() {
-  return { revision: "loop55-subscription-v1", active: required };
+  return { revision: "loop-subscription-v1", active: required };
 }
-const sink = "loop55-subscription-only://openai/v1";
+const sink = "loop-subscription-only://openai/v1";
 const rejected = () => {
-  throw new Error("Loop55 OpenCode subscription execution policy rejected");
+  throw new Error("Loop OpenCode subscription execution policy rejected");
 };
 const record = (value: unknown): value is Record<string, any> =>
   !!value && typeof value === "object" && !Array.isArray(value);
@@ -33,7 +31,7 @@ export function guardRuntime(flags: {
 
 /** Runs before SDK lookup/construction, including after native cache reloads.
  * Existing cached SDKs were constructed through this same boundary. Keep the
- * native OAuth fetch hook; never substitute Loop55-owned credential handling.
+ * native OAuth fetch hook; never substitute Loop-owned credential handling.
  */
 export function guardSDK(model: unknown, provider: unknown, options: unknown) {
   if (!required) return;

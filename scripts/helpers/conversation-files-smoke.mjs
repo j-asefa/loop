@@ -114,7 +114,7 @@ export async function conversationFilesSmoke(page, fixture, conversation) {
     const latestReads = listReads.get(latest.run_id);
     await page.evaluate(() => {
       for (let i = 0; i < 5; i++)
-        window.dispatchEvent(new Event("loop55-workspace-change"));
+        window.dispatchEvent(new Event("loop-workspace-change"));
     });
     await page.waitForTimeout(100);
     assert.equal(listReads.get(latest.run_id), latestReads);
@@ -149,7 +149,7 @@ export async function conversationFilesSmoke(page, fixture, conversation) {
         url.search = new URLSearchParams({ conversation, message }).toString();
         navigator.serviceWorker.dispatchEvent(
           new MessageEvent("message", {
-            data: { type: "loop55-open", url: url.href },
+            data: { type: "loop-open", url: url.href },
           }),
         );
       },

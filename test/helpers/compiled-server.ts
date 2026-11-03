@@ -8,7 +8,7 @@ import { build } from "esbuild";
 /** Compile this checkout's server graph without using or replacing global dist. */
 export async function compiledServerFixture() {
   const project = process.cwd();
-  const root = await mkdtemp(join(tmpdir(), "loop55-compiled-events-"));
+  const root = await mkdtemp(join(tmpdir(), "loop-compiled-events-"));
   const output = join(root, "dist");
   try {
     await mkdir(output);
@@ -39,7 +39,7 @@ export async function compiledServerFixture() {
       format: "esm",
       target: "node22",
       packages: "external",
-      define: { __LOOP55_BUILD__: "null" },
+      define: { __LOOP_BUILD__: "null" },
     });
     for (const file of ["pi-extension.mjs", "pi-auth-extension.mjs"])
       await cp(join(project, "src", file), join(output, file));

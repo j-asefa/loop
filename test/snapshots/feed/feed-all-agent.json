@@ -12,7 +12,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799646840000,
         "last_message": {
           "id": "m-worker-child-answer",
@@ -58,7 +58,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799646420000,
         "last_message": {
           "id": "m-automation-answer",
@@ -106,7 +106,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799646000000,
         "last_message": {
           "id": "m-dismissed-card-answer",
@@ -152,7 +152,7 @@
         "project_id": "proj",
         "project_name": "Project",
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799645640000,
         "last_message": {
           "id": "m-project-answer",
@@ -198,7 +198,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799644920000,
         "last_message": {
           "id": "m-imported-answer",
@@ -227,7 +227,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799644620000,
         "last_message": {
           "id": "m-surfaced-answer",
@@ -278,7 +278,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799643780000,
         "last_message": {
           "id": "m-approval-answer",
@@ -324,7 +324,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799643120000,
         "last_message": {
           "id": "m-dismissed-user",
@@ -366,7 +366,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799642940000,
         "last_message": {
           "id": "m-interrupted-user",
@@ -408,7 +408,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799642760000,
         "last_message": {
           "id": "m-failed-user",
@@ -450,7 +450,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799642580000,
         "last_message": {
           "id": "m-paused-user",
@@ -492,7 +492,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799642400000,
         "last_message": null,
         "run": {
@@ -527,7 +527,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799641620000,
         "last_message": {
           "id": "m-running-answer",
@@ -569,7 +569,7 @@
         "project_id": null,
         "project_name": null,
         "team_id": null,
-        "origin": "loop55",
+        "origin": "loop",
         "last_activity_at": 1799640960000,
         "last_message": {
           "id": "m-done-api-answer",

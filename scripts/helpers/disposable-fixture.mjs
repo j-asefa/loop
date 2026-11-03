@@ -20,7 +20,7 @@ export function markDisposableFixture(directory) {
     /* Non-Linux fixtures still clean themselves in their finally block. */
   }
   writeFileSync(
-    join(directory, ".loop55-disposable.json"),
+    join(directory, ".loop-disposable.json"),
     JSON.stringify({
       version: 1,
       kind: "package-smoke",

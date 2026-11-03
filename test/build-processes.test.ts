@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runningBuild } from "../src/shared/build";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-build-processes-"));
-process.env.LOOP55_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop-build-processes-"));
+process.env.LOOP_DATA_DIR = dir;
 const { db, now } = await import("../src/server/db");
 const { observeProcess, currentBuilds } =
   await import("../src/server/deployments");
@@ -18,7 +18,7 @@ afterAll(() => {
 it("skips a locked heartbeat without blocking or crashing, expires it, and resumes next tick", () => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
   const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
-  const contender = new Database(join(dir, "loop55.db"));
+  const contender = new Database(join(dir, "loop.db"));
   const stop = observeProcess("api", runningBuild);
   const before = currentBuilds()[0].observedAt;
   const timeout = db.pragma("busy_timeout", { simple: true });

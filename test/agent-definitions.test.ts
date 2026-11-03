@@ -10,12 +10,12 @@ import {
   MAX_DEFINITION_BYTES,
 } from "../src/shared/agent-definitions";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-definitions-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-definitions-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 // Upgrade a workspace that already recorded main's migration 119. A reused
 // migration number would silently skip the definitions tables on startup.
-const existing = new Database(join(dir, "loop55.db"));
+const existing = new Database(join(dir, "loop.db"));
 for (const file of readdirSync("migrations")
   .filter((file) => file.endsWith(".sql") && Number(file.split("-")[0]) <= 119)
   .sort())
@@ -136,7 +136,7 @@ it("upgrades an existing workspace without skipping definitions or memory captur
   expect((await request("/agent-definitions")).status).toBe(200);
 });
 
-it("stores original Markdown in Loop55, keeps private libraries, and checks edit/delete versions", async () => {
+it("stores original Markdown in Loop, keeps private libraries, and checks edit/delete versions", async () => {
   const markdown = "\uFEFF" + DEFINITION_EXAMPLES.agent.replace(/\n/g, "\r\n");
   const path = `/agent-definitions/${id()}`;
   const before = counts();
@@ -258,7 +258,7 @@ it("creates an ordinary agent from a definition and reuses its receipt after edi
     (
       await request(
         `/agents/${agent.id}`,
-        { instructions: "Edited in Loop55." },
+        { instructions: "Edited in Loop." },
         "PATCH",
       )
     ).status,
@@ -287,7 +287,7 @@ it("creates an ordinary agent from a definition and reuses its receipt after edi
   ).toBe(200);
   expect((await request(path, input)).data.agent).toMatchObject({
     id: agent.id,
-    instructions: "Edited in Loop55.",
+    instructions: "Edited in Loop.",
   });
   expect(counts()).toEqual(after);
 });

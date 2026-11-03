@@ -18,7 +18,7 @@ export type Toast = {
 };
 type Shown = Toast & { id: string };
 
-const EVENT = "loop55-toast";
+const EVENT = "loop-toast";
 export function notify(toast: Toast) {
   window.dispatchEvent(
     new CustomEvent<Shown>(EVENT, {

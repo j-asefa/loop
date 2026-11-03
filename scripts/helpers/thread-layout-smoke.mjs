@@ -118,7 +118,7 @@ export async function threadLayoutSmoke(page, capture) {
           // This fixture deletes append-only receipts directly. Refresh the
           // empty state explicitly; there is no production receipt-delete signal.
           await page.evaluate(() =>
-            window.dispatchEvent(new Event("loop55-refresh")),
+            window.dispatchEvent(new Event("loop-refresh")),
           );
           await expect(usage).toHaveCount(0, { timeout: 10000 });
           recordUsage(1200, 300);

@@ -16,17 +16,17 @@ let personalUser: { id: string; name: string } | undefined;
 
 export function initializeAccess() {
   if (!["single-user", "multi-user"].includes(config.authMode))
-    throw new Error("LOOP55_AUTH_MODE must be single-user or multi-user");
+    throw new Error("LOOP_AUTH_MODE must be single-user or multi-user");
   if (config.authMode === "multi-user") return;
   if (config.gatewayToken && config.gatewayToken.length < 32)
-    throw new Error("LOOP55_GATEWAY_TOKEN must have at least 32 characters");
+    throw new Error("LOOP_GATEWAY_TOKEN must have at least 32 characters");
   if (!localAuthority.test(new URL(config.url).host) && !config.gatewayToken)
     throw new Error(
-      "Remote single-user access needs an authenticated gateway and LOOP55_GATEWAY_TOKEN. Use LOOP55_AUTH_MODE=multi-user for Loop55 account sign-in.",
+      "Remote single-user access needs an authenticated gateway and LOOP_GATEWAY_TOKEN. Use LOOP_AUTH_MODE=multi-user for Loop account sign-in.",
     );
   if (config.loopbackProxy && !localAuthority.test(config.bindAddress))
     throw new Error(
-      "LOOP55_LOOPBACK_PROXY requires a loopback-only published port",
+      "LOOP_LOOPBACK_PROXY requires a loopback-only published port",
     );
 
   const accounts = workspaceAccounts();
@@ -42,11 +42,11 @@ export function initializeAccess() {
         : undefined;
       if (config.singleUserEmail && !chosen)
         throw new Error(
-          "LOOP55_SINGLE_USER_EMAIL must identify an existing Loop55 account",
+          "LOOP_SINGLE_USER_EMAIL must identify an existing Loop account",
         );
       if (!chosen && !saved && accounts.length > 1)
         throw new Error(
-          "Multiple Loop55 accounts exist. Set LOOP55_SINGLE_USER_EMAIL to select a workspace, or LOOP55_AUTH_MODE=multi-user to keep separate sign-ins.",
+          "Multiple Loop accounts exist. Set LOOP_SINGLE_USER_EMAIL to select a workspace, or LOOP_AUTH_MODE=multi-user to keep separate sign-ins.",
         );
       const owner = chosen?.id || saved?.owner_id || accounts[0]?.id || id();
       installationQueries.setOwner(db, owner);
@@ -104,10 +104,10 @@ function authorizePersonalAccess(req: AccessRequest) {
   )
     throw new Problem(
       403,
-      "Open Loop55 directly from its local address or authenticated access link.",
+      "Open Loop directly from its local address or authenticated access link.",
     );
   if (localRequest(req)) return;
-  const supplied = String(req.headers["x-loop55-gateway-token"] || "");
+  const supplied = String(req.headers["x-loop-gateway-token"] || "");
   const expected = config.gatewayToken;
   if (
     !expected ||
@@ -116,10 +116,7 @@ function authorizePersonalAccess(req: AccessRequest) {
     Buffer.byteLength(supplied) !== Buffer.byteLength(expected) ||
     !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))
   )
-    throw new Problem(
-      403,
-      "Open Loop55 through its authenticated access link.",
-    );
+    throw new Problem(403, "Open Loop through its authenticated access link.");
 }
 
 export async function workspaceSession(req: AccessRequest) {

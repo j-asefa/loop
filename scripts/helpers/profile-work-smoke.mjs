@@ -13,7 +13,7 @@ export async function profileWorkSmoke(page, capture) {
   const close = async () => {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   try {
     await workspaceRecoverySmoke(page, fixture);

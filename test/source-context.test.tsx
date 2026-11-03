@@ -15,7 +15,7 @@ import {
   executionSourceId,
   initializeShellSource,
 } from "../src/client/sourceRouting";
-import { loop55FileUrl } from "../src/client/FilePreview";
+import { loopFileUrl } from "../src/client/FilePreview";
 import { RichText } from "../src/client/components";
 import { PublishedFile } from "../src/client/PublishedFiles";
 import { PersonalDecisions } from "../src/client/PersonalDecisions";
@@ -38,7 +38,7 @@ it.each(["approval", "answer"] as const)(
       </SourceProvider>,
     );
     expect(html).toContain("Decision history unavailable");
-    expect(html).toContain("Update Loop55 on that workspace");
+    expect(html).toContain("Update Loop on that workspace");
     expect(html).not.toContain("Loading history");
   },
 );
@@ -46,8 +46,8 @@ it.each(["approval", "answer"] as const)(
 it("binds conversation actions and file URLs to their source across later navigation", async () => {
   vi.stubGlobal("location", {
     search: "",
-    href: "https://loop55.test/",
-    origin: "https://loop55.test",
+    href: "https://loop.test/",
+    origin: "https://loop.test",
   });
   setShellSource("");
   const fetch = vi.fn(async (_path: string, _init?: RequestInit) => ({
@@ -88,7 +88,7 @@ it("binds conversation actions and file URLs to their source across later naviga
   );
   vi.stubGlobal("location", {
     search: "?source=docker:beta",
-    href: "https://loop55.test/?source=docker:beta",
+    href: "https://loop.test/?source=docker:beta",
   });
   await remoteTypedAction(workspaceApi.runAction, {
     params: { id: "same", action: "cancel" },
@@ -124,8 +124,8 @@ it("binds conversation actions and file URLs to their source across later naviga
 it("scopes transcript download links without rewriting external links", () => {
   vi.stubGlobal("location", {
     search: "",
-    href: "https://loop55.test/",
-    origin: "https://loop55.test",
+    href: "https://loop.test/",
+    origin: "https://loop.test",
   });
   const html = renderToStaticMarkup(
     <SourceProvider sourceId="docker:alpha" capabilities={server}>
@@ -170,16 +170,16 @@ it("keeps thread file summaries download-free while retaining source-scoped prev
 
 it("recognizes source-qualified files for sandboxed HTML previews", () => {
   vi.stubGlobal("location", {
-    href: "https://loop55.test/",
-    origin: "https://loop55.test",
+    href: "https://loop.test/",
+    origin: "https://loop.test",
   });
   expect(
-    loop55FileUrl(
+    loopFileUrl(
       "/api/agent-sources/docker%3Aalpha/objects/report?preview=html",
     ),
   ).toBe("/api/agent-sources/docker%3Aalpha/objects/report?preview=html");
   expect(
-    loop55FileUrl("https://elsewhere.test/api/objects/report"),
+    loopFileUrl("https://elsewhere.test/api/objects/report"),
   ).toBeUndefined();
 });
 
@@ -187,8 +187,8 @@ it.each(["", "docker:alpha"])(
   "rebases a source-qualified Markdown file into its thread source %s",
   (source) => {
     vi.stubGlobal("location", {
-      href: "https://loop55.test/",
-      origin: "https://loop55.test",
+      href: "https://loop.test/",
+      origin: "https://loop.test",
     });
     const html = renderToStaticMarkup(
       <SourceProvider sourceId={source} capabilities={server}>

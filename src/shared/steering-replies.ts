@@ -26,11 +26,11 @@ export const ReplyContext = z.object({
   read_at: z.number().nullable(),
 });
 
-/** Only Loop55's delivery wrapper supplies the identity; quoting one in ordinary
+/** Only Loop's delivery wrapper supplies the identity; quoting one in ordinary
  * assistant text never publishes a reply. Agent mail keeps its own protocol. */
 export function steeredReplyPrompt(content: string, messageId: string) {
   return (
     `The user sent this message while your task was running. Message ID: ${messageId}\n` +
-    `When answering this message, publish the answer with loop55_reply using replyTo "${messageId}" and body containing your complete reply. You may publish more than one reply. Continue the ongoing task unless the user redirects or stops it; publishing a reply does not finish the task.\n\n${content}`
+    `When answering this message, publish the answer with loop_reply using replyTo "${messageId}" and body containing your complete reply. You may publish more than one reply. Continue the ongoing task unless the user redirects or stops it; publishing a reply does not finish the task.\n\n${content}`
   );
 }

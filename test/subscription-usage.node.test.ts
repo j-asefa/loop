@@ -13,7 +13,7 @@ import {
 } from "../native/subscription-usage.mjs";
 
 test("Claude status-line usage is minimized, sampled and expires", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-usage-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-usage-"));
   try {
     const file = claudeUsageFile(dir);
     const reset = Math.floor(Date.now() / 1000) + 3600;
@@ -52,7 +52,7 @@ test("Claude status-line usage is minimized, sampled and expires", async () => {
 });
 
 test("Claude status-line setup preserves an existing user command", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-usage-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-usage-"));
   try {
     const file = join(dir, "settings.json");
     writeFileSync(

@@ -10,11 +10,11 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop55-session-mode-")));
-process.env.LOOP55_DATA_DIR = dir;
+const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-session-mode-")));
+process.env.LOOP_DATA_DIR = dir;
 gitProject(dir);
-process.env.LOOP55_TEST_HARNESS = "claude";
-process.env.LOOP55_TEST_ARGV = join(dir, "argv.jsonl");
+process.env.LOOP_TEST_HARNESS = "claude";
+process.env.LOOP_TEST_ARGV = join(dir, "argv.jsonl");
 const { db } = await import("../src/server/db");
 db.prepare(
   "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)",
@@ -34,12 +34,12 @@ db.prepare("INSERT INTO harnesses VALUES('claude',?,'{}','{}','[]',0)").run(
 );
 db.prepare(
   "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-claude',?,'anthropic','Claude','','connected','[]',?,0)",
-).run(OWNER, JSON.stringify({ loop55Harness: "claude" }));
+).run(OWNER, JSON.stringify({ loopHarness: "claude" }));
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
-  delete process.env.LOOP55_TEST_HARNESS;
-  delete process.env.LOOP55_TEST_ARGV;
+  delete process.env.LOOP_TEST_HARNESS;
+  delete process.env.LOOP_TEST_ARGV;
 });
 function run(name: string, permissionMode = "default") {
   db.prepare(

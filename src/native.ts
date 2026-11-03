@@ -17,7 +17,7 @@ export class NativeRpcError extends Error {
     this.name = "NativeRpcError";
   }
 }
-/** Facts created by Loop55's transport, never a provider's raw error message. */
+/** Facts created by Loop's transport, never a provider's raw error message. */
 export class NativeTransportError extends Error {
   constructor(
     public code:
@@ -246,7 +246,7 @@ export class Native extends EventEmitter {
     );
   }
   request(method: string, params: unknown = {}, rpc = true): Promise<any> {
-    const id = `loop55-${++this.seq}`;
+    const id = `loop-${++this.seq}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);

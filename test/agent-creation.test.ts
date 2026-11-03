@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { randomBytes, createHash } from "node:crypto";
 import express from "express";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-agent-creation-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-agent-creation-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { core } = await import("../src/server/core-routes");
@@ -128,11 +128,11 @@ it("creates a first message, queues work, and keeps standing instructions for fu
   await executeAgent(run);
   transition(run, "completed");
   // The agent's standing instructions reach the provider verbatim, followed by
-  // Loop55's plan guidance because loop55_plan is advertised to this run.
+  // Loop's plan guidance because loop_plan is advertised to this run.
   expect(calls.at(-1).instructions).toBe(
     input.instructions + "\n\n" + PLAN_GUIDANCE,
   );
-  expect(calls.at(-1).tools.map((t: any) => t.name)).toContain("loop55_plan");
+  expect(calls.at(-1).tools.map((t: any) => t.name)).toContain("loop_plan");
   expect(calls.at(-1).effort).toBe("high");
   expect(calls.at(-1).messages).toEqual([
     { role: "user", content: "Compare three research ideas." },
@@ -375,7 +375,7 @@ it.each(["api", "native"])(
       db.prepare(
         "UPDATE connections SET provider='codex',metadata=? WHERE id=?",
       ).run(
-        JSON.stringify({ loop55Harness: "codex", authMode: "subscription" }),
+        JSON.stringify({ loopHarness: "codex", authMode: "subscription" }),
         connectionId,
       );
     const input = {

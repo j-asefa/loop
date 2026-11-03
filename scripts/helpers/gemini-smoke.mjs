@@ -129,7 +129,7 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
     .click();
   const sheet = page.getByRole("dialog", { name: "Gemini CLI", exact: true });
   await expect(sheet.getByLabel("Sign-in method")).toHaveValue("oauth");
-  // A sign-in made outside Loop55 can still enable directly.
+  // A sign-in made outside Loop can still enable directly.
   await sheet.getByText("Already signed in on Fixture computer?").click();
   await expect(
     sheet.getByRole("button", { name: "Enable Gemini CLI", exact: true }),

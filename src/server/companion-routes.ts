@@ -263,6 +263,6 @@ routes.on(workspaceApi.conversationNative, (req, res) => {
     ),
     items: items.map((x) => JSON.parse(x.item)),
     projection: true,
-    note: "Native history remains authoritative. This is Loop55's recorded display projection.",
+    note: "Native history remains authoritative. This is Loop's recorded display projection.",
   });
 });

@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-sources-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-sources-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { errorHandler } = await import("../src/server/error-handler");
 const { news, withNewsFixture } = await import("../src/server/news");
 const { sourceId } = await import("../src/server/feed-sources");
@@ -58,7 +58,7 @@ const blogAtom = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"
 
 // An address someone typed is checked before it is ever requested. Each of
 // these is refused without a socket being opened.
-it("refuses an address Loop55 must not request", () => {
+it("refuses an address Loop must not request", () => {
   const refused: [string, RegExp][] = [
     ["http://jvns.ca/atom.xml", /https/i],
     ["https://user:pass@jvns.ca/atom.xml", /username or password/i],
@@ -83,7 +83,7 @@ it("refuses an address Loop55 must not request", () => {
   );
 });
 
-it("refuses an address Loop55 must not request, through the route too", async () => {
+it("refuses an address Loop must not request, through the route too", async () => {
   let asked = 0;
   restore = withNewsFixture(async () => {
     asked++;

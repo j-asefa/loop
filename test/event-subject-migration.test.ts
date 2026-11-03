@@ -20,8 +20,8 @@ const start = async (directory: string) => {
     {
       env: {
         ...process.env,
-        LOOP55_PROFILE: "server",
-        LOOP55_DATA_DIR: directory,
+        LOOP_PROFILE: "server",
+        LOOP_DATA_DIR: directory,
       },
     },
   );
@@ -29,8 +29,8 @@ const start = async (directory: string) => {
 };
 
 it("upgrades run events without reusing deleted IDs and admits connection subjects without a run", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "loop55-event-upgrade-"));
-  const db = new Database(join(directory, "loop55.db"));
+  const directory = mkdtempSync(join(tmpdir(), "loop-event-upgrade-"));
+  const db = new Database(join(directory, "loop.db"));
   try {
     db.pragma("foreign_keys=ON");
     db.transaction(() => {
@@ -145,7 +145,7 @@ it("upgrades run events without reusing deleted IDs and admits connection subjec
 });
 
 it("serializes concurrent fresh database startup to one migration history", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "loop55-event-fresh-"));
+  const directory = mkdtempSync(join(tmpdir(), "loop-event-fresh-"));
   try {
     const [one, two] = await Promise.all([start(directory), start(directory)]);
     expect(one).toEqual(two);

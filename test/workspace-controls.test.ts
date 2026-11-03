@@ -8,9 +8,9 @@ import { randomBytes } from "node:crypto";
 import { modelOptions } from "../runtime/model-options.ts";
 import type { ChatInput } from "../src/server/providers";
 import type { Connection } from "../src/shared/types";
-const dir = mkdtempSync(join(tmpdir(), "loop55-controls-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-controls-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent, renameAgent } = await import("../src/server/domain");
@@ -191,7 +191,7 @@ it("uploads original files, keeps them out of the feed, and reads them only in a
         yield {
           toolCall: {
             id: "read",
-            name: "loop55_read_file",
+            name: "loop_read_file",
             arguments: { fileId: file.id, length: 100 },
           },
         };

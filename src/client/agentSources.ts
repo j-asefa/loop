@@ -411,7 +411,7 @@ export function useAgentSources(
     };
     const visible = () => { if (document.visibilityState === "visible") schedule(); };
     document.addEventListener("visibilitychange", visible);
-    window.addEventListener("loop55-source-refresh", retry);
+    window.addEventListener("loop-source-refresh", retry);
     // This projection includes active runs as well as source metadata.
     const stopChanges = listenWorkspaceChanges("runs", changed("runs"));
     const stopMetadata = listenWorkspaceChanges("metadata", changed("metadata"));
@@ -420,7 +420,7 @@ export function useAgentSources(
       clearRequests();
       clearInterval(timer);
       clearTimeout(refreshTimer);
-      window.removeEventListener("loop55-source-refresh", retry);
+      window.removeEventListener("loop-source-refresh", retry);
       document.removeEventListener("visibilitychange", visible);
       stopChanges();
       stopMetadata();

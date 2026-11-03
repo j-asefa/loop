@@ -17,7 +17,7 @@ const routes = registrar("webhooks", {
       "/webhooks",
       (req, _res, next) => {
         if (req.headers.authorization !== undefined)
-          throw new Problem(403, "Use your Loop55 session to manage webhooks");
+          throw new Problem(403, "Use your Loop session to manage webhooks");
         next();
       },
     ],

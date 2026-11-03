@@ -366,7 +366,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     await dialog().getByLabel("Reply to agent", { exact: true }).fill("");
     await swipe(dialog().locator(".messages .markdown p").first());
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
 
     await page.goto(`${fixture.base}/?artifact=${fixture.artifacts[0]}`, {
       waitUntil: "networkidle",
@@ -387,11 +387,11 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       );
     await swipe(dialog().locator(".markdown > p").first());
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
     await page.goto(fixture.base, { waitUntil: "networkidle" });
     const root = page.url();
     await swipe(page.getByRole("heading", { name: "Feed", exact: true }));
-    assert.equal(page.url(), root, "Swiping at the root must stay in Loop55");
+    assert.equal(page.url(), root, "Swiping at the root must stay in Loop");
     console.log(
       `${engine}: left-swipe page/sheet back, draft/scroll restoration and gesture exclusions passed`,
     );

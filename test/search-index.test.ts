@@ -13,9 +13,9 @@ vi.mock("../src/server/local-embeddings.js", () => ({
     return texts.map((text) => (/car|automobile/.test(text) ? [1, 0] : [0, 1]));
   },
 }));
-const dir = mkdtempSync(join(tmpdir(), "loop55-search-index-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-search-index-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { saveArtifact } = await import("../src/server/artifacts");
@@ -223,7 +223,7 @@ it.each(["metadata", "secret"] as const)(
     );
     if (column === "metadata")
       db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-        '{"loop55Harness":false}',
+        '{"loopHarness":false}',
         connection,
       );
     else

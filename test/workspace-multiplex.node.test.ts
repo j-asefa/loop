@@ -108,7 +108,7 @@ function subscribe(
 
 test("measures shared source streams for three and sixteen simulated machines", async (t) => {
   for (const sourceCount of [3, 16]) {
-    const dir = await mkdtemp(join(tmpdir(), "loop55-multiplex-measure-"));
+    const dir = await mkdtemp(join(tmpdir(), "loop-multiplex-measure-"));
     const budget = new FleetCapacity(() => true);
     const host = fixtureHost(dir);
     const sources = Array.from({ length: sourceCount }, (_, i) => String(i));
@@ -265,7 +265,7 @@ test("measures shared source streams for three and sixteen simulated machines", 
 });
 
 test("paired gateway multiplexes sources, shares upstreams, bounds replay and fences changed authority", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop55-multiplex-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop-multiplex-"));
   const host = fixtureHost(dir);
   const budget = new FleetCapacity(() => true);
   const open = new Map<string, Set<EventSocket>>(),

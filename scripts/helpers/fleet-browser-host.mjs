@@ -1,4 +1,3 @@
-import "../../runtime/environment.mjs";
 // Isolated compiled companion used only by the fleet browser fixture. All peer
 // packets still cross the production Host/protocol handlers. This injected
 // loopback transport is not evidence of Internet DNS, TLS or tunnel behavior.
@@ -16,7 +15,7 @@ const options = {
   billing: "existing",
   fleet: true,
 };
-const host = new WorkspaceHost(process.env.LOOP55_DATA_DIR, options);
+const host = new WorkspaceHost(process.env.LOOP_DATA_DIR, options);
 // Hold the real HTTP response at the fixture edge so the late-response case
 // follows the same path in both browser engines, including service workers.
 let mintGate,

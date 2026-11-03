@@ -39,8 +39,8 @@ const terminal = (
   status = 200,
 ) =>
   json(body, status, {
-    "x-loop55-command-id": id,
-    "x-loop55-command-state": state,
+    "x-loop-command-id": id,
+    "x-loop-command-state": state,
   });
 const rows = () => [...storage.values()].flatMap((value) => JSON.parse(value));
 async function page(owner = "fixture-owner") {
@@ -92,7 +92,7 @@ beforeEach(async () => {
       return json({ csrf: "isolated-csrf" });
     }
     if (beforeFetch) return beforeFetch(url, init);
-    return terminal(new Headers(init.headers).get("x-loop55-command-id")!);
+    return terminal(new Headers(init.headers).get("x-loop-command-id")!);
   });
   vi.stubGlobal("fetch", fetcher);
   await page();
@@ -116,7 +116,7 @@ it("journals one upload across JSON-equivalent options and checks its receipt wi
     if (url === "/session") return json({ csrf: "isolated-csrf" });
     expect(url).toContain(encodeURIComponent(source));
     const headers = new Headers(init.headers),
-      id = headers.get("x-loop55-command-id")!;
+      id = headers.get("x-loop-command-id")!;
     const form = init.body as FormData;
     const manifest = JSON.parse(String(form.get("manifest")));
     expect(manifest.body.options).toEqual({});
@@ -139,7 +139,7 @@ it("journals one upload across JSON-equivalent options and checks its receipt wi
     sent.push({
       id,
       hasFile: form.has("file"),
-      receiptOnly: headers.get("x-loop55-receipt-only"),
+      receiptOnly: headers.get("x-loop-receipt-only"),
     });
     if (sent.length === 1) throw new TypeError("Fixture upload response lost");
     return terminal(id, uploaded, "completed", 201);
@@ -270,8 +270,8 @@ it.each(["abort", "owner change"])(
     await page();
     beforeFetch = async (_url, init) => {
       const headers = new Headers(init.headers);
-      expect(headers.get("x-loop55-command-id")).toBe(input.body.commandId);
-      expect(headers.has("x-loop55-receipt-only")).toBe(false);
+      expect(headers.get("x-loop-command-id")).toBe(input.body.commandId);
+      expect(headers.has("x-loop-receipt-only")).toBe(false);
       return terminal(input.body.commandId);
     };
     await expect(
@@ -291,7 +291,7 @@ it("persists before IO and reconciles the same native decision after reload even
   const received: { id: string; receipt: string | null; body: any }[] = [];
   beforeFetch = async (url, init) => {
     const headers = new Headers(init.headers),
-      id = headers.get("x-loop55-command-id")!;
+      id = headers.get("x-loop-command-id")!;
     expect(rows()).toEqual([
       {
         id: original,
@@ -302,7 +302,7 @@ it("persists before IO and reconciles the same native decision after reload even
       },
     ]);
     const body = JSON.parse(String(init.body));
-    received.push({ id, receipt: headers.get("x-loop55-receipt-only"), body });
+    received.push({ id, receipt: headers.get("x-loop-receipt-only"), body });
     expect(body.commandId).toBe(original);
     if (received.length === 1) throw new TypeError("Lost committed response");
     return terminal(id);
@@ -345,8 +345,8 @@ it("normalizes optional create/composer fields to their JSON representation befo
   beforeFetch = async (_url, init) => {
     const headers = new Headers(init.headers);
     seen.push({
-      id: headers.get("x-loop55-command-id")!,
-      query: headers.has("x-loop55-receipt-only"),
+      id: headers.get("x-loop-command-id")!,
+      query: headers.has("x-loop-receipt-only"),
       body: JSON.parse(String(init.body)),
     });
     return json({ error: "Fixture response unavailable" }, 503);
@@ -493,8 +493,8 @@ it("two concurrent callers share one original intent and at most one action requ
   const commands: { id: string; query: boolean }[] = [];
   beforeFetch = async (url, init) => {
     const headers = new Headers(init.headers),
-      id = headers.get("x-loop55-command-id")!;
-    commands.push({ id, query: headers.has("x-loop55-receipt-only") });
+      id = headers.get("x-loop-command-id")!;
+    commands.push({ id, query: headers.has("x-loop-receipt-only") });
     return json({ error: "Fixture unknown", executionOutcome: "unknown" }, 503);
   };
   const input = {
@@ -535,10 +535,10 @@ it("releases a new intent when device authorization fails before the action fetc
   await expect(call(first)).resolves.toEqual({ state: "answered" });
   const actions = fetcher.mock.calls.filter(([url]) => url !== "/session");
   expect(actions).toHaveLength(1);
-  expect(new Headers(actions[0][1].headers).get("x-loop55-command-id")).toBe(
+  expect(new Headers(actions[0][1].headers).get("x-loop-command-id")).toBe(
     first,
   );
-  expect(new Headers(actions[0][1].headers).has("x-loop55-receipt-only")).toBe(
+  expect(new Headers(actions[0][1].headers).has("x-loop-receipt-only")).toBe(
     false,
   );
 });
@@ -562,10 +562,8 @@ it("releases only its captured unsent entry when authorization aborts the reques
   ).resolves.toEqual({ state: "answered" });
   const actions = fetcher.mock.calls.filter(([url]) => url !== "/session");
   expect(actions).toHaveLength(1);
-  expect(new Headers(actions[0][1].headers).get("x-loop55-command-id")).toBe(
-    id,
-  );
-  expect(new Headers(actions[0][1].headers).has("x-loop55-receipt-only")).toBe(
+  expect(new Headers(actions[0][1].headers).get("x-loop-command-id")).toBe(id);
+  expect(new Headers(actions[0][1].headers).has("x-loop-receipt-only")).toBe(
     false,
   );
 });
@@ -621,7 +619,7 @@ it("cancels one stalled authorization waiter without cancelling the shared reque
   expect(continued).toEqual({ state: "answered" });
   const actions = fetcher.mock.calls.filter(([url]) => url !== "/session");
   expect(actions).toHaveLength(1);
-  expect(new Headers(actions[0][1].headers).get("x-loop55-command-id")).toBe(
+  expect(new Headers(actions[0][1].headers).get("x-loop-command-id")).toBe(
     secondId,
   );
   expect(rows()).toEqual([]);
@@ -657,8 +655,8 @@ it("keeps an uncertain original intent if a later receipt query fails authorizat
   beforeSession = undefined;
   beforeFetch = async (_url, init) => {
     const headers = new Headers(init.headers);
-    expect(headers.get("x-loop55-command-id")).toBe(original);
-    expect(headers.get("x-loop55-receipt-only")).toBe("1");
+    expect(headers.get("x-loop-command-id")).toBe(original);
+    expect(headers.get("x-loop-receipt-only")).toBe("1");
     return terminal(original);
   };
   await expect(call(randomUUID())).resolves.toEqual({ state: "answered" });
@@ -699,12 +697,10 @@ it("does not settle uncertainty from a missing, wrong or malformed completion re
   let mode = "missing";
   let refusedId: string | undefined;
   beforeFetch = async (url, init) => {
-    const id = new Headers(init.headers).get("x-loop55-command-id")!;
+    const id = new Headers(init.headers).get("x-loop-command-id")!;
     if (mode === "success") {
       expect(id).not.toBe(refusedId);
-      expect(new Headers(init.headers).has("x-loop55-receipt-only")).toBe(
-        false,
-      );
+      expect(new Headers(init.headers).has("x-loop-receipt-only")).toBe(false);
       return terminal(id, { ok: true });
     }
     if (mode === "missing") return json({ ok: true });
@@ -753,7 +749,7 @@ it("does not settle uncertainty from a missing, wrong or malformed completion re
 it("a late response after an owner switch cannot finish the old browser intent", async () => {
   beforeFetch = async (url, init) => {
     views.setViewOwner("replacement-owner");
-    return terminal(new Headers(init.headers).get("x-loop55-command-id")!, {
+    return terminal(new Headers(init.headers).get("x-loop-command-id")!, {
       ok: true,
     });
   };
@@ -807,7 +803,7 @@ it("queries a persisted receipt after reload without retaining its body and keep
       route: "nativeAnswer",
       payloadDigest: pending.payloadDigest,
     });
-    expect(new Headers(init.headers).has("x-loop55-command-id")).toBe(false);
+    expect(new Headers(init.headers).has("x-loop-command-id")).toBe(false);
     return json({ commandId: returnedId, state, result });
   };
   expect((await commands.reconcileFleetCommand(pending)).state).toBe("unknown");
@@ -865,9 +861,9 @@ it("retains the original command for bodyless mutations while unsupported contra
   beforeFetch = async (url, init) => {
     expect(url).toBe(`/api/agent-sources/${encodeURIComponent(source)}${path}`);
     const headers = new Headers(init.headers),
-      id = headers.get("x-loop55-command-id")!;
+      id = headers.get("x-loop-command-id")!;
     expect(rows()[0].id).toBe(id);
-    received.push({ id, query: headers.get("x-loop55-receipt-only") });
+    received.push({ id, query: headers.get("x-loop-receipt-only") });
     if (received.length === 1) throw new TypeError("Lost cancellation reply");
     return terminal(id, { ok: true });
   };
@@ -928,7 +924,7 @@ it("uses read-only POST previews without retaining a command, while shared sends
   beforeFetch = async (url, init) => {
     if (url === "/session") return json({ csrf: "isolated-csrf" });
     paths.push(url);
-    expect(new Headers(init.headers).has("x-loop55-command-id")).toBe(false);
+    expect(new Headers(init.headers).has("x-loop-command-id")).toBe(false);
     expect(rows()).toEqual([]);
     return url.endsWith("/routing/preview")
       ? json({ agent: null, reason: "No fixture agent" })
@@ -963,9 +959,9 @@ it("uses read-only POST previews without retaining a command, while shared sends
       `/api/agent-sources/${encodeURIComponent(source)}/share/send`,
     );
     const headers = new Headers(init.headers),
-      id = headers.get("x-loop55-command-id")!;
+      id = headers.get("x-loop-command-id")!;
     expect(JSON.parse(String(init.body)).idempotencyKey).toBe(id);
-    seen.push({ id, query: headers.get("x-loop55-receipt-only") });
+    seen.push({ id, query: headers.get("x-loop-receipt-only") });
     expect(rows()[0].id).toBe(id);
     throw new TypeError("Lost shared send receipt");
   };

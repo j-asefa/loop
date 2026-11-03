@@ -1,8 +1,8 @@
 [Unit]
-Description=Aggregate resource budget for Loop55 native agents and their commands
+Description=Aggregate resource budget for Loop native agents and their commands
 
 [Slice]
-# Example for an 8 GiB, four CPU host. Leave capacity for Loop55 and the OS.
+# Example for an 8 GiB, four CPU host. Leave capacity for Loop and the OS.
 MemoryAccounting=yes
 # Early memory.high reclaim can stall every harness while the host has spare
 # RAM. Enforce the aggregate hard ceiling without that earlier throttle.

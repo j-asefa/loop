@@ -12,7 +12,7 @@ export async function prepareNativeAuthBrowser(dir) {
   const originalPath = process.env.PATH;
   await writeFile(
     join(bin, "claude"),
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=claude\nexport LOOP55_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=claude\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   process.env.PATH = bin + ":" + originalPath;
@@ -72,7 +72,7 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
         .click();
     };
     await page.goto(host.pair().url);
-    await page.getByRole("button", { name: "Pair and open Loop55" }).click();
+    await page.getByRole("button", { name: "Pair and open Loop" }).click();
     await openProviderConnections();
     const settings = page.getByRole("dialog", {
       name: "Provider connections",
@@ -382,7 +382,7 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
       .click();
     await expect(login.getByRole("status")).toHaveText(/Signed in/);
 
-    // After a restart (or a sign-in outside Loop55) the auth manager has no
+    // After a restart (or a sign-in outside Loop) the auth manager has no
     // attempt and the CLI catalog reports no `configured` provider; the
     // runtime's own signed-in status must still offer Enable, not a new login.
     const fresh = async (route) => {
@@ -442,7 +442,7 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
       settings
         .locator(".native-runtime")
         .filter({ has: page.getByText("Claude Code", { exact: true }) })
-        .getByText("Enabled in Loop55", { exact: true }),
+        .getByText("Enabled in Loop", { exact: true }),
     ).toBeVisible();
     assert.equal(enables, 2);
     assert.equal(signInsStarted, 5);

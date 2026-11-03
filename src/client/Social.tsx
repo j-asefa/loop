@@ -185,7 +185,7 @@ const FILL_IN_MS = 1500;
 const FILL_IN_POLLS = 8;
 
 /**
- * Add a feed Loop55 doesn't ship: a feed address, or a site's, in which case the
+ * Add a feed Loop doesn't ship: a feed address, or a site's, in which case the
  * feeds that page advertises are offered. Also brings a reader's whole list in
  * as OPML, and takes it out again.
  */
@@ -780,7 +780,7 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
 }
 
 /**
- * A digest Loop55 sends once a day: it collects what arrived and asks an agent
+ * A digest Loop sends once a day: it collects what arrived and asks an agent
  * to summarize it. Also where agents are allowed to read the feed at all,
  * which is off until it is turned on here.
  */
@@ -1102,7 +1102,7 @@ export function Social({
       setView(next);
       cacheView<Shown>(KEY, next, owner);
       if (!reactiveSource("", "workspace"))
-        window.dispatchEvent(new Event("loop55-social-read"));
+        window.dispatchEvent(new Event("loop-social-read"));
       setError("");
       // Feeds still loading arrive behind the first paint: ask again for them
       // a few times, then leave it to the five-minute refresh.
@@ -1147,7 +1147,7 @@ export function Social({
       setView((old) => old && { ...old, unread });
       // Refresh any other reader of the owner’s unread count.
       setSearchRevision((revision) => revision + 1);
-      window.dispatchEvent(new Event("loop55-social-read"));
+      window.dispatchEvent(new Event("loop-social-read"));
     } catch (e) {
       setError((e as Error).message);
       void load();
@@ -1180,7 +1180,7 @@ export function Social({
       setView((old) => old && { ...old, unread });
       void load();
       setSearchRevision((revision) => revision + 1);
-      window.dispatchEvent(new Event("loop55-social-read"));
+      window.dispatchEvent(new Event("loop-social-read"));
       if (removed)
         notify({
           text: "Removed from Social",
@@ -1211,7 +1211,7 @@ export function Social({
           },
       );
       setSearchRevision((revision) => revision + 1);
-      window.dispatchEvent(new Event("loop55-social-read"));
+      window.dispatchEvent(new Event("loop-social-read"));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -1301,12 +1301,12 @@ export function Social({
       setFocused(openedStory());
       void load({ force: true });
     };
-    window.addEventListener("loop55-refresh", pulled);
+    window.addEventListener("loop-refresh", pulled);
     return () => {
       stopFallback();
       stopChanges();
       clearTimeout(fillIn.current);
-      window.removeEventListener("loop55-refresh", pulled);
+      window.removeEventListener("loop-refresh", pulled);
       // A load in flight must not write to an unmounted view.
       request.current++;
     };
@@ -1675,7 +1675,7 @@ export function Social({
                       {view.images && story.image && (
                         <img
                           className="news-image"
-                          // Through Loop55, not from the publisher: the page's own
+                          // Through Loop, not from the publisher: the page's own
                           // policy allows no third-party images, and a feed's
                           // picture should not tell its site who is reading.
                           src={routeUrl(

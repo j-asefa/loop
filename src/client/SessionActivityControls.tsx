@@ -162,7 +162,7 @@ export function SessionActivityControls({
       if (own === epoch.current) {
         commands.current.delete(commandKey);
         setData(next);
-        window.dispatchEvent(new Event("loop55-workspace-change"));
+        window.dispatchEvent(new Event("loop-workspace-change"));
       }
     } catch (e) {
       if (own === epoch.current) {

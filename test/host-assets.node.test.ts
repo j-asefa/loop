@@ -18,7 +18,7 @@ import { rawGet } from "./helpers/raw-http.js";
 
 test("companion assets compress, cache and revalidate without caching entrypoints", async () => {
   await mkdir(".tmp", { recursive: true });
-  const dir = await mkdtemp(join(resolve(".tmp"), "loop55-avatar-host-"));
+  const dir = await mkdtemp(join(resolve(".tmp"), "loop-avatar-host-"));
   let host: import("../src/host.js").Host | undefined;
   try {
     // Compile the production host beside an isolated copy of its shipped assets.

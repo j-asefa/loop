@@ -52,7 +52,7 @@ const year = 365 * 86_400_000;
 export const rejected = () =>
   new Problem(
     403,
-    "Pairing link expired, invalid or already used. Run loop55 pair on the destination machine.",
+    "Pairing link expired, invalid or already used. Run loop pair on the destination machine.",
   );
 
 /** One transaction owns a ceremony and the device it creates. */
@@ -126,7 +126,7 @@ export class DevicePairing implements DeviceTrust {
     if (this.clockFailed)
       throw new Problem(
         409,
-        "Device expiry could not be persisted. Repair local storage and restart Loop55.",
+        "Device expiry could not be persisted. Repair local storage and restart Loop.",
       );
     const prior = fleetPairingClockQueries.current(this.db) as
       { observed_at: number } | undefined;

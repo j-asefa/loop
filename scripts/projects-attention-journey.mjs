@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 import {
   closeSheets,
   inboxRowAction,
@@ -22,7 +21,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   // The fixture runs many independent journeys as one user. Keep this one
   // from inheriting earlier journeys' per-minute request budget.
   {
-    const limits = new Database(join(dir, "loop55.db"));
+    const limits = new Database(join(dir, "loop.db"));
     limits.pragma("busy_timeout = 10000");
     limits.prepare("DELETE FROM request_limits").run();
     limits.close();
@@ -131,7 +130,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   ).toBeVisible();
   for (const theme of ["light", "dark"]) {
     await page.evaluate((theme) => {
-      localStorage.setItem("loop55-theme", theme);
+      localStorage.setItem("loop-theme", theme);
       document.documentElement.dataset.theme = theme;
     }, theme);
     for (const width of [320, 390, 768]) {
@@ -144,14 +143,14 @@ export async function projectsAttentionJourney(page, api, base, dir) {
       await page.screenshot({
         path: join(
           tmpdir(),
-          `loop55-projects-${process.env.LOOP55_BROWSER || "chromium"}-${theme}-${width}.png`,
+          `loop-projects-${process.env.LOOP_BROWSER || "chromium"}-${theme}-${width}.png`,
         ),
       });
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
   // These are isolated fixture records, not tasks executed by real providers.
-  const db = new Database(join(dir, "loop55.db"));
+  const db = new Database(join(dir, "loop.db"));
   const failed = crypto.randomUUID(),
     paused = crypto.randomUUID(),
     queued = crypto.randomUUID(),
@@ -272,7 +271,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     await page.screenshot({
       path: join(
         tmpdir(),
-        `loop55-attention-${process.env.LOOP55_BROWSER || "chromium"}.png`,
+        `loop-attention-${process.env.LOOP_BROWSER || "chromium"}.png`,
       ),
     });
     await openNeeds(page);
@@ -430,7 +429,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     await page.screenshot({
       path: join(
         tmpdir(),
-        `loop55-conversation-reading-${process.env.LOOP55_BROWSER || "chromium"}.png`,
+        `loop-conversation-reading-${process.env.LOOP_BROWSER || "chromium"}.png`,
       ),
     });
     await expect(
@@ -508,7 +507,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
     await page.screenshot({
       path: join(
         tmpdir(),
-        `loop55-web-preview-${process.env.LOOP55_BROWSER || "chromium"}.png`,
+        `loop-web-preview-${process.env.LOOP_BROWSER || "chromium"}.png`,
       ),
     });
     const markdown = page.locator(".feed-card").filter({
@@ -539,7 +538,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
         await page.screenshot({
           path: join(
             tmpdir(),
-            `loop55-previews-${process.env.LOOP55_BROWSER || "chromium"}-${theme}-${width}.png`,
+            `loop-previews-${process.env.LOOP_BROWSER || "chromium"}-${theme}-${width}.png`,
           ),
         });
       }
@@ -579,7 +578,7 @@ export async function projectsAttentionJourney(page, api, base, dir) {
   await page.screenshot({
     path: join(
       tmpdir(),
-      `loop55-tool-approvals-${process.env.LOOP55_BROWSER || "chromium"}.png`,
+      `loop-tool-approvals-${process.env.LOOP_BROWSER || "chromium"}.png`,
     ),
   });
   await page.waitForLoadState("networkidle");

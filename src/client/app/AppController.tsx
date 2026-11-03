@@ -172,7 +172,7 @@ export function useAppController() {
     ),
     [activeArtifact, setActiveArtifact] = useState<CardArtifact | null>(null),
     [theme, setTheme] = useState(
-      localStorage.getItem("loop55-theme") || "system",
+      localStorage.getItem("loop-theme") || "system",
     ),
     [query, setQuery] = useState("");
   setDraftOwner(session?.user?.id);
@@ -554,8 +554,8 @@ export function useAppController() {
       setTab("profile");
       // Social reads the story from the address, as it does on a cold open.
       history.replaceState(null, "", url.pathname + url.search);
-      window.dispatchEvent(new Event("loop55-social-open"));
-      window.dispatchEvent(new Event("loop55-refresh"));
+      window.dispatchEvent(new Event("loop-social-open"));
+      window.dispatchEvent(new Event("loop-refresh"));
     } else if (target) {
       setProfile(null);
       setConversation(
@@ -576,7 +576,7 @@ export function useAppController() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const received = (event: MessageEvent) => {
-      if (event.data?.type !== "loop55-open") return;
+      if (event.data?.type !== "loop-open") return;
       const url = new URL(String(event.data.url), location.origin);
       if (url.origin === location.origin) openLink.current(url);
     };
@@ -769,11 +769,11 @@ export function useAppController() {
       text ??
       ((context.messageId &&
         sessionStorage.getItem(
-          "loop55-message-reply-" + draftId(context.messageId, source),
+          "loop-message-reply-" + draftId(context.messageId, source),
         )) ||
         (context.artifactId &&
           sessionStorage.getItem(
-            "loop55-result-reply-" + draftId(context.artifactId, source),
+            "loop-result-reply-" + draftId(context.artifactId, source),
           )) ||
         undefined);
     // Opening another thread loads that thread's own draft; seed it first.
@@ -942,7 +942,7 @@ export function useAppController() {
   );
   // Pull down at the top of any page to refresh what it shows.
   const pullRefresh = usePullToRefresh(Boolean(session?.user), async () => {
-    window.dispatchEvent(new Event("loop55-refresh"));
+    window.dispatchEvent(new Event("loop-refresh"));
     await changed();
   });
   useSwipeBack(Boolean(session?.user), () => {
@@ -1065,7 +1065,7 @@ export function useAppController() {
   // The name shown for you: your profile's, else the account's.
   const accountName: string = session?.user?.name?.trim() || "You";
   const displayName = myProfile?.display_name || accountName;
-  const receiptStorageKey = `loop55-send:${threadIdentity}`;
+  const receiptStorageKey = `loop-send:${threadIdentity}`;
   const receiptBox = useRef<{
     key: string;
     box: { current: SendReceipt };
@@ -1198,7 +1198,7 @@ export function useAppController() {
       teams: old.teams?.map((item) => (item.id === team.id ? team : item)),
     }));
     // Supersede any in-flight feed read so a saved preference takes effect now.
-    window.dispatchEvent(new Event("loop55-source-refresh"));
+    window.dispatchEvent(new Event("loop-source-refresh"));
   }
   const check = createSessionCheck({
     setSession,
@@ -1281,7 +1281,7 @@ export function useAppController() {
     loadResults,
   });
   useEffect(() => {
-    localStorage.setItem("loop55-theme", theme);
+    localStorage.setItem("loop-theme", theme);
     const media = matchMedia("(prefers-color-scheme: dark)");
     const update = () =>
       (document.documentElement.dataset.theme =

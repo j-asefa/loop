@@ -24,13 +24,13 @@ import {
 } from "../scripts/helpers/fleet-acceptance-observations.mjs";
 
 test("acceptance cleanup accepts the production CLI when already fully stopped", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "loop55-acceptance-stopped-"));
+  const root = await mkdtemp(join(tmpdir(), "loop-acceptance-stopped-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const execute = promisify(execFile);
   const env = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
-    LOOP55_HOME: root,
+    LOOP_HOME: root,
   };
   const commands: string[][] = [];
   const result = await stopAcceptanceCompanion(async (args) => {
@@ -53,7 +53,7 @@ test("acceptance cleanup retains state on unresolved stop failures and live conn
       throw Object.assign(new Error("private native output"), {
         code: 1,
         stdout: "",
-        stderr: "Loop55: Recorded native processes could not be confirmed.",
+        stderr: "Loop: Recorded native processes could not be confirmed.",
       });
     }),
     (error: Error) =>
@@ -89,7 +89,7 @@ test("acceptance cleanup retains state on unresolved stop failures and live conn
 });
 
 test("real-tunnel commands cannot inherit global Git hooks or Docker configuration", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "loop55-acceptance-environment-"));
+  const root = await mkdtemp(join(tmpdir(), "loop-acceptance-environment-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const execute = promisify(execFile);
   const hooks = join(root, "hooks"),
@@ -150,7 +150,7 @@ test("real-tunnel commands cannot inherit global Git hooks or Docker configurati
 });
 
 test("report writes replace a symlink without touching its target", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "loop55-acceptance-output-"));
+  const root = await mkdtemp(join(tmpdir(), "loop-acceptance-output-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const target = join(root, "private.txt"),
     output = join(root, "report.json");
@@ -167,7 +167,7 @@ test("report writes replace a symlink without touching its target", async (t) =>
 });
 
 test("tunnel samples retain their installed connection pin across an application upgrade", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "loop55-acceptance-package-"));
+  const root = await mkdtemp(join(tmpdir(), "loop-acceptance-package-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "dist"));
   const module = join(root, "dist/tunnel.js");

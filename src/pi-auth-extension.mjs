@@ -3,7 +3,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createReadStream, writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
-export default function loop55SignIn(pi) {
+export default function loopSignIn(pi) {
   pi.on("input", () => ({ action: "handled" }));
   pi.on("session_start", async () => {
     // hasConfiguredAuth reads the availability snapshot populated by refresh.

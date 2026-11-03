@@ -1,6 +1,6 @@
 import { inProcessExecution } from "./in-process-execution.js";
 import { gitProject } from "./git-project.js";
-process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -19,10 +19,10 @@ import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-const dir = await realpath(await mkdtemp(join(tmpdir(), "loop55-workspace-")));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_TEST_HARNESS = "codex";
-process.env.LOOP55_TEST_AUDIT = join(dir, "audit");
+const dir = await realpath(await mkdtemp(join(tmpdir(), "loop-workspace-")));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_TEST_HARNESS = "codex";
+process.env.LOOP_TEST_AUDIT = join(dir, "audit");
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { nativeSessions, OWNER } =
   await import("../src/server/native-sessions.js");
@@ -36,7 +36,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
   await mkdir(projectB);
   gitProject(projectA);
   gitProject(projectB);
-  process.env.LOOP55_TEST_HISTORY_PROJECT = projectB;
+  process.env.LOOP_TEST_HISTORY_PROJECT = projectB;
   const executable = resolve("test/harness.mjs");
   await chmod(executable, 0o755);
   const options = {
@@ -84,7 +84,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         headers: {
           cookie,
           Origin: host.origin,
-          "x-loop55-csrf": csrf,
+          "x-loop-csrf": csrf,
           "Content-Type": "application/json",
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -135,11 +135,11 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
     await t.test(
       "named Docker companion reports the same name across authenticated APIs",
       async () => {
-        const beforeContainer = process.env.LOOP55_COMPANION_CONTAINER;
-        const beforeName = process.env.LOOP55_ENVIRONMENT_NAME;
+        const beforeContainer = process.env.LOOP_COMPANION_CONTAINER;
+        const beforeName = process.env.LOOP_ENVIRONMENT_NAME;
         try {
-          process.env.LOOP55_COMPANION_CONTAINER = "1";
-          process.env.LOOP55_ENVIRONMENT_NAME = "research/loop5555-companion";
+          process.env.LOOP_COMPANION_CONTAINER = "1";
+          process.env.LOOP_ENVIRONMENT_NAME = "research/loop-companion";
           await nativeSessions.enable(options);
           const named = await api("/bootstrap");
           const connection = named.connections.find(
@@ -147,7 +147,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
           );
           assert.equal(
             named.environmentName,
-            "Docker · research/loop5555-companion",
+            "Docker · research/loop-companion",
           );
           assert.equal(JSON.parse(connection.metadata).location, "docker");
           assert.equal(
@@ -159,7 +159,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
             (await api("/workspace/runtimes")).computer,
             named.environmentName,
           );
-          process.env.LOOP55_ENVIRONMENT_NAME = "development";
+          process.env.LOOP_ENVIRONMENT_NAME = "development";
           await nativeSessions.enable(options);
           const renamed = await api("/bootstrap");
           assert.equal(renamed.environmentName, "Docker · development");
@@ -170,11 +170,11 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
           );
         } finally {
           if (beforeContainer === undefined)
-            delete process.env.LOOP55_COMPANION_CONTAINER;
-          else process.env.LOOP55_COMPANION_CONTAINER = beforeContainer;
+            delete process.env.LOOP_COMPANION_CONTAINER;
+          else process.env.LOOP_COMPANION_CONTAINER = beforeContainer;
           if (beforeName === undefined)
-            delete process.env.LOOP55_ENVIRONMENT_NAME;
-          else process.env.LOOP55_ENVIRONMENT_NAME = beforeName;
+            delete process.env.LOOP_ENVIRONMENT_NAME;
+          else process.env.LOOP_ENVIRONMENT_NAME = beforeName;
           await nativeSessions.enable(options);
         }
       },
@@ -443,18 +443,16 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         },
       });
       const tools = await client.listTools();
-      assert(tools.tools.some((t) => t.name === "loop55_diagram"));
+      assert(tools.tools.some((t) => t.name === "loop_diagram"));
       const diagram = await client.callTool({
-        name: "loop55_diagram",
+        name: "loop_diagram",
         arguments: {
           title: "Fixture flow",
           source: "flowchart TD\n A[Start] --> B[Done]",
         },
       });
       assert(!diagram.isError);
-      const mcpTool = tools.tools.find((t) =>
-        t.name.startsWith("loop55_mcp_"),
-      )!;
+      const mcpTool = tools.tools.find((t) => t.name.startsWith("loop_mcp_"))!;
       const called = client.callTool({
         name: mcpTool.name,
         arguments: { text: "approval isolated" },
@@ -550,7 +548,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
       assert.equal(imported.worktree_agent_id, imported.agent_id);
       assert.equal(imported.worktree_source, projectB);
       assert.notEqual(imported.project, projectB);
-      process.env.LOOP55_TEST_REQUIRE_RESUME_CWD = "1";
+      process.env.LOOP_TEST_REQUIRE_RESUME_CWD = "1";
       try {
         const continued = await api("/runs", {
           agentId: imported.agent_id,
@@ -578,7 +576,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
           imported.project,
         );
       } finally {
-        delete process.env.LOOP55_TEST_REQUIRE_RESUME_CWD;
+        delete process.env.LOOP_TEST_REQUIRE_RESUME_CWD;
       }
     });
     await t.test(
@@ -621,12 +619,12 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
     await t.test(
       "enabling another harness and recovery never replays native prompts",
       async () => {
-        process.env.LOOP55_TEST_HARNESS = "pi";
+        process.env.LOOP_TEST_HARNESS = "pi";
         await control(dir, "enable", { ...options, harness: "pi" });
-        delete process.env.LOOP55_TEST_HARNESS;
+        delete process.env.LOOP_TEST_HARNESS;
         assert.equal((await api("/bootstrap")).connections.length, 2);
         const auditBefore = (
-          await readFile(process.env.LOOP55_TEST_AUDIT!, "utf8")
+          await readFile(process.env.LOOP_TEST_AUDIT!, "utf8")
         )
           .trim()
           .split("\n").length;
@@ -634,7 +632,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         assert.equal(state(prompts[2].id), "interrupted");
         nativeSessions.recover();
         assert.equal(
-          (await readFile(process.env.LOOP55_TEST_AUDIT!, "utf8"))
+          (await readFile(process.env.LOOP_TEST_AUDIT!, "utf8"))
             .trim()
             .split("\n").length,
           auditBefore,

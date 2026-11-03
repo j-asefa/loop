@@ -15,11 +15,11 @@ import {
 // real runtime serializers (runtime/traces.ts, as used by runtime/entry.ts)
 // through the runtime NDJSON transport into executeAgent and the shared
 // activity store. No model or network call is made.
-const dir = mkdtempSync(join(tmpdir(), "loop55-runtime-activities-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP55_RUNTIME_URL = "http://runtime.fixture";
-process.env.LOOP55_RUNTIME_TOKEN =
+const dir = mkdtempSync(join(tmpdir(), "loop-runtime-activities-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_RUNTIME_URL = "http://runtime.fixture";
+process.env.LOOP_RUNTIME_TOKEN =
   "activities-fixture-token-with-at-least-32-characters";
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
@@ -507,7 +507,7 @@ it("provider-key runs cannot inject structured results and report why", async ()
       return [];
     },
     async *stream() {
-      // A provider adapter is not Loop55's executor; this must be ignored.
+      // A provider adapter is not Loop's executor; this must be ignored.
       yield { activity: codexActivity(codexTurn("turn")[2]) } as any;
       yield { text: "Done." };
     },

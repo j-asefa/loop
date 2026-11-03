@@ -15,7 +15,7 @@ it.each(["server", "companion"])(
   "%s indexes existing and new published replies while leaving progress out of search",
   (profile) => {
     const directory = mkdtempSync(
-      join(tmpdir(), "loop55-reply-search-migration-"),
+      join(tmpdir(), "loop-reply-search-migration-"),
     );
     const db = new Database(":memory:");
     try {

@@ -17,7 +17,7 @@ const routes = registrar("cardTokens", {
       "/card-tokens",
       (req, _res, next) => {
         if (req.headers.authorization !== undefined)
-          throw new Problem(403, "Use your Loop55 session to manage tokens");
+          throw new Problem(403, "Use your Loop session to manage tokens");
         next();
       },
     ],

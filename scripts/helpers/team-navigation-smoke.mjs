@@ -20,7 +20,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     // Closing the last sheet schedules history.back(). Wait for its popstate
     // before starting another document navigation, which it would otherwise abort.
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   const close = async () => {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();

@@ -11,9 +11,9 @@ vi.mock("../src/server/memory", async (original) => ({
 
 it("starts a worker on a populated database without replaying history into claim attempts", async () => {
   vi.resetModules();
-  const directory = mkdtempSync(join(tmpdir(), "loop55-worker-startup-"));
-  vi.stubEnv("LOOP55_PROFILE", "server");
-  vi.stubEnv("LOOP55_DATA_DIR", directory);
+  const directory = mkdtempSync(join(tmpdir(), "loop-worker-startup-"));
+  vi.stubEnv("LOOP_PROFILE", "server");
+  vi.stubEnv("LOOP_DATA_DIR", directory);
   const prior = await import("../src/server/db");
   prior.db
     .prepare(

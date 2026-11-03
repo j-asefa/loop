@@ -63,7 +63,7 @@ export const auth = betterAuth({
   session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
   advanced: {
     useSecureCookies: config.url.startsWith("https://"),
-    ipAddress: { ipAddressHeaders: ["x-loop55-client-ip"] },
+    ipAddress: { ipAddressHeaders: ["x-loop-client-ip"] },
   },
   rateLimit: { enabled: true, storage: "database" },
   user: { deleteUser: { enabled: false } },

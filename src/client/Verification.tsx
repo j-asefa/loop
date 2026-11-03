@@ -8,8 +8,8 @@ import {
 } from "../shared/verification";
 
 /**
- * What the agent ran to check its work, as Loop55 observed it: each test,
- * type-check or lint command and the exit Loop55 saw. "No checks observed"
+ * What the agent ran to check its work, as Loop observed it: each test,
+ * type-check or lint command and the exit Loop saw. "No checks observed"
  * is shown for a run that has a checkout but ran none, because that absence
  * is the fact a reviewer needs.
  */
@@ -115,9 +115,9 @@ export function VerificationSheet({
       {items && (
         <>
           <p className="changes-meta">
-            Commands the agent ran and the exit Loop55 saw. The agent chose
-            them: a passing check shows that command passed, not that the right
-            tests exist.
+            Commands the agent ran and the exit Loop saw. The agent chose them:
+            a passing check shows that command passed, not that the right tests
+            exist.
           </p>
           {!items.length && (
             <p className="field-hint">

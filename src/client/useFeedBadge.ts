@@ -81,16 +81,16 @@ export function useFeedBadge(
     );
     const stopFallback = surfaceFallback(sources, "feed", 30_000, load);
     const update = () => load();
-    window.addEventListener("loop55-source-refresh", update);
-    window.addEventListener("loop55-later-change", update);
+    window.addEventListener("loop-source-refresh", update);
+    window.addEventListener("loop-later-change", update);
     load();
     return () => {
       active = false;
       controller.abort();
       stop();
       stopFallback();
-      window.removeEventListener("loop55-source-refresh", update);
-      window.removeEventListener("loop55-later-change", update);
+      window.removeEventListener("loop-source-refresh", update);
+      window.removeEventListener("loop-later-change", update);
     };
   }, [key]);
   return state.key === key

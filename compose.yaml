@@ -1,28 +1,28 @@
 services:
-  loop55:
+  loop:
     build: .
     restart: unless-stopped
     env_file: .env
     environment:
       NODE_ENV: production
-      LOOP55_LISTEN_HOST: "0.0.0.0"
-      LOOP55_LOOPBACK_PROXY: "${LOOP55_LOOPBACK_PROXY:-1}"
-      LOOP55_BIND_ADDRESS: "${LOOP55_BIND_ADDRESS:-127.0.0.1}"
-      LOOP55_BEHIND_PROXY: "${LOOP55_BEHIND_PROXY:-0}"
-      LOOP55_URL: "${LOOP55_URL:-http://localhost:3000}"
-      LOOP55_RUNTIME_URL: http://runtime-broker:3100
-      LOOP55_RUNTIME_TOKEN: "${LOOP55_RUNTIME_TOKEN:?Run node scripts/setup.mjs}"
-      LOOP55_DATA_DIR: /data
+      LOOP_LISTEN_HOST: "0.0.0.0"
+      LOOP_LOOPBACK_PROXY: "${LOOP_LOOPBACK_PROXY:-1}"
+      LOOP_BIND_ADDRESS: "${LOOP_BIND_ADDRESS:-127.0.0.1}"
+      LOOP_BEHIND_PROXY: "${LOOP_BEHIND_PROXY:-0}"
+      LOOP_URL: "${LOOP_URL:-http://localhost:3000}"
+      LOOP_RUNTIME_URL: http://runtime-broker:3100
+      LOOP_RUNTIME_TOKEN: "${LOOP_RUNTIME_TOKEN:?Run node scripts/setup.mjs}"
+      LOOP_DATA_DIR: /data
       PORT: 3000
     volumes:
-      - loop55-data:/data
+      - loop-data:/data
     ports:
-      - "${LOOP55_BIND_ADDRESS:-127.0.0.1}:${LOOP55_PORT:-3000}:3000"
+      - "${LOOP_BIND_ADDRESS:-127.0.0.1}:${LOOP_PORT:-3000}:3000"
     depends_on:
       runtime-broker:
         condition: service_started
   runtime-image:
-    image: "${LOOP55_RUNTIME_IMAGE:-loop55-runtime:0.2}"
+    image: "${LOOP_RUNTIME_IMAGE:-loop-runtime:0.2}"
     build:
       context: .
       dockerfile: Dockerfile.runtime
@@ -34,9 +34,9 @@ services:
       dockerfile: Dockerfile.runtime-broker
     restart: unless-stopped
     environment:
-      LOOP55_RUNTIME_TOKEN: "${LOOP55_RUNTIME_TOKEN:?Run node scripts/setup.mjs}"
-      LOOP55_RUNTIME_IMAGE: "${LOOP55_RUNTIME_IMAGE:-loop55-runtime:0.2}"
-      LOOP55_MCP_IMAGE: "${LOOP55_MCP_IMAGE:-loop55-mcp:0.1}"
+      LOOP_RUNTIME_TOKEN: "${LOOP_RUNTIME_TOKEN:?Run node scripts/setup.mjs}"
+      LOOP_RUNTIME_IMAGE: "${LOOP_RUNTIME_IMAGE:-loop-runtime:0.2}"
+      LOOP_MCP_IMAGE: "${LOOP_MCP_IMAGE:-loop-mcp:0.1}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -45,7 +45,7 @@ services:
       mcp-image:
         condition: service_completed_successfully
   mcp-image:
-    image: "${LOOP55_MCP_IMAGE:-loop55-mcp:0.1}"
+    image: "${LOOP_MCP_IMAGE:-loop-mcp:0.1}"
     build:
       context: .
       dockerfile: Dockerfile.mcp
@@ -56,7 +56,7 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     environment:
-      LOOP55_HOST: "${LOOP55_HOST:-localhost}"
+      LOOP_HOST: "${LOOP_HOST:-localhost}"
     ports:
       - "80:80"
       - "443:443"
@@ -65,9 +65,9 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - loop55
+      - loop
 volumes:
-  loop55-data:
-    name: "${LOOP55_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_loop55-data}"
+  loop-data:
+    name: "${LOOP_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_loop-data}"
   caddy-data:
   caddy-config:

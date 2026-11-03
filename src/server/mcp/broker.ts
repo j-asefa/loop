@@ -97,19 +97,19 @@ export function authorizeConnectionTool(
   }
   if (!valid)
     throw new Problem(422, "Tool arguments do not match the discovered schema");
-  const hints = loop55Hints(c, tool);
+  const hints = loopHints(c, tool);
   const merge =
     (isGithubMcpUrl(c.url) || hints.github) &&
     mergeHeadProblem(hints.sourceTool || toolName, args);
   if (merge) throw new Problem(422, merge);
   return { connection: c, tool, hints };
 }
-// Loop55's own `_meta.loop55` hints on a discovered tool. Only a federation
-// connection (another Loop55 source relaying its tools) may rename a tool in
+// Loop's own `_meta.loop` hints on a discovered tool. Only a federation
+// connection (another Loop source relaying its tools) may rename a tool in
 // the approval prompt or claim GitHub provenance; any other server's hints
 // could disguise an effect. `alwaysAsk` only makes approval stricter, so it
 // is honoured from any server.
-export function loop55Hints(
+export function loopHints(
   connection: Pick<MCPConnection, "metadata">,
   tool: any,
 ) {
@@ -120,7 +120,7 @@ export function loop55Hints(
   } catch {
     // Unreadable metadata grants no hints.
   }
-  const loop = tool?._meta?.loop55 ?? tool?._meta?.loop;
+  const loop = tool?._meta?.loop ?? tool?._meta?.loop;
   return {
     sourceTool:
       federated && typeof loop?.sourceTool === "string"
@@ -150,7 +150,7 @@ export async function invokeTool(
   const descriptor = JSON.parse(target.tools).find(
     (tool: any) => tool.name === binding.tool,
   );
-  const hints = loop55Hints(target, descriptor);
+  const hints = loopHints(target, descriptor);
   const displayTool = hints.sourceTool || binding.tool;
   const githubTool = isGithubMcpUrl(target.url) || hints.github;
   const unpinned = githubTool && mergeHeadProblem(displayTool, args);
@@ -426,7 +426,7 @@ export async function invokeTool(
       : phase === "connecting"
         ? "not_sent"
         : "unknown";
-    const message = `${connection.name} · ${binding.tool} failed while ${phase} after ${Math.ceil(elapsedMs / 1000)}s: ${cause}${outcome === "unknown" ? " Its external outcome is unknown; it will not be replayed." : outcome === "received" ? " The tool responded, but Loop55 could not save the result. The call will not be replayed." : " The tool request was not sent."}`;
+    const message = `${connection.name} · ${binding.tool} failed while ${phase} after ${Math.ceil(elapsedMs / 1000)}s: ${cause}${outcome === "unknown" ? " Its external outcome is unknown; it will not be replayed." : outcome === "received" ? " The tool responded, but Loop could not save the result. The call will not be replayed." : " The tool request was not sent."}`;
     const failure = {
       phase,
       server: connection.name,

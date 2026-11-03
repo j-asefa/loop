@@ -331,15 +331,15 @@ export async function handleReverseMcp(
   const source = authenticateFederationPeer(req);
   let queuedKey: string | undefined;
   const server = new Server(
-    { name: "Loop55 shared tools", version: "1.0.0" },
+    { name: "Loop shared tools", version: "1.0.0" },
     { capabilities: { tools: {} } },
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: catalog(source.owner_id, source.peer_id),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const runKey = req.headers["x-loop55-run-id"];
-    const callKey = req.headers["x-loop55-call-id"];
+    const runKey = req.headers["x-loop-run-id"];
+    const callKey = req.headers["x-loop-call-id"];
     if (typeof runKey !== "string" || !/^[a-f0-9-]{36}$/.test(runKey))
       throw new Problem(400, "Shared tool run identity required");
     if (typeof callKey !== "string" || !callKey || callKey.length > 200)

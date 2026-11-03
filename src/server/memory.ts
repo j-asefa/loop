@@ -7,7 +7,6 @@ import * as memoryOutboxQueries from "./sql/memory-outbox.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
-import "../../runtime/environment.mjs";
 import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import type { QueryRow } from "./query-records.js";
@@ -32,7 +31,7 @@ export function enabled(
   scope: string,
   fallback = true,
 ): boolean {
-  if (scope === "workspace" && process.env.LOOP55_MEMORY_ENABLED === "0")
+  if (scope === "workspace" && process.env.LOOP_MEMORY_ENABLED === "0")
     return false;
   const p = memoryPolicyQueries.enabled(db, owner, scope) as
     Pick<QueryRow<"memory_policy">, "enabled"> | undefined;
@@ -141,7 +140,7 @@ export function captureMemory() {
         kind: "message",
         source_id: m.id,
         message_id: m.id,
-        origin: m.origin || "loop55",
+        origin: m.origin || "loop",
         eligible: include,
         role: m.role,
         complete: !meta.truncated,
@@ -158,7 +157,7 @@ export function captureMemory() {
           source_id: a.id,
           project_id: a.folder_id,
           role: "note",
-          origin: "loop55",
+          origin: "loop",
           eligible: true,
           conversation_id: null,
         });
@@ -169,12 +168,12 @@ export interface MemoryIndex {
 }
 export const memoryIndex: MemoryIndex = {
   async request(path, data, timeout = 1500) {
-    if (!process.env.LOOP55_MEMORY_URL || !process.env.LOOP55_MEMORY_TOKEN)
+    if (!process.env.LOOP_MEMORY_URL || !process.env.LOOP_MEMORY_TOKEN)
       throw new Error("Memory index unavailable");
-    const r = await fetch(process.env.LOOP55_MEMORY_URL + path, {
+    const r = await fetch(process.env.LOOP_MEMORY_URL + path, {
       method: data === undefined ? "GET" : "POST",
       headers: {
-        authorization: "Bearer " + process.env.LOOP55_MEMORY_TOKEN,
+        authorization: "Bearer " + process.env.LOOP_MEMORY_TOKEN,
         "content-type": "application/json",
       },
       body: data === undefined ? undefined : JSON.stringify(data),
@@ -456,7 +455,7 @@ routes.on(workspaceApi.memoryNoteCreate, (req, res) => {
       source_id: source,
       kind: "note",
       role: "user-note",
-      origin: "loop55",
+      origin: "loop",
       project_id: d.projectId,
       content: d.content,
       title: d.title,

@@ -27,7 +27,7 @@ if (
     const ignoreFile = resolve(
       repository,
       common.stdout.trim(),
-      "loop55-blame-ignore-revs",
+      "loop-blame-ignore-revs",
     );
     try {
       const revisions = (content) =>
@@ -90,20 +90,18 @@ if (
 if (existsSync(".env")) {
   const prior = readFileSync(".env", "utf8");
   const configured = new Set(
-    [...prior.matchAll(/^(LOOP55_[A-Z0-9_]+)=/gm)].map((m) => m[1]),
+    [...prior.matchAll(/^(LOOP_[A-Z0-9_]+)=/gm)].map((m) => m[1]),
   );
   const migrated = prior.replace(
     /^(LOOP_([A-Z0-9_]+))=(.*)$/gm,
     (line, old, suffix, value) =>
-      configured.has("LOOP55_" + suffix)
-        ? line
-        : "LOOP55_" + suffix + "=" + value,
+      configured.has("LOOP_" + suffix) ? line : "LOOP_" + suffix + "=" + value,
   );
   if (migrated !== prior) writeFileSync(".env", migrated, { mode: 0o600 });
-  if (!/^LOOP55_RUNTIME_TOKEN=.+$/m.test(readFileSync(".env", "utf8"))) {
+  if (!/^LOOP_RUNTIME_TOKEN=.+$/m.test(readFileSync(".env", "utf8"))) {
     appendFileSync(
       ".env",
-      `\nLOOP55_RUNTIME_TOKEN=${randomBytes(32).toString("hex")}\n`,
+      `\nLOOP_RUNTIME_TOKEN=${randomBytes(32).toString("hex")}\n`,
     );
     console.log(
       "Added runtime service authentication; existing secrets preserved.",
@@ -114,7 +112,7 @@ if (existsSync(".env")) {
 }
 writeFileSync(
   ".env",
-  `LOOP55_URL=http://localhost:3000\nPORT=3000\nLOOP55_AUTH_MODE=single-user\nBETTER_AUTH_SECRET=${randomBytes(32).toString("hex")}\nLOOP55_ENCRYPTION_KEY=${randomBytes(32).toString("hex")}\nLOOP55_RUNTIME_TOKEN=${randomBytes(32).toString("hex")}\n`,
+  `LOOP_URL=http://localhost:3000\nPORT=3000\nLOOP_AUTH_MODE=single-user\nBETTER_AUTH_SECRET=${randomBytes(32).toString("hex")}\nLOOP_ENCRYPTION_KEY=${randomBytes(32).toString("hex")}\nLOOP_RUNTIME_TOKEN=${randomBytes(32).toString("hex")}\n`,
   { mode: 0o600 },
 );
 console.log("Created local configuration.");

@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { parseEmission, eventScopes } from "../src/shared/workspace-events";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-feed-agent-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-feed-agent-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { errorHandler } = await import("../src/server/error-handler");
 const {
   news,
@@ -100,15 +100,15 @@ it("keeps the feed from agents until it is turned on", async () => {
     payload: "{}",
   } as any;
   // Off by default: the tool is not even offered.
-  expect(nativeBindings(run).map((t) => t.tool)).not.toContain("loop55_feed");
+  expect(nativeBindings(run).map((t) => t.tool)).not.toContain("loop_feed");
   setAgentFeedAccess("tess", true);
-  expect(nativeBindings(run).map((t) => t.tool)).toContain("loop55_feed");
-  const described = nativeBindings(run).find((t) => t.tool === "loop55_feed")!;
+  expect(nativeBindings(run).map((t) => t.tool)).toContain("loop_feed");
+  const described = nativeBindings(run).find((t) => t.tool === "loop_feed")!;
   expect(described.description).toMatch(
     /reads only the feeds they already follow/i,
   );
   setAgentFeedAccess("tess", false);
-  expect(nativeBindings(run).map((t) => t.tool)).not.toContain("loop55_feed");
+  expect(nativeBindings(run).map((t) => t.tool)).not.toContain("loop_feed");
   // Calling it anyway is refused: invokeNative only runs a tool that
   // nativeBindings offered for this run.
   await expect(

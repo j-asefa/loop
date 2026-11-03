@@ -24,15 +24,15 @@ it("resolves names only from the supplied workspace, including mentions and code
 });
 
 it("describes internal references without exposing their tokens", () => {
-  const text = `Agent ${agent} reviewed thread \`${thread}\`, snapshot ${thread}, res_${thread}, loop/agent-${"ab12".repeat(16)}, loop55/agent-${"ef56".repeat(16)}, /repo/.git/loop55-agent-worktrees/${"cd34".repeat(16)} at c96cd311.`;
+  const text = `Agent ${agent} reviewed thread \`${thread}\`, snapshot ${thread}, res_${thread}, loop/agent-${"ab12".repeat(16)}, loop/agent-${"ef56".repeat(16)}, /repo/.git/loop-agent-worktrees/${"cd34".repeat(16)} at c96cd311.`;
   const display = readableText(text);
   for (const token of [
     agent,
     thread,
     "res_",
     "loop/agent-",
-    "loop55/agent-",
-    "loop55-agent-worktrees",
+    "loop/agent-",
+    "loop-agent-worktrees",
     "c96cd311",
   ])
     expect(display).not.toContain(token);

@@ -80,7 +80,7 @@ export function captureFleetMailSender(run: Run, mail: OriginMail) {
   );
   if (!reference || !connection || sender.connection_id !== connection.id)
     throw refused();
-  const native = !!connection.metadata.loop55Harness;
+  const native = !!connection.metadata.loopHarness;
   const generation = native
     ? (nativeDispatchQueries.activeConversationGeneration(
         db,

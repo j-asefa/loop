@@ -7,9 +7,9 @@ import { randomBytes, createHash } from "node:crypto";
 import express from "express";
 import { belongsToProject } from "../src/shared/projects";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-project-attention-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-project-attention-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");

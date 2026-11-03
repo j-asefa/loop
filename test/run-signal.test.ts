@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { historicalEvent } from "../src/shared/workspace-events";
 
-const directory = mkdtempSync(join(tmpdir(), "loop55-run-signal-"));
-process.env.LOOP55_DATA_DIR = directory;
+const directory = mkdtempSync(join(tmpdir(), "loop-run-signal-"));
+process.env.LOOP_DATA_DIR = directory;
 const { db, changes, id } = await import("../src/server/db");
 const { enqueue, transition } = await import("../src/server/queue");
 const { watchRun } = await import("../src/server/run-signal");

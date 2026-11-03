@@ -86,7 +86,7 @@ try {
         const secretBox = page.locator(".settings-command pre");
         await expect(secretBox).toBeVisible();
         const secret = await secretBox.textContent();
-        assert.match(secret, /^loop55_token_[\w-]{43}$/);
+        assert.match(secret, /^loop_token_[\w-]{43}$/);
         await page
           .getByRole("button", { name: "Copy token", exact: true })
           .click();

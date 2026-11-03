@@ -35,10 +35,10 @@ import {
 } from "../src/shared/fleet-workspace-file-api.js";
 import { fleetWorkspaceApi } from "../src/shared/fleet-workspace-api.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-uploads-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-uploads-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { app } = await import("../src/server/index.js");
 const { db } = await import("../src/server/db.js");
 const { OWNER, nativeSessions } =
@@ -233,7 +233,7 @@ function wire(
         headers: {
           host: new URL(origin).host,
           "content-type": "application/json",
-          "x-loop55-fleet-version": "1",
+          "x-loop-fleet-version": "1",
           ...headers,
         },
       },

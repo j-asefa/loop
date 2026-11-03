@@ -248,7 +248,7 @@ export function HarnessProviders({
                 <CircleCheck size={22} aria-hidden="true" />
               )}
               {labels[runtime]} is {view.enabled ? "enabled" : "not enabled"} in
-              Loop55
+              Loop
             </h3>
             <p>
               {modelCount} {modelCount === 1 ? "model" : "models"} found.

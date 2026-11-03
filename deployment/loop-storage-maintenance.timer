@@ -1,5 +1,5 @@
 [Unit]
-Description=Hourly Loop55 storage maintenance
+Description=Hourly Loop storage maintenance
 
 [Timer]
 OnBootSec=5min

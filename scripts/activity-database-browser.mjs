@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 // Production routers and SQLite, with a deterministic in-process native adapter.
 // No route interception or canned conversation/activity/settings/catalog responses.
 import { createServer } from "vite";
@@ -9,9 +8,9 @@ import { mkdtempSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-const dir = mkdtempSync(join(tmpdir(), "loop55-ui-db-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "companion";
+const dir = mkdtempSync(join(tmpdir(), "loop-ui-db-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "companion";
 const { db, now } = await import("../src/server/db.ts");
 const { core } = await import("../src/server/core-routes.ts");
 const { companion } = await import("../src/server/companion-routes.ts");
@@ -27,7 +26,7 @@ const conversation = randomUUID(),
   connection = randomUUID();
 db.prepare(
   "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES(?,?,'codex','Fixture','','connected',?,?)",
-).run(connection, OWNER, JSON.stringify({ loop55Harness: "codex" }), now());
+).run(connection, OWNER, JSON.stringify({ loopHarness: "codex" }), now());
 db.prepare(
   "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,?,'Fixture','fixture','codex',?,'a',?)",
 ).run(agent, OWNER, connection, now());
@@ -56,7 +55,7 @@ db.prepare("INSERT INTO harnesses VALUES('codex',?,'{}','{}','[]',?)").run(
 );
 for (const body of [
   { type: "ready" },
-  { type: "loop55-turn", status: "completed", output: "Working fixture" },
+  { type: "loop-turn", status: "completed", output: "Working fixture" },
 ]) {
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'tool',?,?)",
@@ -329,7 +328,7 @@ try {
     await expect(page.locator(".messages .activity-panel")).toHaveCount(0);
     await expect(page.locator(".messages")).not.toContainText('"type":"ready"');
     await expect(page.locator(".messages")).not.toContainText(
-      '"type":"loop55-turn"',
+      '"type":"loop-turn"',
     );
     await expect(page.locator(".messages")).not.toContainText(
       "Recorded commands",
@@ -443,7 +442,7 @@ try {
       data: { complete: true },
     });
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-workspace-change")),
+      window.dispatchEvent(new Event("loop-workspace-change")),
     );
     await page.getByLabel("Conversation options").click();
     await page
@@ -476,14 +475,14 @@ try {
     await expect(page.getByRole("button", { name: /\/inspect/ })).toBeVisible();
     await page.request.post(base + "/api/fixture", { data: { removed: true } });
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-workspace-change")),
+      window.dispatchEvent(new Event("loop-workspace-change")),
     );
     await expect(page.getByRole("button", { name: /\/inspect/ })).toHaveCount(
       0,
     );
     await page.keyboard.press("Escape");
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-workspace-change")),
+      window.dispatchEvent(new Event("loop-workspace-change")),
     );
     await expect(page.locator(".messages .activity-panel")).toHaveCount(0);
     await expect(

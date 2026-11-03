@@ -15,10 +15,10 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import express from "express";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-presets-"));
-process.env.LOOP55_DATA_DIR = join(dir, "data");
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-presets-"));
+process.env.LOOP_DATA_DIR = join(dir, "data");
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { teams, createPresetTeam } = await import("../src/server/teams");
@@ -230,7 +230,7 @@ it("queues three fresh read-only reviewers before the lead, preserves retries, a
     const first = claim("review-test")!;
     expect(first.id).not.toBe(parent.id);
     expect(nativeBindings(first).map((b) => b.tool)).toEqual([
-      "loop55_review_read",
+      "loop_review_read",
     ]);
     const read = await invokeNative(first, nativeBindings(first)[0], "read", {
       path: "index.ts",
@@ -286,7 +286,7 @@ it("queues three fresh read-only reviewers before the lead, preserves retries, a
     ).toBe(1);
     expect(
       calls.every(
-        (c) => c.tools.map((t: any) => t.name).join() === "loop55_review_read",
+        (c) => c.tools.map((t: any) => t.name).join() === "loop_review_read",
       ),
     ).toBe(true);
     expect(JSON.stringify(calls.at(-1).messages)).toContain(
@@ -396,7 +396,7 @@ it("lets a working agent request a review of its own worktree, waits for the lea
     return { ...run, state: "running" } as any;
   };
   const binding = (run: any) =>
-    nativeBindings(run).find((b) => b.tool === "loop55_request_review")!;
+    nativeBindings(run).find((b) => b.tool === "loop_request_review")!;
   const run = start(worktree);
   expect(binding(run).description).toContain(team.id);
   const lead = db
@@ -404,7 +404,7 @@ it("lets a working agent request a review of its own worktree, waits for the lea
     .get(team.manager_id) as any;
   expect(
     nativeBindings({ ...run, agent_id: lead.id }).map((b) => b.tool),
-  ).not.toContain("loop55_request_review");
+  ).not.toContain("loop_request_review");
   const request = {
     teamId: team.id,
     scope: "branch",
@@ -533,7 +533,7 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   ).toBe(asyncRun.id);
   const later = start(worktree);
   const statusBinding = nativeBindings(later).find(
-    (b) => b.tool === "loop55_review_status",
+    (b) => b.tool === "loop_review_status",
   )!;
   const read = async (r: any, args: Record<string, unknown>) => {
     const value = (await invokeNative(r, statusBinding, id(), args)) as any;
@@ -617,7 +617,7 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
   ).run(
     harness,
     JSON.stringify([{ id: "native-default" }]),
-    JSON.stringify({ loop55Harness: "claude", authMode: "subscription" }),
+    JSON.stringify({ loopHarness: "claude", authMode: "subscription" }),
     now(),
   );
   const native = createPresetTeam("alice", {
@@ -798,7 +798,7 @@ it("durably queues one review follow-up outside teams, waits for both turns and 
     "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
   ).run(parent.id);
   const binding = nativeBindings(parent).find(
-    (b) => b.tool === "loop55_request_review",
+    (b) => b.tool === "loop_request_review",
   )!;
   db.prepare("UPDATE runs SET payload=? WHERE id=?").run(
     JSON.stringify({
@@ -913,12 +913,12 @@ it("durably queues one review follow-up outside teams, waits for both turns and 
       );
       if (!report) {
         expect(
-          input.tools?.some((tool) => tool.name === "loop55_review_status"),
+          input.tools?.some((tool) => tool.name === "loop_review_status"),
         ).toBe(true);
         yield {
           toolCall: {
             id: "status-via-model",
-            name: "loop55_review_status",
+            name: "loop_review_status",
             arguments: { reviewId: receipt.reviewId },
           },
         };
@@ -941,7 +941,7 @@ it("durably queues one review follow-up outside teams, waits for both turns and 
     claim("another-worker", (run) => run.id === record.run_id),
   ).toBeUndefined();
   const statusBinding = nativeBindings(claimed).find(
-    (b) => b.tool === "loop55_review_status",
+    (b) => b.tool === "loop_review_status",
   )!;
   const status = (await invokeNative(claimed, statusBinding, "get-status", {
     reviewId: receipt.reviewId,
@@ -977,7 +977,7 @@ it.each(["completed", "failed", "cancelled", "interrupted"])(
       "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
     ).run(parent.id);
     const binding = nativeBindings(parent).find(
-      (b) => b.tool === "loop55_request_review",
+      (b) => b.tool === "loop_request_review",
     )!;
     const result = (await invokeNative(parent, binding, "ask", {
       teamId: team.id,
@@ -1019,7 +1019,7 @@ it.each(["cancelled", "failed", "interrupted"])(
       "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
     ).run(parent.id);
     const binding = nativeBindings(parent).find(
-      (b) => b.tool === "loop55_request_review",
+      (b) => b.tool === "loop_request_review",
     )!;
     await invokeNative(parent, binding, "ask", {
       teamId: team.id,
@@ -1079,7 +1079,7 @@ it.each(["claude", "opencode"])(
     setAgentPermissionMode("alice", "bypassPermissions");
     const selected = connection(
       "alice",
-      JSON.stringify({ loop55Harness: harness, authMode: "subscription" }),
+      JSON.stringify({ loopHarness: harness, authMode: "subscription" }),
     );
     const builder = id();
     db.prepare(
@@ -1119,7 +1119,7 @@ it.each(["claude", "opencode"])(
           // Tighten the policy during the original turn, before its review request.
           setAgentPermissionMode("alice", "default");
           const binding = nativeBindings(first).find(
-            (b) => b.tool === "loop55_request_review",
+            (b) => b.tool === "loop_request_review",
           )!;
           await invokeNative(first, binding, "ask", {
             teamId: team.id,
@@ -1207,7 +1207,7 @@ it("retains a disconnected review continuation through the production worker cla
     "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
   ).run(parent.id);
   const binding = nativeBindings(parent).find(
-    (b) => b.tool === "loop55_request_review",
+    (b) => b.tool === "loop_request_review",
   )!;
   await invokeNative(parent, binding, "ask", {
     teamId: team.id,
@@ -1284,7 +1284,7 @@ it.each(["api", "claude"])(
       "alice",
       harness === "api"
         ? "{}"
-        : JSON.stringify({ loop55Harness: harness, authMode: "subscription" }),
+        : JSON.stringify({ loopHarness: harness, authMode: "subscription" }),
     );
     const makeAgent = () => {
       const agent = id();
@@ -1307,7 +1307,7 @@ it.each(["api", "claude"])(
     expect(active).toBeDefined();
     await invokeNative(
       active,
-      nativeBindings(active).find((b) => b.tool === "loop55_request_review")!,
+      nativeBindings(active).find((b) => b.tool === "loop_request_review")!,
       "review",
       { teamId: team.id, scope: "uncommitted", base: "main" },
     );

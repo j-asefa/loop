@@ -1,4 +1,3 @@
-import { retainedPath } from "./retained-path.ts";
 type RegisteredJob = {
   root: string;
   path: string;
@@ -33,7 +32,7 @@ const inside = (root: string, path: string) => {
 };
 async function registry(workspace: string, create = false) {
   const root = await realpath(workspace);
-  const path = retainedPath(root, ".loop55-cleanup", ".loop-cleanup");
+  const path = join(root, ".loop-cleanup");
   if (create) await mkdir(path, { mode: 0o700, recursive: true });
   if ((await lstat(path)).isSymbolicLink() || (await realpath(path)) !== path)
     throw new Error(
@@ -163,7 +162,7 @@ export async function cleanupWorkspaces(
 }
 
 export function workspaceCleanupInstructions(workspace: string): string {
-  return `\nRepository workspace lifecycle: reuse one clone per repository; use a separate linked Git worktree and branch for each job. Do not accumulate full clones. When you create or take ownership of a PR, register its checkout for automatic post-merge cleanup with: node /runtime/workspace-cleanup.mjs track ${JSON.stringify(workspace)} <checkout-path> <https://github.com/owner/repo/pull/number>. Keep the worktree while the PR is open. Loop55 reclaims verified npm dependencies after 24 hours without use, and npm downloads and verified Playwright browsers after seven days; run npm ci or npx playwright install again when needed. This does not delete source or Git history and does not require a PR. Separately, Loop55 checks registered jobs when the connection is idle and retires them after merge once no ignored files remain; populated build/output folders need your review. Only the exact merged PR head with no uncommitted or untracked work is eligible; never bypass this with force, git reset --hard, or blanket git clean. Upload user deliverables to Loop55 before retiring a job. You may remove your own unused dependencies and reproducible build outputs during work, but preserve source, local changes, uploads, credentials and other agents' files. Run node /runtime/workspace-cleanup.mjs sweep ${JSON.stringify(workspace)} to request cleanup yourself. GitHub's automatic head-branch deletion handles remote branches separately.`;
+  return `\nRepository workspace lifecycle: reuse one clone per repository; use a separate linked Git worktree and branch for each job. Do not accumulate full clones. When you create or take ownership of a PR, register its checkout for automatic post-merge cleanup with: node /runtime/workspace-cleanup.mjs track ${JSON.stringify(workspace)} <checkout-path> <https://github.com/owner/repo/pull/number>. Keep the worktree while the PR is open. Loop reclaims verified npm dependencies after 24 hours without use, and npm downloads and verified Playwright browsers after seven days; run npm ci or npx playwright install again when needed. This does not delete source or Git history and does not require a PR. Separately, Loop checks registered jobs when the connection is idle and retires them after merge once no ignored files remain; populated build/output folders need your review. Only the exact merged PR head with no uncommitted or untracked work is eligible; never bypass this with force, git reset --hard, or blanket git clean. Upload user deliverables to Loop before retiring a job. You may remove your own unused dependencies and reproducible build outputs during work, but preserve source, local changes, uploads, credentials and other agents' files. Run node /runtime/workspace-cleanup.mjs sweep ${JSON.stringify(workspace)} to request cleanup yourself. GitHub's automatic head-branch deletion handles remote branches separately.`;
 }
 
 if (

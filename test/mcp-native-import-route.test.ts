@@ -7,11 +7,11 @@ import express from "express";
 
 // A multi-user server's installed-harness MCP configs hold the operator's
 // credentials; no signed-in user may list or import them.
-const dir = mkdtempSync(join(tmpdir(), "loop55-native-import-route-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP55_PROFILE = "server";
-process.env.LOOP55_AUTH_MODE = "multi-user";
+const dir = mkdtempSync(join(tmpdir(), "loop-native-import-route-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_PROFILE = "server";
+process.env.LOOP_AUTH_MODE = "multi-user";
 const { db } = await import("../src/server/db");
 const { mcp } = await import("../src/server/mcp/routes");
 

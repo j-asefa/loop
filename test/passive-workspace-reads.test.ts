@@ -14,11 +14,11 @@ import { DirectControls } from "../src/adapters/direct-controls.js";
 import { NativeOutput } from "../src/server/native-output.js";
 import type { Live } from "../src/server/native-sessions.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-passive-reads-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = join(root, "data");
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP55_TEST_HARNESS = "claude";
+const root = mkdtempSync(join(tmpdir(), "loop-passive-reads-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = join(root, "data");
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_TEST_HARNESS = "claude";
 gitProject(root);
 const { db } = await import("../src/server/db.js");
 const { seal } = await import("../src/server/secrets.js");
@@ -52,7 +52,7 @@ const owner = "local-workspace",
   agent = randomUUID();
 const models = [{ id: "stored-model", name: "Stored model" }];
 for (const [id, accountOwner, metadata] of [
-  [native, owner, { loop55Harness: "claude" }],
+  [native, owner, { loopHarness: "claude" }],
   [api, owner, {}],
   [foreign, "someone-else", {}],
 ] as const)
@@ -66,7 +66,7 @@ for (const [id, accountOwner, metadata] of [
     JSON.stringify(metadata),
   );
 db.prepare(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,connection_id,origin,created_at) VALUES(?,?,'Fixture','fixture','openai','stored-model','',?,'loop55',0)",
+  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,connection_id,origin,created_at) VALUES(?,?,'Fixture','fixture','openai','stored-model','',?,'loop',0)",
 ).run(agent, owner, native);
 db.prepare("INSERT INTO harnesses VALUES('claude',?,'{}','{}','[]',0)").run(
   JSON.stringify({
@@ -137,7 +137,7 @@ afterAll(async () => {
   await nativeSessions.close();
   db.close();
   rmSync(root, { recursive: true, force: true });
-  delete process.env.LOOP55_TEST_HARNESS;
+  delete process.env.LOOP_TEST_HARNESS;
 });
 async function get(path: string, headers?: Record<string, string>) {
   const response = await fetch(base + path, { headers });
@@ -199,7 +199,7 @@ it("local model reads still refresh and request headers cannot select passive mo
   });
   try {
     expect(
-      await get(`/connections/${api}/models`, { "x-loop55-passive-read": "1" }),
+      await get(`/connections/${api}/models`, { "x-loop-passive-read": "1" }),
     ).toEqual({ status: 200, body: { models: updated } });
     expect(refreshes).toBe(1);
   } finally {
@@ -249,7 +249,7 @@ it.each([
     const project = agentWorkspace(root, root, {
       ownerId: owner,
       agentId: agent,
-      environmentId: process.env.LOOP55_DATA_DIR!,
+      environmentId: process.env.LOOP_DATA_DIR!,
       projectId: root,
     });
     const options = {
@@ -264,7 +264,7 @@ it.each([
       JSON.stringify(options),
     );
     db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-      JSON.stringify({ loop55Harness: harness }),
+      JSON.stringify({ loopHarness: harness }),
       native,
     );
     db.prepare(
@@ -387,7 +387,7 @@ it.each([
       db.prepare("DELETE FROM conversations WHERE id=?").run(conversation);
       db.prepare("DELETE FROM harnesses WHERE name=?").run(harness);
       db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-        JSON.stringify({ loop55Harness: "claude" }),
+        JSON.stringify({ loopHarness: "claude" }),
         native,
       );
     }

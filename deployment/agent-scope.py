@@ -16,13 +16,13 @@ import uuid
 def main():
     if len(sys.argv) < 2 or not Path('/sys/fs/cgroup/cgroup.controllers').exists():
         raise RuntimeError('A command and Linux cgroup v2 are required')
-    unit = f'loop55-agent-{os.getpid()}-{uuid.uuid4().hex}.scope'
+    unit = f'loop-agent-{os.getpid()}-{uuid.uuid4().hex}.scope'
     subprocess.run([
         'busctl', '--user', '--timeout=10s', 'call',
         'org.freedesktop.systemd1', '/org/freedesktop/systemd1',
         'org.freedesktop.systemd1.Manager', 'StartTransientUnit',
         'ssa(sv)a(sa(sv))', unit, 'fail', '3',
-        'Slice', 's', 'loop55-agents.slice',
+        'Slice', 's', 'loop-agents.slice',
         'PIDs', 'au', '1', str(os.getpid()),
         'CollectMode', 's', 'inactive-or-failed', '0',
     ], check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -32,7 +32,7 @@ def main():
         groups = Path('/proc/self/cgroup').read_text().splitlines()
         group = next((line[3:] for line in groups if line.startswith('0::')
                       and line.endswith('/' + unit)
-                      and '/loop55-agents.slice/' in line), None)
+                      and '/loop-agents.slice/' in line), None)
         if group:
             budget = Path('/sys/fs/cgroup') / group.lstrip('/')
             budget = budget.parent / 'memory.max'
@@ -51,5 +51,5 @@ if __name__ == '__main__':
     except (OSError, RuntimeError, subprocess.SubprocessError):
         # Arguments/environment can contain native credentials. Do not print
         # either, or fall back to an unconstrained launch.
-        print('Loop55 could not place the native process in its resource budget.', file=sys.stderr)
+        print('Loop could not place the native process in its resource budget.', file=sys.stderr)
         sys.exit(126)

@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 // Run through heavy-command.mjs after building. Uses native protocol fixtures,
 // the paired API and the real settings UI; never contacts a model provider.
 import { chromium, webkit, expect } from "@playwright/test";
@@ -9,19 +8,19 @@ import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { testEnvironment } from "./test-runner.mjs";
 
-const browserName = process.env.LOOP55_BROWSER;
+const browserName = process.env.LOOP_BROWSER;
 const clean = testEnvironment(process.env, "native");
 for (const name of Object.keys(process.env))
   if (!(name in clean)) delete process.env[name];
-const dir = await mkdtemp(join(tmpdir(), "loop55-provider-settings-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "companion";
+const dir = await mkdtemp(join(tmpdir(), "loop-provider-settings-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "companion";
 const bin = join(dir, "bin");
 await mkdir(bin);
 for (const name of ["pi", "opencode"])
   await writeFile(
     join(bin, name),
-    `#!/bin/sh\nexport LOOP55_TEST_HARNESS=${name}\nexport LOOP55_TEST_PROVIDER_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/fixtures/provider-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_PROVIDER_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/fixtures/provider-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
 process.env.PATH = bin + ":" + process.env.PATH;
@@ -60,7 +59,7 @@ try {
     }
   });
   await page.goto(host.pair().url);
-  await page.getByRole("button", { name: "Pair and open Loop55" }).click();
+  await page.getByRole("button", { name: "Pair and open Loop" }).click();
   await expect(
     page.getByRole("button", { name: "Open settings", exact: true }),
   ).toBeVisible();
@@ -69,7 +68,7 @@ try {
   ).json();
   const post = async (path, data) => {
     const response = await page.request.post(host.origin + "/api" + path, {
-      headers: { Origin: host.origin, "x-loop55-csrf": csrf },
+      headers: { Origin: host.origin, "x-loop-csrf": csrf },
       data,
     });
     assert(response.ok(), await response.text());
@@ -210,7 +209,7 @@ try {
   await expect(
     pi.getByRole("region", { name: "Anthropic provider" }),
   ).toBeVisible();
-  await expect(pi.getByText(/Enabled in Loop55/)).toBeVisible();
+  await expect(pi.getByText(/Enabled in Loop/)).toBeVisible();
   // Reopening a different provider must not mistake the prior successful
   // sign-in for completion of this new provider selection.
   await pi.getByRole("button", { name: "Add provider", exact: true }).click();
@@ -234,7 +233,7 @@ try {
   await expect(
     pi.getByRole("region", { name: "OpenRouter provider" }),
   ).toHaveCount(0);
-  await expect(pi.getByText(/Not enabled in Loop55/)).toBeVisible();
+  await expect(pi.getByText(/Not enabled in Loop/)).toBeVisible();
   assert(
     JSON.parse(await readFile(join(dir, "opencode-auth.json"), "utf8"))
       .openrouter,

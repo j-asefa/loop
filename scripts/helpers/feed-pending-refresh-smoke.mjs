@@ -37,7 +37,7 @@ export async function pendingSourceRefreshSmoke(
   const refresh = (sources) =>
     page.evaluate((sources) => {
       window.dispatchEvent(
-        new CustomEvent("loop55-workspace-change", {
+        new CustomEvent("loop-workspace-change", {
           detail: {
             sources,
             changes: sources.map((source) => ({
@@ -56,7 +56,7 @@ export async function pendingSourceRefreshSmoke(
   try {
     await page.addInitScript(() => {
       window.__pendingFeedInitialSources = new Set();
-      window.addEventListener("loop55-workspace-change", (event) => {
+      window.addEventListener("loop-workspace-change", (event) => {
         for (const change of event.detail?.changes ?? [])
           if (
             change.events.some(

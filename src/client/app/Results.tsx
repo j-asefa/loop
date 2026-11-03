@@ -204,7 +204,7 @@ export function createResultsLoader(props: ResultsProps) {
       setNext(result.next);
       if (notify) setRevision((v) => v + 1);
     } catch (e) {
-      // While Loop55 restarts, the status line reports it; keep the feed as is.
+      // While Loop restarts, the status line reports it; keep the feed as is.
       if (
         selectionContext === resultsSelection.current &&
         key === resultsContext.current &&
@@ -338,7 +338,7 @@ export function renderResults(
             );
             if (source === executionSourceId() && owner === ownerRef.current)
               await changed();
-            window.dispatchEvent(new Event("loop55-later-change"));
+            window.dispatchEvent(new Event("loop-later-change"));
           } catch (error) {
             if (source === executionSourceId() && owner === ownerRef.current)
               setError((error as Error).message);
@@ -378,7 +378,7 @@ export function renderResults(
               executionSourceId(),
             );
             await changed();
-            window.dispatchEvent(new Event("loop55-later-change"));
+            window.dispatchEvent(new Event("loop-later-change"));
           } catch (e) {
             setError((e as Error).message);
           }

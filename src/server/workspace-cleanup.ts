@@ -24,7 +24,7 @@ export async function cleanupMergedWorkspaces(signal?: AbortSignal) {
       if (!isSubscription(connection)) continue;
       const metadata = connection.metadata;
       if (
-        metadata.loop55Harness ||
+        metadata.loopHarness ||
         runtimeEndpoint(
           connection.owner_id,
           metadata.runtimeHostId,

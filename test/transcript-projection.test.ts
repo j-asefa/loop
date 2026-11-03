@@ -9,8 +9,8 @@ import {
   type TranscriptEvent,
 } from "../src/shared/transcript-projection";
 import { historicalEvent } from "../src/shared/workspace-events";
-const dir = mkdtempSync(join(tmpdir(), "loop55-transcript-delta-"));
-process.env.LOOP55_DATA_DIR = dir;
+const dir = mkdtempSync(join(tmpdir(), "loop-transcript-delta-"));
+process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { recordConversationUpdate } =
   await import("../src/server/conversation-updates");
@@ -99,7 +99,7 @@ it("reconstructs the production transcript byte for byte across duplicate and sp
 });
 it("makes rows and events invisible together until commit and rolls them back together", () => {
   const run = seed("atomic");
-  const other = new Database(join(dir, "loop55.db"));
+  const other = new Database(join(dir, "loop.db"));
   try {
     const start = other
       .prepare(
@@ -154,7 +154,7 @@ it("pins body and watermark in the production snapshot wrapper while a second pr
   const message = recordConversationUpdate(run, "turn:0", {
     content: "before",
   })!;
-  const writer = new Database(join(dir, "loop55.db"));
+  const writer = new Database(join(dir, "loop.db"));
   let captured: any;
   const response = {
     locals: { owner: "owner" },

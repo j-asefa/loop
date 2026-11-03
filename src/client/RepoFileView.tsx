@@ -22,7 +22,7 @@ const TEXT_CHARS = 400_000;
 const encodePath = (path: string) =>
   path.split("/").map(encodeURIComponent).join("/");
 
-/** The Loop55 address of a file at a commit, for fetch, <img> and <video>. */
+/** The Loop address of a file at a commit, for fetch, <img> and <video>. */
 export const repoFileUrl = (ref: PullRequestRef, head: string, path: string) =>
   routeUrl(
     workspaceApi.githubPullFile,
@@ -122,7 +122,7 @@ const slug = (text: string) =>
 /**
  * Markdown rendered and sanitized, with its relative images and video
  * pointed at the same commit. Links to other files keep a data-path for the
- * viewer to open; external images become links, as Loop55 never loads them.
+ * viewer to open; external images become links, as Loop never loads them.
  */
 export function renderMarkdown(
   source: string,
@@ -322,7 +322,7 @@ export function RepoFileSheet({
             state: "error",
             message:
               error instanceof TypeError
-                ? "Couldn’t reach Loop55. Check your connection and try again."
+                ? "Couldn’t reach Loop. Check your connection and try again."
                 : error.message,
           }),
       );

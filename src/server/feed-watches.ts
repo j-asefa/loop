@@ -11,7 +11,7 @@ import { ownerFeed, ownerFeeds, storiesForWatch } from "./news.js";
 import { matchesWatch, watchTerms } from "../shared/news.js";
 
 // A word or phrase followed across the feeds you added. Matching runs over
-// stories Loop55 has already read, so a watch never causes a fetch, and each
+// stories Loop has already read, so a watch never causes a fetch, and each
 // story is announced once: the hit and its push are written together, so a
 // crash between them can neither lose nor repeat one.
 
@@ -169,7 +169,7 @@ export function matchWatches(at = now()) {
         feedWatchesQueries.matched(db, at, watch.id);
         if (loud) return;
         // A public headline is what is already on the page it links to, so it
-        // is safe on a lock screen; nothing else from Loop55 goes in it.
+        // is safe on a lock screen; nothing else from Loop goes in it.
         enqueuePush(
           watch.owner_id,
           `feed-watch:${watch.id}:${story.id}`,

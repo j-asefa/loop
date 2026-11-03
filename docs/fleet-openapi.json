@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Loop55 companion fleet protocol",
+    "title": "Loop companion fleet protocol",
     "version": "1",
     "description": "Dedicated machine-to-machine JSON protocol. Available on non-preview companions only. Each request/response is limited to 4 MiB; the transport does not follow redirects, accept private DNS destinations, forward cookies or automatically repeat uncertain effects. Read the protocol-specific proof requirements on each operation."
   },
@@ -11,11 +11,11 @@
         "operationId": "enrollmentProbe",
         "description": "Returns a signature over the supplied fresh nonce, confirmed origin and exact destination identity. No enrollment capability is needed. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:enrollment",
-        "x-loop55-authentication": "public challenge; credential challenges require an active grant context",
+        "x-loop-access": "peer:enrollment",
+        "x-loop-authentication": "public challenge; credential challenges require an active grant context",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -163,11 +163,11 @@
         "operationId": "enrollmentPrepare",
         "description": "Requires the destination's one-time enrollment capability and a controller signature over the exact intent. Consumes both local ceremony capabilities atomically with a pending grant; does not create a device cookie. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:enrollment",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:enrollment",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -315,11 +315,11 @@
         "operationId": "enrollmentCommit",
         "description": "Requires the original controller's signature and the bound canonical successor directory. Activates only the pending destination consent. Exact completed retries return the durable receipt. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:enrollment",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:enrollment",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -467,11 +467,11 @@
         "operationId": "enrollmentReceipt",
         "description": "Requires the original controller's signature over the operation and intent digest. Returns a signed receipt without replaying enrollment. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:enrollment",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:enrollment",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -619,11 +619,11 @@
         "operationId": "handoffCommit",
         "description": "Requires the old controller's directory signature over the exact next-epoch handoff. The enrolled destination durably accepts with its own signature and queues dissemination. Repeated accepted proposals return the same signed transition without restoring an obsolete authority. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:handoff",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:handoff",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -771,11 +771,11 @@
         "operationId": "handoffReceipt",
         "description": "Requires the old controller's nonce-bound query signature and its locally known predecessor. A signed missing receipt is an observation, never permission to reactivate the old writer or replay the proposal. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:handoff",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:handoff",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -923,11 +923,11 @@
         "operationId": "directoryHistory",
         "description": "Requires a nonce-bound machine signature. Current members may retrieve signed history from an enrolled replica without an access credential or controller connection. A new member may prove its admission with at most 1,024 signed entries and 768 KiB, connected to the receiver's current head; this read changes no grant. Removed members may retrieve only the chain ending at their recorded removal after proving their former key; later revisions and unrelated cursors are refused. Unanchored pages do not create trust. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:directory",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:directory",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -1075,11 +1075,11 @@
         "operationId": "directoryPush",
         "description": "Requires an enrolled sender's nonce-bound signature and a complete signed successor chain from a known local anchor. Updates only existing locally approved grants. Unknown enrollments, forks and automatic recovery resets are refused; a signed acknowledgement reports the exact accepted chain. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:directory",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:directory",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -1227,11 +1227,11 @@
         "operationId": "credentialChallenge",
         "description": "Returns a signed, short-lived challenge only for a currently authorized destination grant, peer, directory and operation. A challenge grants no access and allocates no per-request nonce state. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:credentials",
-        "x-loop55-authentication": "public challenge; credential challenges require an active grant context",
+        "x-loop-access": "peer:credentials",
+        "x-loop-authentication": "public challenge; credential challenges require an active grant context",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -1379,11 +1379,11 @@
         "operationId": "credentialIssue",
         "description": "Requires the enrolled peer's signature over this issuer instance's unexpired challenge and the client's request nonce. Consumes the challenge durably before returning a ten-minute operation-scoped credential. A lost response requires a new challenge; it never authorizes replay of an agent effect. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:credentials",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:credentials",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -1531,11 +1531,11 @@
         "operationId": "pendingDirectoryHead",
         "description": "Requires a nonce-bound machine proof for a member of this pending consent's verified checkpoint. Reports only that destination-issued grant and checkpoint, without activating workspace access. Completed grants also require current local membership. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:directory",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:directory",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -1683,11 +1683,11 @@
         "operationId": "pendingDirectoryPush",
         "description": "Relays a complete signed successor chain from this exact inactive enrollment operation's trusted checkpoint. Every edge must be authorized by the locally approved controller or its signed handoff. A relay need not occur in the earlier roster; it cannot install membership or grants. A verified removal cancels only the named operation durably, even if another ceremony reuses its grant. Exact packet receipts survive restart; completed enrollment is reported separately for ordinary synchronization. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:directory",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:directory",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -1835,11 +1835,11 @@
         "operationId": "mailDirectory",
         "description": "Requires a mail-scoped machine credential. Returns only bounded local agent names, IDs and runtime availability. No prompts, connection records, recursive remote discovery or browser session are accepted. Responses bind the current directory, requesting machine and canonical query digest. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -1987,11 +1987,11 @@
         "operationId": "mailPrepare",
         "description": "Reserves the original source/message/digest under both current mail grants without queueing work or granting file/context access. Its durable signed prepared receipt is the only permission to transmit that same envelope after reconciling an ambiguous send. Reservations expire after thirty minutes into retained refusal tombstones. Missing receipts never authorize a new reservation for an uncertain send. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -2139,11 +2139,11 @@
         "operationId": "mailAccept",
         "description": "Requires a mail-scoped machine credential, its durable reservation and a one-hop envelope attributed to that authenticated sending machine. Current source and destination grants must match its immutable pins. Admission and the existing mail queue share one transaction; a duplicate source/message identity returns its original receipt without dispatch. Accepted does not mean read. This route is only installed when the owning mail service is configured. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -2291,11 +2291,11 @@
         "operationId": "mailReceipt",
         "description": "Requires a mail-scoped machine credential and the original source/message identity and payload digest. Reads the destination's admitted mail state without dispatch. A missing row remains unknown and never authorizes a replacement message. Signed responses include the request identity, method and monotonic receipt revision. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -2443,11 +2443,11 @@
         "operationId": "mailFile",
         "description": "Requires the authenticated mail peer, a current file-sharing grant, the original envelope digest and its unaccepted destination reservation. Stages at most 192 KiB per chunk and reserves at most 256 MiB across the receiving machine. No agent URL or path is accepted. The signed next offset permits resuming identical private chunks. Verified complete bytes become local attachments only inside the recipient mail-admission transaction; staging alone grants no artifact or model-context access. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "signed request body; prepare also requires a one-time capability",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "signed request body; prepare also requires a one-time capability",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -2595,11 +2595,11 @@
         "operationId": "workspaceCatalog",
         "description": "Requires a destination-owner machine credential. Signs request identity and configured capabilities intersected with its grant; absent capabilities confer no access. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "opaque machine credential in the strict JSON body; destination maps the owner and intersects capabilities with its current grant",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "opaque machine credential in the strict JSON body; destination maps the owner and intersects capabilities with its current grant",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -2747,11 +2747,11 @@
         "operationId": "workspaceRead",
         "description": "Requires a read credential and allowlisted local projection, including read-only routing/sharing previews. Runs destination middleware, projects bounded results and rechecks grant/directory before signing the input digest and result. No caller-selected URL, source, owner, headers, private admin/native/provider setup or recursive routing. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "read-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -2899,11 +2899,11 @@
         "operationId": "workspaceAction",
         "description": "Requires an act credential and allowlisted local action. Records the command and parsed wire digest before its owning handler; defaults cannot change that digest. Rechecks grants and native generations at owning boundaries. Never replays uncertain work. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -3051,11 +3051,11 @@
         "operationId": "workspaceReceipt",
         "description": "Requires an act credential, original command ID and parsed wire digest. The optional action name binds typed recovery and atomically retires an absent ID without dispatch. Legacy requests omit that name and only read existing receipts; a missing legacy receipt preserves uncertainty. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "act-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -3203,11 +3203,11 @@
         "operationId": "workspaceFileOpen",
         "description": "Requires a files-scoped machine credential. Opens only a named owning workspace file projection, up to 25 MiB, with a signed byte count and SHA-256 checksum. At most two snapshots remain live for 30 idle seconds or 120 total seconds. The owner, grant and signed directory are rechecked before admission and after the owning handler. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -3355,11 +3355,11 @@
         "operationId": "workspaceFileChunk",
         "description": "Requires a files-scoped machine credential for the original peer, grant and directory. Returns at most 256 KiB of base64-encoded bytes signed together with the fresh request identity, transfer, checksum and offsets. Permission changes, deleted objects and expired transfers are refused. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -3517,11 +3517,11 @@
         "operationId": "workspaceFileClose",
         "description": "Requires a files-scoped machine credential. Releases the original peer's bounded snapshot; a missing transfer is already closed. Does not publish files or grant agent-mail access. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -3669,11 +3669,11 @@
         "operationId": "workspaceUploadPrepare",
         "description": "Requires a files-scoped machine credential and a canonical upload manifest bound to its original command. Stages at most two files of up to 25 MiB for 30 idle or 120 total seconds. Staging is ephemeral, creates no workspace file or agent grant, and is not command acceptance. An existing durable command returns its receipt instead of a new staging area. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -3821,11 +3821,11 @@
         "operationId": "workspaceUploadChunk",
         "description": "Requires the original files-scoped peer, grant, directory, command, payload digest and transfer. Appends at most 256 KiB at the exact expected offset. Signs the request digest and resulting offset. No workspace object is created. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -3973,11 +3973,11 @@
         "operationId": "workspaceUploadClose",
         "description": "Requires the original files-scoped peer, command and payload digest. Deletes only its ephemeral staging area; a missing area is already closed. Never removes or changes a durable command receipt. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -4125,11 +4125,11 @@
         "operationId": "workspaceUploadCommit",
         "description": "Requires complete staged bytes matching the original manifest's size and SHA-256. Persists the original command and digest before invoking the owning upload producer, which rechecks the current grant inside its file transaction. Repeated commits only return the durable receipt, including after restart. A lost reply does not authorize a new upload. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {
@@ -4277,11 +4277,11 @@
         "operationId": "workspaceUploadReceipt",
         "description": "Requires a files-scoped machine credential and the original command ID and payload digest. Returns a signed durable upload receipt without creating or committing a file. A missing receipt remains unknown to the gateway. Browser Origin, Cookie, Authorization, CSRF, method-override and Sec-Fetch headers are refused. Host must match the serving companion's current HTTPS origin. Query strings and alternate path spellings are rejected.",
         "security": [],
-        "x-loop55-access": "peer:workspace",
-        "x-loop55-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
+        "x-loop-access": "peer:workspace",
+        "x-loop-authentication": "files-scoped opaque machine credential in the strict JSON body; destination maps the local owner",
         "parameters": [
           {
-            "name": "X-Loop55-Fleet-Version",
+            "name": "X-Loop-Fleet-Version",
             "in": "header",
             "required": true,
             "schema": {

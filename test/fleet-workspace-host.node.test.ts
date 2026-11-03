@@ -20,10 +20,10 @@ import {
 import { WORKSPACE_MULTIPLEX_PATH } from "../src/shared/workspace-multiplex.js";
 
 // WorkspaceHost loads the real application: set its isolated profile first.
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-workspace-host-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-workspace-host-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { FleetAuthority } = await import("../src/server/fleet-authority.js");
 const { FleetCredentials } = await import("../src/server/fleet-credentials.js");
@@ -151,7 +151,7 @@ const protocol = (
   path: string,
   input: unknown,
   headers: Record<string, string> = {},
-) => http("/api" + path, input, { "x-loop55-fleet-version": "1", ...headers });
+) => http("/api" + path, input, { "x-loop-fleet-version": "1", ...headers });
 async function token(operation: (typeof scope)[number]) {
   const context = {
     fleetId: directory.document.fleetId,
@@ -215,7 +215,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
     const foreignAgent = randomUUID(),
       foreignOwner = randomUUID();
     db.prepare(
-      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,'Foreign','foreign','openai','fixture','untouched','loop55',0)",
+      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,'Foreign','foreign','openai','fixture','untouched','loop',0)",
     ).run(foreignAgent, foreignOwner);
     await t.test(
       "incomplete public capabilities requests cannot occupy authenticated capacity",
@@ -290,7 +290,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
                 i % 2 ? FLEET_EVENTS_PATH : "/api/events/stream",
                 {
                   authorization: "Bearer invalid",
-                  ...(i % 2 ? { "x-loop55-fleet-version": "1" } : {}),
+                  ...(i % 2 ? { "x-loop-fleet-version": "1" } : {}),
                 },
               );
               const [, response] = await once(ws, "unexpected-response");
@@ -321,7 +321,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
               FLEET_EVENTS_PATH,
               {
                 authorization: "Bearer " + credential,
-                "x-loop55-fleet-version": "1",
+                "x-loop-fleet-version": "1",
               },
             ],
           ] as [string, Record<string, string>][]) {
@@ -342,7 +342,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
         const bearer = createCardToken(OWNER, {
           request_id: randomUUID(),
           name: "Local read fixture",
-          secret: "loop55_token_" + randomBytes(32).toString("base64url"),
+          secret: "loop_token_" + randomBytes(32).toString("base64url"),
           scopes: ["read"],
         });
         const headers = { authorization: "Bearer " + bearer.secret };
@@ -507,7 +507,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
               await http(path, body, {
                 origin: "https://foreign.example",
                 cookie,
-                "x-loop55-csrf": csrf,
+                "x-loop-csrf": csrf,
               })
             ).status,
             403,
@@ -520,7 +520,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
           };
           const allowed = await protocol(fleetWorkspaceApi.read.path, preview, {
             "x-owner": foreignOwner,
-            "x-loop55-owner": foreignOwner,
+            "x-loop-owner": foreignOwner,
           });
           assert.equal(allowed.status, 200);
           assert(!JSON.stringify(allowed.body).includes(foreignAgent));
@@ -643,7 +643,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
         const receipt = await http(
           "/api" + fleetGatewayApi.receipt.path,
           query,
-          { origin, cookie, "x-loop55-csrf": csrf },
+          { origin, cookie, "x-loop-csrf": csrf },
         );
         assert.equal(receipt.status, 200);
         assert.equal(receipt.body.state, "completed");
@@ -739,7 +739,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
           const result = await http(
             target.pathname,
             JSON.parse(String(options!.body)),
-            { "x-loop55-fleet-version": "1" },
+            { "x-loop-fleet-version": "1" },
           );
           return new PeerResponse(JSON.stringify(result.body), {
             status: result.status,
@@ -939,7 +939,7 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
             {
               headers: {
                 host: new URL(origin).host,
-                "x-loop55-fleet-version": "1",
+                "x-loop-fleet-version": "1",
                 authorization: `Bearer ${credential}`,
                 ...headers,
               },

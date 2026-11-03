@@ -152,7 +152,7 @@ describe("fleet event projection", () => {
       const queue = new WorkspaceChangeQueue();
       queue.capabilities.set("peer:owner", COMPLETE_WORKSPACE_CAPABILITIES);
       queue.add("peer:owner", [projected]);
-      const change = new CustomEvent("loop55-workspace-change", {
+      const change = new CustomEvent("loop-workspace-change", {
         detail: queue.drain(),
       });
       expect(workspaceChangeAffects(change, collection, "peer:owner")).toBe(
@@ -239,7 +239,7 @@ describe("fleet event projection", () => {
     queue.add("peer:owner", [projected]);
     expect(
       workspaceChangeAffects(
-        new CustomEvent("loop55-workspace-change", { detail: queue.drain() }),
+        new CustomEvent("loop-workspace-change", { detail: queue.drain() }),
         "usage" satisfies WorkspaceCollection,
         "peer:owner",
       ),

@@ -118,7 +118,7 @@ function RuntimeSignInSession({
     (!startRecovery || attempt?.commandId === startRecovery.id) &&
     (attempt?.state === "complete" ||
       // CLI catalogs don't report `configured` for credentials that predate this
-      // auth manager (a restart, or a sign-in outside Loop55); the runtime's own
+      // auth manager (a restart, or a sign-in outside Loop); the runtime's own
       // signed-in status covers those.
       (!attempt && !changingAccount && (selected?.configured ?? signedIn)));
   const selectedMethod = selected?.methods.find((m) => m.id === method);
@@ -347,7 +347,7 @@ function RuntimeSignInSession({
                 {!view
                   ? "Saved account"
                   : enabled
-                    ? "Ready in Loop55"
+                    ? "Ready in Loop"
                     : connectsModelProvider(name)
                       ? `Provider connected to ${label}`
                       : `Signed in to ${label}`}
@@ -363,14 +363,14 @@ function RuntimeSignInSession({
           </div>
           <p>
             {enabling
-              ? "Connecting this account to Loop55…"
+              ? "Connecting this account to Loop…"
               : enabled
-                ? `Refresh ${label} to update the models available in Loop55.`
-                : "Your account is saved. Finish connecting to make it available in Loop55."}
+                ? `Refresh ${label} to update the models available in Loop.`
+                : "Your account is saved. Finish connecting to make it available in Loop."}
           </p>
           <ol className="connection-steps" aria-label="Connection progress">
             <li>✓ Sign in</li>
-            <li>{enabled ? "✓" : "2."} Connect to Loop55</li>
+            <li>{enabled ? "✓" : "2."} Connect to Loop</li>
           </ol>
           {connectionSetup}
           {enableAction}
@@ -452,7 +452,7 @@ function RuntimeSignInSession({
       {selectedMethod?.type === "api" && (
         <p className="note">
           This provider bills API usage separately from subscriptions. Entering
-          a key does not change Loop55’s selected billing policy.
+          a key does not change Loop’s selected billing policy.
         </p>
       )}
       {attempt?.url && (
@@ -529,7 +529,7 @@ function RuntimeSignInSession({
         </div>
       )}
       {complete && view && runtime === "antigravity" && (
-        // agy has no sign-out Loop55 can drive; signing in again while agy
+        // agy has no sign-out Loop can drive; signing in again while agy
         // still has a credential keeps that Google account.
         <p className="field-hint">
           To use a different Google account, sign out in <code>agy</code> on{" "}
@@ -587,11 +587,11 @@ function RuntimeSignInSession({
       )}
       {!waiting && !complete && (
         // Not every harness reports an existing sign-in (one made outside
-        // Loop55, or before a restart). Enabling checks the account itself.
+        // Loop, or before a restart). Enabling checks the account itself.
         <details className="settings-details">
           <summary>Already signed in on {location}?</summary>
           <p className="field-hint">
-            Connect {label} without signing in again. Loop55 checks the account
+            Connect {label} without signing in again. Loop checks the account
             before enabling it.
           </p>
           {connectionSetup}

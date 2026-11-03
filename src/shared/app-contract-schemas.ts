@@ -61,7 +61,7 @@ export const PublicAuthOptions = z.object({
 export const PublicAuthSession = z
   .object({
     user: z.object({ id: Text, name: Text }),
-    // Better Auth's account-session endpoint has no Loop55 deployment-mode field.
+    // Better Auth's account-session endpoint has no Loop deployment-mode field.
     mode: z.enum(["paired", "single-user", "multi-user"]).optional(),
   })
   .nullable();

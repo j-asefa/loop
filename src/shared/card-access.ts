@@ -20,7 +20,7 @@ export const cardAuthorization = Symbol("card authorization");
 export function cardTokenRequest(name: string, scope: CardGrant) {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   const secret =
-    "loop55_card_" +
+    "loop_card_" +
     btoa(String.fromCharCode(...bytes))
       .replaceAll("+", "-")
       .replaceAll("/", "_")
@@ -33,7 +33,7 @@ export function integrationTokenRequest(name: string, scopes: TokenScope[]) {
   const legacy = cardTokenRequest(name, "results:read");
   return {
     request_id: legacy.request_id,
-    secret: legacy.secret.replace("loop55_card_", "loop55_token_"),
+    secret: legacy.secret.replace("loop_card_", "loop_token_"),
     name: legacy.name,
     scopes: [...new Set(scopes)].sort(),
   };

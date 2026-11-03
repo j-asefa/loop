@@ -1,4 +1,3 @@
-import "../../runtime/environment.mjs";
 import { join, resolve } from "node:path";
 import {
   acquireExecutionOwnership,
@@ -19,7 +18,7 @@ import {
 import { boundedExecutionJson } from "./execution-wire.js";
 
 if (
-  process.env.LOOP55_PROFILE !== "companion" ||
+  process.env.LOOP_PROFILE !== "companion" ||
   !process.send ||
   !process.connected
 )
@@ -91,7 +90,7 @@ function shutdown() {
 }
 const boot = (async () => {
   ownership = await acquireExecutionOwnership(
-    resolve(process.env.LOOP55_DATA_DIR || "./data"),
+    resolve(process.env.LOOP_DATA_DIR || "./data"),
   );
   if (stopping || !process.connected) return;
   recordOwnedProcesses(join(ownership.directory, "children.json"));

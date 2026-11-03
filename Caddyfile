@@ -1,4 +1,4 @@
-{$LOOP55_HOST} {
+{$LOOP_HOST} {
   encode zstd gzip
-  reverse_proxy loop55:3000
+  reverse_proxy loop:3000
 }

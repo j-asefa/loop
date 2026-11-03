@@ -13,9 +13,9 @@ afterAll(() =>
 );
 
 function database(through = 122) {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-feed-state-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-feed-state-"));
   dirs.push(dir);
-  const db = new Database(join(dir, "loop55.db"));
+  const db = new Database(join(dir, "loop.db"));
   db.exec(
     "CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)",
   );

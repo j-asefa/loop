@@ -14,10 +14,10 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Response, type fetch as undiciFetch } from "undici";
 import { WebSocket, WebSocketServer } from "ws";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-fleet-capacity-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-fleet-capacity-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { Host } = await import("../src/host.js");
 const { FleetCapacity } = await import("../src/server/fleet-capacity.js");
 const { FleetWorkspaceHttpTransport } =
@@ -244,7 +244,7 @@ test("one gateway budgets HTTP, sockets and every peer sender together", async (
     const overflow = await http("/api/fleet/peer/v1/fixture/overflow", {});
     assert.equal(overflow.status, 503);
     assert.equal(overflow.headers["retry-after"], "1");
-    assert.equal(overflow.headers["x-loop55-fleet-available"], "0");
+    assert.equal(overflow.headers["x-loop-fleet-available"], "0");
     assert.equal(invoked, 64);
     // 91 HTTP requests plus the open socket borrow well beyond the 32 reserved
     // browser slots, up to the same 160-operation budget as peer/outbound IO.

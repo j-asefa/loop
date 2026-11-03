@@ -133,7 +133,7 @@ export async function needsStackSmoke(page, fixture, capture) {
     .prepare("UPDATE runs SET state='completed' WHERE id=?")
     .run(paused.run);
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop55-source-refresh")),
+    window.dispatchEvent(new Event("loop-source-refresh")),
   );
   await expect(collapse).toHaveCount(0);
   await expect(tab("Working")).toHaveAttribute("aria-selected", "true");
@@ -150,7 +150,7 @@ export async function needsStackSmoke(page, fixture, capture) {
     )
     .run(Date.now(), awaiting.run);
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop55-source-refresh")),
+    window.dispatchEvent(new Event("loop-source-refresh")),
   );
   const interrupted = needs
     .locator(".inbox-card")

@@ -7,7 +7,7 @@ data
 deployment/out
 test-results
 *.db*
-docs/loop55-v0/evidence
+docs/loop-v0/evidence
 
 .tmp
 *.tgz

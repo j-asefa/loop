@@ -8,10 +8,10 @@ import { FleetMailBindings } from "../src/server/fleet-mail-bindings.js";
 import { generateMachineKey } from "../src/server/fleet-crypto.js";
 import { fleetAgentAddress } from "../src/shared/fleet-mail.js";
 
-const dir = mkdtempSync(join(tmpdir(), "loop55-fleet-mail-policy-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-fleet-mail-policy-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db.js");
 const secrets = await import("../src/server/secrets.js");
 const { createAgent, ownedRun } = await import("../src/server/domain.js");
@@ -40,7 +40,7 @@ function agent(ownerId = owner, harness?: string) {
     ownerId,
     secrets.seal("fixture", ownerId),
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify(harness ? { loop55Harness: harness } : {}),
+    JSON.stringify(harness ? { loopHarness: harness } : {}),
     now(),
   );
   return createAgent(ownerId, {

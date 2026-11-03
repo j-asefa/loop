@@ -13,15 +13,15 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-mail-worker-"));
+const root = mkdtempSync(join(tmpdir(), "loop-mail-worker-"));
 const project = join(root, "project");
 mkdirSync(project);
 gitProject(project);
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = join(root, "data");
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP55_TEST_HARNESS = "codex";
-process.env.LOOP55_TEST_FLEET_DISCOVERY_AUDIT = join(root, "discovery.jsonl");
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = join(root, "data");
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_TEST_HARNESS = "codex";
+process.env.LOOP_TEST_FLEET_DISCOVERY_AUDIT = join(root, "discovery.jsonl");
 const { db } = await import("../src/server/db.js");
 const { createAgent } = await import("../src/server/domain.js");
 const { submit } = await import("../src/server/agent-runtime.js");
@@ -111,7 +111,7 @@ test(
     });
     const connection = db
       .prepare(
-        "SELECT id FROM connections WHERE owner_id=? AND json_extract(metadata,'$.loop55Harness')='codex'",
+        "SELECT id FROM connections WHERE owner_id=? AND json_extract(metadata,'$.loopHarness')='codex'",
       )
       .get(OWNER) as { id: string };
     assert(connection);
@@ -135,7 +135,7 @@ test(
     const finished = db
       .prepare("SELECT state,error FROM runs WHERE id=?")
       .get(run.id) as { state: string; error: string | null };
-    const auditPath = process.env.LOOP55_TEST_FLEET_DISCOVERY_AUDIT!;
+    const auditPath = process.env.LOOP_TEST_FLEET_DISCOVERY_AUDIT!;
     const audit = existsSync(auditPath) ? readFileSync(auditPath, "utf8") : "";
     assert.equal(finished.state, "completed", finished.error ?? audit);
     assert.equal(reads, 1);

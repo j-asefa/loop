@@ -228,7 +228,7 @@ export function CardTokens({
         {created && (
           <>
             <SettingsNote title="Copy this token now">
-              This is the only time Loop55 displays its secret. Keep it in your
+              This is the only time Loop displays its secret. Keep it in your
               script’s secret store.
             </SettingsNote>
             <SettingsCommand

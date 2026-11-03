@@ -1,6 +1,6 @@
 # Deliver durable review continuations through merge
 
-Implement reliable continuation after agent-requested Loop55 snapshot reviews. A coding agent must be able to request review, yield while it runs, receive its outcome, address findings, and finish the user's task without another user prompt. Deliver production changes, regression coverage, canonical documentation, and all task PRs approved by the existing Loop reviewer team and merged to `main`.
+Implement reliable continuation after agent-requested Loop snapshot reviews. A coding agent must be able to request review, yield while it runs, receive its outcome, address findings, and finish the user's task without another user prompt. Deliver production changes, regression coverage, canonical documentation, and all task PRs approved by the existing Loop reviewer team and merged to `main`.
 
 This assignment authorizes implementing changes, creating branches, pushing commits, opening/updating PRs, requesting and discussing reviews with the Loop reviewer team, and merging those PRs once the gates below pass. Do not stop at a plan, an open PR, a submitted review request, or an enabled auto-merge setting. Do not bypass repository protections or merge without approval. Preserve unrelated work.
 

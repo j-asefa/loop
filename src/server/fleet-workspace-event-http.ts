@@ -52,7 +52,7 @@ export class FleetWorkspaceEventHttpTransport extends FleetWorkspaceHttpTranspor
         ws = this.open(url, {
           headers: {
             authorization: `Bearer ${credential}`,
-            "x-loop55-fleet-version": "1",
+            "x-loop-fleet-version": "1",
           },
           lookup: publicNetworkLookup,
           followRedirects: false,

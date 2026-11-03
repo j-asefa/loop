@@ -49,27 +49,27 @@ eleven-minute mail interval. It is never invoked by `npm test`, `npm run check`,
 ```sh
 node scripts/fleet-acceptance.mjs --quick-tunnels --output /tmp/fleet-transport.json
 # To test an already built tarball instead:
-node scripts/fleet-acceptance.mjs --quick-tunnels --package /absolute/path/loop55-0.1.0.tgz --output /tmp/fleet-transport.json
+node scripts/fleet-acceptance.mjs --quick-tunnels --package /absolute/path/j-asefa-loop-0.1.0.tgz --output /tmp/fleet-transport.json
 ```
 
 To exercise an existing workspace upgrade, supply a separately built, clean
-older **Loop55** package whose source includes fleet administration and ordinary
+older **Loop** package whose source includes fleet administration and ordinary
 peer reads but predates fleet event streaming, Done grouping and mail migrations.
-Both builds must use the same Loop55 header protocol. A package from before
-the rename to Loop55 is not a supported peer in this scenario.
+Both builds must use the same Loop header protocol. A package from before
+the rename to Loop is not a supported peer in this scenario.
 Build the chosen older revision in an isolated checkout;
 do not change the source of a running test. The runner requires different clean
 source commits and at least one new migration, so changing only a package version
 cannot satisfy this case.
 
 ```sh
-node scripts/fleet-acceptance.mjs --quick-tunnels --package /absolute/new-loop55.tgz --upgrade-from /absolute/older-loop55.tgz --output /tmp/fleet-upgrade-transport.json
+node scripts/fleet-acceptance.mjs --quick-tunnels --package /absolute/new-loop.tgz --upgrade-from /absolute/older-loop.tgz --output /tmp/fleet-upgrade-transport.json
 ```
 
 A starts from the older package in a private global npm prefix. B/C use the new
 package. After enrollment, the runner creates an agent and completed conversation
 on A. It checks that B can read A's agents, sees events unavailable, and cannot
-read A's absent Done-group projection. It runs the real `loop55 upgrade --from` against A's existing state, verifies newly applied
+read A's absent Done-group projection. It runs the real `loop upgrade --from` against A's existing state, verifies newly applied
 named migrations, the retained agent/run/directory and old paired cookie, and the
 unchanged connection service/tunnel. The Done-group read must then succeed and
 the peer must advertise events before
@@ -78,7 +78,7 @@ observed refusal status. Without `--upgrade-from`, this case remains explicitly
 pending. This tests the chosen older-to-new pair, not arbitrary future versions.
 
 The runner uses the installed CLI and production cloudflared pin. Each companion
-has a new `LOOP55_HOME`, committed fixture project and deterministic Codex executable.
+has a new `LOOP_HOME`, committed fixture project and deterministic Codex executable.
 It never changes `HOME`, adopts a user's workspace, or uses a provider account.
 Child Git commands use an empty private global configuration and template directory,
 with system Git configuration disabled. Child Docker discovery uses an empty private
@@ -156,16 +156,16 @@ CLI's specific no-running-workspace response and status confirmation that both
 application and connection are stopped. Other stop failures retain the state.
 If cleanup fails, the report retains the test directory.
 The printed test directory also has a private `cleanup.json` with the installed
-CLI for each test-owned `LOOP55_HOME`, so interruption does not lose their locations.
-Use that directory's installed CLI with each recorded test state's `LOOP55_HOME`
-to run `loop55 stop` and `loop55 status --json`; remove the directory only after
+CLI for each test-owned `LOOP_HOME`, so interruption does not lose their locations.
+Use that directory's installed CLI with each recorded test state's `LOOP_HOME`
+to run `loop stop` and `loop status --json`; remove the directory only after
 every companion is confirmed stopped with no unresolved stop error. Do not
 publish retained databases or daemon logs, which can contain test credentials.
 
 [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
 have temporary addresses, no uptime guarantee and a documented in-flight request
 limit. Their optional interactive email gate is incompatible with peer traffic.
-Loop55 uses HTTPS and WebSockets; Quick Tunnels do not support SSE. The
+Loop uses HTTPS and WebSockets; Quick Tunnels do not support SSE. The
 [WebSocket guidance](https://developers.cloudflare.com/network/websockets/)
 describes connection loss during edge updates and the need for reconnects and
 heartbeats. An unavailable tunnel is recorded as unavailable evidence.
@@ -179,17 +179,17 @@ one outside Claude Code/Codex. The user supplies those resources or executes the
 steps below and returns the report. Do not infer these results from emulation.
 
 1. Build and pack the reviewed commit, copy the same tarball to both hosts, and
-   install it into a test-specific prefix on each. Record `loop55 --version`,
+   install it into a test-specific prefix on each. Record `loop --version`,
    `/api/build` through a paired session, host OS, phone OS/browser and harness
    versions. Keep independent copies of the package/build identity in the report.
-2. Create three empty committed projects and three new absolute `LOOP55_HOME`
+2. Create three empty committed projects and three new absolute `LOOP_HOME`
    directories, with at least one companion on the second host. Start each with
    its own explicit project and only the authorized test providers. For example:
 
    ```sh
-   npm install --prefix /absolute/test-install /absolute/loop55-0.1.0.tgz
-   LOOP55_HOME=/absolute/fleet-a /absolute/test-install/node_modules/.bin/loop55 start --project /absolute/project-a --providers codex
-   LOOP55_HOME=/absolute/fleet-b /absolute/test-install/node_modules/.bin/loop55 start --project /absolute/project-b --providers pi
+   npm install --prefix /absolute/test-install /absolute/j-asefa-loop-0.1.0.tgz
+   LOOP_HOME=/absolute/fleet-a /absolute/test-install/node_modules/.bin/loop start --project /absolute/project-a --providers codex
+   LOOP_HOME=/absolute/fleet-b /absolute/test-install/node_modules/.bin/loop start --project /absolute/project-b --providers pi
    ```
 
    Use a separate directory for C. Keep real credentials on the machine/harness
@@ -217,7 +217,7 @@ steps below and returns the report. Do not infer these results from emulation.
 6. Start a harmless cross-machine message/file/reply task and a handoff using
    discovered source-qualified agent addresses. Close every browser/PWA for at
    least eleven minutes while the agents remain running, then reopen. Verify
-   delivery/replies continued, attachments were read through `loop55_read_file`,
+   delivery/replies continued, attachments were read through `loop_read_file`,
    and recorded message IDs were not duplicated. Include at least one real
    non-Claude/Codex harness. Record busy/paused recipient and held/resume results
    separately; an unsupported live input operation must remain unavailable.
@@ -229,8 +229,8 @@ steps below and returns the report. Do not infer these results from emulation.
    Run a larger synthetic fleet with concurrent peer/browser traffic separately;
    report aggregate ingress, memory/queue bounds and 429/5xx behavior with the
    exact workload. Do not infer aggregate capacity from a browser socket count.
-8. Stop/recreate at least two test tunnels using the owning test `LOOP55_HOME` and
-   `loop55 stop`/`loop55 start`. Pair at the fresh origins, repair their signed
+8. Stop/recreate at least two test tunnels using the owning test `LOOP_HOME` and
+   `loop stop`/`loop start`. Pair at the fresh origins, repair their signed
    addresses, and observe pending acknowledgements. Repeat with **all** addresses
    changed and no old browser storage while A's server key survives. Repair A
    first, then the peers. Confirm the old PWA's cookie does not confer authority
@@ -253,7 +253,7 @@ steps below and returns the report. Do not infer these results from emulation.
     Test installation/upgrade from a known prior package using a copied test
     workspace, mixed-version refusal/capabilities and existing server/Docker
     profile regressions. Record old/new versions and the migration result.
-12. Stop only the test companions with their explicit `LOOP55_HOME`. Revoke test
+12. Stop only the test companions with their explicit `LOOP_HOME`. Revoke test
     device trust and remove test data after capturing a sanitized report. Keep
     pairing capabilities, cookies, provider tokens and private native context
     out of screenshots, traces, issue comments and result attachments.

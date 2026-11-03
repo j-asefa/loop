@@ -31,7 +31,7 @@ export async function createAgentModelsSmoke(page, fixture, _engine, capture) {
   ];
   fixture.db
     .prepare(
-      "UPDATE connections SET models=?,metadata=json_set(metadata,'$.loop55Harness','codex') WHERE id=?",
+      "UPDATE connections SET models=?,metadata=json_set(metadata,'$.loopHarness','codex') WHERE id=?",
     )
     .run(JSON.stringify(saved), codex.id);
   const sheet = page.getByRole("dialog", { name: "New chat", exact: true });
@@ -120,7 +120,7 @@ export async function createAgentModelsSmoke(page, fixture, _engine, capture) {
       codex.id,
     );
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop55-workspace-change")),
+    window.dispatchEvent(new Event("loop-workspace-change")),
   );
   await expect(
     sheet.getByText("Smaller catalog account", { exact: true }),
@@ -138,7 +138,7 @@ export async function createAgentModelsSmoke(page, fixture, _engine, capture) {
     .prepare("UPDATE connections SET models=?,label=? WHERE id=?")
     .run(JSON.stringify(saved), codex.label, codex.id);
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop55-workspace-change")),
+    window.dispatchEvent(new Event("loop-workspace-change")),
   );
   await expect(
     sheet.getByText("Smaller catalog account", { exact: true }),
@@ -244,7 +244,7 @@ export async function createAgentModelsSmoke(page, fixture, _engine, capture) {
     .prepare("UPDATE connections SET models=?,label=? WHERE id=?")
     .run(JSON.stringify(newer), "Updated after refresh", codex.id);
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop55-workspace-change")),
+    window.dispatchEvent(new Event("loop-workspace-change")),
   );
   await expect(
     sheet.getByText("Updated after refresh", { exact: true }),
@@ -264,7 +264,7 @@ export async function createAgentModelsSmoke(page, fixture, _engine, capture) {
     .prepare("UPDATE connections SET models='[]',label=? WHERE id=?")
     .run("Empty refreshed catalog", codex.id);
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop55-workspace-change")),
+    window.dispatchEvent(new Event("loop-workspace-change")),
   );
   await expect(
     sheet.getByText("Empty refreshed catalog", { exact: true }),
@@ -342,7 +342,7 @@ export async function createAgentModelsSmoke(page, fixture, _engine, capture) {
     .run(JSON.stringify(saved), "Updated during discovery", codex.id);
   try {
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-workspace-change")),
+      window.dispatchEvent(new Event("loop-workspace-change")),
     );
     await expect(
       sheet.getByRole("radiogroup", { name: "Connection", exact: true }),
@@ -365,7 +365,7 @@ export async function createAgentModelsSmoke(page, fixture, _engine, capture) {
     .prepare("UPDATE connections SET status='needs_reconnect' WHERE id=?")
     .run(codex.id);
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop55-workspace-change")),
+    window.dispatchEvent(new Event("loop-workspace-change")),
   );
   await expect(
     sheet.getByText("Choose a connected account to start chatting.", {
@@ -382,7 +382,7 @@ export async function createAgentModelsSmoke(page, fixture, _engine, capture) {
     .prepare("UPDATE connections SET status='connected' WHERE id=?")
     .run(codex.id);
   await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop55-workspace-change")),
+    window.dispatchEvent(new Event("loop-workspace-change")),
   );
   await expect(start).toBeEnabled();
   await expect(

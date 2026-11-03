@@ -46,7 +46,7 @@ function directory(owner: string, folderId: string) {
   if (!companionMode)
     throw new Problem(
       409,
-      "Local snapshot review requires a laptop workspace. Open the Loop55 workspace running beside your repository.",
+      "Local snapshot review requires a laptop workspace. Open the Loop workspace running beside your repository.",
     );
   ownedFolder(folderId, owner);
   const mapping = projectPathsQueries.path(db, folderId) as
@@ -220,7 +220,7 @@ function ensureCodeReview(
             409,
             "Review continuation requires an agent conversation",
           );
-        const input = `Wait for review ${reviewId}, then continue the original task. Read loop55_review_status with reviewId ${reviewId} to retrieve the consolidated outcome. This follow-up starts only after the review ends. Snapshot fingerprint: ${fingerprint}; scope: ${snapshot.scope}; base commit: ${snapshot.base}. Completion is not approval. Check reviewer failures and findings, fix confirmed issues and obtain a fresh review of changed content before claiming approval. This review covers only its captured snapshot, not newer edits. If review failed, report or resolve that failure; do not automatically submit a duplicate review.`;
+        const input = `Wait for review ${reviewId}, then continue the original task. Read loop_review_status with reviewId ${reviewId} to retrieve the consolidated outcome. This follow-up starts only after the review ends. Snapshot fingerprint: ${fingerprint}; scope: ${snapshot.scope}; base commit: ${snapshot.base}. Completion is not approval. Check reviewer failures and findings, fix confirmed issues and obtain a fresh review of changed content before claiming approval. This review covers only its captured snapshot, not newer edits. If review failed, report or resolve that failure; do not automatically submit a duplicate review.`;
         const continuation = enqueue(
           owner,
           input,
@@ -379,7 +379,7 @@ function agentReviewReport(
       report: {
         reviewId,
         state: record.state,
-        note: "Review is still running. Use loop55_review_status with this reviewId later to retrieve the report. Do not submit another review of the same snapshot or busy-wait.",
+        note: "Review is still running. Use loop_review_status with this reviewId later to retrieve the report. Do not submit another review of the same snapshot or busy-wait.",
       },
     };
   const status = reviewStatus(run.owner_id, reviewId);

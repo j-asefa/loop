@@ -7,13 +7,13 @@ import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-const dir = mkdtempSync(join(tmpdir(), "loop55-catalog-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = mkdtempSync(join(tmpdir(), "loop-catalog-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 // Remote-runtime fixtures must not inherit the launcher's companion profile.
-process.env.LOOP55_PROFILE = "server";
-process.env.LOOP55_RUNTIME_URL = "http://127.0.0.1:31999";
-process.env.LOOP55_RUNTIME_TOKEN =
+process.env.LOOP_PROFILE = "server";
+process.env.LOOP_RUNTIME_URL = "http://127.0.0.1:31999";
+process.env.LOOP_RUNTIME_TOKEN =
   "fixture-runtime-token-with-at-least-32-characters";
 const authorization = vi.hoisted(() => vi.fn());
 vi.mock("../src/server/mcp/client.js", async (original) => ({

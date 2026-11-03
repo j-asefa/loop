@@ -32,7 +32,7 @@ function walk(stack: Layer[], nested = false) {
   }
 }
 walk(app.router.stack as Layer[]);
-if (process.env.LOOP55_PROFILE === "companion")
+if (process.env.LOOP_PROFILE === "companion")
   keys.push(
     ...pairedHostRoutes.map((route) => `${route.method} ${route.path}`),
   );

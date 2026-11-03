@@ -98,19 +98,19 @@ const plan = z.object({
     .max(ACTIVITY_LIMITS.steps),
 });
 // Agent-facing plan guidance for API-provider runs. The tool description says
-// how to call loop55_plan; this says when, so providers that weigh system
+// how to call loop_plan; this says when, so providers that weigh system
 // instructions over tool descriptions still publish plans. Added only when
-// loop55_plan is advertised, after the agent's own instructions, which are
+// loop_plan is advertised, after the agent's own instructions, which are
 // stored unchanged.
 export const PLAN_GUIDANCE =
-  "Loop55 plans: for any task with more than one step, call loop55_plan with your plan before you start working, then call it again with the complete updated list each time a step starts or finishes. Keep step ids stable across updates and mark only the step you are working on as in_progress. The user sees this as a live checklist; Loop55 never infers a plan from your messages. Skip loop55_plan for single-step answers.";
+  "Loop plans: for any task with more than one step, call loop_plan with your plan before you start working, then call it again with the complete updated list each time a step starts or finishes. Keep step ids stable across updates and mark only the step you are working on as in_progress. The user sees this as a live checklist; Loop never infers a plan from your messages. Skip loop_plan for single-step answers.";
 export function runtimeInstructions(
   instructions: string,
   bindings: Pick<ToolBinding, "tool" | "connectionId">[],
   latestMessage = "",
 ) {
   const plans = bindings.some(
-    (b) => b.tool === "loop55_plan" && b.connectionId === "__loop__",
+    (b) => b.tool === "loop_plan" && b.connectionId === "__loop__",
   );
   // Tool names only select guidance; the broker enforces GitHub rules.
   const github = bindings.some(
@@ -150,32 +150,32 @@ const handoff = z.object({
   conversationId: messageSchema.shape.conversationId,
 });
 const schemas = {
-  loop55_reply: PublishReply,
-  loop55_handoff: handoff,
-  loop55_review_read: reviewReadSchema,
-  loop55_publish_file: publishFileSchema,
-  loop55_plan: plan,
-  loop55_read_file: z.object({
+  loop_reply: PublishReply,
+  loop_handoff: handoff,
+  loop_review_read: reviewReadSchema,
+  loop_publish_file: publishFileSchema,
+  loop_plan: plan,
+  loop_read_file: z.object({
     fileId: z.string().uuid(),
     offset: z.number().int().nonnegative().default(0),
     length: z.number().int().min(1).max(16384).default(12000),
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
   }),
-  loop55_diagram: diagram,
-  loop55_feed: z.object({
+  loop_diagram: diagram,
+  loop_feed: z.object({
     feedId: z.string().max(120).optional(),
     query: z.string().max(200).optional(),
     unreadOnly: z.boolean().default(false),
     since: z.number().int().nonnegative().optional(),
     limit: z.number().int().min(1).max(50).default(20),
   }),
-  loop55_install_mcp: install,
-  loop55_delegate: delegate,
-  loop55_agents: directorySchema,
-  loop55_message: messageSchema,
-  loop55_message_status: statusSchema,
-  loop55_request_review: requestReviewSchema,
-  loop55_review_status: reviewStatusSchema,
+  loop_install_mcp: install,
+  loop_delegate: delegate,
+  loop_agents: directorySchema,
+  loop_message: messageSchema,
+  loop_message_status: statusSchema,
+  loop_request_review: requestReviewSchema,
+  loop_review_status: reviewStatusSchema,
 };
 export function nativeBindings(
   run: Run,
@@ -184,8 +184,8 @@ export function nativeBindings(
   if (run.payload.reviewId)
     return [
       {
-        name: "loop55_review_read",
-        tool: "loop55_review_read",
+        name: "loop_review_read",
+        tool: "loop_review_read",
         connectionId: "__loop__",
         description:
           "Read immutable captured repository context for this review. Omit path to list files, changed paths and omissions (offset paginates the list). Supply path to read text; version before reads the baseline of a changed file. Text offsets are character offsets; use nextOffset to continue. This tool cannot read live files, execute commands or edit anything.",
@@ -194,33 +194,33 @@ export function nativeBindings(
     ];
   const team = teamOf(run);
   const descriptions: Record<string, string> = {
-    loop55_reply:
-      "Publish a complete reply to a user message received while this task is running. Use the message ID from Loop55's steering wrapper as replyTo and your answer as body. The reply appears in the user's Replies tab and remains until they archive it. Each call publishes a separate reply; ordinary text does not. Keep working on the task after replying unless the user redirects or stops it. Use your normal final answer for the task's result and loop55_message for agent mail.",
-    loop55_publish_file:
-      "Publish a generated file to the user's Loop55 workspace. Use a path relative to your persistent workspace, or content for a small text/base64 file (use its filename as title). Copy files generated elsewhere into your workspace first. Hidden files, credentials, and files outside the workspace cannot be published. Files can be up to 25 MB; make larger ones smaller first, for example by compressing or splitting them. Files appear under Your profile > Files, in the agent's Files tab, and beside its result. Include the returned url in your answer; never claim a file is available until this tool succeeds. Publish generated images, documents, and mockups instead of leaving them on the worker.",
+    loop_reply:
+      "Publish a complete reply to a user message received while this task is running. Use the message ID from Loop's steering wrapper as replyTo and your answer as body. The reply appears in the user's Replies tab and remains until they archive it. Each call publishes a separate reply; ordinary text does not. Keep working on the task after replying unless the user redirects or stops it. Use your normal final answer for the task's result and loop_message for agent mail.",
+    loop_publish_file:
+      "Publish a generated file to the user's Loop workspace. Use a path relative to your persistent workspace, or content for a small text/base64 file (use its filename as title). Copy files generated elsewhere into your workspace first. Hidden files, credentials, and files outside the workspace cannot be published. Files can be up to 25 MB; make larger ones smaller first, for example by compressing or splitting them. Files appear under Your profile > Files, in the agent's Files tab, and beside its result. Include the returned url in your answer; never claim a file is available until this tool succeeds. Publish generated images, documents, and mockups instead of leaving them on the worker.",
     ...(options.plans && {
-      loop55_plan:
-        "Publish or update your plan for this task as a live checklist the user can follow. For multi-step work, publish the plan before starting and call this again with the complete updated list whenever a step starts or finishes. Keep each step's id stable and mark exactly the step you are working on as in_progress. Loop55 never infers a plan from your messages. It does not run anything and needs no approval.",
+      loop_plan:
+        "Publish or update your plan for this task as a live checklist the user can follow. For multi-step work, publish the plan before starting and call this again with the complete updated list whenever a step starts or finishes. Keep each step's id stable and mark exactly the step you are working on as in_progress. Loop never infers a plan from your messages. It does not run anything and needs no approval.",
     }),
-    loop55_read_file:
+    loop_read_file:
       "Read an uploaded file attached to this conversation. Offsets and lengths are bytes; use nextOffset to continue. Use utf8 for text or base64 for binary files. Decode base64 locally before using native document/image tools. Reading attached files needs no additional approval.",
-    loop55_diagram:
-      "Create a native Mermaid flowchart or diagram in Loop55. No installation needed. Supply plain Mermaid source without HTML, click handlers or directives.",
+    loop_diagram:
+      "Create a native Mermaid flowchart or diagram in Loop. No installation needed. Supply plain Mermaid source without HTML, click handlers or directives.",
     ...(agentFeedAccess(run.owner_id) && {
-      loop55_feed:
-        "Read the public feeds the user follows in Loop55's Social tab: headlines, excerpts, links and discussion links, newest first. Use it when the user asks what is new, to find a story they half-remember, or to summarize what they have not read. Filter with feedId, query, since or unreadOnly. It reads only the feeds they already follow and only what Loop55 has already read, so say what it is as of; it fetches nothing, marks nothing read, and needs no approval.",
+      loop_feed:
+        "Read the public feeds the user follows in Loop's Social tab: headlines, excerpts, links and discussion links, newest first. Use it when the user asks what is new, to find a story they half-remember, or to summarize what they have not read. Filter with feedId, query, since or unreadOnly. It reads only the feeds they already follow and only what Loop has already read, so say what it is as of; it fetches nothing, marks nothing read, and needs no approval.",
     }),
-    loop55_install_mcp:
-      "Install MCP servers for the whole Loop55 workspace from a JSON mcpServers configuration. Loop55 asks the user to approve installation, then makes the discovered tools available to all their agents. Tool calls follow the user's workspace approval preference. Supply JSON as config; never include secrets unless provided by the user.",
+    loop_install_mcp:
+      "Install MCP servers for the whole Loop workspace from a JSON mcpServers configuration. Loop asks the user to approve installation, then makes the discovered tools available to all their agents. Tool calls follow the user's workspace approval preference. Supply JSON as config; never include secrets unless provided by the user.",
   };
-  descriptions.loop55_review_status =
+  descriptions.loop_review_status =
     "Read the status and consolidated report of reviews requested by this agent, including earlier turns. Pass reviewId, or omit it to recover the ten most recent requests after a timeout. Running is not approval. New asynchronous requests queue a follow-up in this conversation automatically after review and your current turn finish. You may finish your turn while waiting. Never start a duplicate review just to retrieve its result.";
   const reviewTeams = run.agent_id
     ? requestableReviewTeams(run.owner_id, run.agent_id)
     : [];
   if (reviewTeams.length)
-    descriptions.loop55_request_review =
-      "Ask a code review team to review your changes, for example before you open a pull request. Loop55 captures an immutable snapshot of your working checkout (scope branch: commits since base; uncommitted: working-tree changes including new files; staged: the index), three reviewers examine it independently and the team lead consolidates their findings. By default this call returns a reviewId immediately and durably queues a follow-up in this conversation. Finish your current turn when ready; after the consolidated review ends, the queued follow-up resumes your task and retrieves the report with loop55_review_status. Completion is not approval. Optional wait:true blocks until completion, creates no follow-up, and may exceed your harness timeout; recover with loop55_review_status if it does. Edits made after the capture are not reviewed; fix confirmed findings, then request another review if needed. The review never edits files, runs tests or opens a pull request. Review teams: " +
+    descriptions.loop_request_review =
+      "Ask a code review team to review your changes, for example before you open a pull request. Loop captures an immutable snapshot of your working checkout (scope branch: commits since base; uncommitted: working-tree changes including new files; staged: the index), three reviewers examine it independently and the team lead consolidates their findings. By default this call returns a reviewId immediately and durably queues a follow-up in this conversation. Finish your current turn when ready; after the consolidated review ends, the queued follow-up resumes your task and retrieves the report with loop_review_status. Completion is not approval. Optional wait:true blocks until completion, creates no follow-up, and may exceed your harness timeout; recover with loop_review_status if it does. Edits made after the capture are not reviewed; fix confirmed findings, then request another review if needed. The review never edits files, runs tests or opens a pull request. Review teams: " +
       JSON.stringify(reviewTeams);
   if (team?.manager_id === run.agent_id) {
     const workers = teamMembersQueries.activeInstructions(
@@ -228,7 +228,7 @@ export function nativeBindings(
       team.id,
       run.owner_id,
     );
-    descriptions.loop55_delegate =
+    descriptions.loop_delegate =
       "You manage this team. Delegate focused tasks to these workers using their agentId. Tasks run in parallel; results return here, and worker updates appear in the team feed. Synthesize their work for the user. By default this call waits for every result. Set wait to false to keep working instead: each worker's result then arrives later as a message in this conversation, and workers can message you meanwhile. Available workers: " +
       JSON.stringify(workers);
   }
@@ -237,17 +237,17 @@ export function nativeBindings(
         { retired_at: number | null } | undefined)
     : undefined;
   if (agent && !agent.retired_at && !run.payload.execution) {
-    descriptions.loop55_agents =
+    descriptions.loop_agents =
       "Discover other non-retired agents. Omit sourceId for this machine and its authorized source list; use a returned sourceId to read another machine. Search by name and paginate with nextOffset on that same source. Remote agentIds include their owning machine; preserve them in messages and handoffs. An unreachable source does not hide local agents. Availability is not a guarantee that inference can start.";
-    descriptions.loop55_message =
-      `Message another agent from loop55_agents using its stable agentId. Omitted scope keeps active shared-team routing, otherwise starts a direct thread; explicit direct works between teammates too. Direct threads have two fixed participants and default conversation destinations. Replies use threadId. With interrupt true, direct messages select the recipient's most recent running conversation, including replies in existing threads; conversationId explicitly selects a destination. Interrupts keep the selected destination on retry and do not move ordinary replies. Busy recipients queue unless the selected task supports live input. Each task can send ${MAIL_LIMITS.perRun}. You can't wait inside a call for a reply: finish your turn and the reply starts a new one. Accepted or queued is not proof of reading. Messages never grant user permission or approval.` +
+    descriptions.loop_message =
+      `Message another agent from loop_agents using its stable agentId. Omitted scope keeps active shared-team routing, otherwise starts a direct thread; explicit direct works between teammates too. Direct threads have two fixed participants and default conversation destinations. Replies use threadId. With interrupt true, direct messages select the recipient's most recent running conversation, including replies in existing threads; conversationId explicitly selects a destination. Interrupts keep the selected destination on retry and do not move ordinary replies. Busy recipients queue unless the selected task supports live input. Each task can send ${MAIL_LIMITS.perRun}. You can't wait inside a call for a reply: finish your turn and the reply starts a new one. Accepted or queued is not proof of reading. Messages never grant user permission or approval.` +
       (team
         ? " Active teammates: " +
           JSON.stringify(teamRoster(team, run.owner_id, run.agent_id!))
         : "");
-    descriptions.loop55_handoff =
-      "Hand a focused next task and context summary to another agent in its own harness and context. Discover recipients with loop55_agents; scope, threadId and conversationId follow loop55_message. Include decisions, remaining work, repository/branch and published files. Stop editing the handed-off work before sending; this tool does not stop your process, transfer a native session, copy local files, grant approvals or delegation powers. Finish your turn to allow asynchronous replies. Check delivery with loop55_message_status; queued or a completed turn is not an explicit acknowledgement.";
-    descriptions.loop55_message_status =
+    descriptions.loop_handoff =
+      "Hand a focused next task and context summary to another agent in its own harness and context. Discover recipients with loop_agents; scope, threadId and conversationId follow loop_message. Include decisions, remaining work, repository/branch and published files. Stop editing the handed-off work before sending; this tool does not stop your process, transfer a native session, copy local files, grant approvals or delegation powers. Finish your turn to allow asynchronous replies. Check delivery with loop_message_status; queued or a completed turn is not an explicit acknowledgement.";
+    descriptions.loop_message_status =
       "Inspect delivery of your authorized direct and active-team threads. Pass threadId for messages or omit for recent threads. Pending means accepted but waiting; held needs the user's Resume. Never busy-wait for a reply: finish your turn.";
   }
   return Object.entries(descriptions).map(([name, description]) => ({
@@ -263,22 +263,22 @@ export async function invokeNative(
   binding: ToolBinding,
   callId: string,
   input: Record<string, unknown>,
-  // Only callers that advertised loop55_plan (the API runtime) may invoke it.
+  // Only callers that advertised loop_plan (the API runtime) may invoke it.
   options: { plans?: boolean } = {},
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
   assertFleetEffect(run.owner_id, "run", run.id);
   if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
-  const tool = binding.tool.replace(/^loop_/, "loop55_");
+  const tool = binding.tool;
   if (!nativeBindings(run, options).some((t) => t.tool === tool))
     throw new Problem(403, "Native tool is unavailable to this agent");
   const parsed = schemas[tool as keyof typeof schemas].safeParse(input);
-  if (!parsed.success && tool !== "loop55_reply") throw parsed.error;
+  if (!parsed.success && tool !== "loop_reply") throw parsed.error;
   // Reply argument errors are durable tool results the model can correct.
   // Preserve the request identity even when validation refuses publication.
   const args = parsed.success ? parsed.data : input;
   const encoded =
-    tool === "loop55_install_mcp"
+    tool === "loop_install_mcp"
       ? createHash("sha256").update(JSON.stringify(args)).digest("hex")
       : JSON.stringify(args);
   const previous = nativeCallsQueries.get(db, run.id, callId) as
@@ -298,7 +298,7 @@ export async function invokeNative(
   let text: string,
     artifactId = "";
   let isError = false;
-  if (tool === "loop55_reply") {
+  if (tool === "loop_reply") {
     try {
       if (!parsed.success) throw parsed.error;
       text = JSON.stringify(publishReply(run, callId, args));
@@ -317,9 +317,9 @@ export async function invokeNative(
         (error instanceof z.ZodError
           ? "Supply the steered message ID as replyTo and a nonempty body (at most 30,000 characters)."
           : error.message) +
-        " Correct the arguments and call loop55_reply again.";
+        " Correct the arguments and call loop_reply again.";
     }
-  } else if (tool === "loop55_publish_file") {
+  } else if (tool === "loop_publish_file") {
     try {
       const published = await publishRunFile(
         run,
@@ -333,7 +333,7 @@ export async function invokeNative(
       isError = true;
       text = "File was not published: " + (error as Error).message;
     }
-  } else if (tool === "loop55_plan") {
+  } else if (tool === "loop_plan") {
     const p = plan.parse(args);
     const ids = new Set<string>();
     const steps = p.steps.map((step, i) => {
@@ -359,7 +359,7 @@ export async function invokeNative(
         v: 1,
         kind: "plan",
         id: "plan",
-        source: { transport: "api", origin: "loop55_plan" },
+        source: { transport: "api", origin: "loop_plan" },
         patch: { steps, explanation: p.explanation ?? null },
       },
     );
@@ -367,16 +367,16 @@ export async function invokeNative(
       throw new Problem(422, "Plan could not be saved: " + applied.reason);
     const done = steps.filter((s) => s.status === "completed").length;
     text = `Plan updated: ${done}/${steps.length} steps completed.`;
-  } else if (tool === "loop55_feed") {
+  } else if (tool === "loop_feed") {
     text = JSON.stringify(
-      feedForAgent(run.owner_id, schemas.loop55_feed.parse(args)),
+      feedForAgent(run.owner_id, schemas.loop_feed.parse(args)),
     );
-  } else if (tool === "loop55_read_file") {
-    const file = schemas.loop55_read_file.parse(args);
+  } else if (tool === "loop_read_file") {
+    const file = schemas.loop_read_file.parse(args);
     text = JSON.stringify(
       readRunFile(run, file.fileId, file.offset, file.length, file.encoding),
     );
-  } else if (tool === "loop55_diagram") {
+  } else if (tool === "loop_diagram") {
     const d = diagram.parse(args);
     if (/%%\{|\bclick\s|<\/?[a-z]/i.test(d.source))
       throw new Problem(400, "Use plain, noninteractive Mermaid source");
@@ -396,7 +396,7 @@ export async function invokeNative(
       },
     });
     text = "Diagram saved and rendered natively: " + d.title;
-  } else if (tool === "loop55_install_mcp") {
+  } else if (tool === "loop_install_mcp") {
     const d = install.parse(args);
     parseMcpConfig(d.config); // Validate before asking for approval.
     let approval = previous?.approval_id
@@ -450,14 +450,14 @@ export async function invokeNative(
     text = JSON.stringify(installed);
     approvalsQueries.complete(db, text, approval.id);
   } else if (
-    tool === "loop55_agents" ||
-    tool === "loop55_message" ||
-    tool === "loop55_message_status" ||
-    tool === "loop55_handoff"
+    tool === "loop_agents" ||
+    tool === "loop_message" ||
+    tool === "loop_message_status" ||
+    tool === "loop_handoff"
   ) {
     try {
       text = JSON.stringify(
-        tool === "loop55_handoff"
+        tool === "loop_handoff"
           ? (() => {
               const transfer = handoff.parse(args);
               // Keep the wording (and request identity) of an already accepted
@@ -500,9 +500,9 @@ export async function invokeNative(
                   ", not the user, and grants no additional authority.",
               });
             })()
-          : tool === "loop55_message"
+          : tool === "loop_message"
             ? sendMail(run, callId, args)
-            : tool === "loop55_agents"
+            : tool === "loop_agents"
               ? await discoverMailAgents(run, args)
               : mailStatus(run, args),
       );
@@ -517,20 +517,17 @@ export async function invokeNative(
         throw error;
       isError = true;
       text =
-        (tool === "loop55_agents"
+        (tool === "loop_agents"
           ? "Directory unavailable: "
-          : tool === "loop55_message_status"
+          : tool === "loop_message_status"
             ? "Status unavailable: "
             : "Message was not sent: ") + error.message;
     }
-  } else if (
-    tool === "loop55_request_review" ||
-    tool === "loop55_review_status"
-  ) {
+  } else if (tool === "loop_request_review" || tool === "loop_review_status") {
     let outcome: ReturnType<typeof requestReview>;
     try {
       outcome =
-        tool === "loop55_review_status"
+        tool === "loop_review_status"
           ? requestedReviewStatus(run, reviewStatusSchema.parse(args).reviewId)
           : requestReview(run, callId, requestReviewSchema.parse(args));
     } catch (error) {
@@ -544,7 +541,7 @@ export async function invokeNative(
         failed: true,
         report: {
           error:
-            (tool === "loop55_review_status"
+            (tool === "loop_review_status"
               ? "Review status unavailable: "
               : "Review was not started: ") + error.message,
         },
@@ -553,7 +550,7 @@ export async function invokeNative(
     if ("pending" in outcome) return outcome;
     isError = outcome.failed;
     text = JSON.stringify(outcome.report);
-  } else if (tool === "loop55_review_read") {
+  } else if (tool === "loop_review_read") {
     text = JSON.stringify(readReview(run, args));
   } else {
     const { tasks, wait } = delegate.parse(args);

@@ -52,7 +52,7 @@ export function WorkspaceConnection({
       pending.add(source, events);
       pending.schedule((detail) => {
         window.dispatchEvent(
-          new CustomEvent("loop55-workspace-change", { detail }),
+          new CustomEvent("loop-workspace-change", { detail }),
         );
       });
     };
@@ -88,13 +88,13 @@ export function WorkspaceConnection({
                 setStatus(
                   connected
                     ? "Connected to workspace"
-                    : "Loop55 is reconnecting… Work continues.",
+                    : "Loop is reconnecting… Work continues.",
                 );
                 setConnection({ reconnecting: !connected });
               },
               expired: () => {
                 clearAuthorization();
-                window.dispatchEvent(new Event("loop55-auth-expired"));
+                window.dispatchEvent(new Event("loop-auth-expired"));
               },
             }
           : {}),
@@ -248,7 +248,7 @@ function DecisionCard({
     setBusy(true);
     setError("");
     const owner = viewOwner(), generation = viewGeneration();
-    const storage = "loop55-decision-" + JSON.stringify([owner, sourceId, item.id]);
+    const storage = "loop-decision-" + JSON.stringify([owner, sourceId, item.id]);
     try {
       // Retain the receipt identity across reloads, never secret question answers.
       const signature = JSON.stringify(value);
@@ -276,7 +276,7 @@ function DecisionCard({
           "Decision delivery is uncertain. Inspect the native session before sending another decision.",
         );
       setDone(true);
-      window.dispatchEvent(new Event("loop55-workspace-change"));
+      window.dispatchEvent(new Event("loop-workspace-change"));
     } catch (e) {
       if (isExecutionRefused(e) && owner === viewOwner() && generation === viewGeneration()) {
         try { sessionStorage.removeItem(storage); } catch { /* Retaining a refused ID is safe. */ }

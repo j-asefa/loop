@@ -1,4 +1,4 @@
-process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -31,7 +31,7 @@ const options = {
 };
 
 test("paired gateway distinguishes Docker services and preserves their routing across container replacement", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop55-linked-docker-"));
+  const dir = await mkdtemp(join(tmpdir(), "loop-linked-docker-"));
   const priorPath = process.env.PATH;
   const received: {
     path: string;
@@ -89,7 +89,7 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       method: req.method || "",
       body: Buffer.concat(chunks).toString(),
       cookie: req.headers.cookie,
-      csrf: req.headers["x-loop55-csrf"] as string | undefined,
+      csrf: req.headers["x-loop-csrf"] as string | undefined,
       origin: req.headers.origin,
     });
     res.setHeader("content-type", "application/json");
@@ -164,7 +164,7 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     ];
     const secondInspect = JSON.parse(JSON.stringify(inspect));
     secondInspect[0].Id = secondId;
-    secondInspect[0].Config.Labels["com.docker.compose.service"] = "loop55";
+    secondInspect[0].Config.Labels["com.docker.compose.service"] = "loop";
     secondInspect[0].NetworkSettings.Ports["3000/tcp"][0].HostPort =
       String(secondPort);
     const companionInspect = structuredClone(inspect);
@@ -228,10 +228,10 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     }).then((r) => r.json());
     // The source id survives `docker compose up` recreating the container.
     const sourceId = composeSourceId("fresh-workspace", "app");
-    const secondSourceId = composeSourceId("fresh-workspace", "loop55");
+    const secondSourceId = composeSourceId("fresh-workspace", "loop");
     assert.deepEqual(found, [
       { id: sourceId, name: "Docker · fresh-workspace/app" },
-      { id: secondSourceId, name: "Docker · fresh-workspace/loop55" },
+      { id: secondSourceId, name: "Docker · fresh-workspace/loop" },
     ]);
     assert.equal((await fetch(host.origin + "/api/agent-sources")).status, 401);
     const sources = await fetch(host.origin + "/api/agent-sources", {
@@ -245,7 +245,7 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       },
       {
         id: `docker:${secondSourceId}`,
-        name: "Docker · fresh-workspace/loop55",
+        name: "Docker · fresh-workspace/loop",
         kind: "docker",
       },
     ]);
@@ -292,7 +292,7 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       base.replace("http:", "ws:") +
         "events/ws?epoch=old&cursor=3&owner=untrusted",
       {
-        headers: { cookie, origin: host.origin, "x-loop55-csrf": csrf },
+        headers: { cookie, origin: host.origin, "x-loop-csrf": csrf },
       },
     );
     clients.push(ws);
@@ -304,7 +304,7 @@ test("paired gateway distinguishes Docker services and preserves their routing a
     assert.equal(eventRequests[0].headers.origin, `http://127.0.0.1:${port}`);
     assert.equal(eventRequests[0].headers.cookie, undefined);
     assert.equal(eventRequests[0].headers.authorization, undefined);
-    assert.equal(eventRequests[0].headers["x-loop55-csrf"], undefined);
+    assert.equal(eventRequests[0].headers["x-loop-csrf"], undefined);
     for (const headers of [
       { origin: host.origin },
       { cookie, origin: "https://elsewhere.example" },
@@ -435,7 +435,7 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       headers: {
         cookie,
         origin: host.origin,
-        "x-loop55-csrf": csrf,
+        "x-loop-csrf": csrf,
         "content-type": "application/json",
       },
       body: JSON.stringify({

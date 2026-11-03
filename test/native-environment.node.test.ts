@@ -14,7 +14,7 @@ import { spawnNative } from "../src/native-spawn.js";
 
 for (const explicit of [false, true]) {
   test(`project code launched by a native harness cannot inherit the live database (${explicit ? "explicit" : "default"} environment)`, async () => {
-    const dir = mkdtempSync(join(tmpdir(), "loop55-native-environment-"));
+    const dir = mkdtempSync(join(tmpdir(), "loop-native-environment-"));
     const live = join(dir, "live");
     const project = join(dir, "project");
     mkdirSync(live);
@@ -25,6 +25,7 @@ for (const explicit of [false, true]) {
       OPENAI_API_KEY: "fixture-provider-key",
       CLAUDE_CONFIG_DIR: join(dir, "native-credentials"),
     };
+    // Stale LOOP55_ settings from the old name are stripped as well.
     for (const prefix of ["LOOP_", "LOOP55_"]) {
       Object.assign(injected, {
         [prefix + "HOME"]: live,
@@ -67,8 +68,8 @@ for (const explicit of [false, true]) {
              providerPreserved:process.env.OPENAI_API_KEY==='fixture-provider-key',
              credentialHome:process.env.CLAUDE_CONFIG_DIR,
              home:process.env.HOME,
-             tool:process.env.LOOP55_TOOLS_TOKEN==='fixture-scoped-tool',
-             billing:process.env.LOOP55_BILLING_MODE,
+             tool:process.env.LOOP_TOOLS_TOKEN==='fixture-scoped-tool',
+             billing:process.env.LOOP_BILLING_MODE,
            }));`,
           ],
           {
@@ -105,12 +106,12 @@ for (const explicit of [false, true]) {
       assert.deepEqual(
         actual.keys,
         [
-          ...["LOOP55_"].flatMap((prefix) =>
+          ...["LOOP_"].flatMap((prefix) =>
             ["TOOLS_URL", "TOOLS_TOKEN", "BILLING_MODE", "TEST_SETTING"].map(
               (suffix) => prefix + suffix,
             ),
           ),
-          "LOOP55_HEAVY_SCHEDULING",
+          "LOOP_HEAVY_SCHEDULING",
           ...Object.keys(process.env).filter(
             (key) => /^LOOP(?:55)?_TEST_/.test(key) && !(key in injected),
           ),

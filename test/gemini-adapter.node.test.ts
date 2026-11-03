@@ -16,10 +16,10 @@ const options: Options = {
   version: "0.64.0",
 };
 test("Gemini verifies sign-in and discovers native models without a prompt or authentication change", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-gemini-"));
-  process.env.LOOP55_TEST_GEMINI_LOG = join(dir, "requests");
+  const dir = mkdtempSync(join(tmpdir(), "loop-gemini-"));
+  process.env.LOOP_TEST_GEMINI_LOG = join(dir, "requests");
   t.after(() => {
-    delete process.env.LOOP55_TEST_GEMINI_LOG;
+    delete process.env.LOOP_TEST_GEMINI_LOG;
     rmSync(dir, { recursive: true, force: true });
   });
   const events: AdapterEvent[] = [];
@@ -29,7 +29,7 @@ test("Gemini verifies sign-in and discovers native models without a prompt or au
   try {
     assert.equal((await adapter.start()).mode, "existing");
     assert(adapter.models.some((model) => model.id === "gemini-fixture"));
-    const requests = readFileSync(process.env.LOOP55_TEST_GEMINI_LOG, "utf8")
+    const requests = readFileSync(process.env.LOOP_TEST_GEMINI_LOG, "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
@@ -48,10 +48,10 @@ test("Gemini verifies sign-in and discovers native models without a prompt or au
 });
 
 test("Gemini carries the selected model, private tool bridge and instructions, handles approvals, and resumes native context", async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-gemini-turn-"));
-  process.env.LOOP55_TEST_GEMINI_LOG = join(dir, "requests");
+  const dir = mkdtempSync(join(tmpdir(), "loop-gemini-turn-"));
+  process.env.LOOP_TEST_GEMINI_LOG = join(dir, "requests");
   t.after(() => {
-    delete process.env.LOOP55_TEST_GEMINI_LOG;
+    delete process.env.LOOP_TEST_GEMINI_LOG;
     rmSync(dir, { recursive: true, force: true });
   });
   const events: AdapterEvent[] = [];
@@ -85,7 +85,7 @@ test("Gemini carries the selected model, private tool bridge and instructions, h
           event.type === "delta" && event.text === "Gemini fixture answer",
       ),
     );
-    const requests = readFileSync(process.env.LOOP55_TEST_GEMINI_LOG, "utf8")
+    const requests = readFileSync(process.env.LOOP_TEST_GEMINI_LOG, "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
@@ -127,7 +127,7 @@ test("Gemini carries the selected model, private tool bridge and instructions, h
         (event) => event.type === "status" && event.status === "interrupted",
       ),
     );
-    const prompts = readFileSync(process.env.LOOP55_TEST_GEMINI_LOG, "utf8")
+    const prompts = readFileSync(process.env.LOOP_TEST_GEMINI_LOG, "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line))
@@ -147,7 +147,7 @@ test("Gemini rejects unverifiable subscription policy and redacts failed account
     () => {},
   );
   await assert.rejects(subscription.start(), /--billing existing/);
-  process.env.LOOP55_TEST_GEMINI_FAIL = "1";
+  process.env.LOOP_TEST_GEMINI_FAIL = "1";
   const adapter = new Gemini({ ...options, probeOnly: true }, () => {});
   try {
     await assert.rejects(
@@ -155,7 +155,7 @@ test("Gemini rejects unverifiable subscription policy and redacts failed account
       /Sign in to Gemini CLI in Provider connections/,
     );
   } finally {
-    delete process.env.LOOP55_TEST_GEMINI_FAIL;
+    delete process.env.LOOP_TEST_GEMINI_FAIL;
     await adapter.dispose();
   }
 });

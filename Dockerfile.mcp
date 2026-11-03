@@ -3,8 +3,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 # The supplied Playwright configuration can start Chromium without a separate setup.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/browsers
 RUN npx --yes playwright@1.63.0 install --with-deps chromium && chmod -R a+rX /opt/browsers
-RUN ln -s "$(find /opt/browsers -name chrome -type f -print -quit)" /usr/local/bin/loop55-chromium
-ENV PLAYWRIGHT_MCP_HEADLESS=true PLAYWRIGHT_MCP_ISOLATED=true PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/local/bin/loop55-chromium PLAYWRIGHT_MCP_OUTPUT_DIR=/tmp/playwright-output PLAYWRIGHT_MCP_SANDBOX=false
+RUN ln -s "$(find /opt/browsers -name chrome -type f -print -quit)" /usr/local/bin/loop-chromium
+ENV PLAYWRIGHT_MCP_HEADLESS=true PLAYWRIGHT_MCP_ISOLATED=true PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/local/bin/loop-chromium PLAYWRIGHT_MCP_OUTPUT_DIR=/tmp/playwright-output PLAYWRIGHT_MCP_SANDBOX=false
 RUN mkdir /work && chown node:node /work
 USER node
 WORKDIR /work

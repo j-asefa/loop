@@ -77,7 +77,7 @@ routes.on(workspaceApi.mcpCatalog, (_req, res) => {
     oauthRedirectUrl: config.url + "/api/mcp/oauth/callback",
   });
 });
-// Installed-harness configs belong to whoever runs this Loop55 process. In a
+// Installed-harness configs belong to whoever runs this Loop process. In a
 // multi-user server they hold the operator's credentials, which are never
 // any signed-in user's to list or import.
 const nativeImportAllowed = () =>
@@ -89,7 +89,7 @@ routes.on(workspaceApi.mcpNativeImport, async (req, res) => {
   if (!nativeImportAllowed())
     throw new Problem(
       403,
-      "Importing installed harness MCP servers is available only on a personal Loop55.",
+      "Importing installed harness MCP servers is available only on a personal Loop.",
     );
   res
     .status(201)

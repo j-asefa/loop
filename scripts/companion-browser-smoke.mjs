@@ -1,6 +1,5 @@
-import "../runtime/environment.mjs";
 import { chooseAgentModel, openAgentModelOptions } from "./helpers/agent-model-options.mjs";
-process.env.LOOP55_PROFILE = "companion";
+process.env.LOOP_PROFILE = "companion";
 import { chromium, webkit, expect } from "@playwright/test";
 import { mkdtemp, rm, mkdir, chmod, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,9 +13,9 @@ import { subscriptionContractsBrowser } from "./helpers/subscription-contracts-b
 import { nativeSettingsBrowser } from "./helpers/native-settings-browser.mjs";
 import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
 import { agentSourcesBrowser } from "./helpers/agent-sources-browser.mjs";
-const dir = await mkdtemp(join(tmpdir(), "loop55-browser-"));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_TEST_HARNESS = "codex";
+const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_TEST_HARNESS = "codex";
 const { WorkspaceHost } = await import("../dist/workspace-host.js");
 const { db } = await import("../dist/server/db.js");
 const { control } = await import("../dist/host-control.js");
@@ -45,7 +44,7 @@ const provider = createServer((req, res) => {
   }
 });
 const restoreAuthPath = await prepareNativeAuthBrowser(dir);
-process.env.LOOP55_TEST_SETTING_AUDIT = join(dir, "setting-recovery-audit");
+process.env.LOOP_TEST_SETTING_AUDIT = join(dir, "setting-recovery-audit");
 try {
   await host.start(options);
   const launch = {
@@ -54,14 +53,14 @@ try {
       ? { executablePath: process.env.CHROMIUM_PATH }
       : {}),
     args:
-      process.env.LOOP55_BROWSER === "webkit"
+      process.env.LOOP_BROWSER === "webkit"
         ? []
         : process.env.CHROMIUM_ARGS
           ? JSON.parse(process.env.CHROMIUM_ARGS)
           : ["--no-sandbox"],
   };
   browser = await (
-    process.env.LOOP55_BROWSER === "webkit" ? webkit : chromium
+    process.env.LOOP_BROWSER === "webkit" ? webkit : chromium
   ).launch(launch);
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
@@ -77,7 +76,7 @@ try {
     // Keep the same narrow WebKit diagnostic filter as the other browser checks.
     if (
       !isWebKitNavigationFetchError(
-        process.env.LOOP55_BROWSER,
+        process.env.LOOP_BROWSER,
         error,
         host.gateway.origin,
       )
@@ -89,7 +88,7 @@ try {
     response.url().endsWith("/api/fleet/admin/state"),
   );
   await page.goto(host.pair().url);
-  await page.getByRole("button", { name: "Pair and open Loop55" }).click();
+  await page.getByRole("button", { name: "Pair and open Loop" }).click();
   await page
     .getByRole("status")
     .filter({ hasText: "Connected to workspace" })
@@ -112,7 +111,7 @@ try {
     companion: true,
   });
   // The rest of this fixture starts with no linked agents. A developer's
-  // running Docker Loop55 must not change its first-agent assertions.
+  // running Docker Loop must not change its first-agent assertions.
   await page.route("**/api/agent-sources", (route) =>
     route.fulfill({
       status: 200,
@@ -190,7 +189,7 @@ try {
   ).run(
     JSON.stringify(models),
     JSON.stringify({
-      loop55Harness: "claude",
+      loopHarness: "claude",
       authMode: "subscription",
       billing: {
         mode: "subscription",
@@ -257,7 +256,7 @@ try {
   // Closing the sheet schedules history.back(). Let that navigation settle
   // before the explicit workspace reload, which it can otherwise abort.
   await expect
-    .poll(() => page.evaluate(() => history.state?.loop55Sheet === true))
+    .poll(() => page.evaluate(() => history.state?.loopSheet === true))
     .toBe(false);
   assert.deepEqual(
     db
@@ -280,8 +279,8 @@ try {
   await page.getByRole("heading", { name: "Pair this device" }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Original Loop55 mobile UI fixture journey passed:",
-    process.env.LOOP55_BROWSER || "chromium",
+    "Original Loop mobile UI fixture journey passed:",
+    process.env.LOOP_BROWSER || "chromium",
   );
 } catch (e) {
   await mkdir("test-results", { recursive: true });

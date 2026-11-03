@@ -7,12 +7,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { gitProject } from "./git-project";
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop55-mail-native-")));
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP55_TEST_HARNESS = "codex";
-process.env.LOOP55_TEST_AGENT_MAIL = "1";
+const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-mail-native-")));
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_TEST_HARNESS = "codex";
+process.env.LOOP_TEST_AGENT_MAIL = "1";
 gitProject(dir);
 const { db, id, now, changes } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
@@ -45,7 +45,7 @@ it("does not transfer refused mail into a newly selected native harness", async 
     nativeConnection = id();
   for (const [cid, metadata] of [
     [apiConnection, {}],
-    [nativeConnection, { loop55Harness: "codex" }],
+    [nativeConnection, { loopHarness: "codex" }],
   ] as const)
     db.prepare(
       "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?,?)",
@@ -138,7 +138,7 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
     nativeConnection = id();
   for (const [cid, metadata] of [
     [apiConnection, {}],
-    [nativeConnection, { loop55Harness: "codex" }],
+    [nativeConnection, { loopHarness: "codex" }],
   ] as const)
     db.prepare(
       "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?,?)",
@@ -188,7 +188,7 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
         yield {
           toolCall: {
             id: "discover",
-            name: "loop55_agents",
+            name: "loop_agents",
             arguments: { query: "native" },
           },
         };
@@ -197,7 +197,7 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
         yield {
           toolCall: {
             id: "question",
-            name: "loop55_message",
+            name: "loop_message",
             arguments: { to: native.id, body: "Which version?" },
           },
         };
@@ -241,7 +241,7 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
     const request = {
       method: "tools/call",
       id: "late",
-      name: "loop55_message",
+      name: "loop_message",
       arguments: { to: api.id, body: "late" },
     };
     expect(
@@ -337,7 +337,7 @@ it.each([
       connection,
       owner,
       JSON.stringify([{ id: "fixture" }]),
-      JSON.stringify({ loop55Harness: "codex" }),
+      JSON.stringify({ loopHarness: "codex" }),
     );
     const manager = createAgent(owner, {
       name: "signal-" + id().slice(0, 8),
@@ -435,7 +435,7 @@ it.each([
         );
       const child = cause.startsWith("child") || concurrentExpiry;
       const mcpName =
-        "loop55_mcp_" +
+        "loop_mcp_" +
         createHash("sha256")
           .update(mcpId + ":lookup")
           .digest("hex")
@@ -443,7 +443,7 @@ it.each([
       const request = {
         method: "tools/call",
         id: "signal-call",
-        name: child ? "loop55_delegate" : mcpName,
+        name: child ? "loop_delegate" : mcpName,
         arguments: child
           ? { tasks: [{ agentId: childAgent.id, input: "Check" }] }
           : {},

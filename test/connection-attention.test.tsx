@@ -24,7 +24,7 @@ it("exposes every connection counted by the settings badge before the tabs", () 
       label: "Saved Codex",
       status: "needs_sign_in",
       models: "[]",
-      metadata: '{"loop55Harness":"codex"}',
+      metadata: '{"loopHarness":"codex"}',
     },
     {
       id: "ready",
@@ -57,7 +57,7 @@ it("exposes every connection counted by the settings badge before the tabs", () 
   );
   expect(attention).toContain("Old API");
   expect(attention).toContain("needs reconnect");
-  expect(attention).toContain("Open Loop55 runtime API");
+  expect(attention).toContain("Open Loop runtime API");
   expect(attention).toContain("Saved Codex");
   expect(attention).toContain("needs sign in");
   expect(attention).toContain("Open Harnesses");

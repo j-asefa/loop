@@ -29,7 +29,7 @@ export async function settingsReliabilityBrowser(
   if (companion) {
     const session = await page.request.get(origin + "/session");
     assert.equal(session.status(), 200);
-    headers["x-loop55-csrf"] = (await session.json()).csrf;
+    headers["x-loop-csrf"] = (await session.json()).csrf;
   }
   const created = await page.request.post(origin + "/api/mcp", {
     headers,

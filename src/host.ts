@@ -557,17 +557,12 @@ export class Host {
   }
   private get cookieName() {
     const name = this.origin.startsWith("https:")
-      ? "__Host-loop55"
-      : "loop55_local";
+      ? "__Host-loop"
+      : "loop_local";
     // Cookies ignore ports. Preview identities stay distinct across local hosts and rebuilds.
     return this.workspace?.isolated
       ? `${name}_${hash(resolve(this.dir)).slice(0, 24)}`
       : name;
-  }
-  private get legacyCookieName() {
-    return this.cookieName
-      .replace("__Host-loop55", "__Host-loop")
-      .replace("loop55_local", "loop_local");
   }
   private cookie(token: string, expires: number, name = this.cookieName) {
     const secure = this.origin.startsWith("https:");
@@ -576,7 +571,7 @@ export class Host {
   }
   private authenticate(req: IncomingMessage) {
     const cookies = req.headers.cookie?.split(";").map((x) => x.trim()) ?? [];
-    for (const name of [this.cookieName, this.legacyCookieName]) {
+    for (const name of [this.cookieName]) {
       const value = cookies.find((x) => x.startsWith(name + "="));
       const token = value?.slice(value.indexOf("=") + 1);
       if (!token || token.length > 100) continue;
@@ -629,7 +624,7 @@ export class Host {
     const release = capacity.acquire(kind);
     if (kind === "peer")
       res.setHeader(
-        "X-Loop55-Fleet-Available",
+        "X-Loop-Fleet-Available",
         String(capacity.availablePeers()),
       );
     if (!release) {
@@ -675,8 +670,8 @@ export class Host {
     this.active++;
     res.once("close", () => this.active--);
     // Registration check from the connection service over the private socket.
-    // The relay never forwards /__loop55 paths from the public listener.
-    if (this.probe && /^\/__loop(?:55)?\/backend-probe\?/.test(req.url ?? "")) {
+    // The relay never forwards /__loop paths from the public listener.
+    if (this.probe && /^\/__loop\/backend-probe\?/.test(req.url ?? "")) {
       const nonce = new URL(req.url!, "http://probe").searchParams.get("nonce");
       if (req.method !== "GET" || !nonce || !/^[\w-]{16,100}$/.test(nonce))
         return this.json(res, 400, { error: "Invalid probe" });
@@ -761,10 +756,7 @@ export class Host {
               },
               this.origin,
             );
-            res.setHeader("Set-Cookie", [
-              this.cookie(token, expires),
-              this.cookie("", 0, this.legacyCookieName),
-            ]);
+            res.setHeader("Set-Cookie", this.cookie(token, expires));
             return this.json(res, 200, { paired: true });
           } catch (error) {
             if (error instanceof Problem)
@@ -777,7 +769,7 @@ export class Host {
         if (!expiry || expiry <= Date.now())
           return this.json(res, 403, {
             error:
-              "Pairing link expired, invalid or already used. Run loop55 pair on your desktop.",
+              "Pairing link expired, invalid or already used. Run loop pair on your desktop.",
           });
         this.pairs.delete(digest); // Single-use consume and credential creation happen without awaiting.
         if (this.devices.size >= 10)
@@ -795,10 +787,7 @@ export class Host {
         };
         this.devices.set(device.id, device);
         this.saveDevices();
-        res.setHeader("Set-Cookie", [
-          this.cookie(token, device.expires),
-          this.cookie("", 0, this.legacyCookieName),
-        ]);
+        res.setHeader("Set-Cookie", this.cookie(token, device.expires));
         return this.json(res, 200, { paired: true });
       }
       if (path === "/session" && req.method === "GET") {
@@ -831,17 +820,14 @@ export class Host {
         if (
           !["GET", "HEAD"].includes(req.method || "") &&
           (!this.validOrigin(req) ||
-            !equal(String(req.headers["x-loop55-csrf"] || ""), device.csrf))
+            !equal(String(req.headers["x-loop-csrf"] || ""), device.csrf))
         )
           return this.json(res, 403, {
             error: "Workspace authorization rejected.",
           });
         if (path === "/api/auth/sign-out" && req.method === "POST") {
           this.revoke(device.id);
-          res.setHeader("Set-Cookie", [
-            this.cookie("", 0),
-            this.cookie("", 0, this.legacyCookieName),
-          ]);
+          res.setHeader("Set-Cookie", this.cookie("", 0));
           return this.json(res, 200, { ok: true });
         }
         if (
@@ -877,7 +863,7 @@ export class Host {
             (path === "/api/mcp-sharing" && req.method !== "GET")
           )
             return this.json(res, 403, {
-              error: "Previews do not connect to other Loop55 workspaces.",
+              error: "Previews do not connect to other Loop workspaces.",
             });
         }
         if (path === "/api/linked-workspaces" && req.method === "GET") {

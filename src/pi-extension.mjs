@@ -1,9 +1,8 @@
-import "../runtime/environment.mjs";
-// Loaded process-locally by `loop55 pi`. No credentials, model overrides or settings writes.
+// Loaded process-locally by `loop pi`. No credentials, model overrides or settings writes.
 import { writeSync } from "node:fs";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
-export default function loop55Metadata(pi) {
-  let toolsReady = !process.env.LOOP55_TOOLS_URL;
+export default function loopMetadata(pi) {
+  let toolsReady = !process.env.LOOP_TOOLS_URL;
   const describe = (ctx) => {
     const model = ctx.model;
     const provider = model && ctx.modelRegistry.getProvider(model.provider);
@@ -28,7 +27,7 @@ export default function loop55Metadata(pi) {
         levels: getSupportedThinkingLevels(available),
       })),
       // Only confirmed subscriptions: aggregator catalogs list hundreds of
-      // models, and Loop55 treats an absent entry as not a subscription.
+      // models, and Loop treats an absent entry as not a subscription.
       modelBilling: ctx.modelRegistry
         .getAvailable()
         .filter(
@@ -50,20 +49,20 @@ export default function loop55Metadata(pi) {
   };
   const report = (ctx) => writeSync(3, JSON.stringify(describe(ctx)) + "\n");
   pi.on("session_start", async (_event, ctx) => {
-    if (process.env.LOOP55_TOOLS_URL) {
+    if (process.env.LOOP_TOOLS_URL) {
       try {
         const call = async (body, signal) => {
-          const response = await fetch(process.env.LOOP55_TOOLS_URL + "/pi", {
+          const response = await fetch(process.env.LOOP_TOOLS_URL + "/pi", {
             method: "POST",
             signal,
             headers: {
               "Content-Type": "application/json",
-              Authorization: "Bearer " + process.env.LOOP55_TOOLS_TOKEN,
+              Authorization: "Bearer " + process.env.LOOP_TOOLS_TOKEN,
             },
             body: JSON.stringify(body),
           });
           if (!response.ok)
-            throw new Error("Loop55 workspace tool connection ended");
+            throw new Error("Loop workspace tool connection ended");
           return response.json();
         };
         const catalog = await call(
@@ -104,8 +103,8 @@ export default function loop55Metadata(pi) {
   pi.on("model_select", (_event, ctx) => {
     report(ctx);
   });
-  pi.registerCommand("loop55-status", {
-    description: "Report safe provider metadata to Loop55",
+  pi.registerCommand("loop-status", {
+    description: "Report safe provider metadata to Loop",
     handler: async (_args, ctx) => {
       report(ctx);
     },
@@ -113,12 +112,12 @@ export default function loop55Metadata(pi) {
   pi.on("input", (_event, ctx) => {
     const info = describe(ctx);
     if (
-      process.env.LOOP55_BILLING_MODE === "subscription" &&
+      process.env.LOOP_BILLING_MODE === "subscription" &&
       !info.subscription
     ) {
       report(ctx);
       ctx.ui.notify(
-        "Loop55 refused this prompt: the effective Pi provider is not a confirmed subscription.",
+        "Loop refused this prompt: the effective Pi provider is not a confirmed subscription.",
         "error",
       );
       return { action: "handled" };

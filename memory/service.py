@@ -22,12 +22,12 @@ from memsearch import MemSearch
 from memsearch.embeddings.onnx import OnnxEmbedding
 import memsearch.core
 
-ROOT = Path(os.environ['LOOP55_MEMORY_DATA']).resolve()
+ROOT = Path(os.environ['LOOP_MEMORY_DATA']).resolve()
 ROOT.mkdir(parents=True, exist_ok=True)
 CORPUS = ROOT / 'corpus'
 CORPUS.mkdir(exist_ok=True)
-MODEL = Path(os.environ['LOOP55_EMBEDDING_MODEL_PATH']).resolve()
-TOKEN = Path(os.environ['LOOP55_MEMORY_TOKEN_FILE']).read_text().strip()
+MODEL = Path(os.environ['LOOP_EMBEDDING_MODEL_PATH']).resolve()
+TOKEN = Path(os.environ['LOOP_MEMORY_TOKEN_FILE']).read_text().strip()
 if len(TOKEN) < 32:
     raise RuntimeError('Private memory authentication is required')
 # Narrow pinned-library seam: use the exact image/cache model files. Never download at runtime.
@@ -127,4 +127,4 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(503,{'error':'Memory operation failed; lexical fallback remains available'})
 
 if __name__=='__main__':
-    HTTPServer((os.environ.get('LOOP55_MEMORY_HOST','127.0.0.1'),int(os.environ.get('PORT','3011'))),Handler).serve_forever()
+    HTTPServer((os.environ.get('LOOP_MEMORY_HOST','127.0.0.1'),int(os.environ.get('PORT','3011'))),Handler).serve_forever()

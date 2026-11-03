@@ -1,6 +1,6 @@
 # Integration API
 
-Loop55's Integration API admits scoped bearer credentials through the mounted
+Loop's Integration API admits scoped bearer credentials through the mounted
 [workspace contracts](contracts.md). Each admitted route declares `{ admits }`;
 a token may use it when at least one stored admission value matches. Session
 access keeps its existing rules. GET and HEAD share authorization; HEAD has no
@@ -15,9 +15,9 @@ Read workspace is selected by default. Send and control runs is optional;
 Answer approvals is unchecked and warns that the script can authorize tool
 calls and answer native decisions. Select it only when the script should make
 those decisions.
-Copy the secret when it appears; Loop55 stores its SHA-256 digest and cannot
+Copy the secret when it appears; Loop stores its SHA-256 digest and cannot
 display it again. Keep it in a script's environment or secret store and send
-`Authorization: Bearer loop55_token_…`. The same Settings page lists nonsecret
+`Authorization: Bearer loop_token_…`. The same Settings page lists nonsecret
 metadata and revokes tokens immediately.
 
 | Selectable scope   | Current admission                                                                                                                                                                                                                                |
@@ -38,7 +38,7 @@ current run content, including when submit steers existing work, and withdraw
 returns the draft content. These responses do not require `read`; that scope
 admits the separate GET/HEAD routes.
 
-Existing `loop55_card_…` credentials remain valid with their distinct legacy grants:
+Existing `loop_card_…` credentials remain valid with their distinct legacy grants:
 
 | Legacy grant   | Access                                                                                    |
 | -------------- | ----------------------------------------------------------------------------------------- |
@@ -119,10 +119,10 @@ bearer responses still omit the automatic workspace-clock headers; granting
 legacy Cards access, `write`, or `approvals:decide` alone does not grant events.
 
 `/api/events/stream` is a token-only WebSocket endpoint. Send
-`Authorization: Bearer loop55_token_…` in the upgrade request using a WebSocket
+`Authorization: Bearer loop_token_…` in the upgrade request using a WebSocket
 client that supports headers; it needs no cookie. Use `wss:` for HTTPS origins
 and `ws:` for local HTTP. Tokens are never accepted in URLs. WebSockets support
-Loop55's default Quick Tunnel connection; Cloudflare documents that
+Loop's default Quick Tunnel connection; Cloudflare documents that
 [Quick Tunnels do not support SSE](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/#limitations).
 Each server text message is the canonical v3 frame from the same ordered committed change drain as
 the browser socket. This includes projected message content and decision payloads.
@@ -208,7 +208,7 @@ management is available only through Settings and owner-session management route
 ## Outbound webhooks
 
 In **Settings → Integration tokens → Webhooks**, add a receiver URL, copy its
-signing secret and configure that secret at the receiver. Loop55 first records a
+signing secret and configure that secret at the receiver. Loop first records a
 `pending_activation` subscription and an activation ping. Only a 2xx response
 within ten seconds activates it. If the receiver needs its secret configured
 first, leave the subscription pending, configure the secret, then select
@@ -291,10 +291,10 @@ to resume its event backlog.
 
 Each POST supplies `Content-Type: application/json` and these headers:
 
-- `X-Loop55-Delivery`: the body's stable delivery `id`.
-- `X-Loop55-Event`: `run.stopped` or `control`.
-- `X-Loop55-Timestamp`: Unix seconds for this attempt.
-- `X-Loop55-Signature`: `v1=` followed by a hex HMAC-SHA256 of
+- `X-Loop-Delivery`: the body's stable delivery `id`.
+- `X-Loop-Event`: `run.stopped` or `control`.
+- `X-Loop-Timestamp`: Unix seconds for this attempt.
+- `X-Loop-Signature`: `v1=` followed by a hex HMAC-SHA256 of
   `<timestamp>.<raw body>`, using the displayed secret as a UTF-8 string.
 
 Verify the raw bytes before parsing or performing an effect. This Node example
@@ -305,8 +305,8 @@ rejects stale timestamps, altered bodies and a mismatched delivery header:
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export function verifyWebhook(secret, rawBody, headers, now = Date.now()) {
-  const timestamp = headers["x-loop55-timestamp"];
-  const signature = headers["x-loop55-signature"];
+  const timestamp = headers["x-loop-timestamp"];
+  const signature = headers["x-loop-signature"];
   if (
     typeof timestamp !== "string" ||
     !/^\d+$/.test(timestamp) ||
@@ -322,7 +322,7 @@ export function verifyWebhook(secret, rawBody, headers, now = Date.now()) {
   if (!timingSafeEqual(expected, Buffer.from(signature.slice(3), "hex")))
     throw new Error("Invalid webhook signature");
   const message = JSON.parse(Buffer.from(rawBody).toString("utf8"));
-  if (message.id !== headers["x-loop55-delivery"])
+  if (message.id !== headers["x-loop-delivery"])
     throw new Error("Delivery identity does not match the signed body");
   return message;
 }
@@ -441,7 +441,7 @@ for replies; it does not attribute a system or unknown message to that agent.
 
 Attachment name, MIME type and size describe the stored attachment snapshot.
 Descriptors appear only for artifacts owned by the same owner. `href` opens
-Loop55; nullable `download` is a protected file URL. File bytes require an owner session or a
+Loop; nullable `download` is a protected file URL. File bytes require an owner session or a
 `read` integration token; a legacy Cards grant only admits the descriptor. Renaming a file does not rewrite the historical
 attachment description; deleting its target removes the descriptor through
 synchronization.

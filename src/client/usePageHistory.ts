@@ -3,7 +3,7 @@ import { pageScrollY } from "./sheet-scroll";
 
 type Visit<T> = { key: string; value: T; scroll: number };
 
-// Loop55's views share one document. Keep their in-app back path separately from
+// Loop's views share one document. Keep their in-app back path separately from
 // the browser history entry used by the modal stack, and never leave the app.
 export function usePageHistory<T>(
   key: string,

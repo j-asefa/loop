@@ -12,7 +12,7 @@ export type CheckoutSummary = {
   additions: number;
   deletions: number;
   untracked: number;
-  /** What the local remote-tracking ref said at capture; Loop55 never fetches. */
+  /** What the local remote-tracking ref said at capture; Loop never fetches. */
   remote: "none" | "contains" | "missing" | "unknown";
   started_dirty: boolean;
   overlap: number;
@@ -26,7 +26,7 @@ export type CheckoutFile = {
   additions: number;
   deletions: number;
   binary: boolean;
-  /** Its attributes select a filter; Loop55 compared the raw content. */
+  /** Its attributes select a filter; Loop compared the raw content. */
   filtered?: boolean;
 };
 export type CheckoutStat = {

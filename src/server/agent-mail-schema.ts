@@ -6,7 +6,7 @@ export const messageSchema = z.object({
     .string()
     .min(1)
     .max(200)
-    .describe("The recipient agentId from loop55_agents."),
+    .describe("The recipient agentId from loop_agents."),
   body: z.string().trim().min(1).max(12000),
   threadId: z
     .string()
@@ -24,7 +24,7 @@ export const messageSchema = z.object({
     .max(8)
     .default([])
     .describe(
-      "Files you published with loop55_publish_file, or files attached to your conversation. The recipient reads them with loop55_read_file.",
+      "Files you published with loop_publish_file, or files attached to your conversation. The recipient reads them with loop_read_file.",
     ),
   // Optional, without defaults: old persisted request identities stay valid.
   scope: z

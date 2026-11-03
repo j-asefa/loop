@@ -6,7 +6,7 @@ COPY deployment/versions.json ./versions.json
 COPY memory/prepare_model.py ./prepare_model.py
 RUN python prepare_model.py versions.json /opt/model && chmod -R a+rX /opt/model
 COPY memory/service.py ./service.py
-ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 LOOP55_EMBEDDING_MODEL_PATH=/opt/model LOOP55_MEMORY_DATA=/data LOOP55_MEMORY_HOST=0.0.0.0
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 LOOP_EMBEDDING_MODEL_PATH=/opt/model LOOP_MEMORY_DATA=/data LOOP_MEMORY_HOST=0.0.0.0
 RUN mkdir -p /data && chown 10002:10002 /data
 USER 10002:10002
 ENTRYPOINT ["python", "/opt/memory/service.py"]

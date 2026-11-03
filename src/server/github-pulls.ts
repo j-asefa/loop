@@ -67,7 +67,7 @@ const MAX_FILES = 300;
 const MAX_THREADS = 500;
 
 const reading = (owner: string) => githubTokens(owner)[0];
-// Writes act as one GitHub identity: with several GitHub connections Loop55
+// Writes act as one GitHub identity: with several GitHub connections Loop
 // would have to guess which account you mean, so it asks you to keep one.
 function writing(owner: string) {
   const tokens = githubTokens(owner);
@@ -75,12 +75,12 @@ function writing(owner: string) {
   if (tokens.length > 1)
     throw new Problem(
       409,
-      "More than one GitHub account is connected. Keep one GitHub connection in Tools to act on pull requests from Loop55.",
+      "More than one GitHub account is connected. Keep one GitHub connection in Tools to act on pull requests from Loop.",
     );
   return tokens[0];
 }
 
-/** GitHub failures as Loop55 problems; never a 401, which signs you out of Loop55. */
+/** GitHub failures as Loop problems; never a 401, which signs you out of Loop. */
 function problem(error: unknown, write = false): never {
   if (error instanceof Problem) throw error;
   if (error instanceof GithubError)

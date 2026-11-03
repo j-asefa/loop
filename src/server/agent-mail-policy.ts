@@ -79,10 +79,10 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       "This agent needs a provider connection before it can receive mail.",
     );
   const meta = connection.metadata;
-  if (meta.loop55Harness === "antigravity")
+  if (meta.loopHarness === "antigravity")
     throw new MailRefusal(
       409,
-      "Antigravity does not expose Loop55 workspace tools. Agent mail and team delegation require another harness.",
+      "Antigravity does not expose Loop workspace tools. Agent mail and team delegation require another harness.",
     );
   if (meta.backend === "hapi")
     throw new MailRefusal(
@@ -90,7 +90,7 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       "Archived HAPI agents cannot receive mail. Select a supported connection first.",
     );
   if (
-    meta.loop55Harness != null &&
+    meta.loopHarness != null &&
     (!companionMode ||
       ![
         "codex",
@@ -101,7 +101,7 @@ export function eligibleMailAgent(owner: string, agentId: string) {
         "muse",
         "grok",
         "acp",
-      ].includes(meta.loop55Harness))
+      ].includes(meta.loopHarness))
   )
     throw new MailRefusal(
       409,

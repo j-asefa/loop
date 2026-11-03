@@ -55,7 +55,7 @@ async function getJson(url: string) {
     redirect: "error",
     headers: {
       Accept: "application/json",
-      "User-Agent": "loop55-pi-inspection",
+      "User-Agent": "loop-pi-inspection",
     },
   });
   if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);

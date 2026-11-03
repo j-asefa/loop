@@ -11,7 +11,7 @@ childProcess.execFileSync = function (command, args, options) {
   if (command === "/usr/sbin/sysctl") {
     if (JSON.stringify(args) !== JSON.stringify(["-n", "kern.bootsessionuuid"]))
       throw new Error("Unexpected fixture sysctl query");
-    return process.env.LOOP55_TEST_BOOT_SESSION + "\n";
+    return process.env.LOOP_TEST_BOOT_SESSION + "\n";
   }
   return execFileSync.call(this, command, args, options);
 };

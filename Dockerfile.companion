@@ -4,10 +4,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends git openssl unz
 COPY package*.json ./
 RUN npm ci && npm cache clean --force
 COPY . .
-ARG LOOP55_BUILD_SOURCE_FILE
-RUN LOOP55_BUILD_SOURCE_FILE="$LOOP55_BUILD_SOURCE_FILE" npm run build \
-    && node --input-type=module -e 'import { helper } from "./dist/tunnel.js"; await helper("/opt/loop55-tunnel")' \
-    && chmod -R a+rX /opt/loop55-tunnel \
+ARG LOOP_BUILD_SOURCE_FILE
+RUN LOOP_BUILD_SOURCE_FILE="$LOOP_BUILD_SOURCE_FILE" npm run build \
+    && node --input-type=module -e 'import { helper } from "./dist/tunnel.js"; await helper("/opt/loop-tunnel")' \
+    && chmod -R a+rX /opt/loop-tunnel \
     && npm ci --prefix deployment/native --omit=dev \
     && npm prune --omit=dev \
     && npm cache clean --force
@@ -15,16 +15,16 @@ RUN LOOP55_BUILD_SOURCE_FILE="$LOOP55_BUILD_SOURCE_FILE" npm run build \
 FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -s /app/dist/cli.js /usr/local/bin/loop55 \
-    && mkdir -p /data/loop55/provider-home /data/loop55-connection /workspaces \
-    && ln -s /data/loop55 /data/loop \
-    && chown -R node:node /data /workspaces && chmod 700 /data/loop55-connection
-COPY --from=build /opt/loop55-tunnel /opt/loop55-tunnel
+    && ln -s /app/dist/cli.js /usr/local/bin/loop \
+    && mkdir -p /data/loop/provider-home /data/loop-connection /workspaces \
+    && ln -s /data/loop /data/loop \
+    && chown -R node:node /data /workspaces && chmod 700 /data/loop-connection
+COPY --from=build /opt/loop-tunnel /opt/loop-tunnel
 COPY --from=build --chown=node:node /app /app
-ENV NODE_ENV=production LOOP55_HOME=/data/loop55 HOME=/data/loop55/provider-home LOOP55_COMPANION_CONTAINER=1 LOOP55_BAKED_HELPERS=/opt/loop55-tunnel
+ENV NODE_ENV=production LOOP_HOME=/data/loop HOME=/data/loop/provider-home LOOP_COMPANION_CONTAINER=1 LOOP_BAKED_HELPERS=/opt/loop-tunnel
 ENV PATH=/app/deployment/native/node_modules/.bin:$PATH
 USER node
 WORKDIR /workspaces
-VOLUME ["/data/loop55", "/workspaces"]
+VOLUME ["/data/loop", "/workspaces"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD node /app/scripts/companion-health.mjs
-CMD ["loop55", "start", "--foreground", "--execution", "native", "--providers", "codex,claude,opencode,pi"]
+CMD ["loop", "start", "--foreground", "--execution", "native", "--providers", "codex,claude,opencode,pi"]

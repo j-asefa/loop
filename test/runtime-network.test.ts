@@ -2,8 +2,8 @@ import { afterAll, afterEach, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-const directory = mkdtempSync(join(tmpdir(), "loop55-runtime-network-"));
-process.env.LOOP55_DATA_DIR = directory;
+const directory = mkdtempSync(join(tmpdir(), "loop-runtime-network-"));
+process.env.LOOP_DATA_DIR = directory;
 const { remoteFetch } = vi.hoisted(() => ({ remoteFetch: vi.fn() }));
 vi.mock("undici", async (original) => ({
   ...(await original<typeof import("undici")>()),

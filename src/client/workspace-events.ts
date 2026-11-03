@@ -366,11 +366,11 @@ export function watchWorkspaceEvents(options: {
     options.connected?.(false);
   };
   const fallback = setInterval(() => void poll(), 1800);
-  window.addEventListener("loop55-workspace-clock", snapshotClock);
+  window.addEventListener("loop-workspace-clock", snapshotClock);
   window.addEventListener("online", wake);
   window.addEventListener("pageshow", wake);
   if (options.connected)
-    window.addEventListener("loop55-reconnecting", restarting);
+    window.addEventListener("loop-reconnecting", restarting);
   document.addEventListener("visibilitychange", visible);
   function stop() {
     stopped = true;
@@ -381,10 +381,10 @@ export function watchWorkspaceEvents(options: {
     clearInterval(fallback);
     request?.abort();
     socket?.close();
-    window.removeEventListener("loop55-workspace-clock", snapshotClock);
+    window.removeEventListener("loop-workspace-clock", snapshotClock);
     window.removeEventListener("online", wake);
     window.removeEventListener("pageshow", wake);
-    window.removeEventListener("loop55-reconnecting", restarting);
+    window.removeEventListener("loop-reconnecting", restarting);
     document.removeEventListener("visibilitychange", visible);
   }
   connect();

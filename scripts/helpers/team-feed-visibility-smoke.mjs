@@ -17,7 +17,7 @@ export async function teamFeedVisibilitySmoke(page, fixture, engine, capture) {
   const close = async () => {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.waitForFunction(() => history.state?.loop55Sheet !== true);
+    await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   await expect(row).toBeVisible();

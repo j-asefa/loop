@@ -17,7 +17,7 @@ export function sessionDraft<T>(
   entity = "",
 ) {
   const generation = viewGeneration();
-  const key = `loop55-workspace-draft:${JSON.stringify([owner, source, kind, entity])}`;
+  const key = `loop-workspace-draft:${JSON.stringify([owner, source, kind, entity])}`;
   const current = () =>
     !!owner && owner === viewOwner() && generation === viewGeneration();
   return {

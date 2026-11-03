@@ -15,7 +15,7 @@ export function refuseRecordedEffects(db: Database.Database): EffectAuthority {
     if (recordedQueries.firstCommand(db, { owner, kind, effectId }))
       throw new ExecutionRefused(
         403,
-        "This work was authorized through a fleet. Restart Loop55 with loop55 start --fleet to run it.",
+        "This work was authorized through a fleet. Restart Loop with loop start --fleet to run it.",
       );
   };
   const local = () => {

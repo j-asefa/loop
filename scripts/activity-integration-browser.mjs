@@ -370,7 +370,7 @@ try {
     await expect(page.getByRole("button", { name: /\/inspect/ })).toBeVisible();
     await page.request.post(base + "/api/fixture", { data: { removed: true } });
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-workspace-change")),
+      window.dispatchEvent(new Event("loop-workspace-change")),
     );
     await expect(page.getByRole("button", { name: /\/inspect/ })).toHaveCount(
       0,
@@ -380,7 +380,7 @@ try {
       data: { complete: true },
     });
     await page.evaluate(() =>
-      window.dispatchEvent(new Event("loop55-workspace-change")),
+      window.dispatchEvent(new Event("loop-workspace-change")),
     );
     await expect(page.getByText("1 of 1 complete")).toBeVisible();
     await page.getByLabel("Conversation options").click();

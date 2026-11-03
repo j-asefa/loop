@@ -108,13 +108,13 @@ it("labels only connections with a recorded local location", () => {
     },
     {
       id: "container",
-      metadata: JSON.stringify({ loop55Harness: "codex", location: "docker" }),
+      metadata: JSON.stringify({ loopHarness: "codex", location: "docker" }),
     },
     // Display names alone never decide the badge.
     { id: "named", metadata: JSON.stringify({ environmentName: "Docker" }) },
     {
       id: "legacy-direct",
-      metadata: JSON.stringify({ loop55Harness: "codex" }),
+      metadata: JSON.stringify({ loopHarness: "codex" }),
     },
     {
       id: "remote",
@@ -168,10 +168,10 @@ it("keeps distinct Docker names while preserving the recorded location", () => {
     connectionLocation(
       connection({
         location: "docker",
-        environmentName: "Docker · research/loop5555",
+        environmentName: "Docker · research/loop",
       }),
     ),
-  ).toEqual({ kind: "docker", label: "Docker · research/loop5555" });
+  ).toEqual({ kind: "docker", label: "Docker · research/loop" });
   expect(
     connectionLocation(
       connection({
@@ -183,9 +183,9 @@ it("keeps distinct Docker names while preserving the recorded location", () => {
   expect(
     connectionLocation(
       connection({ location: "docker", environmentName: "Docker" }),
-      "Docker · research/loop5555",
+      "Docker · research/loop",
     ),
-  ).toEqual({ kind: "docker", label: "Docker · research/loop5555" });
+  ).toEqual({ kind: "docker", label: "Docker · research/loop" });
   expect(
     connectionLocation(
       connection({ location: "docker", environmentName: "Docker" }),

@@ -22,7 +22,7 @@ export type ChatMessage = {
    * search calls, search results and tool uses in the positions the provider
    * returned them. Replayed in place of `content` and `toolCalls` on later
    * requests of the same run so signed thinking stays intact and discovered
-   * tools stay loaded. Opaque to Loop55, which still reads `content` and
+   * tools stay loaded. Opaque to Loop, which still reads `content` and
    * `toolCalls`.
    */
   providerContent?: unknown[];
@@ -85,7 +85,7 @@ export type Chunk = {
 };
 /**
  * Tool search keeps deferred definitions out of the context window until the
- * model searches for them. Loop55's own tools stay loaded; connected MCP tools
+ * model searches for them. Loop's own tools stay loaded; connected MCP tools
  * are deferred. A forced tool must already be loaded, so projections defer
  * nothing.
  */

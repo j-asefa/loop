@@ -1,4 +1,3 @@
-import "../runtime/environment.mjs";
 import { chooseAgentConnection } from "./helpers/agent-model-options.mjs";
 // Full paired UI + production WorkspaceHost, SQLite, WS and adapter subprocesses.
 // Only the external harness protocols and a server-side network cut are fixtures.
@@ -14,10 +13,10 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-const dir = await mkdtemp(join(tmpdir(), "loop55-deterministic-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = dir;
-process.env.LOOP55_TEST_HARNESS = "codex";
+const dir = await mkdtemp(join(tmpdir(), "loop-deterministic-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = dir;
+process.env.LOOP_TEST_HARNESS = "codex";
 const { WorkspaceHost } = await import("../dist/workspace-host.js");
 const { nativeSessions } = await import("../dist/server/native-sessions.js");
 const { db } = await import("../dist/server/db.js");
@@ -160,7 +159,7 @@ try {
       });
     });
     await page.goto(host.pair().url);
-    await page.getByRole("button", { name: "Pair and open Loop55" }).click();
+    await page.getByRole("button", { name: "Pair and open Loop" }).click();
     await expect(
       page.getByRole("status").filter({ hasText: "Connected to workspace" }),
     ).toBeVisible();
@@ -360,7 +359,7 @@ try {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-loop55-csrf": csrf,
+            "x-loop-csrf": csrf,
           },
           body: JSON.stringify(receipt),
         });
@@ -468,7 +467,7 @@ try {
     );
     await expect(
       page.getByRole("dialog").getByRole("status").filter({
-        hasText: "Run loop55 acp on the desktop to enable this harness.",
+        hasText: "Run loop acp on the desktop to enable this harness.",
       }),
     ).toBeVisible();
     await expect.poll(() => runFor(`missing-${width}`)?.state).toBe("failed");

@@ -29,10 +29,10 @@ import type { SignedFleetDirectory } from "../src/shared/fleet.js";
 import type { SignedFleetDirectoryPush } from "../src/shared/fleet-directory-sync.js";
 import { Problem } from "../src/shared/problem.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop55-fleet-distribution-"));
-process.env.LOOP55_PROFILE = "companion";
-process.env.LOOP55_DATA_DIR = root;
-process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = mkdtempSync(join(tmpdir(), "loop-fleet-distribution-"));
+process.env.LOOP_PROFILE = "companion";
+process.env.LOOP_DATA_DIR = root;
+process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 // Build the empty migrated schema once. Every machine still has its own file,
 // identity and durable transactions; upgrade cases use their explicit history.

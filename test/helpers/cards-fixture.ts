@@ -21,7 +21,7 @@ export async function cardsFixture(
     webhookReceiver?: string;
   } = {},
 ) {
-  const dir = mkdtempSync(join(tmpdir(), "loop55-card-access-"));
+  const dir = mkdtempSync(join(tmpdir(), "loop-card-access-"));
   let port = 0;
   if (mode === "multi-user") {
     const reservation = createServer();
@@ -53,26 +53,24 @@ export async function cardsFixture(
         env: {
           ...Object.fromEntries(
             Object.entries(process.env).filter(
-              ([key]) => !key.startsWith("LOOP55_"),
+              ([key]) => !key.startsWith("LOOP_"),
             ),
           ),
-          LOOP55_PROFILE: mode === "companion" ? "companion" : "server",
-          LOOP55_AUTH_MODE:
-            mode === "multi-user" ? "multi-user" : "single-user",
-          LOOP55_DATA_DIR: dir,
-          LOOP55_URL: "http://127.0.0.1" + (port ? ":" + port : ""),
+          LOOP_PROFILE: mode === "companion" ? "companion" : "server",
+          LOOP_AUTH_MODE: mode === "multi-user" ? "multi-user" : "single-user",
+          LOOP_DATA_DIR: dir,
+          LOOP_URL: "http://127.0.0.1" + (port ? ":" + port : ""),
           PORT: String(port),
-          LOOP55_TEST_CARDS_COMPILED: compiled ? "1" : "0",
-          LOOP55_TEST_CARDS_SOURCE:
-            typeof compiled === "string" ? compiled : "",
-          LOOP55_TEST_CARDS_RELAY: options.relay ? "1" : "0",
-          LOOP55_TEST_WEBHOOK_RECEIVER: options.webhookReceiver || "",
+          LOOP_TEST_CARDS_COMPILED: compiled ? "1" : "0",
+          LOOP_TEST_CARDS_SOURCE: typeof compiled === "string" ? compiled : "",
+          LOOP_TEST_CARDS_RELAY: options.relay ? "1" : "0",
+          LOOP_TEST_WEBHOOK_RECEIVER: options.webhookReceiver || "",
           NODE_ENV: options.nodeEnv ?? "test",
           TEST: options.nodeEnv === "production" ? "" : process.env.TEST,
-          LOOP55_LISTEN_HOST: "127.0.0.1",
-          LOOP55_BIND_ADDRESS: "127.0.0.1",
+          LOOP_LISTEN_HOST: "127.0.0.1",
+          LOOP_BIND_ADDRESS: "127.0.0.1",
           BETTER_AUTH_SECRET: authSecret,
-          LOOP55_ENCRYPTION_KEY: encryptionKey,
+          LOOP_ENCRYPTION_KEY: encryptionKey,
         },
         stdio: ["ignore", "ignore", "pipe", "ipc"],
       },
@@ -103,7 +101,7 @@ export async function cardsFixture(
   } finally {
     clearTimeout(timeout);
   }
-  const database = new Database(join(dir, "loop55.db"));
+  const database = new Database(join(dir, "loop.db"));
   database.pragma("foreign_keys = ON");
   // Opt in when exercising Feed: this independent connection must commit its
   // projection with its source writes, exactly like the production worker.
@@ -207,7 +205,7 @@ export async function cardsFixture(
     origin,
     host: new URL(origin).host,
     cookie,
-    "x-loop55-csrf": csrf,
+    "x-loop-csrf": csrf,
   };
   let closed = false;
   const close = async () => {

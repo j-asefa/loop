@@ -4,7 +4,7 @@ import { isWebKitNavigationFetchError } from "../scripts/helpers/browser-errors.
 
 describe.each([
   "http://127.0.0.1:34093",
-  "https://loop55-fixture-6841.trycloudflare.com",
+  "https://loop-fixture-6841.trycloudflare.com",
 ])("WebKit navigation fetch diagnostic for %s", (base) => {
   const diagnostic = `Fetch API cannot load ${base}/api/agents/123/messages due to access control checks.`;
   it("recognizes the full and Playwright-shortened diagnostic", () => {

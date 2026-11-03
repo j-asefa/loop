@@ -55,7 +55,7 @@ function subscribe(
     frame = vi.fn();
   stops.push(
     watchWorkspaceEvents({
-      url: new URL("ws://loop55/api/events/ws"),
+      url: new URL("ws://loop/api/events/ws"),
       source,
       read,
       changed,
@@ -224,7 +224,7 @@ it("requests v3 and routes a collection invalidation only to that source's pager
   s.changed.mockImplementation((events) => {
     queue.add("one", events);
     window.dispatchEvent(
-      new CustomEvent("loop55-workspace-change", { detail: queue.drain() }),
+      new CustomEvent("loop-workspace-change", { detail: queue.drain() }),
     );
   });
   const send = (event: unknown, id: number) =>
@@ -382,12 +382,12 @@ it("expires fallback health when push recovers so a later disconnect is visible 
 it("shows an HTTP restart immediately while connecting and ignores it after teardown", async () => {
   const s = subscribe();
   s.socket.readyState = 0;
-  window.dispatchEvent(new Event("loop55-reconnecting"));
+  window.dispatchEvent(new Event("loop-reconnecting"));
   expect(s.connected).toHaveBeenLastCalledWith(false);
   expect(s.read).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1800);
   expect(s.connected).toHaveBeenLastCalledWith(true);
-  window.dispatchEvent(new Event("loop55-reconnecting"));
+  window.dispatchEvent(new Event("loop-reconnecting"));
   expect(s.connected).toHaveBeenLastCalledWith(false);
   s.socket.close();
   expect(s.connected).toHaveBeenLastCalledWith(false);
@@ -395,11 +395,11 @@ it("shows an HTTP restart immediately while connecting and ignores it after tear
   expect(s.connected).toHaveBeenLastCalledWith(true);
   const next = Socket.instances.at(-1)!;
   next.frame(1);
-  window.dispatchEvent(new Event("loop55-reconnecting"));
+  window.dispatchEvent(new Event("loop-reconnecting"));
   expect(s.connected).toHaveBeenLastCalledWith(true);
   stops.pop()!();
   s.connected.mockClear();
-  window.dispatchEvent(new Event("loop55-reconnecting"));
+  window.dispatchEvent(new Event("loop-reconnecting"));
   expect(s.connected).not.toHaveBeenCalled();
 });
 
@@ -415,7 +415,7 @@ it("does not let an older fallback response clear a newer restart notice", async
   );
   s.socket.readyState = 0;
   await vi.advanceTimersByTimeAsync(1800);
-  window.dispatchEvent(new Event("loop55-reconnecting"));
+  window.dispatchEvent(new Event("loop-reconnecting"));
   expect(s.connected).toHaveBeenLastCalledWith(false);
   finish([]);
   await vi.advanceTimersByTimeAsync(0);
@@ -550,7 +550,7 @@ it("keeps source/epoch/owner deadline generations separate and rejects stale sna
   one.changed.mockClear();
   two.changed.mockClear();
   window.dispatchEvent(
-    new CustomEvent("loop55-workspace-clock", {
+    new CustomEvent("loop-workspace-clock", {
       detail: {
         source: "one",
         generation: viewGeneration(),
@@ -565,7 +565,7 @@ it("keeps source/epoch/owner deadline generations separate and rejects stale sna
   );
   // An older HTTP response must not restore the superseded earlier deadline.
   window.dispatchEvent(
-    new CustomEvent("loop55-workspace-clock", {
+    new CustomEvent("loop-workspace-clock", {
       detail: {
         source: "one",
         generation: viewGeneration(),
@@ -621,7 +621,7 @@ it("resets projections and cursors on an HTTP-only epoch replacement and rejects
   s.frame.mockClear();
   const received = (requestId: number, epoch: string, nextDeadline: number) =>
     window.dispatchEvent(
-      new CustomEvent("loop55-workspace-clock", {
+      new CustomEvent("loop-workspace-clock", {
         detail: {
           source: "one",
           generation: viewGeneration(),
@@ -741,14 +741,14 @@ it("keeps complete streamed messages out of broad refreshes but retains explicit
   ]);
   expect(queue.size).toBe(0);
   queue.add("one", [invalidate({ kind: "collection", id: "feed" })]);
-  let event = new CustomEvent("loop55-workspace-change", {
+  let event = new CustomEvent("loop-workspace-change", {
     detail: queue.drain(),
   });
   expect(broadWorkspaceChange(event)).toBe(false);
   queue.add("one");
-  event = new CustomEvent("loop55-workspace-change", { detail: queue.drain() });
+  event = new CustomEvent("loop-workspace-change", { detail: queue.drain() });
   expect(broadWorkspaceChange(event)).toBe(true);
-  expect(broadWorkspaceChange(new Event("loop55-workspace-change"))).toBe(true);
+  expect(broadWorkspaceChange(new Event("loop-workspace-change"))).toBe(true);
 });
 
 it.each([
@@ -794,7 +794,7 @@ it.each([
         queue.add(source, events);
         if (queue.size)
           window.dispatchEvent(
-            new CustomEvent("loop55-workspace-change", {
+            new CustomEvent("loop-workspace-change", {
               detail: queue.drain(),
             }),
           );
@@ -891,7 +891,7 @@ it("routes Social unread changes to Feed and run changes to usage without refres
     invalidate({ kind: "collection", id: "social" }),
     invalidate({ kind: "collection", id: "runs" }),
   ]);
-  const event = new CustomEvent("loop55-workspace-change", {
+  const event = new CustomEvent("loop-workspace-change", {
     detail: queue.drain(),
   });
   expect(workspaceChangeAffects(event, "feed", "one")).toBe(true);
