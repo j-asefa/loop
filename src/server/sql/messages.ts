@@ -6,7 +6,7 @@ import { parseRecord } from "../row-schemas.js";
 import { statement, statementVariants } from "./statement.js";
 
 // Use with the messages alias `m` at model-context and attachment boundaries.
-// Owner-visible history retains refused/cancelled mail, but it cannot become
+// Owner-visible history retains refused/cancelled automation, but it cannot become
 // a later model input or grant file access through that retained message.
 // A terminal failure can occur before provider dispatch. Only active or
 // completed deliveries authorize these passive reads; uncertainty does not.
@@ -15,6 +15,10 @@ export const READABLE_MAIL_SQL = `(json_extract(m.metadata,'$.automation.mailId'
   WHERE mail.id=json_extract(m.metadata,'$.automation.mailId') AND mail.owner_id=m.owner_id
     AND mail.state='sent' AND delivery.state IN ('running','pausing','awaiting_approval','completed')
     AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND s.state<>'delivered')
+)) AND (json_extract(m.metadata,'$.automation.kind') IS NOT 'review_continuation' OR EXISTS (
+  SELECT 1 FROM review_continuations rc JOIN runs delivery ON delivery.id=rc.run_id AND delivery.owner_id=rc.owner_id
+  WHERE rc.run_id=m.run_id AND rc.owner_id=m.owner_id AND delivery.conversation_id=m.conversation_id
+    AND delivery.state IN ('running','pausing','awaiting_approval','completed')
 ))`;
 
 const insertStatement = statement(

@@ -20,6 +20,12 @@ import { z } from "zod";
 // Type assertions do not validate saved execution data. Joined and partial
 // selections declare their selected columns at each query.
 export const QueryRecords = {
+  review_continuations: z.object({
+    review_id: z.string(),
+    owner_id: z.string(),
+    parent_run_id: z.string(),
+    run_id: z.string(),
+  }),
   feed_state: z.object({
     feed_id: z.string(),
     title: z.string().nullable(),

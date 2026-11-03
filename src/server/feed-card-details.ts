@@ -1,3 +1,4 @@
+import * as continuationQueries from "./sql/review-continuations.js";
 import * as approvalsQueries from "./sql/approvals.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as nativeDispatchQueries from "./sql/native-dispatch.js";
@@ -91,6 +92,7 @@ export function threadDetails(
       ...queueDetails(db, owner, run),
       can_edit:
         run.worker_id === null &&
+        !continuationQueries.byRun(db, run.id) &&
         !run.active_since &&
         !agentCheckpointsQueries.existsForRun(db, run.id) &&
         !nativeDispatchQueries.existsForRun(db, run.id),

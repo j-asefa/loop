@@ -35,6 +35,9 @@ const { invokeTool } = await import("../src/server/mcp/broker");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { nativeSessions } = await import("../src/server/native-sessions");
+const { sendMail } = await import("../src/server/agent-mail");
+const { setAgentPermissionMode } =
+  await import("../src/server/mcp/approval-policy");
 
 function connection(owner = "alice", metadata = "{}") {
   const c = id();
@@ -339,7 +342,11 @@ it("cancels the whole review through the production run control and survives reo
     .get(review.conversationId) as any;
   const response = await fetch(`${url}/runs/${parent.id}/cancel`, {
     method: "POST",
-    headers: { "x-owner": "alice", "content-type": "application/json" },
+    headers: {
+      "x-owner": "alice",
+      "content-type": "application/json",
+      connection: "close",
+    },
     body: "{}",
   });
   expect(response.status).toBe(200);
@@ -460,6 +467,11 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   const done = (await invokeNative(run, binding(run), "ask", request)) as any;
   const report = JSON.parse(done.result.content[0].text);
   expect(done.result.isError).toBeUndefined();
+  expect(
+    db
+      .prepare("SELECT 1 FROM review_continuations WHERE parent_run_id=?")
+      .get(run.id),
+  ).toBeUndefined();
   expect(report.report).toBe("Consolidated fixture report");
   expect(report.reviewers).toHaveLength(3);
   // New default returns promptly and persists one recoverable request.
@@ -487,6 +499,7 @@ it("lets a working agent request a review of its own worktree, waits for the lea
     base: "main",
   })) as any;
   const receipt = JSON.parse(accepted.result.content[0].text);
+  expect(receipt.error).toBeUndefined();
   expect(receipt.reviewId).toBe(legacyReview.id);
   expect(receipt.state).toBe("queued");
   const replay = (await invokeNative(asyncRun, binding(asyncRun), "async", {
@@ -578,12 +591,8 @@ it("lets a working agent request a review of its own worktree, waits for the lea
     ...request,
     wait: false,
   });
-  const response = await fetch(`${url}/runs/${cancelled.id}/cancel`, {
-    method: "POST",
-    headers: { "x-owner": "alice", "content-type": "application/json" },
-    body: "{}",
-  });
-  expect(response.status).toBe(200);
+  const { cancelRun } = await import("../src/server/run-attention");
+  expect(cancelRun("alice", cancelled.id)).toEqual({ ok: true });
   const second = db
     .prepare("SELECT child_run_id id FROM delegations WHERE parent_run_id=?")
     .get(cancelled.id) as any;
@@ -593,7 +602,14 @@ it("lets a working agent request a review of its own worktree, waits for the lea
     )
     .all(second.id, second.id) as any[];
   expect(states.map((r) => r.state)).toEqual(Array(4).fill("cancelled"));
-});
+  expect(
+    db
+      .prepare(
+        "SELECT state FROM runs WHERE id=(SELECT run_id FROM review_continuations WHERE parent_run_id=?)",
+      )
+      .get(cancelled.id),
+  ).toEqual({ state: "cancelled" });
+}, 30000);
 it("runs review teams on native harness subscriptions with the snapshot in the first native turn", async () => {
   const harness = id();
   db.prepare(
@@ -625,7 +641,10 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
     expect(JSON.parse(run.payload).connectionId).toBe(harness);
     expect(JSON.parse(run.payload).maxSeconds).toBe(600);
   }
-  const claimed = claim("native-review-worker")!;
+  const claimed = claim(
+    "native-review-worker",
+    (candidate) => candidate.payload.reviewId === review.id,
+  )!;
   expect(claimed.payload.reviewId).toBe(review.id);
   let prompt = "";
   const generation = id();
@@ -763,3 +782,578 @@ it("does not report current when ident conversions hide working edits", () => {
     rmSync(join(repo, ".gitattributes"));
   }
 });
+
+it("durably queues one review follow-up outside teams, waits for both turns and preserves status access", async () => {
+  const builder = id();
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
+  ).run(builder, builder, builder, c, now());
+  const parent = submit("alice", {
+    agentId: builder,
+    folderId: folder,
+    input: "Implement and review",
+    idempotencyKey: id(),
+  });
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+  ).run(parent.id);
+  const binding = nativeBindings(parent).find(
+    (b) => b.tool === "loop55_request_review",
+  )!;
+  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(
+    JSON.stringify({
+      ...parent.payload,
+      workflowRun: id(),
+      workflowStep: "old-step",
+    }),
+    parent.id,
+  );
+  const messages = await import("../src/server/sql/messages");
+  const personalBefore = messages.personalCount(db, "alice").n;
+  const untrustedBase = "main\nINJECTED_BASE_INSTRUCTION";
+  const args = { teamId: team.id, scope: "uncommitted", base: untrustedBase };
+  const accepted = (await invokeNative(
+    parent,
+    binding,
+    "continuation",
+    args,
+  )) as any;
+  const receipt = JSON.parse(accepted.result.content[0].text);
+  expect(receipt.error).toBeUndefined();
+  const record = db
+    .prepare("SELECT * FROM review_continuations WHERE review_id=?")
+    .get(receipt.reviewId) as any;
+  expect(record).toMatchObject({ owner_id: "alice", parent_run_id: parent.id });
+  expect(
+    db
+      .prepare("SELECT team_id FROM conversations WHERE id=?")
+      .get(parent.conversation_id),
+  ).toEqual({ team_id: null });
+  await invokeNative(parent, binding, "continuation", args);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM review_continuations WHERE review_id=?")
+      .get(receipt.reviewId),
+  ).toEqual({ n: 1 });
+  const { feed } = await import("../src/server/mobile-return");
+  const { threadDetails } = await import("../src/server/feed-card-details");
+  expect(
+    feed("alice", { filter: "queued" }).items.some(
+      (item) => item.conversation_id === parent.conversation_id,
+    ),
+  ).toBe(true);
+  expect(
+    threadDetails(db, "alice", parent.conversation_id!).queued_runs,
+  ).toContainEqual(
+    expect.objectContaining({ id: record.run_id, can_edit: false }),
+  );
+  const { editQueuedRun } =
+    await import("../src/server/mobile-return/queued-runs");
+  expect(() =>
+    editQueuedRun("alice", record.run_id, { input: "discard the review" }),
+  ).toThrow();
+  expect(
+    claim("review-follow-up", (run) => run.id === record.run_id),
+  ).toBeUndefined();
+  const lead = db
+    .prepare("SELECT run_id FROM code_reviews WHERE id=?")
+    .get(receipt.reviewId) as any;
+  db.prepare(
+    "UPDATE runs SET state='completed',result='Snapshot approved in fixture' WHERE id=?",
+  ).run(lead.run_id);
+  expect(
+    claim("review-follow-up", (run) => run.id === record.run_id),
+  ).toBeUndefined();
+  db.prepare("UPDATE runs SET state='paused' WHERE id=?").run(parent.id);
+  expect(
+    claim("paused-requester", (run) => run.id === record.run_id),
+  ).toBeUndefined();
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(parent.id);
+  transition(parent, "completed");
+  db.prepare(
+    "UPDATE review_continuations SET owner_id='bob' WHERE review_id=?",
+  ).run(receipt.reviewId);
+  expect(
+    claim("foreign-owner", (run) => run.id === record.run_id),
+  ).toBeUndefined();
+  db.prepare(
+    "UPDATE review_continuations SET owner_id='alice' WHERE review_id=?",
+  ).run(receipt.reviewId);
+  const claimed = claim("review-follow-up", (run) => run.id === record.run_id)!;
+  expect(claimed).toMatchObject({
+    agent_id: builder,
+    conversation_id: parent.conversation_id,
+  });
+  expect(claimed.input).toContain(receipt.reviewId);
+  expect(claimed.input).toContain("Completion is not approval");
+  expect(claimed.input).not.toContain("INJECTED_BASE_INSTRUCTION");
+  expect(claimed.payload.workflowRun).toBeUndefined();
+  expect(claimed.payload.workflowStep).toBeUndefined();
+  expect(claimed.payload.connectionId).toBe(parent.payload.connectionId);
+
+  expect(claimed.input).toContain(
+    `base commit: ${git("rev-parse", "HEAD").trim()}`,
+  );
+  expect(messages.personalCount(db, "alice").n).toBe(personalBefore);
+  expect(
+    messages
+      .personalHistory(db, "alice", null, null, Number.MAX_SAFE_INTEGER, "z")
+      .some((message) => message.content === claimed.input),
+  ).toBe(false);
+  const modelInputs: string[] = [];
+  const restoreApi = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      modelInputs.push(JSON.stringify(input.messages));
+      const report = input.messages.find(
+        (message) =>
+          message.role === "tool" && message.toolCallId === "status-via-model",
+      );
+      if (!report) {
+        expect(
+          input.tools?.some((tool) => tool.name === "loop55_review_status"),
+        ).toBe(true);
+        yield {
+          toolCall: {
+            id: "status-via-model",
+            name: "loop55_review_status",
+            arguments: { reviewId: receipt.reviewId },
+          },
+        };
+        return;
+      }
+      expect(report.content).toContain("Snapshot approved in fixture");
+      expect(report.content).toContain("reviewers");
+      expect(report.content).toContain("completed");
+      yield { text: "Review follow-up handled by API fixture." };
+    },
+  });
+  try {
+    expect(await executeAgent(claimed)).toBe(true);
+  } finally {
+    restoreApi();
+  }
+  expect(modelInputs.join("\n")).toContain(receipt.reviewId);
+
+  expect(
+    claim("another-worker", (run) => run.id === record.run_id),
+  ).toBeUndefined();
+  const statusBinding = nativeBindings(claimed).find(
+    (b) => b.tool === "loop55_review_status",
+  )!;
+  const status = (await invokeNative(claimed, statusBinding, "get-status", {
+    reviewId: receipt.reviewId,
+  })) as any;
+  expect(JSON.parse(status.result.content[0].text)).toMatchObject({
+    reviewId: receipt.reviewId,
+    state: "completed",
+    report: "Snapshot approved in fixture",
+  });
+  transition(claimed, "completed");
+  expect(
+    claim("after-restart", (run) => run.id === record.run_id),
+  ).toBeUndefined();
+  expect(
+    db.prepare("SELECT state FROM runs WHERE id=?").get(parent.id),
+  ).toEqual({ state: "completed" });
+});
+
+it.each(["completed", "failed", "cancelled", "interrupted"])(
+  "review outcome %s releases a follow-up only after its requester completes",
+  async (state) => {
+    const builder = id();
+    db.prepare(
+      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
+    ).run(builder, builder, builder, c, now());
+    const parent = submit("alice", {
+      agentId: builder,
+      folderId: folder,
+      input: "review",
+      idempotencyKey: id(),
+    });
+    db.prepare(
+      "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+    ).run(parent.id);
+    const binding = nativeBindings(parent).find(
+      (b) => b.tool === "loop55_request_review",
+    )!;
+    const result = (await invokeNative(parent, binding, "ask", {
+      teamId: team.id,
+      scope: "uncommitted",
+      base: "main",
+    })) as any;
+    const reviewId = JSON.parse(result.result.content[0].text).reviewId;
+    const record = db
+      .prepare(
+        "SELECT rc.run_id,cr.run_id lead FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.review_id=?",
+      )
+      .get(reviewId) as any;
+    transition(parent, "completed");
+    expect(claim("waiting", (r) => r.id === record.run_id)).toBeUndefined();
+    db.prepare("UPDATE runs SET state=? WHERE id=?").run(state, record.lead);
+    db.prepare("UPDATE agents SET retired_at=? WHERE id=?").run(now(), builder);
+    expect(claim("retired", (r) => r.id === record.run_id)).toBeUndefined();
+    db.prepare("UPDATE agents SET retired_at=NULL WHERE id=?").run(builder);
+    const resumed = claim("ready", (r) => r.id === record.run_id)!;
+    expect(resumed?.id).toBe(record.run_id);
+    transition(resumed, "completed");
+  },
+);
+
+it.each(["cancelled", "failed", "interrupted"])(
+  "does not wake a requester that %s",
+  async (state) => {
+    const builder = id();
+    db.prepare(
+      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
+    ).run(builder, builder, builder, c, now());
+    const parent = submit("alice", {
+      agentId: builder,
+      folderId: folder,
+      input: "review",
+      idempotencyKey: id(),
+    });
+    db.prepare(
+      "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+    ).run(parent.id);
+    const binding = nativeBindings(parent).find(
+      (b) => b.tool === "loop55_request_review",
+    )!;
+    await invokeNative(parent, binding, "ask", {
+      teamId: team.id,
+      scope: "uncommitted",
+      base: "main",
+    });
+    const record = db
+      .prepare("SELECT run_id FROM review_continuations WHERE parent_run_id=?")
+      .get(parent.id) as any;
+    db.prepare("UPDATE runs SET state=? WHERE id=?").run(state, parent.id);
+    expect(claim("no-replay", (r) => r.id === record.run_id)).toBeUndefined();
+    expect(
+      db.prepare("SELECT state FROM runs WHERE id=?").get(record.run_id),
+    ).toEqual({ state: "cancelled" });
+
+    const next = submit("alice", {
+      agentId: builder,
+      conversationId: parent.conversation_id!,
+      input: "A new explicit task",
+      idempotencyKey: id(),
+    });
+    const nextClaimed = claim("explicit-recovery", (r) => r.id === next.id)!;
+    const history = await import("../src/server/sql/messages");
+    expect(
+      history
+        .nativeTransferHistory(db, parent.conversation_id, next.id)
+        .some((message) => message.content.includes("Wait for review")),
+    ).toBe(false);
+    const modelInputs: string[] = [];
+    const restore = withTestAdapter("openai", {
+      async models() {
+        return [];
+      },
+      async *stream(_secret, input) {
+        modelInputs.push(JSON.stringify(input.messages));
+        yield { text: "New explicit task completed." };
+      },
+    });
+    try {
+      expect(await executeAgent(nextClaimed)).toBe(true);
+    } finally {
+      restore();
+    }
+    expect(modelInputs.join("\n")).not.toContain("Wait for review");
+    expect(
+      db
+        .prepare("SELECT content FROM messages WHERE run_id=? AND role='user'")
+        .get(record.run_id),
+    ).toMatchObject({ content: expect.stringContaining("Wait for review") });
+    transition(nextClaimed, "completed");
+  },
+);
+
+it.each(["claude", "opencode"])(
+  "resumes %s in its original session and does not replay uncertain continuation dispatch",
+  async (harness) => {
+    setAgentPermissionMode("alice", "bypassPermissions");
+    const selected = connection(
+      "alice",
+      JSON.stringify({ loop55Harness: harness, authMode: "subscription" }),
+    );
+    const builder = id();
+    db.prepare(
+      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
+    ).run(builder, builder, builder, selected, now());
+    const parent = submit("alice", {
+      agentId: builder,
+      folderId: folder,
+      input: "review then continue",
+      idempotencyKey: id(),
+    });
+    const first = claim("native-parent", (r) => r.id === parent.id)!;
+    expect(first.payload.permissionMode).toBe("bypassPermissions");
+    const generation = id();
+    const prompts: string[] = [];
+    const live = {
+      generation,
+      binding: {
+        conversation_id: first.conversation_id!,
+        harness,
+        project: repo,
+        native_id: "retained-native-context",
+        model: null,
+        instructions: "",
+        generation,
+        state: "idle",
+      },
+      bootstrapRun: first,
+      items: new NativeOutput(),
+      requests: new Map(),
+      adapter: {
+        async prompt(input: string, beforeDispatch?: () => void) {
+          beforeDispatch?.();
+          prompts.push(input);
+          if (prompts.length === 2)
+            throw new Error("fixture disconnected after possible acceptance");
+          // Tighten the policy during the original turn, before its review request.
+          setAgentPermissionMode("alice", "default");
+          const binding = nativeBindings(first).find(
+            (b) => b.tool === "loop55_request_review",
+          )!;
+          await invokeNative(first, binding, "ask", {
+            teamId: team.id,
+            scope: "uncommitted",
+            base: "main",
+          });
+          live.finish!("completed");
+        },
+        async dispose() {},
+      },
+    } as unknown as Live;
+    const sessions = (nativeSessions as unknown as { live: Map<string, Live> })
+      .live;
+    sessions.set(first.conversation_id!, live);
+    const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
+    try {
+      expect(await nativeSessions.execute(first)).toBe(true);
+      transition(first, "completed");
+      const record = db
+        .prepare(
+          "SELECT rc.run_id,cr.run_id lead FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.parent_run_id=?",
+        )
+        .get(first.id) as any;
+      expect(record).toBeDefined();
+      expect(claim("not-ready", (r) => r.id === record.run_id)).toBeUndefined();
+      const sibling = submit("alice", {
+        agentId: builder,
+        folderId: folder,
+        input: "Other conversation",
+        idempotencyKey: id(),
+      });
+      const busy = claim("sibling", (r) => r.id === sibling.id)!;
+      expect(busy?.id).toBe(sibling.id);
+      db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(
+        record.lead,
+      );
+      expect(
+        claim("busy-elsewhere", (r) => r.id === record.run_id),
+      ).toBeUndefined();
+      transition(busy, "completed");
+      const follow = claim("native-follow", (r) => r.id === record.run_id)!;
+      expect(follow.conversation_id).toBe(first.conversation_id);
+      expect(follow.payload.permissionMode).toBe("default");
+      expect(follow.payload.connectionId).toBe(selected);
+      expect(await nativeSessions.execute(follow)).toBe(false);
+      expect(prompts).toHaveLength(2);
+      expect(
+        db
+          .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+          .get(follow.id),
+      ).toEqual({ state: "unknown" });
+      // Even explicit queue recovery cannot bypass the existing dispatch receipt.
+      transition(follow, "queued");
+      expect(claim("restart", (r) => r.id === follow.id)).toBeUndefined();
+      await expect(nativeSessions.execute(follow)).rejects.toThrow(
+        /already dispatched|uncertain/,
+      );
+      expect(prompts).toHaveLength(2);
+    } finally {
+      setAgentPermissionMode("alice", "default");
+      clearTimeout(live.idle);
+      sessions.delete(first.conversation_id!);
+      session.mockRestore();
+    }
+  },
+);
+
+it("retains a disconnected review continuation through the production worker claim and execution race", async () => {
+  // Earlier fixtures intentionally leave pending work; isolate this worker pass.
+  db.prepare(
+    "UPDATE runs SET state='cancelled' WHERE state IN ('queued','running','pausing','paused','awaiting_approval')",
+  ).run();
+  const provider = connection();
+  const builder = id();
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
+  ).run(builder, builder, builder, provider, now());
+  const parent = submit("alice", {
+    agentId: builder,
+    folderId: folder,
+    input: "Review and finish",
+    idempotencyKey: id(),
+  });
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+  ).run(parent.id);
+  const binding = nativeBindings(parent).find(
+    (b) => b.tool === "loop55_request_review",
+  )!;
+  await invokeNative(parent, binding, "ask", {
+    teamId: team.id,
+    scope: "uncommitted",
+    base: "main",
+  });
+  const record = db
+    .prepare(
+      "SELECT rc.run_id,cr.run_id lead FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.parent_run_id=?",
+    )
+    .get(parent.id) as any;
+  db.prepare(
+    "UPDATE runs SET state='completed' WHERE id=? OR id IN (SELECT child_run_id FROM delegations WHERE parent_run_id=?)",
+  ).run(record.lead, record.lead);
+  transition(parent, "completed");
+  const { tick } = await import("../src/server/worker");
+  db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
+    provider,
+  );
+  expect(await tick(executeAgent)).toBe(false);
+  db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
+    provider,
+  );
+  expect(
+    await tick(async (run) => {
+      expect(run.id).toBe(record.run_id);
+      db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
+        provider,
+      );
+      return executeAgent(run);
+    }),
+  ).toBe(true);
+  expect(
+    db
+      .prepare("SELECT state,worker_id FROM runs WHERE id=?")
+      .get(record.run_id),
+  ).toEqual({ state: "queued", worker_id: null });
+  expect(
+    db
+      .prepare(
+        "SELECT 1 FROM native_dispatch WHERE run_id=? UNION ALL SELECT 1 FROM agent_checkpoints WHERE run_id=?",
+      )
+      .get(record.run_id, record.run_id),
+  ).toBeUndefined();
+  db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
+    provider,
+  );
+  let requests = 0;
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream() {
+      requests++;
+      yield { text: "Continued after reconnect." };
+    },
+  });
+  try {
+    expect(await tick(executeAgent)).toBe(true);
+  } finally {
+    restore();
+  }
+  expect(requests).toBe(1);
+  expect(
+    db.prepare("SELECT state FROM runs WHERE id=?").get(record.run_id),
+  ).toEqual({ state: "completed" });
+  expect(await tick(executeAgent)).toBe(false);
+}, 30000);
+
+it.each(["api", "claude"])(
+  "lets unrelated %s work and mail pass a waiting review without breaking conversation order",
+  async (harness) => {
+    const provider = connection(
+      "alice",
+      harness === "api"
+        ? "{}"
+        : JSON.stringify({ loop55Harness: harness, authMode: "subscription" }),
+    );
+    const makeAgent = () => {
+      const agent = id();
+      db.prepare(
+        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
+      ).run(agent, agent, agent, provider, now());
+      return agent;
+    };
+    const builder = makeAgent();
+    const enqueue = (agentId: string, conversationId?: string) =>
+      submit("alice", {
+        agentId,
+        conversationId,
+        folderId: folder,
+        input: "Continue work",
+        idempotencyKey: id(),
+      });
+    const parent = enqueue(builder);
+    const active = claim("parent", (r) => r.id === parent.id)!;
+    expect(active).toBeDefined();
+    await invokeNative(
+      active,
+      nativeBindings(active).find((b) => b.tool === "loop55_request_review")!,
+      "review",
+      { teamId: team.id, scope: "uncommitted", base: "main" },
+    );
+    const record = db
+      .prepare(
+        "SELECT rc.run_id,cr.run_id lead FROM review_continuations rc JOIN code_reviews cr ON cr.id=rc.review_id WHERE rc.parent_run_id=?",
+      )
+      .get(parent.id) as any;
+    transition(active, "completed");
+    const later = enqueue(builder, parent.conversation_id!);
+    expect(claim("later", (r) => r.id === later.id)).toBeUndefined();
+    const unrelated = enqueue(builder);
+    const other = claim("unrelated", (r) => r.id === unrelated.id)!;
+    expect(other?.id).toBe(unrelated.id);
+    transition(other, "completed");
+    const sender = enqueue(makeAgent());
+    const source = claim("sender", (r) => r.id === sender.id)!;
+    const receipt = sendMail(source, "direct", {
+      to: builder,
+      body: "Unrelated message",
+      scope: "direct",
+      conversationId: unrelated.conversation_id!,
+    });
+    const mail = db
+      .prepare("SELECT run_id FROM agent_mail WHERE id=?")
+      .get(receipt.messageId) as any;
+    const delivered = claim("mail", (r) => r.id === mail.run_id)!;
+    expect(delivered?.id).toBe(mail.run_id);
+    transition(delivered, "completed");
+    transition(source, "completed");
+    expect(
+      claim(
+        "still-waiting",
+        (r) => r.id === record.run_id || r.id === later.id,
+      ),
+    ).toBeUndefined();
+    db.prepare(
+      "UPDATE runs SET state='completed' WHERE id=? OR id IN (SELECT child_run_id FROM delegations WHERE parent_run_id=?)",
+    ).run(record.lead, record.lead);
+    const follow = claim("follow", (r) => r.id === record.run_id)!;
+    expect(follow?.id).toBe(record.run_id);
+    expect(claim("ordered", (r) => r.id === later.id)).toBeUndefined();
+    transition(follow, "completed");
+    const last = claim("last", (r) => r.id === later.id)!;
+    expect(last?.id).toBe(later.id);
+    transition(last, "completed");
+  },
+  30000,
+);

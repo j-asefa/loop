@@ -5,6 +5,7 @@ import { MachineId } from "./fleet.js";
 // request, a Social feed digest, or another agent's message or delegated
 // result.
 export type Automation =
+  | { kind: "review_continuation"; reviewId: string }
   | { kind: "github_watch"; watchId: string }
   | { kind: "feed_digest"; digestId: string }
   | {
@@ -21,6 +22,7 @@ export function automationLabel(
 ) {
   if (kind === "github_watch") return "GitHub update";
   if (kind === "feed_digest") return "Feed digest";
+  if (kind === "review_continuation") return "Review follow-up";
   const from = fromName ? `@${fromName}` : "another agent";
   if (kind === "agent_message") return `Message from ${from}`;
   if (kind === "agent_result") return `Result from ${from}`;

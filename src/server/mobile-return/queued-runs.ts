@@ -3,6 +3,7 @@ import * as nativeDispatchQueries from "../sql/native-dispatch.js";
 import * as delegationsQueries from "../sql/delegations.js";
 import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
+import * as continuationQueries from "../sql/review-continuations.js";
 import {
   RunReorderInput,
   QueuedRunInput,
@@ -63,6 +64,7 @@ function editable(
     run.state === "queued" &&
     run.worker_id === null &&
     !run.active_since &&
+    !continuationQueries.byRun(db, run.id) &&
     !agentCheckpointsQueries.exists(db, run.id) &&
     !nativeDispatchQueries.exists(db, run.id)
   );

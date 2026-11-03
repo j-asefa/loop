@@ -5,6 +5,7 @@ import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord, parseRun, InvalidRow, type Run } from "../row-schemas.js";
 import { statement, statementVariants } from "./statement.js";
+import { READY_REVIEW_CONTINUATION } from "./review-continuations.js";
 
 export const RUN_LIVE_INPUT_SQL = (r: string) =>
   `(EXISTS(SELECT 1 FROM connections lc WHERE lc.id=json_extract(${r}.payload,'$.connectionId') AND lc.owner_id=${r}.owner_id AND COALESCE(json_extract(lc.metadata,'$.loop55Harness'),'') IN ('',${[...LIVE_INPUT_HARNESSES].map((h) => `'${h}'`).join(",")})))`;
@@ -644,6 +645,7 @@ export function markInvalidUnleased(
 const cancellableChildrenStatement = statement(`
       SELECT r.id,r.owner_id FROM runs r WHERE r.owner_id=? AND r.id IN (
         SELECT child_run_id FROM delegations WHERE parent_run_id=?
+        UNION SELECT rc.run_id FROM review_continuations rc WHERE rc.parent_run_id=? AND rc.owner_id=?
         UNION SELECT m.run_id FROM delegations d JOIN agent_mail m
           ON m.sender_run_id=d.child_run_id AND m.kind='result' AND m.owner_id=?
           JOIN runs result ON result.id=m.run_id AND result.owner_id=m.owner_id
@@ -658,7 +660,7 @@ export function cancellableChildren(
   mailParent: string | null,
 ) {
   return cancellableChildrenStatement(db)
-    .all(owner, parent, mailOwner, mailParent)
+    .all(owner, parent, parent, owner, mailOwner, mailParent)
     .map((row) => parseRecord(cancellableChildrenRow, row, "runs"));
 }
 
@@ -1073,18 +1075,33 @@ export function webhookContext(
     : parseRecord(webhookContextRow, row, "runs");
 }
 
+// An ineligible queued review only holds its own conversation. Also identify
+// messages behind it, so they cannot become an indirect cross-conversation
+// ordering barrier. Active leases and explicit pauses keep their usual rules.
+const waitingForReview = (run: string) => `(${run}.state='queued' AND EXISTS (
+ SELECT 1 FROM review_continuations rc JOIN runs waiting ON waiting.id=rc.run_id AND waiting.owner_id=rc.owner_id
+ WHERE waiting.owner_id=${run}.owner_id AND waiting.agent_id=${run}.agent_id
+   AND waiting.conversation_id=${run}.conversation_id AND waiting.state='queued'
+   AND (COALESCE(waiting.queue_rank,waiting.created_at)<COALESCE(${run}.queue_rank,${run}.created_at)
+     OR (COALESCE(waiting.queue_rank,waiting.created_at)=COALESCE(${run}.queue_rank,${run}.created_at) AND waiting.rowid<=${run}.rowid))
+   AND NOT (${READY_REVIEW_CONTINUATION("waiting")})
+))`;
+
 const claimCandidatesStatement = statement(`WITH candidates AS (
  SELECT runs.rowid AS queue_order, runs.*,
-   (json_extract(runs.payload,'$.mailId') IS NOT NULL OR EXISTS(SELECT 1 FROM agent_mail m WHERE (m.run_id=runs.id AND m.steering_id IS NULL) OR m.requeued_run_id=runs.id)) AS is_mail,
+   ${waitingForReview("runs")} AS waiting_review,
+   (json_extract(runs.payload,'$.mailId') IS NOT NULL OR EXISTS(SELECT 1 FROM review_continuations rc WHERE rc.run_id=runs.id) OR EXISTS(SELECT 1 FROM agent_mail m WHERE (m.run_id=runs.id AND m.steering_id IS NULL) OR m.requeued_run_id=runs.id)) AS is_mail,
    EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(runs.payload,'$.connectionId')
      AND c.owner_id=runs.owner_id AND ${NATIVE_CONNECTION_SQL}) AS per_conversation
  FROM runs
  WHERE runs.state IN ('queued','running','pausing','paused','awaiting_approval')
 )
 SELECT r.* FROM candidates r WHERE
+ ${READY_REVIEW_CONTINUATION("r")} AND
  ((r.state='queued' AND r.worker_id IS NULL AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)) OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id AND d.background=0)))
  AND NOT EXISTS(SELECT 1 FROM candidates busy WHERE busy.owner_id=r.owner_id AND busy.agent_id=r.agent_id AND (r.is_mail OR busy.is_mail OR busy.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT busy.per_conversation) AND busy.id<>r.id AND ((busy.state IN ('running','pausing','awaiting_approval') AND busy.worker_id IS NOT NULL) OR ((r.is_mail OR busy.is_mail) AND busy.state IN ('running','pausing','paused','awaiting_approval'))))
  AND NOT EXISTS(SELECT 1 FROM candidates older WHERE older.owner_id=r.owner_id AND older.agent_id=r.agent_id AND (r.is_mail OR older.conversation_id=r.conversation_id OR NOT r.per_conversation OR (NOT older.is_mail AND NOT older.per_conversation)) AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.queue_order<r.queue_order))
+   AND (older.conversation_id=r.conversation_id OR NOT older.waiting_review)
    AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id AND delegated.background=0) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id AND waiting.background=0)))))
  AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND d.background=0 AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
  ORDER BY COALESCE(r.queue_rank,r.created_at),r.queue_order`);

@@ -1,6 +1,7 @@
 import * as runCheckoutsQueries from "./sql/run-checkouts.js";
 import * as mailQueries from "./sql/agent-mail.js";
 import * as runsQueries from "./sql/runs.js";
+import * as continuationQueries from "./sql/review-continuations.js";
 import { z } from "zod";
 import {
   recordFleetEffect,
@@ -99,6 +100,11 @@ export function claim(
       // Refuse obsolete mail even when another conversation would prevent its
       // claim. Otherwise it can remain a permanent queue barrier.
       const mailRuns = mailQueries.queuedRuns(db, rejectInvalidRun);
+      for (const stopped of continuationQueries.stopped(db))
+        transition(stopped, "cancelled", {
+          reason:
+            "The requesting task stopped; review status remains available for explicit recovery.",
+        });
       for (const queued of mailRuns) {
         try {
           const failure = queuedMailFailure(queued.id);

@@ -9,6 +9,7 @@ import * as artifactVersionsQueries from "./sql/artifact-versions.js";
 import * as toolInvocationsQueries from "./sql/tool-invocations.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
+import * as continuationQueries from "./sql/review-continuations.js";
 import { assertFleetEffect } from "./fleet-effect-authorizations.js";
 import { MessageMetadata, readRunFolder, readRunReviewId, parseMessages, parseRuns, maybeRun, agentPayload } from "./row-schemas.js";
 import { QueryRecords, type QueryRow } from "./query-records.js";
@@ -436,6 +437,10 @@ function apiCapabilities(
 }
 export async function executeAgent(run: Run): Promise<boolean> {
   assertFleetEffect(run.owner_id, "run", run.id);
+  // Recheck after claim, before any checkpoint or native dispatch. A temporary
+  // disconnection must not consume the durable review continuation.
+  if (continuationQueries.shouldDefer(db, run.id, run.owner_id))
+    throw new RunDeferred("Review follow-up is waiting for its requester, review or selected provider.");
   const snapshot = agentPayload(run);
   if (snapshot.reviewId) {
     assertReviewIdentity(

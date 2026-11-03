@@ -25,6 +25,22 @@ import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
 import { inheritFleetEffect } from "./fleet-effect-authorizations.js";
 
 import type { Run } from "./queue.js";
+import { enqueue } from "./queue.js";
+import * as continuationQueries from "./sql/review-continuations.js";
+import * as messagesQueries from "./sql/messages.js";
+import { AgentSnapshot } from "./row-schemas.js";
+import { agentPermissionMode } from "./mcp/approval-policy.js";
+
+// Retain queued execution settings, excluding attachments, mail identity
+// and review-only tool restrictions. Unknown legacy fields are stripped.
+const continuationSnapshot = AgentSnapshot.omit({
+  source: true,
+  reviewId: true,
+  attachmentIds: true,
+  mailId: true,
+  replyTo: true,
+  previewFixture: true,
+}).strip();
 
 function directory(owner: string, folderId: string) {
   if (!companionMode)
@@ -76,7 +92,12 @@ function ensureCodeReview(
   value: unknown,
   // Agent-requested reviews capture the requester's own checkout and record
   // the requesting run as the lead's parent in the same transaction.
-  requester?: { path: string; runId: string; callId: string },
+  requester?: {
+    path: string;
+    runId: string;
+    callId: string;
+    continueAfterReview?: boolean;
+  },
 ) {
   const d = ReviewInput.parse(value);
   const hash = createHash("sha256")
@@ -157,20 +178,21 @@ function ensureCodeReview(
         reviewId,
         input: `${requester ? "Another agent requested this review before opening a pull request. " : ""}Review ${d.scope} changes. Consolidate the independent reviews of snapshot ${reviewId}.`,
         idempotencyKey: `review:${reviewId}:lead`,
-        personal: true,
+        personal: !requester,
       });
       if (requester)
         inheritFleetEffect(owner, "run", requester.runId, manager.id);
       codeReviewsQueries.setRun(db, manager.id, reviewId);
-      // Start with a foreground link; requestReview promotes nonblocking
-      // requests to background before returning. Both retain cancellation.
+      // Persist asynchronous review dependencies as background before returning.
+      // Blocking requests retain a foreground dependency; both retain cancellation.
       if (requester)
-        delegationsQueries.insertForeground(
+        delegationsQueries.insert(
           db,
           requester.runId,
           requester.callId + ":review",
           manager.id,
           "{}",
+          requester.continueAfterReview ? 1 : 0,
         );
       for (const a of assignments.slice(1)) {
         const child = submit(owner, {
@@ -189,6 +211,50 @@ function ensureCodeReview(
           `review:${a.role}`,
           child.id,
           "{}",
+        );
+      }
+      if (requester?.continueAfterReview) {
+        const parent = ownedRun(requester.runId, owner);
+        if (!parent.agent_id || !parent.conversation_id)
+          throw new Problem(
+            409,
+            "Review continuation requires an agent conversation",
+          );
+        const input = `Wait for review ${reviewId}, then continue the original task. Read loop55_review_status with reviewId ${reviewId} to retrieve the consolidated outcome. This follow-up starts only after the review ends. Snapshot fingerprint: ${fingerprint}; scope: ${snapshot.scope}; base commit: ${snapshot.base}. Completion is not approval. Check reviewer failures and findings, fix confirmed issues and obtain a fresh review of changed content before claiming approval. This review covers only its captured snapshot, not newer edits. If review failed, report or resolve that failure; do not automatically submit a duplicate review.`;
+        const continuation = enqueue(
+          owner,
+          input,
+          `review:${reviewId}:continuation`,
+          {
+            agent: parent.agent_id,
+            conversation: parent.conversation_id,
+            payload: {
+              ...continuationSnapshot.parse(parent.payload),
+              permissionMode: agentPermissionMode(owner),
+            },
+          },
+        );
+        continuationQueries.insert(
+          db,
+          reviewId,
+          owner,
+          parent.id,
+          continuation.id,
+        );
+        inheritFleetEffect(owner, "run", parent.id, continuation.id);
+        messagesQueries.insert(
+          db,
+          id(),
+          owner,
+          parent.conversation_id,
+          continuation.id,
+          "user",
+          input,
+          JSON.stringify({
+            personal: false,
+            automation: { kind: "review_continuation", reviewId },
+          }),
+          now(),
         );
       }
       return reviewId;
@@ -282,6 +348,7 @@ export function requestReview(
       path: session?.project ?? directory(run.owner_id, folderId),
       runId: run.id,
       callId,
+      continueAfterReview: !args.wait,
     },
   );
   // Async reviews preserve cancellation/provenance without blocking ordinary
