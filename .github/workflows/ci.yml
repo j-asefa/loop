@@ -34,7 +34,7 @@ jobs:
   vitest:
     name: Vitest (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
