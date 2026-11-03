@@ -142,10 +142,9 @@ small,
   font-weight: 700;
   letter-spacing: -1.5px;
 }
-.wordmark svg {
+.wordmark .loop-logo {
   width: 27px;
   height: 27px;
-  stroke-width: 1.8;
 }
 .wordmark-dot {
   display: inline-block;
@@ -10749,4 +10748,11 @@ span.pull-state-chip { cursor: default; }
   max-height: max(64px, calc(var(--visual-viewport-height, 100dvh) * 0.3));
   resize: none;
   overflow-y: auto;
+}
+
+.loop-logo {
+  display: inline-block;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 20%;
 }

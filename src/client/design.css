@@ -92,10 +92,6 @@ a:focus-visible {
   font-weight: 700;
   letter-spacing: -1.2px;
 }
-.wordmark > svg {
-  color: var(--brass);
-  stroke-width: 2;
-}
 .wordmark-dot {
   display: none;
 }
@@ -1352,7 +1348,7 @@ label.catalog-search {
     font-size: 25px;
     gap: 8px;
   }
-  .mobile-brand svg {
+  .mobile-brand .loop-logo {
     width: 29px;
     height: 29px;
   }

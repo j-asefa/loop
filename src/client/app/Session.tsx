@@ -1,8 +1,8 @@
+import { LoopLogo } from "../LoopLogo";
 import { executionSourceId, returnToLocalSource } from "../sourceRouting";
 import { readRoute } from "../workspace-api";
 import { workspaceApi } from "../../shared/workspace-api";
 import { useEffect } from "react";
-import { Orbit } from "lucide-react";
 
 import { Auth } from "../Auth";
 
@@ -185,7 +185,7 @@ export function renderSessionGate(
   if (session === undefined)
     return (
       <div className="loading">
-        <Orbit className="spin" />
+        <LoopLogo size={32} className="spin" />
         <p>{error || "Opening your workspace…"}</p>
         {error && <button onClick={() => location.reload()}>Try again</button>}
       </div>

@@ -316,6 +316,10 @@ try {
   };
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   await page.waitForTimeout(1000);
+  const logo = page.locator(".mobile-brand .loop-logo");
+  await expect(logo).toHaveAttribute("src", "/icon-192.png");
+  await expect(logo).toBeVisible();
+  await expect.poll(() => logo.evaluate((img) => img.naturalWidth)).toBe(192);
   await capture("needs-you");
   await page.evaluate(() => {
     const done = [...document.querySelectorAll("button, [role=tab]")].find(

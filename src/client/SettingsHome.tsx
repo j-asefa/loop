@@ -7,7 +7,8 @@ import {
   KeyRound,
   MessageSquare,
   Monitor,
-  Orbit,
+  Bot,
+  Puzzle,
   Plug,
   Search,
   Server,
@@ -117,7 +118,7 @@ export function SettingsHome({
               "agents",
               "Manage agents",
               "Models, instructions & projects",
-              Orbit,
+              Bot,
               agents.length ? (
                 <SettingsPill tone="muted" quiet>
                   {agents.length}
@@ -128,7 +129,7 @@ export function SettingsHome({
               "pi-customizations",
               "Pi customizations",
               "Packages, skills & commands",
-              Orbit,
+              Puzzle,
             )}
             {row(
               "memory",

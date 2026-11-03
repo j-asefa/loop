@@ -1,3 +1,4 @@
+import { LoopLogo } from "./LoopLogo";
 import { routeUrl } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
 import { useSourceId, useSourcePath } from "./SourceContext";
@@ -18,7 +19,6 @@ import {
 } from "react";
 import {
   X,
-  Orbit,
   ArrowUpRight,
   MessageSquare,
   Bookmark,
@@ -90,7 +90,7 @@ export function Empty({
   return (
     <section className="empty">
       <div className="empty-orbit">
-        <Orbit size={32} />
+        <LoopLogo size={32} />
       </div>
       <h2>{title}</h2>
       <p>{children}</p>

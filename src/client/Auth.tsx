@@ -1,7 +1,8 @@
+import { LoopLogo } from "./LoopLogo";
 import { capabilities } from "./capabilities";
 import { Pairing } from "./Pairing";
 import { useState, useEffect, type FormEvent } from "react";
-import { Orbit, ArrowRight, ShieldCheck } from "lucide-react";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 import { readRoute, callRoute } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
@@ -50,7 +51,7 @@ function ServerAuth({ onDone }: { onDone: () => void }) {
     <div className="auth-page">
       <div className="auth-story">
         <div className="wordmark">
-          <Orbit />
+          <LoopLogo />
           loop
           <span className="wordmark-dot" />
         </div>

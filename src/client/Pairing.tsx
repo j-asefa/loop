@@ -1,5 +1,6 @@
+import { LoopLogo } from "./LoopLogo";
 import { useEffect, useRef, useState } from "react";
-import { Orbit, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { authorize, clearAuthorization } from "./api";
 import { executionSourceId } from "./sourceRouting";
 import { fleetDeviceFromLink } from "../shared/fleet-pairing";
@@ -83,7 +84,7 @@ export function Pairing({ onDone }: { onDone: () => void }) {
     <div className="auth-page">
       <div className="auth-story">
         <div className="wordmark">
-          <Orbit />
+          <LoopLogo />
           loop
           <span className="wordmark-dot" />
         </div>

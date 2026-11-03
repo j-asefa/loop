@@ -1,3 +1,4 @@
+import { LoopLogo } from "../LoopLogo";
 import { sessionDraft, type WorkspaceComposerDraft } from "../workspace-drafts";
 
 import { literalEntry, proseEntry } from "../textEntry";
@@ -45,7 +46,6 @@ import {
 } from "../drafts";
 
 import {
-  Orbit,
   Search,
   Plus,
   SlidersHorizontal,
@@ -459,7 +459,7 @@ export function renderApp(props: AppViewProps) {
             setTeamSelection([]);
           }}
         >
-          <Orbit />
+          <LoopLogo />
           loop
           <span className="wordmark-dot" />
         </button>
@@ -510,7 +510,7 @@ export function renderApp(props: AppViewProps) {
         <PwaStatus />
         <header className="topbar">
           <div className="wordmark mobile-brand">
-            <Orbit />
+            <LoopLogo />
             loop
             <span className="wordmark-dot" />
           </div>
