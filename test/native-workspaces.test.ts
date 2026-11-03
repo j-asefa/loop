@@ -533,7 +533,8 @@ it("allows a new explicit handoff destination after preparation fails while reta
   const { resumeFromDesktop } = await import("../src/server/migration.js");
   const firstProject = directory("failed-handoff-destination"),
     secondProject = directory("new-handoff-destination");
-  gitProject(firstProject);
+  // This failure path requires main, regardless of Git's default branch.
+  gitProject(firstProject)("branch", "-M", "main");
   execFileSync("git", [
     "-C",
     firstProject,

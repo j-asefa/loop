@@ -189,7 +189,9 @@ providers or Internet tunnel are used. `LOOP_BROWSER` selects one engine.
 
 ## Manual verification
 
-GitHub Actions are temporarily removed to avoid hosted-runner costs. Run the relevant checks locally and record results in the PR. The former workflow is available in Git history; the helper scripts in `scripts/ci/` and Docker Bake definitions remain available for manual use or future restoration.
+The [CI workflow](../.github/workflows/ci.yml) runs `npm run check` and the Vitest suite in three shards on pull requests and pushes to `main`, using Node 24 and Python 3.12 on standard Ubuntu runners. It checks a clean source checkout without building first. Runs have job timeouts, read-only repository permissions and cancellation of superseded runs on the same ref. Hosted-runner usage counts against the account quota while the repository is private; the repository owner controls approval of fork-PR runs.
+
+Run the relevant checks locally and record results in the PR as well. Native tests, browser smokes and Docker validation remain manual; the helper scripts in `scripts/ci/` and Docker Bake definitions remain available.
 
 Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them. The Docker companion smoke (`node scripts/compose-companion-smoke.mjs`) builds its images by default. The server smoke (`node scripts/compose-smoke.mjs`) expects the server Compose stack to be running; see [server operation](server.md). For an isolated prebuilt validation, pass `--images-file /absolute/override.yaml` to the companion smoke; the Compose override selects the test images and can set container memory/CPU limits and environment-specific CA mounts. This avoids overwriting shared CI tags. The runner still owns only its unique Compose project and volumes.
 
