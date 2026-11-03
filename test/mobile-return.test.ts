@@ -10,6 +10,20 @@ const dir = mkdtempSync(join(tmpdir(), "loop55-mobile-return-"));
 process.env.LOOP55_DATA_DIR = dir;
 process.env.LOOP55_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now, emit } = await import("../src/server/db");
+// Observe executions, including statements cached by earlier HTTP requests.
+const prepare = db.prepare.bind(db);
+let observeDoneQuery: ((sql: string, args: unknown[]) => void) | undefined;
+db.prepare = ((sql: string) => {
+  const statement = prepare(sql);
+  if (sql.includes("FROM feed_cards p")) {
+    const all = statement.all.bind(statement);
+    statement.all = (...args: unknown[]) => {
+      observeDoneQuery?.(sql, args);
+      return all(...args);
+    };
+  }
+  return statement;
+}) as typeof db.prepare;
 const { ownedRun, ownedConversation,  createAgent, owned, Problem } = await import("../src/server/domain");
 const { recordConversationUpdate } = await import("../src/server/conversation-updates");
 const { mobile } = await import("../src/server/mobile-routes");
@@ -670,29 +684,24 @@ it("reads the production Done page and summary in one indexed projection query",
   const cid = conversation(w.owner, a.id);
   message(w.owner, cid, "assistant", "Run answer", run(w.owner, a.id, cid));
   message(w.owner, cid, "assistant", "Imported answer");
-  const prepare = db.prepare.bind(db);
   let plan: { detail: string }[] = [];
   let selections = 0;
-  const spy = vi.spyOn(db, "prepare").mockImplementation((sql) => {
-    const statement = prepare(sql);
-    if (sql.includes("FROM feed_cards p")) {
-      selections++;
-      const all = statement.all.bind(statement);
-      statement.all = (...args: unknown[]) => {
-        plan = prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as { detail: string }[];
-        return all(...args);
-      };
-    }
-    return statement;
-  });
+  observeDoneQuery = (sql, args) => {
+    selections++;
+    plan = prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as { detail: string }[];
+  };
   try {
-    const response = await api(w.owner, "/feed?filter=done&expand=results");
-    expect(response.status).toBe(200);
-    expect(response.data.items).toHaveLength(2);
+    // Exercise the cached path even when this test runs alone.
+    for (let request = 0; request < 2; request++) {
+      selections = 0;
+      const response = await api(w.owner, "/feed?filter=done&expand=results");
+      expect(response.status).toBe(200);
+      expect(response.data.items).toHaveLength(2);
+      expect(selections).toBe(1);
+    }
   } finally {
-    spy.mockRestore();
+    observeDoneQuery = undefined;
   }
-  expect(selections).toBe(1);
   expect(plan.some(row => /SEARCH p USING INDEX feed_cards_results/.test(row.detail))).toBe(true);
   expect(plan.some(row => /SEARCH t USING COVERING INDEX feed_cards_summary/.test(row.detail))).toBe(true);
   // The Done count reads only unread visible results, not every result.
