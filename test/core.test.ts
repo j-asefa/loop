@@ -1,8 +1,12 @@
-import { afterAll, describe, it, expect } from "vitest";
+import { afterAll, describe, it, expect, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
+// Server-profile behaviour, removed with the server profile (fresh start PR 3).
+vi.hoisted(() => {
+  process.env.LOOP_PROFILE = "server";
+});
 const dir = mkdtempSync(join(tmpdir(), "loop-core-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");

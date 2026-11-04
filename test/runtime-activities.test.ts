@@ -9,6 +9,10 @@ import {
   codexActivity,
   codexTrace,
 } from "../runtime/traces.ts";
+// Server-profile behaviour, removed with the server profile (fresh start PR 3).
+vi.hoisted(() => {
+  process.env.LOOP_PROFILE = "server";
+});
 
 // Subscription runs execute in a Codex or Claude Code runtime whose own
 // executor reports structured command/file results. These tests drive the

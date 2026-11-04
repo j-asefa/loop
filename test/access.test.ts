@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { request as httpRequest } from "node:http";
@@ -8,6 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
+// Server-profile behaviour, removed with the server profile (fresh start PR 3).
+vi.hoisted(() => {
+  process.env.LOOP_PROFILE = "server";
+});
 
 const directories: string[] = [];
 const processes: ChildProcess[] = [];

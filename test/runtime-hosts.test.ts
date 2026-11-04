@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
+// Server-profile behaviour, removed with the server profile (fresh start PR 3).
+vi.hoisted(() => {
+  process.env.LOOP_PROFILE = "server";
+});
 const dir = mkdtempSync(join(tmpdir(), "loop-hosts-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");

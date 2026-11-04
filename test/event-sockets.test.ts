@@ -1,8 +1,22 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, it, vi } from "vitest";
+import { rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { WebSocket } from "ws";
 import { installEventSockets } from "../src/server/event-sockets";
+// Server-profile behaviour, removed with the server profile (fresh start PR 3).
+// Awaited so the profile and a private data directory are set before any
+// imported module opens the database.
+const dataDir = await vi.hoisted(async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  process.env.LOOP_PROFILE = "server";
+  const dir = mkdtempSync(join(tmpdir(), "loop-event-sockets-"));
+  process.env.LOOP_DATA_DIR = dir;
+  return dir;
+});
+afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
 
 const { session, connectEvents } = vi.hoisted(() => ({
   session: vi.fn(),

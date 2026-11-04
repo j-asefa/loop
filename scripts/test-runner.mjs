@@ -11,7 +11,7 @@ export function testEnvironment(env, suite) {
         (!/^LOOP_/.test(key) || /^LOOP_TEST_/.test(key)),
     ),
   );
-  if (suite === "vitest") clean.LOOP_PROFILE = "server";
+  if (suite === "vitest") clean.LOOP_PROFILE = "companion";
   return clean;
 }
 if (

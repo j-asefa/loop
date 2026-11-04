@@ -126,7 +126,7 @@ test(
     const observed = JSON.parse(
       readFileSync(join(project, "observed.json"), "utf8"),
     );
-    assert.equal(observed.profile, "server");
+    assert.equal(observed.profile, "companion");
     assert.equal(observed.live, undefined);
     assert.equal(observed.keep, "yes");
     assert.equal(observed.args[0], "run");

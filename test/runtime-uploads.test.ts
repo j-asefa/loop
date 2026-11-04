@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, it } from "vitest";
+import { afterAll, beforeEach, expect, it, vi } from "vitest";
 import {
   existsSync,
   mkdirSync,
@@ -23,6 +23,10 @@ import {
   uploadName,
   writeUploadChunk,
 } from "../runtime/uploads.ts";
+// Server-profile behaviour, removed with the server profile (fresh start PR 3).
+vi.hoisted(() => {
+  process.env.LOOP_PROFILE = "server";
+});
 
 const dir = mkdtempSync(join(tmpdir(), "loop-uploads-"));
 process.env.LOOP_DATA_DIR = join(dir, "data");

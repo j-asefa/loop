@@ -141,6 +141,6 @@ it("keeps workspace settings and credentials out of test subprocesses", () => {
   expect(JSON.parse(output)).toEqual({
     PATH: "fixture",
     LOOP_TEST_FLAG: "test",
-    LOOP_PROFILE: "server",
+    LOOP_PROFILE: "companion",
   });
 });

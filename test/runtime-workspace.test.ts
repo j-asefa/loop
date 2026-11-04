@@ -1,10 +1,14 @@
-import { it, expect, beforeAll, afterEach, afterAll } from "vitest";
+import { it, expect, beforeAll, afterEach, afterAll, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import express from "express";
+// Server-profile behaviour, removed with the server profile (fresh start PR 3).
+vi.hoisted(() => {
+  process.env.LOOP_PROFILE = "server";
+});
 
 const dir = mkdtempSync(join(tmpdir(), "loop-workspace-"));
 process.env.LOOP_DATA_DIR = dir;
