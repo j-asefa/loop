@@ -995,7 +995,7 @@ test("loop acp refuses a relative or missing executable with setup guidance", as
   }
 });
 
-test("loop start --direct pairs with no installed harness, reuses the host and survives restart", async () => {
+test("loop start pairs with no installed harness, reuses the host and survives restart", async () => {
   const w = await workspace();
   try {
     // Automatic discovery must not depend on this machine's signed-in CLIs.
@@ -1017,7 +1017,6 @@ test("loop start --direct pairs with no installed harness, reuses the host and s
     Object.assign(w.env, { PATH: `${unavailable}:${process.env.PATH}` });
     const first = await w.loop([
       "start",
-      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
@@ -1027,12 +1026,11 @@ test("loop start --direct pairs with no installed harness, reuses the host and s
     assert.equal(status.serverReady, true);
     assert.equal(status.executionReady, false);
     assert.deepEqual(status.harnesses, []);
-    const resumed = await w.loop(["start", "--direct", "--local-only"]);
+    const resumed = await w.loop(["start", "--local-only"]);
     assert.match(resumed.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     const again = await w.loop([
       "start",
-      "--direct",
       "--local-only",
       "--project",
       w.env.LOOP_HOME,
@@ -1055,13 +1053,13 @@ test("loop start --direct pairs with no installed harness, reuses the host and s
       ).stdout,
       PAIR_URL,
     );
-    const bare = await w.loop(["--direct", "--local-only"]);
+    const bare = await w.loop(["--local-only"]);
     assert.match(bare.stdout, PAIR_URL);
     assert.equal((await w.status()).pid, status.pid);
     const otherProject = join(w.env.LOOP_HOME, "other-project");
     await mkdir(otherProject);
     await assert.rejects(
-      w.loop(["start", "--direct", "--local-only", "--project", otherProject]),
+      w.loop(["start", "--local-only", "--project", otherProject]),
       /Run loop stop before changing the running workspace/,
     );
     await assert.rejects(
@@ -1104,7 +1102,7 @@ test("loop start --direct pairs with no installed harness, reuses the host and s
     );
     await w.loop(["stop"]);
     await assert.rejects(w.loop(["pair"]), /loop start/);
-    const restarted = await w.loop(["--direct", "--local-only"]);
+    const restarted = await w.loop(["--local-only"]);
     assert.equal((await w.status()).project, w.env.LOOP_HOME);
     const nextOrigin = new URL(restarted.stdout.match(PAIR_URL)![0]).origin;
     const session = await fetch(nextOrigin + "/session", {
@@ -1124,13 +1122,7 @@ test("loop start --direct pairs with no installed harness, reuses the host and s
 test("bare loop restores a saved managed project from another directory", async () => {
   const w = await workspace();
   try {
-    await w.loop([
-      "start",
-      "--direct",
-      "--local-only",
-      "--project",
-      w.env.LOOP_HOME,
-    ]);
+    await w.loop(["start", "--local-only", "--project", w.env.LOOP_HOME]);
     const running = await w.status();
     const preferencesPath = join(w.dir, "preferences.json");
     const preferences = JSON.parse(await readFile(preferencesPath, "utf8"));

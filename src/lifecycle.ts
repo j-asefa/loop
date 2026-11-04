@@ -42,18 +42,13 @@ export function identity(pid: number): string | undefined {
     return undefined;
   }
 }
-/** Legacy macOS timestamps have no locale or timezone. A mismatch is not proof
- * of PID reuse; only the normalized format supports that inference. */
 export function processIdentityState(
   pid: number,
   expected: string,
 ): "same" | "different" | "unknown" {
   const live = identity(pid);
   if (!live || !expected) return "unknown";
-  if (live === expected) return "same";
-  if (process.platform === "darwin" && !expected.startsWith(DARWIN_IDENTITY))
-    return psIdentity(pid) === expected ? "same" : "unknown";
-  return "different";
+  return live === expected ? "same" : "different";
 }
 /**
  * The PID namespace of this process. Records written in another namespace (a

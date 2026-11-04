@@ -134,8 +134,7 @@ async function sourceCheckout(path: string) {
     );
   const pkg = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
   if (
-    // Experiment branches may predate the current package name.
-    !["@j-asefa/loop", "loop55", "loop"].includes(pkg.name) ||
+    pkg.name !== "@j-asefa/loop" ||
     !pkg.scripts?.build ||
     !(await exists(join(source, "src", "preview-context.ts")))
   )

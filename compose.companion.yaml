@@ -34,8 +34,5 @@ services:
       - loop-companion-connection:/data/loop-connection
 volumes:
   loop-companion-data:
-    name: "${LOOP_COMPANION_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_loop-companion-data}"
   loop-companion-projects:
-    name: "${LOOP_COMPANION_PROJECTS_VOLUME:-${COMPOSE_PROJECT_NAME}_loop-companion-projects}"
   loop-companion-connection:
-    name: "${LOOP_COMPANION_CONNECTION_VOLUME:-${COMPOSE_PROJECT_NAME}_loop-companion-connection}"

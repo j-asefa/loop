@@ -110,20 +110,8 @@ export function serviceDefinitions(
     },
   };
 }
-/** Preserve native adapter options across upgrades; laptop was the old launcher alias. */
-export function migrateLaunchArgs(args: string[]) {
-  if (!["start", "laptop"].includes(args[0])) return args;
-  const next = ["start"];
-  for (let i = 1; i < args.length; i++) {
-    const key = args[i].split("=")[0];
-    if (["--executable", "--billing", "--execution"].includes(key)) {
-      if (!args[i].includes("=")) i++;
-    } else next.push(args[i]);
-  }
-  return [...next, "--execution", "native"];
-}
 
-/** Repoint the executable and migrate legacy argv in installed service units. */
+/** Repoint the executable in installed service units. */
 export function repointUnit(
   platform: string,
   contents: string,
@@ -164,7 +152,7 @@ export function repointUnit(
   } catch {
     throw unreadable();
   }
-  const next = [args[0], cli, ...migrateLaunchArgs(args.slice(2))];
+  const next = [args[0], cli, ...args.slice(2)];
   if (JSON.stringify(next) === JSON.stringify(args)) return null;
   return contents.replace(
     pattern,
@@ -245,23 +233,18 @@ export async function repointAppService(cli: string, root: string) {
  */
 export async function installedServiceNames(root: string) {
   const mac = process.platform === "darwin";
-  for (const names of [mac ? SERVICES.darwin : SERVICES.linux]) {
-    const file = join(
-      homedir(),
-      mac ? "Library/LaunchAgents" : ".config/systemd/user",
-      mac ? `${names.app}.plist` : names.app,
-    );
-    const contents = await readFile(file, "utf8").catch(() => undefined);
-    if (contents === undefined) continue;
-    const home = mac
-      ? contents.match(
-          /<key>LOOP(?:55)?_HOME<\/key><string>([^<]*)<\/string>/,
-        )?.[1]
-      : contents.match(
-          /^Environment="LOOP(?:55)?_HOME=((?:\\.|[^"\\])*)"/m,
-        )?.[1];
-    if (home === (mac ? xml(root) : unit(root).slice(1, -1))) return names;
-  }
+  const names = mac ? SERVICES.darwin : SERVICES.linux;
+  const file = join(
+    homedir(),
+    mac ? "Library/LaunchAgents" : ".config/systemd/user",
+    mac ? `${names.app}.plist` : names.app,
+  );
+  const contents = await readFile(file, "utf8").catch(() => undefined);
+  if (contents === undefined) return undefined;
+  const home = mac
+    ? contents.match(/<key>LOOP_HOME<\/key><string>([^<]*)<\/string>/)?.[1]
+    : contents.match(/^Environment="LOOP_HOME=((?:\\.|[^"\\])*)"/m)?.[1];
+  if (home === (mac ? xml(root) : unit(root).slice(1, -1))) return names;
 }
 export async function installedSupervisor(root: string) {
   if (!(await installedServiceNames(root))) return undefined;
@@ -280,16 +263,13 @@ export async function userService(
     ? join(homedir(), "Library/LaunchAgents")
     : join(homedir(), ".config/systemd/user");
   const names = mac ? SERVICES.darwin : SERVICES.linux;
-  const prior = await installedServiceNames(root);
-  const retired =
-    prior && prior.app !== names.app ? [prior.app, prior.connection] : [];
   const file = (name: string) => join(dir, mac ? `${name}.plist` : name);
   if (!["install", "uninstall"].includes(action))
     throw new Error("Use loop service install or loop service uninstall");
   const uid = process.getuid!();
   // Stop the application before the connection, and start it after.
   const stop = async () => {
-    for (const name of [names.app, names.connection, ...retired]) {
+    for (const name of [names.app, names.connection]) {
       if (mac)
         await exec("launchctl", ["bootout", `gui/${uid}/${name}`]).catch(
           () => {},
@@ -313,7 +293,6 @@ export async function userService(
     );
     // Replacing an existing installation never runs two copies at once.
     await stop();
-    for (const name of retired) await rm(file(name), { force: true });
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await rm(file(names.connection), { force: true });
     const installed = [definitions.connection, definitions.app].filter(
@@ -337,7 +316,7 @@ export async function userService(
     }
   } else {
     await stop();
-    for (const name of [names.app, names.connection, ...retired])
+    for (const name of [names.app, names.connection])
       await rm(file(name), { force: true });
     if (!mac)
       await exec("systemctl", ["--user", "daemon-reload"]).catch(() => {});

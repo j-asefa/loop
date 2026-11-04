@@ -413,8 +413,7 @@ def prune_builds(releases, config):
                 continue
             shutil.rmtree(modules)
             removed.append(str(modules))
-        for name in ("j-asefa-loop-0.1.0.tgz", "loop55-0.1.0.tgz"):
-            package = p / name
+        for package in p.glob("j-asefa-loop-*.tgz"):
             if package.exists():
                 regular(package)
                 package.unlink()

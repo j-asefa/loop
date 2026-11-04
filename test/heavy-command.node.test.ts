@@ -77,7 +77,7 @@ test("the design entrypoint preserves the first failure when cancelling siblings
 });
 
 test(
-  "the test entrypoint strips live settings and obsolete admission controls",
+  "the test entrypoint strips live settings and accepts watch options",
   { skip: !linux },
   async () => {
     const project = join(directory, "test-project");
@@ -88,7 +88,7 @@ test(
     import { writeFileSync } from "node:fs";
     writeFileSync("observed.json", JSON.stringify({ profile: process.env.LOOP_PROFILE,
       live: process.env.LOOP_DATA_DIR, keep: process.env.LOOP_TEST_KEEP,
-      reservation: process.env.LOOP_HEAVY_SLOT, args: process.argv.slice(2) }));
+      args: process.argv.slice(2) }));
   `,
     );
     const runner = spawn(
@@ -102,7 +102,6 @@ test(
         env: {
           ...process.env,
           XDG_RUNTIME_DIR: join(project, "runtime"),
-          LOOP_HEAVY_RESERVE_MB: "invalid-old-setting",
           LOOP_DATA_DIR: "must-not-reach-tests",
           LOOP_TEST_KEEP: "yes",
         },
@@ -130,7 +129,6 @@ test(
     assert.equal(observed.profile, "server");
     assert.equal(observed.live, undefined);
     assert.equal(observed.keep, "yes");
-    assert.equal(observed.reservation, undefined);
     assert.equal(observed.args[0], "run");
     for (const [index, extra] of [
       ["--watch=true"],
@@ -150,17 +148,11 @@ test(
           env: {
             ...process.env,
             XDG_RUNTIME_DIR: runtime,
-            LOOP_HEAVY_RESERVE_MB: "invalid-old-setting",
           },
           encoding: "utf8",
         },
       );
       assert.equal(checked.status, 0, checked.stderr);
-      assert.equal(
-        existsSync(join(runtime, "loop-typecheck")),
-        false,
-        `${extra.join(" ")} never creates a host slot`,
-      );
     }
   },
 );

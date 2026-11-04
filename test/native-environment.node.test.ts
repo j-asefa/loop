@@ -25,8 +25,8 @@ for (const explicit of [false, true]) {
       OPENAI_API_KEY: "fixture-provider-key",
       CLAUDE_CONFIG_DIR: join(dir, "native-credentials"),
     };
-    // Stale LOOP55_ settings from the old name are stripped as well.
-    for (const prefix of ["LOOP_", "LOOP55_"]) {
+    {
+      const prefix = "LOOP_";
       Object.assign(injected, {
         [prefix + "HOME"]: live,
         [prefix + "DATA_DIR"]: live,
@@ -64,7 +64,7 @@ for (const explicit of [false, true]) {
            writeSync(3,'metadata pipe preserved');
            console.log(JSON.stringify({
              data:config.data,
-             keys:Object.keys(process.env).filter(k=>/^LOOP(?:55)?_/.test(k)||k==='BETTER_AUTH_SECRET').sort(),
+             keys:Object.keys(process.env).filter(k=>/^LOOP_/.test(k)||k==='BETTER_AUTH_SECRET').sort(),
              providerPreserved:process.env.OPENAI_API_KEY==='fixture-provider-key',
              credentialHome:process.env.CLAUDE_CONFIG_DIR,
              home:process.env.HOME,
@@ -106,14 +106,12 @@ for (const explicit of [false, true]) {
       assert.deepEqual(
         actual.keys,
         [
-          ...["LOOP_"].flatMap((prefix) =>
-            ["TOOLS_URL", "TOOLS_TOKEN", "BILLING_MODE", "TEST_SETTING"].map(
-              (suffix) => prefix + suffix,
-            ),
-          ),
-          "LOOP_HEAVY_SCHEDULING",
+          "LOOP_TOOLS_URL",
+          "LOOP_TOOLS_TOKEN",
+          "LOOP_BILLING_MODE",
+          "LOOP_TEST_SETTING",
           ...Object.keys(process.env).filter(
-            (key) => /^LOOP(?:55)?_TEST_/.test(key) && !(key in injected),
+            (key) => /^LOOP_TEST_/.test(key) && !(key in injected),
           ),
         ].sort(),
       );

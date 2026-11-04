@@ -407,7 +407,7 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       assert.equal(limited.headers.get("retry-after"), "12");
       assert.deepEqual(await limited.json(), { error: "Too many requests" });
     }
-    // Links made with the container id before stable ids still resolve.
+    // Sources resolve by their stable compose id only, not a container id.
     assert.equal(
       (
         await fetch(
@@ -416,7 +416,7 @@ test("paired gateway distinguishes Docker services and preserves their routing a
           { headers: { cookie } },
         )
       ).status,
-      200,
+      404,
     );
     const endpoint = base + "runs";
     const denied = await fetch(endpoint, {
@@ -475,7 +475,6 @@ test("paired gateway distinguishes Docker services and preserves their routing a
       refreshed.map(({ id, name }) => ({ id, name })),
       found,
     );
-    assert.equal(refreshed[0].containerId, replacementId);
     assert.deepEqual(
       await fetch(base + "conversations", { headers: { cookie } }).then((r) =>
         r.json(),

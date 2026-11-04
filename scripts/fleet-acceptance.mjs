@@ -1102,8 +1102,7 @@ try {
           ],
           { env },
         );
-        // Older packages predate the scoped name (unscoped loop55, then
-        // loop) and their command names; read both from the package itself.
+        // Read the package name and its command from the package itself.
         const manifest = JSON.parse(
           (
             await execute("tar", [

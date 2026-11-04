@@ -11,13 +11,11 @@ import type { EventSocket } from "./event-socket.js";
 
 const run = promisify(execFile);
 // `id` is stable across `docker compose up` recreating the container, so
-// thread links and per-source send receipts survive it. `containerId` is
-// the current container, still accepted for links made before this change.
+// thread links and per-source send receipts survive it.
 export type LinkedDockerWorkspace = {
   id: string;
   name: string;
   port: number;
-  containerId: string;
 };
 let cached: { at: number; items: LinkedDockerWorkspace[] } | undefined;
 let discovering: Promise<LinkedDockerWorkspace[]> | undefined;
@@ -110,7 +108,6 @@ async function inspect(id: string): Promise<LinkedDockerWorkspace | null> {
             id: composeSourceId(project, service),
             name: `Docker · ${project}/${service}`,
             port,
-            containerId: container.Id,
           }
         : null;
     } finally {
@@ -130,7 +127,7 @@ export async function connectLinkedDockerEvents(
   query: URLSearchParams,
 ) {
   const workspace = (await linkedDockerWorkspaces()).find(
-    (item) => item.id === sourceId || item.containerId === sourceId,
+    (item) => item.id === sourceId,
   );
   if (socket.readyState !== WebSocket.OPEN) return;
   if (!workspace) {
@@ -188,7 +185,7 @@ export async function proxyLinkedDocker(
   // Writes reuse a discovery from the last few seconds too: re-running
   // docker on every send only delays it, and a stale port fails closed.
   const workspace = (await linkedDockerWorkspaces()).find(
-    (item) => item.id === sourceId || item.containerId === sourceId,
+    (item) => item.id === sourceId,
   );
   if (!workspace) {
     res.writeHead(404, {

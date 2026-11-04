@@ -243,8 +243,8 @@ class StoragePolicy(unittest.TestCase):
         (source / "node_modules/pkg").mkdir(parents=True)
         shutil.copyfile(source / "package-lock.json", source / "node_modules/.package-lock.json")
         shutil.copyfile(source / "package-lock.json", source / "npm-shrinkwrap.json")
-        # Releases built before the rename hold the unscoped Loop55 archive.
-        for name in ("j-asefa-loop-0.1.0.tgz", "loop55-0.1.0.tgz"):
+        # Any packed version of the package is a generated release archive.
+        for name in ("j-asefa-loop-0.1.0.tgz", "j-asefa-loop-0.2.0.tgz"):
             (release / name).write_bytes(b"generated package")
         return source
 
@@ -256,7 +256,7 @@ class StoragePolicy(unittest.TestCase):
             removed = p.prune_builds(list(reversed(releases)), self.config)
         self.assertIn(str(sources[0] / "node_modules"), removed)
         self.assertIn(str(releases[0] / "j-asefa-loop-0.1.0.tgz"), removed)
-        self.assertIn(str(releases[0] / "loop55-0.1.0.tgz"), removed)
+        self.assertIn(str(releases[0] / "j-asefa-loop-0.2.0.tgz"), removed)
         self.assertTrue((sources[0] / "package.json").exists())
         for source in sources[1:]:
             self.assertTrue((source / "node_modules").is_dir())

@@ -232,16 +232,8 @@ async function launchArgs(dir: string) {
     Array.isArray(saved.args) &&
     saved.args.every((a: unknown) => typeof a === "string")
   )
-    return (await import("./service.js")).migrateLaunchArgs(saved.args);
-  // Launched by a release without launch records: its saved start project and
-  // preferences (providers, execution, tunnel and billing) still apply.
-  const preferences = await readFile(join(dir, "preferences.json"), "utf8")
-    .then(JSON.parse)
-    .catch(() => ({}));
-  return [
-    "start",
-    ...(preferences.project ? ["--project", preferences.project] : []),
-  ];
+    return saved.args as string[];
+  return ["start"];
 }
 
 /**
@@ -312,16 +304,7 @@ async function restartWorkspace(
     // process group and absent from the application's ownership records.
     await stopWorkspace(dir);
   }
-  await daemonize(dir, args, {
-    restart: true,
-    // Releases before the connection service ran cloudflared in-process.
-    legacy:
-      !!status &&
-      !status.connection &&
-      /\.trycloudflare\.com$/.test(String(status.url ?? "")) &&
-      service.state !== "running",
-    upgradedFrom,
-  });
+  await daemonize(dir, args, { restart: true, upgradedFrom });
 }
 
 /** An installed service restarts only its application unit. */
@@ -524,7 +507,7 @@ async function upgradeWorkspace(
 async function daemonize(
   dir: string,
   args: string[],
-  restart?: { restart: true; legacy: boolean; upgradedFrom?: string },
+  restart?: { restart: true; upgradedFrom?: string },
 ) {
   const log = join(dir, "daemon.log");
   await retireLog(log);
@@ -540,9 +523,7 @@ async function daemonize(
         env: {
           ...process.env,
           LOOP_DAEMON_CHILD: "1",
-          ...(restart && !restart.legacy
-            ? { LOOP_LAUNCH_REASON: "restart" }
-            : {}),
+          ...(restart ? { LOOP_LAUNCH_REASON: "restart" } : {}),
         },
       },
     );
@@ -576,10 +557,6 @@ async function daemonize(
         );
       });
     });
-    if (restart?.legacy)
-      console.log(
-        "This release keeps the public address across restarts. Moving the tunnel into its connection service changed the address once; scan the new code from the Loop app.",
-      );
     if (restart?.upgradedFrom)
       console.log(`Upgraded from Loop ${restart.upgradedFrom} to ${VERSION}.`);
     showReady(ready);
@@ -668,7 +645,6 @@ async function main() {
       json: { type: "boolean" },
       follow: { type: "boolean", short: "f" },
       foreground: { type: "boolean" },
-      direct: { type: "boolean" },
       "local-only": { type: "boolean" },
       "public-url": { type: "string" },
       providers: { type: "string" },
@@ -1123,14 +1099,12 @@ Uninstall removes the package separately; workspace/native history is retained.`
   }
   if (
     positionals.length > 1 ||
-    (action !== "start" &&
-      action !== "laptop" &&
-      !names.includes(action as Harness))
+    (action !== "start" && !names.includes(action as Harness))
   )
     throw new Error("Unknown command. See loop --help.");
   if (values["local-only"] && values["public-url"])
     throw new Error("Choose --local-only or --public-url.");
-  const neutral = action === "start" || action === "laptop";
+  const neutral = action === "start";
   if (
     neutral &&
     (values.resume ||
@@ -1145,10 +1119,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const preferences = await readFile(preferencesPath, "utf8")
     .then(JSON.parse)
     .catch(() => ({}));
-  // --direct once opted out of the managed launcher. Every start is native now;
-  // it is still accepted so existing service units and scripts keep working.
-  if (values.direct && !neutral)
-    throw new Error("Use --direct with loop start.");
   const selected = (neutral ? "codex" : action) as Harness;
   const running = await control(dir, "status").catch(() => undefined);
   if (neutral && !values.project && preferences.project)

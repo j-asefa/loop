@@ -145,8 +145,6 @@ enrollment receipts and existing device trust survive restart. The local
 administration API can mint an enrollment-only link for a machine whose browser
 has already consumed its combined link; it does not disclose a device capability.
 
-Existing Expo app installations must migrate to the browser: run `loop pair`, open the new link in your phone’s browser, and add Loop to the home screen again. The native app’s session hand-off is no longer supported.
-
 ## Tunnels and reconnect
 
 By default Loop starts a pinned, hash-verified cloudflared Quick Tunnel. Cloudflare terminates TLS. Native transports and private administration stay local; public workspace updates use authenticated WebSockets with polling recovery.
@@ -172,10 +170,6 @@ loop stop               # everything, including the tunnel
 While the application restarts, the relay answers `503` with `Retry-After` and `X-Loop-Unavailable: restarting`. Requests are never queued or replayed across application launches; a mutation interrupted after it reached the application is reported as `502` with an unknown outcome, and Loop's durable request keys reconcile any later explicit retry. Open pages keep their thread, drafts and scroll, show “Loop is reconnecting…”, and resubscribe with their event cursor. A page opened during the restart receives a generic reconnect page that retries itself. When the restart brings new browser assets, the page offers **Reload to update** rather than reloading on its own.
 
 The address is preserved only while the connection service and its Quick Tunnel live. `loop stop`, a reboot, replacing the connection service or an actual cloudflared failure that reconnects with a new hostname can change it; then run `loop pair` and scan the code from the Loop app. A Quick Tunnel hostname cannot be reserved, and Cloudflare documents no uptime guarantee for Quick Tunnels. Browser storage and home-screen icons belong to an origin, so a changed address needs a new home-screen install; device records survive, and a new scan creates a fresh entry you can revoke.
-
-**First upgrade from an earlier release.** Earlier releases ran cloudflared inside the application. Moving it into the connection service changes the address once: `loop restart` (or `loop upgrade` run by this release) prints a fresh code. Releases before this one implemented `loop upgrade` by restarting Pi; to keep your runtimes on that first transition, install the new release (`npm install -g https://github.com/j-asefa/loop.git#main`, or `git pull && bash install` in a checkout) and run `loop restart` instead. Later restarts keep the address.
-
-**Upgrading from Loop55.** The package is now `@j-asefa/loop` with the `loop` command. `loop55 upgrade` installs it but then restarts with its own, unchanged `loop55` CLI, so the old build keeps serving. Install the new package yourself (`npm install -g https://github.com/j-asefa/loop.git#main`), run `loop restart`, and pair your devices again. A connection service installed as a system unit needs its `ExecStart` pointed at `node_modules/@j-asefa/loop/dist/cli.js` and its `LOOP55_` variables renamed to `LOOP_`.
 
 **Security boundary.** The connection service never sees provider credentials and is not a workspace API. Its relay listens only on `127.0.0.1` and forwards the original Host, Origin, cookies and CSRF header, so the application keeps enforcing device authentication. A new launch receives a generation-bound lease, listens on a private Unix socket in a `0700` directory, and must answer an HMAC challenge keyed by that lease before the service forwards anything to it; an unrelated listener or a superseded launch never receives browser traffic. A launch that stops answering or sending heartbeats is withdrawn within seconds. The service keeps its records in `connection/` under `LOOP_HOME` (`connection.json` holds the control token, mode `0600`); socket paths too long for Unix sockets move to `/tmp/loop-UID/`.
 
@@ -244,7 +238,7 @@ docker compose -f compose.companion.yaml restart loop-companion
 docker compose -f compose.companion.yaml up -d --build --no-deps loop-companion
 ```
 
-Without `--no-deps`, a rebuild that changes the connection image recreates `loop-connection` too and the address changes. Inside the containers, `loop restart` is refused: restart the container instead. `docker compose down` (or recreating `loop-connection`) stops the tunnel; the next start gets a new address, so run `loop pair` again and follow the reconnect instructions above. The first `up` after upgrading from the single-container file adds `loop-connection` and changes the address once; existing volumes are reused.
+Without `--no-deps`, a rebuild that changes the connection image recreates `loop-connection` too and the address changes. Inside the containers, `loop restart` is refused: restart the container instead. `docker compose down` (or recreating `loop-connection`) stops the tunnel; the next start gets a new address, so run `loop pair` again and follow the reconnect instructions above.
 
 ```sh
 docker compose -f compose.companion.yaml exec loop-companion loop status --json

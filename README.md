@@ -62,7 +62,7 @@ The installer runs `npm ci`, builds Loop and links `loop` into a writable direct
 
 `loop start` prints a single-use pairing code. Scan it with your phone's camera:
 
-<img src="docs/screenshots/loop-start.png" alt="Illustrative fixture terminal output of loop start --direct: workspace ready, pairing instructions, a QR code and the trycloudflare.com pairing link" width="640">
+<img src="docs/screenshots/loop-start.png" alt="Illustrative fixture terminal output of loop start: workspace ready, pairing instructions, a QR code and the trycloudflare.com pairing link" width="640">
 
 The terminal screenshot uses an isolated fixture tunnel; its pairing link is no longer active.
 
@@ -145,7 +145,7 @@ The paired app shows agents and conversations from your computer and connected l
 
 To update a checkout install, run `git pull` and `bash install` while Loop keeps running, then `loop restart`. `loop restart` replaces only the application: a separate connection service keeps cloudflared, the Quick Tunnel address and your paired phone, and the restarted application uses the same projects, runtimes, execution and billing settings. It refuses while runs are active unless you pass `--force`. With the login service installed, `loop restart` restarts the application service the same way.
 
-`loop upgrade` does this in one command from any directory: it installs the package from the repository's remote `main` (or `--from PACKAGE`) while Loop keeps running, then restarts into the new build at the same address. A failed install leaves the running workspace alone. It does not use or modify a local Loop checkout. `loop stop` stops everything, including the tunnel; the next start can get a new address. Upgrading from a release without the connection service changes the address once; see [restart and upgrade](docs/pairing.md#connection-service-one-address-across-restarts).
+`loop upgrade` does this in one command from any directory: it installs the package from the repository's remote `main` (or `--from PACKAGE`) while Loop keeps running, then restarts into the new build at the same address. A failed install leaves the running workspace alone. It does not use or modify a local Loop checkout. `loop stop` stops everything, including the tunnel; the next start can get a new address.
 
 
 Pairing is for laptop workspaces; the server uses its own access configuration. See [pairing and recovery](docs/pairing.md).

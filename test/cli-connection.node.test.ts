@@ -436,12 +436,7 @@ test("loop start restores a crashed connection service behind the running applic
     }
 
     const project = w.harness[w.harness.indexOf("--project") + 1];
-    const { stdout } = await w.loop([
-      "start",
-      "--direct",
-      "--project",
-      project,
-    ]);
+    const { stdout } = await w.loop(["start", "--project", project]);
     const after = await w.status();
     assert.equal(after.pid, before.pid, "the application kept running");
     const service = after.connection.service;
@@ -512,7 +507,7 @@ test("loop pair refuses a code once the connection service is gone", async () =>
 
     // Recovering the service makes pairing available again, at its address.
     const project = w.harness[w.harness.indexOf("--project") + 1];
-    await w.loop(["start", "--direct", "--project", project]);
+    await w.loop(["start", "--project", project]);
     const paired = await w.loop(["pair"]);
     const serving = await w.status();
     assert.equal(serving.connection.registered, true);

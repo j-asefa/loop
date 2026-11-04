@@ -27,28 +27,12 @@ async function waitFor(condition: () => boolean) {
 }
 
 test(
-  "test, browser and typecheck entrypoints run concurrently despite an unavailable queue and an occupied legacy slot",
+  "test, browser and typecheck entrypoints run concurrently",
   { skip: process.platform !== "linux" },
   async () => {
     const root = mkdtempSync(join(tmpdir(), "loop-command-concurrency-"));
     const children: ChildProcess[] = [];
     try {
-      const locks = join(root, "loop-typecheck");
-      mkdirSync(locks, { mode: 0o700 });
-      const held = join(root, "held");
-      const holder = spawn(
-        "python3",
-        [
-          "-c",
-          "import fcntl,sys,time; f=open(sys.argv[1],'w'); fcntl.flock(f,fcntl.LOCK_EX); open(sys.argv[2],'w').close(); time.sleep(60)",
-          join(locks, "slot.lock"),
-          held,
-        ],
-        { stdio: "ignore" },
-      );
-      children.push(holder);
-      await waitFor(() => existsSync(held));
-
       // All commands must reach the barrier before any one can finish. No timing
       // assumption about compiler speed or the host's memory is needed.
       const release = join(root, "release");
@@ -56,11 +40,6 @@ test(
       writeFileSync(process.env.LOOP_TEST_STARTED, String(process.pid));
       while (!existsSync(${JSON.stringify(release)})) await new Promise(r => setTimeout(r, 20));`;
       mkdirSync(join(root, "scripts"));
-      cpSync(
-        new URL("../deployment", import.meta.url),
-        join(root, "deployment"),
-        { recursive: true },
-      );
       for (const name of [
         "heavy-command.mjs",
         "heavy-supervisor.py",
@@ -107,11 +86,6 @@ test(
             ...process.env,
             XDG_RUNTIME_DIR: root,
             LOOP_TEST_STARTED: markers[index],
-            LOOP_HEAVY_WAIT_SECONDS: "0",
-            LOOP_HEAVY_RESERVE_MB: "1099511627776",
-            LOOP_HEAVY_SCHEDULING: "on",
-            LOOP_JOB_QUEUE_CONFIG: join(root, "unavailable-queue.json"),
-            LOOP_JOB_ACTIVE: "",
           },
           stdio: ["ignore", "ignore", "pipe"],
         });
@@ -131,17 +105,12 @@ test(
         jobs.every((job) => job.exitCode === null),
         "each command is still running concurrently",
       );
-      assert.equal(holder.exitCode, null, "the legacy slot is still held");
       writeFileSync(release, "");
       await waitFor(() => jobs.every((job) => job.exitCode !== null));
       assert.deepEqual(
         jobs.map((job) => job.exitCode),
         [0, 0, 0],
         errors,
-      );
-      holder.kill("SIGTERM");
-      await waitFor(
-        () => holder.signalCode !== null || holder.exitCode !== null,
       );
     } finally {
       for (const child of children)

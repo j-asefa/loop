@@ -68,6 +68,5 @@ services:
       - loop
 volumes:
   loop-data:
-    name: "${LOOP_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_loop-data}"
   caddy-data:
   caddy-config:

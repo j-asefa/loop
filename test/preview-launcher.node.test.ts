@@ -118,7 +118,7 @@ async function fixture() {
   await writeFile(
     join(source, "package.json"),
     JSON.stringify({
-      name: "loop",
+      name: "@j-asefa/loop",
       version: "0.1.0",
       type: "module",
       scripts: { build: "node build.mjs" },

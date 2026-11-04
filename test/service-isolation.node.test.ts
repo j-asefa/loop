@@ -55,53 +55,47 @@ test("an upgrade cannot repoint another workspace's application or connection se
   }
 });
 
-for (const variable of ["LOOP_HOME", "LOOP55_HOME"])
-  test(`installed service discovery remains bound to its configured home (${variable})`, async () => {
-    const home = await mkdtemp(join(tmpdir(), "loop-service-home-"));
-    const mac = process.platform === "darwin";
-    const dir = join(
+test("installed service discovery remains bound to its configured home", async () => {
+  const home = await mkdtemp(join(tmpdir(), "loop-service-home-"));
+  const mac = process.platform === "darwin";
+  const dir = join(home, mac ? "Library/LaunchAgents" : ".config/systemd/user");
+  const root = join(home, 'workspace "quoted"');
+  try {
+    await mkdir(dir, { recursive: true });
+    const units = serviceDefinitions(
+      process.platform,
+      process.execPath,
+      "/old/dist/cli.js",
+      root,
       home,
-      mac ? "Library/LaunchAgents" : ".config/systemd/user",
+      process.env.PATH!,
     );
-    const root = join(home, 'workspace "quoted"');
-    try {
-      await mkdir(dir, { recursive: true });
-      const units = serviceDefinitions(
-        process.platform,
-        process.execPath,
-        "/old/dist/cli.js",
-        root,
-        home,
-        process.env.PATH!,
+    for (const unit of [units.app, units.connection]) {
+      if (!unit) continue;
+      await writeFile(
+        join(dir, mac ? `${unit.name}.plist` : unit.name),
+        unit.contents,
       );
-      for (const unit of [units.app, units.connection]) {
-        if (!unit) continue;
-        // Units installed under the Loop55 name record LOOP55_HOME; they
-        // still identify their workspace.
-        await writeFile(
-          join(dir, mac ? `${unit.name}.plist` : unit.name),
-          unit.contents.replaceAll("LOOP_HOME", variable),
-        );
-      }
-      const module = pathToFileURL(resolve("src/service.ts")).href;
-      const { stdout } = await promisify(execFile)(
-        process.execPath,
-        [
-          "--import",
-          "tsx",
-          "--input-type=module",
-          "-e",
-          `import { installedServiceNames } from ${JSON.stringify(module)}; console.log(JSON.stringify({ own: await installedServiceNames(${JSON.stringify(root)}), foreign: await installedServiceNames(${JSON.stringify(join(home, "another"))}) ?? null }));`,
-        ],
-        { env: { ...process.env, HOME: home } },
-      );
-      assert.deepEqual(JSON.parse(stdout), {
-        own: mac
-          ? { app: "dev.loop.workspace", connection: "dev.loop.connection" }
-          : { app: "loop.service", connection: "loop-connection.service" },
-        foreign: null,
-      });
-    } finally {
-      await rm(home, { recursive: true, force: true });
     }
-  });
+    const module = pathToFileURL(resolve("src/service.ts")).href;
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `import { installedServiceNames } from ${JSON.stringify(module)}; console.log(JSON.stringify({ own: await installedServiceNames(${JSON.stringify(root)}), foreign: await installedServiceNames(${JSON.stringify(join(home, "another"))}) ?? null }));`,
+      ],
+      { env: { ...process.env, HOME: home } },
+    );
+    assert.deepEqual(JSON.parse(stdout), {
+      own: mac
+        ? { app: "dev.loop.workspace", connection: "dev.loop.connection" }
+        : { app: "loop.service", connection: "loop-connection.service" },
+      foreign: null,
+    });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

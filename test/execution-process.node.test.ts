@@ -428,103 +428,60 @@ test(
   },
 );
 
-for (const scenario of [
-  {
-    name: "normalized identity across a timezone change",
-    legacy: false,
-    timezone: "Pacific/Honolulu",
-    ready: true,
-  },
-  {
-    name: "matching legacy identity",
-    legacy: true,
-    timezone: "UTC",
-    ready: true,
-  },
-  {
-    name: "ambiguous legacy identity",
-    legacy: true,
-    timezone: "Pacific/Honolulu",
-    ready: false,
-  },
-]) {
-  test(
-    `compiled macOS takeover respects ${scenario.name}`,
-    { timeout: 20_000 },
-    async (t) => {
-      const dir = mkdtempSync(join(tmpdir(), "loop-execution-mac-timezone-"));
-      const environment = macEnvironment(randomUUID()),
-        children: ChildProcess[] = [];
-      const native = spawn(
-        process.execPath,
-        [
-          "--input-type=module",
-          "-e",
-          `
+test(
+  "compiled macOS takeover respects a normalized identity across a timezone change",
+  { timeout: 20_000 },
+  async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), "loop-execution-mac-timezone-"));
+    const environment = macEnvironment(randomUUID()),
+      children: ChildProcess[] = [];
+    const native = spawn(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
     import { identity } from ${JSON.stringify(pathToFileURL(resolve("dist/lifecycle.js")).href)};
     console.log(JSON.stringify({ pid: process.pid, identity: identity(process.pid) }));
     setInterval(() => {}, 1000);
   `,
-        ],
-        {
-          detached: true,
-          stdio: ["ignore", "pipe", "pipe"],
-          env: { ...process.env, ...environment, TZ: "UTC" },
-        },
-      );
-      t.after(async () => {
-        for (const child of children) await stop(child);
-        native.kill("SIGKILL");
-        await until(() => !alive(native.pid!));
-        rmSync(dir, { recursive: true, force: true });
-      });
-      let output = "";
-      native.stdout!.on("data", (chunk) => {
-        output += chunk;
-      });
-      await until(() => output.includes("\n") || native.exitCode !== null);
-      const recorded = JSON.parse(output) as { pid: number; identity: string };
-      if (scenario.legacy)
-        recorded.identity = recorded.identity.replace(/^darwin-utc:/, "");
-      const a = worker(dir, { ...environment, TZ: "UTC" });
-      children.push(a.child);
-      await ready(a);
-      writeFileSync(
-        join(dir, "execution/children.json"),
-        JSON.stringify([recorded]),
-      );
-      a.child.kill("SIGKILL");
-      await until(() => a.child.signalCode !== null);
-      const b = worker(dir, { ...environment, TZ: scenario.timezone });
-      children.push(b.child);
-      if (scenario.ready) {
-        await ready(b);
-        assert(
-          !alive(native.pid!),
-          "replacement must stop the recorded group before becoming ready",
-        );
-      } else {
-        await until(
-          () =>
-            b.child.exitCode !== null ||
-            b.messages.some((m) => m.type === "ready"),
-        );
-        assert.equal(b.child.exitCode, 1, b.log());
-        assert.match(b.log(), /cannot be confirmed stopped/);
-        assert(
-          alive(native.pid!),
-          "uncertain legacy identity must not be signalled or silently discarded",
-        );
-        assert.deepEqual(
-          JSON.parse(
-            readFileSync(join(dir, "execution/children.json"), "utf8"),
-          ),
-          [recorded],
-        );
-      }
-    },
-  );
-}
+      ],
+      {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, ...environment, TZ: "UTC" },
+      },
+    );
+    t.after(async () => {
+      for (const child of children) await stop(child);
+      native.kill("SIGKILL");
+      await until(() => !alive(native.pid!));
+      rmSync(dir, { recursive: true, force: true });
+    });
+    let output = "";
+    native.stdout!.on("data", (chunk) => {
+      output += chunk;
+    });
+    await until(() => output.includes("\n") || native.exitCode !== null);
+    const recorded = JSON.parse(output) as { pid: number; identity: string };
+    const a = worker(dir, { ...environment, TZ: "UTC" });
+    children.push(a.child);
+    await ready(a);
+    writeFileSync(
+      join(dir, "execution/children.json"),
+      JSON.stringify([recorded]),
+    );
+    a.child.kill("SIGKILL");
+    await until(() => a.child.signalCode !== null);
+    const b = worker(dir, { ...environment, TZ: "Pacific/Honolulu" });
+    children.push(b.child);
+    await ready(b);
+    assert(
+      !alive(native.pid!),
+      "replacement must stop the recorded group before becoming ready",
+    );
+  },
+);
 
 for (const stale of ["owner", "stop records"]) {
   test(

@@ -8,7 +8,7 @@ export function testEnvironment(env, suite) {
     Object.entries(env).filter(
       ([key]) =>
         key !== "BETTER_AUTH_SECRET" &&
-        (!/^LOOP(?:55)?_/.test(key) || /^LOOP(?:55)?_TEST_/.test(key)),
+        (!/^LOOP_/.test(key) || /^LOOP_TEST_/.test(key)),
     ),
   );
   if (suite === "vitest") clean.LOOP_PROFILE = "server";
