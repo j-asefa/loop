@@ -12,7 +12,7 @@ import { nativeQuestionLayoutSmoke } from "./helpers/native-question-layout-smok
 // Fixture-only: real UI, no native provider or external tool execution.
 const screenshots =
   process.env.LOOP_DESIGN_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+  (process.env.CI ? join("test-results", "screenshots") : undefined);
 if (screenshots) mkdirSync(screenshots, { recursive: true });
 for (const engine of selectedEngines()) {
   const fixture = await designFixture();

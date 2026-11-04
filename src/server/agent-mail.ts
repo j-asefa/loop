@@ -31,7 +31,6 @@ import {
   type RunNotice,
 } from "./row-schemas.js";
 
-import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { sharedMailFiles } from "./agent-mail-files.js";
 import { uploadFile } from "./uploads.js";
 
@@ -230,18 +229,6 @@ export function teamRoster(team: Team, owner: string, self: string) {
       role: agent.id === team.manager_id ? "manager" : "worker",
       runtime: runtimeOf(owner, agent.connection_id).runtime,
     }));
-}
-
-/** Bounded local directory; never project prompts or connection metadata. */
-export function agentDirectory(run: Run, input: unknown) {
-  assertMailRun(run);
-  const args = directorySchema.parse(input);
-  if (args.sourceId)
-    throw new Problem(
-      400,
-      "Remote discovery requires the owning mail service.",
-    );
-  return localAgentDirectory(run.owner_id, args, run.agent_id!);
 }
 
 /** Native and API tools use this same owner/run-bound discovery boundary. */

@@ -15,7 +15,7 @@ const github = await fakeGithub();
 const fixture = await designFixture({ githubApi: github.base });
 const evidence =
   process.env.LOOP_PULLS_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+  (process.env.CI ? join("test-results", "screenshots") : undefined);
 if (evidence) mkdirSync(evidence, { recursive: true });
 const MOVED = "1".repeat(40);
 try {

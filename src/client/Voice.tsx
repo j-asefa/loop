@@ -18,8 +18,6 @@ function recognitionClass(): (new () => Recognition) | undefined {
   return w.SpeechRecognition || w.webkitSpeechRecognition;
 }
 
-export const voiceSupported = () => Boolean(recognitionClass());
-
 /**
  * Hold-free dictation into the composer: tap to start, tap to stop. Uses the
  * browser's speech recognition, which may process audio with the browser

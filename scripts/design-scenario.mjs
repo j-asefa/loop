@@ -176,7 +176,7 @@ const scenarios = {
 
 const screenshots =
   process.env.LOOP_DESIGN_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+  (process.env.CI ? join("test-results", "screenshots") : undefined);
 if (screenshots) mkdirSync(screenshots, { recursive: true });
 const scenario = process.argv[2] || "core";
 if (scenario !== "core" && !Object.hasOwn(scenarios, scenario))

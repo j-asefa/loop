@@ -2,8 +2,9 @@ name: Loop checks
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  # No run on pushes to main while the repository is private (Actions minutes
+  # are billed); restore `push: branches: [main]` when it goes public.
+  workflow_dispatch:
 
 permissions:
   contents: read

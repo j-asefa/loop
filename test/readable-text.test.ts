@@ -1,20 +1,10 @@
 import { expect, it } from "vitest";
-import {
-  createReadableText,
-  readableAuthor,
-  readableText,
-} from "../src/shared/readable-text";
+import { readableAuthor, readableText } from "../src/shared/readable-text";
 
 const agent = "3dd35f59-14de-44cb-9914-d991edfc28ce";
 const thread = "2c20ef58-0ba2-4ef6-b87c-a74e724432f5";
 
-it("resolves names only from the supplied workspace, including mentions and code spans", () => {
-  const local = createReadableText([{ id: agent, name: "forest" }]);
-  const linked = createReadableText([{ id: agent, name: "venus" }]);
-  const text = `Ask @${agent} to finish the review with \`${agent}\`.`;
-  expect(local(text)).toBe("Ask @forest to finish the review with @forest.");
-  expect(linked(text)).toBe("Ask @venus to finish the review with @venus.");
-  expect(createReadableText()(text)).not.toContain(agent);
+it("names an author only from the supplied workspace", () => {
   expect(readableAuthor(agent, [{ id: agent, name: "forest" }])).toBe(
     "@forest",
   );

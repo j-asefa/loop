@@ -4,7 +4,6 @@ data/
 .env
 .env.*
 !.env.example
-playwright-report/
 test-results/
 *.db*
 
@@ -12,12 +11,8 @@ test-results/
 *.tgz
 npm-shrinkwrap.json
 
-.test-tmp/
-pnpm-lock.yaml
-deployment/out/
 __pycache__/
 *.pyc
-.local-native/
 
 native/generated/
 

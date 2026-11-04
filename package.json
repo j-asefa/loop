@@ -2,7 +2,6 @@
   "name": "@j-asefa/loop",
   "version": "0.1.0",
   "description": "A durable, phone-first agent workspace",
-  "main": "index.js",
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "dev": "node --env-file=.env --import tsx src/server/serve.ts",
@@ -48,8 +47,6 @@
     "type": "git",
     "url": "git+https://github.com/j-asefa/loop.git"
   },
-  "keywords": [],
-  "author": "",
   "license": "Apache-2.0",
   "type": "module",
   "bugs": {
@@ -93,7 +90,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@sparticuz/chromium": "^153.0.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/compression": "^1.8.1",
     "@types/express": "^5.0.6",

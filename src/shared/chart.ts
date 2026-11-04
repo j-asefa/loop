@@ -39,4 +39,3 @@ export const chartSchema = z
       ),
     "Samples must be inside the declared range",
   );
-export type ChartData = z.infer<typeof chartSchema>;

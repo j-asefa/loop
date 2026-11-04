@@ -10034,31 +10034,6 @@ input.settings-switch:disabled {
   line-height: 1.55;
   color: var(--muted);
 }
-.settings-chips {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 0 0 14px;
-}
-.settings-chips button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.settings-chips button[aria-pressed="true"] {
-  background: var(--brass);
-  border-color: var(--brass);
-  color: #1a1a1c;
-}
 .settings-progress {
   height: 5px;
   margin-top: 8px;
@@ -10685,11 +10660,7 @@ label.catalog-filter-chip {
 .personal-files-list .feed-card { min-width: 0; }
 .file-preview-content video { max-width: 100%; max-height: 65vh; }
 
-/* The checkout Loop observed for a run: a chip on cards, a sheet on tap. */
-.checkout-chip span {
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
+/* The checkout Loop observed for a run, in its sheet. */
 .checkout-note {
   margin: 4px 0 0;
 }
@@ -10698,11 +10669,7 @@ label.catalog-filter-chip {
   padding-left: 20px;
 }
 
-/* Verification Loop observed: a chip beside the checkout, a sheet on tap. */
-.verification-chip.verification-failed .lucide { color: var(--diff-removed); }
-.verification-chip.verification-passed .lucide { color: var(--green); }
-.verification-chip.verification-none { opacity: 0.75; }
-span.verification-chip { cursor: default; }
+/* Verification Loop observed, in its sheet. */
 .pull-file-status.verification-passed { color: var(--green); }
 .pull-file-status.verification-failed { color: var(--diff-removed); }
 .verification-output {
@@ -10713,12 +10680,6 @@ span.verification-chip { cursor: default; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-
-/* The thread's pull request as its watch last saw it. */
-.pull-state-chip.pull-state-passed .lucide { color: var(--green); }
-.pull-state-chip.pull-state-failed .lucide { color: var(--diff-removed); }
-.pull-state-chip.pull-state-none { opacity: 0.75; }
-span.pull-state-chip { cursor: default; }
 /* Experiment identity stays visible in both desktop and phone layouts. */
 .preview-banner { padding: 12px 20px; background: #fff3d1; color: #503b0c; border-bottom: 1px solid #dfc990; font-size: 13px; }
 .preview-banner > div { display: flex; gap: 6px 16px; flex-wrap: wrap; align-items: baseline; }

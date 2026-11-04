@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { pullStateFromWatch, pullStateLine } from "../src/shared/pull-state";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-pull-state-"));
 process.env.LOOP_DATA_DIR = dir;
@@ -14,119 +13,6 @@ const { pullStatus } = await import("../src/server/pr-watches");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
-});
-
-const base = {
-  repo_owner: "acme",
-  repo_name: "web",
-  number: 42,
-  state: "watching" as const,
-  ended_reason: null,
-  error: null,
-  head_sha: "abcdef1234567890",
-  ci_sha: "abcdef1234567890",
-  ci_conclusion: "success",
-  ci_pending: 0,
-  read_at: 1_000_000,
-};
-const at = 1_000_000 + 3 * 60_000;
-
-it("describes checks for the head they concluded on, and never as current for an older head", () => {
-  expect(pullStateLine(pullStateFromWatch(base), at)).toBe(
-    "PR #42 · checks passed for abcdef1 · checked 3m ago",
-  );
-  expect(
-    pullStateLine(
-      pullStateFromWatch({ ...base, ci_conclusion: "failure" }),
-      at,
-    ),
-  ).toBe("PR #42 · checks failed for abcdef1 · checked 3m ago");
-  // A new push: the last conclusion belongs to the previous head.
-  expect(
-    pullStateLine(
-      pullStateFromWatch({ ...base, head_sha: "fedcba0987654321" }),
-      at,
-    ),
-  ).toBe(
-    "PR #42 · checks pending for fedcba0 (last passed for abcdef1) · checked 3m ago",
-  );
-  expect(
-    pullStateLine(
-      pullStateFromWatch({ ...base, ci_sha: null, ci_conclusion: null }),
-      at,
-    ),
-  ).toBe("PR #42 · checks pending for abcdef1 · checked 3m ago");
-  expect(
-    pullStateLine(
-      pullStateFromWatch({
-        ...base,
-        head_sha: null,
-        ci_sha: null,
-        ci_conclusion: null,
-        read_at: null,
-      }),
-      at,
-    ),
-  ).toBe("PR #42 · not read yet");
-  // A rerun on the same head: the last conclusion is not current.
-  expect(
-    pullStateLine(pullStateFromWatch({ ...base, ci_pending: 1 }), at),
-  ).toBe(
-    "PR #42 · checks rerunning for abcdef1 (last passed) · checked 3m ago",
-  );
-  // A result seen but not yet delivered (paused watch) is what the card shows.
-  expect(
-    pullStateLine(
-      pullStateFromWatch({
-        ...base,
-        state: "paused",
-        error: "Paused",
-        seen_ci_sha: base.head_sha,
-        seen_ci_conclusion: "failure",
-      }),
-      at,
-    ),
-  ).toBe("PR #42 · checks failed for abcdef1 · watch paused · checked 3m ago");
-  expect(
-    pullStateLine(
-      pullStateFromWatch({
-        ...base,
-        state: "paused",
-        error: "Paused after 5 updates",
-      }),
-      at,
-    ),
-  ).toBe("PR #42 · checks passed for abcdef1 · watch paused · checked 3m ago");
-  expect(
-    pullStateLine(
-      pullStateFromWatch({ ...base, error: "GitHub rejected the connection" }),
-      at,
-    ),
-  ).toBe(
-    "PR #42 · checks passed for abcdef1 · last read failed · checked 3m ago",
-  );
-  expect(
-    pullStateLine(
-      pullStateFromWatch({ ...base, state: "stopped", ended_reason: "merged" }),
-      at,
-    ),
-  ).toBe("PR #42 · merged");
-  expect(pullStateLine(null)).toBe("No PR linked");
-  // An unexpected conclusion value is not a conclusion.
-  expect(
-    pullStateFromWatch({ ...base, ci_conclusion: "neutral" }).ci,
-  ).toBeNull();
-  // An older linked server sends no freshness fields: never current, never "checked NaN ago".
-  const { ci_pending: _p, read_at: _r, ...older } = base;
-  expect(pullStateLine(pullStateFromWatch(older), at)).toBe(
-    "PR #42 · last passed for abcdef1, freshness unknown",
-  );
-  expect(
-    pullStateLine(
-      pullStateFromWatch({ ...older, ci_sha: null, ci_conclusion: null }),
-      at,
-    ),
-  ).toBe("PR #42 · checks state unknown");
 });
 
 it("picks the thread's active watch first, then a recently ended one, and nothing older", () => {

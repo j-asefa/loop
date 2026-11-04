@@ -2,7 +2,6 @@ export type DisplayAgent = { id: string; name: string };
 
 const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const opaque = `(?:${uuid}|[0-9a-f]{32,64})`;
-const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Display only. Never use this to rewrite records, citations or navigation IDs. */
 export function readableText(value: string): string {
@@ -63,27 +62,4 @@ export function readableAuthor(
   const name = agent?.name ?? value;
   if (!name.trim() || readableText(name) !== name) return "an agent";
   return agent ? "@" + name.replace(/^@/, "") : name;
-}
-
-export function createReadableText(agents: readonly DisplayAgent[] = []) {
-  const names = new Map(
-    agents.filter((a) => a.id).map((a) => [a.id, readableAuthor(a.id, agents)]),
-  );
-  const identifiers = names.size
-    ? new RegExp(
-        `(?<![\\w-])[\x60]?@?(?:${[...names.keys()]
-          .sort((a, b) => b.length - a.length)
-          .map(escape)
-          .join("|")})[\x60]?(?![\\w-])`,
-        "g",
-      )
-    : null;
-  return (text: string) =>
-    readableText(
-      identifiers
-        ? text.replace(identifiers, (id) =>
-            names.get(id.replace(/^[\x60]?@?/, "").replace(/[\x60]$/, ""))!,
-          )
-        : text,
-    );
 }

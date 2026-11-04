@@ -1,7 +1,6 @@
 import { expect, it } from "vitest";
 import {
   agentModelName,
-  connectionEnvironments,
   connectionLocation,
   modelDisplayName,
   modelOptionLabel,
@@ -121,14 +120,14 @@ it("labels only connections with a recorded local location", () => {
       metadata: JSON.stringify({ environmentName: "Remote runner" }),
     },
   ] as Connection[];
-  const kinds = connectionEnvironments(connections);
-  expect(kinds.get("laptop")).toBe("laptop");
-  expect(kinds.get("docker")).toBe("docker");
-  expect(kinds.get("container")).toBe("docker");
-  expect(kinds.get("named")).toBeNull();
-  expect(kinds.get("legacy-direct")).toBeNull();
-  expect(kinds.get("remote")).toBeNull();
-  expect(kinds.get("missing")).toBeUndefined();
+  const kind = (id: string) =>
+    connectionLocation(connections.find((c) => c.id === id)!).kind;
+  expect(kind("laptop")).toBe("laptop");
+  expect(kind("docker")).toBe("docker");
+  expect(kind("container")).toBe("docker");
+  expect(kind("named")).toBeNull();
+  expect(kind("legacy-direct")).toBeNull();
+  expect(kind("remote")).toBeNull();
   // Settings and Feed use the same wording for a recorded location.
   expect(connectionLocation(connections[2]).label).toBe("Docker");
   expect(connectionLocation(connections[4]).label).toBe("This computer");

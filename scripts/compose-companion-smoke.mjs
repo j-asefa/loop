@@ -34,7 +34,9 @@ const args = [
   ...(prebuilt
     ? [
         "-f",
-        resolve(values["images-file"] ?? "scripts/ci/companion-images.yaml"),
+        resolve(
+          values["images-file"] ?? "scripts/compose-companion-images.yaml",
+        ),
       ]
     : []),
 ];

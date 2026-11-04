@@ -21,7 +21,6 @@ import {
   TextQuote,
   Trash2,
   User,
-  X,
 } from "lucide-react";
 import { callRoute, readRoute } from "./workspace-api";
 import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
@@ -1351,17 +1350,4 @@ export function Chip({
   children: ReactNode;
 }) {
   return <span className={"status-chip " + tone}>{children}</span>;
-}
-
-export function CloseButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      className="icon-button"
-      aria-label="Close"
-      onClick={onClick}
-    >
-      <X size={20} />
-    </button>
-  );
 }

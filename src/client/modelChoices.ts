@@ -130,10 +130,3 @@ export function connectionLocation(
     label: metadata.loopHarness ? "This computer" : "Server connection",
   };
 }
-
-/** Badge kind for each connection with a known local location. */
-export function connectionEnvironments(connections: Connection[]) {
-  return new Map(
-    connections.map((c) => [c.id, connectionLocation(c).kind] as const),
-  );
-}

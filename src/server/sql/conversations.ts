@@ -270,28 +270,6 @@ export function ownedAgentExists(
     : parseRecord(ownedAgentExistsRow, row, "conversations");
 }
 
-const insertOriginStatement = statement(
-  "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,?,?,?)",
-);
-export function insertOrigin(
-  db: Database.Database,
-  id: string,
-  owner: string,
-  agent: string,
-  title: string,
-  origin: string,
-  created: number,
-) {
-  return insertOriginStatement(db).run(
-    id,
-    owner,
-    agent,
-    title,
-    origin,
-    created,
-  );
-}
-
 const ownedRunExistsStatement = statement(
   "SELECT 1 FROM conversations c JOIN runs r ON r.conversation_id=c.id AND r.owner_id=c.owner_id WHERE c.owner_id=? AND c.id=? AND r.id=?",
 );

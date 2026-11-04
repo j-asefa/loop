@@ -1,5 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
-import { FileDiff, GitBranch } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Sheet } from "./components";
 import { Patch } from "./PullRequests";
 import { PullChangeCounts } from "./PullChangeCounts";
@@ -7,101 +6,9 @@ import { readableText } from "../shared/readable-text";
 import { changePrompts } from "./threadView";
 import {
   checkoutLine,
-  checkoutParts,
   patchByFile,
   type CheckoutDetail,
-  type CheckoutSummary,
 } from "../shared/checkout";
-
-/**
- * The checkout Loop observed for a run: one line on the card, the stored
- * patch a tap away. This is Loop's observation of the worktree, not the
- * agent's report of its edits, and nothing here applies or reverts anything.
- */
-export function CheckoutChip({
-  summary,
-  onOpen,
-  compact = false,
-}: {
-  summary: CheckoutSummary;
-  onOpen: () => void;
-  compact?: boolean;
-}) {
-  const historical =
-    compact && summary.state === "captured" && summary.scope !== "run";
-  const description = compact
-    ? historical
-      ? "Historical checkout comparison; changes during this run were not captured"
-      : summary.state === "captured"
-        ? [
-            summary.files
-              ? `${summary.files} ${summary.files === 1 ? "file" : "files"} +${summary.additions} −${summary.deletions}`
-              : "No tracked changes",
-            summary.untracked ? `${summary.untracked} untracked` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ")
-        : summary.state === "failed"
-          ? "Diff unavailable"
-          : "Diff pending"
-    : checkoutLine({
-        ...summary,
-        branch: readableText(summary.branch),
-      });
-  const count = (value: number) =>
-    new Intl.NumberFormat("en", {
-      notation: "compact",
-      maximumFractionDigits: 1,
-    }).format(value);
-  const line = historical ? (
-    "Earlier checkout"
-  ) : compact && summary.state === "captured" ? (
-    summary.additions || summary.deletions ? (
-      <>
-        <span className="diff-add-count">+{count(summary.additions)}</span>{" "}
-        <span className="diff-remove-count">−{count(summary.deletions)}</span>
-      </>
-    ) : summary.files ? (
-      `${count(summary.files)} ${summary.files === 1 ? "file" : "files"}`
-    ) : summary.untracked ? (
-      `${count(summary.untracked)} new`
-    ) : (
-      "No changes"
-    )
-  ) : compact ? (
-    description
-  ) : (
-    checkoutParts({ ...summary, branch: readableText(summary.branch) }).map(
-      (part, index) => (
-        <Fragment key={index}>
-          {index > 0 && " · "}
-          {typeof part === "string" ? (
-            part
-          ) : (
-            <>
-              {part.files} {part.files === 1 ? "file" : "files"}{" "}
-              <span className="diff-add-count">+{part.additions}</span>{" "}
-              <span className="diff-remove-count">−{part.deletions}</span>
-            </>
-          )}
-        </Fragment>
-      ),
-    )
-  );
-  const Icon = compact ? FileDiff : GitBranch;
-  return (
-    <button
-      type="button"
-      className="changes-chip checkout-chip"
-      onClick={onOpen}
-      aria-label={`${compact ? "Changes" : "Checkout"}: ${description}`}
-      title={compact ? description : undefined}
-    >
-      <Icon size={16} aria-hidden="true" />
-      <span>{line}</span>
-    </button>
-  );
-}
 
 const when = (at: number) =>
   new Date(at).toLocaleString(undefined, {

@@ -9,7 +9,7 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 const evidence =
   process.env.LOOP_SOCIAL_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+  (process.env.CI ? join("test-results", "screenshots") : undefined);
 if (evidence) mkdirSync(evidence, { recursive: true });
 for (const engine of selectedEngines()) {
   // Each engine gets its own workspace. The journey marks a story read, saves

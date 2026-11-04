@@ -20,7 +20,7 @@ process.env.LOOP_TEST_HARNESS = "codex";
 const { WorkspaceHost } = await import("../dist/workspace-host.js");
 const { nativeSessions } = await import("../dist/server/native-sessions.js");
 const { db } = await import("../dist/server/db.js");
-const evidence = "docs/validation/evidence/deterministic-browser";
+const evidence = "test-results/deterministic-browser";
 await mkdir(evidence, { recursive: true });
 await chmod(resolve("test/harness.mjs"), 0o755);
 const options = {

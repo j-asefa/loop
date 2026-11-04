@@ -161,12 +161,7 @@ export function parseArtifact(value: unknown) {
 export type Artifact = ReturnType<typeof parseArtifact>;
 
 export function maybeConnection(value: unknown) { return value === undefined ? undefined : parseConnection(value); }
-export function parseConnections(values: unknown[]) { return values.map(parseConnection); }
 
-export function maybeArtifact(value: unknown) { return value === undefined ? undefined : parseArtifact(value); }
-export function parseArtifacts(values: unknown[]) { return values.map(parseArtifact); }
-
-export function maybeMessage(value: unknown) { return value === undefined ? undefined : parseMessage(value); }
 export function parseMessages(values: unknown[]) { return values.map(parseMessage); }
 
 export function agentPayload(run: Run) { return readJson(AgentSnapshot.strip(), run.payload, "runs", run.id, "payload"); }
@@ -180,7 +175,6 @@ export function requireSealedSecret(connection: Connection) {
 export function messageResponse<T extends Message>(row: T) { return { ...row, metadata: JSON.stringify(row.metadata) }; }
 export function artifactResponse<T extends Artifact>(row: T) { return { ...row, metadata: JSON.stringify(row.metadata) }; }
 
-export function readRunPayload(value: unknown, rowId: string) { return readJson(RunPayload.passthrough(), value, "runs", rowId, "payload"); }
 // A fresh turn carries only these separately validated fields from its
 // predecessor. Unrelated corrupt execution fields never become defaults.
 export function readRunFolder(value: unknown, rowId: string) { return readJson(RunPayload.pick({ folderId: true }).strip(), value, "runs", rowId, "payload").folderId; }

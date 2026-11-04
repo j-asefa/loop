@@ -10,7 +10,7 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 const fixture = await designFixture();
 const evidence =
   process.env.LOOP_HTML_SCREENSHOT_DIR ||
-  (process.env.CI ? join("docs", "loop-v0", "evidence") : undefined);
+  (process.env.CI ? join("test-results", "screenshots") : undefined);
 if (evidence) mkdirSync(evidence, { recursive: true });
 try {
   for (const engine of selectedEngines()) {

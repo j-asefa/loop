@@ -8,8 +8,8 @@ export type TrustedDevice = {
   maxExpires: number;
 };
 
-/** Companion implementation uses the workspace transaction store. Standalone
- * legacy hosts and isolated previews retain their independent file store. */
+/** The companion implementation uses the workspace transaction store. Isolated
+ * previews keep an independent file store. */
 export interface DeviceTrust {
   /** Stored administrative inventory, including credentials awaiting retirement.
    * Call device/authenticate to establish current authentication eligibility. */

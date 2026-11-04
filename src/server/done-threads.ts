@@ -56,7 +56,7 @@ function cards(
     limit: ids.length,
     detail,
     // Saved membership uses explicit result identities. Dismissals only control
-    // individual Done cards, including when an older client dismisses a member.
+    // individual Done cards, so a dismissed member stays in its saved thread.
     includeDismissed: true,
   }).flatMap((entry) =>
     entry.card.type === "done" &&

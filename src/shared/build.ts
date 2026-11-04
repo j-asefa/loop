@@ -41,13 +41,6 @@ export function publicBuild(build: BuildIdentity): BuildIdentity {
     builtAt: build.builtAt,
   };
 }
-export function loopRepository(url: string): typeof LOOP_REPOSITORY | null {
-  return /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)j-asefa\/loop(?:\.git)?\/?$/i.test(
-    url.trim(),
-  )
-    ? LOOP_REPOSITORY
-    : null;
-}
 export function browserNeedsReload(
   loaded: BuildIdentity,
   serving: BuildIdentity,

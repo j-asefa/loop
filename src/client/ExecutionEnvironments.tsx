@@ -2,19 +2,16 @@ import { RuntimeSetup } from "./RuntimeSetup";
 import { RuntimeHosts } from "./RuntimeHosts";
 import { Sheet } from "./components";
 import { capabilities } from "./capabilities";
-import type { Connection, Folder } from "../shared/types";
+import type { Connection } from "../shared/types";
 
 export function ExecutionEnvironments({
   connections,
   onChange,
   onClose,
 }: {
-  folders: Folder[];
   connections: Connection[];
-  initialEnvironmentId?: string;
   onClose: () => void;
   onChange: () => Promise<void>;
-  onLegacy: () => void;
 }) {
   if (!capabilities.nativeHarnesses) return <RuntimeHosts onClose={onClose} />;
   return (

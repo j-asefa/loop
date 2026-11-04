@@ -35,7 +35,7 @@ export { forkConversation } from "./mobile-return/forking.js";
 
 
 // ---------------------------------------------------------------------------
-// 2. Inbox
+// 2. Feed
 export { FEED_FILTERS } from "../shared/workspace-api.js";
 function readFeed(
   owner: string,

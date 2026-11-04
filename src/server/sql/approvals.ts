@@ -188,13 +188,6 @@ export function pendingWebhook(
     : parseRecord(pendingWebhookRow, row, "approvals");
 }
 
-const completeStateStatement = statement(
-  "UPDATE approvals SET state='completed' WHERE id=?",
-);
-export function completeState(db: Database.Database, id: string) {
-  return completeStateStatement(db).run(id);
-}
-
 const pendingTeamsStatements = statementVariants();
 const pendingTeamsRow = QueryRecords.approvals.extend({
   conversation_id: z.string().nullable(),

@@ -282,34 +282,6 @@ export function SettingsEmpty({
   );
 }
 
-export function SettingsChips<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: { id: T; label: string; count?: number }[];
-  onChange: (next: T) => void;
-}) {
-  return (
-    <div className="settings-chips" role="group" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          aria-pressed={value === option.id}
-          onClick={() => onChange(option.id)}
-        >
-          {option.label}
-          {option.count === undefined ? "" : " " + option.count}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function SettingsSegmented<T extends string>({
   label,
   value,

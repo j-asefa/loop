@@ -17,7 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends git openssl ca-
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /app/dist/cli.js /usr/local/bin/loop \
     && mkdir -p /data/loop/provider-home /data/loop-connection /workspaces \
-    && ln -s /data/loop /data/loop \
     && chown -R node:node /data /workspaces && chmod 700 /data/loop-connection
 COPY --from=build /opt/loop-tunnel /opt/loop-tunnel
 COPY --from=build --chown=node:node /app /app

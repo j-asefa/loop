@@ -4,14 +4,9 @@ dist
 data
 .env
 .env.*
-deployment/out
 test-results
 *.db*
-docs/loop-v0/evidence
 
 .tmp
 *.tgz
 npm-shrinkwrap.json
-test-results
-.local-native
-.test-tmp

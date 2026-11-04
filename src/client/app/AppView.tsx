@@ -951,16 +951,13 @@ export function renderApp(props: AppViewProps) {
       {sheet === "runtime-hosts" && <RuntimeHosts onClose={closeSheet} />}
       {sheet === "environments" && (
         <ExecutionEnvironments
-          folders={data.folders}
           connections={data.connections}
-          initialEnvironmentId={environmentToOpen}
           onClose={closeSheet}
           onChange={async () =>
             setData(
               await callRoute(workspaceApi.bootstrap, {}, executionSourceId()),
             )
           }
-          onLegacy={() => setSheet("runtime-hosts")}
         />
       )}
       {sheet === "memory" && (

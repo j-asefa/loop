@@ -1,9 +1,7 @@
 import { z } from "zod";
 import { FleetCapabilities, FleetOrigin, MachineIdentity } from "./fleet.js";
 import { FleetSecret } from "./fleet-credentials.js";
-import { PAIRING_LIFETIME_MS } from "./pairing.js";
 
-export const FLEET_PAIRING_LIFETIME_MS = PAIRING_LIFETIME_MS;
 const LinkBase = z.object({
   version: z.literal(1),
   ceremonyId: z.string().uuid(),
