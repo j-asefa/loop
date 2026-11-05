@@ -23,6 +23,14 @@ type Listener = {
   request: Subscription;
   send: (frame: Frame) => void;
   close: (reason: string) => void;
+  /** Set once this viewer has been sent a frame for its current position. */
+  current?: boolean;
+  /** The capabilities last announced to this viewer, serialized. */
+  capabilities?: string;
+};
+const announced = (frame: Frame) => {
+  const capabilities = (frame as { capabilities?: unknown }).capabilities;
+  return capabilities === undefined ? undefined : JSON.stringify(capabilities);
 };
 type Entry = {
   source: string;
@@ -207,6 +215,7 @@ export class WorkspaceMultiplex {
       return;
     }
     if (frame.type === "events" && frame.cursor < request.cursor) return;
+    const capabilities = announced(frame);
     let output = frame;
     if (frame.v === 3 && frame.type === "events") {
       const events = frame.events
@@ -215,6 +224,17 @@ export class WorkspaceMultiplex {
           ...item,
           event: fleetEventProjection(item.event, request),
         }));
+      // A restarted upstream (a changed selection) reports its unchanged
+      // position; a viewer already current there with the same capabilities
+      // has nothing to reconcile. Its first frame, or a capability change,
+      // still carries the reconciliation signal.
+      if (
+        listener.current &&
+        !events.length &&
+        frame.cursor === request.cursor &&
+        (capabilities === undefined || capabilities === listener.capabilities)
+      )
+        return;
       output = {
         ...frame,
         events: events.length
@@ -224,6 +244,8 @@ export class WorkspaceMultiplex {
     }
     request.epoch = frame.epoch;
     request.cursor = frame.cursor;
+    listener.current = true;
+    if (capabilities !== undefined) listener.capabilities = capabilities;
     listener.send(output);
   }
   private reset(entry: Entry, listener: Listener) {
@@ -247,6 +269,9 @@ export class WorkspaceMultiplex {
     });
     listener.request.epoch = frame.epoch;
     listener.request.cursor = frame.cursor;
+    listener.current = true;
+    const capabilities = announced(frame);
+    if (capabilities !== undefined) listener.capabilities = capabilities;
     listener.send(frame);
   }
   private attach(key: string, listener: Listener) {

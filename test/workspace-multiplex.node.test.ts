@@ -10,7 +10,10 @@ import { Host } from "../src/host.js";
 import { AgentSources } from "../src/agent-sources.js";
 import type { EventSocket } from "../src/event-socket.js";
 import { FleetCapacity } from "../src/server/fleet-capacity.js";
-import { COMPLETE_WORKSPACE_CAPABILITIES } from "../src/shared/workspace-events.js";
+import {
+  COMPLETE_WORKSPACE_CAPABILITIES,
+  PARTIAL_WORKSPACE_CAPABILITIES,
+} from "../src/shared/workspace-events.js";
 import {
   WORKSPACE_MULTIPLEX_PATH,
   WorkspaceMuxResponse,
@@ -464,6 +467,94 @@ test("paired gateway multiplexes sources, shares upstreams, bounds replay and fe
     );
   } finally {
     for (const ws of browsers) ws.terminate();
+    await host.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("changing a view's selection does not invalidate a viewer already at the source's position", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "loop-multiplex-selection-"));
+  const host = fixtureHost(dir);
+  let starts = 0,
+    capabilities = COMPLETE_WORKSPACE_CAPABILITIES;
+  host.workspace = {
+    fleetCapacity: new FleetCapacity(() => true),
+    http: (_req, res) => res.end("{}"),
+    connect: () => () => {},
+    status: () => ({}),
+    admin: async () => ({}),
+    originChanged: () => {},
+    sources: new AgentSources([
+      {
+        kind: "fixture",
+        current: () => "one",
+        discover: async () => [{ id: "one", name: "one" }],
+        // A restarted upstream at the tip reports its position with a
+        // reconciliation entry that reuses the cursor, as workspace-events does.
+        events: async (socket, _id, query) => {
+          starts++;
+          socket.send(
+            JSON.stringify(
+              query?.get("epoch")
+                ? {
+                    ...event(query.get("epoch")!, Number(query.get("cursor"))),
+                    capabilities,
+                  }
+                : reset("one:epoch", 1),
+            ),
+          );
+        },
+        proxy: async () => {},
+      },
+    ]),
+  };
+  let ws: WebSocket | undefined;
+  try {
+    await host.listen();
+    ws = new WebSocket(
+      host.origin.replace("http:", "ws:") + WORKSPACE_MULTIPLEX_PATH,
+      { headers: { origin: host.origin, cookie: await pair(host, "Viewer") } },
+    );
+    const frames: ReturnType<typeof WorkspaceMuxResponse.parse>[] = [];
+    ws.on("message", (raw) =>
+      frames.push(WorkspaceMuxResponse.parse(JSON.parse(raw.toString()))),
+    );
+    await once(ws, "open");
+    const id = subscribe(ws, "fixture:one");
+    await until(() => frames.some((f) => f.id === id));
+    const before = frames.length;
+    // Opening a thread re-subscribes the same view with that conversation.
+    subscribe(ws, "fixture:one", {
+      id,
+      epoch: "one:epoch",
+      cursor: 1,
+      conversations: [randomUUID()],
+    });
+    await until(() => starts === 2);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(
+      frames.slice(before),
+      [],
+      "Nothing changed at this position, so the view is not told to reload",
+    );
+    // Reduced capabilities at the same position still reach the view, so it
+    // can turn its fallback polling back on.
+    capabilities = PARTIAL_WORKSPACE_CAPABILITIES;
+    subscribe(ws, "fixture:one", {
+      id,
+      epoch: "one:epoch",
+      cursor: 1,
+      conversations: [randomUUID()],
+    });
+    await until(() => frames.length > before);
+    const announced = frames.at(-1)!;
+    assert(announced.type === "frame" && announced.frame.v === 3);
+    assert.deepEqual(
+      (announced.frame as { capabilities?: unknown }).capabilities,
+      PARTIAL_WORKSPACE_CAPABILITIES,
+    );
+  } finally {
+    ws?.terminate();
     await host.close();
     await rm(dir, { recursive: true, force: true });
   }
