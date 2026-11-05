@@ -119,7 +119,7 @@ test("setup preserves the environment and shared revision history across linked 
     git(repository, "worktree", "add", "--detach", oldWorktree, initial);
     installSetup(repository);
     const environment =
-      "LOOP_RUNTIME_TOKEN=fixture-token\nCUSTOM_SETTING=preserved\n";
+      "LOOP_ENCRYPTION_KEY=fixture-key\nCUSTOM_SETTING=preserved\n";
     writeFileSync(join(repository, ".env"), environment);
 
     assert.match(runSetup(repository), /Git blame ignores/);
@@ -200,7 +200,7 @@ test("setup in a source archive creates local config without configuring its par
     );
     assert.match(runSetup(archive), /Created local configuration/);
     const environment = readFileSync(join(archive, ".env"), "utf8");
-    assert.match(environment, /^LOOP_RUNTIME_TOKEN=[a-f0-9]{64}$/m);
+    assert.match(environment, /^LOOP_ENCRYPTION_KEY=[a-f0-9]{64}$/m);
     assert.equal(statSync(join(archive, ".env")).mode & 0o777, 0o600);
     assert.equal(
       git(root, "config", "blame.ignoreRevsFile"),
