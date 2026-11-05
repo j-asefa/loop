@@ -39,7 +39,6 @@ export type ChatInput = {
   instructions: string;
   messages: ChatMessage[];
   signal: AbortSignal;
-  workspaceKey?: string;
   steering?: import("./steering.js").SteeringInbox;
   maxTokens?: number;
   tools?: {
@@ -76,12 +75,6 @@ export type Chunk = {
     content: string;
     state?: string;
   };
-  // Structured result from a subscription runtime's own executor (Codex
-  // items/plans, Claude Code tool blocks); see runtime/traces.ts. Display
-  // only: mapped to shared activities, never executed or applied.
-  activity?:
-    | { harness: "codex"; method: string; params: any }
-    | { harness: "claude"; block: any };
 };
 /**
  * Tool search keeps deferred definitions out of the context window until the
