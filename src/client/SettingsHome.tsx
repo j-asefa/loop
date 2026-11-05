@@ -102,7 +102,7 @@ export function SettingsHome({
                 "Scripts and webhook receivers",
                 KeyRound,
               )}
-            {(capabilities.runtimeHosts || capabilities.pairedDevices) &&
+            {capabilities.pairedDevices &&
               row(
                 "runtime-hosts",
                 "Runtime machines",

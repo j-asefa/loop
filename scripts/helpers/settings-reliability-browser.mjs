@@ -52,23 +52,9 @@ export async function settingsReliabilityBrowser(
   }
   const catalogWithoutOptionalFields = (route) =>
     route.fulfill({ json: catalog });
-  const machines = (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify([
-        {
-          id: "settings-machine",
-          name: "Workshop MacBook Pro",
-          kind: "native-host",
-          url: "ws://127.0.0.1:4500",
-        },
-      ]),
-    });
   await page.route("**/api/mcp/preferences", preferences);
   await page.route("**/api/mcp", connections);
   await page.route("**/api/mcp/catalog", catalogWithoutOptionalFields);
-  await page.route("**/api/runtime-hosts", machines);
   try {
     await page.goto(base);
     await openSettings(page);
@@ -98,7 +84,7 @@ export async function settingsReliabilityBrowser(
       assert.equal(
         hostReads,
         0,
-        "Companion machine settings do not request server runtime hosts",
+        "Companion machine settings do not request runtime hosts",
       );
       await machines
         .getByRole("button", { name: "Close", exact: true })
@@ -239,50 +225,11 @@ export async function settingsReliabilityBrowser(
       }
     }
     await closeSheets(page);
-    // A connected machine's row has no chevron and keeps its action in the
-    // state column. On the narrowest phones that column must still fit the
-    // button, which is the one row where a squeezed column clips a label.
-    if (!companion) {
-      await openSettings(page);
-      await drawer.getByRole("button", { name: /Runtime machines/ }).click();
-      const machineSheet = page.getByRole("dialog", {
-        name: "Runtime machines",
-        exact: true,
-      });
-      const row = machineSheet.locator(".settings-row", {
-        hasText: "Workshop MacBook Pro",
-      });
-      const remove = row.getByRole("button", { name: "Remove machine" });
-      await expect(remove).toBeVisible();
-      for (const width of [320, 375, 390]) {
-        await page.setViewportSize({ width, height: 844 });
-        await expect(row).toHaveClass(/no-chevron/);
-        const box = await remove.boundingBox();
-        const label = await remove.evaluate((el) => {
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          return range.getBoundingClientRect().width;
-        });
-        assert(
-          box.width >= label - 1,
-          `Remove machine is clipped at ${width}px (${box.width}px for a ${label}px label)`,
-        );
-        assert(
-          await machineSheet.evaluate(
-            (el) => el.scrollWidth <= el.clientWidth + 1,
-          ),
-          `Runtime machines overflow at ${width}px`,
-        );
-        await capture(`settings-machines-${width}`);
-      }
-      await closeSheets(page);
-    }
   } finally {
     page.off("request", requests);
     await page.unroute("**/api/mcp/preferences", preferences);
     await page.unroute("**/api/mcp", connections);
     await page.unroute("**/api/mcp/catalog", catalogWithoutOptionalFields);
-    await page.unroute("**/api/runtime-hosts", machines);
     await page.setViewportSize({ width: 390, height: 844 });
     const disconnected = await page.request.patch(
       origin + "/api/mcp/" + connection.id,

@@ -45,11 +45,7 @@ export function Tools({
     null,
   );
   const [agentMode, setAgentMode] = useState<PermissionMode | null>(null);
-  const [configJson, setConfigJson] = useState(""),
-    [hosts, setHosts] = useState<
-      RouteResponse<typeof workspaceApi.runtimeHostList>
-    >([]),
-    [host, setHost] = useState("");
+  const [configJson, setConfigJson] = useState("");
   const [sharingSources, setSharingSources] = useState<
     RouteResponse<typeof workspaceApi.mcpSharing>
   >([]);
@@ -70,13 +66,6 @@ export function Tools({
     if (!capabilities.pairedDevices && !sourceId) return;
     await read("sharing", async () => {
       setSharingSources(await readRoute(workspaceApi.mcpSharing, {}, ""));
-    });
-  }
-  async function loadHosts() {
-    if (!capabilities.runtimeHosts) return;
-    await read("hosts", async () => {
-      const rows = await readRoute(workspaceApi.runtimeHostList, {});
-      setHosts(rows.filter((h) => !h.kind || h.kind === "broker"));
     });
   }
   async function loadConnections() {
@@ -104,7 +93,6 @@ export function Tools({
   }
   useEffect(() => {
     void load();
-    void loadHosts();
     void loadSharing();
     void loadCandidates();
   }, []);
@@ -189,7 +177,6 @@ export function Tools({
             loadConnections,
           ],
           ["permissions", "Permissions", ["permissions"], loadPreferences],
-          ["hosts", "Runtime machines", ["catalog", "custom"], loadHosts],
           [
             "sharing",
             "Tool sharing",
@@ -360,11 +347,7 @@ export function Tools({
         </section>
       )}
       {view === "catalog" && (
-        <McpCatalog
-          connections={connections}
-          hosts={hosts}
-          onInstalled={load}
-        />
+        <McpCatalog connections={connections} onInstalled={load} />
       )}
       {view === "installed" && sharingSources.length > 0 && (
         <section className="tool-sharing">
@@ -467,10 +450,7 @@ export function Tools({
               e.preventDefault();
               void action(async () => {
                 const result = await call(workspaceApi.mcpInstall, {
-                  body: {
-                    config: configJson,
-                    runtimeHostId: host || undefined,
-                  },
+                  body: { config: configJson },
                 });
                 setNotice(
                   result
@@ -503,21 +483,10 @@ export function Tools({
                 required
               />
             </label>
-            <label>
-              Run command servers on
-              <select value={host} onChange={(e) => setHost(e.target.value)}>
-                <option value="">Loop server</option>
-                {hosts.map((h) => (
-                  <option key={h.id} value={h.id}>
-                    {h.name}
-                  </option>
-                ))}
-              </select>
-            </label>
             <p className="field-hint">
               Supports command, args and env, or HTTPS url and headers. Command
-              servers run in isolated containers. Connected tools are
-              immediately available to all your agents.
+              servers run on this computer. Connected tools are immediately
+              available to all your agents.
             </p>
             <button className="primary" disabled={busy || !configJson.trim()}>
               {busy ? "Installing…" : "Install configuration"}

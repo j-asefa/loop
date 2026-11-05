@@ -19,11 +19,9 @@ const setupLabels = {
 };
 export function McpCatalog({
   connections,
-  hosts,
   onInstalled,
 }: {
   connections: RouteResponse<typeof workspaceApi.mcpList>;
-  hosts: { id: string; name: string }[];
   onInstalled: () => Promise<void>;
 }) {
   const call = useSourceRoute(),
@@ -33,7 +31,6 @@ export function McpCatalog({
     [query, setQuery] = useState(""),
     [category, setCategory] = useState("All"),
     [noAccount, setNoAccount] = useState(false),
-    [host, setHost] = useState(""),
     [expanded, setExpanded] = useState<string>(),
     [busy, setBusy] = useState<string>(),
     [loadError, setLoadError] = useState(""),
@@ -76,11 +73,7 @@ export function McpCatalog({
     try {
       const result = await call(workspaceApi.mcpCatalogInstall, {
         params: { id: entry.id },
-        body: {
-          values,
-          runtimeHostId:
-            entry.transport === "stdio" ? host || undefined : undefined,
-        },
+        body: { values },
       });
       setExpanded(undefined);
       await onInstalled();
@@ -155,26 +148,6 @@ export function McpCatalog({
           No credentials listed
         </label>
       </div>
-      {hosts.length > 0 && (
-        <details className="mcp-import">
-          <summary>Where to run command tools</summary>
-          <label>
-            Runtime machine
-            <select value={host} onChange={(e) => setHost(e.target.value)}>
-              <option value="">Loop server</option>
-              {hosts.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="field-hint">
-            Applies to new command tool installations. Hosted integrations run
-            with their provider.
-          </p>
-        </details>
-      )}
       <p className="field-hint" role="status">
         {entries.length} tools {query.trim() ? "found" : "available"}
       </p>
