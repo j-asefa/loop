@@ -99,12 +99,16 @@ export async function legacyFallbackRecovery(browser, fixture) {
     hasTouch: true,
     serviceWorkers: "block",
   });
+  await fixture.pair(page.context());
   let legacyFrames = 0;
   try {
-    await page.routeWebSocket("**/api/events/ws?*", (route) => {
+    // The companion's sources share one multiplexed socket; downgrade the
+    // capabilities each source frame announces.
+    await page.routeWebSocket("**/api/events/multiplex/ws", (route) => {
       const server = route.connectToServer();
       server.onMessage((message) => {
-        const frame = JSON.parse(message.toString());
+        const envelope = JSON.parse(message.toString());
+        const frame = envelope.frame ?? {};
         if (frame.v === 3 && frame.capabilities) {
           frame.capabilities = {
             invalidations: "partial",
@@ -115,7 +119,7 @@ export async function legacyFallbackRecovery(browser, fixture) {
           };
           legacyFrames++;
         }
-        route.send(JSON.stringify(frame));
+        route.send(JSON.stringify(envelope));
       });
     });
     // Saved exercises useCards' separate legacy timer. Seed through the real

@@ -40,6 +40,7 @@ try {
         hasTouch: true,
         serviceWorkers: "block",
       });
+      await fixture.pair(context);
       const page = await context.newPage();
       page.setDefaultTimeout(8000);
       const errors = [];

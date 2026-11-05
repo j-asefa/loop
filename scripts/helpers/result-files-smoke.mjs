@@ -92,7 +92,8 @@ export async function resultFilesSmoke(page, fixture, capture) {
   const dialog = () => page.locator("dialog[open]").last();
   let workspaceSocket;
   const rememberSocket = (socket) => {
-    if (new URL(socket.url()).pathname === "/api/events/ws")
+    // The companion multiplexes its workspace sources over one socket.
+    if (new URL(socket.url()).pathname === "/api/events/multiplex/ws")
       workspaceSocket = socket;
   };
   page.on("websocket", rememberSocket);
@@ -210,7 +211,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
     let committedId;
     const delivered = workspaceSocket.waitForEvent("framereceived", {
       predicate: ({ payload }) =>
-        JSON.parse(String(payload)).events?.some(
+        JSON.parse(String(payload)).frame?.events?.some(
           (entry) => entry.id === committedId,
         ),
     });

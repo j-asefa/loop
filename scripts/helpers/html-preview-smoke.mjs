@@ -239,7 +239,7 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
     );
     const response = await fetch(fixture.base + "/api/uploads", {
       method: "POST",
-      headers: { origin: fixture.base },
+      headers: fixture.headers,
       body: data,
     });
     assert.equal(response.status, 201);

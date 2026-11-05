@@ -7,6 +7,9 @@ import {
   isWebKitNavigationFetchError,
 } from "./browser-errors.mjs";
 
+// Frames the real workspace has sent for its own stream.
+const localFrames = { count: 0 };
+
 // Hold independent reads at the browser boundary: ready feed cards must not
 // wait for discovery, agent metadata, or a slower environment's feed.
 export async function feedLoadingSmoke(page, fixture, engine, capture) {
@@ -14,32 +17,68 @@ export async function feedLoadingSmoke(page, fixture, engine, capture) {
   // servers. Negotiate a quiet complete stream so HTTP fallback invalidations
   // cannot replace the append operation during its retry assertions.
   const streamResets = new Map();
+  const resetFrame = () => ({
+    v: 3,
+    type: "reset",
+    epoch: "feed-loading",
+    cursor: 0,
+    build: "fixture",
+    buildIdentity: null,
+    serverNow: Date.now(),
+    nextDeadline: null,
+    capabilities: {
+      invalidations: "complete",
+      deadlines: true,
+      transcript: "delta",
+      feed: "delta",
+      results: "delta",
+    },
+  });
+  // Keyed by each source's own stream path, which the cases below use.
+  const streamKey = (source) =>
+    source
+      ? `/api/agent-sources/${encodeURIComponent(source)}/events/ws`
+      : "/ws";
   await page.routeWebSocket(
     (url) =>
       url.pathname === "/ws" ||
+      url.pathname === "/api/events/multiplex/ws" ||
       /^\/api\/agent-sources\/[^/]+\/events\/ws$/.test(url.pathname),
     (route) => {
-      const reset = () =>
-        route.send(
-          JSON.stringify({
-            v: 3,
-            type: "reset",
-            epoch: "feed-loading",
-            cursor: 0,
-            build: "fixture",
-            buildIdentity: null,
-            serverNow: Date.now(),
-            nextDeadline: null,
-            capabilities: {
-              invalidations: "complete",
-              deadlines: true,
-              transcript: "delta",
-              feed: "delta",
-              results: "delta",
-            },
-          }),
-        );
-      streamResets.set(new URL(route.url()).pathname, reset);
+      const path = new URL(route.url()).pathname;
+      if (path === "/api/events/multiplex/ws") {
+        // The companion multiplexes every source over one socket. Its own
+        // subscription reaches the real workspace; the fixture-only sources
+        // get the same quiet stream as above.
+        const server = route.connectToServer();
+        const mocked = new Set();
+        server.onMessage((message) => {
+          const frame = JSON.parse(String(message));
+          if (frame.type === "frame" && !frame.source) localFrames.count++;
+          route.send(message);
+        });
+        route.onMessage((message) => {
+          const request = JSON.parse(String(message));
+          if (request.type === "subscribe" && request.source) {
+            mocked.add(request.id);
+            const reset = () =>
+              route.send(
+                JSON.stringify({
+                  v: 1,
+                  type: "frame",
+                  id: request.id,
+                  source: request.source,
+                  frame: resetFrame(),
+                }),
+              );
+            streamResets.set(streamKey(request.source), reset);
+            reset();
+          } else if (!mocked.has(request.id)) server.send(message);
+        });
+        return;
+      }
+      const reset = () => route.send(JSON.stringify(resetFrame()));
+      streamResets.set(path, reset);
       reset();
     },
   );
@@ -240,23 +279,13 @@ async function feedClearTeamWithCursor(page, fixture, engine) {
 }
 
 async function openConnectedFeed(page, url) {
-  let ready = false;
-  const watch = (socket) => {
-    if (new URL(socket.url()).pathname !== "/api/events/ws") return;
-    socket.on("framereceived", ({ payload }) => {
-      const frame = JSON.parse(payload.toString());
-      if (frame.type === "reset" || frame.type === "events") ready = true;
-    });
-  };
-  page.on("websocket", watch);
-  try {
-    await page.goto(url);
-    // HTTP fallback also reports Connected. Wait for the socket's initial
-    // frame so its later reset cannot cancel the recovery under test.
-    await expect.poll(() => ready, { timeout: 15_000 }).toBe(true);
-  } finally {
-    page.off("websocket", watch);
-  }
+  const before = localFrames.count;
+  await page.goto(url);
+  // HTTP fallback also reports Connected. Wait for the socket's initial
+  // frame so its later reset cannot cancel the recovery under test.
+  await expect
+    .poll(() => localFrames.count > before, { timeout: 15_000 })
+    .toBe(true);
 }
 
 async function feedRefreshAfterAppendRecovery(page, fixture) {

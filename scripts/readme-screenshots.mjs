@@ -294,6 +294,7 @@ try {
     hasTouch: true,
     colorScheme: "light",
   });
+  await fixture.pair(context);
   const page = await context.newPage();
   const capture = async (name) => {
     const { summary } = await fixture.api("/feed?filter=needs");

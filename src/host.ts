@@ -3,7 +3,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { chmod, readFile, rm, stat, unlink } from "node:fs/promises";
 import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +37,13 @@ import {
 } from "./fleet-device-authorization.js";
 import { workspaceApi } from "./shared/workspace-api.js";
 import { assetCacheControl, compressResponse } from "./http-transfer.js";
+
+// The compiled client next to this module; when run from source (fixtures),
+// the build's copy, as the server entry does.
+const compiledWeb = fileURLToPath(new URL("./web/", import.meta.url));
+const webRoot = existsSync(compiledWeb + "index.html")
+  ? compiledWeb
+  : fileURLToPath(new URL("../dist/web/", import.meta.url));
 
 // The paired Node HTTP host consumes the same contracts as the Express app.
 // This exact dispatch table is also included in the production route inventory.
@@ -996,7 +1003,7 @@ export class Host {
           ].includes(path))
       )
         return this.json(res, 404, { error: "Not found" });
-      const root = fileURLToPath(new URL("./web/", import.meta.url));
+      const root = webRoot;
       // Older paired tabs still request the original avatar URLs after upgrades.
       const assetPath = decodeURIComponent(path).replace(
         /^\/avatars\/([a-z]+)\.webp$/,

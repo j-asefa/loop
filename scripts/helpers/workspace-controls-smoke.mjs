@@ -314,15 +314,18 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   );
   await page.unroute("**/api/runs");
   await capture("composer-upload");
-  await page
+  // The failed send may already be resending under its idempotency key;
+  // otherwise send it again. Either way exactly one run is created.
+  const send = page
     .locator(".composer")
-    .getByRole("button", { name: "Send message", exact: true })
-    .click();
+    .getByRole("button", { name: "Send message", exact: true });
+  if (await send.isEnabled()) await send.click();
   await expect(page.locator(".composer")).not.toBeVisible();
-  const sent = fixture.db
-    .prepare("SELECT * FROM runs WHERE agent_id=? ORDER BY rowid DESC LIMIT 1")
-    .get(recipient.id);
-  assert.equal(sent.input, "Read the attached brief.");
+  const sentRuns = fixture.db
+    .prepare("SELECT * FROM runs WHERE agent_id=? AND input=?")
+    .all(recipient.id, "Read the attached brief.");
+  assert.equal(sentRuns.length, 1);
+  const [sent] = sentRuns;
   const fileId = JSON.parse(sent.payload).attachmentIds[0];
   const userMessage = fixture.db
     .prepare("SELECT metadata FROM messages WHERE run_id=? AND role='user'")

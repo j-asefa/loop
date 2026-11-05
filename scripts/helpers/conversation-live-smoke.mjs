@@ -4,9 +4,12 @@ import { expect } from "@playwright/test";
 import { designFixture } from "./design-fixture.mjs";
 
 export async function conversationLiveSmoke(page, capture) {
+  // Its own fixture: pair the page with it (this replaces the scenario's
+  // pairing cookie, since cookies ignore ports).
   const fixture = await designFixture();
   let release;
   try {
+    await fixture.pair(page.context());
     const conversation = fixture.conversations.find(
       (c) => c.state === "running",
     );

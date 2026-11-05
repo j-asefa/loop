@@ -7,6 +7,8 @@ import { workspaceRecoverySmoke } from "./workspace-recovery-smoke.mjs";
 // providers and the shared design fixture's navigation/count assertions.
 export async function profileWorkSmoke(page, capture) {
   const fixture = await designFixture();
+  // Pair the page with this fixture (cookies ignore ports).
+  await fixture.pair(page.context());
   const pendingReads = [];
   const runPattern = /\/api\/runs\?active=1(?:&|$)/;
   const dialog = () => page.locator("dialog[open]").last();

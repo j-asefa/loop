@@ -59,6 +59,7 @@ for (const engine of selectedEngines()) {
         hasTouch: true,
         serviceWorkers: "block",
       });
+      await fixture.pair(context);
       const page = await context.newPage();
       page.setDefaultTimeout(10000);
       const errors = [];
@@ -200,6 +201,7 @@ for (const engine of selectedEngines()) {
         viewport: { width: 390, height: 844 },
         serviceWorkers: "block",
       });
+      await fixture.pair(offline);
       await offline.route(mathAsset, (route) => route.abort());
       const fallback = await offline.newPage();
       const failed = fallback.waitForEvent("requestfailed", {

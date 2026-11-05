@@ -30,6 +30,7 @@ try {
         // frames. Use a fresh context with the browser's real sandbox instead.
         serviceWorkers: "allow",
       });
+      await fixture.pair(context);
       const page = await context.newPage();
       page.setDefaultTimeout(8000);
       const errors = [];

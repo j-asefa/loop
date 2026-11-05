@@ -57,10 +57,12 @@ export async function teamPresetsSmoke(page, fixture, _engine, capture) {
     .getByRole("button", { name: "Create team", exact: true })
     .click();
   await expect(dialog()).toHaveAttribute("aria-label", "Review local changes");
-  await expect(dialog().getByText(/Open the laptop workspace/)).toBeVisible();
+  // The companion captures local changes itself: no "open the laptop" notice,
+  // and the review can start once a team and project are chosen.
+  await expect(dialog().getByText(/Open the laptop workspace/)).toHaveCount(0);
   await expect(
     dialog().getByRole("button", { name: "Start review", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   const teams = await fixture.api("/teams");
   const created = teams.find((t) => t.name === "Snapshot reviewers");
   assert.equal(created.preset_id, "code-review");
@@ -78,8 +80,8 @@ export async function teamPresetsSmoke(page, fixture, _engine, capture) {
   await capture("team-presets-review");
 
   // Stored review fixtures follow review-access.test.ts. Real snapshot capture
-  // and request replay are covered by team-route-contracts.test.ts; this server
-  // profile exercises the actual status route and browser, without a worker.
+  // and request replay are covered by team-route-contracts.test.ts; this
+  // fixture exercises the actual status route and browser, without a worker.
   const seedRun = (agentId, conversation = randomUUID()) => {
     const agent = fixture.db
       .prepare("SELECT * FROM agents WHERE id=?")
@@ -193,8 +195,9 @@ export async function teamPresetsSmoke(page, fixture, _engine, capture) {
   await expect(status).toContainText("Fixture reviewer unavailable");
   await status.getByRole("button", { name: "Check for newer edits" }).click();
   await expect(status).toContainText("Freshness unavailable:");
+  // The fixture project has no local Git repository to compare against.
   await expect(status).toContainText(
-    "Local snapshot review requires a laptop workspace",
+    "Bind this project to a local Git repository first",
   );
   await capture("team-review-status");
 }

@@ -28,6 +28,7 @@ for (const engine of selectedEngines()) {
       hasTouch: true,
       serviceWorkers: "block",
     });
+    await fixture.pair(context);
     const page = await context.newPage();
     page.setDefaultTimeout(10000);
     const errors = [];

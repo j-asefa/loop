@@ -461,20 +461,6 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   };
   await page.goto("about:blank");
   await page.route(
-    (url) => url.pathname === "/session",
-    (route) => route.fulfill({ json: { csrf: "filter-fixture" } }),
-  );
-  await page.route(
-    (url) => url.pathname === "/api/capabilities",
-    async (route) => {
-      const response = await route.fetch();
-      await route.fulfill({
-        response,
-        json: { ...(await response.json()), pairedDevices: true },
-      });
-    },
-  );
-  await page.route(
     (url) => url.pathname === "/api/agent-sources",
     (route) =>
       route.fulfill({

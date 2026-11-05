@@ -94,6 +94,7 @@ export async function attachmentPickerSmoke(page, fixture) {
         serviceWorkers: "block",
         userAgent: device.userAgent,
       });
+    await fixture.pair(context);
     try {
       await context.addInitScript(({ platform, maxTouchPoints }) => {
         Object.defineProperty(navigator, "platform", { value: platform });

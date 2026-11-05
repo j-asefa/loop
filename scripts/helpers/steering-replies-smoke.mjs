@@ -270,9 +270,15 @@ async function replyCompatibilitySmoke(page, fixture, capture) {
     if (match[2].startsWith("v1/cards"))
       return route.fulfill({ status: 404, body: "{}" });
     url.pathname = "/api/" + match[2];
-    return route.fulfill({
-      response: await route.fetch({ url: url.toString() }),
-    });
+    // A reload can abandon the request while it is forwarded; that route is
+    // then already handled and needs no answer.
+    try {
+      return await route.fulfill({
+        response: await route.fetch({ url: url.toString() }),
+      });
+    } catch (error) {
+      if (!/already handled|context disposed/i.test(String(error))) throw error;
+    }
   };
   const routes = [
     [

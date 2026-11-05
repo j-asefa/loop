@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCipheriv, randomUUID, randomBytes } from "node:crypto";
-import { createServer } from "node:net";
 import { tsImport } from "tsx/esm/api";
 
 const { installFixtureProjection } = await tsImport(
@@ -18,39 +17,26 @@ const { installFixtureProjection } = await tsImport(
 // `githubApi` points server-side GitHub reads at a fake; by default they fail fast.
 export async function designFixture({ githubApi } = {}) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
-  const listener = createServer();
-  await new Promise((resolve, reject) => {
-    listener.once("error", reject);
-    listener.listen(0, "127.0.0.1", resolve);
-  });
-  const port = listener.address().port;
-  await new Promise((resolve) => listener.close(resolve));
-  const base = `http://127.0.0.1:${port}`;
   const dir = mkdtempSync(join(tmpdir(), "loop-design-fixture-"));
   const key = randomBytes(32).toString("hex");
+  // The production companion workspace (scripts/fixture-companion.ts), paired
+  // over HTTP like a phone; it reports its loopback origin once listening.
   const server = spawn(
     process.execPath,
-    ["--import", "tsx", "scripts/fixture-server.ts"],
+    ["--import", "tsx", "scripts/fixture-companion.ts"],
     {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
         NODE_ENV: "test",
-        LOOP_PROFILE: "server",
-        LOOP_AUTH_MODE: "single-user",
+        LOOP_PROFILE: "companion",
         LOOP_DATA_DIR: dir,
-        PORT: String(port),
-        LOOP_URL: base,
-        LOOP_LISTEN_HOST: "127.0.0.1",
         LOOP_ENCRYPTION_KEY: key,
-        BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-        LOOP_SINGLE_USER_EMAIL: "",
-        LOOP_GATEWAY_TOKEN: "",
-        LOOP_RUNTIME_URL: "",
+        // Never discover the developer's own Docker workspaces.
+        DOCKER_HOST: "unix:///nonexistent/loop-fixture-docker.sock",
         // Watched pull requests poll here and fail fast: no real GitHub.
         LOOP_GITHUB_API_URL: githubApi || "http://127.0.0.1:9",
-        LOOP_RUNTIME_TOKEN: "",
       },
     },
   );
@@ -80,8 +66,8 @@ export async function designFixture({ githubApi } = {}) {
     }
   });
   try {
-    let ready = false;
-    for (let i = 0; i < 100; i++) {
+    let started;
+    for (let i = 0; i < 300 && !started; i++) {
       if (
         startupError ||
         server.exitCode !== null ||
@@ -90,25 +76,46 @@ export async function designFixture({ githubApi } = {}) {
         throw new Error(
           "Fixture did not start: " + (startupError?.message || logs),
         );
-      try {
-        if ((await fetch(base + "/api/auth/get-session")).ok) {
-          ready = true;
-          break;
-        }
-      } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Only complete lines: the announcement can arrive across chunks.
+      const line = logs
+        .split("\n")
+        .slice(0, -1)
+        .find((l) => l.startsWith('{"origin"'));
+      if (line) started = JSON.parse(line);
+      else await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    if (!ready) throw new Error("Fixture did not start: " + logs);
+    if (!started) throw new Error("Fixture did not start: " + logs);
+    const base = started.origin;
+    const secret = new URL(started.pair).hash.replace(/^#pair=/, "");
+    const paired = await fetch(base + "/pair", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({ secret, name: "Design fixture" }),
+    });
+    if (!paired.ok)
+      throw new Error("Fixture pairing failed: " + (await paired.text()));
+    const cookieHeader = paired.headers.get("set-cookie").split(";")[0];
+    const [cookieName, cookieValue] = cookieHeader.split("=");
+    const { csrf } = await (
+      await fetch(base + "/session", { headers: { cookie: cookieHeader } })
+    ).json();
+    // Paired-device headers for direct requests (uploads, malformed bodies).
+    const headers = { origin: base, cookie: cookieHeader, "x-loop-csrf": csrf };
     const api = async (path, body, method) => {
       const response = await fetch(base + "/api" + path, {
         method: method || (body ? "POST" : "GET"),
-        headers: { "content-type": "application/json", origin: base },
+        headers: { "content-type": "application/json", ...headers },
         body: body ? JSON.stringify(body) : undefined,
       });
       const data = await response.json();
       if (!response.ok) throw new Error(path + ": " + JSON.stringify(data));
       return data;
     };
+    // Browser contexts sign in with the fixture's paired device.
+    const pair = (context) =>
+      context.addCookies([
+        { name: cookieName, value: cookieValue, url: base, httpOnly: true },
+      ]);
     const owner = (await api("/auth/get-session")).user.id;
     db = new Database(dir + "/loop.db");
     installFixtureProjection(db);
@@ -119,35 +126,36 @@ export async function designFixture({ githubApi } = {}) {
           .run("design-fixture", Date.now()),
       1000,
     );
-    const codex = await api("/connections", {
-      provider: "openai",
-      label: "Personal ChatGPT",
-      secret: "fixture-only-not-a-real-key",
-    });
-    const claude = await api("/connections", {
-      provider: "anthropic",
-      label: "Personal Claude",
-      secret: "fixture-only-not-a-real-key",
-    });
-    db.prepare(
-      "UPDATE connections SET provider=?,models=?,metadata=? WHERE id=?",
-    ).run(
-      "codex",
-      JSON.stringify([
-        { id: "gpt-6-sol", name: "GPT-6 Sol" },
-        { id: "gpt-6-astra", name: "GPT-6 Astra" },
-      ]),
-      JSON.stringify({ authMode: "subscription", plan: "pro" }),
-      codex.id,
-    );
-    db.prepare("UPDATE connections SET models=?,metadata=? WHERE id=?").run(
-      JSON.stringify([
-        { id: "sonnet", name: "Claude Sonnet" },
-        { id: "opus", name: "Claude Opus" },
-      ]),
-      JSON.stringify({ authMode: "subscription" }),
-      claude.id,
-    );
+    // Native harness connections, shaped like the ones the companion registers
+    // when a harness is enabled. The fixture runs no execution process.
+    const native = (harness, label, models) => {
+      const id = "native-" + harness;
+      db.prepare(
+        "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,'','connected',?,?,?)",
+      ).run(
+        id,
+        owner,
+        harness === "claude" ? "anthropic" : harness,
+        label,
+        JSON.stringify(models),
+        JSON.stringify({
+          loopHarness: harness,
+          authMode: "native-existing",
+          runtimeKind: "loop-local",
+          location: "laptop",
+        }),
+        Date.now(),
+      );
+      return { id };
+    };
+    const codex = native("codex", "Personal ChatGPT", [
+      { id: "gpt-6-sol", name: "GPT-6 Sol" },
+      { id: "gpt-6-astra", name: "GPT-6 Astra" },
+    ]);
+    const claude = native("claude", "Personal Claude", [
+      { id: "sonnet", name: "Claude Sonnet" },
+      { id: "opus", name: "Claude Opus" },
+    ]);
     const projects = [];
     for (const name of ["Loop", "Research and product development", "Personal"])
       projects.push(await api("/folders", { name, kind: "project" }));
@@ -192,7 +200,15 @@ export async function designFixture({ githubApi } = {}) {
       url: "https://fixture.example/mcp",
       auth: { type: "none" },
     }).catch(() => {});
-    let refs = { base, agents, projects, conversations: [], artifacts: [] };
+    let refs = {
+      base,
+      pair,
+      headers,
+      agents,
+      projects,
+      conversations: [],
+      artifacts: [],
+    };
     const now = Date.now();
     const answer =
       '## Review complete\n\nThe change adds project filtering and improves how agents appear in the feed. I found two issues to address before merging.\n\n### 1. Preserve the selected project\n\nWhen you open an agent from a project and return, keep the project filter so you do not lose your place.\n\n- Keep the current project in the route.\n- Restore the selected tab when closing a conversation.\n- Show a clear loading state while results arrive.\n\n### 2. Improve error recovery\n\nThe request can fail while the dialog stays open. Put the error next to the action and keep the draft available.\n\n| Area | Status | Next step |\n| --- | --- | --- |\n| Navigation | Needs work | Preserve the route |\n| Composer | Needs review | Keyboard testing |\n| Saved output | Ready | Verify empty states |\n\n```typescript\nconst projectId = searchParams.get("project");\nreturn loadProject(projectId);\n```\n\nSee [the proposed changes](https://example.com/pull/42) for the full context.\n\n' +

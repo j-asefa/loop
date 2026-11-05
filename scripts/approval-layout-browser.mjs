@@ -32,6 +32,7 @@ for (const engine of selectedEngines()) {
         hasTouch: true,
         serviceWorkers: "block",
       });
+      await fixture.pair(page.context());
       // Each full navigation starts an independent layout/decision case. The
       // suite compresses many cases into seconds; keep a fresh fixture-owned
       // request window per case while retaining the real limiter within it.

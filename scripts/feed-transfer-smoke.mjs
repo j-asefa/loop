@@ -31,6 +31,7 @@ for (const engine of selectedEngines()) {
         hasTouch: true,
         serviceWorkers: "block",
       });
+      await fixture.pair(page.context());
       const errors = [];
       page.on("pageerror", (error) => {
         if (!isWebKitNavigationFetchError(engine.name(), error, fixture.base))
@@ -98,7 +99,11 @@ for (const engine of selectedEngines()) {
             0,
             `Reload transferred cached asset ${r.path}`,
           );
-        for (const r of warm.filter((r) => r.path.startsWith("/avatars/")))
+        // Only portraits the first visit loaded can be transferred again.
+        const coldAvatars = new Set(
+          cold.filter((r) => r.path.startsWith("/avatars/")).map((r) => r.path),
+        );
+        for (const r of warm.filter((r) => coldAvatars.has(r.path)))
           assert(
             r.transferred < 1024,
             `Avatar body transferred again: ${r.path}`,

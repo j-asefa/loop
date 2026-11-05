@@ -102,7 +102,7 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   ]) {
     const response = await page.request.fetch(fixture.base + path, {
       method,
-      headers: { origin: fixture.base },
+      headers: fixture.headers,
       data: method === "PUT" ? {} : undefined,
     });
     expect(response.status(), `${method} ${path}`).toBe(404);

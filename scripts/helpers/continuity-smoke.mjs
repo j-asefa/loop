@@ -505,7 +505,7 @@ export async function continuitySmoke(page, fixture, capture) {
     );
     const uploaded = await fetch(fixture.base + "/api/uploads", {
       method: "POST",
-      headers: { origin: fixture.base },
+      headers: fixture.headers,
       body: legacyUpload,
     });
     assert(uploaded.ok);
@@ -800,7 +800,7 @@ export async function continuitySmoke(page, fixture, capture) {
     );
     const upload = await fetch(fixture.base + "/api/uploads", {
       method: "POST",
-      headers: { origin: fixture.base },
+      headers: fixture.headers,
       body: form,
     });
     assert.equal(upload.status, 201);

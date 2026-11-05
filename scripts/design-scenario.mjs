@@ -151,7 +151,8 @@ const scenarios = {
   "continuation-recovery": continuationRecoverySmoke,
   "reply-keyboard": (p, f, e, c) => replyKeyboardSmoke(p, f, c),
   "dialog-keyboard": (p, f, e, c) => dialogKeyboardSmoke(p, f, c),
-  settings: (p, f, e, c) => settingsReliabilityBrowser(p, f.base, c),
+  settings: (p, f, e, c) =>
+    settingsReliabilityBrowser(p, f.base, c, { companion: true }),
   workspace: workspaceControlsSmoke,
   teams: teamNavigationSmoke,
   "team-feed-visibility": teamFeedVisibilitySmoke,
@@ -203,6 +204,7 @@ for (const engine of selectedEngines()) {
         hasTouch: true,
         serviceWorkers: "block",
       });
+      await fixture.pair(context);
       finishTrace = await startSmokeTrace(
         context,
         `${engine.name()}-${scenario}`,

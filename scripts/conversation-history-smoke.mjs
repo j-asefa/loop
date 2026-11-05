@@ -142,6 +142,7 @@ for (const engine of selectedEngines()) {
       hasTouch: true,
       serviceWorkers: "block",
     });
+    await fixture.pair(context);
     // Older browsers support URLSearchParams without its later size property.
     await context.addInitScript(() => { Reflect.deleteProperty(URLSearchParams.prototype, "size"); });
     page = await context.newPage();
@@ -576,18 +577,23 @@ for (const engine of selectedEngines()) {
     // A delayed response from the previous conversation cannot replace a new one.
     let releaseLate, lateStarted = false;
     const lateGate = new Promise(resolve => { releaseLate = resolve; });
-    await page.route(url => url.pathname === path, async route => {
+    const late = async route => {
       lateStarted = true;
       const response = await route.fetch();
       await lateGate;
       await route.fulfill({ response }).catch(() => {}); // abandoned reads may already be aborted
-    });
+    };
+    // Held at the context so the reopened thread's first read is always
+    // intercepted; a page-level route intermittently missed it.
+    const lateMatch = url => url.pathname === path;
+    await page.context().route(lateMatch, late);
     await openThread(conversation.id);
     await expect.poll(() => lateStarted).toBe(true);
     const other = fixture.conversations.find(item => item.id !== conversation.id && item.state === "queued");
     await openThread(other.id);
     await expect(page.locator("dialog.conversation-sheet[open]")).toHaveAttribute("aria-label", other.title);
     releaseLate();
+    await page.context().unroute(lateMatch, late);
     await page.unrouteAll({ behavior: "wait" });
     await expect(page.locator("dialog.conversation-sheet[open]")).toHaveAttribute("aria-label", other.title);
     await expect(transcript.getByText("History answer 239", { exact: true })).toHaveCount(0);
@@ -675,6 +681,7 @@ async function anchoredLiveTail(engine) {
     })();
     browser = await engine.launch({headless:true,executablePath:engine===chromium?process.env.CHROMIUM_PATH||undefined:undefined});
     const context = await browser.newContext({viewport:{width:390,height:844},serviceWorkers:"block"});
+    await fixture.pair(context);
     await context.addInitScript(() => {
       const Original = window.WebSocket;
       window.__tailDeltas = 0;
@@ -685,7 +692,8 @@ async function anchoredLiveTail(engine) {
           super(...args);
           window.__tailSockets.push(this);
           this.addEventListener("message", event => {
-            const frame = JSON.parse(event.data);
+            // The companion wraps each source's frame in its multiplexed envelope.
+            const message = JSON.parse(event.data), frame = message.frame ?? message;
             window.__tailDeltas += frame.events?.filter(entry => entry.event?.type === "message.delta").length ?? 0;
             for (const entry of frame.events ?? []) if (entry.event?.type === "invalidate" && entry.event.subject?.kind === "message")
               window.__messageInvalidations[entry.event.subject.id] = entry.id;
@@ -836,6 +844,7 @@ async function localRequestRefusal(engine) {
     const conversation = fixture.conversations.find(c => c.state === "completed");
     browser = await engine.launch({ headless: true, executablePath: engine === chromium ? process.env.CHROMIUM_PATH || undefined : undefined });
     const page = await browser.newPage({ serviceWorkers: "block" });
+    await fixture.pair(page.context());
     let submissions = 0;
     page.on("request", request => { if (request.method() === "POST" && new URL(request.url()).pathname === "/api/runs") submissions++; });
     await page.goto(fixture.base + "/?conversation=" + conversation.id);
@@ -867,6 +876,7 @@ async function snapshotRecovery(engine) {
     const row = fixture.db.prepare("SELECT id FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 1").get(conversation.id);
     browser = await engine.launch({headless:true,executablePath:engine===chromium?process.env.CHROMIUM_PATH||undefined:undefined});
     const page = await browser.newPage({serviceWorkers:"block"});
+    await fixture.pair(page.context());
     await page.goto(fixture.base);
     await expect(page.getByRole("status").filter({hasText:"Connected to workspace"})).toBeVisible();
     await page.waitForTimeout(2500);
@@ -958,8 +968,11 @@ async function httpEpochRecovery(engine) {
     const row = fixture.db.prepare("SELECT id FROM messages WHERE conversation_id=? AND role='assistant' ORDER BY created_at DESC LIMIT 1").get(conversation.id);
     browser = await engine.launch({headless:true,executablePath:engine===chromium?process.env.CHROMIUM_PATH||undefined:undefined});
     const context = await browser.newContext({serviceWorkers:"block"});
+    await fixture.pair(context);
     let blocked = false;
-    await context.routeWebSocket(url => url.pathname === "/ws" || url.pathname.endsWith("/events/ws"), socket => {
+    // Every workspace socket, including the companion's multiplexed stream:
+    // once blocked, recovery must come over HTTP.
+    await context.routeWebSocket(url => url.pathname === "/ws" || url.pathname.endsWith("/events/ws") || url.pathname === "/api/events/multiplex/ws", socket => {
       if (blocked) socket.close(); else socket.connectToServer();
     });
     await context.addInitScript(() => {
@@ -980,6 +993,7 @@ async function httpEpochRecovery(engine) {
       fixture.db.prepare("UPDATE messages SET content='Recovered through HTTP after database replacement' WHERE id=?").run(row.id);
     })();
     await expect(page.locator(`[data-message-id="${row.id}"]`)).toContainText("Recovered through HTTP after database replacement",{timeout:12000});
+    assert.equal(await page.evaluate(() => window.__epochSockets.filter(socket => socket.readyState === WebSocket.OPEN).length),0,"Recovery used HTTP, not a reopened socket");
     await expect(page.locator(".conversation-sheet [role=alert]")).toHaveCount(0);
     await expect(page.getByRole("button",{name:"Reload to update",exact:true})).toHaveCount(0);
     console.log(`${engine.name()}: HTTP-only database epoch replacement resets and rehydrates the transcript`);

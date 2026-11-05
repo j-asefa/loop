@@ -6,6 +6,8 @@ import { designFixture } from "./design-fixture.mjs";
 // failed searches. Page overflow alone misses clipping inside modal sheets.
 export async function threadLayoutSmoke(page, capture) {
   const fixture = await designFixture();
+  // Pair the page with this fixture (cookies ignore ports).
+  await fixture.pair(page.context());
   const usagePattern = /\/api\/conversations\/[^/]+\/usage$/;
   let omittedMemory = 0;
   const olderUsage = async (route) => {

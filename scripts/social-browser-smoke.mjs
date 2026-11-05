@@ -30,6 +30,7 @@ for (const engine of selectedEngines()) {
         isMobile: true,
         hasTouch: true,
       });
+      await fixture.pair(context);
       const page = await context.newPage();
       page.setDefaultTimeout(8000);
       const errors = [];

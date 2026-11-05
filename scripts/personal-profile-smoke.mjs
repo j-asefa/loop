@@ -69,6 +69,7 @@ try {
   }
   for (const width of [1280, 390, 320]) {
     page = await browser.newPage({ viewport: { width, height: 844 } });
+    await fixture.pair(page.context());
     page.on("pageerror", (error) => errors.push(error.message));
     let historyRequests = 0;
     page.on("request", (request) => {
@@ -151,6 +152,7 @@ try {
     await page.close();
   }
   const namePage = await browser.newPage();
+  await fixture.pair(namePage.context());
   let sessionName = "  🌟 Ada  ";
   await namePage.route("**/api/auth/get-session", async (route) => {
     const response = await route.fetch();
