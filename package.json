@@ -11,7 +11,6 @@
     "format": "prettier --write \"{src,test,scripts}/**/*.{ts,tsx,js,jsx,mjs,cjs}\"",
     "test": "node scripts/test-runner.mjs vitest",
     "backup": "node --env-file=.env scripts/backup.mjs",
-    "smoke:journey": "node scripts/heavy-command.mjs scripts/browser-journey.mjs",
     "test:native": "node scripts/test-runner.mjs native",
     "test:all": "npm test && npm run test:native",
     "prepack": "npm run build",

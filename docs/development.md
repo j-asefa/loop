@@ -134,8 +134,6 @@ npm run smoke:fleet-traces
 LOOP_BROWSER=webkit npm run smoke:fleet-traces
 npm run smoke:fleet-commands
 LOOP_BROWSER=webkit npm run smoke:fleet-commands
-npm run smoke:journey
-LOOP_BROWSER=webkit npm run smoke:journey
 ```
 
 `smoke:design`, `smoke:history`, `smoke:workspace`, `smoke:html`, `smoke:social` and `smoke:pulls` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium. `smoke:pulls` drives the Pull requests tab against a scripted GitHub ([fake-github.mjs](../scripts/helpers/fake-github.mjs)); it does not reach GitHub. `smoke:social` seeds stories straight into the feed store, so it drives Social's reading, saving, filtering, search and watches without reaching a feed.
@@ -181,7 +179,7 @@ The [CI workflow](../.github/workflows/ci.yml) runs `npm run check` and the Vite
 
 Run the relevant checks locally and record results in the PR as well. Native tests, browser smokes and Docker validation remain manual.
 
-Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them. The Docker companion smoke (`node scripts/compose-companion-smoke.mjs`) builds its images by default. The server smoke (`node scripts/compose-smoke.mjs`) expects the server Compose stack to be running; see [server operation](server.md). For an isolated prebuilt validation, pass `--images-file /absolute/override.yaml` to the companion smoke; the Compose override selects the test images and can set container memory/CPU limits and environment-specific CA mounts. This avoids overwriting shared CI tags. The runner still owns only its unique Compose project and volumes.
+Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them. The Docker companion smoke (`node scripts/compose-companion-smoke.mjs`) builds its images by default. For an isolated prebuilt validation, pass `--images-file /absolute/override.yaml` to the companion smoke; the Compose override selects the test images and can set container memory/CPU limits and environment-specific CA mounts. This avoids overwriting shared CI tags. The runner still owns only its unique Compose project and volumes.
 
 The design smoke runs named scenarios with separate databases, servers and browser contexts, one at a time by default. `LOOP_BROWSER_WORKERS=2` enables two concurrent scenario workers. For a focused design regression:
 
@@ -192,7 +190,7 @@ LOOP_BROWSER=chromium LOOP_BROWSER_WORKERS=1 npm run smoke:design
 
 Set `LOOP_BROWSER_TRACE_DIR=/tmp/loop-traces` to capture Playwright traces for failing design scenarios; tracing is opt-in to avoid adding overhead to every run. Failures also print available cgroup memory and CPU pressure counters. Open a saved trace with `npx playwright show-trace /tmp/loop-traces/<trace>.zip`.
 
-Omitting scenario names runs all scenarios; unknown names fail. Each scenario reports timing, and screenshots include its engine/name. `smoke:journey` remains the integrated service-worker/provider journey.
+Omitting scenario names runs all scenarios; unknown names fail. Each scenario reports timing, and screenshots include its engine/name.
 
 `npm run smoke:fleet` exercises three isolated compiled companions through local
 TLS fixture origins, including controller setup, QR/paste enrollment, directory
