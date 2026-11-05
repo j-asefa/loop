@@ -75,24 +75,6 @@ The terminal screenshot uses an isolated fixture tunnel; its pairing link is no 
 
 The computer must stay awake for phone access. Pairing links are single use and expire after two minutes; run `loop pair` for a fresh code. `loop restart` and `loop upgrade` keep the Quick Tunnel address; after `loop stop` or a reboot it can change, so scan a new code and add the new page to your home screen. See [pairing and recovery](docs/pairing.md).
 
-## Run the server
-
-```sh
-npm run setup
-loop server
-```
-
-Open **http://localhost:3000**. The server starts its worker and opens a personal workspace by default. Add a provider connection in Settings, then create an agent. API connections require your own provider credentials; subscription connections require a configured runtime.
-
-For the supplied Docker subscription stack:
-
-```sh
-npm run setup
-docker compose up --build -d
-```
-
-See [server operation](docs/server.md) for accounts, remote access, runtime machines, backups and subscription runtimes.
-
 ## Use a coding harness
 
 Install Codex, Claude Code, Pi, OpenCode, Antigravity, Muse Code or Grok Build on your computer, configure its model provider (or sign in for a cloud account), then run `loop` in your project directory. Loop discovers supported installed harnesses and connects their direct native adapters. Each harness uses your existing model configuration and credential home; cloud accounts only need a fresh sign-in if they cannot be verified. Sign-in and runtime status are also available in Settings → Provider connections.
@@ -106,7 +88,7 @@ Each harness keeps its native tools and context. Agents owned by the same user o
 
 The workspace and pairing are available while each harness is verified independently. Missing harnesses are not installed automatically. A failed account check leaves that harness unavailable without blocking the others.
 
-Use `loop start --providers codex,claude,pi` to limit discovery. Explicit `loop codex|claude|pi|opencode|antigravity|muse|grok|acp` commands support custom executables and native options. Use the Docker companion or server Compose stack for container execution. See [harnesses](docs/harnesses.md) for billing and connection recovery.
+Use `loop start --providers codex,claude,pi` to limit discovery. Explicit `loop codex|claude|pi|opencode|antigravity|muse|grok|acp` commands support custom executables and native options. Use the Docker companion for container execution. See [harnesses](docs/harnesses.md) for billing and connection recovery.
 
 Manage OpenCode and Pi provider credentials from **Settings → Provider connections → Harnesses → Manage providers**. Add an OpenRouter or OpenAI key, or use a provider's sign-in flow, and Loop refreshes that harness's model choices. Keys stay in each harness's native store. See [model provider settings](docs/harnesses.md#opencode-and-pi-model-providers).
 

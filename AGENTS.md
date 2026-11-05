@@ -4,7 +4,7 @@ Start with [README.md](README.md) for build and run commands. Load only the guid
 
 | Task                                                 | Read next                                                                       |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Server, authentication, deployment or remote runtime | [Server operation](docs/server.md)                                              |
+| Host operation, deployment or remote runtime         | [Server operation](docs/server.md)                                              |
 | CLI, harness discovery or native launcher       | [Harnesses](docs/harnesses.md)                                                  |
 | Device authentication, tunnels or reconnect          | [Pairing](docs/pairing.md)                                                      |
 | Runtime routing, persistence, activities or memory   | [Architecture](docs/architecture.md)                                            |
@@ -16,6 +16,8 @@ Keep one canonical explanation per topic and link to it. Verify commands against
 Preserve owner/profile isolation, durable dispatch identities and generation-bound decisions. Never replay an uncertain external effect automatically. Keep native context owned by its harness and credentials out of browser-visible content. Add regressions at the production boundary being changed; use [development](docs/development.md) to choose checks. Run `npm run check` before every PR and record its output there. Distinguish fixture coverage from live provider/device validation.
 
 Loop has no installed base to preserve: every installation starts fresh, with a new data directory and newly paired devices. Don't keep or add code for earlier Loop versions, their stored data, file layouts, service units, environment variables, names or wire formats. Compatibility with external systems (providers, harness CLIs, the OS, browsers) stays.
+
+Loop ships only the companion workspace (`loop start`). The hosted server profile has no entry point; its remaining code (`serve.ts`, better-auth sign-in, runtime brokers) is being removed, so don't extend it or keep it working.
 
 ## Evidence for review
 

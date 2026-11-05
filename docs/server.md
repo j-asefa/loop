@@ -1,70 +1,14 @@
 # Server operation
 
-The server profile runs one shared web application, API and durable worker. Use a persistent Node host or Docker; static hosting alone cannot run it. For QR-based laptop or Docker companion access use [pairing](pairing.md#docker-companion). The dedicated companion Compose file is separate from the server deployment below.
+This guide covers operating the host that runs a Loop workspace: resource limits for agent workloads, backups and disk pressure. Loop ships only the companion workspace (`loop start`); see [pairing](pairing.md) to reach it from a phone, including the [Docker companion](pairing.md#docker-companion).
 
-## Start from a checkout
-
-After `npm ci && npm run build`:
-
-```sh
-npm run setup
-node --env-file=.env dist/cli.js server
-```
-
-This starts the compiled API and worker together in the foreground. The source equivalent is `node --env-file=.env scripts/serve.mjs`, which supervises separate API/worker processes. `npm start` runs only the API and does not load `.env`; `npm run dev` and `npm run worker` load it for their respective source processes.
-
-Open http://localhost:3000. `GET /api/health` reports readiness. [src/server/config.ts](../src/server/config.ts) and [.env.example](../.env.example) define configuration. Setup creates/preserves secrets; do not commit `.env`.
-
-Forward WebSocket upgrades for `/api/events/ws` through any reverse proxy, with the same session cookies or trusted gateway header as ordinary requests. See [workspace updates](architecture.md#workspace-updates) for push updates and polling recovery.
-
-For integration streams, forward WebSocket upgrades and the `Authorization` header for `/api/events/stream`. Acknowledgements travel on the same socket. The endpoint checks token authority and sends a ping every 25 seconds while idle; server and companion shutdown terminate its sockets. It uses WebSockets for compatibility with the default Quick Tunnel connection; see [Integration API events](cards-api.md#event-pages-and-streaming).
-
-Both the server and paired companion negotiate compression for text and JSON
+The paired companion negotiates compression for text and JSON
 responses above 1 KiB. Event streams, downloads and byte ranges keep their original
 representation. API responses remain `no-store`. Vite assets with content hashes
 in their URLs are cached for a year as immutable; robot avatars revalidate with
 ETags before reuse. HTML, service workers and manifests remain `no-store` so tabs
 can discover updated builds. Preserve `Vary: Accept-Encoding` and these cache
 headers through a reverse proxy; do not apply public caching to API responses.
-
-## Docker and harness connections
-
-Use Settings → Provider connections to connect server subscription accounts through the configured runtime broker, or register a native host. See [remote runtimes](remote-runtimes.md). The root Compose stack supplies the server and subscription runtime; the paired Docker companion is a separate deployment.
-
-Direct subscription connections retired by migration 067 become eligible for native verification in migration 071. Check the account before running work again. Stored history and uncertain dispatch receipts remain intact and are never automatically replayed.
-
-## Access configuration
-
-| Setting                        | Use                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------- |
-| `LOOP_AUTH_MODE=single-user` | Default personal workspace; direct access restricted to local requests or a trusted gateway |
-| `LOOP_AUTH_MODE=multi-user`  | Loop sign-in and separate owner-scoped workspaces                                         |
-| `LOOP_SINGLE_USER_EMAIL`     | Explicit owner selection when several existing accounts are present                         |
-| `LOOP_URL`                   | Actual browser origin, used for access/origin checks                                        |
-| `LOOP_LISTEN_HOST`           | Direct Node listener; defaults to `127.0.0.1`                                               |
-| `LOOP_BIND_ADDRESS`          | Compose published interface; defaults to `127.0.0.1`                                        |
-| `LOOP_DATA_DIR`              | Persistent server data; defaults to `./data`                                                |
-
-Changing authentication mode does not merge users' data. A database records its deployment profile; never point server and companion deployments at the same data directory.
-
-For remote single-user access, put an authenticated HTTPS gateway before the private app port. Set `LOOP_URL` and a private `LOOP_GATEWAY_TOKEN` of at least 32 characters. The gateway must authenticate visitors and overwrite `X-Loop-Gateway-Token`; never expose this token to browser code. Forwarding headers alone do not grant access. The gateway must consume its own
-`Authorization` credentials (for example Basic authentication) before forwarding
-browser traffic. Loop reserves that header for scoped integration credentials:
-requests carrying it do not fall back to browser/device sessions and can only
-reach their designated API routes. Preserve a Cards bearer header only when the
-request is intentionally using the [Cards integration boundary](cards-api.md#integration-tokens);
-never copy a gateway credential into browser code or a forwarded app request.
-
-For Loop-managed sign-in with bundled Caddy, configure `.env`:
-
-```dotenv
-LOOP_AUTH_MODE=multi-user
-LOOP_HOST=loop.example.com
-LOOP_URL=https://loop.example.com
-LOOP_BEHIND_PROXY=1
-```
-
-Point the hostname at the host, then run `docker compose --profile https up --build -d`. Caddy exposes 80/443; keep Loop's direct port private. `LOOP_BEHIND_PROXY` assumes a trusted proxy replaces client-IP headers; it does not authenticate visitors. Compose's loopback-proxy allowance must remain paired with local-only publication for single-user access.
 
 ## Keep agent workloads from exhausting the server
 

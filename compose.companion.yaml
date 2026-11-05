@@ -1,4 +1,3 @@
-# Deliberately separate from compose.yaml: no server secrets or server services.
 # loop-connection owns cloudflared and the relay; it keeps the public address
 # while loop-companion restarts or is replaced. Update the application alone:
 #   docker compose -f compose.companion.yaml up -d --build --no-deps loop-companion

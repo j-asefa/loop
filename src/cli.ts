@@ -673,7 +673,6 @@ loop start [--providers installed|codex,claude,opencode,pi,antigravity,muse,grok
      [--project PATH] [--tunnel-name NAME --public-url https://HOST]
      [--fleet]          Also run the experimental multi-machine fleet
                         extension (off unless given). See docs/pairing.md.
-loop server             Start the full server in the foreground.
 loop codex|claude|pi|opencode|antigravity|gemini|muse|grok [--project PATH] [--executable PATH]
      [--billing subscription|existing] [--resume NATIVE_SESSION]
      [--local-only | --public-url https://stable-origin] [--foreground]
@@ -720,45 +719,6 @@ managers and debugging).
 --resume is an explicit desktop handoff of a native session you have stopped
 elsewhere. The UI does not take over arbitrary live Desktop/TUI sessions.
 Uninstall removes the package separately; workspace/native history is retained.`);
-    return;
-  }
-  if (positionals[0] === "server") {
-    const companion = (
-      [
-        "project",
-        "executable",
-        "billing",
-        "resume",
-        "local-only",
-        "public-url",
-        "foreground",
-        "providers",
-        "execution",
-        "tunnel-name",
-        "tunnel-config",
-        "fleet",
-      ] as const
-    ).find((k) => values[k] !== undefined);
-    if (companion)
-      throw new Error(
-        `--${companion} applies to loop start or loop codex|claude|pi|opencode|antigravity|gemini|muse|grok.`,
-      );
-    if (positionals.length > 1)
-      throw new Error("Unknown command. See loop --help.");
-    process.env.LOOP_PROFILE = "server";
-    const { startServer } = await import("./server/serve.js");
-    const { startWorker } = await import("./server/worker.js");
-    const server = startServer();
-    const stopWorker = startWorker();
-    let stopping = false;
-    const stop = async () => {
-      if (stopping) return;
-      stopping = true;
-      server.close();
-      await stopWorker();
-    };
-    process.once("SIGINT", () => void stop());
-    process.once("SIGTERM", () => void stop());
     return;
   }
   if (!["darwin", "linux"].includes(process.platform))

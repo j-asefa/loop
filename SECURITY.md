@@ -4,7 +4,7 @@
 
 Report vulnerabilities privately through **Security → Report a vulnerability** on the [GitHub repository](https://github.com/j-asefa/loop/security). Do not open a public issue, pull request or discussion for a suspected vulnerability.
 
-Include the affected version or commit, the mode you run (laptop workspace, single-user server or multi-user server), steps to reproduce and the impact you expect. We aim to acknowledge reports within a week.
+Include the affected version or commit, whether you run the laptop workspace or the Docker companion, steps to reproduce and the impact you expect. We aim to acknowledge reports within a week.
 
 ## Supported versions
 
@@ -25,14 +25,6 @@ Remote access is HTTPS only. With the default Quick Tunnel, Cloudflare terminate
 
 See [pairing and recovery](docs/pairing.md) for tunnels, custom proxies and recovery.
 
-### Servers
-
-- **Single-user** (the default) has no login. It serves localhost directly and refuses a public `LOOP_URL` unless `LOOP_GATEWAY_TOKEN` (32+ characters) is set. Put an authenticating proxy in front, such as Cloudflare Access, oauth2-proxy or Authelia, and have it inject the token only for visitors it has authenticated. A proxy that injects the token for everyone makes the server public.
-- **Multi-user** uses Loop accounts (email and password of 12+ characters, optionally GitHub). Workspaces are scoped to their owner, so one user can't see or use another's.
-
-Keep the direct server port private either way. `LOOP_BEHIND_PROXY` trusts forwarded headers; it does not authenticate anyone. See [server operation](docs/server.md).
-
 ## Known limitations
 
-- **Multi-user sign-up is open.** Anyone who can reach a multi-user server can create an account and a workspace of their own. They can't reach other users' workspaces, but they can use the server's resources. Until sign-up can be restricted, put an access gate such as Cloudflare Access in front of servers that shouldn't accept strangers.
 - **Device tokens are not bound to the device.** Revocation is the remedy for a lost or copied token.

@@ -12,7 +12,7 @@ npm run build
 
 `npm run build` copies `package-lock.json` to the ignored `npm-shrinkwrap.json` for packaging, and `npm ci` prefers that copy. If `npm ci` reports packages missing from the lock file after a pull, delete `npm-shrinkwrap.json` and run it again; `bash install` does this itself.
 
-The root build typechecks, builds the Vite UI/service worker and bundles CLI/server modules. For source development run `npm run dev` and `npm run worker` in separate terminals. Optionally run `npm run ui` for Vite at port 5173 and set `LOOP_URL` consistently for browser-origin checks. `npm start` starts only the API and expects environment configuration already loaded.
+The root build typechecks, builds the Vite UI/service worker and bundles CLI/server modules.
 
 Typechecking uses an incremental cache at `.tmp/typecheck.tsbuildinfo`, local to
 each checkout. Repeated `npm run typecheck` and `npm run check` invocations reuse
@@ -58,7 +58,7 @@ legacy version fails translation rather than guessing which migration it meant.
 
 `npm run build` gives the browser and server one build identity. A clean checkout of `github.com/j-asefa/loop` builds from an immutable Git archive, with up to 10,000 ancestor commits embedded only in the server. Runtime helpers, migrations and package metadata are staged in `dist/support`, and compiled module imports and resource URLs point there. Edits made to the source checkout while that build runs do not enter its output. Dirty, Git-less and other-repository builds still work but cannot establish commit inclusion. Production artifacts retain their identity when packed and installed; source-mode processes remain unverified. The running process uses compiled metadata, not the current checkout's HEAD. Replacing a running installation's files invalidates its clean provenance until restart.
 
-For a Docker image with source provenance, use `npm run build:image -- -t loop:local` (server), or `npm run build:image -- -f Dockerfile.companion -t loop-companion:local`. The wrapper gives Docker the same immutable source archive plus its build-time identity. Plain Docker/Compose builds remain supported with unknown Git provenance because `.git` is excluded from their context. The server image starts the compiled API and worker. The authenticated `/api/build` response describes the serving process and fresh API/worker observations without credentials or local paths. Processes report every five seconds; observations expire after twenty seconds without a heartbeat. The browser compares its embedded build with the authenticated origin on connection, reconnect and periodic checks; a mismatch offers a reload without submitting work. This signal is local to that browser.
+For a Docker image with source provenance, use `npm run build:image -- -t loop-companion:local`; it builds `Dockerfile.companion` unless `-f` selects another Dockerfile. The wrapper gives Docker the same immutable source archive plus its build-time identity. Plain Docker/Compose builds remain supported with unknown Git provenance because `.git` is excluded from their context. The authenticated `/api/build` response describes the serving process and fresh API/worker observations without credentials or local paths. Processes report every five seconds; observations expire after twenty seconds without a heartbeat. The browser compares its embedded build with the authenticated origin on connection, reconnect and periodic checks; a mismatch offers a reload without submitting work. This signal is local to that browser.
 
 Runtime helpers are compiled by `scripts/compile-runtime.mjs` into standalone
 `.mjs` modules. Package builds stage that graph in `dist/support/runtime`; the
@@ -134,8 +134,6 @@ npm run smoke:fleet-traces
 LOOP_BROWSER=webkit npm run smoke:fleet-traces
 npm run smoke:fleet-commands
 LOOP_BROWSER=webkit npm run smoke:fleet-commands
-npm run smoke:browser
-LOOP_BROWSER=webkit npm run smoke:browser
 npm run smoke:journey
 LOOP_BROWSER=webkit npm run smoke:journey
 ```

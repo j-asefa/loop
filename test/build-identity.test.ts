@@ -130,6 +130,8 @@ console.log(JSON.stringify({file:fs.readFileSync(file,'utf8'),stamp:JSON.parse(f
   };
   const wrapper = resolve("scripts/build-image.mjs");
   for (const args of [
+    // The companion is the only image Loop ships, so it is the default.
+    [],
     ["-f", "Dockerfile.companion"],
     ["--file=Dockerfile.companion"],
     ["-fDockerfile.companion"],

@@ -14,8 +14,4 @@ export default defineConfig({
   // worker count is not the whole footprint. Two workers fit an agent sharing
   // an 8 GiB host; `--maxWorkers` overrides this for larger machines.
   test: { maxWorkers: 2 },
-  server: {
-    host: "0.0.0.0",
-    proxy: { "/api": { target: "http://localhost:3000", ws: true } },
-  },
 });

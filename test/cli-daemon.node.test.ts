@@ -314,10 +314,8 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
       w.loop(["restart", "--fleet"]),
       /loop restart repeats the running launch/,
     );
-    await assert.rejects(
-      w.loop(["server", "--fleet"]),
-      /--fleet applies to loop start/,
-    );
+    // Loop ships only the companion: there is no server command.
+    await assert.rejects(w.loop(["server"]), /Unknown command/);
     for (const command of ["status", "upgrade", "pair", "stop"])
       await assert.rejects(
         w.loop([command, "--fleet"]),

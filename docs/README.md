@@ -4,8 +4,7 @@
 
 | Guide                                        | Scope                                                             |
 | -------------------------------------------- | ----------------------------------------------------------------- |
-| [Server operation](server.md)                | API/worker, Docker, authentication, runtime machines and backups  |
-| [Remote server runtimes](remote-runtimes.md) | Remote broker, native host and Codex app-server                   |
+| [Server operation](server.md)                | Host resource limits, backups and disk pressure                   |
 | [Harnesses](harnesses.md)                    | Native discovery, sign-in, models, team handoffs and services |
 | [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels, recovery and fleets          |
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |

@@ -154,6 +154,6 @@ Connections from the earlier HAPI release stay disconnected; see [architecture](
 
 ## Containers and services
 
-For a paired workspace with its own provider home, use `docker compose -f compose.companion.yaml up --build -d`. Its harnesses execute directly inside the container. For a server with subscription runtimes, use the root Compose stack; see [server operation](server.md) and [remote runtimes](remote-runtimes.md). A container does not inherit your host's native sign-in.
+For a paired workspace with its own provider home, use `docker compose -f compose.companion.yaml up --build -d`. Its harnesses execute directly inside the container. A container does not inherit your host's native sign-in.
 
 `loop service install` installs per-user application and connection services using the saved project and launch options. `loop restart` replaces the application while the connection service retains its public address and paired devices. `loop service uninstall` removes the services while preserving workspace data. See [pairing](pairing.md).

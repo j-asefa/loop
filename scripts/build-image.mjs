@@ -42,12 +42,17 @@ try {
         selected = true;
       }
     }
-    if (!selected) args.push("--file", await capturedFile("Dockerfile"));
+    if (!selected)
+      args.push("--file", await capturedFile("Dockerfile.companion"));
     await writeFile(
       join(source.directory, ".loop-build-source.json"),
       JSON.stringify(source.stamp),
     );
     args.push("--build-arg", "LOOP_BUILD_SOURCE_FILE=.loop-build-source.json");
+  } else if (
+    !args.some((arg) => arg.startsWith("-f") || arg.startsWith("--file"))
+  ) {
+    args.push("--file", resolve(source.directory, "Dockerfile.companion"));
   }
   const result = spawnSync("docker", [...args, source.directory], {
     stdio: "inherit",

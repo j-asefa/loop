@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-import { createServer } from "node:net";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -250,62 +248,8 @@ try {
   const history = await api("/conversations/" + run.conversation_id);
   assert(history.messages.some((m) => m.content === "Fixture done"));
   await stop();
-  // The very same installed distribution runs the full server with `loop server`.
-  const reservation = createServer();
-  await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
-  const port = reservation.address().port;
-  await new Promise((resolve) => reservation.close(resolve));
-  const serverOrigin = "http://127.0.0.1:" + port;
-  child = spawn(bin, ["server"], {
-    cwd: target,
-    env: {
-      ...env,
-      PORT: String(port),
-      LOOP_URL: serverOrigin,
-      LOOP_DATA_DIR: join(base, "server-state"),
-      LOOP_AUTH_MODE: "single-user",
-      BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-      LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let serverErrors = "";
-  child.stdout.resume();
-  child.stderr.on("data", (b) => (serverErrors += b));
-  const deadline = Date.now() + 20000;
-  while (
-    !(await fetch(serverOrigin + "/api/health")
-      .then((r) => r.ok)
-      .catch(() => false))
-  ) {
-    if (Date.now() > deadline || child.exitCode !== null)
-      throw new Error("Packed server did not start: " + serverErrors);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  assert.equal(
-    (await fetch(serverOrigin + "/api/capabilities").then((r) => r.json()))
-      .profile,
-    "server",
-  );
-  assert.equal((await fetch(serverOrigin + "/api/bootstrap")).status, 200);
-  const serverBuild = await fetch(serverOrigin + "/api/build").then((r) =>
-    r.json(),
-  );
-  assert.deepEqual(serverBuild.serving, identity);
-  assert.deepEqual(serverBuild.processes.map((p) => p.role).sort(), [
-    "api",
-    "worker",
-  ]);
-  for (const process of serverBuild.processes)
-    assert.deepEqual(process.build, identity);
-  const serverHtml = await fetch(serverOrigin).then((r) => r.text());
-  assert.match(serverHtml, /<div id="root">/);
-  for (const asset of assets)
-    assert.equal((await fetch(serverOrigin + asset)).status, 200);
-  child.kill("SIGTERM");
-  await new Promise((resolve) =>
-    child.exitCode !== null ? resolve() : child.once("exit", resolve),
-  );
+  // Loop ships only the companion: the packaged CLI has no server command.
+  await assert.rejects(exec(bin, ["server"], { env }), /Unknown command/);
   await exec(bin, ["uninstall"], { env });
   assert(
     (await readFile(join(env.LOOP_HOME, "workspace", "loop.db"))).length > 0,
@@ -315,7 +259,7 @@ try {
   await rm(target, { recursive: true, force: true });
   await upgradeBehindConnection();
   console.log(
-    "Clean tarball install: original UI assets, pairing, native workspace run, duplicate CLI, restart persistence, stop, retained data, server profile, and loop upgrade between packed builds behind one connection service passed. Fixture tunnel only.",
+    "Clean tarball install: original UI assets, pairing, native workspace run, duplicate CLI, restart persistence, stop, retained data, no server command, and loop upgrade between packed builds behind one connection service passed. Fixture tunnel only.",
   );
 } finally {
   ws?.terminate();

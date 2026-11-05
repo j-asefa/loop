@@ -858,18 +858,12 @@ syncBuiltinESMExports();`,
       assert.match((await f.loop("open", "posts")).stdout, /#pair=/);
       await f.loop("stop", "other");
       assert.equal((await f.status("posts")).pid, after.pid);
-      const previewData = join(
-        f.registry,
-        "previews",
-        "posts",
-        "runtime",
-        "workspace",
-      );
+      // A stopped preview's workspace refuses to open without its launcher.
       await assert.rejects(
-        exec(process.execPath, [cli, "server"], {
+        exec(process.execPath, [cli, "start", "--foreground", "--local-only"], {
           env: {
             ...process.env,
-            LOOP_DATA_DIR: previewData,
+            LOOP_HOME: join(f.registry, "previews", "other", "runtime"),
             LOOP_PREVIEW_MANIFEST: "",
           },
           timeout: 10000,
