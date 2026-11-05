@@ -35,7 +35,8 @@ export function profileCapabilities(profile: DeploymentProfile): Capabilities {
     profile,
     nativeHarnesses: companion,
     pairedDevices: companion,
-    runtimeHosts: !companion,
+    // No profile serves runtime hosts any more; 3d removes the flag.
+    runtimeHosts: false,
     localProjects: companion,
     cardTokens: true,
     personalDecisions: true,

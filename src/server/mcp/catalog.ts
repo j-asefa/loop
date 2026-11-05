@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { db, id, now } from "../db.js";
 import { ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
-import { runtimeEndpoint } from "../runtime-hosts.js";
+import { assertLocalRuntime } from "./runtime-transport.js";
 import {
   authorize,
   discover,
@@ -60,7 +60,6 @@ async function install(
   owner: string,
   entry: CatalogDefinition,
   values: Record<string, string>,
-  runtimeHostId?: string,
 ): Promise<CatalogInstallResult> {
   // Serialize the lookup and insert across the API/worker SQLite connections.
   // One catalog installation per workspace, independent of the requesting agent.
@@ -88,9 +87,7 @@ async function install(
         existing &&
         existing.status !== "disconnected" &&
         !Object.keys(values).length;
-      // A disabled connection keeps its original runtime and credentials on re-enable.
-      const host = reuse ? metadata.runtimeHostId : runtimeHostId;
-      if (entry.transport === "stdio") runtimeEndpoint(owner, host);
+      if (entry.transport === "stdio") assertLocalRuntime();
       const secret = reuse
         ? readSecret(existing!)
         : catalogSecret(entry, values);
@@ -100,7 +97,6 @@ async function install(
         ...metadata,
         catalogId: entry.id,
         transport: entry.transport,
-        runtimeHostId: entry.transport === "stdio" ? host : undefined,
       });
       if (existing)
         mcpConnectionsQueries.catalogNeedsAuth(
@@ -168,7 +164,6 @@ export async function installCatalog(
   owner: string,
   catalogId: string,
   values: Record<string, string> = {},
-  runtimeHostId?: string,
 ) {
   const entry = catalog.find((c) => c.id === catalogId);
   if (!entry) throw new Problem(404, "Unknown catalog tool");
@@ -178,12 +173,9 @@ export async function installCatalog(
     )
   )
     throw new Problem(400, "Unexpected setup field");
-  if (entry.transport === "http" && runtimeHostId)
-    throw new Problem(400, "Hosted tools do not use a runtime machine");
-  if (runtimeHostId) runtimeEndpoint(owner, runtimeHostId);
   const key = JSON.stringify([owner, entry.id]);
   const fingerprint = createHash("sha256")
-    .update(JSON.stringify([Object.entries(values).sort(), runtimeHostId]))
+    .update(JSON.stringify(Object.entries(values).sort()))
     .digest("hex");
   const active = pending.get(key);
   if (active) {
@@ -194,7 +186,7 @@ export async function installCatalog(
       );
     return active.result;
   }
-  const result = install(owner, entry, values, runtimeHostId);
+  const result = install(owner, entry, values);
   pending.set(key, { fingerprint, result });
   try {
     return await result;

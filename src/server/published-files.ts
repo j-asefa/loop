@@ -23,7 +23,6 @@ import { db, emit } from "./db.js";
 import { config } from "./config.js";
 import { ownedArtifact, ownedConnection, ownedRun, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
-import { runtimeAction, runtimeWorkspaceKey } from "./subscriptions.js";
 import { companionMode } from "./profile.js";
 import {
   FILE_CHUNK_BYTES,
@@ -216,7 +215,7 @@ export async function publishRunFile(
       : undefined;
   if (metadata.loopHarness && !binding)
     throw new Problem(409, "Native workspace unavailable");
-  if (!binding && metadata.authMode !== "subscription")
+  if (!binding)
     throw new Problem(
       400,
       "This agent has no file workspace. Publish small files using content instead.",
@@ -238,14 +237,7 @@ export async function publishRunFile(
     if (ownedRun(run.id, run.owner_id).state !== "running")
       throw new Problem(409, "Run is no longer executing");
     const chunk = chunkSchema.parse(
-      binding
-        ? readPublishedChunk(binding.project, args.path!, offset, version)
-        : await runtimeAction(connection, "read-file", {
-            workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
-            path: args.path,
-            offset,
-            version,
-          }),
+      readPublishedChunk(binding.project, args.path!, offset, version),
     );
     const bytes = Buffer.from(chunk.base64, "base64");
     if (

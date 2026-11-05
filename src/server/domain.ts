@@ -1,5 +1,4 @@
 import * as memorySourcesQueries from "./sql/memory-sources.js";
-import * as runtimeHostsQueries from "./sql/runtime-hosts.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as operationsQueries from "./sql/operations.js";
 import * as approvalsQueries from "./sql/approvals.js";
@@ -39,7 +38,6 @@ const ownedQueries = {
   approvals: approvalsQueries.owned,
   operations: operationsQueries.owned,
   teams: teamsQueries.owned,
-  runtime_hosts: runtimeHostsQueries.owned,
   memory_sources: memorySourcesQueries.owned,
 };
 export function owned(table: string, recordId: string, owner: string): unknown {
@@ -213,10 +211,6 @@ export function ownedTeam(recordId: string, owner: string) {
     owned("teams", recordId, owner),
     "teams",
   );
-}
-
-export function ownedRuntimeHost(recordId: string, owner: string) {
-  return rows.parseRuntimeHost(owned("runtime_hosts", recordId, owner));
 }
 
 export function ownedMemorySource(recordId: string, owner: string) {

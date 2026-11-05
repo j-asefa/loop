@@ -571,7 +571,7 @@ it("server capabilities retain managed runtimes and do not expose companion rout
     profile: "server",
     nativeHarnesses: false,
     pairedDevices: false,
-    runtimeHosts: true,
+    runtimeHosts: false,
   });
   expect((await server.request("/native/decisions")).status).toBe(404);
   expect((await server.request("/workspace")).status).toBe(404);

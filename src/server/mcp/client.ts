@@ -199,12 +199,10 @@ export async function connect(
   const transport =
     metadata.transport === "stdio"
       ? new RuntimeTransport(
-          c.owner_id,
           secret.stdio ||
             (() => {
               throw new Problem(400, "Reconnect this MCP configuration");
             })(),
-          metadata.runtimeHostId,
         )
       : new StreamableHTTPClientTransport(connectionUrl(c), {
           requestInit: { headers: requestHeaders },

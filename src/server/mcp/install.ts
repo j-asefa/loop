@@ -6,7 +6,7 @@ import { ownedAgent, ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
 import { discover, type MCPConnection } from "./client.js";
 import { safeUrl } from "./network.js";
-import { runtimeEndpoint } from "../runtime-hosts.js";
+import { assertLocalRuntime } from "./runtime-transport.js";
 import { privateMcpUrl } from "./credentials.js";
 import { ToolBudgetError } from "./tool-budget.js";
 const headers = z
@@ -76,16 +76,14 @@ export async function installConfig(
   input: unknown,
   agentId?: string,
   requestKey = "",
-  runtimeHostId?: string,
 ) {
   const entries = parseMcpConfig(input);
   if (agentId) ownedAgent(agentId, owner);
-  if (entries.some(([, e]) => "command" in e))
-    runtimeEndpoint(owner, runtimeHostId);
+  if (entries.some(([, e]) => "command" in e)) assertLocalRuntime();
   const results = [];
   for (const [name, entry] of entries) {
     const fingerprint = createHash("sha256")
-      .update(JSON.stringify([name, entry, runtimeHostId || ""]))
+      .update(JSON.stringify([name, entry]))
       .digest("hex");
     let c = mcpConnectionsQueries.byInstallFingerprint(
       db,
@@ -116,7 +114,6 @@ export async function installConfig(
         seal(JSON.stringify(stored.auth), owner),
         JSON.stringify({
           transport: stdio ? "stdio" : "http",
-          runtimeHostId,
           installFingerprint: fingerprint,
           requestKey,
         }),

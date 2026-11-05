@@ -252,11 +252,7 @@ async function clientFor(
   connection: MCPConnection,
 ) {
   const key = `${peer.id}:${runKey}:${connection.id}:${hash(
-    JSON.stringify([
-      connection.secret,
-      connection.url,
-      JSON.parse(connection.metadata).runtimeHostId,
-    ]),
+    JSON.stringify([connection.secret, connection.url]),
   )}`;
   evictIdleClients();
   const saved = clients.get(key);

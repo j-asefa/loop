@@ -10,13 +10,11 @@ import {
   utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import express from "express";
 import {
   readPublishedChunk,
-  FileRejected,
   FILE_CHUNK_BYTES,
   MAX_PUBLISHED_BYTES,
 } from "../runtime/published-files.ts";
@@ -26,7 +24,6 @@ const workspace = join(directory, "workspace");
 mkdirSync(workspace);
 process.env.LOOP_DATA_DIR = join(directory, "data");
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP_PROFILE = "server";
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
@@ -34,45 +31,15 @@ const { submit } = await import("../src/server/agent-runtime");
 const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
 const { publishRunFile } = await import("../src/server/published-files");
-const { runtimeKey, runtimeWorkspaceKey } =
-  await import("../src/server/subscriptions");
 const { core } = await import("../src/server/core-routes");
 const { workspace: routes } = await import("../src/server/workspace-routes");
 const { resultsRevision, resultsUpdates } =
   await import("../src/server/results");
 const { agentMessages } = await import("../src/server/agent-messages");
-const requests: any[] = [];
-let changeTransfer: ((chunk: any) => any) | undefined;
 const app = express();
 app.use(express.json(), (req, res, next) => {
   res.locals.owner = req.get("x-owner") || "alice";
   next();
-});
-app.post("/runtime", (req, res) => {
-  requests.push(req.body);
-  expect(req.get("authorization")).toBe(
-    "Bearer " + process.env.LOOP_RUNTIME_TOKEN,
-  );
-  expect(req.body.action).toBe("read-file");
-  if (req.body.path === "outage.bin") {
-    res.status(422).json({ error: "Subscription runtime unavailable" });
-    return;
-  }
-  let chunk;
-  try {
-    chunk = readPublishedChunk(
-      workspace,
-      req.body.path,
-      req.body.offset,
-      req.body.version,
-    );
-  } catch (error) {
-    // The broker's contract for a refused file (test/runtime-file-broker).
-    if (!(error instanceof FileRejected)) throw error;
-    res.status(422).json({ code: "file_rejected", error: error.message });
-    return;
-  }
-  res.json(changeTransfer ? changeTransfer(chunk) : chunk);
 });
 app.use("/api", core, routes);
 app.use((error: any, _req: any, res: any, _next: any) =>
@@ -81,16 +48,12 @@ app.use((error: any, _req: any, res: any, _next: any) =>
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((r) => server.once("listening", r));
 const base = `http://127.0.0.1:${(server.address() as any).port}`;
-process.env.LOOP_RUNTIME_URL = base;
-process.env.LOOP_ALLOWED_RUNTIME_ORIGINS = base;
-process.env.LOOP_RUNTIME_TOKEN =
-  "file-fixture-runtime-token-at-least-32-characters";
 const request = (path: string, owner = "alice") =>
   fetch(base + "/api" + path, { headers: { "x-owner": owner } });
 function fixture() {
   const connection = id();
   db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','codex','Fixture',?,'connected','[{\"id\":\"gpt-6-astra\"}]','{\"authMode\":\"subscription\"}',?)",
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','codex','Fixture',?,'connected','[{\"id\":\"gpt-6-astra\"}]','{\"loopHarness\":\"codex\"}',?)",
   ).run(connection, seal("fixture", "alice"), now());
   const agent = createAgent("alice", {
     name: "publisher-" + id().slice(0, 8),
@@ -103,6 +66,10 @@ function fixture() {
     idempotencyKey: id(),
   });
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+  // The conversation's native session works in this computer's project.
+  db.prepare(
+    "INSERT INTO companion_sessions(conversation_id,harness,project,generation,updated_at) VALUES(?,'codex',?,?,?)",
+  ).run(run.conversation_id, workspace, id(), now());
   const binding = nativeBindings(run).find(
     (b) => b.tool === "loop_publish_file",
   )!;
@@ -140,7 +107,6 @@ it("publishes chunked workspace files, persists them after failure, and keeps re
     bytes = randomBytes(FILE_CHUNK_BYTES * 2 + 7),
     path = "mockup.png";
   writeFileSync(join(workspace, path), bytes);
-  requests.length = 0;
   const revision = resultsRevision("alice");
   const saved = await publish(f, { path, title: "Home screen" });
   expect(saved.result.isError).not.toBe(true);
@@ -161,18 +127,6 @@ it("publishes chunked workspace files, persists them after failure, and keeps re
     size: bytes.length,
     available: true,
   });
-  expect(requests.map((r) => r.offset)).toEqual([
-    0,
-    FILE_CHUNK_BYTES,
-    FILE_CHUNK_BYTES * 2,
-  ]);
-  expect(
-    requests.every(
-      (r) =>
-        r.workspaceKey === runtimeWorkspaceKey("alice", f.agent.id) &&
-        r.key === runtimeKey(f.connection),
-    ),
-  ).toBe(true);
   const files = await (
     await request(`/results?agent=${f.agent.id}&view=files`)
   ).json();
@@ -208,7 +162,7 @@ it("publishes chunked workspace files, persists them after failure, and keeps re
   expect(
     (await request(`/artifacts/${saved.artifactId}/file`, "bob")).status,
   ).toBe(404);
-  // Retry after the runtime file disappears, including recovery between object
+  // Retry after the workspace file disappears, including recovery between object
   // commit and the native tool receipt, must return the same stored artifact.
   rmSync(join(workspace, path));
   db.prepare(
@@ -216,7 +170,6 @@ it("publishes chunked workspace files, persists them after failure, and keeps re
   ).run(f.run.id, saved.call);
   const retried = await publish(f, { path, title: "Home screen" }, saved.call);
   expect(retried.artifactId).toBe(saved.artifactId);
-  expect(requests).toHaveLength(3);
   await expect(
     invokeNative(f.run, f.binding, saved.call, {
       path: "other.png",
@@ -333,55 +286,28 @@ it("supports HTML upload previews without treating other file types as active do
   }
 });
 
-it("rejects changed, corrupt, and cancelled transfers without publishing a partial file", async () => {
+it("does not publish a workspace file once its run stops executing", async () => {
   const f = fixture();
   writeFileSync(
     join(workspace, "report.pdf"),
     randomBytes(FILE_CHUNK_BYTES + 4),
   );
-  for (const corrupt of [
-    (chunk: any) => ({ ...chunk, base64: chunk.base64 + "!" }),
-    (chunk: any) => ({ ...chunk, offset: chunk.offset + 1 }),
-    (chunk: any) => ({
-      ...chunk,
-      version: chunk.offset ? "changed" : chunk.version,
-    }),
-  ]) {
-    changeTransfer = corrupt;
-    const outcome = await invokeNative(f.run, f.binding, id(), {
+  db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(f.run.id);
+  await expect(
+    publishRunFile(f.run, id(), {
       path: "report.pdf",
       title: "Report",
-    });
-    expect("result" in outcome && outcome.result.isError).toBe(true);
-    expect(
-      db
-        .prepare("SELECT count(*) n FROM artifact_objects WHERE run_id=?")
-        .get(f.run.id),
-    ).toEqual({ n: 0 });
-  }
-  changeTransfer = (chunk) => {
-    db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(f.run.id);
-    return chunk;
-  };
-  try {
-    await expect(
-      publishRunFile(f.run, id(), {
-        path: "report.pdf",
-        title: "Report",
-        encoding: "utf8",
-      }),
-    ).rejects.toThrow("no longer executing");
-    expect(
-      db
-        .prepare("SELECT count(*) n FROM artifact_objects WHERE run_id=?")
-        .get(f.run.id),
-    ).toEqual({ n: 0 });
-  } finally {
-    changeTransfer = undefined;
-  }
+      encoding: "utf8",
+    }),
+  ).rejects.toThrow("no longer executing");
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM artifact_objects WHERE run_id=?")
+      .get(f.run.id),
+  ).toEqual({ n: 0 });
 });
 
-it("tells the agent why a workspace file was refused, unlike a runtime outage", async () => {
+it("tells the agent why a workspace file was refused", async () => {
   const f = fixture();
   writeFileSync(join(workspace, "review-30fps.mp4"), "");
   truncateSync(join(workspace, "review-30fps.mp4"), 49 * 1024 * 1024);
@@ -396,9 +322,6 @@ it("tells the agent why a workspace file was refused, unlike a runtime outage", 
   };
   expect(await text("review-30fps.mp4")).toBe(
     "File was not published: This file is 49.0 MB; Loop publishes files up to 25 MB. Make it smaller, for example by compressing or splitting it, then publish again.",
-  );
-  expect(await text("outage.bin")).toMatch(
-    /^File was not published: Subscription runtime unavailable or busy \(HTTP 422\)/,
   );
   expect(
     db
@@ -456,47 +379,6 @@ it("confines published files to regular nonsecret workspace files", () => {
       first.version,
     ),
   ).toThrow("changed");
-});
-
-it("reads files through the real runtime entry without launching a provider", () => {
-  const home = join(directory, "runtime-home"),
-    key = "a".repeat(64),
-    path = join(home, "workspaces", key);
-  mkdirSync(path, { recursive: true });
-  const bytes = randomBytes(FILE_CHUNK_BYTES + 12);
-  writeFileSync(join(path, "diagram.webp"), bytes);
-  let version: string | undefined;
-  const chunks = [];
-  for (const offset of [0, FILE_CHUNK_BYTES]) {
-    const stdout = execFileSync(
-      process.execPath,
-      [resolve("runtime/entry.ts")],
-      {
-        env: {
-          PATH: process.env.PATH,
-          HOME: home,
-          LOOP_RUNTIME_MODE: "container",
-        },
-        input:
-          JSON.stringify({
-            provider: "codex",
-            action: "read-file",
-            workspaceKey: key,
-            path: "diagram.webp",
-            offset,
-            version,
-          }) + "\n",
-        encoding: "utf8",
-        maxBuffer: 2 * 1024 * 1024,
-        timeout: 10000,
-      },
-    );
-    const chunk = JSON.parse(stdout.trim()).result;
-    expect(chunk.mime).toBe("image/webp");
-    version = chunk.version;
-    chunks.push(Buffer.from(chunk.base64, "base64"));
-  }
-  expect(Buffer.concat(chunks)).toEqual(bytes);
 });
 
 it("lists durable profile files independently of feed visibility, with private filters and pagination", async () => {

@@ -46,8 +46,6 @@ import { conversationReturnState } from "./mobile-return.js";
 import {
   isSubscription,
   runtimeAction,
-  runtimeConfigured,
-  runtimeWorkspaceKey,
 } from "./subscriptions.js";
 
 import { z } from "zod";
@@ -81,10 +79,6 @@ routes.on(workspaceApi.bootstrap, (_req, res) => {
     connections: connectionsQueries.publicCatalog(db, res.locals.owner) as z.input<typeof PublicConnection>[],
     folders: foldersQueries.withProjects(db, res.locals.owner) as z.input<typeof PublicFolder>[],
     identityProviders: process.env.GITHUB_CLIENT_ID ? ["github"] : [],
-    capabilities: {
-      codex: runtimeConfigured(),
-      claudeLogin: runtimeConfigured(),
-    },
   });
 });
 routes.on(workspaceApi.connectionCreate, async (req, res) => {
@@ -149,16 +143,11 @@ routes.on(workspaceApi.connectionModels, async (req, res) => {
     res.json({ models: ownedConnection(c.id, res.locals.owner).models });
     return;
   }
-  let models;
-  if (isSubscription(c)) {
-    const result = await runtimeAction(c, "status");
-    if (!result.authenticated)
-      throw new Problem(409, "Reconnect this provider first");
-    models = result.models;
-  } else
-    models = await adapter(c.provider).models(
-      unseal(c.secret, res.locals.owner),
-    );
+  if (isSubscription(c))
+    throw new Problem(409, "This connection has no runtime on this computer.");
+  const models = await adapter(c.provider).models(
+    unseal(c.secret, res.locals.owner),
+  );
   const catalog = z
     .array(
       z.object({
@@ -282,7 +271,7 @@ routes.on(workspaceApi.agentHarness, async (req, res) => {
   const conversation = selected?.agent_id === agent.id ? selected : undefined;
   const conversationKey: string | undefined = conversation?.id;
   const { connection } = nextTurnConnection(res.locals.owner, agent);
-  if (!isSubscription(connection) && !isNativeConnection(connection)) {
+  if (!isNativeConnection(connection)) {
     res.json({
       available: false,
       commands: [],
@@ -291,11 +280,8 @@ routes.on(workspaceApi.agentHarness, async (req, res) => {
     });
     return;
   }
-  const catalog = isNativeConnection(connection)
-    ? await executionRequest("native.catalog", { agentId: agent.id, conversationId: conversationKey }, { owner: res.locals.owner })
-    : await runtimeAction(connection, "capabilities", {
-        workspaceKey: runtimeWorkspaceKey(res.locals.owner, agent.id),
-      });
+  // The authority validates its own catalog; the response keeps its fields.
+  const catalog: any = await executionRequest("native.catalog", { agentId: agent.id, conversationId: conversationKey }, { owner: res.locals.owner });
   if (!Array.isArray(catalog.commands))
     throw new Problem(
       422,

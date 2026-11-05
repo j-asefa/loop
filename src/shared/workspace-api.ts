@@ -88,7 +88,7 @@ const PublicConversation = z.object({
 export const Bootstrap = z.object({
   agents: z.array(PublicAgent), connections: z.array(PublicConnection), folders: z.array(PublicFolder), teams: z.array(PublicTeam).optional(),
   // Older source catalogs omitted these additions. Absence grants no capability.
-  environmentName: Text.optional(), identityProviders: z.array(Text).optional(), capabilities: z.object({ codex: z.boolean(), claudeLogin: z.boolean() }).optional(),
+  environmentName: Text.optional(), identityProviders: z.array(Text).optional(),
   preview: z.object({ name: Text, mode: z.enum(["design", "working"]), build: z.object({
     id: Text, branch: Text, commit: Text, dirty: z.boolean(), builtAt: Text, sourceHash: Text, artifactHash: Text,
   }) }).optional(),
@@ -296,7 +296,6 @@ export const workspaceRoutes = {
   notificationUnsubscribe: endpoint({ ...base, method: "DELETE", path: "/notifications/subscriptions", body: z.object({ endpoint: teams.PushEndpoint }), response: Ok }),
   viewportDiagnostics: endpoint({ ...base, method: "POST", path: "/ui/viewport-diagnostics", body: teams.ViewportInput, response: NoBody, status: 204 }),
   subscriptionAction: endpoint({ ...base, method: "POST", path: "/subscriptions/:id/:action", params: companion.SubscriptionActionParams, body: z.unknown(), response: companion.PublicSubscriptionAction }),
-  subscriptionCreate: endpoint({ ...base, method: "POST", path: "/subscriptions", body: companion.SubscriptionCreateInput, response: z.object({ id: Text }), status: 201 }),
   workspace: endpoint({ ...base, method: "GET", path: "/workspace", response: companion.PublicWorkspace }),
   runtimeList: endpoint({ ...base, method: "GET", path: "/workspace/runtimes", query: z.object({ fresh: Text.optional() }), response: companion.PublicRuntimes }),
   runtimeAuthProviders: endpoint({ ...base, method: "GET", path: "/workspace/runtimes/:name/auth", params: companion.RuntimeAuthName, query: z.object({ projectId: Text.min(1) }), response: companion.PublicRuntimeAuth }),
@@ -353,9 +352,6 @@ export const workspaceRoutes = {
   nativeHistoryList: endpoint({ ...base, method: "GET", path: "/native/history", query: z.object({ discover: Text.optional(), cursor: Text.max(4096).optional() }), response: companion.PublicNativeHistory }),
   nativeHistoryDetail: endpoint({ ...base, method: "GET", path: "/native/history/:id", params: Id, response: companion.PublicNativeHistoryDetail }),
   nativeHistoryFork: endpoint({ ...base, method: "POST", path: "/native/history/:id/fork", params: Id, body: companion.CommandIdentity, response: z.object({ id: Text }), additionalStatuses: [201] }),
-  runtimeHostList: endpoint({ ...base, method: "GET", path: "/runtime-hosts", response: z.array(companion.PublicRuntimeHost) }),
-  runtimeHostCreate: endpoint({ ...base, method: "POST", path: "/runtime-hosts", body: companion.RuntimeHostCreateInput, response: companion.PublicRuntimeHost, status: 201 }),
-  runtimeHostDelete: endpoint({ ...base, method: "DELETE", path: "/runtime-hosts/:id", params: Id, body: z.unknown(), response: Ok }),
   conversationActivities: endpoint({ ...base, method: "GET", path: "/conversations/:id/activities", params: Id, query: companion.ActivityQuery, response: companion.PublicActivityPage }),
   // All three reads admit read and both legacy grants; selection stays scoped.
   // The admission boundary still limits each grant's selections and excludes Done.

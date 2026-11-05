@@ -36,13 +36,11 @@ import { ownedConversation, ownedFolder, ownedConnection, ownedAgent, ownedTeam,
 import {
   streamConnection,
   isSubscription,
-  runtimeWorkspaceKey,
 } from "./subscriptions.js";
 import { saveArtifact } from "./artifacts.js";
 import { recordConversationUpdate } from "./conversation-updates.js";
 import { recordTrace } from "./traces.js";
 import { applyActivity, setActivityCapabilities } from "./activities.js";
-import { runtimeActivityMapper } from "./runtime-activities.js";
 import type { ActivityUpdate } from "../agent-activities.js";
 import { attachedFiles, attachmentPrompt } from "./uploads.js";
 import { toolErrorMessage } from "./mcp/results.js";
@@ -332,12 +330,7 @@ function apiToolActivity(
     },
   );
 }
-function apiSessionActivities(
-  run: Run,
-  snapshot: Snapshot,
-  runtime: "codex" | "claude" | undefined,
-  reported: ReadonlySet<string>,
-) {
+function apiSessionActivities(run: Run, snapshot: Snapshot) {
   const scope = { owner: run.owner_id, conversation: run.conversation_id };
   const source = { transport: "api" as const, origin: "loop" };
   const reason =
@@ -374,65 +367,28 @@ function apiSessionActivities(
       ],
     },
   });
-  apiCapabilities(run, runtime, reported);
+  apiCapabilities(run);
 }
-// Structured features this conversation's runtime already reported, so a new
-// run does not reset them to undiscovered before its first result.
-function reportedFeatures(run: Run, runtime: "codex" | "claude" | undefined) {
-  if (!runtime || !run.conversation_id) return [];
-  const row = agentActivitiesQueries.record(db, run.owner_id, run.conversation_id, `capabilities:api:${runtime}`) as
-    | { record: string }
-    | undefined;
-  const capabilities = row ? JSON.parse(row.record).capabilities || {} : {};
-  return (["output", "diffs"] as const).filter(
-    (feature) => capabilities[feature]?.state === "supported",
-  );
-}
-// Capabilities of an API-runtime run. Provider-key runs execute only Loop's
+// Capabilities of an API-provider run. Provider-key runs execute only Loop's
 // tool broker, whose MCP results carry no trusted file-change or command
-// metadata, and have no command catalog. Subscription runs execute in a Codex
-// or Claude Code runtime whose own executor reports structured command and
-// file results; those become supported once this run has received one, since
-// runtimes older than this build do not send them.
-function apiCapabilities(
-  run: Run,
-  runtime: "codex" | "claude" | undefined,
-  reported: ReadonlySet<string> = new Set(),
-) {
+// metadata, and have no command catalog.
+function apiCapabilities(run: Run) {
   const scope = { owner: run.owner_id, conversation: run.conversation_id };
   const unavailable = (reason: string) =>
     ({ state: "unsupported", source: "loop", reason }) as const;
-  const label = runtime === "codex" ? "Codex runtime" : "Claude Code runtime";
-  const structured = (feature: string, what: string) =>
-    reported.has(feature)
-      ? ({ state: "supported", source: `${label} structured results` } as const)
-      : ({
-          state: "undiscovered",
-          source: label,
-          reason: `Shown when the runtime reports its first structured ${what}. Runtimes older than this Loop version report only text traces.`,
-        } as const);
-  setActivityCapabilities(scope, { transport: "api", harness: runtime }, {
-    plans: {
-      state: "supported",
-      source: runtime ? `loop_plan tool and ${label}` : "loop_plan tool",
-    },
+  setActivityCapabilities(scope, { transport: "api" }, {
+    plans: { state: "supported", source: "loop_plan tool" },
     tools: { state: "supported", source: "loop tool broker" },
-    diffs: runtime
-      ? structured("diffs", "file change")
-      : unavailable(
-          "Provider-key runs execute only Loop's tool broker; MCP tool results carry no trusted file-change data.",
-        ),
-    output: runtime
-      ? structured("output", "command result")
-      : unavailable(
-          "Provider-key runs execute only Loop's tool broker; MCP tool results carry no structured command output.",
-        ),
+    diffs: unavailable(
+      "Provider-key runs execute only Loop's tool broker; MCP tool results carry no trusted file-change data.",
+    ),
+    output: unavailable(
+      "Provider-key runs execute only Loop's tool broker; MCP tool results carry no structured command output.",
+    ),
     settings: { state: "supported", source: "loop agent settings" },
-    commands: runtime
-      ? { state: "supported", source: `${label} catalog (command picker)` }
-      : unavailable(
-          "Commands and skills come from a Codex or Claude Code runtime. This agent uses a provider API key.",
-        ),
+    commands: unavailable(
+      "Commands and skills come from a Codex or Claude Code runtime. This agent uses a provider API key.",
+    ),
   });
 }
 export async function executeAgent(run: Run): Promise<boolean> {
@@ -513,18 +469,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
     output = cp.output as string,
     round = cp.round as number;
   if (cp.stage === "done") return true;
-  const runtime = isSubscription(connection)
-    ? connection.provider === "codex"
-      ? ("codex" as const)
-      : ("claude" as const)
-    : undefined;
-  const structured = runtimeActivityMapper(run, reportedFeatures(run, runtime));
-  apiSessionActivities(
-    run,
-    snapshot,
-    runtime,
-    structured.reported,
-  );
+  apiSessionActivities(run, snapshot);
   const steering = new SteeringInbox(run, (message) => {
     history.push(message);
     agentCheckpointsQueries.history(db, JSON.stringify(history), run.id);
@@ -813,7 +758,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
       try {
         assertFleetEffect(run.owner_id, "run", run.id);
         for await (const chunk of streamConnection(currentConnection, {
-          workspaceKey: runtimeWorkspaceKey(run.owner_id, run.agent_id!),
           model: snapshot.model,
           effort: snapshot.effort || undefined,
           instructions: runtimeInstructions(
@@ -845,17 +789,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
             if (trace.kind === "message") recordConversationUpdate(run, key, output);
             else recordTrace(run, key, { ...output, kind: "tool", title: trace.title });
             emit(run.owner_id, run.id, "trace.updated", { round });
-          }
-          if (chunk.activity && runtime) {
-            const before = structured.reported.size;
-            if (structured.apply(chunk.activity))
-              emit(run.owner_id, run.id, "trace.updated", { round });
-            if (structured.reported.size !== before)
-              apiCapabilities(
-                run,
-                runtime,
-                structured.reported,
-              );
           }
           if (chunk.text) {
             turnText += chunk.text;

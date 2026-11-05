@@ -203,7 +203,7 @@ function runtimeOf(owner: string, connectionId: string | null | undefined) {
     };
   return {
     runtime: `${connection.provider} ${isSubscription(connection) ? "subscription" : "API"}`,
-    place: meta.runtimeHostId ? "runtime:" + meta.runtimeHostId : "loop",
+    place: "loop",
   };
 }
 

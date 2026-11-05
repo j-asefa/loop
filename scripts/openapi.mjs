@@ -293,7 +293,6 @@ const sharedErrorGroups = new Set([
   "mcp-sharing",
   "agent-sources",
   "workspace",
-  "runtime-hosts",
   "conversations",
   "runs",
   "connections",

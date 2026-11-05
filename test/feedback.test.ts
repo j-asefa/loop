@@ -11,9 +11,6 @@ import { ownInstructions } from "./helpers/instructions";
 const dir = mkdtempSync(join(tmpdir(), "loop-feedback-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.LOOP_RUNTIME_URL = "http://127.0.0.1:31999";
-process.env.LOOP_RUNTIME_TOKEN =
-  "fixture-runtime-token-with-at-least-32-characters";
 vi.mock("../src/server/local-embeddings.js", () => ({
   localModel: "local:all-MiniLM-L6-v2:q8",
   localEmbeddings: vi.fn(async (texts: string[]) =>

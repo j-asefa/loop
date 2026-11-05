@@ -1,5 +1,5 @@
-import { RowId as Id, Provider, ConnectionRecord, MessageRecord, ArtifactRecord, McpConnectionRecord, RuntimeHostRecord } from "./storage-schemas.js";
-export { AgentRecord, ConnectionRecord, ConversationRecord, MessageRecord, ArtifactRecord, ObjectRecord, FolderRecord, ImportRecord, McpConnectionRecord, ApprovalRecord, OperationRecord, TeamRecord, RuntimeHostRecord, MemorySourceRecord } from "./storage-schemas.js";
+import { RowId as Id, Provider, ConnectionRecord, MessageRecord, ArtifactRecord, McpConnectionRecord } from "./storage-schemas.js";
+export { AgentRecord, ConnectionRecord, ConversationRecord, MessageRecord, ArtifactRecord, ObjectRecord, FolderRecord, ImportRecord, McpConnectionRecord, ApprovalRecord, OperationRecord, TeamRecord, MemorySourceRecord } from "./storage-schemas.js";
 import { z } from "zod";
 import { Harness } from "../protocol.js";
 import { PERMISSION_MODES } from "../shared/permission-modes.js";
@@ -54,7 +54,7 @@ export const ArtifactMetadata = RunPayload.extend({
 export type ArtifactMetadata = z.infer<typeof ArtifactMetadata>;
 export const ConnectionMetadata = z.strictObject({
   preview: z.boolean().optional(), loopHarness: Harness.optional(), authMode: z.enum(["subscription", "native-existing", "api-key"]).optional(),
-  runtimeHostId: Id.optional(), runtimeKind: z.enum(["loop-local", "local", "broker", "native-host", "codex-app-server"]).optional(), permissionMode: PermissionMode.optional(),
+  runtimeKind: z.literal("loop-local").optional(), permissionMode: PermissionMode.optional(),
   location: z.string().optional(), environmentName: z.string().optional(),
   runtime: z.enum(["codex", "claude"]).optional(), scope: z.string().optional(), plan: z.json().optional(), limits: z.json().optional(), checkedAt: z.number().optional(),
   billing: z.union([z.string(), z.strictObject({ mode: z.enum(["subscription", "existing"]), description: z.string(), provider: z.string().optional(), model: z.string().nullable().optional() })]).optional(), capabilities: z.record(z.string(), z.json()).optional(),
@@ -142,7 +142,7 @@ export type Connection = ReturnType<typeof parseConnection>;
 // Revocation needs the destination, never model catalogs, display fields or
 // the provider credential being revoked. It cannot construct an execution row.
 const ConnectionControlMetadata = ConnectionMetadata.pick({
-  loopHarness: true, authMode: true, runtimeHostId: true, runtimeKind: true, permissionMode: true,
+  loopHarness: true, authMode: true, runtimeKind: true, permissionMode: true,
 }).strip();
 export function parseConnectionControl(value: unknown) {
   const row = parseRecord(ConnectionRecord.pick({ id: true, owner_id: true, provider: true, metadata: true }), value, "connections");
@@ -184,10 +184,5 @@ export function readRunConnectionId(value: unknown, rowId: string) { return read
 export function parseMcpConnection(value: unknown) {
   const row = parseRecord(McpConnectionRecord, value, "mcp_connections");
   if (row.secret !== "" && !SealedEnvelope.safeParse(row.secret).success) throw new InvalidRow("mcp_connections", row.id, "secret");
-  return row;
-}
-export function parseRuntimeHost(value: unknown) {
-  const row = parseRecord(RuntimeHostRecord, value, "runtime_hosts");
-  if (!SealedEnvelope.safeParse(row.secret).success) throw new InvalidRow("runtime_hosts", row.id, "secret");
   return row;
 }

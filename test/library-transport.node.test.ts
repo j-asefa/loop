@@ -4,7 +4,7 @@ import { fork } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, rm, writeFile, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   callRoute,
@@ -17,7 +17,7 @@ import { Host } from "../src/host.js";
 import { composeSourceId } from "../src/linked-docker.js";
 import { until } from "./helpers.js";
 
-test("typed multipart and runtime routes use the compiled app directly and through the paired Docker proxy without replaying writes", async () => {
+test("typed multipart routes use the compiled app directly and through the paired Docker proxy without replaying writes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "loop-library-transport-"));
   const originalFetch = globalThis.fetch;
   const originalPath = process.env.PATH;
@@ -29,10 +29,6 @@ test("typed multipart and runtime routes use the compiled app directly and throu
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")),
   );
-  const { codexFixture, fixtureToken } = await import(
-    resolve("test/helpers/codex-server.mjs")
-  );
-  const codex = await codexFixture();
   const child = fork(
     new URL("./fixtures/contracts-http.mjs", import.meta.url),
     [],
@@ -43,7 +39,6 @@ test("typed multipart and runtime routes use the compiled app directly and throu
         ...environment,
         NODE_ENV: "test",
         LOOP_PROFILE: "server",
-        LOOP_ALLOWED_RUNTIME_ORIGINS: new URL(codex.url).origin,
         LOOP_AUTH_MODE: "single-user",
         LOOP_DATA_DIR: join(directory, "data"),
         LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
@@ -200,45 +195,6 @@ test("typed multipart and runtime routes use the compiled app directly and throu
           .length,
         beforeDiagnostics + 1,
       );
-      const runtime = await callRoute(
-        workspaceApi.runtimeHostCreate,
-        {
-          body: {
-            name: "Contract runtime",
-            url: codex.url,
-            token: fixtureToken,
-            kind: "codex-app-server",
-          },
-        },
-        source,
-      );
-      assert.ok(
-        (await callRoute(workspaceApi.runtimeHostList, {}, source)).some(
-          (item) => item.id === runtime.id,
-        ),
-      );
-      const subscription = await callRoute(
-        workspaceApi.subscriptionCreate,
-        {
-          body: {
-            provider: "codex",
-            label: "Contract account",
-            runtimeHostId: runtime.id,
-          },
-        },
-        source,
-      );
-      const status = await callRoute(
-        workspaceApi.subscriptionAction,
-        { params: { id: subscription.id, action: "status" }, body: {} },
-        source,
-      );
-      assert.ok("authenticated" in status && status.authenticated);
-      assert.doesNotMatch(
-        JSON.stringify(status),
-        /device_code|access_token|refresh_token|secret/,
-      );
-      assert.ok(!JSON.stringify(status).includes(fixtureToken));
       const folder = await callRoute(
         workspaceApi.folderCreate,
         { body: { name: source || "direct", kind: "project" } },
@@ -383,7 +339,6 @@ test("typed multipart and runtime routes use the compiled app directly and throu
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else Reflect.deleteProperty(globalThis, key);
     await host?.close();
-    await codex.close();
     if (child.exitCode === null) {
       const exited = once(child, "exit");
       if (child.connected) child.send("close");

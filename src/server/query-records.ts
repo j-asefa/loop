@@ -2,7 +2,6 @@ import {
   ImportRecord,
   McpConnectionRecord,
   OperationRecord,
-  RuntimeHostRecord,
   AgentRecord,
   ConnectionRecord,
   ApprovalRecord,
@@ -139,7 +138,6 @@ export const QueryRecords = {
   }),
   mcp_connections: McpConnectionRecord,
   operations: OperationRecord,
-  runtime_hosts: RuntimeHostRecord,
   handles: z.object({
     name: z.string(),
     agent_id: z.string(),

@@ -32,8 +32,6 @@ export async function isolatedBrowserEnv() {
     LOOP_BEHIND_PROXY: "0",
     LOOP_GATEWAY_TOKEN: "",
     LOOP_SINGLE_USER_EMAIL: "",
-    LOOP_RUNTIME_URL: "",
-    LOOP_RUNTIME_TOKEN: "",
   };
 }
 

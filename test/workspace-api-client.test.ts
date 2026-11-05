@@ -128,15 +128,6 @@ it("reads legacy source catalogs without inventing optional metadata or acceptin
   await expect(
     callRoute(workspaceApi.bootstrap, {}, "docker:legacy"),
   ).rejects.toBeInstanceOf(UnavailableResponse);
-  fetcher.mockResolvedValueOnce(
-    Response.json({
-      ...catalog,
-      capabilities: { codex: "yes", claudeLogin: false },
-    }),
-  );
-  await expect(
-    callRoute(workspaceApi.bootstrap, {}, "docker:legacy"),
-  ).rejects.toBeInstanceOf(UnavailableResponse);
 });
 
 it("settles local input failures as readable refusals while malformed acknowledgements remain uncertain", async () => {

@@ -35,7 +35,6 @@ import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
 import { deliverWebhooks } from "./webhooks.js";
 import { deliverScheduledSends, surfaceLater } from "./mobile-return.js";
-import { cleanupMergedWorkspaces } from "./workspace-cleanup.js";
 import { pollWatches } from "./pr-watches.js";
 import { refreshDueFeeds } from "./news.js";
 import { runDueDigests } from "./feed-digests.js";
@@ -183,24 +182,7 @@ export function startWorker() {
     );
   heartbeat();
   const maintenanceTimers: ReturnType<typeof setInterval>[] = [];
-  let cleaning = false;
   const cleanupController = new AbortController();
-  maintenanceTimers.push(
-    setInterval(
-      () => {
-        if (cleaning || stopping) return;
-        cleaning = true;
-        const promise = cleanupMergedWorkspaces(cleanupController.signal)
-          .catch(() => {})
-          .finally(() => {
-            cleaning = false;
-            inflight.delete(promise);
-          });
-        inflight.add(promise);
-      },
-      5 * 60 * 1000,
-    ),
-  );
   let notifying = false;
   let maintenanceWake: ReturnType<typeof setImmediate> | undefined;
   let maintenanceDirty = false;

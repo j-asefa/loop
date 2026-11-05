@@ -387,6 +387,8 @@ it("keeps preference strictness, catalog branch shapes and pasted setup values p
     { config: null },
     { config: { mcpServers: {} } },
     { config: "{" },
+    // Command tools run only on this computer; a remote destination is refused.
+    { config, runtimeHostId: "remote-host" },
   ])
     await invalid("/mcp/install", body, "POST");
   for (const [failure, status] of [

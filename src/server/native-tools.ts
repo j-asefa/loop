@@ -6,7 +6,6 @@ import * as approvalsQueries from "./sql/approvals.js";
 import * as agentThreadsQueries from "./sql/agent-threads.js";
 import * as delegationsQueries from "./sql/delegations.js";
 import type { QueryRow } from "./query-records.js";
-import { agentPayload } from "./row-schemas.js";
 import {
   assertFleetEffect,
   inheritFleetEffect,
@@ -27,7 +26,7 @@ import {
 import { memberRole } from "./agent-mail-policy.js";
 import { createHash } from "node:crypto";
 import { db, now, emit } from "./db.js";
-import { ownedApproval, ownedConnection, ownedRun, Problem } from "./domain.js";
+import { ownedApproval, ownedRun, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import { transition, type Run } from "./queue.js";
 import { requestApproval } from "./approvals.js";
@@ -432,20 +431,11 @@ export async function invokeNative(
     }
     if (approval.state !== "approved" || approval.expires_at < now())
       throw new Problem(403, "Installation approval is no longer valid");
-    const connection = ownedConnection(
-      agentPayload(run).connectionId,
-      run.owner_id,
-    );
     const installed = await installConfig(
       run.owner_id,
       d.config,
       run.agent_id!,
       run.id + ":" + callId,
-      ["codex-app-server", "native-host"].includes(
-        connection.metadata.runtimeKind || "",
-      )
-        ? undefined
-        : connection.metadata.runtimeHostId,
     );
     text = JSON.stringify(installed);
     approvalsQueries.complete(db, text, approval.id);

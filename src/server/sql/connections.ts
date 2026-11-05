@@ -165,21 +165,6 @@ export function ownerStatus(db: Database.Database, id: string) {
     : parseRecord(ownerStatusRow, row, "connections");
 }
 
-const runtimeHostInUseStatement = statement(
-  "SELECT 1 FROM connections WHERE owner_id=? AND json_extract(metadata,'$.runtimeHostId')=? AND status<>'disconnected'",
-);
-const runtimeHostInUseRow = z.object({ "1": z.number() });
-export function runtimeHostInUse(
-  db: Database.Database,
-  owner: string,
-  host: string,
-) {
-  const row = runtimeHostInUseStatement(db).get(owner, host);
-  return row === undefined
-    ? undefined
-    : parseRecord(runtimeHostInUseRow, row, "connections");
-}
-
 const resolvedNativeModelStatement = statement(
   "SELECT json_extract(value,'$.resolvedModel') model FROM connections,json_each(connections.models) WHERE connections.id=? AND connections.owner_id=? AND json_valid(connections.models) AND json_extract(value,'$.id')='native-default'",
 );
@@ -373,23 +358,6 @@ export function workerMetadata(
     : parseRecord(workerMetadataRow, row, "connections");
 }
 
-const legacyRuntimeCandidatesStatement = statement(
-  "SELECT * FROM connections WHERE (status='connected' OR (status='disconnected' AND json_extract(metadata,'$.retiredDirectRuntime')=1)) AND provider IN ('codex','anthropic')",
-);
-const legacyRuntimeCandidatesRow = QueryRecords.connections;
-export function legacyRuntimeCandidates(db: Database.Database) {
-  return legacyRuntimeCandidatesStatement(db)
-    .all()
-    .flatMap((row) => {
-      try {
-        return [parseRecord(legacyRuntimeCandidatesRow, row, "connections")];
-      } catch (error) {
-        if (error instanceof InvalidRow) return [];
-        throw error;
-      }
-    });
-}
-
 const subscriptionNeedsReconnectStatement = statement(
   "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
 );
@@ -400,42 +368,6 @@ export function subscriptionNeedsReconnect(
   owner: string,
 ) {
   return subscriptionNeedsReconnectStatement(db).run(id, owner);
-}
-
-const subscriptionCountStatement = statement(
-  "SELECT count(*) n FROM connections WHERE owner_id=? AND json_extract(metadata,'$.authMode')='subscription'",
-);
-
-const subscriptionCountRow = z.object({ n: z.number() });
-
-export function subscriptionCount(db: Database.Database, owner: string) {
-  const row = subscriptionCountStatement(db).get(owner);
-  return row === undefined
-    ? undefined
-    : parseRecord(subscriptionCountRow, row, "connections");
-}
-
-const insertSubscriptionStatement = statement(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES(?,?,?,?,'','needs_sign_in',?,?)",
-);
-
-export function insertSubscription(
-  db: Database.Database,
-  id: string,
-  owner: string,
-  provider: string,
-  label: string,
-  metadata: string,
-  created: number,
-) {
-  return insertSubscriptionStatement(db).run(
-    id,
-    owner,
-    provider,
-    label,
-    metadata,
-    created,
-  );
 }
 
 const signingInStatement = statement(

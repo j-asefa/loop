@@ -169,15 +169,6 @@ export const TeamRecord = z.object({
   folder_id: z.string().nullable(),
   hide_results_from_feed: z.number(),
 });
-export const RuntimeHostRecord = z.object({
-  id: Id,
-  owner_id: z.string(),
-  name: z.string(),
-  url: z.string(),
-  secret: z.string(),
-  created_at: z.number(),
-  kind: z.string(),
-});
 export const MemorySourceRecord = z.object({
   id: Id,
   owner_id: z.string(),

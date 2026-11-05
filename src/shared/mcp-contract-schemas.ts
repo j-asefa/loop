@@ -37,12 +37,12 @@ export const PublicMcpPreferences = z.object({
 });
 export const McpCatalogInput = z.strictObject({
   values: z.record(Text.max(100), Text.max(10000)).default({}),
-  runtimeHostId: Text.max(200).optional(),
 });
-export const McpInstallInput = z.object({
+// Strict: a destination field such as runtimeHostId is refused, never dropped
+// into a local command install.
+export const McpInstallInput = z.strictObject({
   config: z.union([Text.max(50000), z.record(Text, z.unknown())]),
   agentId: Text.optional(),
-  runtimeHostId: Text.optional(),
 });
 // Request-only setup values, never the encrypted credential/storage shape.
 const AuthInput = z.discriminatedUnion("type", [

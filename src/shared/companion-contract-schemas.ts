@@ -248,28 +248,6 @@ export const PublicActivityPage = z.object({
   earlier: z.number().nullable().optional(),
   legacyAvailable: z.boolean().optional(),
 });
-export const RuntimeHostCreateInput = z.object({
-  name: Text.trim().min(1).max(80),
-  url: Text.url().max(2000),
-  token: Text.trim()
-    .min(32)
-    .max(4096)
-    .regex(/^[^\r\n]+$/),
-  kind: z.enum(["broker", "codex-app-server", "native-host"]).default("broker"),
-});
-export const PublicRuntimeHost = z.object({
-  id: Text,
-  name: Text,
-  url: Text,
-  kind: z.enum(["broker", "codex-app-server", "native-host", "local"]),
-});
-
-export const SubscriptionCreateInput = z.object({
-  provider: z.enum(["codex", "claude"]),
-  label: Text.trim().min(1).max(80),
-  runtimeHostId: Text.optional(),
-});
-
 export const SubscriptionActionParams = z.object({
   id: Text,
   action: z.enum(["login", "status", "code", "cancel"]),

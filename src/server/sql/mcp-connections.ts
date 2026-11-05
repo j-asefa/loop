@@ -14,21 +14,6 @@ export function owned(db: Database.Database, id: string, owner: string) {
     : parseRecord(QueryRecords.mcp_connections, row, "mcp_connections");
 }
 
-const runtimeHostInUseStatement = statement(
-  "SELECT 1 FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.runtimeHostId')=? AND status<>'disconnected'",
-);
-const runtimeHostInUseRow = z.object({ "1": z.number() });
-export function runtimeHostInUse(
-  db: Database.Database,
-  owner: string,
-  host: string,
-) {
-  const row = runtimeHostInUseStatement(db).get(owner, host);
-  return row === undefined
-    ? undefined
-    : parseRecord(runtimeHostInUseRow, row, "mcp_connections");
-}
-
 const byCatalogStatement = statement(
   "SELECT * FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.catalogId')=? ORDER BY created_at LIMIT 1",
 );

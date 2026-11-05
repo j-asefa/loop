@@ -10,11 +10,6 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 const dir = mkdtempSync(join(tmpdir(), "loop-catalog-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-// Remote-runtime fixtures must not inherit the launcher's companion profile.
-process.env.LOOP_PROFILE = "server";
-process.env.LOOP_RUNTIME_URL = "http://127.0.0.1:31999";
-process.env.LOOP_RUNTIME_TOKEN =
-  "fixture-runtime-token-with-at-least-32-characters";
 const authorization = vi.hoisted(() => vi.fn());
 vi.mock("../src/server/mcp/client.js", async (original) => ({
   ...(await original<object>()),
@@ -130,15 +125,13 @@ it("one click discovers tools, concurrent/repeated installs reuse one workspace 
   expect(calls).toBe(0);
   expect((await install("deepwiki", {}, "bob")).data.id).not.toBe(connection);
 });
-it("rejects missing credentials, unknown setup fields, custom commands and foreign runtime hosts before installation", async () => {
+it("rejects missing credentials, unknown setup fields and custom commands before installation", async () => {
   const before = db.prepare("SELECT count(*) AS n FROM mcp_connections").get();
   for (const [name, payload, status] of [
     ["github", {}, 400],
     ["github", { values: { token: "key", url: "https://evil.example" } }, 400],
     ["missing", {}, 404],
     ["playwright", { command: "sh" }, 400],
-    ["playwright", { runtimeHostId: "another-owner-host" }, 404],
-    ["deepwiki", { runtimeHostId: "host" }, 400],
   ] as const)
     expect((await install(name, payload)).status).toBe(status);
   expect(db.prepare("SELECT count(*) AS n FROM mcp_connections").get()).toEqual(
@@ -251,7 +244,7 @@ it("starts OAuth without falsely reporting installed and supports registered cli
   });
   expect(JSON.stringify((await api("/mcp")).data)).not.toContain("test-secret");
 });
-it("reuses manual hosted installations and installs stdio packages on the selected owned runtime", async () => {
+it("reuses manual hosted installations and installs stdio packages on this computer", async () => {
   const manual = await api("/mcp", {
     name: "Existing docs",
     url: "https://docs.mcp.cloudflare.com/mcp",
@@ -262,24 +255,12 @@ it("reuses manual hosted installations and installs stdio packages on the select
   expect(JSON.parse(row(result.data.id).metadata).catalogId).toBe(
     "cloudflare-docs",
   );
-  const host = id();
-  db.prepare(
-    "INSERT INTO runtime_hosts(id,owner_id,name,url,secret,created_at) VALUES(?,?,?,?,?,?)",
-  ).run(
-    host,
-    "alice",
-    "Owned remote",
-    "https://runtime.example",
-    seal("fixture-token", "alice"),
-    now(),
-  );
-  const remote = await install("brave-search", {
-    runtimeHostId: host,
+  const local = await install("brave-search", {
     values: { BRAVE_API_KEY: "fixture-brave" },
   });
-  expect(remote.data.status).toBe("connected");
-  expect(JSON.parse(row(remote.data.id).metadata).runtimeHostId).toBe(host);
-  expect(readSecret(row(remote.data.id)).stdio).toEqual({
+  expect(local.data.status).toBe("connected");
+  expect(JSON.parse(row(local.data.id).metadata).transport).toBe("stdio");
+  expect(readSecret(row(local.data.id)).stdio).toEqual({
     command: "npx",
     args: [
       "--yes",

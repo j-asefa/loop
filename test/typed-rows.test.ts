@@ -139,7 +139,6 @@ it.each([
   ["loopHarness", null],
   ["loopHarness", "unknown"],
   ["permissionMode", "allow-everything"],
-  ["runtimeHostId", {}],
   ["runtimeKind", "other-host"],
 ])(
   "fails closed for malformed connection %s and records its identity",

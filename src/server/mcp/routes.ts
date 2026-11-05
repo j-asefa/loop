@@ -109,7 +109,6 @@ routes.on(workspaceApi.mcpCatalogInstall, async (req, res) => {
         res.locals.owner,
         String(req.params.id),
         data.values,
-        data.runtimeHostId,
       ),
     ),
   );
@@ -121,13 +120,7 @@ routes.on(workspaceApi.mcpInstall, async (req, res) => {
     .json(
       projectResponse(
         workspaceApi.mcpInstall,
-        await installConfig(
-          res.locals.owner,
-          d.config,
-          d.agentId,
-          "",
-          d.runtimeHostId,
-        ),
+        await installConfig(res.locals.owner, d.config, d.agentId),
       ),
     );
 });
