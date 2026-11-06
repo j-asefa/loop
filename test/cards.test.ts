@@ -166,9 +166,10 @@ it("shares full cards across Results, Saved and detail without leaking internal 
   db.prepare("UPDATE artifacts SET feed_hidden=1 WHERE id=?").run(id);
   expect(listCards("contract", {}).items).toHaveLength(0);
   expect(listCards("contract", { view: "saved" }).items).toHaveLength(1);
-  expect(() => cardDetail("contract", "a:" + id, ["results:read"])).toThrow(
-    "Card not found",
-  );
+  expect(cardDetail("contract", "a:" + id, ["read"])).toEqual({
+    ...detail,
+    hidden: true,
+  });
   const file = result("contract", {
     kind: "file",
     metadata: { uploaded: true, name: "notes.txt" },
@@ -1397,7 +1398,7 @@ it("Done preserves independent completion identities, full bodies and exact dism
     7000,
   );
   expect(() =>
-    cardDetail("done-contract", "d:run:done-first", ["cards:read"]),
+    cardDetail("done-contract", "d:run:done-first", ["read"]),
   ).toThrow();
   expect(() => cardDetail("other-owner", "d:run:done-first")).toThrow();
 });

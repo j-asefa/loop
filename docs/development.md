@@ -173,9 +173,29 @@ providers or Internet tunnel are used. `LOOP_BROWSER` selects one engine.
 
 ## Manual verification
 
-The [CI workflow](../.github/workflows/ci.yml) runs `npm run check` and the Vitest suite in three shards on pull requests and pushes to `main`, using Node 24 and Python 3.12 on standard Ubuntu runners. It checks a clean source checkout without building first. Runs have job timeouts, read-only repository permissions and cancellation of superseded runs on the same ref. Hosted-runner usage counts against the account quota while the repository is private; the repository owner controls approval of fork-PR runs.
+The [CI workflow](../.github/workflows/ci.yml) runs only `npm run check` on
+pull requests and manual dispatch, using Node 24 and Python 3.12 on an Ubuntu
+runner. It installs with `npm ci` and checks a clean source checkout without
+building first. The full Vitest matrix is deliberately absent: full suites run
+locally before review. CI retains a 15-minute job timeout, pinned checkout/Node/
+Python actions, read-only repository permissions and cancellation of superseded
+runs on the same ref. Pushes to `main` do not trigger runs. Hosted-runner usage
+counts against the account quota while the repository is private; the repository
+owner controls approval of fork-PR runs.
 
-Run the relevant checks locally and record results in the PR as well. Native tests, browser smokes and Docker validation remain manual.
+During editing and between commits, run focused tests for the changed boundaries.
+Immediately before requesting a fresh review, run `npm run check` and one full
+local Vitest suite: `npm test -- --shard=1/3 --maxWorkers=1`, then `2/3` and `3/3`.
+Server, runtime or CLI changes also require `npm run test:native` before review;
+docs/scripts-only changes do not. Run relevant browser, package and Docker checks
+for affected behavior. Record the tested commit, commands, exits and limitations
+in the PR. Review teams inspect snapshots and do not run these checks.
+
+A fresh review of changed content requires fresh full-suite evidence. Do not
+repeat full suites merely for a push or commit that leaves tested content
+unchanged; record any commit/tree parity used to carry evidence forward. A failed
+check still needs investigation and relevant reruns. Native tests, browser smokes
+and Docker validation remain local.
 
 Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them. The Docker companion smoke (`node scripts/compose-companion-smoke.mjs`) builds its images by default. For an isolated prebuilt validation, pass `--images-file /absolute/override.yaml` to the companion smoke; the Compose override selects the test images and can set container memory/CPU limits and environment-specific CA mounts. This avoids overwriting shared CI tags. The runner still owns only its unique Compose project and volumes.
 

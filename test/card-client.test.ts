@@ -7,7 +7,7 @@ import { seedCards } from "./helpers/seed-cards";
 import { createCardClient } from "../src/shared/card-client";
 import { CardCollection } from "../src/shared/card-sync";
 import type { CardSelection } from "../src/shared/cards";
-import { cardTokenRequest } from "../src/shared/card-access";
+import { integrationTokenRequest } from "../src/shared/card-access";
 import { workspaceApi, workspaceRoutes } from "../src/shared/workspace-api";
 
 it("runs the example and reconciles complete collections through companion", async () => {
@@ -61,7 +61,7 @@ it("runs the example and reconciles complete collections through companion", asy
       (
         await fixture.request("/api/card-tokens", {
           headers: withoutOrigin,
-          body: cardTokenRequest("Missing Origin", "cards:read"),
+          body: integrationTokenRequest("Missing Origin", ["read"]),
         })
       ).status,
     ).toBe(403);
@@ -71,13 +71,13 @@ it("runs the example and reconciles complete collections through companion", asy
       (
         await fixture.request("/api/card-tokens", {
           headers: withoutCsrf,
-          body: cardTokenRequest("Missing CSRF", "cards:read"),
+          body: integrationTokenRequest("Missing CSRF", ["read"]),
         })
       ).status,
     ).toBe(403);
     const response = await fixture.request("/api/card-tokens", {
       headers: createHeaders,
-      body: cardTokenRequest("Example", "cards:read"),
+      body: integrationTokenRequest("Example", ["read"]),
     });
     expect(response.status).toBe(201);
     const { secret, token } = await response.json();

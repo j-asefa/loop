@@ -1,10 +1,10 @@
 import { expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { cardsFixture } from "./helpers/cards-fixture";
+import type { TokenScope } from "../src/shared/token-scopes";
 import { CardPageSchema, CardChangesSchema } from "../src/shared/cards";
 import {
-  cardTokenRequest,
-  type CardGrant,
+  integrationTokenRequest,
   type CardToken,
 } from "../src/shared/card-access";
 
@@ -45,17 +45,17 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
     db.prepare(
       "INSERT INTO artifacts(id,owner_id,title,kind,content,metadata,created_at,updated_at) VALUES('foreign','foreign','Secret','markdown','Secret','{}',1,1)",
     ).run();
-    const create = async (scope: CardGrant, name: string = scope) => {
+    const create = async (scope: TokenScope, name: string = scope) => {
       const response = await request("/api/card-tokens", {
-        body: cardTokenRequest(name, scope),
+        body: integrationTokenRequest(name, [scope]),
         headers: browser,
       });
       expect(response.status).toBe(201);
       return (await response.json()) as { token: CardToken; secret: string };
     };
-    const results = await create("results:read"),
-      all = await create("cards:read");
-    expect(results.secret).toMatch(/^loop_card_[\w-]{43}$/);
+    const results = await create("read"),
+      all = await create("read");
+    expect(results.secret).toMatch(/^loop_token_[\w-]{43}$/);
     expect(results.secret).not.toBe(all.secret);
     const headers = (secret = results.secret) => ({
       authorization: "Bearer " + secret,
@@ -114,7 +114,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
       "last_used_at",
       "name",
       "revoked_at",
-      "scope",
+      "scopes",
     ]);
     const stored = db
       .prepare("SELECT digest FROM card_tokens WHERE id=?")
@@ -160,45 +160,10 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
           (
             await request("/api/v1/cards?view=" + view, {
               method,
-              headers: headers(),
-            })
-          ).status,
-        ).toBe(403);
-        expect(
-          (
-            await request(
-              "/api/v1/cards/changes?view=" + view + "&after=" + page.revision,
-              { method, headers: headers() },
-            )
-          ).status,
-        ).toBe(403);
-        expect(
-          (
-            await request("/api/v1/cards?view=" + view, {
-              method,
               headers: headers(all.secret),
             })
           ).status,
         ).toBe(200);
-      }
-      for (const id of [
-        "m:prompt",
-        "m:assistant",
-        "a:hidden",
-        "a:upload",
-        "a:partial",
-        "a:trace",
-        "a:archived",
-        "a:foreign",
-      ]) {
-        expect(
-          (
-            await request("/api/v1/cards/" + encodeURIComponent(id), {
-              method,
-              headers: headers(),
-            })
-          ).status,
-        ).toBe(404);
       }
       for (const id of ["m:prompt", "m:assistant", "a:hidden", "a:upload"])
         expect(
@@ -257,7 +222,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
           headers: { ...browser, ...headers() },
         })
       ).status,
-    ).toBe(403);
+    ).toBe(200);
     expect(
       (
         await request("/api/v1/cards", {
@@ -265,15 +230,15 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
         })
       ).status,
     ).toBe(403);
-    const wrong = "loop_card_" + randomBytes(32).toString("base64url");
+    const wrong = "loop_token_" + randomBytes(32).toString("base64url");
     db.prepare(
-      "INSERT INTO card_tokens(id,owner_id,name,digest,scope,created_at) VALUES('wrong','foreign','Wrong owner',?,json_array('cards:read'),1)",
+      "INSERT INTO card_tokens(id,owner_id,name,digest,scope,created_at) VALUES('wrong','foreign','Wrong owner',?,json_array('read'),1)",
     ).run(createHash("sha256").update(wrong).digest("hex"));
     expect(
       (await request("/api/v1/cards", { headers: headers(wrong) })).status,
     ).toBe(401);
     db.pragma("ignore_check_constraints = ON");
-    for (const scope of ["admin", Buffer.from('["cards:read"]')]) {
+    for (const scope of ["admin", Buffer.from('["read"]')]) {
       db.prepare("UPDATE card_tokens SET scope=? WHERE id=?").run(
         scope,
         all.token.id,
@@ -284,15 +249,11 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
       ).toBe(401);
     }
     db.prepare(
-      "UPDATE card_tokens SET scope=json_array('cards:read') WHERE id=?",
+      "UPDATE card_tokens SET scope=json_array('read') WHERE id=?",
     ).run(all.token.id);
     db.pragma("ignore_check_constraints = OFF");
 
     const forbidden = [
-      "/api/results",
-      "/api/artifacts/result",
-      "/api/artifacts/result/file",
-      "/api/runs",
       "/api/card-tokens",
       "/api/v1/anything",
       "/api/objects/file",
@@ -304,9 +265,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
       "/api/v1/cards/a%2Fresult",
       "/api/v1/cards/a%5Cresult",
       "/api/v1/cards/%ZZ",
-      "/api/v1/cards/%2e%2e/../runs",
       "/api/v1/cards/a%253Aresult",
-      "/api/v1/cards/../runs",
       "/API/v1/cards",
     ];
     for (const path of forbidden)
@@ -325,7 +284,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
             await request(path, {
               method,
               headers: { ...browser, ...headers() },
-              body: { name: "No", scope: "cards:read" },
+              body: { name: "No", scopes: ["read"] },
             })
           ).status,
         ).toBe(403);
@@ -342,7 +301,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
           headers: {
             authorization: "Bearer bad",
             "x-loop-card-owner": owner,
-            "x-loop-card-scope": "cards:read",
+            "x-loop-card-scope": "read",
             "x-loop-card-authenticated": "1",
           },
         })
@@ -351,7 +310,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
     expect(
       (
         await request("/api/card-tokens", {
-          body: { name: "Cross site", scope: "cards:read" },
+          body: { name: "Cross site", scopes: ["read"] },
           headers: { ...browser, origin: "https://foreign.example" },
         })
       ).status,
@@ -360,7 +319,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
     expect(
       (
         await request("/api/card-tokens", {
-          body: { name: "No CSRF", scope: "cards:read" },
+          body: { name: "No CSRF", scopes: ["read"] },
           headers: { cookie: browser.cookie, origin },
         })
       ).status,
@@ -370,7 +329,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
         await request("/api/v1/cards", {
           headers: {
             "x-loop-card-owner": owner,
-            "x-loop-card-scope": "cards:read",
+            "x-loop-card-scope": "read",
           },
         })
       ).status,
@@ -382,7 +341,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
     expect((await request("/api/v1/cards", { headers: browser })).status).toBe(
       200,
     );
-    const fresh = await create("cards:read", "Revoke from browser");
+    const fresh = await create("read", "Revoke from browser");
     expect(
       (
         await request("/api/card-tokens/" + fresh.token.id, {
@@ -453,7 +412,7 @@ it("keeps bearer reads bound to the paired owner, whatever owner the request nam
       ).run(id, id, "Owner " + id, "Private body " + id);
     const create = await request("/api/card-tokens", {
       headers: browser,
-      body: cardTokenRequest("Owner token", "results:read"),
+      body: integrationTokenRequest("Owner token", ["read"]),
     });
     expect(create.status).toBe(201);
     const { secret, token } = await create.json();
@@ -473,9 +432,9 @@ it("keeps bearer reads bound to the paired owner, whatever owner the request nam
     ).toBe(404);
     expect(
       (await request("/api/v1/cards?view=saved", { headers: bearer })).status,
-    ).toBe(403);
+    ).toBe(200);
     expect((await request("/api/bootstrap", { headers: bearer })).status).toBe(
-      403,
+      200,
     );
     expect(
       (
@@ -505,7 +464,7 @@ it("reconciles token creation identities, enforces issuance bounds and never rev
   const fixture = await cardsFixture();
   try {
     const { request, browser, db, owner } = fixture;
-    const draft = cardTokenRequest("Stable creation", "cards:read");
+    const draft = integrationTokenRequest("Stable creation", ["read"]);
     const create = (body = draft) =>
       request("/api/card-tokens", { headers: browser, body });
     const first = await create();
@@ -518,14 +477,12 @@ it("reconciles token creation identities, enforces issuance bounds and never rev
         .prepare("SELECT count(*) n FROM card_tokens WHERE owner_id=?")
         .get(owner),
     ).toEqual({ n: 1 });
-    expect((await create({ ...draft, scope: "results:read" })).status).toBe(
-      409,
-    );
+    expect((await create({ ...draft, scopes: ["write"] })).status).toBe(409);
     expect(
       (
         await create({
           ...draft,
-          secret: cardTokenRequest("other", "cards:read").secret,
+          secret: integrationTokenRequest("other", ["read"]).secret,
         })
       ).status,
     ).toBe(409);
@@ -533,7 +490,7 @@ it("reconciles token creation identities, enforces issuance bounds and never rev
       (
         await request("/api/card-tokens", {
           headers: browser,
-          body: { name: "Missing identity", scope: "cards:read" },
+          body: { name: "Missing identity", scopes: ["read"] },
         })
       ).status,
     ).toBe(400);
@@ -542,10 +499,10 @@ it("reconciles token creation identities, enforces issuance bounds and never rev
     ).toBe(409);
     for (let n = 0; n < 49; n++)
       expect(
-        (await create(cardTokenRequest("Token " + n, "cards:read"))).status,
+        (await create(integrationTokenRequest("Token " + n, ["read"]))).status,
       ).toBe(201);
     expect(
-      (await create(cardTokenRequest("Over limit", "cards:read"))).status,
+      (await create(integrationTokenRequest("Over limit", ["read"]))).status,
     ).toBe(409);
     expect((await create()).status).toBe(201); // Same operation still succeeds at the active cap.
     expect(
@@ -564,7 +521,7 @@ it("reconciles token creation identities, enforces issuance bounds and never rev
     );
     for (let n = 0; n < 3; n++) {
       const next = await (
-        await create(cardTokenRequest("New " + n, "cards:read"))
+        await create(integrationTokenRequest("New " + n, ["read"]))
       ).json();
       await request("/api/card-tokens/" + next.token.id, {
         headers: browser,
@@ -575,7 +532,7 @@ it("reconciles token creation identities, enforces issuance bounds and never rev
     db.prepare("UPDATE card_tokens SET revoked_at=0 WHERE id=?").run(
       made.token.id,
     );
-    await create(cardTokenRequest("Prune history", "cards:read"));
+    await create(integrationTokenRequest("Prune history", ["read"]));
     expect(
       db
         .prepare(
@@ -606,16 +563,16 @@ it("does not disclose never-readable identities through scoped companion removal
   const fixture = await cardsFixture();
   try {
     const { request, browser, db, owner } = fixture;
-    const make = async (scope: CardGrant) => {
+    const make = async (scope: TokenScope) => {
       const response = await request("/api/card-tokens", {
         headers: browser,
-        body: cardTokenRequest("Visibility", scope),
+        body: integrationTokenRequest("Visibility", [scope]),
       });
       expect(response.status).toBe(201);
       return (await response.json()).secret as string;
     };
-    const secret = await make("results:read"),
-      fresh = await make("results:read");
+    const secret = await make("read"),
+      fresh = await make("read");
     const headers = { authorization: "Bearer " + secret };
     const start = await (await request("/api/v1/cards", { headers })).json();
     const insert = db.prepare(

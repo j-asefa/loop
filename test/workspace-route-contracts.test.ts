@@ -10,7 +10,7 @@ import { z } from "zod";
 import { workspaceApi, PublicConnection } from "../src/shared/workspace-api";
 import { Problem, ExecutionProblem } from "../src/shared/problem";
 import { registrar, mountedRoute } from "../src/server/registrar";
-import { cardTokenRequest } from "../src/shared/card-access";
+import { integrationTokenRequest } from "../src/shared/card-access";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-route-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
@@ -225,7 +225,7 @@ it("serves all six Cards contracts from production writes and refuses invalid in
   });
   const created = await request(
     "/card-tokens",
-    cardTokenRequest("Contract reader", "cards:read"),
+    integrationTokenRequest("Contract reader", ["read"]),
   );
   expect(created.status).toBe(201);
   const token = workspaceApi.cardTokenCreate.response.parse(created.data).token;
@@ -262,7 +262,7 @@ it("serves all six Cards contracts from production writes and refuses invalid in
     await request("/v1/cards/a%3A" + artifact + "?unknown=1"),
     await requestWithBody("/card-tokens", "GET", {}),
     await request("/card-tokens", {
-      ...cardTokenRequest("Invalid", "cards:read"),
+      ...integrationTokenRequest("Invalid", ["read"]),
       extra: true,
     }),
     await request("/card-tokens/" + token.id, {}, "DELETE"),

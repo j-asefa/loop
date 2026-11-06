@@ -94,7 +94,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use((req, _res, next) => {
-  if (/^Bearer loop(?:55)?_(?:card|token)_/i.test(req.headers.authorization ?? ""))
+  if (/^Bearer loop_token_/i.test(req.headers.authorization ?? ""))
     integrationRoute(req);
   next();
 });

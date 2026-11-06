@@ -931,17 +931,25 @@ it("verifies real deliveries with the documented snippet and rejects tampering",
   ).toThrow();
 }, 30000);
 
-it("accepts and replays a creation whose secret was issued under the Loop55 name", async () => {
+it("rejects Loop55 webhook secrets and replays current creation receipts", async () => {
   const { f, destination } = await fixture("public");
   const request = webhookRequest(destination, ["run.stopped"]);
-  request.secret = request.secret.replace(/^loop_/, "loop55_");
+  const rejected = await f.request("/api/webhooks", {
+    headers: f.browser,
+    body: { ...request, secret: request.secret.replace(/^loop_/, "loop55_") },
+  });
+  expect(rejected.status).toBe(400);
+  const empty = WebhookList.parse(
+    await (await f.request("/api/webhooks", { headers: f.browser })).json(),
+  );
+  expect(empty.subscriptions).toEqual([]);
   const response = await f.request("/api/webhooks", {
     headers: f.browser,
     body: request,
   });
   expect(response.status, await response.clone().text()).toBe(201);
   const created = WebhookCreated.parse(await response.json());
-  // A retry of the same request finds the original subscription.
+  expect(created.secret).toMatch(/^loop_hook_[A-Za-z0-9_-]{43}$/);
   const replay = await createReplay(f, request);
   expect(replay.subscription.id).toBe(created.subscription.id);
 }, 30000);

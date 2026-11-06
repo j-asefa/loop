@@ -3,10 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
-import {
-  integrationTokenRequest,
-  cardTokenRequest,
-} from "../src/shared/card-access";
+import { integrationTokenRequest } from "../src/shared/card-access";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { WorkspaceFrameV3 } from "../src/shared/workspace-events";
 
@@ -199,13 +196,6 @@ async function browserFrame(f: Fixture, epoch: string, cursor: number) {
       (await token(f, ["write"])).secret,
       (await token(f, ["approvals:decide"])).secret,
     ];
-    for (const scope of ["results:read", "cards:read"] as const) {
-      const legacy = await f.request("/api/card-tokens", {
-        headers: f.browser,
-        body: cardTokenRequest("Legacy", scope),
-      });
-      refused.push((await legacy.json()).secret);
-    }
     for (const secret of refused) {
       const deniedHeaders = { ...f.browser, authorization: "Bearer " + secret };
       for (const path of ["/api/events", "/api/events/stream"])

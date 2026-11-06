@@ -3,13 +3,9 @@ import type { RouteContract } from "./workspace-api.js";
 
 export const TokenScope = z.enum(["read", "write", "approvals:decide"]);
 export type TokenScope = z.infer<typeof TokenScope>;
-export const TokenAdmission = z.enum([
-  ...TokenScope.options,
-  "results:read",
-  "cards:read",
-]);
+export const TokenAdmission = TokenScope;
 export type TokenAdmission = z.infer<typeof TokenAdmission>;
-export const TokenAdmissions = z.array(TokenAdmission).min(1).max(5);
+export const TokenAdmissions = z.array(TokenAdmission).min(1).max(3);
 
 export const SCOPE_CATALOG = {
   read: {
@@ -36,10 +32,6 @@ export function admitsToken(
     typeof contract.access === "object" &&
     contract.access.admits.some((scope) => admission.includes(scope))
   );
-}
-
-export function fullCardRead(admission: readonly TokenAdmission[]) {
-  return admission.includes("read") || admission.includes("cards:read");
 }
 
 /** Every admitted mutation has one identity, even when a session may omit it. */

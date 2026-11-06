@@ -1,7 +1,7 @@
 import express from "express";
 import { registrar, mountRoutes, mountedRoute } from "../src/server/registrar";
 import { expect, it } from "vitest";
-import { cardTokenRequest } from "../src/shared/card-access";
+import { integrationTokenRequest } from "../src/shared/card-access";
 import { CardIdSchema } from "../src/shared/cards";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -109,17 +109,17 @@ it("keeps the literal Cards admission boundary when paths come from mounted cont
     }
 });
 
-it("companion enforces NoBody for raw GET and HEAD through session and both bearer grants", async () => {
+it("companion enforces NoBody for raw GET and HEAD through session and the read bearer", async () => {
   const fixture = await cardsFixture();
   try {
     const id = await publishCard(fixture);
     const credentials: [string, Record<string, string>][] = [
       ["session", fixture.browser],
     ];
-    for (const scope of ["results:read", "cards:read"] as const) {
+    for (const scope of ["read"] as const) {
       const created = await fixture.request("/api/card-tokens", {
         headers: fixture.browser,
-        body: cardTokenRequest(scope, scope),
+        body: integrationTokenRequest(scope, [scope]),
       });
       expect(created.status).toBe(201);
       const { secret } = workspaceApi.cardTokenCreate.response.parse(
@@ -180,7 +180,7 @@ it("validates detail output before persisting a bearer read receipt", async () =
     const id = await publishCard(fixture);
     const created = await fixture.request("/api/card-tokens", {
       headers: fixture.browser,
-      body: cardTokenRequest("Receipt", "results:read"),
+      body: integrationTokenRequest("Receipt", ["read"]),
     });
     expect(created.status).toBe(201);
     const { token, secret } = workspaceApi.cardTokenCreate.response.parse(

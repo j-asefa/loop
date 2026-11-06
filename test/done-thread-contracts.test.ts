@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
-import { cardTokenRequest } from "../src/shared/card-access";
+import { integrationTokenRequest } from "../src/shared/card-access";
 import { cardsFixture } from "./helpers/cards-fixture";
 
 it("companion persists Done threads without changing conversations and isolates every operation by owner", async () => {
@@ -390,7 +390,7 @@ it("companion persists Done threads without changing conversations and isolates 
     // A bearer grant for published cards cannot read or organize private Done threads.
     const token = await request("/api/card-tokens", {
       headers: browser,
-      body: cardTokenRequest("Cards", "cards:read"),
+      body: integrationTokenRequest("Cards", ["read"]),
     });
     expect(token.status).toBe(201);
     const { secret } = await token.json();

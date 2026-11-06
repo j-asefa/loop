@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
-import { cardTokenRequest } from "../src/shared/card-access";
+import { integrationTokenRequest } from "../src/shared/card-access";
 import { cardsFixture } from "./helpers/cards-fixture";
 
 it("companion groups only explicit mail in its thread, including interrupts into shared running history", async () => {
@@ -223,7 +223,7 @@ it("companion groups only explicit mail in its thread, including interrupts into
       );
     const tokenResponse = await request("/api/card-tokens", {
       headers: browser,
-      body: cardTokenRequest("Cards", "cards:read"),
+      body: integrationTokenRequest("Cards", ["read"]),
     });
     const { secret } = await tokenResponse.json();
     for (const path of [root, root + "/exchange"])

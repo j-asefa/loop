@@ -39,7 +39,7 @@ export function mountRoutes(app: Express, mount: RequestHandler, path = "/") {
   const probe = probes.get(mount);
   if (!probe) throw new Error("Mount API routes through a registrar");
   // A strict/case-sensitive registry keeps that boundary on the mount spelling
-  // too; legacy Cards credentials never accepted an alternate /API prefix.
+  // too; integration credentials require the canonical /api prefix.
   const wrapper = Router({ caseSensitive: probe.options.caseSensitive });
   wrapper.use(path, probe.router);
   const entries = mounted.get(app) ?? [];

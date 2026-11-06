@@ -323,8 +323,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   const admission =
     typeof route.access === "object" ? route.access.admits : undefined;
   const tokenMutation = isTokenMutation(route);
-  const cardRead =
-    admission?.includes("results:read") || admission?.includes("cards:read");
+  const cardRead = route.path.startsWith("/v1/cards");
   const prefix = schemaName(name);
   const parameters = [];
   if (tokenMutation)
@@ -488,13 +487,6 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
               : ""),
         }
       : {}),
-    ...(cardRead
-      ? {
-          "x-card-grants": admission.filter(
-            (value) => value === "results:read" || value === "cards:read",
-          ),
-        }
-      : {}),
     ...(!noBody(route.body)
       ? {
           requestBody: {
@@ -577,18 +569,10 @@ const document = {
       IntegrationBearer: {
         type: "http",
         scheme: "bearer",
-        bearerFormat:
-          "loop_token_… (loop_card_… and credentials issued as loop55_token_… or loop55_card_… also accepted; preserve issued credentials verbatim)",
+        bearerFormat: "loop_token_…",
         description:
           "Owner/source-bound integration credential. Only contracts whose x-scopes intersect its grants admit it. Never send tokens in URLs. Every admitted write requires its x-request-identity body field. Identity is scoped to owner and token; changed validated input or operation conflicts. Completed requests replay the first status with the current result projection, without invoking the effect again. Pending outcomes are uncertain and replay as 409. Result data expires after 24 hours; permanent credential-lifetime markers refuse old keys with 409.",
         "x-scope-catalog": SCOPE_CATALOG,
-      },
-      CardBearer: {
-        type: "http",
-        scheme: "bearer",
-        bearerFormat: "loop_card_… or loop55_card_…",
-        description:
-          "Compatibility alias for IntegrationBearer for one release. Legacy results:read and cards:read retain their existing Cards-only permissions.",
       },
       PairedDevice: {
         type: "apiKey",

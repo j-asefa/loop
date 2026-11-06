@@ -8,7 +8,7 @@ import * as objectQueries from "./sql/objects.js";
 import * as artifactObjectQueries from "./sql/artifact-objects.js";
 import type { CardQuerySelection, CardQueryRow } from "./sql/artifacts.js";
 import * as watchQueries from "./sql/pr-watches.js";
-import { fullCardRead, type TokenAdmission } from "../shared/token-scopes.js";
+import type { TokenAdmission } from "../shared/token-scopes.js";
 import { cardAttachments } from "./card-attachments.js";
 import { doneCards } from "./done-cards.js";
 import { createHash } from "node:crypto";
@@ -323,10 +323,7 @@ export function cardDetail(
     return found[0].card;
   }
   const type = id.startsWith("a:") ? "artifact" : "message";
-  const views: CardView[] =
-    admission && !fullCardRead(admission)
-      ? ["results"]
-      : ["results", "saved", "sent"];
+  const views: CardView[] = ["results", "saved", "sent"];
   for (const view of views) {
     const found = query(owner, selection(owner, { view }), type, {
       ids: [id.slice(2)],

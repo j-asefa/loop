@@ -7,7 +7,7 @@ import {
   eventScopes,
   type WorkspaceEvent,
 } from "../src/shared/workspace-events";
-import { cardTokenRequest } from "../src/shared/card-access";
+import { integrationTokenRequest } from "../src/shared/card-access";
 import { z } from "zod";
 
 let compiled: Awaited<ReturnType<typeof compiledServerFixture>>;
@@ -1112,10 +1112,10 @@ it(`companion keeps owner-wide change clocks out of scoped Cards responses`, asy
     String(expires),
   );
   expect(ownerResponse.headers.has("x-loop-change-cursor")).toBe(true);
-  for (const scope of ["results:read", "cards:read"] as const) {
+  for (const scope of ["read"] as const) {
     const created = await f.request("/api/card-tokens", {
       headers: f.browser,
-      body: cardTokenRequest(scope, scope),
+      body: integrationTokenRequest(scope, [scope]),
     });
     expect(created.status).toBe(201);
     const { secret } = await created.json();

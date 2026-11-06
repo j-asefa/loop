@@ -68,7 +68,6 @@ export function CardTokens({
             (token) =>
               token.id === draft.request_id &&
               token.name === draft.name &&
-              "scopes" in token &&
               JSON.stringify(token.scopes) === JSON.stringify(draft.scopes) &&
               !token.revoked_at,
           );
@@ -258,11 +257,9 @@ export function CardTokens({
                 title={token.name}
                 description={
                   <>
-                    {"scopes" in token
-                      ? token.scopes
-                          .map((value) => SCOPE_CATALOG[value].label)
-                          .join(", ")
-                      : `${token.scope} (legacy)`}{" "}
+                    {token.scopes
+                      .map((value) => SCOPE_CATALOG[value].label)
+                      .join(", ")}{" "}
                     · Created {new Date(token.created_at).toLocaleDateString()}
                     <br />
                     {token.last_used_at

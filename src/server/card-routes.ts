@@ -5,8 +5,7 @@ import { workspaceApi } from "../shared/workspace-api.js";
 
 import { cardChanges, cardDetail, listCards } from "./cards.js";
 import { Problem } from "./domain.js";
-import { TokenAdmissions, fullCardRead } from "../shared/token-scopes.js";
-import { CardViewSchema } from "../shared/cards.js";
+import { TokenAdmissions } from "../shared/token-scopes.js";
 
 const routes = registrar("cards", {
   strict: true,
@@ -32,11 +31,6 @@ export const cards = routes.mount;
 const cardSelection: RequestHandler = (req, res, next) => {
   const bearer = res.locals.bearer;
   if (bearer) {
-    if (
-      !fullCardRead(bearer.admission) &&
-      CardViewSchema.parse(req.query.view ?? "results") !== "results"
-    )
-      throw new Problem(403, "This token permits published results only");
     if (req.query.view === "done")
       throw new Problem(403, "Done requires an owner session");
   }

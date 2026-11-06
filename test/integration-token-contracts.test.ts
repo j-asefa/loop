@@ -1,10 +1,7 @@
 import { expect, it } from "vitest";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { cardsFixture } from "./helpers/cards-fixture";
-import {
-  cardTokenRequest,
-  integrationTokenRequest,
-} from "../src/shared/card-access";
+import { integrationTokenRequest } from "../src/shared/card-access";
 import {
   workspaceApi,
   workspaceRoutes,
@@ -299,20 +296,11 @@ it("companion admits the declared read catalog with GET/HEAD, safe projections a
   expect((await f.request("/api/bootstrap", { headers })).status).toBe(401);
 }, 60000);
 
-it("companion keeps management closed and legacy grants separate from read", async () => {
+it("companion keeps management closed and enforces each integration scope", async () => {
   const f = await cardsFixture();
-  for (const scope of [
-    ...TokenScope.options,
-    "results:read",
-    "cards:read",
-  ] as const) {
-    const input =
-      scope === "results:read" || scope === "cards:read"
-        ? cardTokenRequest(scope, scope)
-        : integrationTokenRequest(scope, [scope]);
-    const wrongPrefix = input.secret.startsWith("loop_card_")
-      ? input.secret.replace("loop_card_", "loop_token_")
-      : input.secret.replace("loop_token_", "loop_card_");
+  for (const scope of TokenScope.options) {
+    const input = integrationTokenRequest(scope, [scope]);
+    const wrongPrefix = input.secret.replace("loop_token_", "loop_card_");
     expect(
       (
         await f.request("/api/card-tokens", {
@@ -337,9 +325,7 @@ it("companion keeps management closed and legacy grants separate from read", asy
       );
       expect(
         (await f.request("/api/v1/cards", { method, headers })).status,
-      ).toBe(
-        ["read", "results:read", "cards:read"].includes(scope) ? 200 : 403,
-      );
+      ).toBe(scope === "read" ? 200 : 403);
       for (const path of [
         "/api/card-tokens",
         "/api/fleet/admin/state",
@@ -407,30 +393,6 @@ it("companion qualifies Results/artifact disclosures per token before returning 
       .prepare("SELECT card_id FROM card_token_reads WHERE token_id=?")
       .all(headOnly.id),
   ).toEqual([]);
-  const legacyHeads = [];
-  for (const scope of ["results:read", "cards:read"] as const) {
-    const created = await f.request("/api/card-tokens", {
-      headers: f.browser,
-      body: cardTokenRequest("Legacy HEAD", scope),
-    });
-    expect(created.status).toBe(201);
-    const receipt = await created.json();
-    const headers = { authorization: "Bearer " + receipt.secret };
-    legacyHeads.push(headers);
-    for (const path of [
-      "/api/v1/cards",
-      `/api/v1/cards/changes?after=${encodeURIComponent(before.revision)}`,
-      `/api/v1/cards/a%3A${records.artifact}`,
-    ])
-      expect((await f.request(path, { method: "HEAD", headers })).status).toBe(
-        200,
-      );
-    expect(
-      f.db
-        .prepare("SELECT card_id FROM card_token_reads WHERE token_id=?")
-        .all(receipt.token.id),
-    ).toEqual([]);
-  }
   expect(
     (
       await f.request(`/api/artifacts/${records.artifact}`, {
@@ -445,16 +407,6 @@ it("companion qualifies Results/artifact disclosures per token before returning 
   f.db
     .prepare("UPDATE artifacts SET archived=1 WHERE id=?")
     .run(records.artifact);
-  for (const headers of legacyHeads) {
-    const response = await f.request(
-      `/api/v1/cards/changes?after=${encodeURIComponent(before.revision)}`,
-      { headers },
-    );
-    expect(response.status).toBe(200);
-    expect((await response.json()).removed).not.toContain(
-      "a:" + records.artifact,
-    );
-  }
   for (const token of [detail, listing, unseen, headOnly]) {
     const response = await f.request("/api/results/updates?after=0&through=0", {
       headers: token.headers,
@@ -507,11 +459,58 @@ it("companion keeps Results reads and disclosures coherent while a worker tries 
   }
 }, 60000);
 
-it("companion keeps authenticating integration credentials issued under the Loop55 name", async () => {
+it("rejects retired credential prefixes and grants at the companion HTTP boundary", async () => {
   const f = await cardsFixture();
   try {
-    const request = integrationTokenRequest("Existing integration", ["read"]);
-    request.secret = request.secret.replace(/^loop_/, "loop55_");
+    for (const prefix of ["loop_card_", "loop55_card_", "loop55_token_"]) {
+      const request = integrationTokenRequest("Rejected credential", ["read"]);
+      request.secret = request.secret.replace("loop_token_", prefix);
+      const created = await f.request("/api/card-tokens", {
+        headers: f.browser,
+        body: request,
+      });
+      expect(created.status, prefix).toBe(400);
+      expect(
+        f.db
+          .prepare("SELECT id FROM card_tokens WHERE id=?")
+          .get(request.request_id),
+      ).toBeUndefined();
+      // Matching owner, digest and current scope ensure rejection is by wire
+      // format, not merely an unknown credential or insufficient authority.
+      f.db
+        .prepare(
+          "INSERT INTO card_tokens(id,owner_id,name,digest,scope,created_at) VALUES(?,?,?,?,?,1)",
+        )
+        .run(
+          request.request_id,
+          f.owner,
+          request.name,
+          createHash("sha256").update(request.secret).digest("hex"),
+          '["read"]',
+        );
+      for (const method of ["GET", "HEAD"])
+        for (const session of [{}, f.browser]) {
+          const denied = await f.request("/api/v1/cards", {
+            method,
+            headers: { ...session, authorization: "Bearer " + request.secret },
+          });
+          expect(denied.status, prefix + " " + method).toBe(401);
+        }
+    }
+    for (const scope of ["results:read", "cards:read"]) {
+      const { scopes, ...request } = integrationTokenRequest("Rejected grant", [
+        "read",
+      ]);
+      for (const body of [
+        { ...request, scope },
+        { ...request, scopes: [scope] },
+      ])
+        expect(
+          (await f.request("/api/card-tokens", { headers: f.browser, body }))
+            .status,
+        ).toBe(400);
+    }
+    const request = integrationTokenRequest("Current integration", ["read"]);
     const created = await f.request("/api/card-tokens", {
       headers: f.browser,
       body: request,
@@ -526,6 +525,58 @@ it("companion keeps authenticating integration credentials issued under the Loop
       headers: f.browser,
     });
     expect((await f.request("/api/v1/cards", { headers })).status).toBe(401);
+  } finally {
+    await f.close();
+  }
+}, 15_000);
+
+it("manages all current token scopes and revoked metadata on a fresh database", async () => {
+  const f = await cardsFixture();
+  try {
+    const list = async () => {
+      const response = await f.request("/api/card-tokens", {
+        headers: f.browser,
+      });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    expect(await list()).toEqual([]);
+    const scopes = TokenScope.options;
+    for (const selected of [...scopes.map((scope) => [scope]), [...scopes]]) {
+      const request = integrationTokenRequest(selected.join(", "), selected);
+      const create = () =>
+        f.request("/api/card-tokens", {
+          headers: f.browser,
+          body: request,
+        });
+      const response = await create();
+      expect(response.status).toBe(201);
+      const created = await response.json();
+      expect(await (await create()).json()).toEqual(created);
+      expect(await list()).toContainEqual(created.token);
+      const revoked = await f.request("/api/card-tokens/" + created.token.id, {
+        method: "DELETE",
+        headers: f.browser,
+      });
+      expect(revoked.status).toBe(200);
+      expect(await list()).toContainEqual({
+        ...created.token,
+        revoked_at: expect.any(Number),
+      });
+      expect((await create()).status).toBe(409);
+    }
+    const metadata = await list();
+    expect(metadata).toHaveLength(scopes.length + 1);
+    for (const token of metadata) {
+      expect(token.scopes.length).toBeGreaterThan(0);
+      expect(
+        token.scopes.every((scope: string) =>
+          scopes.includes(scope as (typeof scopes)[number]),
+        ),
+      ).toBe(true);
+      expect(token).not.toHaveProperty("secret");
+      expect(token).not.toHaveProperty("digest");
+    }
   } finally {
     await f.close();
   }

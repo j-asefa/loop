@@ -10,6 +10,16 @@ dispatch work; the event acknowledgement confirms only that token's stream curso
 
 ## Integration tokens
 
+This contract targets fresh installations: a new data directory and newly paired
+devices, with every fleet peer on the same build. Credentials and pending
+creation receipts from earlier Loop versions are not supported. Only
+`loop_token_` integration credentials with the scopes below and `loop_hook_`
+webhook secrets are created or accepted. Retired grants (`results:read` and
+`cards:read`) are not valid stored token metadata. Keeping the historical SQL
+migration chain does not add an upgrade path for those old credentials: on a
+fresh database, those migrations have no existing tokens to transform. Current
+creation retries, metadata listing and revocation remain part of this contract.
+
 Open **Settings → Integration tokens**, name the token and select its scopes.
 Read workspace is selected by default. Send and control runs is optional;
 Answer approvals is unchecked and warns that the script can authorize tool
@@ -38,18 +48,7 @@ current run content, including when submit steers existing work, and withdraw
 returns the draft content. These responses do not require `read`; that scope
 admits the separate GET/HEAD routes.
 
-Existing `loop_card_…` credentials remain valid with their distinct legacy grants:
-
-| Legacy grant   | Access                                                                                    |
-| -------------- | ----------------------------------------------------------------------------------------- |
-| `results:read` | Eligible visible published Results through the three Cards routes                         |
-| `cards:read`   | Cards Results, Saved (including messages and file descriptors), Sent and eligible details |
-
-Settings labels these grants **legacy**. They cannot be edited or selected for a
-new integration token. Neither legacy grant expands to workspace or file reads.
-The session-only Cards Done collection remains unavailable to every bearer,
-including `read`. Replace a legacy credential with a new token when broader
-read access is needed.
+The session-only Cards Done collection remains unavailable to every bearer, including `read`.
 
 Tokens cover the owner's projects. Query filters narrow a selection, not
 the grant. A token belongs to one source and owner; it cannot reach linked
@@ -74,9 +73,7 @@ new creation identity. Secrets are never put in URLs or browser storage. The Set
 32-byte random secret and a UUID creation identity before sending the request.
 Retrying the exact request returns the same token; changing its fields or retrying
 a revoked identity returns 409. `integrationTokenRequest(name, scopes)` supplies this request shape for
-session-authenticated tools. As a compatibility exception, the old singular
-`scope: "results:read" | "cards:read"` creation shape and `cardTokenRequest` helper
-remain supported; these create a legacy-grant credential, not a `read` token. Keep the creation receipt only
+session-authenticated tools. Keep the creation receipt only
 in memory. If a response is lost, Settings reconciles the metadata list and can
 finish the same creation; closing and reopening Settings retains a pending
 receipt for that owner/source. Reloading the page discards secrets: revoke any
@@ -106,8 +103,7 @@ including serialized `payload` text. The last row's `id` is the next cursor.
 Read tokens receive at most 200 rows and a 512 KiB serialized array budget.
 Rows stay whole: if the first unread row alone exceeds that budget, it is returned
 alone and intact, so a client always makes progress. Browser event pages retain
-their existing 200-row behavior. GET and HEAD require `read`; neither legacy
-Card grant can read events.
+their existing 200-row behavior. GET and HEAD require `read`.
 
 The `read` scope includes committed owner-wide deadline events. Their payload
 contains `serverNow` and one `nextDeadline`: the minimum unprocessed approval or
@@ -115,7 +111,7 @@ pull-watch expiry timestamp, or null when none remains. It names no individual
 approval or watch. Expiry invalidations also name affected collections, including
 `pulls`. These event payloads stay intact, as they do for the browser. Ordinary
 bearer responses still omit the automatic workspace-clock headers; granting
-legacy Cards access, `write`, or `approvals:decide` alone does not grant events.
+`write` or `approvals:decide` alone does not grant events.
 
 `/api/events/stream` is a token-only WebSocket endpoint. Send
 `Authorization: Bearer loop_token_…` in the upgrade request using a WebSocket
@@ -439,7 +435,7 @@ for replies; it does not attribute a system or unknown message to that agent.
 Attachment name, MIME type and size describe the stored attachment snapshot.
 Descriptors appear only for artifacts owned by the same owner. `href` opens
 Loop; nullable `download` is a protected file URL. File bytes require an owner session or a
-`read` integration token; a legacy Cards grant only admits the descriptor. Renaming a file does not rewrite the historical
+`read` integration token. Renaming a file does not rewrite the historical
 attachment description; deleting its target removes the descriptor through
 synchronization.
 
@@ -519,8 +515,7 @@ and route definitions as the runtime. Regenerate it with `npm run openapi`;
 query parameters, result/message variants, token management and authentication
 alternatives are included. Session cookie names vary by deployment; an
 integration bearer always uses the same header.
-`IntegrationBearer` is the generated bearer security scheme; `CardBearer` remains
-as a compatibility alias for one release.
+`IntegrationBearer` is the generated bearer security scheme.
 The general OpenAPI contract requires authentication.
 `PairedDevice` models the complete paired-device `Cookie` header value,
 including the names issued by that deployment. Do not rename cookie prefixes or

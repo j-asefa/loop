@@ -18,7 +18,6 @@ import {
 
 import {
   TokenAdmissions,
-  TokenScope,
   type TokenAdmission,
 } from "../shared/token-scopes.js";
 
@@ -43,14 +42,7 @@ function publicToken(row: TokenRow): CardToken {
   if (!admission) throw new Problem(500, "Token metadata unavailable");
   const { id, name, created_at, revoked_at, last_used_at } = row;
   const fields = { id, name, created_at, revoked_at, last_used_at };
-  if (
-    admission.length === 1 &&
-    (admission[0] === "results:read" || admission[0] === "cards:read")
-  )
-    return { ...fields, scope: admission[0] };
-  const scopes = TokenScope.array().safeParse(admission);
-  if (!scopes.success) throw new Problem(500, "Token metadata unavailable");
-  return { ...fields, scopes: scopes.data };
+  return { ...fields, scopes: admission };
 }
 
 const digest = (secret: string) =>
@@ -61,8 +53,7 @@ export function listCardTokens(owner: string): CardToken[] {
 }
 export function createCardToken(owner: string, input: unknown) {
   const options = CreateCardTokenSchema.parse(input);
-  const admission =
-    "scopes" in options ? [...new Set(options.scopes)].sort() : [options.scope];
+  const admission = [...new Set(options.scopes)].sort();
   const stored = JSON.stringify(admission);
   return db
     .transaction(() => {
@@ -156,7 +147,7 @@ export function recordCardRead(owner: string, tokenId: string, ids: string[]) {
   }).immediate();
 }
 
-/** Legacy Results pages use bare IDs; disclosure identities remain qualified
+/** Results pages use bare IDs; disclosure identities remain qualified
  * exactly like Cards so removals never reveal a record this token did not read. */
 export function tokenResultPage<
   T extends { items: { id: string }[]; removed?: string[] },
@@ -249,7 +240,7 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
   const header = req.headers.authorization;
   const match =
     typeof header === "string" &&
-    /^Bearer (loop(?:55)?_(?:card|token)_[A-Za-z0-9_-]{43})$/i.exec(header);
+    /^Bearer (loop_token_[A-Za-z0-9_-]{43})$/i.exec(header);
   if (!match) throw new Problem(401, "Invalid integration credential");
   // This query is deliberately performed for every request, including HEAD.
   // Last-use throttling must never become a revocation cache.

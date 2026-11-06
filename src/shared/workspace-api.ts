@@ -338,9 +338,9 @@ export const workspaceRoutes = {
   conversationActivities: endpoint({ ...base, method: "GET", path: "/conversations/:id/activities", params: Id, query: companion.ActivityQuery, response: companion.PublicActivityPage }),
   // All three reads admit read and both legacy grants; selection stays scoped.
   // The admission boundary still limits each grant's selections and excludes Done.
-  cardList: endpoint({ ...base, method: "GET", path: "/v1/cards", query: CardListQuerySchema, response: CardPageSchema, access: { admits: ["read", "results:read", "cards:read"] } }),
-  cardChanges: endpoint({ ...base, method: "GET", path: "/v1/cards/changes", query: CardChangesQuerySchema, response: CardChangesSchema, access: { admits: ["read", "results:read", "cards:read"] } }),
-  cardDetail: endpoint({ ...base, method: "GET", path: "/v1/cards/:id", params: z.object({ id: CardIdSchema }), query: z.strictObject({}, { error: "Card detail does not accept query parameters" }), response: CardSchema, access: { admits: ["read", "results:read", "cards:read"] } }),
+  cardList: endpoint({ ...base, method: "GET", path: "/v1/cards", query: CardListQuerySchema, response: CardPageSchema, access: { admits: ["read"] } }),
+  cardChanges: endpoint({ ...base, method: "GET", path: "/v1/cards/changes", query: CardChangesQuerySchema, response: CardChangesSchema, access: { admits: ["read"] } }),
+  cardDetail: endpoint({ ...base, method: "GET", path: "/v1/cards/:id", params: z.object({ id: CardIdSchema }), query: z.strictObject({}, { error: "Card detail does not accept query parameters" }), response: CardSchema, access: { admits: ["read"] } }),
   // Management handlers historically ignore query parameters.
   cardTokens: endpoint({ ...base, method: "GET", path: "/card-tokens", response: z.array(CardTokenSchema) }),
   webhooks: endpoint({ ...base, method: "GET", path: "/webhooks", response: webhooks.WebhookList }),
