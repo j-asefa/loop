@@ -1,3 +1,7 @@
+import {
+  compatibleWorkspaceAgent,
+  workspaceAgentKey,
+} from "../WorkspaceFilters";
 import { useFeedBadge } from "../useFeedBadge";
 import { useComposerDraft, useComposerSend } from "./Composer";
 import {
@@ -834,8 +838,9 @@ export function useAppController() {
     setProfile(null);
     setTab("feed");
     setView("all");
-    setTeamSelection([team.id]);
     setProjectFilter("");
+    setTeamSelection([team.id]);
+    setWorkspaceAgent("");
     if (!draft.trim() && !attachments.length) {
       setSelected(team.manager_id);
       setReplyContext(null);
@@ -884,9 +889,64 @@ export function useAppController() {
     }
   }
   const [searchAgent, setSearchAgent] = useState("");
-  const [projectFilter, setProjectFilter] = useState(
+  const [projectFilter, updateProjectFilter] = useState(
     new URLSearchParams(location.search).get("project") || "",
   );
+  const workspaceScope = JSON.stringify([
+    viewGeneration(),
+    executionSourceId(),
+  ]);
+  const [workspaceAgentState, updateWorkspaceAgent] = useState({
+    scope: workspaceScope,
+    value: "",
+  });
+  const storedWorkspaceAgent =
+    workspaceAgentState.scope === workspaceScope
+      ? workspaceAgentState.value
+      : "";
+  const workspaceAgent = compatibleWorkspaceAgent(
+    storedWorkspaceAgent,
+    teamSelection,
+    data.agents,
+    data.teams || [],
+    executionSourceId(),
+  );
+  useEffect(() => {
+    if (storedWorkspaceAgent !== workspaceAgent)
+      updateWorkspaceAgent({ scope: workspaceScope, value: workspaceAgent });
+  }, [storedWorkspaceAgent, workspaceAgent, workspaceScope]);
+  const setWorkspaceAgent = (value: string) =>
+    updateWorkspaceAgent({ scope: workspaceScope, value });
+  const workspaceViews = useRef(
+    new Map<string, { teams: string[]; agent: string; filter: FeedFilter }>(),
+  );
+  function restoreWorkspaceSelection(teams: string[], agent: string) {
+    const present = teams.filter((id) =>
+      data.teams?.some((team) => team.id === id),
+    );
+    setTeamSelection(present);
+    setWorkspaceAgent(
+      compatibleWorkspaceAgent(
+        agent,
+        present,
+        data.agents,
+        data.teams || [],
+        executionSourceId(),
+      ),
+    );
+  }
+  function setProjectFilter(value: string) {
+    const scope = workspaceScope;
+    workspaceViews.current.set(JSON.stringify([scope, projectFilter]), {
+      teams: teamSelection,
+      agent: workspaceAgent,
+      filter: feedFilter,
+    });
+    const saved = workspaceViews.current.get(JSON.stringify([scope, value]));
+    restoreWorkspaceSelection(saved?.teams || [], saved?.agent || "");
+    setFeedFilter(saved?.filter || "done");
+    updateProjectFilter(value);
+  }
   const [resultsLoading, setResultsLoading] = useState(true);
   const [resultsError, setResultsError] = useState("");
   const [workspaceLoadErrors, setWorkspaceLoadErrors] = useState<
@@ -912,6 +972,8 @@ export function useAppController() {
       view,
       teamSelection,
       projectFilter,
+      workspaceAgent,
+      feedFilter,
       query,
       conversation,
       conversationSource,
@@ -928,8 +990,12 @@ export function useAppController() {
       setPull(previous.pull || "");
       setFolder(previous.folder);
       setView(previous.view);
-      setTeamSelection(previous.teamSelection);
-      setProjectFilter(previous.projectFilter);
+      updateProjectFilter(previous.projectFilter);
+      restoreWorkspaceSelection(
+        previous.teamSelection,
+        previous.workspaceAgent,
+      );
+      setFeedFilter(previous.feedFilter);
       setQuery(previous.query);
       setConversation(
         previous.conversation,
@@ -1141,13 +1207,28 @@ export function useAppController() {
   );
   const profileWork = currentAgentWork(runs, profile?.id);
   const sentRun = runs.find((run) => run.id === sendNotice?.runId);
-  const feedBadgeCount = useFeedBadge(
-    !!signedIn,
+  const badgeAgent = workspaceAgent
+    ? unified.agents.find(
+        (agent) =>
+          workspaceAgentKey(agent, executionSourceId()) === workspaceAgent,
+      )
+    : undefined;
+  const badgeSources =
     projectFilter || teamSelection.length
       ? [executionSourceId()]
-      : unified.sources.map((source) => source.id),
+      : unified.sources.map((source) => source.id);
+  const feedBadgeCount = useFeedBadge(
+    !!signedIn,
+    workspaceAgent
+      ? badgeSources.filter(
+          (source) =>
+            !!badgeAgent &&
+            source === (badgeAgent.sourceId ?? executionSourceId()),
+        )
+      : badgeSources,
     projectFilter || undefined,
     teamKey || undefined,
+    badgeAgent?.id,
   );
   const { draftKey, draftOwner, draftLoadedFor, pendingDraftSave } =
     useComposerDraft({
@@ -1552,6 +1633,8 @@ export function useAppController() {
     setTeamMessages,
     scopedAgents,
     openSourcedAgent,
+    workspaceAgent,
+    setWorkspaceAgent,
     feedHomeKey,
     feedFilter,
     teamKey,

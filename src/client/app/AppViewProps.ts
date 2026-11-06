@@ -88,6 +88,8 @@ export type AppViewProps = Pick<
   | "resultsLoading"
   | "profile"
   | "view"
+  | "workspaceAgent"
+  | "setWorkspaceAgent"
   | "teamSelection"
   | "profileWork"
   | "next"

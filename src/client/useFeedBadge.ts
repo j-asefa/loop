@@ -15,6 +15,7 @@ export function useFeedBadge(
   sources: string[],
   folder?: string,
   teams?: string,
+  agent?: string,
 ) {
   const generation = viewGeneration();
   const key = JSON.stringify([
@@ -23,6 +24,7 @@ export function useFeedBadge(
     sources.slice().sort(),
     folder,
     teams,
+    agent,
   ]);
   const [state, setState] = useState<{
     key: string;
@@ -44,6 +46,7 @@ export function useFeedBadge(
               filter: "needs",
               ...(folder ? { folder } : {}),
               ...(teams ? { teams } : {}),
+              ...(agent ? { agent } : {}),
             },
           },
           source,

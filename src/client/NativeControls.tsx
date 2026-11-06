@@ -130,26 +130,33 @@ export function WorkspaceConnection({
     reconcileSources.current(JSON.parse(sourceKey));
   }, [owner, sourceKey]);
   return (
-    <p className="workspace-connection" role="status">
+    <p className={status === "Connected to workspace" ? "workspace-connection sr-only" : "workspace-connection"} role="status">
       {status}
     </p>
   );
 }
 export function NativeDecisions({
+  agent,
+  teams,
+  folder,
   conversation,
   onConversation,
 }: {
   conversation?: string;
+  agent?: string;
+  teams?: string;
+  folder?: string;
   onConversation?: (id: string) => void;
 }) {
   const readContract = useProjectionRoute();
   const sourceId = useSourceId();
   const [items, setItems] = useState<Decision[]>([]);
   useEffect(() => {
+    setItems([]);
     let stopped = false, latest = 0;
     const load = () => {
       const request = ++latest;
-      void readContract(workspaceApi.nativeDecisions, { query: { conversation } })
+      void readContract(workspaceApi.nativeDecisions, { query: { conversation, agent, teams, folder } })
         .then((x) => {
           if (!stopped && request === latest) setItems(x);
         })
@@ -163,7 +170,7 @@ export function NativeDecisions({
       stopFallback();
       stopChanges();
     };
-  }, [conversation, sourceId]);
+  }, [conversation, sourceId, agent, teams, folder]);
   if (!items.length) return null;
   const cards = items.map((item) => (
     <DecisionCard key={item.id} item={item} onConversation={onConversation} />

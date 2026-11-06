@@ -34,6 +34,8 @@ function quickDecision(item: Approval) {
 
 export function Approvals({
   revision,
+  agent,
+  folder,
   teams = "",
   onChange,
   onConversation,
@@ -41,6 +43,8 @@ export function Approvals({
   runIds,
 }: {
   revision: number;
+  agent?: string;
+  folder?: string;
   teams?: string;
   onChange: () => void;
   onConversation: (id: string) => void;
@@ -82,13 +86,13 @@ export function Approvals({
     setError("");
     setReadError("");
     setRateLimited(false);
-  }, [teams, runId, scope]);
+  }, [teams, agent, folder, runId, scope]);
   useEffect(() => {
     let current = true;
     const controller = new AbortController();
     void readContract(
       workspaceApi.approvals,
-      { query: { teams } },
+      { query: { teams, agent, folder } },
       controller.signal,
       (error) => {
         if (current) {
@@ -121,7 +125,7 @@ export function Approvals({
       current = false;
       controller.abort();
     };
-  }, [revision, teams, runId, scope, poll]);
+  }, [revision, teams, agent, folder, runId, scope, poll]);
   useEffect(() => {
     if (!selected) return;
     setTime(Date.now());
@@ -173,9 +177,12 @@ export function Approvals({
       setBusy(null);
     }
   }
+  const visibleItems = items.filter(
+    (item) => !runIds || runIds.includes(item.run_id),
+  );
   return (
     <>
-      {items.map((item) => {
+      {visibleItems.map((item) => {
         const d = describeApproval(item.request);
         return (
           <article className="approval-card" key={item.id}>

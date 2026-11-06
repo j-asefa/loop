@@ -153,6 +153,7 @@ export function listScheduledSends(
   owner: string,
   conversation?: string,
   failedBefore?: string,
+  agent?: string,
 ) {
   if (conversation) ownedConversation(conversation, owner);
   const cursor = failedBefore
@@ -164,6 +165,7 @@ export function listScheduledSends(
   const failed = scheduledSendsQueries.failedPage(db, {
     owner,
     conversation: conversation ?? null,
+    agent: agent ?? null,
     at: cursor?.at ?? null,
     created: cursor?.created ?? null,
     id: cursor?.id ?? null,
@@ -178,6 +180,7 @@ export function listScheduledSends(
     : scheduledSendsQueries.pendingPage(db, {
         owner,
         conversation: conversation ?? null,
+        agent: agent ?? null,
       });
   // Descriptors let "Copy to a draft" bring the files back with the text.
   const withFiles = (row: ScheduledSend) => ({

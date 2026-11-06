@@ -799,7 +799,7 @@ for (const engine of selectedEngines()) {
         await page.getByRole("button", { name: "Back", exact: true }).click();
         await expect(page.locator(".profile-head")).toHaveCount(0);
         await page
-          .getByLabel("Filter by project")
+          .getByLabel("Project workspace")
           .selectOption(fixture.projects[0].id);
         await expect(shortcuts.locator(".agent-strip button")).toHaveCount(5);
         // What needs you stacks above the filters: one card, the rest behind.
@@ -807,11 +807,11 @@ for (const engine of selectedEngines()) {
         // The Running tab became the Feed Working filter.
         await inboxFilters.getByRole("tab", { name: /^Working/ }).click();
         await expect(page).toHaveURL(/filter=working/);
-        await expect(page.getByLabel("Filter by project")).toHaveValue(
+        await expect(page.getByLabel("Project workspace")).toHaveValue(
           fixture.projects[0].id,
         );
         await page.reload();
-        await expect(page.getByLabel("Filter by project")).toHaveValue(
+        await expect(page.getByLabel("Project workspace")).toHaveValue(
           fixture.projects[0].id,
         );
         await expect(
@@ -820,7 +820,7 @@ for (const engine of selectedEngines()) {
         await expect(
           inboxFilters.getByRole("tab", { name: /^Working/ }),
         ).toHaveAttribute("aria-selected", "true");
-        await page.getByLabel("Filter by project").selectOption("");
+        await page.getByLabel("Project workspace").selectOption("");
         await expect(inboxRows).toHaveCount(1);
         await expect(inboxRows.first()).toHaveAccessibleName(
           /^Review GitHub pull request #42 .*Working$/,

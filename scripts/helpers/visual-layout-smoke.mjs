@@ -130,7 +130,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       );
       await imagesLoaded();
       await fits();
-      await expect(page.getByLabel("Filter by project")).toBeInViewport({
+      await expect(page.getByLabel("Project workspace")).toBeInViewport({
         ratio: 1,
       });
       if (width > 650) {

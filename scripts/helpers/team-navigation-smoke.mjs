@@ -110,9 +110,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     );
     await close();
     await page.getByRole("button", { name: "Feed", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "Filter by team: All teams" }),
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Filters" })).toBeVisible();
     await expect(shortcut()).toHaveCount(0);
     await page.getByRole("tab", { name: /^Working/ }).click();
     await expect(page).toHaveURL(/filter=working/);
@@ -157,11 +155,13 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     await shortcut().click();
     await expect(dialog().locator(".team-manager-option")).toHaveCount(2);
     await close();
-    await page.getByRole("button", { name: /^Filter by team:/ }).click();
+    await page.getByRole("button", { name: /^Filters/ }).click();
     await dialog()
-      .getByRole("button", { name: /^All teams/ })
+      .getByRole("button", { name: "Everyone", exact: true })
       .click();
-    await dialog().getByRole("button", { name: "Done", exact: true }).click();
+    await dialog()
+      .getByRole("button", { name: "Apply filters", exact: true })
+      .click();
     await settled();
     await expect(shortcut()).toHaveCount(0);
 
@@ -207,7 +207,7 @@ export async function teamNavigationSmoke(page, fixture, engine, capture) {
     await expect(page.locator(".profile-head")).toHaveCount(0);
     await expect(
       page.getByRole("button", {
-        name: `Filter by team: ${product.name}`,
+        name: `Remove team filter: ${product.name}`,
         exact: true,
       }),
     ).toBeVisible();

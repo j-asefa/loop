@@ -1,3 +1,4 @@
+import { conversationFolder } from "./conversations.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -275,7 +276,7 @@ export function conversation(db: Database.Database, id: string) {
 }
 
 const visibleForOwnerStatement = statement(
-  "SELECT d.*,a.name,a.provider,r.input FROM native_decisions d JOIN runs r ON r.id=d.run_id LEFT JOIN agents a ON a.id=r.agent_id WHERE d.state IN ('pending','deciding','unknown') AND r.owner_id=? AND (? IS NULL OR d.conversation_id=?) ORDER BY d.created_at",
+  `SELECT d.*,a.name,a.provider,r.input FROM native_decisions d JOIN runs r ON r.id=d.run_id JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id LEFT JOIN agents a ON a.id=r.agent_id WHERE d.state IN ('pending','deciding','unknown') AND r.owner_id=? AND (? IS NULL OR d.conversation_id=?) AND (? IS NULL OR r.agent_id=?) AND (? IS NULL OR json_extract(r.payload,'$.teamId') IN (SELECT value FROM json_each(?))) AND (? IS NULL OR EXISTS (SELECT 1 FROM json_each(?) WHERE value IS ${conversationFolder("c")})) ORDER BY d.created_at`,
 );
 
 const visibleForOwnerRow = QueryRecords.native_decisions.extend({
@@ -289,8 +290,21 @@ export function visibleForOwner(
   owner: string,
   filter: string | null,
   conversation: string | null,
+  agent: string | null = null,
+  teams: string[] | null = null,
+  folders: (string | null)[] | null = null,
 ) {
   return visibleForOwnerStatement(db)
-    .all(owner, filter, conversation)
+    .all(
+      owner,
+      filter,
+      conversation,
+      agent,
+      agent,
+      teams && JSON.stringify(teams),
+      teams && JSON.stringify(teams),
+      folders && JSON.stringify(folders),
+      folders && JSON.stringify(folders),
+    )
     .map((row) => parseRecord(visibleForOwnerRow, row, "native_decisions"));
 }

@@ -914,6 +914,7 @@ function EditScheduled({
  * owner-wide (Later) each also names its recipient and where it goes.
  */
 export function ScheduledSends({
+  agentId,
   conversationId,
   revision,
   onOpen,
@@ -921,6 +922,7 @@ export function ScheduledSends({
   focusId,
   failedOnly = false,
 }: {
+  agentId?: string;
   conversationId?: string;
   revision: number;
   onOpen?: (conversationId: string) => void;
@@ -934,15 +936,17 @@ export function ScheduledSends({
   const call = useSourceRoute();
   const sourceId = useSourceId();
   const recovery = useCollectionRead(
-    JSON.stringify([sourceId, conversationId]),
+    JSON.stringify([sourceId, conversationId, agentId]),
   );
   const read = recovery.load;
   const [all, setItems] = useState<ScheduledSend[]>([]);
   // Older messages that could not be sent load a page at a time.
   const [failedNext, setFailedNext] = useState<string | null>(null);
-  const items = failedOnly
-    ? all.filter((item) => item.state === "failed")
-    : all;
+  const items = all.filter(
+    (item) =>
+      (!failedOnly || item.state === "failed") &&
+      (!agentId || item.agent_id === agentId),
+  );
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     setItems([]);
@@ -956,6 +960,7 @@ export function ScheduledSends({
     failedBefore?: string,
   ): RouteInput<typeof workspaceApi.scheduledSendList>["query"] => ({
     conversation: conversationId || undefined,
+    agent: agentId,
     failedBefore,
   });
   const load = (manual = false, background = false) =>
@@ -979,22 +984,31 @@ export function ScheduledSends({
     );
   const loadOlder = async () => {
     if (!failedNext) return;
-    try {
-      const page = await call(workspaceApi.scheduledSendList, {
-        query: query(failedNext),
-      });
-      setItems((old) => {
-        const failed = old.filter((item) => item.state === "failed");
-        return [
-          ...failed,
-          ...page.items.filter((item) => !failed.some((f) => f.id === item.id)),
-          ...old.filter((item) => item.state !== "failed"),
-        ];
-      });
-      setFailedNext(page.failed_next);
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    await read(
+      (signal, mode) =>
+        readRoute(
+          workspaceApi.scheduledSendList,
+          { query: query(failedNext) },
+          sourceId,
+          signal,
+          undefined,
+          mode,
+        ),
+      (page) => {
+        setItems((old) => {
+          const failed = old.filter((item) => item.state === "failed");
+          return [
+            ...failed,
+            ...page.items.filter(
+              (item) => !failed.some((f) => f.id === item.id),
+            ),
+            ...old.filter((item) => item.state !== "failed"),
+          ];
+        });
+        setFailedNext(page.failed_next);
+      },
+      true,
+    );
   };
   useEffect(() => {
     // Complete sources already refresh through their scoped subscription.
@@ -1048,14 +1062,14 @@ export function ScheduledSends({
   const readNotice = (
     <CollectionReadNotice {...recovery} retry={() => void load(true)} />
   );
-  if (failedOnly && !items.length) return readNotice;
+  if (failedOnly && !items.length && !failedNext) return readNotice;
   if (global && !loaded)
     return recovery.error ? (
       readNotice
     ) : (
       <p className="section-empty">Loading…</p>
     );
-  if (!items.length)
+  if (!items.length && !failedNext)
     return global ? (
       <>
         {readNotice}
@@ -1173,6 +1187,7 @@ export function ScheduledSends({
         <button
           type="button"
           className="secondary load-more"
+          disabled={recovery.busy}
           onClick={() => void loadOlder()}
         >
           More not sent

@@ -161,6 +161,7 @@ export function renderApp(props: AppViewProps) {
     resultsLoading,
     profile,
     view,
+    setWorkspaceAgent,
     teamSelection,
     profileWork,
     next,
@@ -303,11 +304,11 @@ export function renderApp(props: AppViewProps) {
     <label className="scope-chip">
       <span className="sr-only">Project</span>
       <select
-        aria-label="Filter by project"
+        aria-label="Project workspace"
         value={projectFilter}
         onChange={(e) => setProjectFilter(e.target.value)}
       >
-        <option value="">All projects</option>
+        <option value="">Overview</option>
         {data.folders
           .filter((f) => f.kind === "project")
           .map((f) => (
@@ -915,6 +916,7 @@ export function renderApp(props: AppViewProps) {
             setReturnToTeamDirectory(false);
             setSettingsParent(false);
             setSheet("");
+            setWorkspaceAgent("");
             setTeamSelection([team.id]);
             setSelected(team.manager_id);
             setContextArtifact(null);

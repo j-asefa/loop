@@ -33,15 +33,16 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   await page.goto(fixture.base + "/?filter=status");
   const filters = page.getByRole("tablist", { name: "Show", exact: true });
   await expect(filters.getByRole("tab")).toHaveText([
-    "Done",
+    `Done${summary.done_unread || ""}`,
     `Working${summary.working || ""}`,
     `Queued${summary.queued || ""}`,
-    "Threads",
     `Replies${summary.replies_unread || ""}`,
+    "Threads",
   ]);
-  await expect(
-    filters.getByRole("tab", { name: "Done", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
+  await expect(filters.getByRole("tab", { name: /^Done/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await expect(page.locator(".inbox-results .inbox-list")).toContainText(
     "Workspace notes are ready.",
   );

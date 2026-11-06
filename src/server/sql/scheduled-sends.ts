@@ -5,11 +5,15 @@ import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
 const summaryStatement = statement(
-  "SELECT COALESCE(sum(state='failed'),0) failed,COALESCE(sum(state='scheduled'),0) pending FROM scheduled_sends WHERE owner_id=?",
+  "SELECT COALESCE(sum(state='failed'),0) failed,COALESCE(sum(state='scheduled'),0) pending FROM scheduled_sends WHERE owner_id=? AND (? IS NULL OR agent_id=?)",
 );
 const summaryRow = z.object({ failed: z.number(), pending: z.number() });
-export function summary(db: Database.Database, owner: string) {
-  const row = summaryStatement(db).get(owner);
+export function summary(
+  db: Database.Database,
+  owner: string,
+  agent: string | null = null,
+) {
+  const row = summaryStatement(db).get(owner, agent, agent);
   return row === undefined
     ? undefined
     : parseRecord(summaryRow, row, "scheduled_sends");
@@ -155,7 +159,7 @@ const select = `SELECT s.*,a.name agent_name,a.provider,c.title conversation_tit
         LEFT JOIN agents a ON a.id=s.agent_id AND a.owner_id=s.owner_id
         LEFT JOIN conversations c ON c.id=s.conversation_id AND c.owner_id=s.owner_id
         LEFT JOIN folders f ON f.id=COALESCE(s.folder_id,c.project_id) AND f.owner_id=s.owner_id
-        WHERE s.owner_id=@owner AND (@conversation IS NULL OR s.conversation_id=@conversation)`;
+        WHERE s.owner_id=@owner AND (@agent IS NULL OR s.agent_id=@agent) AND (@conversation IS NULL OR s.conversation_id=@conversation)`;
 
 const failedPageStatement = statement(`${select} AND s.state='failed'
         AND (@at IS NULL OR s.send_at<@at OR (s.send_at=@at AND (s.created_at<@created OR (s.created_at=@created AND s.id<@id))))
@@ -171,6 +175,7 @@ export function failedPage(
   params: {
     owner: string;
     conversation: string | null;
+    agent?: string | null;
     at: number | null;
     created: number | null;
     id: string | null;
@@ -178,7 +183,7 @@ export function failedPage(
   },
 ) {
   return failedPageStatement(db)
-    .all(params)
+    .all({ ...params, agent: params.agent ?? null })
     .map((row) => parseRecord(failedPageRow, row, "scheduled-sends"));
 }
 
@@ -193,9 +198,9 @@ const pendingPageRow = QueryRecords.scheduled_sends.extend({
 });
 export function pendingPage(
   db: Database.Database,
-  params: { owner: string; conversation: string | null },
+  params: { owner: string; conversation: string | null; agent?: string | null },
 ) {
   return pendingPageStatement(db)
-    .all(params)
+    .all({ ...params, agent: params.agent ?? null })
     .map((row) => parseRecord(pendingPageRow, row, "scheduled-sends"));
 }
