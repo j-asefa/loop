@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { seedCards } from "./helpers/seed-cards";
 
-it.each(["server", "companion"] as const)(
+it.each(["companion"] as const)(
   "advertises a refresh source consistent with the actual %s action",
   async (mode) => {
     const fixture = await cardsFixture(mode);

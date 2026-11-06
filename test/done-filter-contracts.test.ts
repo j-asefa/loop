@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { cardsFixture } from "./helpers/cards-fixture";
 
-it.each(["server", "companion", "multi-user"] as const)(
+it.each(["companion"] as const)(
   "%s filters Done before pagination and reconciles read transitions within the owner and agent selection",
   async (mode) => {
     const fixture = await cardsFixture(mode, false, { projectedWrites: true });

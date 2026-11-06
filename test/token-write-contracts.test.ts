@@ -41,7 +41,7 @@ function eventCount(f: Fixture) {
     .get();
 }
 
-it.each(["server", "companion", "multi-user"] as const)(
+it.each(["companion"] as const)(
   "%s commits and replays every local token write with owner isolation",
   async (mode) => {
     const f = await cardsFixture(mode, false, { projectedWrites: true });
@@ -299,12 +299,9 @@ it.each(["server", "companion", "multi-user"] as const)(
         .get();
       expect((await post(path, body, reader)).status, path).toBe(403);
       const missing = await post(path, body, credential);
-      if (path.startsWith("/native") && mode !== "companion")
-        expect(missing.status).toBe(403);
-      else
-        expect(await json(missing, 400)).toMatchObject({
-          error: expect.any(String),
-        });
+      expect(await json(missing, 400)).toMatchObject({
+        error: expect.any(String),
+      });
       expect(
         f.db.prepare("SELECT count(*) n FROM token_requests").get(),
       ).toEqual(receipts);
@@ -364,16 +361,15 @@ it.each(["server", "companion", "multi-user"] as const)(
       expect((await post(path, body, credential)).status, path).toBe(404);
 
     // Session callers still omit optional identities, including paired CSRF.
-    if (mode === "companion")
-      expect(
-        (
-          await post(
-            `/native/decisions/${foreign.decision}`,
-            { commandId: randomUUID(), answer: { choice: "allow" } },
-            decider,
-          )
-        ).status,
-      ).toBe(404);
+    expect(
+      (
+        await post(
+          `/native/decisions/${foreign.decision}`,
+          { commandId: randomUUID(), answer: { choice: "allow" } },
+          decider,
+        )
+      ).status,
+    ).toBe(404);
     const sessionRun = await queued("Session cancellation");
     expect(
       (
@@ -395,36 +391,11 @@ it.each(["server", "companion", "multi-user"] as const)(
           })
         ).status,
       ).toBe(403);
-    if (mode === "multi-user") {
-      const signup = await f.request("/api/auth/sign-up/email", {
-        headers: { origin: f.origin },
-        body: {
-          name: "Other",
-          email: "token-write-other@example.com",
-          password: "token-write-other-password",
-        },
-      });
-      expect(signup.status).toBe(200);
-      const cookie = signup.headers
-        .getSetCookie()
-        .map((value) => value.split(";", 1)[0])
-        .join("; ");
-      const own = await json(
-        await f.request("/api/runs", {
-          body: sendBody("Bearer owns the write"),
-          headers: { ...writer.headers, cookie },
-        }),
-        202,
-      );
-      expect(
-        f.db.prepare("SELECT owner_id FROM runs WHERE id=?").get(own.id),
-      ).toEqual({ owner_id: f.owner });
-    }
   },
   90000,
 );
 
-it.each(["server", "companion"] as const)(
+it.each(["companion"] as const)(
   "%s retains identities through lost replies, rollback, restart and expiry",
   async (mode) => {
     const f = await cardsFixture(mode),

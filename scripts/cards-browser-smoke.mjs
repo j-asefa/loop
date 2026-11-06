@@ -11,13 +11,9 @@ const browser = await chromium.launch({
     : {}),
 });
 try {
-  for (const mode of ["server", "companion"]) {
+  for (const mode of ["companion"]) {
     const receiver = await webhookSettingsReceiver();
-    const fixture = await cardsFixture(
-      mode,
-      true,
-      mode === "server" ? { webhookReceiver: receiver.url } : {},
-    );
+    const fixture = await cardsFixture(mode, true);
     try {
       for (const width of [390, 1280]) {
         const context = await browser.newContext({
@@ -351,26 +347,6 @@ try {
       await fixture.close();
       await receiver.close();
     }
-  }
-  const receiver = await webhookSettingsReceiver();
-  const fixture = await cardsFixture("multi-user", true, {
-    webhookReceiver: receiver.url,
-  });
-  const context = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    serviceWorkers: "block",
-  });
-  try {
-    const page = await context.newPage();
-    const errors = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(fixture.origin);
-    await receiver.exerciseSession(page, fixture);
-    assert.deepEqual(errors, []);
-  } finally {
-    await context.close();
-    await fixture.close();
-    await receiver.close();
   }
 } finally {
   await browser.close();

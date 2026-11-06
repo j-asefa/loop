@@ -136,8 +136,7 @@ async function creationRecoveryRace(page, fixture, destination) {
   await page.unroute("**/api/webhooks");
 }
 
-/** Real loopback receiver for companion; the server fixture maps its checked
- * public destination to this transport. No public receiver or tunnel is used. */
+/** Real loopback receiver for the companion. No public receiver or tunnel is used. */
 export async function webhookSettingsReceiver() {
   let status = 503;
   const received = [];
@@ -162,16 +161,9 @@ export async function webhookSettingsReceiver() {
     },
     async exercise(page, fixture, mode, width) {
       status = 503;
-      const destination =
-        (mode === "companion" ? url : "https://webhook.fixture.test/receiver") +
-        "?width=" +
-        width;
+      const destination = url + "?width=" + width;
       await expect(
-        page.getByText(
-          mode === "companion"
-            ? /This companion accepts local HTTP/
-            : /This server accepts public HTTPS/,
-        ),
+        page.getByText(/This companion accepts local HTTP/),
       ).toBeVisible();
       await creationRecoveryRace(
         page,
@@ -406,133 +398,6 @@ export async function webhookSettingsReceiver() {
         row.getByRole("button", { name: "Retry deliveries", exact: true }),
       ).toHaveCount(0);
       console.log(`Webhook Settings journey passed: ${mode}, ${width}px`);
-    },
-    async exerciseSession(page, fixture) {
-      status = 503;
-      const signIn = async () => {
-        await page
-          .getByLabel("Email", { exact: true })
-          .fill("cards@example.com");
-        await page
-          .getByLabel("Password", { exact: true })
-          .fill("fixture-cards-owner-password");
-        await page
-          .getByRole("button", { name: "Sign in", exact: true })
-          .click();
-        const open = page.getByRole("button", {
-          name: "Open settings",
-          exact: true,
-        });
-        await expect(open).toBeVisible();
-        if (
-          !(await page
-            .getByRole("dialog", { name: "Settings", exact: true })
-            .isVisible())
-        )
-          await open.click();
-        await page
-          .getByRole("button", { name: "Integration tokens", exact: true })
-          .click();
-        await expect(
-          page.getByText(/This server accepts public HTTPS/),
-        ).toBeVisible();
-      };
-      await signIn();
-      await page.evaluate(() => {
-        window.__webhookSessionPage = "retained";
-      });
-      const destination = "https://webhook.fixture.test/session-receiver";
-      await page.getByLabel("Receiver URL", { exact: true }).fill(destination);
-      await page
-        .getByRole("button", { name: "Add receiver", exact: true })
-        .click();
-      const secretBox = page
-        .locator(".settings-command")
-        .filter({ hasText: "Webhook signing secret" });
-      await expect(secretBox).toBeVisible();
-      await page
-        .getByRole("button", { name: "Hide signing secret", exact: true })
-        .click();
-      const row = page
-        .getByRole("group", { name: "Webhook receivers", exact: true })
-        .locator(":scope > div")
-        .filter({ has: page.getByText(destination, { exact: true }) });
-      const toggle = row.getByRole("checkbox", { name: /^Run stopped/ });
-      const subscription = fixture.db
-        .prepare("SELECT id FROM webhook_subscriptions WHERE url=?")
-        .get(destination);
-      const updates = [];
-      await page.route("**/api/webhooks/" + subscription.id, async (route) => {
-        if (route.request().method() !== "PATCH") return route.continue();
-        updates.push(route.request().postDataJSON());
-        const response = await route.fetch();
-        if (updates.length === 1) await route.abort("failed");
-        else await route.fulfill({ response });
-      });
-      await toggle.click();
-      await expect(
-        page.getByRole("alert").filter({
-          hasText: "Retry this action to recover the same request.",
-        }),
-      ).toBeVisible();
-      // Leave a second committed creation unreconciled before closing Settings.
-      let creation;
-      await page.route("**/api/webhooks", async (route) => {
-        if (route.request().method() === "GET")
-          return route.fulfill({
-            status: 503,
-            json: { error: "Fixture list unavailable" },
-          });
-        creation = route.request().postDataJSON();
-        await route.fetch();
-        await route.abort("failed");
-      });
-      await page
-        .getByLabel("Receiver URL", { exact: true })
-        .fill(destination + "-pending");
-      await page
-        .getByRole("button", { name: "Add receiver", exact: true })
-        .click();
-      await expect(
-        page.getByRole("button", {
-          name: "Retry receiver creation",
-          exact: true,
-        }),
-      ).toBeEnabled();
-      assert(creation);
-      await page
-        .getByRole("dialog", { name: "Integration tokens", exact: true })
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
-      await page.unroute("**/api/webhooks");
-      await page.getByRole("button", { name: "Sign out", exact: true }).click();
-      await signIn();
-      assert.equal(
-        await page.evaluate(() => window.__webhookSessionPage),
-        "retained",
-        "reauthentication must not reload the module state",
-      );
-      await expect(row).toBeVisible();
-      await expect(
-        page.getByText(destination + "-pending", { exact: true }),
-      ).toBeVisible();
-      await expect(secretBox).toHaveCount(0);
-      await expect(
-        page.getByLabel("Receiver URL", { exact: true }),
-      ).toHaveValue("");
-      await expect(toggle).not.toBeChecked();
-      await toggle.click();
-      await expect(toggle).toBeChecked();
-      await expect(toggle).toBeEnabled();
-      assert.equal(
-        updates.length,
-        2,
-        "a new session must not reuse the old operation receipt",
-      );
-      assert.notEqual(updates[1].request_id, updates[0].request_id);
-      assert.deepEqual(updates[1].kinds, ["run.stopped"]);
-      await page.unroute("**/api/webhooks/" + subscription.id);
-      console.log("Webhook Settings same-owner session change passed");
     },
   };
 }

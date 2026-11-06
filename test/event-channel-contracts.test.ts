@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { WebSocket } from "ws";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -10,15 +10,8 @@ import {
   WorkspaceClock,
   COMPLETE_WORKSPACE_CAPABILITIES,
 } from "../src/shared/workspace-events";
-import { eventSocketContract } from "../src/server/event-sockets";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { compiledServerFixture } from "./helpers/compiled-server";
-
-// Importing the transport's contract must not open a database in this process.
-// Actual sockets below run the unmocked compiled production graph in children.
-vi.mock("../src/server/access", () => ({}));
-vi.mock("../src/server/workspace-events", () => ({}));
-vi.mock("../src/server/token-events", () => ({}));
 
 const channel = workspaceApi.channels.events;
 const document = JSON.parse(readFileSync("docs/openapi-channels.json", "utf8"));
@@ -37,8 +30,7 @@ const validateFallback = validator.compile({
 });
 
 it("shares the socket, client and fallback schemas without registering a socket as HTTP", () => {
-  expect(eventSocketContract).toBe(channel);
-  expect(eventSocketContract.frames).toBe(WorkspaceFrameV3);
+  expect(channel.frames).toBe(WorkspaceFrameV3);
   expect(channel.event).toBe(WorkspaceEvent);
   expect(channel.capabilities).toBe(WorkspaceCapabilities);
   expect(channel.clock).toBe(WorkspaceClock);
@@ -141,7 +133,6 @@ async function firstFrame(
 }
 
 for (const [mode, path] of [
-  ["server", "/api/events/ws"],
   ["companion", "/api/events/ws"],
   ["companion", "/ws"],
 ] as const) {

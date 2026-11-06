@@ -47,13 +47,9 @@ writeFileSync(
   }),
 );
 process.env.LOOP_DATA_DIR = join(directory, "data");
-process.env.LOOP_PROFILE = "server";
-process.env.LOOP_AUTH_MODE = "single-user";
+process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_URL = "http://127.0.0.1";
-process.env.LOOP_BIND_ADDRESS = "127.0.0.1";
-process.env.LOOP_GATEWAY_TOKEN = "";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-process.env.BETTER_AUTH_SECRET = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");
 const { config } = await import("../src/server/config");
 const { withTestMcp, oauthProvider, readSecret } =
@@ -66,7 +62,8 @@ const { executeMcp } = await import("../src/server/mcp/routes");
 const { decide } = await import("../src/server/approvals");
 const { ToolBudgetError } = await import("../src/server/mcp/tool-budget");
 const { closeExecution } = await import("../src/server/execution-client");
-const { nativeSessions } = await import("../src/server/native-sessions");
+const { nativeSessions, OWNER: owner } =
+  await import("../src/server/native-sessions");
 const { app } = await import("../src/server/index");
 let externalCalls = 0;
 let discoveryFailure: Error | undefined;
@@ -115,11 +112,6 @@ const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 config.port = (server.address() as AddressInfo).port;
 const origin = (config.url = "http://127.0.0.1:" + config.port);
-const owner = (
-  db.prepare("SELECT owner_id FROM installation WHERE id=1").get() as {
-    owner_id: string;
-  }
-).owner_id;
 
 afterAll(async () => {
   resetMcp();
@@ -631,214 +623,3 @@ it("keeps tool bindings, retired writes, iframe isolation and durable approval-g
   );
   expect((await request(`/artifacts/${foreign}/app`)).status).toBe(404);
 });
-
-it("projects paired-host discovery and real Docker sharing without weakening pairing, CSRF or preview isolation", async () => {
-  const { Host } = await import("../src/host");
-  const { DockerMcpSharing } = await import("../src/mcp-docker-sharing");
-  const { composeSourceId, linkedDockerWorkspaces } =
-    await import("../src/linked-docker");
-  const container = "d".repeat(64);
-  const inspect = [
-    {
-      Id: container,
-      Config: {
-        Labels: {
-          "com.docker.compose.project": "contract-fixture",
-          "com.docker.compose.service": "app",
-        },
-      },
-      State: { Running: true },
-      NetworkSettings: {
-        Ports: {
-          "3000/tcp": [{ HostIp: "127.0.0.1", HostPort: String(config.port) }],
-        },
-      },
-    },
-  ];
-  writeFileSync(join(bin, "inspect.json"), JSON.stringify(inspect));
-  writeFileSync(
-    join(bin, "docker"),
-    `#!/bin/sh\nif [ "$1" = ps ]; then printf '${container}'; else cat '${join(bin, "inspect.json")}'; fi\n`,
-    { mode: 0o755 },
-  );
-  await linkedDockerWorkspaces(true);
-  const sourceId = "docker:" + composeSourceId("contract-fixture", "app");
-  const sharing = new DockerMcpSharing();
-  const host = new Host(join(directory, "host"), {
-    harness: "codex",
-    version: "fixture",
-    project: directory,
-    billing: { mode: "existing", description: "Fixture" },
-    capabilities: {
-      approvals: true,
-      questions: true,
-      resume: true,
-      liveAttach: false,
-      terminal: false,
-    },
-  });
-  const shareTools = (source?: string, action?: "connect" | "disconnect") =>
-    source
-      ? action === "disconnect"
-        ? sharing.disconnect(source)
-        : sharing.connect(source)
-      : sharing.status();
-  host.workspace = {
-    http: app,
-    status: () => ({}),
-    admin: async () => ({}),
-    shareTools,
-    connect: () => () => {},
-    originChanged: () => {},
-  };
-  try {
-    await host.listen();
-    const paired = await fetch(host.origin + "/pair", {
-      method: "POST",
-      headers: { origin: host.origin, "content-type": "application/json" },
-      body: JSON.stringify({ secret: new URL(host.pair().url).hash.slice(6) }),
-    });
-    expect(paired.status).toBe(200);
-    const cookie = paired.headers.get("set-cookie")!.split(";")[0];
-    const session = (await fetch(host.origin + "/session", {
-      headers: { cookie },
-    }).then((response) => response.json())) as { csrf: string };
-    const headers = { cookie, "x-loop-csrf": session.csrf };
-    const local = (
-      path: string,
-      body?: unknown,
-      method = body === undefined ? "GET" : "POST",
-      extra: Record<string, string> = headers,
-    ) => request(path, body, method, undefined, host.origin, extra);
-    const input = { sourceId, action: "connect" };
-    for (const contract of [
-      workspaceApi.agentSources,
-      workspaceApi.mcpSharing,
-      workspaceApi.mcpSharingUpdate,
-    ]) {
-      const body = contract.method === "POST" ? input : undefined;
-      expect(
-        (
-          await local(
-            contract.path,
-            body,
-            contract.method,
-            {} as typeof headers,
-          )
-        ).status,
-      ).toBe(401);
-    }
-    const sources = valid(
-      workspaceApi.agentSources,
-      await local("/agent-sources"),
-    );
-    expect(sources).toEqual([
-      { id: sourceId, name: "Docker · contract-fixture/app", kind: "docker" },
-    ]);
-    const before = valid(workspaceApi.mcpSharing, await local("/mcp-sharing"));
-    expect(before).toEqual([
-      { id: sourceId, name: "Docker · contract-fixture/app", shared: false },
-    ]);
-    for (const path of ["/agent-sources", "/mcp-sharing"])
-      expect(await local(path, {}, "GET")).toMatchObject({
-        status: 400,
-        data: { error: expect.any(String) },
-      });
-    expect(
-      (
-        await local("/mcp-sharing", input, "POST", {
-          cookie,
-          "x-loop-csrf": "invalid",
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      (
-        await local("/mcp-sharing", input, "POST", {
-          ...headers,
-          origin: "https://foreign.example",
-        })
-      ).status,
-    ).toBe(403);
-    expect(
-      await local("/mcp-sharing", { sourceId: 42, action: "connect" }),
-    ).toMatchObject({ status: 400, data: { error: expect.any(String) } });
-    expect(
-      (
-        await local("/mcp-sharing", input, "POST", {
-          ...headers,
-          "content-type": "application/json; charset=utf-8",
-        })
-      ).status,
-    ).toBe(400);
-    expect(
-      valid(
-        workspaceApi.mcpSharingUpdate,
-        await local("/mcp-sharing", {
-          sourceId: "",
-          action: "connect",
-          ignored: true,
-        }),
-      ),
-    ).toEqual(before);
-    const connected = valid(
-      workspaceApi.mcpSharingUpdate,
-      await local("/mcp-sharing", input),
-    );
-    expect(connected).toEqual({ id: sourceId, shared: true });
-    expect(
-      valid(workspaceApi.mcpSharing, await local("/mcp-sharing"))[0].shared,
-    ).toBe(true);
-    expect(
-      valid(
-        workspaceApi.mcpSharingUpdate,
-        await local("/mcp-sharing", { sourceId, action: "disconnect" }),
-      ),
-    ).toEqual({ id: sourceId, shared: false });
-    // Inject corruption only after a real production read, at the changed writer boundary.
-    host.workspace.shareTools = async () =>
-      (await sharing.status()).map((row) => ({
-        ...row,
-        credentials: "private-native-secret",
-      }));
-    expect(valid(workspaceApi.mcpSharing, await local("/mcp-sharing"))).toEqual(
-      before,
-    );
-    host.workspace.shareTools = async () =>
-      (await sharing.status()).map((row) => ({
-        ...row,
-        shared: "private-invalid-value",
-      }));
-    expect(await local("/mcp-sharing")).toMatchObject({
-      status: 500,
-      data: {
-        error: "The workspace response is unavailable. Please try again.",
-      },
-    });
-    host.workspace.shareTools = undefined;
-    expect((await local("/mcp-sharing")).status).toBe(404);
-    expect((await local("/mcp-sharing", {})).status).toBe(404);
-    host.workspace.isolated = true;
-    // Preview cookies have a separate name; pairing that identity is still required.
-    expect((await local("/agent-sources")).status).toBe(401);
-    const previewPair = await fetch(host.origin + "/pair", {
-      method: "POST",
-      headers: { origin: host.origin, "content-type": "application/json" },
-      body: JSON.stringify({ secret: new URL(host.pair().url).hash.slice(6) }),
-    });
-    expect(previewPair.status).toBe(200);
-    headers.cookie = previewPair.headers.get("set-cookie")!.split(";")[0];
-    headers["x-loop-csrf"] = (
-      (await fetch(host.origin + "/session", {
-        headers: { cookie: headers.cookie },
-      }).then((response) => response.json())) as { csrf: string }
-    ).csrf;
-
-    for (const contract of [workspaceApi.agentSources, workspaceApi.mcpSharing])
-      expect(valid(contract, await local(contract.path))).toEqual([]);
-    expect((await local("/mcp-sharing", input)).status).toBe(403);
-  } finally {
-    sharing.close();
-    await host.close();
-  }
-}, 20000);

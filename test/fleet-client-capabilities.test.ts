@@ -216,7 +216,7 @@ it.each([401, 403, 409, 503])(
               : path === "/api/auth/get-session"
                 ? {
                     user: { id: "gateway-owner", name: "Local" },
-                    mode: "single-user",
+                    mode: "paired",
                   }
                 : { error: "Fixture peer unavailable" },
           ),

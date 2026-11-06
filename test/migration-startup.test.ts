@@ -67,3 +67,70 @@ it("waits for another startup migration, then restores the normal write timeout"
     rmSync(dir, { recursive: true, force: true });
   }
 }, 20000);
+
+// Ported from the deleted server-entrypoint access suite: the database itself
+// enforces the profile binding and refuses pre-unification layouts.
+function openDatabase(dir: string, profile: "server" | "companion") {
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        "const {db}=await import('./src/server/db.ts');db.close();",
+      ],
+      {
+        env: { ...process.env, LOOP_PROFILE: profile, LOOP_DATA_DIR: dir },
+        stdio: ["ignore", "ignore", "pipe"],
+      },
+    );
+    return "";
+  } catch (error) {
+    return String((error as { stderr?: Buffer }).stderr);
+  }
+}
+
+it("data directories cannot cross authorization profiles", () => {
+  for (const [first, second] of [
+    ["server", "companion"],
+    ["companion", "server"],
+  ] as const) {
+    const dir = mkdtempSync(join(tmpdir(), "loop-profile-binding-"));
+    try {
+      expect(openDatabase(dir, first)).toBe("");
+      expect(openDatabase(dir, second)).toContain(
+        `belongs to the ${first} profile`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}, 30000);
+
+it("rejects pre-unification databases before migrating them", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-pre-unification-"));
+  try {
+    const database = new Database(join(dir, "loop.db"));
+    database.exec(
+      "CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL); INSERT INTO schema_version VALUES(1,0)",
+    );
+    database.close();
+    expect(openDatabase(dir, "companion")).toContain(
+      "Pre-unification databases are unsupported",
+    );
+    const unchanged = new Database(join(dir, "loop.db"));
+    expect(unchanged.prepare("SELECT * FROM schema_version").all()).toEqual([
+      { version: 1, applied_at: 0 },
+    ]);
+    expect(
+      unchanged
+        .prepare("SELECT 1 FROM sqlite_master WHERE name='deployment_profile'")
+        .get(),
+    ).toBeUndefined();
+    unchanged.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 20000);

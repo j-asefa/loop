@@ -18,7 +18,7 @@ for (const engine of selectedEngines()) {
       ? { executablePath: process.env.CHROMIUM_PATH }
       : {}),
   });
-  const fixture = await cardsFixture("multi-user", true, {
+  const fixture = await cardsFixture("companion", true, {
     nodeEnv: "production",
   });
   try {
@@ -26,6 +26,16 @@ for (const engine of selectedEngines()) {
       viewport: { width: 390, height: 844 },
       serviceWorkers: "block",
     });
+    const [cookieName, cookieValue] = fixture.browser.cookie.split("=");
+    await context.addCookies([
+      {
+        name: cookieName,
+        value: cookieValue,
+        url: fixture.origin,
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", (error) => {
@@ -33,21 +43,16 @@ for (const engine of selectedEngines()) {
         errors.push(error.message);
     });
     await page.goto(fixture.origin);
-    await page.getByLabel("Email", { exact: true }).fill("cards@example.com");
-    await page
-      .getByLabel("Password", { exact: true })
-      .fill("fixture-cards-owner-password");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Open settings", exact: true }),
     ).toBeVisible();
-    // A real Better Auth session omits mode. The shell still opens using the
-    // credential-free display projection returned by the production app.
+    // The shell opens using the credential-free display projection.
     const session = await (
       await page.request.get(fixture.origin + "/api/auth/get-session")
     ).json();
     assert.deepEqual(session, {
-      user: { id: fixture.owner, name: "Card owner" },
+      user: { id: fixture.owner, name: "Your workspace" },
+      mode: "paired",
     });
 
     for (const field of [
@@ -85,17 +90,41 @@ for (const engine of selectedEngines()) {
       });
       await page.unroute("**/api/capabilities", capability);
     }
+    // Both transports describe the same simulated new build. A companion's
+    // reset frame can arrive after the HTTP read and replace its build notice.
+    const changedBuildId = "app-contract-fixture-new-build";
+    let changedBuildFrames = 0;
+    await page.routeWebSocket(
+      (url) =>
+        ["/ws", "/api/events/ws", "/api/events/multiplex/ws"].includes(
+          url.pathname,
+        ),
+      (route) => {
+        const server = route.connectToServer();
+        server.onMessage((message) => {
+          const envelope = JSON.parse(message.toString());
+          const frame = envelope.type === "frame" ? envelope.frame : envelope;
+          if (frame.type === "reset" && frame.buildIdentity) {
+            frame.buildIdentity.id = changedBuildId;
+            changedBuildFrames++;
+          }
+          route.send(JSON.stringify(envelope));
+        });
+      },
+    );
     let omittedObserver = false;
     await page.route("**/api/build", async (route) => {
       const response = await route.fetch();
       const value = await response.json();
       assert.equal(typeof value.eventLoop.observing, "boolean");
       delete value.eventLoop;
-      value.serving.id += "-contract-fixture-change";
+      value.serving.id = changedBuildId;
       omittedObserver = true;
       await route.fulfill({ response, json: value });
     });
     await page.reload();
+    await expect.poll(() => omittedObserver).toBe(true);
+    await expect.poll(() => changedBuildFrames).toBeGreaterThan(0);
     await expect(
       page.getByRole("button", { name: "Reload to update", exact: true }),
     ).toBeVisible();
@@ -106,25 +135,12 @@ for (const engine of selectedEngines()) {
     await page.screenshot({
       path: join(screenshots, name + "-missing-event-loop.png"),
     });
-    await page
-      .getByRole("button", { name: "Open settings", exact: true })
-      .click();
-    await page.getByRole("button", { name: "Sign out", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "Sign in", exact: true }),
-    ).toBeVisible();
-    assert.equal(
-      await (
-        await page.request.get(fixture.origin + "/api/auth/get-session")
-      ).json(),
-      null,
-    );
     assert.deepEqual(errors, []);
     await context.close();
     console.log(
       "PASS " +
         name +
-        ": account sign-in/out, credential-free session and omitted capability/build fields; screenshots " +
+        ": paired session, credential-free session and omitted capability/build fields; screenshots " +
         screenshots,
     );
   } finally {

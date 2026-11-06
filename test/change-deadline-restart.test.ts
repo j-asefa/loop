@@ -9,24 +9,21 @@ import Database from "better-sqlite3";
 import { WebSocket } from "ws";
 import { compiledServerFixture } from "./helpers/compiled-server";
 import { WorkspaceFrameV3 } from "../src/shared/workspace-events";
+import { fleetDeviceFromLink } from "../src/shared/fleet-pairing";
 
-it("processes overdue durable rows after a full server restart and preserves the owner epoch", async () => {
+it("processes overdue durable rows after a full companion restart and preserves the owner epoch", async () => {
   const compiled = await compiledServerFixture();
   const dir = mkdtempSync(join(tmpdir(), "loop-expiry-restart-"));
   const env = {
     ...Object.fromEntries(
       Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")),
     ),
-    LOOP_PROFILE: "server",
-    LOOP_AUTH_MODE: "single-user",
+    LOOP_PROFILE: "companion",
     LOOP_DATA_DIR: dir,
     LOOP_URL: "http://127.0.0.1",
     PORT: "0",
     LOOP_TEST_CARDS_SOURCE: compiled.source,
     NODE_ENV: "test",
-    LOOP_LISTEN_HOST: "127.0.0.1",
-    LOOP_BIND_ADDRESS: "127.0.0.1",
-    BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
     LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
   };
   let child: ReturnType<typeof spawn> | undefined;
@@ -51,7 +48,8 @@ it("processes overdue durable rows after a full server restart and preserves the
     });
     return await Promise.race([
       once(child, "message").then(
-        ([message]) => message as { owner: string; origin: string },
+        ([message]) =>
+          message as { owner: string; origin: string; pair: string },
       ),
       once(child, "exit").then(() => {
         throw Error(errors || "Fixture exited before ready");
@@ -101,9 +99,23 @@ it("processes overdue durable rows after a full server restart and preserves the
       .get(first.owner) as any;
     expect(watermark.epoch).toBe(before.epoch);
     expect(watermark.last_event_id).toBeGreaterThan(before.last_event_id);
+    const paired = await fetch(restarted.origin + "/pair", {
+      method: "POST",
+      headers: { origin: restarted.origin, "content-type": "application/json" },
+      body: JSON.stringify({
+        ...fleetDeviceFromLink(restarted.pair, restarted.origin),
+        name: "Restart fixture",
+      }),
+    });
+    expect(paired.status).toBe(200);
     socket = new WebSocket(
       restarted.origin.replace("http:", "ws:") + "/api/events/ws?v=3&clock=1",
-      { headers: { origin: restarted.origin } },
+      {
+        headers: {
+          origin: restarted.origin,
+          cookie: paired.headers.get("set-cookie")!.split(";", 1)[0],
+        },
+      },
     );
     const frame = WorkspaceFrameV3.parse(
       JSON.parse(String((await once(socket, "message"))[0])),

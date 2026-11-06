@@ -73,18 +73,20 @@ async function receiver() {
     },
   };
 }
-async function fixture(mode: "server" | "companion" | "multi-user") {
+// "public" routes a public HTTPS hostname to the local recording receiver
+// through the virtual network; "local" posts to the loopback receiver directly.
+async function fixture(network: "local" | "public" = "local") {
   const sink = await receiver();
   const f = await cardsFixture(
-    mode,
+    "companion",
     false,
-    mode === "companion" ? {} : { webhookReceiver: sink.url },
+    network === "local" ? {} : { webhookReceiver: sink.url },
   );
   return {
     f,
     sink,
     destination:
-      mode === "companion" ? sink.url : "https://webhook.fixture.test/receiver",
+      network === "local" ? sink.url : "https://webhook.fixture.test/receiver",
   };
 }
 async function create(f: Fixture, destination: string) {
@@ -152,9 +154,9 @@ function payloads(f: Fixture, id: string) {
   ).map((row) => WebhookStop.parse(JSON.parse(row.payload)));
 }
 
-for (const mode of ["server", "companion", "multi-user"] as const) {
+for (const mode of ["companion"] as const) {
   it(`${mode} manages signed webhook activation, requests and owner isolation through HTTP`, async () => {
-    const { f, sink, destination } = await fixture(mode);
+    const { f, sink, destination } = await fixture();
     const created = await create(f, destination),
       id = created.subscription.id;
     expect(created.subscription.state).toBe("active");
@@ -175,7 +177,10 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
     expect((await createReplay(f, created.request)).subscription.id).toBe(id);
     expect(sink.received).toHaveLength(1);
     const visible = await list(f);
-    expect(visible.policy.local_receivers).toBe(mode === "companion");
+    expect(visible.policy).toEqual({
+      installation: "companion",
+      local_receivers: true,
+    });
     expect(JSON.stringify(visible)).not.toContain(created.secret);
     expect(JSON.stringify(visible)).not.toContain("secret_sealed");
     expect(
@@ -255,7 +260,7 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
   }, 60000);
 
   it(`${mode} commits each stop with the outbox, deduplicates projections and retains later stops`, async () => {
-    const { f, sink, destination } = await fixture(mode),
+    const { f, sink, destination } = await fixture(),
       records = await f.integrationRecords();
     const { subscription, secret } = await create(f, destination);
     const cases = [
@@ -340,9 +345,9 @@ async function createReplay(
   return WebhookCreated.parse(await response.json());
 }
 
-for (const mode of ["server", "companion"] as const) {
+for (const mode of ["companion"] as const) {
   it(`${mode} worker maintenance sends webhooks and shuts down an uncertain attempt`, async () => {
-    const { f, sink, destination } = await fixture(mode),
+    const { f, sink, destination } = await fixture(),
       records = await f.integrationRecords();
     const created = await create(f, destination);
     await stop(f, records, "running", "completed");
@@ -363,7 +368,7 @@ for (const mode of ["server", "companion"] as const) {
 }
 
 it("keeps timed-out activation pending and retries the same identity after restart", async () => {
-  const { f, sink, destination } = await fixture("companion");
+  const { f, sink, destination } = await fixture();
   sink.hold(true);
   const created = await create(f, destination),
     id = created.subscription.id;
@@ -384,7 +389,7 @@ it("keeps timed-out activation pending and retries the same identity after resta
   expect(JSON.parse(sink.received[1].body).id).toBe(first);
 }, 60000);
 
-for (const mode of ["server", "companion", "multi-user"] as const) {
+for (const mode of ["companion"] as const) {
   it(`${mode} preserves attempts when worker shutdown cancels DNS before dispatch`, async () => {
     const sink = await receiver();
     const f = await cardsFixture(mode, false, { webhookReceiver: sink.url });
@@ -459,7 +464,7 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
 }
 
 it("clears unrelated HTTP status when crash recovery exhausts an unconfirmed final attempt", async () => {
-  const { f, sink, destination } = await fixture("server");
+  const { f, sink, destination } = await fixture("public");
   const records = await f.integrationRecords();
   const created = await create(f, destination);
   await stop(f, records, "running", "completed");
@@ -509,7 +514,7 @@ it("clears unrelated HTTP status when crash recovery exhausts an unconfirmed fin
 }, 30000);
 
 it("keeps credentials and unrelated query data out of the public conversation link", async () => {
-  const { f, destination } = await fixture("companion"),
+  const { f, destination } = await fixture(),
     records = await f.integrationRecords();
   const created = await create(f, destination);
   await stop(f, records, "running", "completed", {
@@ -525,7 +530,7 @@ it("keeps credentials and unrelated query data out of the public conversation li
 }, 30000);
 
 it("recovers creation after persistence but before its first ping can be sent", async () => {
-  const { f, sink, destination } = await fixture("server");
+  const { f, sink, destination } = await fixture("public");
   // Creation's policy lookup succeeds; the attempt's fresh lookup stalls.
   await f.webhookNetwork(["93.184.215.14"], 1);
   const request = webhookRequest(destination, ["run.stopped"]);
@@ -560,7 +565,7 @@ it("recovers creation after persistence but before its first ping can be sent", 
 }, 60000);
 
 it("retries an uncertain event with the same body so the receiver can deduplicate", async () => {
-  const { f, sink, destination } = await fixture("companion");
+  const { f, sink, destination } = await fixture();
   const records = await f.integrationRecords(),
     created = await create(f, destination);
   await stop(f, records, "running", "completed");
@@ -581,7 +586,7 @@ it("retries an uncertain event with the same body so the receiver can deduplicat
 }, 60000);
 
 it("keeps an unconfirmed revoked ping uncertain even after explicit rearming", async () => {
-  const { f, sink, destination } = await fixture("companion");
+  const { f, sink, destination } = await fixture();
   sink.hold(true);
   const created = await create(f, destination);
   await action(f, created.subscription.id, "retry");
@@ -594,7 +599,7 @@ it("keeps an unconfirmed revoked ping uncertain even after explicit rearming", a
 }, 60000);
 
 it("records the native supervisor's interrupted recovery transition", async () => {
-  const { f, destination } = await fixture("companion"),
+  const { f, destination } = await fixture(),
     records = await f.integrationRecords();
   const created = await create(f, destination);
   f.db.prepare("UPDATE runs SET state='running' WHERE id=?").run(records.run);
@@ -613,7 +618,7 @@ it("records the native supervisor's interrupted recovery transition", async () =
 }, 30000);
 
 it("does not activate a revoked in-flight ping and retains the observed response", async () => {
-  const { f, sink, destination } = await fixture("companion");
+  const { f, sink, destination } = await fixture();
   sink.hold(true);
   const request = webhookRequest(destination, ["run.stopped"]);
   const pending = f.request("/api/webhooks", {
@@ -636,7 +641,7 @@ it("does not activate a revoked in-flight ping and retains the observed response
 }, 30000);
 
 it("fences a late activation response after its abandoned final claim is exhausted", async () => {
-  const { f, sink, destination } = await fixture("companion");
+  const { f, sink, destination } = await fixture();
   sink.hold(true);
   const request = webhookRequest(destination, ["run.stopped"]);
   const pending = f.request("/api/webhooks", {
@@ -664,7 +669,7 @@ it("fences a late activation response after its abandoned final claim is exhaust
 }, 30000);
 
 it("dead-letters on the sixth failure and retains new stops until an explicit retry", async () => {
-  const { f, sink, destination } = await fixture("companion"),
+  const { f, sink, destination } = await fixture(),
     records = await f.integrationRecords();
   const { subscription } = await create(f, destination);
   sink.status(503);
@@ -717,7 +722,7 @@ it("dead-letters on the sixth failure and retains new stops until an explicit re
 }, 60000);
 
 it("rearms an exhausted activation without activating until its same-id ping succeeds", async () => {
-  const { f, sink, destination } = await fixture("companion");
+  const { f, sink, destination } = await fixture();
   sink.status(503);
   const { subscription } = await create(f, destination);
   for (let i = 1; i < 6; i++) {
@@ -745,7 +750,7 @@ it("rearms an exhausted activation without activating until its same-id ping suc
 it.each([204, 400])(
   "retains first exhausted event diagnostics when a concurrent event returns %s",
   async (status) => {
-    const { f, sink, destination } = await fixture("companion"),
+    const { f, sink, destination } = await fixture(),
       records = await f.integrationRecords();
     const created = await create(f, destination);
     await stop(f, records, "running", "completed");
@@ -786,7 +791,7 @@ it.each([204, 400])(
 );
 
 it("reclaims a killed worker's lease with the same identity and cancels queued controls on revoke", async () => {
-  const { f, sink, destination } = await fixture("companion"),
+  const { f, sink, destination } = await fixture(),
     records = await f.integrationRecords();
   const { subscription } = await create(f, destination);
   await stop(f, records, "running", "completed");
@@ -812,27 +817,7 @@ it("reclaims a killed worker's lease with the same identity and cancels queued c
   expect(sink.received).toHaveLength(sent);
 }, 60000);
 
-for (const mode of ["server", "multi-user"] as const) {
-  it(`${mode} blocks a DNS change to a private address without retrying it`, async () => {
-    const { f, sink, destination } = await fixture(mode),
-      records = await f.integrationRecords();
-    const { subscription } = await create(f, destination);
-    await stop(f, records, "running", "completed");
-    await f.webhookNetwork(["127.0.0.1"]);
-    await f.webhookFixture("deliver");
-    const row = (await history(f, subscription.id)).find(
-      (row) => row.kind === "run.stopped",
-    )!;
-    expect(row.outcome).toBe("blocked");
-    expect(row.exhausted).toBe(true);
-    due(f, subscription.id);
-    await f.webhookFixture("deliver");
-    expect(sink.received).toHaveLength(1);
-    expect((await action(f, subscription.id, "retry")).status).toBe(400);
-  }, 60000);
-}
-
-for (const mode of ["server", "companion", "multi-user"] as const) {
+for (const mode of ["companion"] as const) {
   it(`${mode} enforces public IPv6 allocation and all resolved addresses at the HTTP boundary`, async () => {
     const sink = await receiver();
     const f = await cardsFixture(mode, false, { webhookReceiver: sink.url });
@@ -875,8 +860,8 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
 }
 
 it("refuses unsafe destinations in each installation and never follows a receiver redirect", async () => {
-  for (const mode of ["server", "companion", "multi-user"] as const) {
-    const { f, sink, destination } = await fixture(mode);
+  for (const mode of ["companion"] as const) {
+    const { f, sink, destination } = await fixture();
     const denied = [
       "http://user:password@127.0.0.1/",
       "https://169.254.169.254/",
@@ -884,14 +869,7 @@ it("refuses unsafe destinations in each installation and never follows a receive
       "https://[::ffff:169.254.1.1]/",
       "https://0.0.0.0/",
       "https://224.0.0.1/",
-      ...(mode === "companion"
-        ? ["http://93.184.215.14/"]
-        : [
-            sink.url,
-            "https://10.0.0.1/",
-            "https://[::1]/",
-            "https://webhook.fixture.test:444/",
-          ]),
+      "http://93.184.215.14/",
     ];
     for (const url of denied) {
       const response = await f.request("/api/webhooks", {
@@ -920,7 +898,7 @@ it("verifies real deliveries with the documented snippet and rejects tampering",
   const { verifyWebhook } = await import(
     "data:text/javascript;base64," + Buffer.from(snippet).toString("base64")
   );
-  const { f, sink, destination } = await fixture("companion");
+  const { f, sink, destination } = await fixture();
   const created = await create(f, destination),
     ping = sink.received[0];
   expect(
@@ -955,7 +933,7 @@ it("verifies real deliveries with the documented snippet and rejects tampering",
 }, 30000);
 
 it("accepts and replays a creation whose secret was issued under the Loop55 name", async () => {
-  const { f, destination } = await fixture("server");
+  const { f, destination } = await fixture("public");
   const request = webhookRequest(destination, ["run.stopped"]);
   request.secret = request.secret.replace(/^loop_/, "loop55_");
   const response = await f.request("/api/webhooks", {

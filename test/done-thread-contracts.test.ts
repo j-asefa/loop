@@ -4,7 +4,7 @@ import { workspaceApi } from "../src/shared/workspace-api";
 import { cardTokenRequest } from "../src/shared/card-access";
 import { cardsFixture } from "./helpers/cards-fixture";
 
-it.each(["server", "companion", "multi-user"] as const)(
+it.each(["companion"] as const)(
   "%s persists Done threads without changing conversations and isolates every operation by owner",
   async (mode) => {
     const fixture = await cardsFixture(mode, false, { projectedWrites: true });

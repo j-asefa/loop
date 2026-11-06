@@ -1,8 +1,11 @@
 import { installResultReadHook } from "../helpers/result-read-hook.js";
 import { installTokenCompletionHook } from "../helpers/token-completion-hook.js";
-// An actual production HTTP entrypoint, with no workers or model providers.
+import {
+  companionSourceFixture,
+  type CompanionSourceFixture,
+} from "../helpers/companion-source.js";
+// The production companion host, with no workers or model providers.
 // Environment and data directory are supplied by the isolated parent fixture.
-import { once } from "node:events";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { join } from "node:path";
@@ -15,8 +18,7 @@ installTokenCompletionHook(db);
 installResultReadHook(db);
 const { seal } = await import(source + "server/secrets.js");
 let close: () => Promise<void>;
-let stopListening: () => Promise<void>;
-let origin: string, owner: string, pair: string | undefined;
+let origin: string;
 let transportOrigin: string | undefined;
 const tokenSockets = new Set<Duplex>();
 function observeTokenSocket(req: IncomingMessage, socket: Duplex) {
@@ -24,83 +26,73 @@ function observeTokenSocket(req: IncomingMessage, socket: Duplex) {
   tokenSockets.add(socket);
   socket.once("close", () => tokenSockets.delete(socket));
 }
-if (process.env.LOOP_PROFILE === "companion") {
-  const { WorkspaceHost } = await import(source + "workspace-host.js");
-  const { OWNER } = await import(source + "server/native-sessions.js");
-  const host = new WorkspaceHost(config.data, {
-    harness: "codex",
-    version: "fixture",
-    project: process.cwd(),
-    executable: process.execPath,
-    billing: "existing",
-  });
-  const upgrade = host.gateway.workspace!.tokenEvents!.upgrade;
-  host.gateway.workspace!.tokenEvents!.upgrade = (
-    req: IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-  ) => {
-    observeTokenSocket(req, socket);
-    upgrade(req, socket, head);
-  };
-  if (process.env.LOOP_TEST_CARDS_RELAY === "1") {
-    const { Relay } = await import(source + "relay.js");
-    const relay = new Relay();
-    const path = join(config.data, "gateway.sock");
-    await host.gateway.listen({ socket: path });
-    await relay.listen("127.0.0.1");
-    // Model the TLS edge: the local relay receives HTTP with the public HTTPS
-    // Host/Origin, just as it does behind cloudflared. No live tunnel is used.
-    transportOrigin = "http://127.0.0.1:" + relay.port;
-    origin = "https://cards-fixture.loop.test";
-    host.setOrigin(origin);
-    relay.setBackend({ generation: 1, path });
-    close = async () => {
-      await host.close();
-      await relay.close();
-    };
-  } else {
-    await host.gateway.listen();
-    origin = host.gateway.origin;
-    close = () => host.close();
-  }
-  owner = OWNER;
-  pair = host.pair().url;
-  stopListening = () => host.close();
-} else {
-  const { startServer } = await import(source + "server/serve.js");
-  const server = startServer();
-  server.on("upgrade", observeTokenSocket);
-  await once(server, "listening");
-  origin = config.url =
-    "http://127.0.0.1:" + (server.address() as { port: number }).port;
-  owner =
-    (
-      db.prepare("SELECT owner_id FROM installation WHERE id=1").get() as
-        | {
-            owner_id: string;
-          }
-        | undefined
-    )?.owner_id || "";
-  stopListening = () =>
-    new Promise<void>((resolve) => server.close(() => resolve()));
+const { WorkspaceHost } = await import(source + "workspace-host.js");
+const { AgentSources } = await import(source + "agent-sources.js");
+const { OWNER } = await import(source + "server/native-sessions.js");
+const host = new WorkspaceHost(config.data, {
+  harness: "codex",
+  version: "fixture",
+  project: process.cwd(),
+  executable: process.execPath,
+  billing: "existing",
+});
+const upgrade = host.gateway.workspace!.tokenEvents!.upgrade;
+host.gateway.workspace!.tokenEvents!.upgrade = (
+  req: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+) => {
+  observeTokenSocket(req, socket);
+  upgrade(req, socket, head);
+};
+if (process.env.LOOP_TEST_CARDS_RELAY === "1") {
+  const { Relay } = await import(source + "relay.js");
+  const relay = new Relay();
+  const path = join(config.data, "gateway.sock");
+  await host.gateway.listen({ socket: path });
+  await relay.listen("127.0.0.1");
+  // Model the TLS edge: the local relay receives HTTP with the public HTTPS
+  // Host/Origin, just as it does behind cloudflared. No live tunnel is used.
+  transportOrigin = "http://127.0.0.1:" + relay.port;
+  origin = "https://cards-fixture.loop.test";
+  host.setOrigin(origin);
+  relay.setBackend({ generation: 1, path });
   close = async () => {
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await host.close();
+    await relay.close();
   };
+} else {
+  await host.gateway.listen();
+  origin = host.gateway.origin;
+  close = () => host.close();
 }
+const owner: string = OWNER;
+const pair = host.pair().url;
+const stopListening: () => Promise<void> = () => host.close();
 // This fixed mock credential exists only in the isolated fixture database.
 process.send?.({
   origin,
   transportOrigin: transportOrigin ?? origin,
   owner,
   pair,
-  fixtureSecret: owner ? seal("fixture-api-key", owner) : undefined,
+  fixtureSecret: seal("fixture-api-key", owner),
 });
 // IPC-only fixture observation; no production route or browser-visible state.
 let finishResultWrite:
   (() => { attempted: boolean; committed: boolean }) | undefined;
 process.on("message", (message) => {
+  if (
+    message &&
+    typeof message === "object" &&
+    "type" in message &&
+    message.type === "link-companion" &&
+    "source" in message
+  ) {
+    host.gateway.workspace!.sources = new AgentSources([
+      companionSourceFixture(message.source as CompanionSourceFixture),
+    ]);
+    process.send?.({ type: "link-companion", linked: true });
+  }
   if (
     message &&
     typeof message === "object" &&

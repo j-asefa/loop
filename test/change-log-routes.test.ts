@@ -22,7 +22,7 @@ afterEach(() => {
 afterAll(async () => {
   await compiled.close();
 });
-function fixture(mode: "server" | "companion" = "server") {
+function fixture(mode: "companion" = "companion") {
   return cardsFixture(mode, compiled.source);
 }
 function watch(f: Awaited<ReturnType<typeof fixture>>, query = "") {
@@ -590,7 +590,7 @@ it("invalidates Later when target content, metadata or access changes", async ()
   );
 }, 20_000);
 
-for (const mode of ["server", "companion"] as const)
+for (const mode of ["companion"] as const)
   it(`${mode} delivers owned route mutations with explicit subjects and collection scopes`, async () => {
     const f = await fixture(mode);
     seed(f);
@@ -1097,7 +1097,7 @@ function pendingApproval(
     )
     .run(id, f.owner, id, Date.now(), expires);
 }
-for (const mode of ["server", "companion"] as const)
+for (const mode of ["companion"] as const)
   it(`${mode} keeps owner-wide change clocks out of scoped Cards responses`, async () => {
     const f = await fixture(mode);
     seed(f);

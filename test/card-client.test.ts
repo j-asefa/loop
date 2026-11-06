@@ -10,7 +10,7 @@ import type { CardSelection } from "../src/shared/cards";
 import { cardTokenRequest } from "../src/shared/card-access";
 import { workspaceApi, workspaceRoutes } from "../src/shared/workspace-api";
 
-it.each(["server", "companion", "multi-user"] as const)(
+it.each(["companion"] as const)(
   "runs the example and reconciles complete collections through %s",
   async (mode) => {
     const fixture = await cardsFixture(mode);
@@ -19,19 +19,10 @@ it.each(["server", "companion", "multi-user"] as const)(
       const spec = JSON.parse(readFileSync("docs/openapi.json", "utf8"));
       const managementHeaders = (method: string, path: string) => {
         const operation = spec.paths[path][method];
-        const key =
-          mode === "companion"
-            ? "PairedDevice"
-            : mode === "multi-user"
-              ? "OwnerSession"
-              : null;
-        // The general contract requires authentication. Only the explicitly
-        // trusted single-user fixture exercises the deployment exception.
-        const requirement = key
-          ? operation.security.find((s: any) => key in s)
-          : {};
+        const requirement = operation.security.find(
+          (s: any) => "PairedDevice" in s,
+        );
         const credentials: Record<string, string> = {
-          OwnerSession: fixture.browser.cookie,
           PairedDevice: fixture.browser.cookie,
           PairedCsrf: fixture.browser["x-loop-csrf"],
         };
@@ -76,18 +67,16 @@ it.each(["server", "companion", "multi-user"] as const)(
           })
         ).status,
       ).toBe(403);
-      if (mode === "companion") {
-        const withoutCsrf: Record<string, string> = { ...createHeaders };
-        delete withoutCsrf["x-loop-csrf"];
-        expect(
-          (
-            await fixture.request("/api/card-tokens", {
-              headers: withoutCsrf,
-              body: cardTokenRequest("Missing CSRF", "cards:read"),
-            })
-          ).status,
-        ).toBe(403);
-      }
+      const withoutCsrf: Record<string, string> = { ...createHeaders };
+      delete withoutCsrf["x-loop-csrf"];
+      expect(
+        (
+          await fixture.request("/api/card-tokens", {
+            headers: withoutCsrf,
+            body: cardTokenRequest("Missing CSRF", "cards:read"),
+          })
+        ).status,
+      ).toBe(403);
       const response = await fixture.request("/api/card-tokens", {
         headers: createHeaders,
         body: cardTokenRequest("Example", "cards:read"),
@@ -204,11 +193,7 @@ it.each(["server", "companion", "multi-user"] as const)(
       const output = await new Promise<string>((resolve, reject) => {
         const child = spawn(
           process.execPath,
-          [
-            "--import",
-            "tsx",
-            mode === "server" ? "examples/cards-sync.ts" : linkedExample,
-          ],
+          ["--import", "tsx", linkedExample],
           {
             env: {
               ...process.env,

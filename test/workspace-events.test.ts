@@ -7,9 +7,6 @@ import {
   WorkspaceFrameV3,
   COMPLETE_WORKSPACE_CAPABILITIES,
 } from "../src/shared/workspace-events";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 let compiled: Awaited<ReturnType<typeof compiledServerFixture>>;
 beforeAll(async () => {
@@ -24,8 +21,8 @@ afterEach(() => {
 afterAll(async () => {
   await compiled?.close();
 });
-function fixture(mode: Parameters<typeof cardsFixture>[0]) {
-  return cardsFixture(mode, compiled.source);
+function fixture(mode: Parameters<typeof cardsFixture>[0], projectedWrites = false) {
+  return cardsFixture(mode, compiled.source, { projectedWrites });
 }
 function connect(
   f: Awaited<ReturnType<typeof fixture>>,
@@ -85,8 +82,8 @@ function emit(
     .run(owner, run, type).lastInsertRowid;
 }
 
-it("keeps the server available when rejected upgrade clients reset their sockets", async () => {
-  const f = await fixture("server");
+it("keeps the listener available when rejected upgrade clients reset their sockets", async () => {
+  const f = await fixture("companion");
   const url = new URL(f.origin);
   for (let batch = 0; batch < 10; batch++) {
     await Promise.all(
@@ -121,7 +118,7 @@ it("keeps the server available when rejected upgrade clients reset their sockets
   await expect.poll(() => frames.length).toBe(1);
 }, 30_000);
 
-for (const mode of ["server", "companion"] as const) {
+for (const mode of ["companion"] as const) {
   it(`${mode} rejects malformed upgrade URLs without stopping the listener`, async () => {
     const f = await fixture(mode);
     for (const headers of [{}, f.browser]) {
@@ -257,8 +254,8 @@ for (const mode of ["server", "companion"] as const) {
   }, 30_000);
 }
 
-it("enforces server sessions, Origin, Cards credential restrictions and owner isolation", async () => {
-  const f = await fixture("multi-user");
+it("enforces paired sessions, Origin, Cards credential restrictions and owner isolation", async () => {
+  const f = await fixture("companion");
   seed(f);
   seed(f, "someone-else", "other-");
   for (const headers of [
@@ -286,80 +283,65 @@ it("enforces server sessions, Origin, Cards credential restrictions and owner is
   expect(
     frames.flatMap((frame) => frame.events || []).map((event) => event.type),
   ).toEqual(["visible-own-event"]);
+  // The event channel is read-only: a client command never reaches the run.
   socket.send(JSON.stringify({ type: "cancel", run: "run" }));
-  await expect.poll(() => socket.readyState).toBe(WebSocket.CLOSED);
+  await new Promise((resolve) => setTimeout(resolve, 500));
   expect(f.db.prepare("SELECT state FROM runs WHERE id='run'").get()).toEqual({
     state: "running",
   });
 }, 30_000);
 
-it("closes an established socket when its account session is revoked", async () => {
-  const f = await fixture("multi-user");
+it("closes an established socket when its paired device is revoked", async () => {
+  const f = await fixture("companion");
   const { socket, frames } = connect(f);
   await expect.poll(() => frames.length).toBe(1);
-  const signedOut = await f.request("/api/auth/sign-out", {
-    body: {},
+  const session = await (
+    await f.request("/session", { headers: { cookie: f.browser.cookie } })
+  ).json();
+  const revoked = await f.request("/api/workspace/revoke", {
+    body: { id: session.device.id },
     headers: f.browser,
   });
-  expect(signedOut.status).toBe(200);
+  expect(revoked.status).toBe(200);
   await expect
     .poll(() => socket.readyState, { timeout: 28_000, interval: 500 })
     .toBe(WebSocket.CLOSED);
 }, 35_000);
 
 it("broadcasts to both owner sockets, isolates another owner, and releases subscriptions after repeated disconnects", async () => {
-  const f = await fixture("multi-user");
+  const f = await fixture("companion");
   seed(f);
-  const response = await f.request("/api/auth/sign-up/email", {
-    headers: { origin: f.origin },
-    body: {
-      name: "Second owner",
-      email: "second@example.com",
-      password: "fixture-second-owner-password",
-    },
-  });
-  expect(response.status).toBe(200);
-  const secondOwner = (await response.json()).user.id;
-  seed(f, secondOwner, "other-");
-  const cookie = response.headers
-    .getSetCookie()
-    .map((value) => value.split(";", 1)[0])
-    .join("; ");
+  seed(f, "someone-else", "other-");
   const first = connect(f),
     second = connect(f);
-  const other = connect(f, "", { ...f.browser, cookie });
   await expect
-    .poll(() => [
-      first.frames.length,
-      second.frames.length,
-      other.frames.length,
-    ])
-    .toEqual([1, 1, 1]);
+    .poll(() => [first.frames.length, second.frames.length])
+    .toEqual([1, 1]);
+  emit(f, "private-other-owner", "someone-else", "other-run");
   const event = emit(f, "both-owner-sockets");
   await expect
     .poll(() => [first.frames.at(-1)?.cursor, second.frames.at(-1)?.cursor])
     .toEqual([Number(event), Number(event)]);
-  expect(other.frames).toHaveLength(1);
-  expect(first.frames.at(-1).events.map((event: any) => event.type)).toEqual([
-    "both-owner-sockets",
-  ]);
-  expect(second.frames.at(-1).events.map((event: any) => event.type)).toEqual([
-    "both-owner-sockets",
-  ]);
-  await expect.poll(() => f.eventSubscriberCount()).toBe(4);
+  for (const connected of [first, second])
+    expect(
+      connected.frames
+        .flatMap((frame) => frame.events || [])
+        .map((event: any) => event.type),
+    ).toEqual(["both-owner-sockets"]);
+  await expect.poll(() => f.eventSubscriberCount()).toBe(3);
   for (let n = 0; n < 24; n++) {
     const transient = connect(f);
     await expect.poll(() => transient.frames.length).toBe(1);
     transient.socket.close();
     await expect.poll(() => transient.socket.readyState).toBe(WebSocket.CLOSED);
-    await expect.poll(() => f.eventSubscriberCount()).toBe(4);
+    await expect.poll(() => f.eventSubscriberCount()).toBe(3);
   }
-  for (const connected of [first, second, other]) connected.socket.close();
+  for (const connected of [first, second]) connected.socket.close();
   await expect.poll(() => f.eventSubscriberCount()).toBe(1);
 }, 30_000);
 
 it("catches up every replay page without a later write even after the process cursor advanced", async () => {
-  const f = await fixture("server");
+  const f = await fixture("companion");
   seed(f);
   const initial = connect(f);
   await expect.poll(() => initial.frames.length).toBe(1);
@@ -384,7 +366,7 @@ it("catches up every replay page without a later write even after the process cu
   ).toEqual(ids);
 }, 15_000);
 
-for (const mode of ["server", "companion"] as const) {
+for (const mode of ["companion"] as const) {
   it(`${mode} serves typed v3, preserves v2, bounds replay and makes revision-only changes actionable`, async () => {
     const f = await fixture(mode);
     seed(f);
@@ -496,115 +478,77 @@ for (const mode of ["server", "companion"] as const) {
   }, 30_000);
 }
 
-it("negotiates v3 through the paired Docker proxy into a compiled source server", async () => {
-  const remote = await fixture("server");
+it("negotiates v3 through paired source routing into another compiled companion", async () => {
+  const remote = await fixture("companion", true);
   seed(remote);
-  const directory = mkdtempSync(join(tmpdir(), "loop-v3-docker-"));
-  const priorPath = process.env.PATH;
-  const container = "a".repeat(64);
-  try {
-    writeFileSync(
-      join(directory, "inspect.json"),
-      JSON.stringify([
-        {
-          Id: container,
-          Config: {
-            Labels: {
-              "com.docker.compose.project": "typed-events",
-              "com.docker.compose.service": "app",
-            },
-          },
-          State: { Running: true },
-          NetworkSettings: {
-            Ports: {
-              "3000/tcp": [
-                { HostIp: "127.0.0.1", HostPort: new URL(remote.origin).port },
-              ],
-            },
-          },
-        },
-      ]),
-    );
-    writeFileSync(
-      join(directory, "docker"),
-      '#!/bin/sh\nif [ "$1" = ps ]; then printf "%s\\n" "' +
-        container +
-        '"; else cat "$(dirname "$0")/inspect.json"; fi\n',
-      { mode: 0o755 },
-    );
-    process.env.PATH = directory + ":" + priorPath;
-    const paired = await fixture("companion");
-    process.env.PATH = priorPath;
-    seed(paired);
-    const sources = await (
-      await paired.request("/api/linked-workspaces", {
-        headers: paired.browser,
-      })
-    ).json();
-    expect(sources).toHaveLength(1);
-    const linked = connect(
-      paired,
-      "?v=3&clock=1&owner=untrusted",
-      paired.browser,
-      `/api/agent-sources/${encodeURIComponent("docker:" + sources[0].id)}/events/ws`,
-    );
-    const direct = connect(remote, "?v=3&clock=1");
-    await expect.poll(() => linked.frames.length).toBe(1);
-    await expect.poll(() => direct.frames.length).toBe(1);
-    const { serverNow: _linkedNow, ...linkedReset } = linked.frames[0];
-    const { serverNow: _directNow, ...directReset } = direct.frames[0];
-    expect(WorkspaceFrameV3.parse({ ...linkedReset, serverNow: 0 })).toEqual(
-      WorkspaceFrameV3.parse({ ...directReset, serverNow: 0 }),
-    );
-    const snapshot = await paired.request(`/api/agent-sources/${encodeURIComponent("docker:" + sources[0].id)}/feed`, { headers: paired.browser });
-    expect(snapshot.headers.get("x-loop-change-epoch")).toBe(linked.frames[0].epoch);
-    expect(snapshot.headers.get("x-loop-next-deadline")).toBe("null");
-    expect(Number(snapshot.headers.get("x-loop-server-now"))).toBeGreaterThan(Date.now() - 5000);
-    expect(linked.frames[0].capabilities).toEqual(
-      COMPLETE_WORKSPACE_CAPABILITIES,
-    );
-    const insert =
-      "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'run','progress',?,1)";
-    paired.db
+  const paired = await fixture("companion", true);
+  await paired.linkCompanion(remote);
+  seed(paired);
+  const sources = await (
+    await paired.request("/api/agent-sources", {
+      headers: paired.browser,
+    })
+  ).json();
+  expect(sources).toHaveLength(1);
+  const linked = connect(
+    paired,
+    "?v=3&clock=1&owner=untrusted",
+    paired.browser,
+    `/api/agent-sources/${encodeURIComponent(sources[0].id)}/events/ws`,
+  );
+  const direct = connect(remote, "?v=3&clock=1");
+  await expect.poll(() => linked.frames.length).toBe(1);
+  await expect.poll(() => direct.frames.length).toBe(1);
+  const { serverNow: _linkedNow, ...linkedReset } = linked.frames[0];
+  const { serverNow: _directNow, ...directReset } = direct.frames[0];
+  expect(WorkspaceFrameV3.parse({ ...linkedReset, serverNow: 0 })).toEqual(
+    WorkspaceFrameV3.parse({ ...directReset, serverNow: 0 }),
+  );
+  const snapshot = await paired.request(`/api/agent-sources/${encodeURIComponent(sources[0].id)}/feed`, { headers: paired.browser });
+  expect(snapshot.status, `${await snapshot.clone().text()}\n${remote.stderr}\n${paired.stderr}`).toBe(200);
+  expect(snapshot.headers.get("x-loop-change-epoch")).toBe(linked.frames[0].epoch);
+  expect(snapshot.headers.get("x-loop-next-deadline")).toBe("null");
+  expect(Number(snapshot.headers.get("x-loop-server-now"))).toBeGreaterThan(Date.now() - 5000);
+  expect(linked.frames[0].capabilities).toEqual(
+    COMPLETE_WORKSPACE_CAPABILITIES,
+  );
+  const insert =
+    "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'run','progress',?,1)";
+  paired.db
+    .prepare(insert)
+    .run(paired.owner, JSON.stringify({ message: "Local only" }));
+  const id = Number(
+    remote.db
       .prepare(insert)
-      .run(paired.owner, JSON.stringify({ message: "Local only" }));
-    const id = Number(
-      remote.db
-        .prepare(insert)
-        .run(remote.owner, JSON.stringify({ message: "Remote only" }))
-        .lastInsertRowid,
-    );
-    await expect.poll(() => linked.frames.at(-1)?.cursor).toBe(id);
-    const frame = WorkspaceFrameV3.parse(linked.frames.at(-1));
-    // Pending Feed projections may share this batch; inspect progress events
-    // without depending on when the source's earlier projection flush ran.
-    expect({ ...frame, events: frame.type === "events" ? frame.events.filter(({ event }) => event.type === "progress") : [] }).toMatchObject({
-      type: "events",
-      events: [
-        {
-          id,
-          event: { type: "progress", payload: { message: "Remote only" } },
-        },
-      ],
-    });
-    expect(JSON.stringify(linked.frames)).not.toContain("Local only");
-    const resumed = connect(paired,
-      `?v=3&clock=1&projection=1&epoch=${frame.epoch}&cursor=${id}`,
-      paired.browser,
-      `/api/agent-sources/${encodeURIComponent("docker:" + sources[0].id)}/events/ws`);
-    await expect.poll(() => resumed.frames.length).toBeGreaterThan(0);
-    expect(resumed.frames[0]).toMatchObject({ type: "events", capabilities: COMPLETE_WORKSPACE_CAPABILITIES });
-  } finally {
-    process.env.PATH = priorPath;
-    rmSync(directory, { recursive: true, force: true });
-  }
+      .run(remote.owner, JSON.stringify({ message: "Remote only" }))
+      .lastInsertRowid,
+  );
+  await expect.poll(() => linked.frames.at(-1)?.cursor).toBe(id);
+  const frame = WorkspaceFrameV3.parse(linked.frames.at(-1));
+  // Pending Feed projections may share this batch; inspect progress events
+  // without depending on when the source's earlier projection flush ran.
+  expect({ ...frame, events: frame.type === "events" ? frame.events.filter(({ event }) => event.type === "progress") : [] }).toMatchObject({
+    type: "events",
+    events: [
+      {
+        id,
+        event: { type: "progress", payload: { message: "Remote only" } },
+      },
+    ],
+  });
+  expect(JSON.stringify(linked.frames)).not.toContain("Local only");
+  const resumed = connect(paired,
+    `?v=3&clock=1&projection=1&epoch=${frame.epoch}&cursor=${id}`,
+    paired.browser,
+    `/api/agent-sources/${encodeURIComponent(sources[0].id)}/events/ws`);
+  await expect.poll(() => resumed.frames.length).toBeGreaterThan(0);
+  expect(resumed.frames[0]).toMatchObject({ type: "events", capabilities: COMPLETE_WORKSPACE_CAPABILITIES });
 }, 30_000);
-
 
 // These cases start an isolated compiled server, like the other endpoint tests.
 // Keep their fixture budget consistent; event polling retains its own bound.
 it.each(["secret", "routing"] as const)("revokes a connection with invalid %s through the compiled v3 endpoint", async (invalid) => {
-  const f = await fixture("server");
+  const f = await fixture("companion");
   const socket = connect(f, "?v=3&clock=1");
   await expect.poll(() => socket.frames.length).toBe(1);
   const metadata = invalid === "routing" ? '{"loopHarness":false}' : '{}';

@@ -5,14 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request as httpRequest } from "node:http";
-import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
 import { installFixtureProjection } from "./projected-writer.js";
 import { fleetDeviceFromLink } from "../../src/shared/fleet-pairing.js";
 
 export async function cardsFixture(
-  mode: "server" | "companion" | "multi-user",
+  mode: "companion",
   compiled: boolean | string = false,
   options: {
     projectedWrites?: boolean;
@@ -22,16 +21,7 @@ export async function cardsFixture(
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "loop-card-access-"));
-  let port = 0;
-  if (mode === "multi-user") {
-    const reservation = createServer();
-    reservation.listen(0, "127.0.0.1");
-    await once(reservation, "listening");
-    port = (reservation.address() as { port: number }).port;
-    await new Promise<void>((resolve) => reservation.close(() => resolve()));
-  }
-  const authSecret = randomBytes(32).toString("hex"),
-    encryptionKey = randomBytes(32).toString("hex");
+  const encryptionKey = randomBytes(32).toString("hex");
   const launch = () =>
     spawn(
       process.execPath,
@@ -56,20 +46,16 @@ export async function cardsFixture(
               ([key]) => !key.startsWith("LOOP_"),
             ),
           ),
-          LOOP_PROFILE: mode === "companion" ? "companion" : "server",
-          LOOP_AUTH_MODE: mode === "multi-user" ? "multi-user" : "single-user",
+          LOOP_PROFILE: mode,
           LOOP_DATA_DIR: dir,
-          LOOP_URL: "http://127.0.0.1" + (port ? ":" + port : ""),
-          PORT: String(port),
+          LOOP_URL: "http://127.0.0.1",
+          PORT: "0",
           LOOP_TEST_CARDS_COMPILED: compiled ? "1" : "0",
           LOOP_TEST_CARDS_SOURCE: typeof compiled === "string" ? compiled : "",
           LOOP_TEST_CARDS_RELAY: options.relay ? "1" : "0",
           LOOP_TEST_WEBHOOK_RECEIVER: options.webhookReceiver || "",
           NODE_ENV: options.nodeEnv ?? "test",
           TEST: options.nodeEnv === "production" ? "" : process.env.TEST,
-          LOOP_LISTEN_HOST: "127.0.0.1",
-          LOOP_BIND_ADDRESS: "127.0.0.1",
-          BETTER_AUTH_SECRET: authSecret,
           LOOP_ENCRYPTION_KEY: encryptionKey,
         },
         stdio: ["ignore", "ignore", "pipe", "ipc"],
@@ -85,8 +71,8 @@ export async function cardsFixture(
     origin: string;
     transportOrigin: string;
     owner: string;
-    pair?: string;
-    fixtureSecret?: string;
+    pair: string;
+    fixtureSecret: string;
   };
   try {
     ready = await Promise.race([
@@ -107,7 +93,7 @@ export async function cardsFixture(
   // projection with its source writes, exactly like the production worker.
   if (options.projectedWrites) installFixtureProjection(database);
   let { origin, transportOrigin } = ready;
-  let owner = ready.owner;
+  const owner = ready.owner;
   const request = (
     path: string,
     options: {
@@ -164,43 +150,21 @@ export async function cardsFixture(
       );
       req.end(payload);
     });
-  let cookie = "",
-    csrf = "";
-  if (ready.pair) {
-    const response = await request("/pair", {
-      body: {
-        ...fleetDeviceFromLink(ready.pair, origin),
-        name: "Card fixture",
-      },
-      headers: { origin },
-    });
-    if (response.status !== 200)
-      throw new Error(
-        `Could not pair isolated card fixture (${response.status}): ${await response.text()}`,
-      );
-    cookie = response.headers.get("set-cookie")!.split(";", 1)[0];
-    csrf = (await (await request("/session", { headers: { cookie } })).json())
-      .csrf;
-  }
-  if (mode === "multi-user") {
-    const response = await request("/api/auth/sign-up/email", {
-      headers: { origin },
-      body: {
-        name: "Card owner",
-        email: "cards@example.com",
-        password: "fixture-cards-owner-password",
-      },
-    });
-    if (response.status !== 200)
-      throw new Error(
-        "Could not create isolated card account: " + (await response.text()),
-      );
-    owner = (await response.json()).user.id;
-    cookie = response.headers
-      .getSetCookie()
-      .map((value) => value.split(";", 1)[0])
-      .join("; ");
-  }
+  const response = await request("/pair", {
+    body: {
+      ...fleetDeviceFromLink(ready.pair, origin),
+      name: "Card fixture",
+    },
+    headers: { origin },
+  });
+  if (response.status !== 200)
+    throw new Error(
+      `Could not pair isolated card fixture (${response.status}): ${await response.text()}`,
+    );
+  const cookie = response.headers.get("set-cookie")!.split(";", 1)[0];
+  const csrf = (
+    await (await request("/session", { headers: { cookie } })).json()
+  ).csrf;
   const browser = {
     origin,
     host: new URL(origin).host,
@@ -229,6 +193,9 @@ export async function cardsFixture(
     if (expect.getState().currentTestName) onTestFinished(close);
   }
   return {
+    get stderr() {
+      return errors;
+    },
     mode,
     dir,
     origin,
@@ -280,6 +247,18 @@ export async function cardsFixture(
       } finally {
         clearTimeout(timeout);
       }
+    },
+    async linkCompanion(remote: {
+      origin: string;
+      browser: { cookie: string };
+    }): Promise<void> {
+      const reply = once(child, "message");
+      child.send({
+        type: "link-companion",
+        source: { origin: remote.origin, cookie: remote.browser.cookie },
+      });
+      const [result] = await reply;
+      if (!result.linked) throw new Error("Fixture companion was not linked");
     },
     async tokenWriteFixture(
       action:

@@ -31,7 +31,7 @@ it.each(["pair", "fleet"])(
       href: `https://loop.test/?page=feed#${kind}=one-time-capability`,
     });
     fetcher.mockResolvedValueOnce(
-      Response.json({ user: { id: "owner", name: "Owner" } }),
+      Response.json({ user: { id: "owner", name: "Owner" }, mode: "paired" }),
     );
     await createSessionCheck({ setSession })();
     expect(replaceState).toHaveBeenCalledWith(null, "", "/?page=feed");
@@ -49,7 +49,7 @@ it("preserves anonymous pairing and unrelated shared fragments for their owning 
     href: "https://loop.test/#share=shared-content",
   });
   fetcher.mockResolvedValueOnce(
-    Response.json({ user: { id: "owner", name: "Owner" } }),
+    Response.json({ user: { id: "owner", name: "Owner" }, mode: "paired" }),
   );
   await createSessionCheck({ setSession })();
   expect(replaceState).not.toHaveBeenCalled();
@@ -60,17 +60,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("loads only the typed session projection and accepts the account endpoint's absent mode", async () => {
+it("loads only the typed paired session projection", async () => {
   fetcher.mockResolvedValueOnce(
     Response.json({
       user: { id: "owner", name: "Owner", email: "private@example.com" },
+      mode: "paired",
       session: { token: "private" },
     }),
   );
   await createSessionCheck({ setSession })();
   expect(setSession).toHaveBeenCalledWith({
     user: { id: "owner", name: "Owner" },
-    mode: "multi-user",
+    mode: "paired",
   });
   expect(fetcher.mock.calls[0][0]).toBe("/api/auth/get-session");
   expect(fetcher.mock.calls[0][1]).toMatchObject({
@@ -122,7 +123,7 @@ it("recovers a transient session read and cancels its pending recovery with the 
   fetcher.mockResolvedValueOnce(
     Response.json({
       user: { id: "owner", name: "Owner" },
-      mode: "single-user",
+      mode: "paired",
     }),
   );
   const check = createSessionCheck({ setSession });
@@ -132,7 +133,7 @@ it("recovers a transient session read and cancels its pending recovery with the 
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(setSession).toHaveBeenCalledWith({
     user: { id: "owner", name: "Owner" },
-    mode: "single-user",
+    mode: "paired",
   });
   fetcher.mockClear();
   setSession.mockClear();

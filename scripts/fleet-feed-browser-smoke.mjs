@@ -157,7 +157,7 @@ try {
       return;
     }
     if (path === "auth/get-session") {
-      reply({ user: { id: owner, name: owner }, mode: "multi-user" });
+      reply({ user: { id: owner, name: owner }, mode: "paired" });
       return;
     }
     if (path === "bootstrap") {
@@ -512,7 +512,7 @@ try {
   await page.evaluate(() =>
     window.model.setSession({
       user: { id: "bob", name: "Bob" },
-      mode: "multi-user",
+      mode: "paired",
     }),
   );
   await expect
@@ -521,7 +521,7 @@ try {
   await page.evaluate(() =>
     window.model.setSession({
       user: { id: "alice", name: "Alice" },
-      mode: "multi-user",
+      mode: "paired",
     }),
   );
   await expect

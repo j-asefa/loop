@@ -35,7 +35,7 @@ for (const engine of process.env.LOOP_BROWSER
       : {}),
   });
   try {
-    for (const mode of ["server", "companion"]) {
+    for (const mode of ["companion"]) {
       const fixture = await cardsFixture(mode, true, { projectedWrites: true });
       let context;
       try {

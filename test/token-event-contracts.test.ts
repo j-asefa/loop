@@ -160,11 +160,11 @@ async function browserFrame(f: Fixture, epoch: string, cursor: number) {
   return frames[0];
 }
 
-for (const mode of ["server", "companion", "multi-user"] as const) {
+for (const mode of ["companion"] as const) {
   it(`${mode} admits only read sockets and confirms connection-bound replay`, async () => {
     const f = await cardsFixture(mode, false, {
       projectedWrites: true,
-      relay: mode === "companion",
+      relay: true,
     });
     const local = await f.integrationRecords(),
       foreign = await f.integrationRecords(randomUUID());
@@ -235,10 +235,9 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
       expect([403, 404]).toContain(
         await refusedUpgrade(f, { ...f.browser, ...headers }, path),
       );
-    if (mode === "companion")
-      expect(await refusedUpgrade(f, { ...f.browser, ...headers }, "/ws")).toBe(
-        403,
-      );
+    expect(await refusedUpgrade(f, { ...f.browser, ...headers }, "/ws")).toBe(
+      403,
+    );
     for (const query of [
       "?after=-1",
       "?after=0&after=1",
@@ -252,10 +251,8 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
         method,
         headers,
       });
-      expect(ordinary.status).toBe(426);
       // Relay strips hop-by-hop response headers at its HTTP boundary.
-      if (mode !== "companion")
-        expect(ordinary.headers.get("upgrade")).toBe("websocket");
+      expect(ordinary.status).toBe(426);
     }
     expect(checkpoint(f, reader.token.id)).toBeUndefined();
     expect(
@@ -356,7 +353,7 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
   }, 40_000);
 
   it(`${mode} refuses unoffered, stale and non-acknowledgement client messages`, async () => {
-    const f = await cardsFixture(mode, false, { relay: mode === "companion" }),
+    const f = await cardsFixture(mode, false, { relay: true }),
       reader = await token(f);
     const first = await connect(f, reader.secret),
       reset = (await frame(first)).frame;
@@ -390,7 +387,7 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
   }, 30_000);
 
   it(`${mode} includes committed deadline payloads only through the read event grant`, async () => {
-    const f = await cardsFixture(mode, false, { relay: mode === "companion" }),
+    const f = await cardsFixture(mode, false, { relay: true }),
       records = await f.integrationRecords(),
       reader = await token(f);
     const expires = Date.now() + 60_000;
@@ -440,9 +437,9 @@ for (const mode of ["server", "companion", "multi-user"] as const) {
   }, 20_000);
 }
 
-for (const mode of ["server", "companion"] as const) {
+for (const mode of ["companion"] as const) {
   it(`${mode} preserves whole oversize HTTP events and uses explicit resets for invalid history`, async () => {
-    const f = await cardsFixture(mode, false, { relay: mode === "companion" }),
+    const f = await cardsFixture(mode, false, { relay: true }),
       records = await f.integrationRecords(),
       reader = await token(f);
     const first = await connect(f, reader.secret),
@@ -578,7 +575,7 @@ for (const mode of ["server", "companion"] as const) {
   }, 30_000);
 
   it(`${mode} drains the production listener with an idle token stream`, async () => {
-    const f = await cardsFixture(mode, false, { relay: mode === "companion" }),
+    const f = await cardsFixture(mode, false, { relay: true }),
       reader = await token(f),
       stream = await connect(f, reader.secret);
     await frame(stream);
@@ -590,7 +587,7 @@ for (const mode of ["server", "companion"] as const) {
   }, 15_000);
 
   it(`${mode} releases a non-reading token stream after overflow and drains the listener`, async () => {
-    const f = await cardsFixture(mode, false, { relay: mode === "companion" }),
+    const f = await cardsFixture(mode, false, { relay: true }),
       records = await f.integrationRecords(),
       reader = await token(f);
     const subscribers = await f.eventSubscriberCount();
@@ -627,7 +624,7 @@ for (const mode of ["server", "companion"] as const) {
   }, 30_000);
 
   it(`${mode} closes an idle revoked stream within thirty seconds`, async () => {
-    const f = await cardsFixture(mode, false, { relay: mode === "companion" }),
+    const f = await cardsFixture(mode, false, { relay: true }),
       reader = await token(f),
       stream = await connect(f, reader.secret);
     await frame(stream);

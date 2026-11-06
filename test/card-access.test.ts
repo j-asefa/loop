@@ -8,7 +8,7 @@ import {
   type CardToken,
 } from "../src/shared/card-access";
 
-it.each(["server", "companion"] as const)(
+it.each(["companion"] as const)(
   "enforces scoped card credentials through the real %s entrypoint",
   async (mode) => {
     const fixture = await cardsFixture(mode);
@@ -364,39 +364,29 @@ it.each(["server", "companion"] as const)(
           })
         ).status,
       ).toBe(403);
-      if (mode === "companion") {
-        expect((await request("/api/v1/cards")).status).toBe(401);
-        expect(
-          (
-            await request("/api/card-tokens", {
-              body: { name: "No CSRF", scope: "cards:read" },
-              headers: { cookie: browser.cookie, origin },
-            })
-          ).status,
-        ).toBe(403);
-        expect(
-          (
-            await request("/api/v1/cards", {
-              headers: {
-                "x-loop-card-owner": owner,
-                "x-loop-card-scope": "cards:read",
-              },
-            })
-          ).status,
-        ).toBe(401);
-        expect(
-          (await request("/session", { headers: { cookie: browser.cookie } }))
-            .status,
-        ).toBe(200);
-      } else {
-        db.prepare(
-          "UPDATE installation SET owner_id='foreign' WHERE id=1",
-        ).run();
-        expect(
-          (await request("/api/v1/cards", { headers: headers() })).status,
-        ).toBe(401);
-        db.prepare("UPDATE installation SET owner_id=? WHERE id=1").run(owner);
-      }
+      expect((await request("/api/v1/cards")).status).toBe(401);
+      expect(
+        (
+          await request("/api/card-tokens", {
+            body: { name: "No CSRF", scope: "cards:read" },
+            headers: { cookie: browser.cookie, origin },
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await request("/api/v1/cards", {
+            headers: {
+              "x-loop-card-owner": owner,
+              "x-loop-card-scope": "cards:read",
+            },
+          })
+        ).status,
+      ).toBe(401);
+      expect(
+        (await request("/session", { headers: { cookie: browser.cookie } }))
+          .status,
+      ).toBe(200);
       expect(
         (await request("/api/v1/cards", { headers: browser })).status,
       ).toBe(200);
@@ -464,27 +454,11 @@ it.each(["server", "companion"] as const)(
   60000,
 );
 
-it("keeps bearer owner identity independent of real multi-user browser sessions", async () => {
-  const fixture = await cardsFixture("multi-user");
+it("keeps bearer reads bound to the paired owner, whatever owner the request names", async () => {
+  const fixture = await cardsFixture("companion");
   try {
-    const { owner, db, request, origin, browser } = fixture;
-    const signup = await request("/api/auth/sign-up/email", {
-      headers: { origin },
-      body: {
-        name: "Second owner",
-        email: "other@example.com",
-        password: "fixture-other-owner-password",
-      },
-    });
-    expect(signup.status).toBe(200);
-    const other = (await signup.json()).user.id;
-    const second = {
-      origin,
-      cookie: signup.headers
-        .getSetCookie()
-        .map((value) => value.split(";", 1)[0])
-        .join("; "),
-    };
+    const { owner, db, request, browser } = fixture;
+    const other = "another-owner";
     for (const id of [owner, other])
       db.prepare(
         "INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,'markdown',?,1,1)",
@@ -495,14 +469,7 @@ it("keeps bearer owner identity independent of real multi-user browser sessions"
     });
     expect(create.status).toBe(201);
     const { secret, token } = await create.json();
-    const plain = await request("/api/v1/cards", { headers: second });
-    expect(
-      (await plain.json()).items.map(
-        (i: { card: { id: string } }) => i.card.id,
-      ),
-    ).toEqual(["a:" + other]);
     const bearer = {
-      ...second,
       authorization: "Bearer " + secret,
       "x-loop-card-owner": other,
     };
@@ -524,16 +491,8 @@ it("keeps bearer owner identity independent of real multi-user browser sessions"
     );
     expect(
       (
-        await request("/api/card-tokens/" + token.id, {
-          headers: second,
-          method: "DELETE",
-        })
-      ).status,
-    ).toBe(404);
-    expect(
-      (
         await request("/api/v1/cards", {
-          headers: { ...second, authorization: "Bearer invalid" },
+          headers: { authorization: "Bearer invalid" },
         })
       ).status,
     ).toBe(401);
@@ -554,70 +513,8 @@ it("keeps bearer owner identity independent of real multi-user browser sessions"
   }
 }, 30000);
 
-it("preserves federation's independent bearer routing through the actual server", async () => {
-  const fixture = await cardsFixture("server");
-  try {
-    const { request, browser } = fixture;
-    const enrollment = await request("/api/mcp/federation/enroll", {
-      headers: { ...browser, "x-loop-source-setup": "1" },
-      body: { peerId: "cards:fixture" },
-    });
-    expect(enrollment.status).toBe(200);
-    const { token } = await enrollment.json();
-    const made = await request("/api/card-tokens", {
-      headers: browser,
-      body: cardTokenRequest("Independent", "cards:read"),
-    });
-    const { secret } = await made.json();
-    for (const endpoint of ["federation", "reverse"]) {
-      for (const path of [
-        "/api/mcp/" + endpoint,
-        "/api/mcp/" + endpoint + "/",
-        "/API/MCP/" + endpoint.toUpperCase() + "/",
-      ]) {
-        const response = await request(path, {
-          headers: {
-            authorization: "Bearer " + token,
-            accept: "application/json, text/event-stream",
-          },
-          body: {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: {
-              protocolVersion: "2025-03-26",
-              capabilities: {},
-              clientInfo: { name: "Cards compatibility fixture", version: "1" },
-            },
-          },
-        });
-        expect(response.status, path).toBe(200);
-        expect((await response.json()).result.serverInfo.name).toBe(
-          "Loop shared tools",
-        );
-        const denied = await request(path, {
-          headers: { authorization: "Bearer " + secret },
-        });
-        expect(denied.status).toBe(403);
-        expect((await denied.json()).error).toBe(
-          "Execution source credential required",
-        );
-      }
-    }
-    expect(
-      (
-        await request("/api/v1/cards", {
-          headers: { authorization: "Bearer " + token },
-        })
-      ).status,
-    ).toBe(401);
-  } finally {
-    await fixture.close();
-  }
-}, 30000);
-
 it("reconciles token creation identities, enforces issuance bounds and never revives a pruned revoked request", async () => {
-  const fixture = await cardsFixture("server");
+  const fixture = await cardsFixture("companion");
   try {
     const { request, browser, db, owner } = fixture;
     const draft = cardTokenRequest("Stable creation", "cards:read");
@@ -717,7 +614,7 @@ it("reconciles token creation identities, enforces issuance bounds and never rev
   }
 }, 30000);
 
-it.each(["server", "companion"] as const)(
+it.each(["companion"] as const)(
   "does not disclose never-readable identities through scoped %s removals",
   async (mode) => {
     const fixture = await cardsFixture(mode);

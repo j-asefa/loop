@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile, chmod, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -13,14 +13,11 @@ import {
 } from "../src/client/api.js";
 import { workspaceApi } from "../src/shared/workspace-api.js";
 import { MAX_UPLOAD_BYTES } from "../src/shared/uploads.js";
-import { Host } from "../src/host.js";
-import { composeSourceId } from "../src/linked-docker.js";
 import { until } from "./helpers.js";
 
-test("typed multipart routes use the compiled app directly and through the paired Docker proxy without replaying writes", async () => {
+test("typed multipart routes use the compiled app without replaying writes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "loop-library-transport-"));
   const originalFetch = globalThis.fetch;
-  const originalPath = process.env.PATH;
   const originalLocation = Object.getOwnPropertyDescriptor(
     globalThis,
     "location",
@@ -38,17 +35,14 @@ test("typed multipart routes use the compiled app directly and through the paire
       env: {
         ...environment,
         NODE_ENV: "test",
-        LOOP_PROFILE: "server",
-        LOOP_AUTH_MODE: "single-user",
+        LOOP_PROFILE: "companion",
         LOOP_DATA_DIR: join(directory, "data"),
         LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
-        BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
       },
     },
   );
   let logs = "",
-    port = 0,
-    host: Host | undefined;
+    port = 0;
   child.stdout!.on("data", (data) => {
     logs += data;
   });
@@ -65,83 +59,13 @@ test("typed multipart routes use the compiled app directly and through the paire
       return port !== 0;
     });
     const direct = `http://127.0.0.1:${port}`;
-    const container = "c".repeat(64);
-    await writeFile(
-      join(directory, "inspect.json"),
-      JSON.stringify([
-        {
-          Id: container,
-          Config: {
-            Labels: {
-              "com.docker.compose.project": "contracts",
-              "com.docker.compose.service": "app",
-            },
-          },
-          State: { Running: true },
-          NetworkSettings: {
-            Ports: {
-              "3000/tcp": [{ HostIp: "127.0.0.1", HostPort: String(port) }],
-            },
-          },
-        },
-      ]),
-    );
-    const docker = join(directory, "docker");
-    await writeFile(
-      docker,
-      `#!/bin/sh\nif [ "$1" = ps ]; then echo '${container}'; else cat '${directory}/inspect.json'; fi\n`,
-    );
-    await chmod(docker, 0o755);
-    process.env.PATH = directory + ":" + (originalPath || "");
-    host = new Host(directory, {
-      harness: "codex",
-      version: "fixture",
-      project: "/fixture",
-      billing: { mode: "existing", description: "fixture" },
-      capabilities: {
-        approvals: true,
-        questions: true,
-        resume: true,
-        liveAttach: false,
-        terminal: false,
-      },
-    });
-    let localRequests = 0;
-    host.workspace = {
-      http: (_req, res) => {
-        localRequests++;
-        res.writeHead(500);
-        res.end();
-      },
-      status: () => ({}),
-      admin: async () => ({}),
-      connect: () => () => {},
-      originChanged: () => {},
-    };
-    await host.listen();
-    const secret = new URL(host.pair().url).hash.slice(6);
-    const paired = await originalFetch(host.origin + "/pair", {
-      method: "POST",
-      headers: { origin: host.origin, "content-type": "application/json" },
-      body: JSON.stringify({ secret }),
-    });
-    assert.equal(paired.status, 200);
-    const cookie = paired.headers.get("set-cookie")!.split(";")[0];
-    const sourceId = `docker:${composeSourceId("contracts", "app")}`;
-    const sources = await originalFetch(host.origin + "/api/agent-sources", {
-      headers: { cookie },
-    }).then((r) => r.json());
-    assert.ok(sources.some((source: { id: string }) => source.id === sourceId));
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: new EventTarget(),
     });
     const archive = await readFile("test/fixtures/chatgpt-export.zip");
     const bytes = Buffer.from("<p>source-private upload</p>");
-    for (const [origin, source] of [
-      [direct, ""],
-      [host.origin, sourceId],
-    ]) {
+    for (const [origin, source] of [[direct, ""]]) {
       clearAuthorization();
       Object.defineProperty(globalThis, "location", {
         configurable: true,
@@ -158,7 +82,6 @@ test("typed multipart routes use the compiled app directly and through the paire
           headers: {
             ...Object.fromEntries(new Headers(init?.headers)),
             origin,
-            ...(source ? { cookie } : {}),
           },
         });
       };
@@ -322,23 +245,15 @@ test("typed multipart routes use the compiled app directly and through the paire
       );
       assert.ok(!listed.items.some((item) => item.title === "aborted.html"));
     }
-    assert.equal(
-      localRequests,
-      0,
-      "linked reads and writes never reach the paired host's local workspace",
-    );
   } finally {
     globalThis.fetch = originalFetch;
     clearAuthorization();
-    if (originalPath === undefined) delete process.env.PATH;
-    else process.env.PATH = originalPath;
     for (const [key, descriptor] of [
       ["location", originalLocation],
       ["window", originalWindow],
     ] as const)
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
       else Reflect.deleteProperty(globalThis, key);
-    await host?.close();
     if (child.exitCode === null) {
       const exited = once(child, "exit");
       if (child.connected) child.send("close");

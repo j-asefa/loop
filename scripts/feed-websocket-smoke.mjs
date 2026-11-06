@@ -3,9 +3,6 @@ import { pendingSourceRefreshSmoke } from "./helpers/feed-pending-refresh-smoke.
 import { sourceRetryFeedSmoke } from "./helpers/feed-source-retry-smoke.mjs";
 import { drainPageRoutes, temporaryPageRoute } from "./helpers/temporary-page-route.mjs";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { chromium, webkit, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
@@ -87,50 +84,13 @@ for (const engine of engines) {
       : {}),
   });
   try {
-    for (const mode of ["server", "companion"]) {
-      let fixture, remote, context, dockerDir;
-      const priorPath = process.env.PATH;
+    for (const mode of ["companion"]) {
+      let fixture, remote, context;
       try {
-        if (mode === "companion") {
-          remote = await cardsFixture("server", true, { projectedWrites: true });
-          seed(remote, "Remote", 2, 0);
-          // Fixture discovery, real source servers and real gateway forwarding.
-          dockerDir = mkdtempSync(join(tmpdir(), "loop-events-docker-"));
-          const id = "a".repeat(64);
-          writeFileSync(
-            join(dockerDir, "inspect.json"),
-            JSON.stringify([
-              {
-                Id: id,
-                Config: {
-                  Labels: {
-                    "com.docker.compose.project": "events-fixture",
-                    "com.docker.compose.service": "app",
-                  },
-                },
-                State: { Running: true },
-                NetworkSettings: {
-                  Ports: {
-                    "3000/tcp": [
-                      {
-                        HostIp: "127.0.0.1",
-                        HostPort: new URL(remote.origin).port,
-                      },
-                    ],
-                  },
-                },
-              },
-            ]),
-          );
-          writeFileSync(
-            join(dockerDir, "docker"),
-            `#!/bin/sh\nif [ "$1" = ps ]; then printf '%s\\n' '${id}'; else cat '${dockerDir}/inspect.json'; fi\n`,
-            { mode: 0o755 },
-          );
-          process.env.PATH = dockerDir + ":" + priorPath;
-        }
+        remote = await cardsFixture(mode, true, { projectedWrites: true });
+        seed(remote, "Remote", 2, 0);
         fixture = await cardsFixture(mode, true, { projectedWrites: true });
-        process.env.PATH = priorPath;
+        await fixture.linkCompanion(remote);
         seed(fixture, "Local");
         context = await browser.newContext({
           viewport: { width: 390, height: 844 },
@@ -194,7 +154,7 @@ for (const engine of engines) {
             const body = await response.json();
             if (new URL(route.request().url()).pathname.endsWith("/bootstrap")) {
               legacyBootstraps++;
-              for (const key of ["teams", "environmentName", "identityProviders", "capabilities"]) delete body[key];
+              for (const key of ["teams", "environmentName", "capabilities"]) delete body[key];
             } else {
               legacyFeeds++;
               for (const item of body.items) delete item.pull;
@@ -673,166 +633,100 @@ for (const engine of engines) {
         });
         await expect(row(done, "Local history 0")).toHaveCount(1);
 
-        if (mode === "server") {
-          // A complete source applies real message identities in place. Leave
-          // the stream quiet beyond both former five-second thread timers.
-          fixture.db.prepare("UPDATE runs SET state='running' WHERE id='live'").run();
-          const thread = await newPage();
-          await thread.goto(fixture.origin + "/?conversation=thread");
-          const answer = thread.locator('[data-message-id="live-answer"]');
-          await expect(answer).toContainText("Changed while disconnected");
-          // Initial broad reconciliation can be coalesced for three seconds.
-          // Finish that startup snapshot before measuring streamed updates.
-          await expect.poll(() => thread.evaluate(() => window.__workspaceResets), {timeout:revisionTimeout}).toBeGreaterThan(0);
-          await thread.waitForLoadState("networkidle");
-          const transcriptReads = [], idleReads = [];
-          let idle = false;
-          const record = request => {
-            const path = new URL(request.url()).pathname;
-            if (request.method() === "GET" && path === "/api/conversations/thread") transcriptReads.push(path);
-            if (idle && path.startsWith("/api/")) idleReads.push(path);
-          };
-          thread.on("request", record);
-          for (let n = 1; n <= 6; n++) {
-            const text = "Live projection " + "token ".repeat(n);
-            fixture.db.prepare("UPDATE messages SET content=? WHERE id='live-answer'").run(text);
-            await expect(answer).toContainText(text.trim());
-          }
-          await thread.waitForTimeout(2500);
-          // The separate writer commits source events and Feed cards together.
-          // Finish coalesced delivery and its reads before measuring quiet.
-          await expect.poll(() => fixture.db.prepare("SELECT count(*) n FROM feed_card_dirty WHERE owner_id=?").get(fixture.owner).n,
-            { timeout: revisionTimeout }).toBe(0);
-          const projectedCursor = fixture.db.prepare("SELECT COALESCE(max(id),0) cursor FROM events WHERE owner_id=? AND type='feed.card'").get(fixture.owner).cursor;
-          assert.ok(projectedCursor > 0, "streaming writes must publish Feed projection changes");
-          await expect.poll(() => thread.evaluate(() => window.__feedReconciledCursor),
-            { timeout: revisionTimeout }).toBeGreaterThanOrEqual(projectedCursor);
-          await thread.waitForLoadState("networkidle");
-          const quietUpdates = await thread.evaluate(() => window.__workspaceUpdates);
-          idle = true;
-          await thread.waitForTimeout(6500);
-          assert.equal(await thread.evaluate(() => window.__workspaceUpdates), quietUpdates,
-            "the quiet measurement must not include a pending workspace invalidation");
-          assert.equal(transcriptReads.length, 0, "streaming transcript must not refetch its snapshot");
-          const feedMode = await thread.evaluate(() => window.__sourceStream("")?.reset?.capabilities.feed);
-          assert.ok(["snapshot","delta"].includes(feedMode), "the source must declare its Feed delivery mode");
-          // A snapshot Feed retains its 30s poll (two Feed reads and a Cards
-          // change read). Once Feed advertises deltas, the strict total budget
-          // applies automatically; covered transcript/Results paths stay quiet.
-          const coveredReads = feedMode === "snapshot"
-            ? idleReads.filter(path => !["/api/feed","/api/v1/cards/changes"].includes(path)) : idleReads;
-          assert.ok(coveredReads.length <= 2, `covered surfaces made ${coveredReads.length} quiet requests: ${coveredReads}`);
-          assert.ok(idleReads.length <= (feedMode === "snapshot" ? 5 : 2), `quiet stream made ${idleReads.length} API requests between frames: ${idleReads}`);
-          console.log(`PASS ${engine} transcript deltas: zero snapshot reads; ${idleReads.length} requests during 6.5s without frames`);
-          thread.off("request", record);
-          // Recover an unloaded row without exposing a detached history page.
-          const recovery = thread.waitForResponse(response => {
-            const url = new URL(response.url());
-            return url.pathname === "/api/conversations/thread" && url.searchParams.get("message") === "answer-0";
-          });
-          fixture.db.prepare("UPDATE messages SET content=content||' recovered older chunk' WHERE id='answer-0'").run();
-          await (await recovery).finished();
-          fixture.db.prepare("UPDATE messages SET content='Updated unloaded history' WHERE id='answer-0'").run();
-          await expect(row(done, "Updated unloaded history")).toHaveCount(1, {timeout:revisionTimeout});
-          await expect(thread.locator('[data-message-id="answer-0"]')).toHaveCount(0);
-          await thread.getByRole("button", {name:"Load earlier messages",exact:true}).click();
-          await expect(thread.locator('[data-message-id="answer-0"]')).toContainText("Updated unloaded history");
-          const loadedIds = await thread.locator('[data-message-id]').evaluateAll(rows => rows.map(row => row.dataset.messageId).sort());
-          // A reset replaces the loaded page set. Its new cursor must let the
-          // reader request the discarded history again, including the middle.
-          fixture.db.prepare("UPDATE messages SET content=content||' reset probe' WHERE id='live-answer'").run();
-          await expect(answer).toContainText("reset probe");
-          const clock = (await (await fixture.request("/api/conversations/thread", {headers:fixture.browser})).json()).projection;
-          const resetRead = thread.waitForResponse(response => new URL(response.url()).pathname === "/api/conversations/thread");
-          await thread.evaluate(clock => {
-            window.__injectSourceReset("", clock);
-          }, clock);
-          await (await resetRead).finished();
-          await expect(thread.locator('[data-message-id="answer-0"]')).toHaveCount(0);
-          await thread.getByRole("button", {name:"Load earlier messages",exact:true}).click();
-          await expect.poll(() => thread.locator('[data-message-id]').evaluateAll(rows => rows.map(row => row.dataset.messageId).sort())).toEqual(loadedIds);
-          console.log(`PASS ${engine} unloaded deltas stay outside displayed pages and reset pagination restores all history`);
-          // Fault-inject a missing frame, then explicitly refresh. An absent
-          // row in the page must disappear instead of merging back from cache.
-          fixture.db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('snapshot-delete',?,'thread','assistant','Temporary display row',?)").run(fixture.owner,Date.now());
-          await expect(thread.locator('[data-message-id="snapshot-delete"]')).toHaveCount(1);
-          await thread.evaluate(() => window.__eventSockets.forEach(socket => { socket.__forward = socket.onmessage; socket.onmessage = null; }));
-          fixture.db.prepare("DELETE FROM messages WHERE id='snapshot-delete'").run();
-          await thread.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
-          await expect(thread.locator('[data-message-id="snapshot-delete"]')).toHaveCount(0);
-          await thread.evaluate(() => window.__eventSockets.forEach(socket => { socket.onmessage = socket.__forward; }));
-          console.log(`PASS ${engine} transcript gap recovery and explicit-refresh deletion reconciliation`);
-          await closePage(thread);
-          fixture.db.transaction(() => {
-            fixture.db.prepare("UPDATE runs SET state='completed' WHERE id='live'").run();
-            fixture.db.prepare("UPDATE messages SET content='Changed while disconnected' WHERE id='live-answer'").run();
-          }).immediate();
-          await expect(row(done, "Changed while disconnected")).toHaveCount(1, {timeout: revisionTimeout});
+        // A complete source applies real message identities in place. Leave
+        // the stream quiet beyond both former five-second thread timers.
+        fixture.db.prepare("UPDATE runs SET state='running' WHERE id='live'").run();
+        const thread = await newPage();
+        await thread.goto(fixture.origin + "/?conversation=thread");
+        const answer = thread.locator('[data-message-id="live-answer"]');
+        await expect(answer).toContainText("Changed while disconnected");
+        // Initial broad reconciliation can be coalesced for three seconds.
+        // Finish that startup snapshot before measuring streamed updates.
+        await expect.poll(() => thread.evaluate(() => window.__workspaceResets), {timeout:revisionTimeout}).toBeGreaterThan(0);
+        await thread.waitForLoadState("networkidle");
+        const transcriptReads = [], idleReads = [];
+        let idle = false;
+        const record = request => {
+          const path = new URL(request.url()).pathname;
+          if (request.method() === "GET" && path === "/api/conversations/thread") transcriptReads.push(path);
+          if (idle && path.startsWith("/api/")) idleReads.push(path);
+        };
+        thread.on("request", record);
+        for (let n = 1; n <= 6; n++) {
+          const text = "Live projection " + "token ".repeat(n);
+          fixture.db.prepare("UPDATE messages SET content=? WHERE id='live-answer'").run(text);
+          await expect(answer).toContainText(text.trim());
         }
-
-        if (engine === "chromium" && mode === "server") {
-          // Two Done tabs and sustained events must leave room under the
-          // server's shared 600-request/minute owner limit for user actions.
-          await working.goto(fixture.origin + "/?filter=done");
-          await expect(row(working, "Changed while disconnected")).toHaveCount(
-            1,
-          );
-          const before = await Promise.all(
-            [working, done].map((page) =>
-              page.evaluate(() => window.__workspaceUpdates),
-            ),
-          );
-          const requests = [];
-          const limited = [];
-          const requested = (request) => {
-            if (new URL(request.url()).pathname.startsWith("/api/"))
-              requests.push(request.url());
-          };
-          const responded = (response) => {
-            if (response.status() === 429) limited.push(response.url());
-          };
-          context.on("request", requested);
-          context.on("response", responded);
-          const stream = setInterval(() => {
-            fixture.db
-              .prepare(
-                "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'live','delta','{}',?)",
-              )
-              .run(fixture.owner, Date.now());
-          }, 100);
-          try {
-            await done.waitForTimeout(20_000);
-          } finally {
-            clearInterval(stream);
-            context.off("request", requested);
-            context.off("response", responded);
-          }
-          const after = await Promise.all(
-            [working, done].map((page) =>
-              page.evaluate(() => window.__workspaceUpdates),
-            ),
-          );
-          assert.ok(
-            after.every((count, i) => count - before[i] >= 6),
-            "both tabs received sustained push updates",
-          );
-          assert.ok(
-            requests.length <= 180,
-            `two streaming tabs made ${requests.length} requests in 20 seconds: ${JSON.stringify(requests.reduce((counts, value) => {
-              const path = new URL(value).pathname;
-              counts[path] = (counts[path] || 0) + 1;
-              return counts;
-            }, {}))}`,
-          );
-          assert.deepEqual(
-            limited,
-            [],
-            "stream refreshes must not exhaust the owner request limit",
-          );
-          console.log(
-            `PASS two-tab streaming budget: ${requests.length} API requests in 20 seconds`,
-          );
-        }
+        await thread.waitForTimeout(2500);
+        // The separate writer commits source events and Feed cards together.
+        // Finish coalesced delivery and its reads before measuring quiet.
+        await expect.poll(() => fixture.db.prepare("SELECT count(*) n FROM feed_card_dirty WHERE owner_id=?").get(fixture.owner).n,
+          { timeout: revisionTimeout }).toBe(0);
+        const projectedCursor = fixture.db.prepare("SELECT COALESCE(max(id),0) cursor FROM events WHERE owner_id=? AND type='feed.card'").get(fixture.owner).cursor;
+        assert.ok(projectedCursor > 0, "streaming writes must publish Feed projection changes");
+        await expect.poll(() => thread.evaluate(() => window.__feedReconciledCursor),
+          { timeout: revisionTimeout }).toBeGreaterThanOrEqual(projectedCursor);
+        await thread.waitForLoadState("networkidle");
+        const quietUpdates = await thread.evaluate(() => window.__workspaceUpdates);
+        idle = true;
+        await thread.waitForTimeout(6500);
+        assert.equal(await thread.evaluate(() => window.__workspaceUpdates), quietUpdates,
+          "the quiet measurement must not include a pending workspace invalidation");
+        assert.equal(transcriptReads.length, 0, "streaming transcript must not refetch its snapshot");
+        const feedMode = await thread.evaluate(() => window.__sourceStream("")?.reset?.capabilities.feed);
+        assert.ok(["snapshot","delta"].includes(feedMode), "the source must declare its Feed delivery mode");
+        // A snapshot Feed retains its 30s poll (two Feed reads and a Cards
+        // change read). Once Feed advertises deltas, the strict total budget
+        // applies automatically; covered transcript/Results paths stay quiet.
+        const coveredReads = feedMode === "snapshot"
+          ? idleReads.filter(path => !["/api/feed","/api/v1/cards/changes"].includes(path)) : idleReads;
+        assert.ok(coveredReads.length <= 2, `covered surfaces made ${coveredReads.length} quiet requests: ${coveredReads}`);
+        assert.ok(idleReads.length <= (feedMode === "snapshot" ? 5 : 2), `quiet stream made ${idleReads.length} API requests between frames: ${idleReads}`);
+        console.log(`PASS ${engine} transcript deltas: zero snapshot reads; ${idleReads.length} requests during 6.5s without frames`);
+        thread.off("request", record);
+        // Recover an unloaded row without exposing a detached history page.
+        const recovery = thread.waitForResponse(response => {
+          const url = new URL(response.url());
+          return url.pathname === "/api/conversations/thread" && url.searchParams.get("message") === "answer-0";
+        });
+        fixture.db.prepare("UPDATE messages SET content=content||' recovered older chunk' WHERE id='answer-0'").run();
+        await (await recovery).finished();
+        fixture.db.prepare("UPDATE messages SET content='Updated unloaded history' WHERE id='answer-0'").run();
+        await expect(row(done, "Updated unloaded history")).toHaveCount(1, {timeout:revisionTimeout});
+        await expect(thread.locator('[data-message-id="answer-0"]')).toHaveCount(0);
+        await thread.getByRole("button", {name:"Load earlier messages",exact:true}).click();
+        await expect(thread.locator('[data-message-id="answer-0"]')).toContainText("Updated unloaded history");
+        const loadedIds = await thread.locator('[data-message-id]').evaluateAll(rows => rows.map(row => row.dataset.messageId).sort());
+        // A reset replaces the loaded page set. Its new cursor must let the
+        // reader request the discarded history again, including the middle.
+        fixture.db.prepare("UPDATE messages SET content=content||' reset probe' WHERE id='live-answer'").run();
+        await expect(answer).toContainText("reset probe");
+        const clock = (await (await fixture.request("/api/conversations/thread", {headers:fixture.browser})).json()).projection;
+        const resetRead = thread.waitForResponse(response => new URL(response.url()).pathname === "/api/conversations/thread");
+        await thread.evaluate(clock => {
+          window.__injectSourceReset("", clock);
+        }, clock);
+        await (await resetRead).finished();
+        await expect(thread.locator('[data-message-id="answer-0"]')).toHaveCount(0);
+        await thread.getByRole("button", {name:"Load earlier messages",exact:true}).click();
+        await expect.poll(() => thread.locator('[data-message-id]').evaluateAll(rows => rows.map(row => row.dataset.messageId).sort())).toEqual(loadedIds);
+        console.log(`PASS ${engine} unloaded deltas stay outside displayed pages and reset pagination restores all history`);
+        // Fault-inject a missing frame, then explicitly refresh. An absent
+        // row in the page must disappear instead of merging back from cache.
+        fixture.db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('snapshot-delete',?,'thread','assistant','Temporary display row',?)").run(fixture.owner,Date.now());
+        await expect(thread.locator('[data-message-id="snapshot-delete"]')).toHaveCount(1);
+        await thread.evaluate(() => window.__eventSockets.forEach(socket => { socket.__forward = socket.onmessage; socket.onmessage = null; }));
+        fixture.db.prepare("DELETE FROM messages WHERE id='snapshot-delete'").run();
+        await thread.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+        await expect(thread.locator('[data-message-id="snapshot-delete"]')).toHaveCount(0);
+        await thread.evaluate(() => window.__eventSockets.forEach(socket => { socket.onmessage = socket.__forward; }));
+        console.log(`PASS ${engine} transcript gap recovery and explicit-refresh deletion reconciliation`);
+        await closePage(thread);
+        fixture.db.transaction(() => {
+          fixture.db.prepare("UPDATE runs SET state='completed' WHERE id='live'").run();
+          fixture.db.prepare("UPDATE messages SET content='Changed while disconnected' WHERE id='live-answer'").run();
+        }).immediate();
+        await expect(row(done, "Changed while disconnected")).toHaveCount(1, {timeout: revisionTimeout});
 
         // Give HTTP fallback its own database/request budget after the many
         // navigation and streaming probes above; keep the real 600/min limit.
@@ -840,9 +734,8 @@ for (const engine of engines) {
         await closePage(done);
         await fixture.close();
         fixture = undefined;
-        if (dockerDir) process.env.PATH = dockerDir + ":" + priorPath;
         fixture = await cardsFixture(mode, true, { projectedWrites: true });
-        process.env.PATH = priorPath;
+        await fixture.linkCompanion(remote);
         seed(fixture, "Local", 2, 0);
         complete(fixture, "Local");
         if (fixture.browser.cookie) {
@@ -918,7 +811,7 @@ for (const engine of engines) {
         await expect(fallback.locator(".workspace-connection")).toHaveText(
           "Connected to workspace",
         ).catch(error => {
-          console.error("HTTP fallback diagnostic", JSON.stringify({engine,mode,requests:fallbackRequests,limits:fixture.db.prepare("SELECT window,count FROM request_limits WHERE owner_id=?").get(fixture.owner)}));
+          console.error("HTTP fallback diagnostic", JSON.stringify({engine,mode,requests:fallbackRequests}));
           throw error;
         });
         await expect(fallback.locator(".connection-notice")).toHaveCount(0);
@@ -953,7 +846,7 @@ for (const engine of engines) {
         await expect(row(fallback, "Local task")).toHaveCount(1, {
           timeout: 5000,
         }).catch(error => {
-          console.error("HTTP fallback transition diagnostic", JSON.stringify({engine,mode,requests:fallbackRequests,limits:fixture.db.prepare("SELECT window,count FROM request_limits WHERE owner_id=?").get(fixture.owner)}));
+          console.error("HTTP fallback transition diagnostic", JSON.stringify({engine,mode,requests:fallbackRequests}));
           throw error;
         });
         await expect(fallback.locator(".workspace-connection")).toHaveText(
@@ -966,7 +859,6 @@ for (const engine of engines) {
           `PASS ${engine}/${mode}: Working -> Done, retained history, concurrent refresh, reconnect, HTTP fallback health${remote ? ", linked source isolation" : ""}`,
         );
       } finally {
-        process.env.PATH = priorPath;
         for (const page of context?.pages() || []) {
           await drainPageRoutes(page);
           await page.unrouteAll({ behavior: "wait" });
@@ -975,7 +867,6 @@ for (const engine of engines) {
         await context?.close();
         await fixture?.close();
         await remote?.close();
-        if (dockerDir) rmSync(dockerDir, { recursive: true, force: true });
       }
     }
   } finally {

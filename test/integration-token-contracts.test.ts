@@ -45,7 +45,7 @@ const decisionWithoutIdentity: RouteContract = {
 };
 void [transport, fleet, peer, writeWithoutIdentity, decisionWithoutIdentity];
 
-it.each(["server", "companion", "multi-user"] as const)(
+it.each(["companion"] as const)(
   "%s admits the declared read catalog with GET/HEAD, safe projections and owner isolation",
   async (mode) => {
     const f = await cardsFixture(mode);
@@ -157,12 +157,7 @@ it.each(["server", "companion", "multi-user"] as const)(
       for (const method of ["GET", "HEAD"]) {
         const response = await f.request("/api" + path, { method, headers });
         const body = await response.text();
-        const status =
-          name === "nativeDecisions" && mode !== "companion"
-            ? 403
-            : name === "artifactDownload"
-              ? 303
-              : 200;
+        const status = name === "artifactDownload" ? 303 : 200;
         expect(response.status, `${method} ${path}: ${body}`).toBe(status);
         expect(body).not.toContain(sentinel);
         expect(body).not.toContain("integration-fixture-credential");
@@ -207,15 +202,14 @@ it.each(["server", "companion", "multi-user"] as const)(
           path,
         ).toBe(404);
     }
-    if (mode === "companion")
-      expect(
-        (
-          await f.request(
-            `/api/native/decisions?conversation=${foreign.conversation}`,
-            { headers },
-          )
-        ).status,
-      ).toBe(404);
+    expect(
+      (
+        await f.request(
+          `/api/native/decisions?conversation=${foreign.conversation}`,
+          { headers },
+        )
+      ).status,
+    ).toBe(404);
     expect(
       f.db
         .prepare(
@@ -256,7 +250,6 @@ it.each(["server", "companion", "multi-user"] as const)(
       "/fleet/peer/v1/enrollment/probe",
       "/fleet/peer/v1/credentials/challenge",
       "/fleet/peer/v1/credentials/issue",
-      "/auth/sign-up/email",
       "/ui/viewport-diagnostics",
     ]) {
       expect(
@@ -307,40 +300,6 @@ it.each(["server", "companion", "multi-user"] as const)(
       ).status,
     ).toBe(403);
     expect(f.db.prepare("SELECT count(*) n FROM runs").get()).toEqual(before);
-    if (mode === "multi-user") {
-      const signup = await f.request("/api/auth/sign-up/email", {
-        headers: { origin: f.origin },
-        body: {
-          name: "Different owner",
-          email: "other@example.com",
-          password: "integration-other-owner-password",
-        },
-      });
-      expect(signup.status).toBe(200);
-      const cookie = signup.headers
-        .getSetCookie()
-        .map((value) => value.split(";", 1)[0])
-        .join("; ");
-      const response = await f.request("/api/bootstrap", {
-        headers: { ...headers, cookie },
-      });
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.agents.map((agent: { id: string }) => agent.id)).toContain(
-        local.agent,
-      );
-      expect(
-        body.agents.map((agent: { id: string }) => agent.id),
-      ).not.toContain(foreign.agent);
-      expect(
-        (
-          await f.request("/api/card-tokens/" + token.id, {
-            method: "DELETE",
-            headers: { ...f.browser, cookie },
-          })
-        ).status,
-      ).toBe(404);
-    }
     expect(
       (
         await f.request("/api/card-tokens/" + token.id, {
@@ -354,7 +313,7 @@ it.each(["server", "companion", "multi-user"] as const)(
   60000,
 );
 
-it.each(["server", "companion"] as const)(
+it.each(["companion"] as const)(
   "%s keeps management closed and legacy grants separate from read",
   async (mode) => {
     const f = await cardsFixture(mode);
@@ -417,7 +376,7 @@ it.each(["server", "companion"] as const)(
   60000,
 );
 
-it.each(["server", "companion"] as const)(
+it.each(["companion"] as const)(
   "%s qualifies Results/artifact disclosures per token before returning removals",
   async (mode) => {
     const f = await cardsFixture(mode);
@@ -540,7 +499,7 @@ it.each(["server", "companion"] as const)(
   60000,
 );
 
-it.each(["server", "companion"] as const)(
+it.each(["companion"] as const)(
   "%s keeps Results reads and disclosures coherent while a worker tries to commit",
   async (mode) => {
     const f = await cardsFixture(mode);
@@ -577,7 +536,7 @@ it.each(["server", "companion"] as const)(
   60000,
 );
 
-it.each(["server", "companion", "multi-user"] as const)(
+it.each(["companion"] as const)(
   "%s keeps authenticating integration credentials issued under the Loop55 name",
   async (mode) => {
     const f = await cardsFixture(mode);

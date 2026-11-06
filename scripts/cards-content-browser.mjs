@@ -10,7 +10,7 @@ const browser = await chromium.launch({
     : {}),
 });
 try {
-  for (const mode of ["server", "companion"]) {
+  for (const mode of ["companion"]) {
     const fixture = await cardsFixture(mode, true);
     try {
       const { file } = await seedCards(fixture);

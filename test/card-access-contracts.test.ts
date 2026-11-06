@@ -109,7 +109,7 @@ it("keeps the literal Cards admission boundary when paths come from mounted cont
     }
 });
 
-it.each(["server", "companion", "multi-user"] as const)(
+it.each(["companion"] as const)(
   "%s enforces NoBody for raw GET and HEAD through session and both bearer grants",
   async (mode) => {
     const fixture = await cardsFixture(mode);
@@ -179,7 +179,7 @@ it.each(["server", "companion", "multi-user"] as const)(
 );
 
 it("validates detail output before persisting a bearer read receipt", async () => {
-  const fixture = await cardsFixture("server");
+  const fixture = await cardsFixture("companion");
   try {
     const id = await publishCard(fixture);
     const created = await fixture.request("/api/card-tokens", {

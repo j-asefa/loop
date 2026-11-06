@@ -3,7 +3,7 @@ import { workspaceApi } from "../src/shared/workspace-api";
 import { cardTokenRequest } from "../src/shared/card-access";
 import { cardsFixture } from "./helpers/cards-fixture";
 
-it.each(["server", "companion", "multi-user"] as const)(
+it.each(["companion"] as const)(
   "%s groups only explicit mail in its thread, including interrupts into shared running history",
   async (mode) => {
     const fixture = await cardsFixture(mode, false, { projectedWrites: true });

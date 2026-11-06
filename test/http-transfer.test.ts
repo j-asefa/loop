@@ -6,7 +6,7 @@ import { compressResponse } from "../src/http-transfer.js";
 import { cardsFixture } from "./helpers/cards-fixture.js";
 import { rawGet } from "./helpers/raw-http.js";
 
-for (const mode of ["server", "companion"] as const) {
+for (const mode of ["companion"] as const) {
   it(`${mode} compresses authenticated JSON once and keeps it private`, async () => {
     const fixture = await cardsFixture(mode);
     const insert = fixture.db.prepare(
