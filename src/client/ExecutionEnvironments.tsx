@@ -1,7 +1,5 @@
 import { RuntimeSetup } from "./RuntimeSetup";
-import { RuntimeHosts } from "./RuntimeHosts";
 import { Sheet } from "./components";
-import { capabilities } from "./capabilities";
 import type { Connection } from "../shared/types";
 
 export function ExecutionEnvironments({
@@ -13,7 +11,6 @@ export function ExecutionEnvironments({
   onClose: () => void;
   onChange: () => Promise<void>;
 }) {
-  if (!capabilities.nativeHarnesses) return <RuntimeHosts onClose={onClose} />;
   return (
     <Sheet
       className="settings-sheet"

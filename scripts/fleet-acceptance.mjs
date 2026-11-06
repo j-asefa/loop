@@ -955,7 +955,7 @@ try {
     ])
   ).stdout.trim();
   if (values.fixtures) {
-    for (const [name, executable, args, suite] of [
+    for (const [name, executable, args] of [
       ["check", "npm", ["run", "check"]],
       ["build", "npm", ["run", "build"]],
       [
@@ -973,7 +973,6 @@ try {
           "test/workspace-multiplex-client.test.ts",
           "--maxWorkers=1",
         ],
-        "vitest",
       ],
       [
         "native-fixtures",
@@ -990,7 +989,6 @@ try {
           "test/fleet-mail-harness.node.test.ts",
           "test/fleet-acceptance-observations.node.test.ts",
         ],
-        "native",
       ],
       [
         "capacity-and-multiplex-measurements",
@@ -1005,7 +1003,6 @@ try {
           "test/workspace-multiplex.node.test.ts",
           "test/fleet-multiplex-recovery.node.test.ts",
         ],
-        "native",
       ],
       [
         "source-feed-chromium",
@@ -1022,7 +1019,7 @@ try {
       ["package", "npm", ["run", "smoke:package"]],
     ])
       await step(name, async () => {
-        const env = testEnvironment(cleanEnv, suite);
+        const env = testEnvironment(cleanEnv);
         if (name === "webkit" || name === "source-feed-webkit")
           env.LOOP_BROWSER = "webkit";
         await command(name, executable, args, {

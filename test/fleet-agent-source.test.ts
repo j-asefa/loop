@@ -53,7 +53,6 @@ import { contractDoneThreadReader } from "../src/shared/done-thread-client.js";
 import { DONE_THREAD_PAGE_BYTES } from "../src/shared/done-threads.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-source-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = join(root, "destination");
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 mkdirSync(process.env.LOOP_DATA_DIR);
@@ -658,9 +657,7 @@ it("discovers only this Host's enrolled peers without contact and projects their
   const capabilities = await browser(prefix + "/capabilities");
   expect(capabilities.status).toBe(200);
   expect(capabilities.body).toMatchObject({
-    profile: "companion",
     pairedDevices: false,
-    runtimeHosts: false,
     cardTokens: false,
     fleet: {
       version: 1,

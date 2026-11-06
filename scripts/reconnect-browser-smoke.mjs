@@ -70,7 +70,7 @@ await copyFile("test/harness.mjs", fixture);
 await chmod(fixture, 0o755);
 await chmod("test/fixtures/fake-cloudflared.mjs", 0o755);
 const env = {
-  ...testEnvironment(process.env, "native"),
+  ...testEnvironment(process.env),
   LOOP_HOME: join(base, "state"),
   LOOP_TEST_HARNESS: "codex",
   LOOP_TEST_CLOUDFLARED: resolve("test/fixtures/fake-cloudflared.mjs"),

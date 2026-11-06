@@ -36,7 +36,6 @@ function worker(dir: string, extraEnv: NodeJS.ProcessEnv = {}) {
     execArgv: [],
     env: {
       ...process.env,
-      LOOP_PROFILE: "companion",
       LOOP_DATA_DIR: dir,
       ...extraEnv,
     },
@@ -227,7 +226,6 @@ test("compiled API imports leave upgrade recovery to the locked execution owner"
       {
         env: {
           ...process.env,
-          LOOP_PROFILE: "companion",
           LOOP_DATA_DIR: dir,
         },
         timeout: 15_000,
@@ -583,7 +581,6 @@ test(
       {
         env: {
           ...process.env,
-          LOOP_PROFILE: "companion",
           LOOP_DATA_DIR: dir,
         },
         timeout: 10_000,
@@ -644,7 +641,6 @@ test(
         {
           env: {
             ...process.env,
-            LOOP_PROFILE: "companion",
             LOOP_DATA_DIR: dir,
           },
           timeout: 15_000,
@@ -734,7 +730,6 @@ test(
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       env: {
         ...process.env,
-        LOOP_PROFILE: "companion",
         LOOP_DATA_DIR: dir,
         LOOP_TEST_HARNESS: "codex",
         LOOP_TEST_AUDIT: audit,
@@ -994,7 +989,6 @@ test(
                   ([key]) => !key.startsWith("LOOP_"),
                 ),
               ),
-              LOOP_PROFILE: "companion",
               LOOP_DATA_DIR: dir,
             },
             timeout: 30_000,

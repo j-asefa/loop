@@ -1,12 +1,17 @@
 import { boundSourceCapabilities } from "./fleetCapabilities";
 import { readRoute } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
-import { profileCapabilities, type Capabilities } from "../shared/capabilities";
+import {
+  workspaceCapabilities,
+  type Capabilities,
+} from "../shared/capabilities";
 import { executionSourceId, returnToLocalSource } from "./sourceRouting";
-export let capabilities: Capabilities = profileCapabilities("server");
-export let eventMultiplexing = false;
+// Device administration remains unavailable until gateway capabilities load.
+export let capabilities: Capabilities = {
+  ...workspaceCapabilities(),
+  pairedDevices: false,
+};
 export async function loadCapabilities() {
-  eventMultiplexing = false;
   const source = executionSourceId();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
@@ -27,14 +32,12 @@ export async function loadCapabilities() {
       undefined,
       source.startsWith("peer:") ? "manual" : "automatic",
     );
-    eventMultiplexing = !!(gateway ?? capabilities).eventMultiplex;
     if (gateway)
       capabilities = { ...capabilities, pairedDevices: gateway.pairedDevices };
   } catch (error) {
     const status = (error as { status?: number }).status;
     if (source.startsWith("peer:")) {
       if (!gateway) throw error;
-      eventMultiplexing = !!gateway.eventMultiplex;
       capabilities = {
         ...boundSourceCapabilities(source)!,
         pairedDevices: gateway.pairedDevices,
@@ -49,7 +52,6 @@ export async function loadCapabilities() {
           "",
           controller.signal,
         );
-        eventMultiplexing = !!capabilities.eventMultiplex;
       } catch (localError) {
         if (!(localError as { status?: number }).status) throw localError;
       }

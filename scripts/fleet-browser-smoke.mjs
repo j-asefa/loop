@@ -59,8 +59,7 @@ async function machine(name) {
     execArgv: [],
     silent: true,
     env: {
-      ...testEnvironment(process.env, "native"),
-      LOOP_PROFILE: "companion",
+      ...testEnvironment(process.env),
       LOOP_DATA_DIR: dir,
       LOOP_TEST_HARNESS: "codex",
       FLEET_FIXTURE_ORIGIN: origin,

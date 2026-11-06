@@ -1,6 +1,5 @@
 import * as foldersQueries from "./sql/folders.js";
 import * as agentsQueries from "./sql/agents.js";
-import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
 import type { FleetGrantContext } from "../shared/fleet.js";
@@ -69,11 +68,7 @@ export class FleetWorkspaceUploads {
     this.unobserve = authority.observe(owner, () => this.clear());
   }
   private active() {
-    if (
-      this.stopped ||
-      (profileQueries.current(this.db) as { profile: string } | undefined)
-        ?.profile !== "companion"
-    )
+    if (this.stopped)
       throw new ExecutionRefused(
         403,
         "This workspace does not admit fleet uploads.",

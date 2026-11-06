@@ -145,21 +145,18 @@ try {
     setShellSource(peer); setViewOwner("fixture-owner");
     const root = createRoot(document.getElementById("root"));
     window.fixture = mode => root.render(React.createElement(SourceProvider, {sourceId:peer, capabilities:{
-      profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
-      fleet:{version:1,machineId:mode === "wrong-machine" ? "m_"+"2".repeat(64) : peer.slice(5),
+      pairedDevices:false,fleet:{version:1,machineId:mode === "wrong-machine" ? "m_"+"2".repeat(64) : peer.slice(5),
         reads:["nativeDecisions"], actions:mode === "read-only" ? [] : ["nativeAnswer"],files:false,events:false},
     }},React.createElement(NativeDecisions,{conversation:${JSON.stringify(conversation)}})));
     window.fixture("read-only");
     let sharedDraft = {url:"",title:"",excerpt:"fixture-private-share",question:"@share-agent inspect",folderId:""};
     window.share = (mode, source=peer) => root.render(React.createElement(SourceProvider, {sourceId:source, capabilities:{
-      profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
-      fleet:{version:1,machineId:source.slice(5),reads:["sharePreview"],actions:mode === "read-only" ? [] : ["shareSend","agentCreate"],files:false,events:false}
+      pairedDevices:false,fleet:{version:1,machineId:source.slice(5),reads:["sharePreview"],actions:mode === "read-only" ? [] : ["shareSend","agentCreate"],files:false,events:false}
     }},React.createElement(ShareSheet, {draft:sharedDraft,setDraft:next=>{sharedDraft=next;window.share(mode,source)},folders:[],agents:[],onCreate:()=>{},onClose:()=>{},onSent:()=>{window.sharedSent=true}})));
     window.files = (source=peer,owner="fixture-owner") => {
       setViewOwner(owner);
       root.render(React.createElement(SourceProvider,{sourceId:source,capabilities:{
-        profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
-        fleet:{version:1,machineId:source.slice(5),reads:[],actions:[],files:true,events:false},
+        pairedDevices:false,fleet:{version:1,machineId:source.slice(5),reads:[],actions:[],files:true,events:false},
       }},React.createElement(AttachmentList,{files:[{id:${JSON.stringify(artifactId)},objectId:${JSON.stringify(objectId)},name:"fleet-fixture.txt",mime:"text/plain",size:20}]})));
     };
     window.filelink = (source=peer,owner="fixture-owner") => {
@@ -169,13 +166,11 @@ try {
     window.uploads = (mode="enabled",source=peer,owner="fixture-upload-owner") => {
       setViewOwner(owner);
       root.render(React.createElement(SourceProvider,{sourceId:source,capabilities:{
-        profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
-        fleet:{version:1,machineId:source.slice(5),reads:[],actions:mode === "enabled" ? ["uploadCreate"] : [],files:true,events:false},
+        pairedDevices:false,fleet:{version:1,machineId:source.slice(5),reads:[],actions:mode === "enabled" ? ["uploadCreate"] : [],files:true,events:false},
       }},React.createElement(UploadButton,{onUploaded:file=>{window.uploadedFile=file}})));
     };
     window.models = () => root.render(React.createElement(SourceProvider, {sourceId:peer, capabilities:{
-      profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
-      fleet:{version:1,machineId:peer.slice(5),reads:[],actions:[],files:false,events:false},
+      pairedDevices:false,fleet:{version:1,machineId:peer.slice(5),reads:[],actions:[],files:false,events:false},
     }},React.createElement(AgentModelSettings,{
       agent:{id:"fixture",name:"fixture",model:"fixture",connection_id:"fixture"},connections:[],
       onSaved:()=>{throw new Error("Read-only model picker saved")},
@@ -184,8 +179,7 @@ try {
     window.createFleetAgent = mode => {
       setViewOwner("fixture-create-owner");
       const capabilities = {
-        profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
-        fleet:{version:1,machineId:mode === "wrong-machine" ? "m_"+"2".repeat(64) : peer.slice(5),
+        pairedDevices:false,fleet:{version:1,machineId:mode === "wrong-machine" ? "m_"+"2".repeat(64) : peer.slice(5),
           reads:["agentSuggestName","connectionModels"],actions:mode === "read-only" ? [] : ["agentCreate"],files:false,events:false},
       };
       const connection = {id:${JSON.stringify(createConnection)},provider:"openai",label:"Peer account",status:"connected",
@@ -203,8 +197,7 @@ try {
     window.mail = (reader=false, owner="fixture-mail-owner") => {
       setViewOwner(owner); setShellSource(peer); window.openedMail = null;
       const capabilities = {
-        profile:"companion", nativeHarnesses:true, pairedDevices:false, runtimeHosts:false, localProjects:true,
-        fleet:{version:1, machineId:peer.slice(5), reads:["agentMail","agentThreadDetail"], actions:[], files:true, events:false},
+        pairedDevices:false, fleet:{version:1, machineId:peer.slice(5), reads:["agentMail","agentThreadDetail"], actions:[], files:true, events:false},
       };
       const view = reader
         ? React.createElement(AgentThreadReader, {

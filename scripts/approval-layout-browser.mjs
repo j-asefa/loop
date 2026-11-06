@@ -46,12 +46,6 @@ for (const engine of selectedEngines()) {
             .prepare("DELETE FROM request_limits WHERE owner_id=?")
             .run(fixture.owner);
       });
-      await page.route("**/api/capabilities", async (route) => {
-        const response = await route.fetch();
-        await route.fulfill({
-          json: { ...(await response.json()), nativeHarnesses: true },
-        });
-      });
       await page.route("**/api/bootstrap", async (route) => {
         const response = await route.fetch();
         assert(

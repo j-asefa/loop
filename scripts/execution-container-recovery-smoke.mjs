@@ -89,8 +89,6 @@ try {
     "none",
     ...mounted,
     "--env",
-    "LOOP_PROFILE=companion",
-    "--env",
     "LOOP_DATA_DIR=/data/workspace",
     "--entrypoint",
     "node",

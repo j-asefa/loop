@@ -1,5 +1,5 @@
 import type { Capabilities } from "../shared/capabilities";
-import { profileCapabilities } from "../shared/capabilities";
+import { workspaceCapabilities } from "../shared/capabilities";
 import {
   fleetReadRoutes,
   isFleetReadContract,
@@ -34,9 +34,8 @@ export function boundSourceCapabilities(source: string, value?: Capabilities) {
   if (!source.startsWith("peer:")) return value;
   if (value?.fleet?.machineId === source.slice(5)) return value;
   return {
-    ...profileCapabilities("companion"),
+    ...workspaceCapabilities(),
     pairedDevices: false,
-    runtimeHosts: false,
     cardTokens: false,
     continuationStart: false,
     fleet: {

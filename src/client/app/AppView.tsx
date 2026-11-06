@@ -585,7 +585,7 @@ export function renderApp(props: AppViewProps) {
             agents={data.agents}
             connections={data.connections}
           />
-          {capabilities.profile === "companion" && !data.preview && (
+          {!data.preview && (
             <WhenFleetAvailable>
               <button
                 className="text-button"
@@ -930,7 +930,6 @@ export function renderApp(props: AppViewProps) {
           folders={data.folders}
           initialTeam={reviewTarget?.team}
           initialFolder={reviewTarget?.folder}
-          local={capabilities.localProjects}
           onClose={closeSheet}
           onCreateTeam={() => {
             setTeamPreset("code-review");

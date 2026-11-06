@@ -1,6 +1,5 @@
 import * as objectsQueries from "./sql/objects.js";
 import * as artifactsQueries from "./sql/artifacts.js";
-import * as profileQueries from "./sql/deployment-profile.js";
 import * as runsQueries from "./sql/runs.js";
 import type Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
@@ -82,11 +81,7 @@ export class FleetWorkspaceFiles {
     }
   }
   private authorize(credential: string): Admission {
-    if (
-      this.stopped ||
-      (profileQueries.current(this.db) as { profile: string } | undefined)
-        ?.profile !== "companion"
-    )
+    if (this.stopped)
       throw new Problem(403, "This workspace does not admit fleet files.");
     const accepted = this.credentials.authenticate(credential);
     if (accepted.owner !== this.owner || accepted.context.operation !== "files")

@@ -2,7 +2,6 @@ import * as agentsQueries from "./sql/agents.js";
 import * as agentThreadsQueries from "./sql/agent-threads.js";
 import * as agentThreadMembersQueries from "./sql/agent-thread-members.js";
 import * as fleetMailThreadsQueries from "./sql/fleet-mail-threads.js";
-import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { MachineId } from "../shared/fleet.js";
@@ -52,10 +51,7 @@ export class FleetMailBindings {
     private readonly owner: string,
   ) {}
   private current(binding: FleetMailThreadBinding) {
-    const profile = profileQueries.current(this.db) as
-      { profile: string } | undefined;
-    if (profile?.profile !== "companion" || binding.owner_id !== this.owner)
-      throw refusal();
+    if (binding.owner_id !== this.owner) throw refusal();
     const directory = this.authority.directory(this.owner)?.document;
     const local = directory?.members.find(
       (m) => m.machineId === this.authority.identity.machineId,

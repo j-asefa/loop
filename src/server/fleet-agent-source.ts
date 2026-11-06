@@ -397,7 +397,6 @@ export function fleetAgentSource(
               Capabilities.parse({
                 ...capabilities,
                 pairedDevices: false,
-                runtimeHosts: false,
                 cardTokens: false,
                 continuationStart:
                   !!actions &&

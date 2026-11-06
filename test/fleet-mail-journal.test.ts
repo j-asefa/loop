@@ -26,7 +26,6 @@ import {
 import type { FleetGrantContext, FleetOperation } from "../src/shared/fleet.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-mail-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = root;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
@@ -451,8 +450,6 @@ it("binds every chunk to current owner, profile, peer, reservation and immutable
       url: "https://agent-selected.example/private",
     }),
   ).toThrow();
-  b.db.prepare("UPDATE deployment_profile SET profile='server'").run();
-  expect(() => f.files.stage(f.grant, f.chunk())).toThrow();
   expect(b.db.prepare("SELECT count(*) n FROM fleet_mail_files").get()).toEqual(
     { n: 0 },
   );
@@ -1190,8 +1187,4 @@ it("uses canonical source-qualified addresses and refuses relay, path and oversi
     FleetMailEnvelope.safeParse({ ...value, body: "\u0000".repeat(12000) })
       .success,
   ).toBe(false);
-  b.db.prepare("UPDATE deployment_profile SET profile='server'").run();
-  expect(() =>
-    b.journal.accept(context(a, b), value, (mail) => admit(b, mail)),
-  ).toThrow();
 });

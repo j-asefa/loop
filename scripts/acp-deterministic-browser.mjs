@@ -14,7 +14,6 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 const dir = await mkdtemp(join(tmpdir(), "loop-deterministic-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_HARNESS = "codex";
 const { WorkspaceHost } = await import("../dist/workspace-host.js");

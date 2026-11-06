@@ -140,7 +140,6 @@ export class ExecutionProcess
             execArgv: source ? ["--import", "tsx"] : [],
             env: {
               ...process.env,
-              LOOP_PROFILE: "companion",
               LOOP_DATA_DIR: config.data,
             },
             detached: true,

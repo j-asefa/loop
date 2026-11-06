@@ -31,7 +31,7 @@ on each operation as `x-scopes`. An omitted admission means session-only access.
 Transport, peer and fleet routes never admit integration credentials. The
 bootstrap projection includes public connection labels, models and status;
 connection management and credentials remain unavailable to tokens. Native
-decisions are available only where the companion profile mounts that route.
+decisions use the companion’s owner-scoped routes.
 
 Write authority includes each mutation's public response: submit and move return
 current run content, including when submit steers existing work, and withdraw
@@ -224,9 +224,9 @@ with 409. Updating kinds affects future stops, while already queued deliveries
 retain their identity and payload. To change a receiver URL, revoke it and add a
 new receiver. Revocation is terminal.
 
-| Installation       | Receiver destinations                                                                                            |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| Companion          | HTTP or HTTPS on any port for loopback, RFC 1918 and IPv6 unique-local addresses; public addresses require HTTPS |
+| Installation | Receiver destinations                                                                                            |
+| ------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Companion    | HTTP or HTTPS on any port for loopback, RFC 1918 and IPv6 unique-local addresses; public addresses require HTTPS |
 
 All installations reject embedded URL credentials, fragments, link-local,
 unspecified, multicast and other non-public special address classes. IPv4-mapped

@@ -55,13 +55,15 @@ companion creates no fleet machine identity, mounts none of the
 either way. The rest of this section applies only to companions started with
 `--fleet`.
 
+Run the same Loop build on every fleet member. Mixed-build fleets are unsupported;
+catalogs are validated against the current build's strict signed contract.
+
 Companion gateways expose a dedicated [fleet protocol](fleet-openapi.json)
 at fixed `/api/fleet/peer/v1/` endpoints. Enrollment accepts machine proofs
 and the one-time enrollment capability, never a browser cookie, Cards token or
 local-administration credential. The destination binds consent to its own local
 owner. A signed receipt query resolves a lost response without repeating the
-effect; enrollment never creates a device cookie for a peer. Previews and
-server-profile applications do not expose this companion protocol.
+effect; enrollment never creates a device cookie for a peer. Isolated previews do not expose this protocol.
 
 The `directory/` endpoints exchange signed history and acknowledgements under
 existing local grants. The `handoff/` endpoints accept an old controller's exact

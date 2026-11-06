@@ -1,12 +1,12 @@
 import { expect, it, vi } from "vitest";
 import { useComposerSend } from "../src/client/app/Composer";
 import { workspaceApi } from "../src/shared/workspace-api";
-import { profileCapabilities } from "../src/shared/capabilities";
+import { workspaceCapabilities } from "../src/shared/capabilities";
 import { fleetComposerReason } from "../src/client/fleetCapabilities";
 
 const peer = "peer:m_" + "1".repeat(64);
 const withoutPreviews = {
-  ...profileCapabilities("companion"),
+  ...workspaceCapabilities(),
   fleet: {
     version: 1 as const,
     machineId: peer.slice(5),

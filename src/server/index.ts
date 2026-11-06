@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { assetCacheControl, compressResponse } from "../http-transfer.js";
-import { capabilities } from "./profile.js";
+import { workspaceCapabilities } from "../shared/capabilities.js";
 import { companion } from "./companion-routes.js";
 import { OWNER } from "./native-sessions.js";
 import { listRuns } from "./run-attention.js";
@@ -137,7 +137,7 @@ app.use("/api", (req, res, next) => {
 });
 const appCapabilities = registrar("app", { prefix: "/api", automaticOptions: false });
 mountRoutes(app, appCapabilities.mount);
-appCapabilities.on(workspaceApi.capabilities, (_req, res) => res.json({ ...capabilities, cardTokens: !designPreview }), { middleware: [express.json({ limit: "12mb" })] });
+appCapabilities.on(workspaceApi.capabilities, (_req, res) => res.json({ ...workspaceCapabilities(), cardTokens: !designPreview }), { middleware: [express.json({ limit: "12mb" })] });
 const appAuth = registrar("app", { prefix: "/api", automaticOptions: false });
 // Host authorizes devices, origins and CSRF before forwarding to this app.
 app.use((_req, res, next) => {

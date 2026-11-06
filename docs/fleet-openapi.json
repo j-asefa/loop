@@ -10065,10 +10065,6 @@
                 "type": "string",
                 "pattern": "^[a-f0-9]{64}$"
               },
-              "profile": {
-                "type": "string",
-                "const": "companion"
-              },
               "reads": {
                 "maxItems": 100,
                 "type": "array",
@@ -10100,7 +10096,6 @@
               "requestId",
               "machineId",
               "directory",
-              "profile",
               "reads",
               "actions",
               "events",

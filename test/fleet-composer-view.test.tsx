@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { renderApp } from "../src/client/app/AppView";
 import type { AppViewProps } from "../src/client/app/AppViewProps";
 import { fleetOperationReason } from "../src/client/fleetCapabilities";
-import { profileCapabilities } from "../src/shared/capabilities";
+import { workspaceCapabilities } from "../src/shared/capabilities";
 import { workspaceApi } from "../src/shared/workspace-api";
 
 // Keep the actual AppView -> composer path. Navigation and thread loading are
@@ -23,7 +23,7 @@ it.each(["read-only", "unavailable", "writable"])(
     vi.stubGlobal("window", {});
     vi.stubGlobal("navigator", { onLine: true });
     const capabilities = {
-      ...profileCapabilities("companion"),
+      ...workspaceCapabilities(),
       fleet: {
         version: 1 as const,
         machineId:

@@ -13,7 +13,6 @@ export function StartCodeReview({
   folders,
   initialTeam,
   initialFolder,
-  local,
   onClose,
   onStarted,
   onCreateTeam,
@@ -22,7 +21,6 @@ export function StartCodeReview({
   folders: Folder[];
   initialTeam?: string;
   initialFolder?: string;
-  local: boolean;
   onClose: () => void;
   onStarted: (conversation: string) => void;
   onCreateTeam: () => void;
@@ -49,12 +47,6 @@ export function StartCodeReview({
         credentials, generated output, binary and oversized files are omitted
         and listed in the result. No tests are run.
       </p>
-      {!local && (
-        <p role="status">
-          Open the laptop workspace running beside your repository to capture
-          local changes.
-        </p>
-      )}
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -156,10 +148,7 @@ export function StartCodeReview({
             {error}
           </p>
         )}
-        <button
-          className="primary"
-          disabled={busy || !local || !teamId || !folderId}
-        >
+        <button className="primary" disabled={busy || !teamId || !folderId}>
           {busy ? "Capturing changes…" : "Start review"}
         </button>
       </form>

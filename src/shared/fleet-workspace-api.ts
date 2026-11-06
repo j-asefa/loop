@@ -182,13 +182,14 @@ export const FleetReadResponse = z.strictObject({
   clock: WorkspaceClock.optional(),
 });
 export type FleetReadResponse = z.infer<typeof FleetReadResponse>;
+// Fleet members use the same Loop build and fresh installations (AGENTS.md).
+// The signed catalog has one current shape, without deployment-profile fields.
 export const FleetWorkspaceCatalog = z.strictObject({
   ...ResponseIdentity,
   version: z.literal(1),
   requestId: z.string().uuid(),
   machineId: MachineId,
   directory: FleetDigest,
-  profile: z.literal("companion"),
   // Unknown names from a newer peer grant no route. Keep compatible known reads.
   reads: z.array(z.string().regex(/^[a-z][a-zA-Z0-9]{0,99}$/)).max(100),
   actions: z.array(z.string().max(100)).max(100),

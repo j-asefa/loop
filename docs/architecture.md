@@ -10,7 +10,6 @@ Loop has one React UI, workspace API and SQLite migration set. The companion wor
 | Companion host, worker ownership and device authorization | [workspace-host.ts](../src/workspace-host.ts), [host.ts](../src/host.ts), [device pairing](../src/server/device-pairing.ts)                                                                                                                                                                       |
 | Agent-source discovery and paired proxy                   | [agent-sources.ts](../src/agent-sources.ts)                                                                                                                                                                                                                                                       |
 | Workspace app and worker                                  | [index.ts](../src/server/index.ts), [worker.ts](../src/server/worker.ts)                                                                                                                                                                                                                          |
-| Profile                                                   | [profile.ts](../src/server/profile.ts)                                                                                                                                                                                                                                                            |
 | Queue and managed model/tool loop                         | [queue.ts](../src/server/queue.ts), [agent-runtime.ts](../src/server/agent-runtime.ts)                                                                                                                                                                                                            |
 | Legacy native history and compatibility                   | [native-sessions.ts](../src/server/native-sessions.ts), [adapters](../src/adapters)                                                                                                                                                                                                               |
 | Native execution                                          | [native-sessions](../src/server/native-sessions.ts), [adapters](../src/adapters), [subscriptions](../src/server/subscriptions.ts)                                                                                                                                                                 |
@@ -129,7 +128,7 @@ switches to ordinary synchronization.
 
 The companion's `/api/fleet/admin/` routes require its authenticated local device
 session, current Origin/CSRF checks and a live device authorization before
-dispatch. Cards tokens, peer proofs, previews and server profiles cannot enter
+dispatch. Cards tokens, peer proofs and previews cannot enter
 that boundary. The requesting device cannot nominate another local owner.
 Create/recover, enrollment, removal, self-address repair and handoff use explicit
 confirmation, expected directory heads and durable operation identities. Source
@@ -206,7 +205,7 @@ the old stream. Each source retains its own epoch, cursor and capability metadat
 The last viewer releases that upstream. At most 24 peer event connections are
 active in one gateway; additional sources use the existing bounded read fallback.
 
-Companion pages negotiate `eventMultiplex` and open one authenticated browser
+Companion pages open one authenticated browser
 socket at `/api/events/multiplex/ws`. Its source-qualified envelopes feed the
 existing client projections rather than another Feed store. The gateway keeps at
 most 128 source entries, 1,024 logical viewers and 128 subscriptions per browser.
@@ -630,7 +629,7 @@ Explicit pre-dispatch refusals release the command for retry because no native e
 
 The webhook outbox records `run.stopped` deliveries with the run transition and its change-log ID in one transaction. Activated and failed subscriptions retain one delivery identity per transition; failed subscriptions keep accumulating a backlog. The worker’s maintenance pass shares scheduling with Web Push while each delivery path keeps its own tables, claims and retry policy. Webhooks use sealed signing secrets, fenced leases, installation-dependent destination checks, same-identity retry and visible exhaustion in Settings; [Integration API](cards-api.md#outbound-webhooks) defines activation, payloads and receiver verification.
 
-The signed-in UI consumes an authenticated event stream for each execution source. Companion pages use the gateway multiplex transport described above when available; server-profile clients retain `/api/events/ws`. The paired host also retains `/ws` for older clients and forwards source event connections through its discovery and device authorization boundary. Integration tokens cannot open these connections. Owner-scoped change-log cursors notify projections when committed data changes, including saves, dismissals, metadata, mail, Social and pull-request state. The API observes the shared SQLite database so updates from a separate worker are included.
+The signed-in UI consumes an authenticated event stream for each execution source. Companion pages use the gateway multiplex transport described above. The paired host also retains `/ws` for older clients and forwards source event connections through its discovery and device authorization boundary. Integration tokens cannot open these connections. Owner-scoped change-log cursors notify projections when committed data changes, including saves, dismissals, metadata, mail, Social and pull-request state. The API observes the shared SQLite database so updates from a separate worker are included.
 
 Read integration tokens use the separate WebSocket channel `/api/events/stream` and the existing HTTP event page. The token socket shares the browser's v3 drain and frame serialization; each token persists only its confirmed epoch/cursor and the current connection identity. Offered frames remain connection-local until an acknowledgement on the same socket. Both listeners own and close their token sockets during shutdown, including the companion behind its Unix-socket relay. See [Integration API events](cards-api.md#event-pages-and-streaming) for replay, reset, byte limits and idle revocation.
 
@@ -678,7 +677,7 @@ Records are bounded, versioned and keyed by producer identity. Sequence/revision
 
 ## Memory, tools and files
 
-Workspace MCP connections belong to the owner and are shared by that owner's agents. Broker dispatch checks discovery, schema, ownership, connection and approval state. Command MCPs run as local subprocesses of the companion; the server profile refuses them. Rich MCP Apps run in isolated iframes. See [workspace](workspace.md).
+Workspace MCP connections belong to the owner and are shared by that owner's agents. Broker dispatch checks discovery, schema, ownership, connection and approval state. Command MCPs run as local subprocesses of the companion. Rich MCP Apps run in isolated iframes. See [workspace](workspace.md).
 
 Search supports keyword and optional semantic indexing. Managed native recall uses [memory.ts](../src/server/memory.ts) and the optional MemSearch service; laptop startup can run without it. Artifact content and versions remain live during streaming, but artifact search indexes retain their last indexed snapshot until the partial flag clears; failed or paused partial drafts retain that snapshot until finalized. Results revisions likewise skip repeated partial updates. Scope, inclusion, revision and tombstone checks apply again before returning indexed candidates. Recall is untrusted historical evidence, never current authorization. Versioned notes and an outbox preserve update ordering.
 

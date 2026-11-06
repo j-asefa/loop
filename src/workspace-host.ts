@@ -1,4 +1,3 @@
-import { companionMode } from "./server/profile.js";
 import {
   executionClient,
   executionRequest,
@@ -100,10 +99,6 @@ export class WorkspaceHost {
     },
     private execution: ExecutionLifecycle = new ExecutionProcess(),
   ) {
-    if (!companionMode)
-      throw new Error(
-        "WorkspaceHost requires LOOP_PROFILE=companion before loading the application",
-      );
     // Identity survives URL changes and application restarts. This does not
     // create fleet membership or grant peer access. The separate enrollment
     // protocol below verifies destination consent before installing a binding.

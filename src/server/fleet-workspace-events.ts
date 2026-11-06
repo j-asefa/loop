@@ -1,4 +1,3 @@
-import * as profileQueries from "./sql/deployment-profile.js";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
@@ -50,11 +49,7 @@ export class FleetWorkspaceEvents {
     });
   }
   private authorize(token: string) {
-    if (
-      this.stopped ||
-      (profileQueries.current(this.db) as { profile: string } | undefined)
-        ?.profile !== "companion"
-    )
+    if (this.stopped)
       throw new Problem(403, "This workspace does not admit fleet events.");
     const result = this.credentials.authenticate(token);
     if (result.owner !== this.owner || result.context.operation !== "events")

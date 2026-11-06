@@ -9,7 +9,6 @@ it("waits for another startup migration, then restores the normal write timeout"
   const dir = mkdtempSync(join(tmpdir(), "loop-migration-lock-"));
   const env = {
     ...process.env,
-    LOOP_PROFILE: "server",
     LOOP_DATA_DIR: dir,
   };
   let locked: Database.Database | undefined;
@@ -68,9 +67,8 @@ it("waits for another startup migration, then restores the normal write timeout"
   }
 }, 20000);
 
-// Ported from the deleted server-entrypoint access suite: the database itself
-// enforces the profile binding and refuses pre-unification layouts.
-function openDatabase(dir: string, profile: "server" | "companion") {
+// The production database entry refuses pre-unification layouts.
+function openDatabase(dir: string) {
   try {
     execFileSync(
       process.execPath,
@@ -82,7 +80,7 @@ function openDatabase(dir: string, profile: "server" | "companion") {
         "const {db}=await import('./src/server/db.ts');db.close();",
       ],
       {
-        env: { ...process.env, LOOP_PROFILE: profile, LOOP_DATA_DIR: dir },
+        env: { ...process.env, LOOP_DATA_DIR: dir },
         stdio: ["ignore", "ignore", "pipe"],
       },
     );
@@ -92,23 +90,6 @@ function openDatabase(dir: string, profile: "server" | "companion") {
   }
 }
 
-it("data directories cannot cross authorization profiles", () => {
-  for (const [first, second] of [
-    ["server", "companion"],
-    ["companion", "server"],
-  ] as const) {
-    const dir = mkdtempSync(join(tmpdir(), "loop-profile-binding-"));
-    try {
-      expect(openDatabase(dir, first)).toBe("");
-      expect(openDatabase(dir, second)).toContain(
-        `belongs to the ${first} profile`,
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
-}, 30000);
-
 it("rejects pre-unification databases before migrating them", () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-pre-unification-"));
   try {
@@ -117,7 +98,7 @@ it("rejects pre-unification databases before migrating them", () => {
       "CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL); INSERT INTO schema_version VALUES(1,0)",
     );
     database.close();
-    expect(openDatabase(dir, "companion")).toContain(
+    expect(openDatabase(dir)).toContain(
       "Pre-unification databases are unsupported",
     );
     const unchanged = new Database(join(dir, "loop.db"));

@@ -31,7 +31,6 @@ import type {
 } from "../src/shared/fleet.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-authority-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = root;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
@@ -565,22 +564,13 @@ it("rolls back directory acceptance and grant changes together on storage failur
   expect(b.authority.authorize(context(b, a)).owner).toBe(b.owner);
 });
 
-it("refuses server profiles and preview isolation before creating a fleet identity", () => {
-  for (const preview of [false, true]) {
-    const db = new Database(":memory:");
-    databases.push(db);
-    applyMigrations(db);
-    db.prepare("INSERT INTO deployment_profile VALUES(1,?)").run(
-      preview ? "companion" : "server",
-    );
-    expect(
-      () => new FleetAuthority(db, secrets, { isolated: preview }),
-    ).toThrow();
-    expect(db.prepare("SELECT * FROM fleet_machine_identity").all()).toEqual(
-      [],
-    );
-    expect(db.prepare("SELECT * FROM fleet_binding").all()).toEqual([]);
-  }
+it("refuses preview isolation before creating a fleet identity", () => {
+  const db = new Database(":memory:");
+  databases.push(db);
+  applyMigrations(db);
+  expect(() => new FleetAuthority(db, secrets, { isolated: true })).toThrow();
+  expect(db.prepare("SELECT * FROM fleet_machine_identity").all()).toEqual([]);
+  expect(db.prepare("SELECT * FROM fleet_binding").all()).toEqual([]);
 });
 
 it("records a destination intent before dispatch, projects safe results, and deduplicates across gateways", async () => {
@@ -688,7 +678,6 @@ it("never replays an effect when its process exits before recording completion",
       timeout: 15000,
       env: {
         ...env,
-        LOOP_PROFILE: "companion",
         LOOP_DATA_DIR: root,
         LOOP_ENCRYPTION_KEY: process.env.LOOP_ENCRYPTION_KEY,
       },

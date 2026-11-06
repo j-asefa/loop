@@ -5,8 +5,6 @@
 // once listening; the caller pairs and seeds connections and data itself.
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-
-process.env.LOOP_PROFILE = "companion";
 await import("../test/helpers/install");
 const { WorkspaceHost } = await import("../src/workspace-host");
 const dir = process.env.LOOP_DATA_DIR;

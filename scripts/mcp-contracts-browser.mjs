@@ -137,7 +137,6 @@ for (const engine of selectedEngines()) {
       {
         env: {
           ...(await isolatedBrowserEnv()),
-          LOOP_PROFILE: "companion",
           LOOP_DATA_DIR: dirname(fixture.db.name),
         },
         input: JSON.stringify({

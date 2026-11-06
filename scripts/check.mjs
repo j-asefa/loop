@@ -34,7 +34,7 @@ const steps = [
       "**/.tmp/**",
       ...tests,
     ],
-    testEnvironment(process.env, "vitest"),
+    testEnvironment(process.env),
   ],
 ];
 

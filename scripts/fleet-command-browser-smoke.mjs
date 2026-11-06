@@ -91,11 +91,7 @@ try {
     }
     if (req.url === "/api/capabilities" && req.method === "GET") {
       reply(200, {
-        profile: "companion",
-        nativeHarnesses: true,
         pairedDevices: true,
-        runtimeHosts: false,
-        localProjects: true,
       });
       return;
     }

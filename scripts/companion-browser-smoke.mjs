@@ -1,5 +1,4 @@
 import { chooseAgentModel, openAgentModelOptions } from "./helpers/agent-model-options.mjs";
-process.env.LOOP_PROFILE = "companion";
 import { chromium, webkit, expect } from "@playwright/test";
 import { mkdtemp, rm, mkdir, chmod, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

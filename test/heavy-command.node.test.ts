@@ -86,7 +86,7 @@ test(
       join(project, "node_modules/vitest/vitest.mjs"),
       `
     import { writeFileSync } from "node:fs";
-    writeFileSync("observed.json", JSON.stringify({ profile: process.env.LOOP_PROFILE,
+    writeFileSync("observed.json", JSON.stringify({
       live: process.env.LOOP_DATA_DIR, keep: process.env.LOOP_TEST_KEEP,
       args: process.argv.slice(2) }));
   `,
@@ -126,7 +126,6 @@ test(
     const observed = JSON.parse(
       readFileSync(join(project, "observed.json"), "utf8"),
     );
-    assert.equal(observed.profile, "companion");
     assert.equal(observed.live, undefined);
     assert.equal(observed.keep, "yes");
     assert.equal(observed.args[0], "run");

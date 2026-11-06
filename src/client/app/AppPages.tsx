@@ -6,7 +6,6 @@ import { MyProfile } from "../MyProfile";
 import { PersonalDecisions } from "../PersonalDecisions";
 import { agentModelName } from "../modelChoices";
 import { UploadButton } from "../Attachments";
-import { capabilities } from "../capabilities";
 import { executionSourceId } from "../sourceRouting";
 import { NativeDecisions, WorkspaceConnection } from "../NativeControls";
 import { FleetAuthorityNotice } from "../FleetContext";
@@ -512,9 +511,7 @@ export function renderAppPages(
             onAsk={availableAgents.length ? askAboutPull : undefined}
             needsSlot={
               <div className="run-list">
-                {capabilities.nativeHarnesses && (
-                  <NativeDecisions onConversation={setConversation} />
-                )}
+                <NativeDecisions onConversation={setConversation} />
                 <Approvals
                   teams={teamKey}
                   runIds={

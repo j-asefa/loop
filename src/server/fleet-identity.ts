@@ -1,5 +1,4 @@
 import * as identityQueries from "./sql/fleet-machine-identity.js";
-import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { MachineIdentity } from "../shared/fleet.js";
@@ -15,7 +14,7 @@ const IdentityRow = z.object({
   private_key: z.string().min(1),
 });
 
-/** Called only by the companion gateway, never a preview or server profile.
+/** Called only by the companion gateway, never an isolated preview.
  * The returned projection intentionally contains no signing material. */
 export function initializeFleetIdentity(
   db: Database.Database,
@@ -23,10 +22,6 @@ export function initializeFleetIdentity(
 ): MachineIdentity {
   return db
     .transaction(() => {
-      const profile = profileQueries.current(db) as
-        { profile: string } | undefined;
-      if (profile?.profile !== "companion")
-        throw new Error("Fleet identity requires a companion data directory.");
       const row = identityQueries.saved(db);
       if (row) {
         const saved = IdentityRow.parse(row);

@@ -9,7 +9,6 @@ import { UNKNOWN_RUN_FAILURE } from "../shared/run-errors.js";
 import { errorFacts, errorSummary } from "../../runtime/diagnostics.ts";
 import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
 import { recordTrace } from "./traces.js";
-import { companionMode } from "./profile.js";
 import { executeMcp } from "./mcp/routes.js";
 import { closeFinishedSessions } from "./mcp/sessions.js";
 import { Problem } from "./domain.js";
@@ -172,7 +171,7 @@ export function startWorker() {
   assertExecutionGeneration(workerId);
   const stopObservation = observeProcess("worker");
   migrateMcpUrlCredentials();
-  if (companionMode) nativeSessions.recover();
+  nativeSessions.recover();
   let active = 0;
   let stopping = false;
   const inflight = new Set<Promise<unknown>>();
@@ -344,12 +343,7 @@ export function startWorker() {
 }
 
 if (process.argv[1]?.match(/\/worker\.(ts|js)$/)) {
-  if (companionMode)
-    throw new Error(
-      "The companion host starts its worker through inherited IPC and an ownership lock.",
-    );
-  const stop = startWorker();
-  for (const signal of ["SIGINT", "SIGTERM"] as const)
-    process.once(signal, () => void stop());
-  console.log("Loop worker ready");
+  throw new Error(
+    "The companion host starts its worker through inherited IPC and an ownership lock.",
+  );
 }

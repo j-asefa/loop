@@ -30,7 +30,6 @@ export async function designFixture({ githubApi } = {}) {
       env: {
         ...process.env,
         NODE_ENV: "test",
-        LOOP_PROFILE: "companion",
         LOOP_DATA_DIR: dir,
         LOOP_ENCRYPTION_KEY: key,
         // Never discover the developer's own Docker workspaces.

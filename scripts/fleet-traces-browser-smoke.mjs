@@ -61,8 +61,7 @@ try {
     window.showTraces = (source=${JSON.stringify(peerA)}, owner="fixture-owner", files=true) => {
       setViewOwner(owner);
       root.render(React.createElement(SourceProvider,{sourceId:source,capabilities:{
-        profile:"companion",nativeHarnesses:true,pairedDevices:false,runtimeHosts:false,localProjects:true,
-        fleet:{version:1,machineId:source.slice(5),reads:["agentTraces","artifactDetail"],actions:[],files,events:false}
+        pairedDevices:false,fleet:{version:1,machineId:source.slice(5),reads:["agentTraces","artifactDetail"],actions:[],files,events:false}
       }},React.createElement(Traces,{agentId:"same-agent",revision:0,onConversation:()=>{},onArtifact:artifact=>window.artifacts.push(artifact)})));
     };
     window.showTraces();

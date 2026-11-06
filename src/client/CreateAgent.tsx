@@ -312,7 +312,7 @@ export function CreateAgent({
       setBusy(false);
     }
   }
-  const setupBlock = capabilities.localProjects ? (
+  const setupBlock = (
     <details className="runtime-setup-options" open={!connected.length}>
       <summary>Enable an installed agent</summary>
       <div>
@@ -335,7 +335,7 @@ export function CreateAgent({
         />
       </div>
     </details>
-  ) : null;
+  );
   if (definitionsOpen)
     return (
       <MarkdownDefinitions

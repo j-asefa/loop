@@ -94,7 +94,7 @@ export const WebhookSubscription = z.object({
   last_attempts: z.number().int().nonnegative(),
 });
 export const WebhookPolicy = z.object({
-  installation: z.enum(["companion", "single-user"]),
+  installation: z.literal("companion"),
   local_receivers: z.boolean(),
 });
 export const WebhookList = z.object({

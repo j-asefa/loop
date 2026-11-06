@@ -11,7 +11,6 @@ import { fleetSourceId } from "../src/shared/fleet.js";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-fleet-identity-"));
 process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
 const databases: Database.Database[] = [];
@@ -20,13 +19,10 @@ afterEach(() => {
 });
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
 
-function database(path = ":memory:", profile = "companion") {
+function database(path = ":memory:") {
   const db = new Database(path);
   db.pragma("foreign_keys = ON");
   applyMigrations(db);
-  db.prepare("INSERT OR IGNORE INTO deployment_profile VALUES(1,?)").run(
-    profile,
-  );
   databases.push(db);
   return db;
 }
@@ -62,14 +58,6 @@ it("retains the encrypted key through restart and migration without creating pee
   expect(initializeFleetIdentity(database(), secrets).machineId).not.toBe(
     identity.machineId,
   );
-});
-
-it("refuses a server-profile database before creating any key", () => {
-  const db = database(":memory:", "server");
-  expect(() => initializeFleetIdentity(db, secrets)).toThrow(
-    "companion data directory",
-  );
-  expect(db.prepare("SELECT * FROM fleet_machine_identity").all()).toEqual([]);
 });
 
 it.each(["public", "private", "missing encryption key"])(

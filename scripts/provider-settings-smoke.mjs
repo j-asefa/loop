@@ -9,12 +9,11 @@ import { randomUUID } from "node:crypto";
 import { testEnvironment } from "./test-runner.mjs";
 
 const browserName = process.env.LOOP_BROWSER;
-const clean = testEnvironment(process.env, "native");
+const clean = testEnvironment(process.env);
 for (const name of Object.keys(process.env))
   if (!(name in clean)) delete process.env[name];
 const dir = await mkdtemp(join(tmpdir(), "loop-provider-settings-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 const bin = join(dir, "bin");
 await mkdir(bin);
 for (const name of ["pi", "opencode"])

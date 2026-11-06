@@ -16,12 +16,6 @@ export async function geminiSmoke(page, fixture, _engine, capture) {
   ];
   let attempt;
   const view = () => ({ providers, ...(attempt ? { attempt } : {}) });
-  await page.route("**/api/capabilities", async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({
-      json: { ...(await response.json()), nativeHarnesses: true },
-    });
-  });
   await page.route("**/api/workspace", (route) =>
     route.fulfill({
       json: {

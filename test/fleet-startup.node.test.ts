@@ -26,12 +26,12 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
       "-e",
       `
       const { db } = await import('./src/server/db.ts');
-      let refused = false, lifecycle, http, workspaceServices = false, mailServices = false;
+      let lifecycle, http, workspaceServices = false, mailServices = false;
       if (process.env.LOOP_TEST_FLEET_IDENTITY_ONLY === '1') {
         const { initializeFleetIdentity } = await import('./src/server/fleet-identity.ts');
         const { seal, unseal } = await import('./src/server/secrets.ts');
         initializeFleetIdentity(db, { seal, unseal });
-      } else try {
+      } else {
         const { WorkspaceHost } = await import('./src/workspace-host.ts');
         const options = {
           harness: 'codex', executable: process.execPath,
@@ -122,13 +122,8 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
             toolsEnabled, toolsDisabled: !fleetMailDiscovery(OWNER)
           };
         }
-      } catch (error) {
-        if (process.env.LOOP_PROFILE !== 'server') throw error;
-        refused = /requires LOOP_PROFILE=companion/.test(error.message);
-        if (!refused) throw error;
       }
       console.log(JSON.stringify({
-        refused,
         identities: db.prepare('SELECT machine_id,public_key FROM fleet_machine_identity').all(),
         integrity: db.pragma('integrity_check'),
         workers: db.prepare('SELECT count(*) n FROM fleet_distribution_instances').get().n,
@@ -151,7 +146,6 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
           ),
         ),
         LOOP_DATA_DIR: directory,
-        LOOP_PROFILE: "companion",
         LOOP_ENCRYPTION_KEY: "ab".repeat(32),
         LOOP_PREVIEW_MANIFEST: "",
         NODE_ENV: "test",
@@ -232,17 +226,9 @@ test("companion startup without --fleet creates no fleet identity or routes, kee
   }
 });
 
-test("server profile and isolated preview startup never create fleet signing identities", async () => {
+test("isolated preview startup never creates fleet signing identities", async () => {
   const directory = mkdtempSync(join(tmpdir(), "loop-fleet-profile-"));
   try {
-    const server = await startup(join(directory, "server"), {
-      LOOP_PROFILE: "server",
-    });
-    assert.equal(server.refused, true);
-    assert.equal(server.workers, 0);
-    assert.equal(server.workspaceServices, false);
-    assert.equal(server.mailServices, false);
-    assert.deepEqual(server.identities, []);
     for (const mode of ["design", "working"]) {
       const home = join(directory, "preview-" + mode),
         data = join(home, "workspace");

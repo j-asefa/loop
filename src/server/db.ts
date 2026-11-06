@@ -1,6 +1,5 @@
 import { projectFeed } from "./feed-projector.js";
 import { installProjectionBoundary } from "./projected-database.js";
-import { capabilities } from "./profile.js";
 import Database from "better-sqlite3";
 import { applyMigrations } from "./migrations.js";
 import { join } from "node:path";
@@ -44,18 +43,6 @@ db.pragma("busy_timeout = 120000");
 // another process commits, even with busy_timeout configured.
 db.transaction(() => {
   applyMigrations(db);
-  db.transaction(() => {
-    db.prepare("INSERT OR IGNORE INTO deployment_profile VALUES(1,?)").run(
-      capabilities.profile,
-    );
-    const stored = db
-      .prepare("SELECT profile FROM deployment_profile WHERE singleton=1")
-      .get() as { profile: string };
-    if (stored.profile !== capabilities.profile)
-      throw new Error(
-        `This data directory belongs to the ${stored.profile} profile. Choose a separate LOOP_DATA_DIR for ${capabilities.profile}.`,
-      );
-  }).immediate();
   projectFeed(db, emit);
 }).immediate();
 installProjectionBoundary(db, () => projectFeed(db, emit));

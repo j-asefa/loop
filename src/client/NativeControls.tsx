@@ -2,7 +2,7 @@ import { literalEntry, proseEntry } from "./textEntry";
 import { readRoute } from "./workspace-api";
 import { workspaceApi, type NativeDecision as Decision, type RouteInput } from "../shared/workspace-api";
 import { viewOwner, viewGeneration } from "./viewCache";
-import { useSourceOperation, useSourceId, useSourceCapabilities, useSourceRoute, useProjectionRoute } from "./SourceContext";
+import { useSourceOperation, useSourceId, useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { parse, clearAuthorization, isExecutionRefused } from "./api";
 import type { Request } from "../protocol";
@@ -15,7 +15,7 @@ import { watchWorkspaceEvents } from "./workspace-events";
 import { publishProjectionFrame, forgetProjectionSource, surfaceFallback } from "./workspace-projections";
 import { WorkspaceChangeQueue, listenWorkspaceChanges } from "./workspace-changes";
 import { PARTIAL_WORKSPACE_CAPABILITIES, type WorkspaceEvent } from "../shared/workspace-events";
-import { capabilities, eventMultiplexing } from "./capabilities";
+import { capabilities } from "./capabilities";
 import { multiplexWorkspaceSocket } from "./workspace-multiplex";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import {
@@ -66,7 +66,7 @@ export function WorkspaceConnection({
       url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       return watchWorkspaceEvents({
         url, source: sourceId,
-        ...(eventMultiplexing ? { socket: (url: URL) => multiplexWorkspaceSocket(url, sourceId) } : {}),
+        socket: (url: URL) => multiplexWorkspaceSocket(url, sourceId),
         read: (after, signal) =>
           readRoute(workspaceApi.events, { query: { after } }, sourceId, signal),
         changed: (events) => changed(sourceId, events),
@@ -144,10 +144,8 @@ export function NativeDecisions({
 }) {
   const readContract = useProjectionRoute();
   const sourceId = useSourceId();
-  const capabilities = useSourceCapabilities();
   const [items, setItems] = useState<Decision[]>([]);
   useEffect(() => {
-    if (!capabilities.nativeHarnesses) return;
     let stopped = false, latest = 0;
     const load = () => {
       const request = ++latest;

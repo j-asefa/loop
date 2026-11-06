@@ -1,7 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { Agent, fetch } from "undici";
 import ipaddr from "ipaddr.js";
-import { companionMode } from "./profile.js";
 import { Problem } from "./domain.js";
 
 export class WebhookDestinationRefused extends Problem {
@@ -14,10 +13,8 @@ export class WebhookDestinationRefused extends Problem {
 }
 export function webhookPolicy() {
   return {
-    installation: companionMode
-      ? ("companion" as const)
-      : ("single-user" as const),
-    local_receivers: companionMode,
+    installation: "companion" as const,
+    local_receivers: true,
   };
 }
 export function webhookUrl(value: string) {
@@ -31,9 +28,7 @@ export function webhookUrl(value: string) {
     url.username ||
     url.password ||
     url.hash ||
-    !["http:", "https:"].includes(url.protocol) ||
-    (!companionMode &&
-      (url.protocol !== "https:" || (url.port && url.port !== "443")))
+    !["http:", "https:"].includes(url.protocol)
   )
     throw new WebhookDestinationRefused();
   return url;
@@ -55,11 +50,7 @@ export function webhookAddress(url: URL, address: string) {
     throw new WebhookDestinationRefused();
   }
   const local = ["loopback", "private", "uniqueLocal"].includes(range);
-  if (
-    (local && !companionMode) ||
-    (!local && range !== "unicast") ||
-    (!local && url.protocol !== "https:")
-  )
+  if ((!local && range !== "unicast") || (!local && url.protocol !== "https:"))
     throw new WebhookDestinationRefused();
   return local;
 }

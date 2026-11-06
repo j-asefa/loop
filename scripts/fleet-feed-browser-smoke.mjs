@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
-import { profileCapabilities } from "../src/shared/capabilities.ts";
+import { workspaceCapabilities } from "../src/shared/capabilities.ts";
 
 const dir = await mkdtemp(join(tmpdir(), "loop-fleet-feed-"));
 const sources = Array.from({ length: 9 }, (_, index) => ({
@@ -153,7 +153,7 @@ try {
       await waitForSource();
     }
     if (path === "capabilities") {
-      reply(profileCapabilities("companion"));
+      reply(workspaceCapabilities());
       return;
     }
     if (path === "auth/get-session") {

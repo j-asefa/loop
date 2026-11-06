@@ -7,7 +7,7 @@ import {
   useSourcePath,
   useSourceRoute,
 } from "../src/client/SourceContext";
-import { profileCapabilities } from "../src/shared/capabilities";
+import { workspaceCapabilities } from "../src/shared/capabilities";
 import { workspaceApi } from "../src/shared/workspace-api";
 import {
   routeSourceId,
@@ -20,7 +20,7 @@ import { RichText } from "../src/client/components";
 import { PublishedFile } from "../src/client/PublishedFiles";
 import { PersonalDecisions } from "../src/client/PersonalDecisions";
 
-const server = profileCapabilities("server");
+const server = { ...workspaceCapabilities(), pairedDevices: false };
 afterEach(() => {
   setShellSource("");
   vi.unstubAllGlobals();

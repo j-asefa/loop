@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { profileCapabilities } from "../src/shared/capabilities";
+import { workspaceCapabilities } from "../src/shared/capabilities";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { fleetOperationReason } from "../src/client/fleetCapabilities";
 
 const peer = "peer:m_" + "1".repeat(64);
-const gateway = profileCapabilities("companion");
+const gateway = workspaceCapabilities();
 it("allows declared file reads without granting multipart uploads or unrelated streams", () => {
   const capabilities = {
     ...gateway,
@@ -129,13 +129,9 @@ it("does not inherit a gateway's or another machine's permissions", () => {
   ).toBeUndefined();
 });
 
-it.each(
-  [peer, "docker:fixture"].flatMap((source) =>
-    [true, false].map((multiplex) => ({ source, multiplex })),
-  ),
-)(
-  "uses the serving gateway's event transport for $source with gateway multiplex=$multiplex",
-  async ({ source, multiplex }) => {
+it.each([peer, "fixture:remote"])(
+  "keeps gateway device administration separate from selected source permissions for %s",
+  async (source) => {
     vi.resetModules();
     vi.stubGlobal("location", {
       href: "https://gateway.example/",
@@ -143,12 +139,14 @@ it.each(
       assign: vi.fn(),
     });
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
-    const selectedCapabilities = { ...gateway, eventMultiplex: !multiplex };
+    const selectedCapabilities = {
+      ...gateway,
+      pairedDevices: false,
+      cardTokens: false,
+    };
     const fetcher = vi.fn(async (path: string) =>
       Response.json(
-        path === "/api/capabilities"
-          ? { ...gateway, eventMultiplex: multiplex }
-          : selectedCapabilities,
+        path === "/api/capabilities" ? gateway : selectedCapabilities,
       ),
     );
     vi.stubGlobal("fetch", fetcher);
@@ -156,8 +154,10 @@ it.each(
     routing.setShellSource(source);
     const client = await import("../src/client/capabilities");
     await client.loadCapabilities();
-    expect(client.eventMultiplexing).toBe(multiplex);
-    expect(client.capabilities).toEqual(selectedCapabilities);
+    expect(client.capabilities).toEqual({
+      ...selectedCapabilities,
+      pairedDevices: true,
+    });
     expect(fetcher.mock.calls.map(([path]) => path)).toEqual([
       "/api/capabilities",
       `/api/agent-sources/${encodeURIComponent(source)}/capabilities`,
@@ -166,7 +166,7 @@ it.each(
   },
 );
 
-it("clears a previous multiplex capability when gateway authorization is lost", async () => {
+it("rejects gateway authorization loss without switching to another source", async () => {
   vi.resetModules();
   vi.stubGlobal("location", {
     href: "https://gateway.example/",
@@ -179,7 +179,7 @@ it("clears a previous multiplex capability when gateway authorization is lost", 
     "fetch",
     vi.fn(async () =>
       authorized
-        ? Response.json({ ...gateway, eventMultiplex: true })
+        ? Response.json(gateway)
         : Response.json({ error: "Gateway access revoked" }, { status: 403 }),
     ),
   );
@@ -187,12 +187,10 @@ it("clears a previous multiplex capability when gateway authorization is lost", 
   routing.setShellSource(peer);
   const client = await import("../src/client/capabilities");
   await client.loadCapabilities();
-  expect(client.eventMultiplexing).toBe(true);
   authorized = false;
   await expect(client.loadCapabilities()).rejects.toMatchObject({
     status: 403,
   });
-  expect(client.eventMultiplexing).toBe(false);
   expect(routing.executionSourceId()).toBe(peer);
 });
 
@@ -212,7 +210,7 @@ it.each([401, 403, 409, 503])(
         new Response(
           JSON.stringify(
             path === "/api/capabilities"
-              ? { ...gateway, eventMultiplex: true }
+              ? gateway
               : path === "/api/auth/get-session"
                 ? {
                     user: { id: "gateway-owner", name: "Local" },
@@ -231,7 +229,6 @@ it.each([401, 403, 409, 503])(
     routing.setShellSource(peer);
     const client = await import("../src/client/capabilities");
     await client.loadCapabilities();
-    expect(client.eventMultiplexing).toBe(true);
     expect(client.capabilities.pairedDevices).toBe(true);
     expect(client.capabilities.fleet?.actions).toEqual([]);
     expect(routing.executionSourceId()).toBe(peer);

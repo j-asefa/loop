@@ -131,11 +131,7 @@ const vite = await createServer({
           if (url.pathname === "/session") result = { csrf: "fixture" };
           else if (url.pathname === "/api/capabilities")
             result = {
-              profile: "companion",
-              nativeHarnesses: true,
               pairedDevices: true,
-              runtimeHosts: false,
-              localProjects: true,
             };
           else if (
             url.pathname === "/api/conversations/conversation/activities"

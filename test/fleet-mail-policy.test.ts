@@ -10,7 +10,6 @@ import { fleetAgentAddress } from "../src/shared/fleet-mail.js";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-fleet-mail-policy-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db.js");
 const secrets = await import("../src/server/secrets.js");
@@ -199,18 +198,6 @@ it("rechecks local recipient retirement, conversation ownership and profile at t
     "retired",
   );
   db.prepare("UPDATE agents SET retired_at=NULL WHERE id=?").run(f.local.id);
-  db.prepare(
-    "UPDATE deployment_profile SET profile='server' WHERE singleton=1",
-  ).run();
-  try {
-    expect(() => authorizeMail(f.thread, f.address, f.local.id)).toThrow(
-      "unavailable",
-    );
-  } finally {
-    db.prepare(
-      "UPDATE deployment_profile SET profile='companion' WHERE singleton=1",
-    ).run();
-  }
 });
 
 it.each(["claude", "codex", "pi", "opencode", "gemini", "muse", "grok", "acp"])(

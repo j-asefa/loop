@@ -16,7 +16,6 @@ import { workspaceApi } from "../shared/workspace-api.js";
 import { artifactResponse, runResponse } from "./row-schemas.js";
 import type { QueryRow } from "./query-records.js";
 
-import { companionMode } from "./profile.js";
 import { nativeSessions } from "./native-sessions.js";
 
 import multer from "multer";
@@ -93,8 +92,6 @@ routes.on(workspaceApi.folderCreate, (req, res) => {
     d.parentId = null;
   if (foldersQueries.nameExists(db, res.locals.owner, d.parentId, d.name))
     throw new Problem(409, "A folder with that name already exists here");
-  if (d.path && !companionMode)
-    throw new Problem(409, "Local project directories require companion mode.");
   const path = d.path ? nativeSessions.directory(d.path) : undefined;
   if (path && projectPathsQueries.pathExists(db, path))
     throw new Problem(409, "That directory already belongs to a project.");
@@ -150,8 +147,6 @@ routes.on(workspaceApi.folderUpdate, (req, res) => {
     )
   )
     throw new Problem(409, "That name already exists here");
-  if (d.path && !companionMode)
-    throw new Problem(409, "Local project directories require companion mode.");
   const path = d.path ? nativeSessions.directory(d.path) : undefined;
   if (path && projectPathsQueries.usedElsewhere(db, path, f.id))
     throw new Problem(409, "That directory already belongs to a project.");

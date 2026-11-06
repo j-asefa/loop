@@ -1,15 +1,14 @@
-// Tests choose their own profile/workspace. A live Loop-launched terminal must
+// Tests choose their own workspace. A live Loop-launched terminal must
 // not inject its database, disabled memory setting, daemon flags or credentials.
 import { runSupervised } from "./heavy-command.mjs";
 import { globSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-export function testEnvironment(env, suite) {
+export function testEnvironment(env) {
   const clean = Object.fromEntries(
     Object.entries(env).filter(
       ([key]) => !/^LOOP_/.test(key) || /^LOOP_TEST_/.test(key),
     ),
   );
-  if (suite === "vitest") clean.LOOP_PROFILE = "companion";
   return clean;
 }
 if (
@@ -45,6 +44,6 @@ if (
   process.exitCode = await runSupervised(process.execPath, args, {
     label: `${suite} tests`,
     stdio: "inherit",
-    env: testEnvironment(process.env, suite),
+    env: testEnvironment(process.env),
   });
 }

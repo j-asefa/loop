@@ -30,7 +30,6 @@ import type { FleetOperation } from "../src/shared/fleet.js";
 import { until } from "./helpers.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-read-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = join(root, "destination");
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 mkdirSync(process.env.LOOP_DATA_DIR);
@@ -668,7 +667,6 @@ it("advertises only implemented read contracts and refuses unknown, recursive an
   expect(catalog.status).toBe(200);
   expect(catalog.body.catalog).toMatchObject({
     requestId: request.requestId,
-    profile: "companion",
     actions: [],
     events: false,
     files: false,
@@ -730,12 +728,6 @@ it("separates paired-browser and Cards credentials from operation-scoped machine
   await expect(wrongOwner.read(input())).rejects.toMatchObject({
     status: 403,
   });
-  db.prepare("UPDATE deployment_profile SET profile='server'").run();
-  try {
-    expect((await call(input())).status).toBe(403);
-  } finally {
-    db.prepare("UPDATE deployment_profile SET profile='companion'").run();
-  }
 });
 
 it("signs and verifies a projected response above one MiB within the declared read limit", async () => {

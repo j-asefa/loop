@@ -20,7 +20,6 @@ import { isNativeConnection } from "./native-connections.js";
 import { queuedMailReady } from "./agent-mail-policy.js";
 import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { RunDeferred } from "./run-deferred.js";
-import { companionMode } from "./profile.js";
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
 import { agentPermissionMode } from "./mcp/approval-policy.js";
 
@@ -422,7 +421,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
     throw new Problem(409, "Reconnect this provider before continuing.");
   }
   if (isNativeConnection(connection)) {
-    if (!companionMode) throw new Problem(409, "This conversation belongs to a companion deployment.");
     return nativeSessions.execute(run);
   }
   let cp = agentCheckpointsQueries.get(db, run.id) as QueryRow<"agent_checkpoints"> | undefined;

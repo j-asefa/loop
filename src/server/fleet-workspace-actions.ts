@@ -4,7 +4,6 @@ import * as conversationsQueries from "./sql/conversations.js";
 import * as approvalsQueries from "./sql/approvals.js";
 import * as foldersQueries from "./sql/folders.js";
 import * as nativeDecisionsQueries from "./sql/native-decisions.js";
-import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import {
@@ -56,11 +55,7 @@ export class FleetWorkspaceActions {
     this.commands = new FleetCommands(db, authority, { limit: 4, status: 503 });
   }
   private active() {
-    if (
-      this.stopped ||
-      (profileQueries.current(this.db) as { profile: string } | undefined)
-        ?.profile !== "companion"
-    )
+    if (this.stopped)
       throw new ExecutionRefused(
         403,
         "This workspace does not admit fleet actions.",

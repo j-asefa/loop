@@ -17,11 +17,7 @@ import {
 } from "../shared/execution-authority.js";
 import { boundedExecutionJson } from "./execution-wire.js";
 
-if (
-  process.env.LOOP_PROFILE !== "companion" ||
-  !process.send ||
-  !process.connected
-)
+if (!process.send || !process.connected)
   throw new Error(
     "The companion execution worker requires its parent's inherited IPC channel.",
   );

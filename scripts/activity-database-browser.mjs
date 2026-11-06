@@ -10,14 +10,14 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 const dir = mkdtempSync(join(tmpdir(), "loop-ui-db-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 const { db, now } = await import("../src/server/db.ts");
 const { core } = await import("../src/server/core-routes.ts");
 const { companion } = await import("../src/server/companion-routes.ts");
 const { activityRoutes } = await import("../src/server/activities.ts");
 const { nativeSessions, OWNER } =
   await import("../src/server/native-sessions.ts");
-const { capabilities } = await import("../src/server/profile.ts");
+const { workspaceCapabilities } = await import("../src/shared/capabilities.ts");
+const capabilities = workspaceCapabilities();
 const { DirectControls } = await import("../src/adapters/direct-controls.ts");
 const { recordTrace } = await import("../src/server/traces.ts");
 const { enqueue } = await import("../src/server/queue.ts");

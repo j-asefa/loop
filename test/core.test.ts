@@ -1,12 +1,8 @@
-import { afterAll, describe, it, expect, vi } from "vitest";
+import { afterAll, describe, it, expect } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-// Server-profile behaviour, removed with the server profile (fresh start PR 3).
-vi.hoisted(() => {
-  process.env.LOOP_PROFILE = "server";
-});
 const dir = mkdtempSync(join(tmpdir(), "loop-core-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
@@ -184,29 +180,6 @@ it("serializes native turns per conversation while allowing the same agent's oth
   transition(follow, "completed");
   transition(other, "completed");
 });
-it("server execution rejects a native harness connection before dispatch", async () => {
-  const connectionId = connection("server-native");
-  const agent = createAgent("server-native", {
-    name: "server-native-reject",
-    connectionId,
-    model: "fixture-model",
-  });
-  const run = submit("server-native", {
-    agentId: agent.id,
-    input: "hello",
-    idempotencyKey: id(),
-  });
-  db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
-    JSON.stringify({ loopHarness: "codex" }),
-    connectionId,
-  );
-  await expect(executeAgent(run)).rejects.toThrow("companion deployment");
-  expect(
-    db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(run.id),
-  ).toBeUndefined();
-  transition(run, "cancelled");
-});
-
 it("serializes mixed legacy and per-conversation work in either order", async () => {
   const { enqueue } = await import("../src/server/queue");
   for (const nativeFirst of [false, true]) {

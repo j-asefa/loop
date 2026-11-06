@@ -30,12 +30,6 @@ export async function harnessProvidersSmoke(page, fixture, _engine, capture) {
   let releaseRefresh;
   let refreshResult = "success";
   const refreshCommands = [];
-  await page.route("**/api/capabilities", async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({
-      json: { ...(await response.json()), nativeHarnesses: true },
-    });
-  });
   await page.route("**/api/workspace", (route) =>
     route.fulfill({
       json: {

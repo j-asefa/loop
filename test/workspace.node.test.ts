@@ -1,6 +1,5 @@
 import { inProcessExecution } from "./in-process-execution.js";
 import { gitProject } from "./git-project.js";
-process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -55,16 +54,11 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
     assert.deepEqual(
       await fetch(host.origin + "/api/capabilities").then((r) => r.json()),
       {
-        profile: "companion",
-        nativeHarnesses: true,
         pairedDevices: true,
-        runtimeHosts: false,
-        localProjects: true,
         cardTokens: true,
         personalDecisions: true,
         personalApprovalDetails: true,
         continuationStart: true,
-        eventMultiplex: true,
       },
     );
     assert.equal((await fetch(host.origin + "/api/bootstrap")).status, 401);

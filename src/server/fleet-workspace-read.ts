@@ -1,4 +1,3 @@
-import * as profileQueries from "./sql/deployment-profile.js";
 import type Database from "better-sqlite3";
 import {
   FleetReadRequest,
@@ -37,11 +36,7 @@ export class FleetWorkspaceRead {
     this.proof = new FleetProof(db, authority.identity, secrets);
   }
   private authorize(credential: string, catalog = false) {
-    if (
-      this.stopped ||
-      (profileQueries.current(this.db) as { profile: string } | undefined)
-        ?.profile !== "companion"
-    )
+    if (this.stopped)
       throw new Problem(403, "This workspace does not admit fleet reads.");
     const accepted = this.credentials.authenticate(credential);
     if (
@@ -90,7 +85,6 @@ export class FleetWorkspaceRead {
       peer: authorization.context.peer,
       grantId: authorization.context.grantId,
       requestDigest: fleetPayloadDigest({ requestId: request.requestId }),
-      profile: "companion",
       reads: allowed("read") ? Object.keys(fleetReadRoutes) : [],
       actions: [
         ...(allowed("act") ? (this.options.actions?.() ?? []) : []),

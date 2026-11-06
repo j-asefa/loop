@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import { useState } from "react";
 import { useCards } from "../../src/client/useCards";
 import { SourceProvider } from "../../src/client/SourceContext";
-import { profileCapabilities } from "../../src/shared/capabilities";
+import { workspaceCapabilities } from "../../src/shared/capabilities";
 import { setViewOwner } from "../../src/client/viewCache";
 function Collection({ query }: { query: string }) {
   const { items, error, loading, load } = useCards({ view: "saved", q: query });
@@ -32,10 +32,7 @@ function App() {
       <button onClick={() => setSource("docker:fixture")}>Switch source</button>
       <button onClick={() => setSource("")}>Return to source</button>
       <button onClick={() => setQuery("second")}>Switch filter</button>
-      <SourceProvider
-        sourceId={source}
-        capabilities={profileCapabilities("server")}
-      >
+      <SourceProvider sourceId={source} capabilities={workspaceCapabilities()}>
         <Collection query={query} />
       </SourceProvider>
     </>

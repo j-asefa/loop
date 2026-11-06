@@ -2,7 +2,6 @@ import { literalEntry, proseEntry } from "./textEntry";
 import { matchingAgents } from "./agentSearch";
 import { SearchExcerpt } from "./SearchExcerpt";
 import { feedCategories, type FeedCategory } from "../shared/feed-categories";
-import { capabilities } from "./capabilities";
 import { executionSourceId } from "./sourceRouting";
 import { callRoute, routeUrl } from "./workspace-api";
 import {
@@ -139,24 +138,22 @@ export function FolderForm({
               ))}
           </select>
         </label>
-        {capabilities.localProjects && (
-          <>
-            <label>
-              Desktop directory
-              <input
-                {...literalEntry}
-                name="path"
-                defaultValue={existing?.path ?? undefined}
-                placeholder="/Users/you/projects/my-project"
-                maxLength={4096}
-              />
-            </label>
-            <p className="note">
-              Native agents inherit the nearest project directory. Existing
-              conversations keep their original directory and native settings.
-            </p>
-          </>
-        )}
+        <>
+          <label>
+            Desktop directory
+            <input
+              {...literalEntry}
+              name="path"
+              defaultValue={existing?.path ?? undefined}
+              placeholder="/Users/you/projects/my-project"
+              maxLength={4096}
+            />
+          </label>
+          <p className="note">
+            Native agents inherit the nearest project directory. Existing
+            conversations keep their original directory and native settings.
+          </p>
+        </>
         {error && <p className="error">{error}</p>}
         <button className="primary" disabled={busy}>
           <Plus size={16} />

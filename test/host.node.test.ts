@@ -1,5 +1,4 @@
 import { probeProof } from "../src/connection.js";
-process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {

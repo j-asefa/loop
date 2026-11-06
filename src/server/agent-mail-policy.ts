@@ -11,7 +11,6 @@ import * as runsQueries from "./sql/runs.js";
 import { maybeConnection } from "./row-schemas.js";
 import { db } from "./db.js";
 import { Problem } from "./domain.js";
-import { companionMode } from "./profile.js";
 import type { Agent } from "../shared/types.js";
 import {
   fleetAgentAddress,
@@ -25,7 +24,7 @@ import * as fleetSecrets from "./secrets.js";
 export class MailRefusal extends Problem {}
 let fleetAuthority: FleetAuthority | undefined;
 export function mailAuthority() {
-  if (!companionMode || !identityQueries.exists(db))
+  if (!identityQueries.exists(db))
     throw new MailRefusal(403, "Remote mail is unavailable in this workspace.");
   // Read the same durable directory as the gateway. This instance performs no
   // enrollment, credential issuance or network activity in the execution worker.
@@ -91,21 +90,20 @@ export function eligibleMailAgent(owner: string, agentId: string) {
     );
   if (
     meta.loopHarness != null &&
-    (!companionMode ||
-      ![
-        "codex",
-        "claude",
-        "pi",
-        "opencode",
-        "gemini",
-        "muse",
-        "grok",
-        "acp",
-      ].includes(meta.loopHarness))
+    ![
+      "codex",
+      "claude",
+      "pi",
+      "opencode",
+      "gemini",
+      "muse",
+      "grok",
+      "acp",
+    ].includes(meta.loopHarness)
   )
     throw new MailRefusal(
       409,
-      "This native connection cannot execute in this deployment profile.",
+      "This native connection uses an unsupported harness.",
     );
   if (teamsQueries.agentInCodeReview(db, owner, agentId, agentId))
     throw new MailRefusal(

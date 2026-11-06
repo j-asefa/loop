@@ -1,6 +1,5 @@
 import { openAgentModelOptions } from "./helpers/agent-model-options.mjs";
 // Runtime-neutral onboarding through the real mobile-width UI and fixture adapter.
-process.env.LOOP_PROFILE = "companion";
 import { chromium, expect } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { resolve, join, basename } from "node:path";

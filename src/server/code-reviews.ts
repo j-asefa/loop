@@ -18,7 +18,6 @@ import {
   ownedRun,
   Problem,
 } from "./domain.js";
-import { companionMode } from "./profile.js";
 import { submit } from "./agent-runtime.js";
 import { captureSnapshot, snapshotFingerprint } from "./review-snapshot.js";
 import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
@@ -43,11 +42,6 @@ const continuationSnapshot = AgentSnapshot.omit({
 }).strip();
 
 function directory(owner: string, folderId: string) {
-  if (!companionMode)
-    throw new Problem(
-      409,
-      "Local snapshot review requires a laptop workspace. Open the Loop workspace running beside your repository.",
-    );
   ownedFolder(folderId, owner);
   const mapping = projectPathsQueries.path(db, folderId) as
     { path: string } | undefined;

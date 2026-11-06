@@ -66,18 +66,18 @@ TypeScript source imports are rewritten to the compiled siblings.
 
 ## Tests by boundary
 
-| Check                      | Purpose                                                                                                           |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`        | Root TypeScript                                                                                                   |
-| `npm run check`            | Convention gate before every PR: formatting, typecheck, `openapi:check`, source boundaries and route contracts    |
-| `npm test`                 | Vitest server/domain and shared client production logic in `test/`                                                |
-| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing                                     |
-| `npm run test:all`         | Both root suites                                                                                                  |
+| Check                      | Purpose                                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`        | Root TypeScript                                                                                                 |
+| `npm run check`            | Convention gate before every PR: formatting, typecheck, `openapi:check`, source boundaries and route contracts  |
+| `npm test`                 | Vitest server/domain and shared client production logic in `test/`                                              |
+| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing                                   |
+| `npm run test:all`         | Both root suites                                                                                                |
 | `npm run smoke:package`    | Tarball installation, CLI/host lifecycle and `loop upgrade` between packed builds behind one connection service |
-| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                                        |
-| `npm run feeds:check`      | Reads every Social catalog feed over the network; manual live check                                               |
+| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                                      |
+| `npm run feeds:check`      | Reads every Social catalog feed over the network; manual live check                                             |
 
-The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` runtime settings from its child environment, preserving only explicit `LOOP_TEST_*` fixture controls. Vitest starts with `LOOP_PROFILE=companion`; the remaining server-profile tests pin their own profile and data directory. Native fixtures choose their profiles independently. Native harness launches also remove host configuration before any project command runs; see [server environment isolation](server.md#keep-agent-workloads-from-exhausting-the-server). Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
+The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` runtime settings from its child environment, preserving only explicit `LOOP_TEST_*` fixture controls. Vitest and native fixtures choose isolated data directories; no deployment profile is selected. Native harness launches also remove host configuration before any project command runs; see [server environment isolation](server.md#keep-agent-workloads-from-exhausting-the-server). Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
 
 `feeds:check` is the exception to fixture-only testing: it fetches the checked-in [feed catalog](../src/shared/news.ts) through [feed-fetch.ts](../src/server/feed-fetch.ts), the same transport Social uses, and exits non-zero for any feed that no longer parses. Run it when changing the catalog and put its output in the PR. The Vitest suite never reaches a feed.
 

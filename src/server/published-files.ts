@@ -23,7 +23,6 @@ import { db, emit } from "./db.js";
 import { config } from "./config.js";
 import { ownedArtifact, ownedConnection, ownedRun, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
-import { companionMode } from "./profile.js";
 import {
   FILE_CHUNK_BYTES,
   MAX_PUBLISHED_BYTES,
@@ -208,11 +207,10 @@ export async function publishRunFile(
   const snapshot = agentPayload(run);
   const connection = ownedConnection(snapshot.connectionId, run.owner_id);
   const metadata = connection.metadata;
-  const binding =
-    companionMode && metadata.loopHarness
-      ? (companionSessionsQueries.project(db, run.conversation_id) as
-          { project: string } | undefined)
-      : undefined;
+  const binding = metadata.loopHarness
+    ? (companionSessionsQueries.project(db, run.conversation_id) as
+        { project: string } | undefined)
+    : undefined;
   if (metadata.loopHarness && !binding)
     throw new Problem(409, "Native workspace unavailable");
   if (!binding)

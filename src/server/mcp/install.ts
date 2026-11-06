@@ -6,7 +6,6 @@ import { ownedAgent, ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
 import { discover, type MCPConnection } from "./client.js";
 import { safeUrl } from "./network.js";
-import { assertLocalRuntime } from "./runtime-transport.js";
 import { privateMcpUrl } from "./credentials.js";
 import { ToolBudgetError } from "./tool-budget.js";
 const headers = z
@@ -79,7 +78,6 @@ export async function installConfig(
 ) {
   const entries = parseMcpConfig(input);
   if (agentId) ownedAgent(agentId, owner);
-  if (entries.some(([, e]) => "command" in e)) assertLocalRuntime();
   const results = [];
   for (const [name, entry] of entries) {
     const fingerprint = createHash("sha256")

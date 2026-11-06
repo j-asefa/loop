@@ -26,7 +26,6 @@ export async function isolatedBrowserEnv() {
   return {
     ...process.env,
     NODE_ENV: "test",
-    LOOP_PROFILE: "companion",
     LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
   };
 }

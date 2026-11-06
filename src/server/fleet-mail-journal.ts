@@ -1,4 +1,3 @@
-import * as deploymentProfileQueries from "./sql/deployment-profile.js";
 import * as fleetMailOutboxQueries from "./sql/fleet-mail-outbox.js";
 import * as fleetMailInboxQueries from "./sql/fleet-mail-inbox.js";
 import type Database from "better-sqlite3";
@@ -59,17 +58,7 @@ export class FleetMailJournal {
     private readonly clock: () => number = Date.now,
   ) {}
 
-  private profile() {
-    if (
-      (
-        deploymentProfileQueries.current(this.db) as
-          { profile: string } | undefined
-      )?.profile !== "companion"
-    )
-      throw unavailable();
-  }
   private pins(pins: Pins, incoming: boolean) {
-    this.profile();
     const document = this.authority.directory(this.owner)?.document;
     const local = document?.members.find(
       (member) => member.machineId === this.authority.identity.machineId,
@@ -372,7 +361,6 @@ export class FleetMailJournal {
       throw conflict();
   }
   private authorize(input: FleetGrantContext, peer: string) {
-    this.profile();
     const context = FleetGrantContext.parse(input);
     const accepted = this.authority.authorize(context);
     if (

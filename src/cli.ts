@@ -1316,7 +1316,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
     });
   try {
     process.env.LOOP_DATA_DIR = dir;
-    process.env.LOOP_PROFILE = "companion";
     const { WorkspaceHost } = await import("./workspace-host.js");
     if (stopping) return;
     host = new WorkspaceHost(dir, { ...options, fleet: !!values.fleet });

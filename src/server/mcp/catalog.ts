@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import { db, id, now } from "../db.js";
 import { ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
-import { assertLocalRuntime } from "./runtime-transport.js";
 import {
   authorize,
   discover,
@@ -87,7 +86,6 @@ async function install(
         existing &&
         existing.status !== "disconnected" &&
         !Object.keys(values).length;
-      if (entry.transport === "stdio") assertLocalRuntime();
       const secret = reuse
         ? readSecret(existing!)
         : catalogSecret(entry, values);

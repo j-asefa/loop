@@ -15,7 +15,6 @@ import { errorSummary, errorFacts } from "../../runtime/diagnostics.ts";
 import { isNativeConnection } from "./native-connections.js";
 import { inlineAttachments } from "./uploads.js";
 import { executionRequest } from "./execution-client.js";
-import { companionMode } from "./profile.js";
 
 import { z } from "zod";
 import { db, now } from "./db.js";
@@ -33,8 +32,6 @@ export async function runtimeAction(
   const harness = c.metadata.loopHarness;
   if (!harness)
     throw new Problem(409, "This connection has no runtime on this computer.");
-  if (!companionMode)
-    throw new Problem(409, "Native harnesses require the companion profile.");
   if (action === "logout" || action === "cancel") return { ok: true };
   if (action === "status")
     return executionRequest(

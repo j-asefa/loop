@@ -24,7 +24,6 @@ import { until } from "./helpers.js";
 import type { FleetOperation } from "../src/shared/fleet.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-catalog-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = root;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
@@ -36,7 +35,6 @@ afterAll(() => {
 function machine() {
   const db = new Database(join(root, randomUUID() + ".db"));
   applyMigrations(db);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   databases.push(db);
   const authority = new FleetAuthority(db, secrets);
   return {
@@ -114,6 +112,7 @@ it.each<FleetOperation[]>([["read"], ["act"], ["read", "act"]])(
         requestId: randomUUID(),
         credential,
       });
+      expect(response.catalog).not.toHaveProperty("profile");
       expect(
         verifyFleetProof(
           b.authority.identity,
@@ -128,7 +127,7 @@ it.each<FleetOperation[]>([["read"], ["act"], ["read", "act"]])(
       );
       expect(response.catalog.events).toBe(false);
       expect(response.catalog.files).toBe(false);
-      b.db.prepare("UPDATE deployment_profile SET profile='server'").run();
+      service.close();
       expect(() =>
         service.catalog({ version: 1, requestId: randomUUID(), credential }),
       ).toThrow("does not admit");

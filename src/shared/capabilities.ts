@@ -9,11 +9,7 @@ export const FleetSourceCapabilities = z.strictObject({
   events: z.boolean(),
 });
 export const Capabilities = z.object({
-  profile: z.enum(["server", "companion"]),
-  nativeHarnesses: z.boolean(),
   pairedDevices: z.boolean(),
-  runtimeHosts: z.boolean(),
-  localProjects: z.boolean(),
   /** Absent on older sources; preview sources explicitly disable management. */
   cardTokens: z.boolean().optional(),
   /** Absent on sources that predate personal decision history. */
@@ -22,26 +18,16 @@ export const Capabilities = z.object({
   personalApprovalDetails: z.boolean().optional(),
   /** Absent on sources without the idempotent continuation-start endpoint. */
   continuationStart: z.boolean().optional(),
-  /** Gateway-owned transport, independent of the selected execution source. */
-  eventMultiplex: z.boolean().optional(),
   /** Gateway projection of this enrolled machine's verified catalog. */
   fleet: FleetSourceCapabilities.optional(),
 });
 export type Capabilities = z.infer<typeof Capabilities>;
-export type DeploymentProfile = Capabilities["profile"];
-export function profileCapabilities(profile: DeploymentProfile): Capabilities {
-  const companion = profile === "companion";
+export function workspaceCapabilities(): Capabilities {
   return {
-    profile,
-    nativeHarnesses: companion,
-    pairedDevices: companion,
-    // No profile serves runtime hosts any more; 3d removes the flag.
-    runtimeHosts: false,
-    localProjects: companion,
+    pairedDevices: true,
     cardTokens: true,
     personalDecisions: true,
     personalApprovalDetails: true,
     continuationStart: true,
-    eventMultiplex: companion,
   };
 }

@@ -1,4 +1,3 @@
-import * as profileQueries from "./sql/deployment-profile.js";
 import { Problem } from "../shared/problem.js";
 import { db } from "./db.js";
 import type { FleetAuthority } from "./fleet-authority.js";
@@ -46,11 +45,6 @@ export class FleetMailServices {
       capacity,
     ),
   ) {
-    if (
-      (profileQueries.current(db) as { profile: string } | undefined)
-        ?.profile !== "companion"
-    )
-      throw new Problem(403, "Fleet mail is unavailable in this workspace.");
     this.destination = new FleetMailDestination(
       db,
       authority,
