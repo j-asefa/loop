@@ -20,7 +20,6 @@ import type { FleetCredentialProof } from "../src/shared/fleet-credentials.js";
 import { FLEET_CREDENTIAL_LIFETIME_MS as TTL } from "../src/shared/fleet-credentials.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-renewal-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = root;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");

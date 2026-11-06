@@ -1,4 +1,3 @@
-process.env.LOOP_PROFILE = "companion";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";

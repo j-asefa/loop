@@ -17,7 +17,6 @@ import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-harness-routing-")));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_HAPI_URL = "http://fixture";
 process.env.LOOP_HAPI_TOKEN = "fixture";

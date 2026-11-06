@@ -51,7 +51,6 @@ it("upgrades populated records, preserves source work and restarts without retir
         {
           env: {
             ...process.env,
-            LOOP_PROFILE: "server",
             LOOP_DATA_DIR: dir,
           },
           timeout: 30000,

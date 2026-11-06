@@ -22,7 +22,6 @@ import {
 import { fleetWorkspaceActionApi } from "../src/shared/fleet-workspace-action-api.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-actions-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = join(root, "destination");
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 mkdirSync(process.env.LOOP_DATA_DIR);

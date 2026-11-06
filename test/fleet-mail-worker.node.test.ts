@@ -17,7 +17,6 @@ const root = mkdtempSync(join(tmpdir(), "loop-mail-worker-"));
 const project = join(root, "project");
 mkdirSync(project);
 gitProject(project);
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = join(root, "data");
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 process.env.LOOP_TEST_HARNESS = "codex";

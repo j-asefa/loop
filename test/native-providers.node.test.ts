@@ -8,7 +8,6 @@ import { until } from "./helpers.js";
 await mkdir(".tmp", { recursive: true });
 const dir = await mkdtemp(resolve(".tmp/provider-management-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db } = await import("../src/server/db.js");
 

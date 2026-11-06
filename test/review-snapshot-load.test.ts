@@ -13,7 +13,6 @@ import { randomBytes } from "node:crypto";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-snapshot-load-"));
 process.env.LOOP_DATA_DIR = join(dir, "data");
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db");
 const { captureSnapshot, snapshotFingerprint } =

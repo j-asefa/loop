@@ -20,7 +20,6 @@ it.each([null, 118, 123])(
     const env = {
       ...process.env,
       LOOP_DATA_DIR: dir,
-      LOOP_PROFILE: "server",
     };
     const source = pathToFileURL(resolve("src/server/db.ts")).href;
     const children: ReturnType<typeof spawn>[] = [];

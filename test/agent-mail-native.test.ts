@@ -9,7 +9,6 @@ import { randomBytes } from "node:crypto";
 import { gitProject } from "./git-project";
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-mail-native-")));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 process.env.LOOP_TEST_HARNESS = "codex";
 process.env.LOOP_TEST_AGENT_MAIL = "1";

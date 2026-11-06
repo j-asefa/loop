@@ -14,7 +14,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-turn-recovery-")));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
 gitProject(dir);
 const { db, changes } = await import("../src/server/db");
@@ -53,7 +52,6 @@ afterEach(() => {
 afterAll(async () => {
   await nativeSessions.close();
   db.close();
-  delete process.env.LOOP_PROFILE;
   rmSync(dir, { recursive: true, force: true });
 });
 function submit(conversation: string, harness: string, key: string) {

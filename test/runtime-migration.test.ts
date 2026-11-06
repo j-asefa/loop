@@ -35,7 +35,7 @@ it("clears legacy conversation hiding without guessing which Done card was dismi
       ],
       {
         cwd: resolve("."),
-        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+        env: { ...process.env, LOOP_DATA_DIR: dir },
         encoding: "utf8",
       },
     );
@@ -95,7 +95,6 @@ for (const branch of ["main", "hapi"] as const)
           cwd: resolve("."),
           env: {
             ...process.env,
-            LOOP_PROFILE: "server",
             LOOP_DATA_DIR: dir,
           },
           encoding: "utf8",
@@ -159,7 +158,6 @@ for (const [label, [trust, recovery], before] of [
           cwd: resolve("."),
           env: {
             ...process.env,
-            LOOP_PROFILE: "server",
             LOOP_DATA_DIR: dir,
           },
           encoding: "utf8",
@@ -213,7 +211,7 @@ it("upgrades databases that ran the trace-envelope cleanup as migration 45", () 
       ],
       {
         cwd: resolve("."),
-        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+        env: { ...process.env, LOOP_DATA_DIR: dir },
         encoding: "utf8",
       },
     );
@@ -312,7 +310,7 @@ it("repairs workspaces that recorded migration 37 without its conversation posit
       ],
       {
         cwd: resolve("."),
-        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+        env: { ...process.env, LOOP_DATA_DIR: dir },
         encoding: "utf8",
       },
     );
@@ -355,7 +353,7 @@ it("preserves permission-branch databases that used feed migration number 51", (
       ],
       {
         cwd: resolve("."),
-        env: { ...process.env, LOOP_PROFILE: "server", LOOP_DATA_DIR: dir },
+        env: { ...process.env, LOOP_DATA_DIR: dir },
         encoding: "utf8",
       },
     );

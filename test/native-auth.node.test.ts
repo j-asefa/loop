@@ -9,7 +9,6 @@ import type { AuthDriver, AuthInteraction } from "../src/server/native-auth.js";
 await mkdir(".tmp", { recursive: true });
 const dir = await mkdtemp(resolve(".tmp/native-auth-test-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 const { NativeSignIns } = await import("../src/server/native-auth.js");
 const { db } = await import("../src/server/db.js");
 const {

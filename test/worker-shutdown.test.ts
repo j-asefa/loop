@@ -6,7 +6,6 @@ import { join } from "node:path";
 it("does not claim when an already-started scheduling tick resumes after quiesce", async () => {
   vi.resetModules();
   const directory = mkdtempSync(join(tmpdir(), "loop-worker-quiesce-"));
-  vi.stubEnv("LOOP_PROFILE", "server");
   vi.stubEnv("LOOP_DATA_DIR", directory);
   const { db, changes } = await import("../src/server/db");
   const { enqueue } = await import("../src/server/queue");

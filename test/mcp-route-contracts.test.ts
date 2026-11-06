@@ -47,7 +47,6 @@ writeFileSync(
   }),
 );
 process.env.LOOP_DATA_DIR = join(directory, "data");
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_URL = "http://127.0.0.1";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");

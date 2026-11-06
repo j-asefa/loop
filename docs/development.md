@@ -169,7 +169,7 @@ It exercises deferred image loading and production cache/compression headers;
 Chromium also checks encoded transfer sizes and cache reuse on reload. No live
 providers or Internet tunnel are used. `LOOP_BROWSER` selects one engine.
 
-`smoke:feed-events` runs Chromium and WebKit against compiled server and paired entrypoints, including a linked source discovered through a fixture Docker command. It blocks HTTP event polling while checking Working-to-Done transitions, retained history, updates during pending reads and reconnect catch-up, then blocks WebSockets to check HTTP fallback and connection status. A Chromium server case checks the HTTP request budget while two Done tabs receive sustained updates. The Files journey checks retained pages and scroll, updates during Load more, multi-page catch-up, failure recovery and source/filter isolation. It does not use a real Docker daemon or a provider.
+`smoke:feed-events` runs Chromium and WebKit against compiled companion and paired entrypoints, including two enrolled fixture companions. It blocks HTTP event polling while checking Working-to-Done transitions, retained history, updates during pending reads and reconnect catch-up, then blocks WebSockets to check HTTP fallback and connection status. A Chromium companion case checks the HTTP request budget while two Done tabs receive sustained updates. The Files journey checks retained pages and scroll, updates during Load more, multi-page catch-up, failure recovery and source/filter isolation. It does not use a real Docker daemon or a provider.
 
 ## Manual verification
 

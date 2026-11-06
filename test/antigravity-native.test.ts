@@ -7,7 +7,6 @@ import { until } from "./helpers";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-antigravity-native-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_TEST_AGY_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");

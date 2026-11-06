@@ -9,7 +9,6 @@ import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-app-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_URL = "http://127.0.0.1";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");

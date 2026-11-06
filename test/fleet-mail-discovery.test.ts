@@ -26,7 +26,6 @@ import {
 } from "../src/shared/fleet-mail-api.js";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-fleet-mail-discovery-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { FleetCredentialHttpTransport } =

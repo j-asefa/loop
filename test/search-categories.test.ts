@@ -17,7 +17,6 @@ vi.mock("../src/server/local-embeddings.js", () => ({
 }));
 const directory = mkdtempSync(join(tmpdir(), "loop-search-categories-"));
 process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "server";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { workspace } = await import("../src/server/workspace-routes");

@@ -15,7 +15,6 @@ import {
 } from "../src/server/fleet-action-context.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-effect-storage-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = root;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db.js");

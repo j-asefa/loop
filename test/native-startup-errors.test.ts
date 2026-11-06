@@ -13,7 +13,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-native-startup-")));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
 gitProject(dir);
 const { db } = await import("../src/server/db");
@@ -214,7 +213,6 @@ it("persists a running agent's confirmed memory failure for cards without replay
 afterAll(async () => {
   await nativeSessions.close();
   db.close();
-  delete process.env.LOOP_PROFILE;
   rmSync(dir, { recursive: true, force: true });
 });
 

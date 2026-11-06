@@ -43,7 +43,6 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
         ...environment,
         NODE_ENV: "test",
         PATH: bin + ":" + (originalPath || ""),
-        LOOP_PROFILE: "companion",
         LOOP_DATA_DIR: join(directory, "data"),
         LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
       },

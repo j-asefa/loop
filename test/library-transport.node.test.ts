@@ -35,7 +35,6 @@ test("typed multipart routes use the compiled app without replaying writes", asy
       env: {
         ...environment,
         NODE_ENV: "test",
-        LOOP_PROFILE: "companion",
         LOOP_DATA_DIR: join(directory, "data"),
         LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
       },

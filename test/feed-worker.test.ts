@@ -37,7 +37,6 @@ async function worker(feed: () => Promise<Response>) {
   vi.resetModules();
   const dir = mkdtempSync(join(tmpdir(), "loop-feed-worker-"));
   dirs.push(dir);
-  vi.stubEnv("LOOP_PROFILE", "server");
   vi.stubEnv("LOOP_DATA_DIR", dir);
   vi.stubEnv("LOOP_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
   const { db } = await import("../src/server/db");

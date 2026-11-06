@@ -8,7 +8,6 @@ import { ZodError } from "zod";
 import { belongsToProject } from "../src/shared/projects";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-workspace-project-"));
-vi.stubEnv("LOOP_PROFILE", "server");
 vi.stubEnv("LOOP_DATA_DIR", dir);
 vi.stubEnv("LOOP_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
 const { db, id, now } = await import("../src/server/db");

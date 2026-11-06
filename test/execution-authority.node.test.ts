@@ -19,7 +19,6 @@ import { gitProject } from "./git-project.js";
 import { until } from "./helpers.js";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-authority-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = join(directory, "data");
 process.env.LOOP_TEST_HARNESS = "claude";
 process.env.LOOP_TEST_PROBE_AUDIT = join(directory, "probes");

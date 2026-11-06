@@ -7,7 +7,6 @@ import { until } from "./helpers";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-muse-native-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_TEST_MUSE_DIR = dir;
 process.env.LOOP_TEST_MUSE_LOG = join(dir, "requests");
 writeFileSync(

@@ -17,7 +17,6 @@ import express from "express";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-presets-"));
 process.env.LOOP_DATA_DIR = join(dir, "data");
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");

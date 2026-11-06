@@ -20,7 +20,6 @@ const start = async (directory: string) => {
     {
       env: {
         ...process.env,
-        LOOP_PROFILE: "server",
         LOOP_DATA_DIR: directory,
       },
     },

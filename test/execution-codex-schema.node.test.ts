@@ -9,7 +9,6 @@ import { agentModelName, runModelName } from "../src/client/modelChoices.js";
 import type { Connection } from "../src/shared/types.js";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-codex-schema-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = join(directory, "data");
 process.env.LOOP_TEST_HARNESS = "codex";
 // Codex's generated v2 Config declares model: string | null.

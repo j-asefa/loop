@@ -8,7 +8,6 @@ import { ownInstructions } from "./helpers/instructions";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-agent-mail-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
@@ -1566,7 +1565,7 @@ it("retains disconnected mail through a fresh process sweep and does not release
       "-e",
       "const {sweepAgentMail}=await import('./src/server/agent-mail.ts');sweepAgentMail(Date.now()+600000);sweepAgentMail(Date.now()+1200000);",
     ],
-    { env: { ...process.env, LOOP_DATA_DIR: dir, LOOP_PROFILE: "companion" } },
+    { env: { ...process.env, LOOP_DATA_DIR: dir } },
   );
   expect(mail(sent.messageId).state).toBe("sent");
   expect(mail(held.messageId).state).toBe("held");
@@ -2488,7 +2487,6 @@ it("arbitrates mail claims between independent worker processes and never replay
             env: {
               ...process.env,
               LOOP_DATA_DIR: dir,
-              LOOP_PROFILE: "companion",
             },
           },
         );

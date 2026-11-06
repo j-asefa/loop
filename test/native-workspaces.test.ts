@@ -24,7 +24,6 @@ const data = join(root, "data");
 const chat = join(root, "chat");
 const other = join(root, "other");
 for (const directory of [data, chat, other]) mkdirSync(directory);
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = data;
 process.env.LOOP_TEST_GEMINI_AUTO = "1";
 process.env.LOOP_TEST_GEMINI_LOG = join(root, "requests");
@@ -55,7 +54,6 @@ afterAll(async () => {
   await nativeSessions.close();
   db.close();
   for (const name of [
-    "LOOP_PROFILE",
     "LOOP_TEST_GEMINI_AUTO",
     "LOOP_TEST_GEMINI_LOG",
     "LOOP_TEST_GEMINI_SESSION_ID",

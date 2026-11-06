@@ -123,14 +123,14 @@ loop logs --follow
 loop stop
 ```
 
-The paired app shows agents and conversations from your computer and connected local Loop Docker servers in one Feed. Choose each new agent's destination in **Model & connection**; every agent shows where it runs. See [unified agents and Feed](docs/pairing.md#unified-agents-and-feed).
+The paired app shows agents and conversations from your computer and enrolled fleet companions in one Feed. Choose each new agent's destination in **Model & connection**; every agent shows where it runs. See [unified agents and Feed](docs/pairing.md#unified-agents-and-feed).
 
 To update a checkout install, run `git pull` and `bash install` while Loop keeps running, then `loop restart`. `loop restart` replaces only the application: a separate connection service keeps cloudflared, the Quick Tunnel address and your paired phone, and the restarted application uses the same projects, runtimes, execution and billing settings. It refuses while runs are active unless you pass `--force`. With the login service installed, `loop restart` restarts the application service the same way.
 
 `loop upgrade` does this in one command from any directory: it installs the package from the repository's remote `main` (or `--from PACKAGE`) while Loop keeps running, then restarts into the new build at the same address. A failed install leaves the running workspace alone. It does not use or modify a local Loop checkout. `loop stop` stops everything, including the tunnel; the next start can get a new address.
 
 
-Pairing is for laptop workspaces; the server uses its own access configuration. See [pairing and recovery](docs/pairing.md).
+The laptop and Docker companion both use device pairing. See [pairing and recovery](docs/pairing.md).
 
 ## Develop and contribute
 
@@ -147,7 +147,7 @@ Use the [documentation index](docs/README.md) for detailed guides and [AGENTS.md
 
 ## Security
 
-Pairing is how a device signs in; the tunnel address alone grants nothing. Treat pairing links and QR codes like passwords, and revoke unfamiliar devices with `loop devices revoke ID`. [SECURITY.md](SECURITY.md) covers the security model, server access and how to report a vulnerability.
+Pairing is how a device signs in; the tunnel address alone grants nothing. Treat pairing links and QR codes like passwords, and revoke unfamiliar devices with `loop devices revoke ID`. [SECURITY.md](SECURITY.md) covers the security model, device access and how to report a vulnerability.
 
 ## Build from source
 

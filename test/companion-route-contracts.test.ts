@@ -63,7 +63,6 @@ mkdirSync(bin);
 gitProject(project);
 const originalPath = process.env.PATH;
 process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 process.env.LOOP_TEST_HISTORY_PROJECT = project;
 for (const name of [

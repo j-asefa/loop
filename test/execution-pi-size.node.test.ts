@@ -15,7 +15,6 @@ import { gitProject } from "./git-project.js";
 import { until } from "./helpers.js";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-execution-size-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = join(directory, "data");
 process.env.LOOP_TEST_HARNESS = "claude";
 process.env.PI_CODING_AGENT_DIR = join(directory, "pi");

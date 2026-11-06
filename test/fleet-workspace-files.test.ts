@@ -35,7 +35,6 @@ import { fleetWorkspaceApi } from "../src/shared/fleet-workspace-api.js";
 import { until } from "./helpers.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-files-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = root;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { app } = await import("../src/server/index.js");

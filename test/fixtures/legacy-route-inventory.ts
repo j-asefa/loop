@@ -32,10 +32,7 @@ function walk(stack: Layer[], nested = false) {
   }
 }
 walk(app.router.stack as Layer[]);
-if (process.env.LOOP_PROFILE === "companion")
-  keys.push(
-    ...pairedHostRoutes.map((route) => `${route.method} ${route.path}`),
-  );
+keys.push(...pairedHostRoutes.map((route) => `${route.method} ${route.path}`));
 await closeExecution();
 db.close();
 console.log("ROUTE_INVENTORY=" + JSON.stringify(keys));

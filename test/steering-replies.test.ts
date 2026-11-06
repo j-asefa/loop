@@ -11,7 +11,6 @@ import { ReplyState } from "../src/shared/steering-replies";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-replies-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "server";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { createAgent, ownedRun } = await import("../src/server/domain");

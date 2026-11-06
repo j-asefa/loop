@@ -133,7 +133,6 @@ it.each(["main", "direct-mail preview"])(
       const before = snapshot();
       const env = {
         ...process.env,
-        LOOP_PROFILE: "server",
         LOOP_DATA_DIR: dir,
       };
       for (let i = 0; i < 2; i++)

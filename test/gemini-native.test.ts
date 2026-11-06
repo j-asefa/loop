@@ -7,7 +7,6 @@ import { until } from "./helpers";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-gemini-native-"));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_TEST_GEMINI_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");

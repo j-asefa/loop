@@ -19,7 +19,6 @@ test(
         execArgv: ["--import", "tsx"],
         env: {
           ...process.env,
-          LOOP_PROFILE: "companion",
           LOOP_DATA_DIR: directory,
           LOOP_TEST_HARNESS: "codex",
         },

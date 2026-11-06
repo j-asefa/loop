@@ -31,7 +31,6 @@ writeFileSync(
 );
 vi.stubEnv("LOOP_HOME", home);
 vi.stubEnv("LOOP_DATA_DIR", data);
-vi.stubEnv("LOOP_PROFILE", "companion");
 vi.stubEnv("LOOP_PREVIEW_MANIFEST", manifest);
 const { db, changes } = await import("../src/server/db");
 const { seedDesignPreview, startDesignSimulation, designPreviewBoundary } =

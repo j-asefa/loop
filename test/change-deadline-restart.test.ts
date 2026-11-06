@@ -18,7 +18,6 @@ it("processes overdue durable rows after a full companion restart and preserves 
     ...Object.fromEntries(
       Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")),
     ),
-    LOOP_PROFILE: "companion",
     LOOP_DATA_DIR: dir,
     LOOP_URL: "http://127.0.0.1",
     PORT: "0",

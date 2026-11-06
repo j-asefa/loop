@@ -27,7 +27,6 @@ async function fixture(t: TestContext) {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     env: {
       ...process.env,
-      LOOP_PROFILE: "companion",
       LOOP_DATA_DIR: dir,
       LOOP_TEST_HARNESS: "codex",
       LOOP_TEST_SUPERVISION: dir,

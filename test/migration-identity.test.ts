@@ -250,7 +250,6 @@ it("records historical completion by name at real startup and restarts without m
         {
           env: {
             ...process.env,
-            LOOP_PROFILE: "server",
             LOOP_DATA_DIR: data,
           },
           encoding: "utf8",

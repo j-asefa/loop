@@ -14,7 +14,6 @@ import { readRoute } from "../src/client/workspace-api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-github-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { app } = await import("../src/server/index");

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 const root = mkdtempSync(join(tmpdir(), "loop-native-recovery-"));
 process.env.LOOP_DATA_DIR = root;
-process.env.LOOP_PROFILE = "companion";
 const probe = vi.hoisted(() => vi.fn());
 vi.mock("../src/host-control.js", () => ({ discover: probe }));
 const { db, id, now } = await import("../src/server/db");

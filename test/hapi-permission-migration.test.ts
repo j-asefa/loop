@@ -57,7 +57,6 @@ it.each(["main", "hapi-preview", "both"])(
         {
           env: {
             ...process.env,
-            LOOP_PROFILE: "server",
             LOOP_DATA_DIR: dir,
           },
           encoding: "utf8",

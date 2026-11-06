@@ -38,7 +38,6 @@ writeFileSync(
   JSON.stringify({ packages: ["npm:fixture"] }),
 );
 process.env.LOOP_DATA_DIR = join(directory, "data");
-process.env.LOOP_PROFILE = "companion";
 process.env.PI_CODING_AGENT_DIR = piHome;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");

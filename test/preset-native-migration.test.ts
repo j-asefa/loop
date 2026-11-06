@@ -59,7 +59,6 @@ it.each(["main", "native-preview", "fresh"])(
           {
             env: {
               ...process.env,
-              LOOP_PROFILE: "server",
               LOOP_DATA_DIR: dir,
             },
             encoding: "utf8",

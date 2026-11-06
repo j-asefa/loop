@@ -24,7 +24,6 @@ import { fleetMailApi } from "../src/shared/fleet-mail-api.js";
 import { FLEET_MAIL_FILE_CHUNK_BYTES } from "../src/shared/fleet-mail-files.js";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-fleet-mail-admission-"));
-process.env.LOOP_PROFILE = "companion";
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const secrets = await import("../src/server/secrets.js");
