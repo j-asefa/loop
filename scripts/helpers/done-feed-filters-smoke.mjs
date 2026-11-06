@@ -65,11 +65,11 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     exact: true,
   });
   const status = (name) => controls.getByRole("button", { name, exact: true });
-  const picker = page
-    .getByRole("group", { name: "Workspace filters", exact: true })
-    .getByRole("button", { name: /^Filters/ });
+  const picker = controls.getByRole("button", {
+    name: "Filter Done by agent",
+  });
   const agentSheet = page.getByRole("dialog", {
-    name: "Filter workspace",
+    name: "Filter Done by agent",
     exact: true,
   });
   const search = agentSheet.getByRole("searchbox", { name: "Search agents" });
@@ -82,9 +82,6 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     await (
       environment ? options.filter({ hasText: environment }) : options.first()
     ).click();
-    await agentSheet
-      .getByRole("button", { name: "Apply filters", exact: true })
-      .click();
     await expect(agentSheet).toHaveCount(0);
     await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
@@ -113,7 +110,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   ).toHaveCount(0);
   await search.fill("no-matching-agent");
   await expect(agentSheet.getByRole("status")).toHaveText(
-    "No agents match these filters.",
+    "No agents match your search.",
   );
   await expect(
     agentSheet.getByRole("button", { name: "All agents", exact: true }),
@@ -123,7 +120,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await search.press("Escape");
   await expect(agentSheet).toHaveCount(0);
   await expect(picker).toBeFocused();
-  await expect(picker).toHaveText("Filters");
+  await expect(picker).toHaveText("All agents");
   await choose(agents[0]);
   await status("Unread").click();
   await expect(card("Filter result 0-83")).toBeVisible();
@@ -373,70 +370,24 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await expect(card("Filter result 1-2")).toBeVisible();
   await expect(card("Filter result 0-83")).toHaveCount(0);
   await choose(agents[2]);
-  await expect(page.locator('[aria-label$=" in Feed"]')).toHaveCount(0);
   await expect(page.getByText("No results match these filters.")).toBeVisible();
   await expect(rows).toHaveCount(0);
   await capture("empty");
   await controls.getByRole("button", { name: "Clear filters" }).click();
-  await page
-    .getByRole("button", { name: "Remove agent filter", exact: true })
-    .click();
   await expect(status("All")).toHaveAttribute("aria-pressed", "true");
-  await expect(picker).toHaveText("Filters");
+  await expect(picker).toHaveText("All agents");
   await expect(card("Filter result 0-83")).toBeVisible();
   await choose(agents[1]);
   await status("Unread").click();
-  // Agent scope carries across tabs; read status remains specific to Done.
+  // Other Feed tabs keep their normal scope; returning restores Done choices.
   const tabs = page.getByRole("tablist", { name: "Show", exact: true });
   await tabs.getByRole("tab", { name: /^Working/ }).click();
   await expect(controls).toHaveCount(0);
-  await expect(rows).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter" }),
-  ).toContainText(agents[1].name);
+  await expect(rows.first()).toBeVisible();
   await tabs.getByRole("tab", { name: /^Done/ }).click();
   await expect(status("Unread")).toHaveAttribute("aria-pressed", "true");
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter" }),
-  ).toContainText("@" + agents[1].name);
+  await expect(picker).toHaveText("@" + agents[1].name);
   await expect(page.getByText("No results match these filters.")).toBeVisible();
-  // Workspace navigation remembers the tab and agent without leaking filters
-  // into a newly entered project.
-  const workspace = page.getByRole("combobox", { name: "Project workspace" });
-  await tabs.getByRole("tab", { name: /^Replies/ }).click();
-  await workspace.selectOption(fixture.projects[0].id);
-  await expect(tabs.getByRole("tab", { name: /^Done/ })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await expect(picker).toHaveText("Filters");
-  await workspace.selectOption("");
-  await expect(tabs.getByRole("tab", { name: /^Replies/ })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter" }),
-  ).toContainText(agents[1].name);
-  await expect(page.locator(".agent-strip > button")).toHaveCount(2);
-  await tabs.getByRole("tab", { name: /^Done/ }).click();
-  await tabs.getByRole("tab", { name: /^Replies/ }).click();
-  await page
-    .locator(".agent-strip")
-    .getByRole("button", { name: new RegExp(`^@${agents[1].name} ·`) })
-    .click();
-  await page
-    .locator(".profile-backbar")
-    .getByRole("button", { name: "Back", exact: true })
-    .click();
-  await expect(tabs.getByRole("tab", { name: /^Replies/ })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter" }),
-  ).toContainText(agents[1].name);
-  await tabs.getByRole("tab", { name: /^Done/ }).click();
   // A response from a prior selection must never replace a newer one.
   let release;
   const held = new Promise((resolve) => (release = resolve));
@@ -446,16 +397,12 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     /^\/api\/v1\/cards(?:\/changes)?$/.test(url.pathname) &&
     url.searchParams.get("agent") === agents[0].id &&
     url.searchParams.get("read") === "read";
-  await page.route(
-    oldSelection,
-    async (route) => {
-      const response = await route.fetch();
-      started();
-      await held;
-      await route.fulfill({ response });
-    },
-    { times: 1 },
-  );
+  await page.route(oldSelection, async (route) => {
+    const response = await route.fetch();
+    started();
+    await held;
+    await route.fulfill({ response });
+  });
   await choose(agents[0]);
   await status("Read").click();
   await pending;
@@ -486,430 +433,14 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     await closeReader();
   }
 
-  const teamA = await fixture.api("/teams", {
-    name: "Filter team A",
-    managerId: agents[0].id,
-    members: [agents[2].id],
-  });
-  const teamB = await fixture.api("/teams", {
-    name: "Filter team B",
-    managerId: agents[1].id,
-    members: [agents[2].id],
-  });
-  fixture.db
-    .prepare("UPDATE conversations SET team_id=? WHERE id=?")
-    .run(teamB.id, agents[1].id);
-  await page.goto(fixture.base, { waitUntil: "networkidle" });
-  await picker.click();
-  await agentSheet
-    .getByRole("button", { name: teamA.name, exact: true })
-    .click();
-  await agentSheet
-    .getByRole("button", { name: teamB.name, exact: true })
-    .click();
-  await search.fill(agents[0].name);
-  await agentSheet
-    .getByRole("button", { name: `@${agents[0].name}`, exact: true })
-    .click();
-  await agentSheet
-    .getByRole("button", { name: "Apply filters", exact: true })
-    .click();
-  await page
-    .getByRole("button", {
-      name: `Remove team filter: ${teamA.name}`,
-      exact: true,
-    })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter", exact: true }),
-  ).toHaveCount(0);
-  await expect(card("Filter result 1-2")).toBeVisible();
-  await capture("team-chip-clears-incompatible-agent");
-  // Deleting A through management must reconcile the same A+B selection.
-  await picker.click();
-  await agentSheet
-    .getByRole("button", { name: teamA.name, exact: true })
-    .click();
-  await search.fill(agents[0].name);
-  await agentSheet
-    .getByRole("button", { name: `@${agents[0].name}`, exact: true })
-    .click();
-  await agentSheet
-    .getByRole("button", { name: "Apply filters", exact: true })
-    .click();
-  await picker.click();
-  await agentSheet
-    .getByRole("button", { name: "Manage teams", exact: true })
-    .click();
-  await page
-    .getByRole("dialog", { name: "Manage teams", exact: true })
-    .locator(".team-option-group")
-    .filter({ hasText: teamA.name })
-    .getByRole("button", { name: "Delete team", exact: true })
-    .click();
-  await page
-    .getByRole("dialog", { name: `Delete ${teamA.name}?`, exact: true })
-    .getByRole("button", { name: "Delete team", exact: true })
-    .click();
-  await expect(agentSheet).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", {
-      name: `Remove team filter: ${teamA.name}`,
-      exact: true,
-    }),
-  ).toHaveCount(0);
-  await expect(card("Filter result 1-2")).toBeVisible();
-  await capture("team-deletion-clears-incompatible-agent");
-
-  // A saved Overview selection must be reconciled after deleting its team
-  // while another project is displayed.
-  const rememberedTeam = await fixture.api("/teams", {
-    name: "Remembered filter team",
-    managerId: agents[0].id,
-    members: [agents[2].id],
-  });
-  await page.goto(fixture.base, { waitUntil: "networkidle" });
-  await picker.click();
-  await agentSheet
-    .getByRole("button", { name: teamB.name, exact: true })
-    .click();
-  await agentSheet
-    .getByRole("button", { name: rememberedTeam.name, exact: true })
-    .click();
-  await search.fill(agents[0].name);
-  await agentSheet
-    .getByRole("button", { name: `@${agents[0].name}`, exact: true })
-    .click();
-  await agentSheet
-    .getByRole("button", { name: "Apply filters", exact: true })
-    .click();
-  await workspace.selectOption(fixture.projects[0].id);
-  await picker.click();
-  await agentSheet
-    .getByRole("button", { name: "Manage teams", exact: true })
-    .click();
-  await page
-    .getByRole("dialog", { name: "Manage teams", exact: true })
-    .locator(".team-option-group")
-    .filter({ hasText: rememberedTeam.name })
-    .getByRole("button", { name: "Delete team", exact: true })
-    .click();
-  await page
-    .getByRole("dialog", {
-      name: `Delete ${rememberedTeam.name}?`,
-      exact: true,
-    })
-    .getByRole("button", { name: "Delete team", exact: true })
-    .click();
-  await expect(agentSheet).toHaveCount(0);
-  await workspace.selectOption("");
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", {
-      name: `Remove team filter: ${rememberedTeam.name}`,
-      exact: true,
-    }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", {
-      name: `Remove team filter: ${teamB.name}`,
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(card("Filter result 1-2")).toBeVisible();
-  await capture("remembered-workspace-reconciles-deleted-team");
-  const externalTeam = await fixture.api("/teams", {
-    name: "External filter team",
-    managerId: agents[0].id,
-    members: [agents[2].id],
-  });
-  await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop-workspace-change")),
-  );
-  await picker.click();
-  await agentSheet
-    .getByRole("button", { name: externalTeam.name, exact: true })
-    .click();
-  await search.fill(agents[0].name);
-  await agentSheet
-    .getByRole("button", { name: `@${agents[0].name}`, exact: true })
-    .click();
-  await agentSheet
-    .getByRole("button", { name: "Apply filters", exact: true })
-    .click();
-  await fixture.api("/teams/" + externalTeam.id, undefined, "DELETE");
-  await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop-workspace-change")),
-  );
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", {
-      name: `Remove team filter: ${externalTeam.name}`,
-      exact: true,
-    }),
-  ).toHaveCount(0);
-  await expect(card("Filter result 1-2")).toBeVisible();
-  await capture("external-team-deletion-reconciles-agent");
-
-  await page
-    .getByRole("button", {
-      name: `Remove team filter: ${teamB.name}`,
-      exact: true,
-    })
-    .click();
-  fixture.db
-    .prepare("UPDATE conversations SET team_id=NULL WHERE id=?")
-    .run(agents[1].id);
-  await fixture.api("/agents/" + agents[1].id, { retired: true }, "PATCH");
-  await page.reload({ waitUntil: "networkidle" });
-  await expect(
-    page
-      .locator(".agent-strip")
-      .getByRole("button", { name: new RegExp(`^@${agents[1].name} ·`) }),
-  ).toHaveCount(0);
-  await choose(agents[1]);
-  await expect(card("Filter result 1-2")).toBeVisible();
-  await capture("retired-agent-history");
-  await fixture.api("/agents/" + agents[1].id, { retired: false }, "PATCH");
-
-  // A conversation's project need not match its agent's current project.
-  fixture.db
-    .prepare("UPDATE conversations SET project_id=? WHERE id=?")
-    .run(fixture.projects[0].id, agents[1].id);
-  await page.goto(fixture.base, { waitUntil: "networkidle" });
-  await workspace.selectOption(fixture.projects[0].id);
-  await expect(
-    page.locator(".agent-strip").getByRole("button", {
-      name: new RegExp(`^@${agents[1].name} ·`),
-    }),
-  ).toHaveCount(0);
-  await choose(agents[1]);
-  await expect(card("Filter result 1-2")).toBeVisible();
-  await capture("project-historical-agent");
-  await workspace.selectOption("");
-  fixture.db
-    .prepare("UPDATE conversations SET project_id=NULL WHERE id=?")
-    .run(agents[1].id);
-
-  const approvalId = randomUUID(),
-    decisionId = randomUUID();
-  const actionRun = randomUUID();
-  run.run(
-    actionRun,
-    fixture.owner,
-    agents[0].id,
-    agents[0].id,
-    "Filter action run",
-    actionRun,
-    Date.now(),
-    Date.now(),
-  );
-  fixture.db
-    .prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?")
-    .run(actionRun);
-
-  fixture.db.prepare("INSERT INTO approvals VALUES(?,?,?,?,?,?,NULL,?,?)").run(
-    approvalId,
-    fixture.owner,
-    actionRun,
-    approvalId,
-    JSON.stringify({
-      type: "mcp_tool",
-      tool: "filter_test",
-      server: "Fixture",
-      arguments: {},
-      message: "Filter approval",
-    }),
-    "pending",
-    Date.now(),
-    Date.now() + 3600000,
-  );
-  fixture.db
-    .prepare(
-      "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,created_at) VALUES(?,?,?,'fixture',?,?,'pending',?)",
-    )
-    .run(
-      decisionId,
-      actionRun,
-      agents[0].id,
-      decisionId,
-      JSON.stringify({
-        kind: "approval",
-        title: "Filter native decision",
-        choices: ["allow", "deny"],
-      }),
-      Date.now(),
-    );
-  const failedSend = await fixture.api("/scheduled-sends", {
-    agentId: agents[0].id,
-    input: "Filter failed scheduled send",
-    idempotencyKey: randomUUID(),
-    sendAt: Date.now() + 3600000,
-  });
-  fixture.db
-    .prepare(
-      "UPDATE scheduled_sends SET state='failed',error='Fixture failure' WHERE id=?",
-    )
-    .run(failedSend.id);
-  const overflowRuns = [],
-    overflowSends = [];
-  fixture.db.transaction(() => {
-    for (let i = 0; i < 201; i++) {
-      const overflow = randomUUID();
-      overflowRuns.push(overflow);
-      run.run(
-        overflow,
-        fixture.owner,
-        agents[2].id,
-        agents[2].id,
-        "Overflow active run",
-        overflow,
-        Date.now() + i,
-        Date.now() + i,
-      );
-      fixture.db
-        .prepare(
-          "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
-        )
-        .run(overflow);
-    }
-    for (let i = 0; i < 101; i++) {
-      const overflow = randomUUID();
-      overflowSends.push(overflow);
-      fixture.db
-        .prepare(
-          "INSERT INTO scheduled_sends(id,owner_id,agent_id,input,idempotency_key,send_at,state,created_at) VALUES(?,?,?,'Other agent failed send',?,?,'failed',?)",
-        )
-        .run(
-          overflow,
-          fixture.owner,
-          agents[2].id,
-          overflow,
-          Date.now() + 7200000 + i,
-          Date.now(),
-        );
-    }
-  })();
-  assert(
-    !(await fixture.api("/runs?active=1")).some(
-      (item) => item.id === actionRun,
-    ),
-  );
-  await page.goto(fixture.base, { waitUntil: "networkidle" });
-  await choose(agents[0]);
-  const actionNeeds = page.getByRole("region", {
-    name: "Needs you",
-    exact: true,
-  });
-  await actionNeeds
-    .getByRole("button", { name: "Show all", exact: true })
-    .click();
-  await expect(actionNeeds.locator(".approval-card")).toHaveCount(1);
-  await expect(actionNeeds.locator(".scheduled-summary")).toContainText(
-    "1 scheduled message not sent",
-  );
-
-  await expect(
-    actionNeeds.getByText("Filter native decision", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    actionNeeds.getByText("Filter failed scheduled send", { exact: true }),
-  ).toBeVisible();
-  await choose(agents[1]);
-  await expect(
-    actionNeeds.locator(".approval-card, .native-decision, .scheduled-message"),
-  ).toHaveCount(0);
-
-  // An old agent's delayed next page cannot replace the new agent's cursor.
-  for (let i = 0; i < 100; i++) {
-    const overflow = randomUUID();
-    overflowSends.push(overflow);
-    fixture.db
-      .prepare(
-        "INSERT INTO scheduled_sends(id,owner_id,agent_id,input,idempotency_key,send_at,state,created_at) VALUES(?,?,?,'Agent A paging failure',?,?,'failed',?)",
-      )
-      .run(
-        overflow,
-        fixture.owner,
-        agents[0].id,
-        overflow,
-        Date.now() + 7200000 + i,
-        Date.now(),
-      );
-  }
-  await choose(agents[0]);
-  await actionNeeds
-    .getByRole("button", { name: "Show all", exact: true })
-    .click();
-  let releaseOlder, olderStarted;
-  const olderGate = new Promise((resolve) => {
-    releaseOlder = resolve;
-  });
-  const olderReady = new Promise((resolve) => {
-    olderStarted = resolve;
-  });
-  const olderPattern = (url) =>
-    url.pathname === "/api/scheduled-sends" &&
-    url.searchParams.get("agent") === agents[0].id &&
-    url.searchParams.has("failedBefore");
-  await page.route(
-    olderPattern,
-    async (route) => {
-      const response = await route.fetch();
-      olderStarted();
-      await olderGate;
-      await route.fulfill({ response }).catch(() => {});
-    },
-    { times: 1 },
-  );
-  await actionNeeds
-    .getByRole("button", { name: "More not sent", exact: true })
-    .click();
-  await olderReady;
-  await choose(agents[2]);
-  await actionNeeds
-    .getByRole("button", { name: "Show all", exact: true })
-    .click();
-  const moreFailures = actionNeeds.getByRole("button", {
-    name: "More not sent",
-    exact: true,
-  });
-  await expect(moreFailures).toBeEnabled();
-  releaseOlder();
-  await page.unrouteAll({ behavior: "wait" });
-  await expect(moreFailures).toBeEnabled();
-  await moreFailures.click();
-  await expect(
-    actionNeeds.locator("#scheduled-" + overflowSends[0]),
-  ).toBeVisible();
-  await expect(moreFailures).toHaveCount(0);
-
-  fixture.db.transaction(() => {
-    for (const id of overflowRuns)
-      fixture.db.prepare("DELETE FROM runs WHERE id=?").run(id);
-    for (const id of overflowSends)
-      fixture.db.prepare("DELETE FROM scheduled_sends WHERE id=?").run(id);
-  })();
-
   // A linked-source fixture deliberately reuses local agent and card IDs.
   // Selecting it must address that source without mixing local cached pages.
   let source = "docker:done-filters";
   let prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
   let sourceKind = "docker";
-  let sourceAvailable = true;
   let peerActions = ["feedUnread"];
   const peerReadWrites = [];
   const localSummary = (await fixture.api("/feed?filter=needs")).summary;
-  const localAgentSummary = (
-    await fixture.api("/feed?filter=needs&agent=" + agents[0].id)
-  ).summary;
   const remoteSummary = {
     ...localSummary,
     working: 2,
@@ -918,51 +449,22 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     scheduled_failed: 2,
     scheduled_pending: 3,
   };
-  let countSource = "all";
   const expectOperationalCounts = async () => {
-    const badgeTotal = (summary) =>
-      summary.working +
-      summary.queued +
-      (summary.replies_unread || 0) +
-      (summary.done_unread || 0);
-    const expectedBadge =
-      countSource === "remote"
-        ? badgeTotal(remoteSummary)
-        : countSource === "local"
-          ? badgeTotal(localAgentSummary)
-          : badgeTotal(localSummary) + badgeTotal(remoteSummary);
-    if (expectedBadge)
-      await expect(
-        page.locator('[aria-label$=" in Feed"]').first(),
-      ).toHaveAttribute(
-        "aria-label",
-        `${expectedBadge} ${expectedBadge === 1 ? "item" : "items"} in Feed`,
-      );
-    else await expect(page.locator('[aria-label$=" in Feed"]')).toHaveCount(0);
     for (const [tab, field] of [
       ["working", "working"],
       ["queued", "queued"],
       ["replies", "replies_unread"],
-    ]) {
-      const count =
-        countSource === "remote"
-          ? remoteSummary[field]
-          : countSource === "local"
-            ? localAgentSummary[field] || 0
-            : (localSummary[field] || 0) + remoteSummary[field];
-      const badge = tabs.locator(`[data-filter="${tab}"] .chip-count`);
-      if (count) await expect(badge).toHaveText(String(count));
-      else await expect(badge).toHaveCount(0);
-    }
+    ])
+      await expect(
+        tabs.locator(`[data-filter="${tab}"] .chip-count`),
+      ).toHaveText(String((localSummary[field] || 0) + remoteSummary[field]));
   };
   await page.goto("about:blank");
   await page.route(
     (url) => url.pathname === "/api/agent-sources",
     (route) =>
       route.fulfill({
-        json: sourceAvailable
-          ? [{ id: source, name: "Filter fixture", kind: sourceKind }]
-          : [],
+        json: [{ id: source, name: "Filter fixture", kind: sourceKind }],
       }),
   );
   await page.route(
@@ -988,8 +490,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
         return route.fulfill({ json: { items: [], next: null } });
       url.pathname = "/api/" + path;
       if (path === "feed") url.searchParams.delete("known");
-      const response = await route.fetch({ url: url.href }).catch(() => null);
-      if (!response) return route.abort().catch(() => {});
+      const response = await route.fetch({ url: url.href });
       if (path === "capabilities")
         return route.fulfill({
           response,
@@ -1038,7 +539,6 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   ).toHaveCount(1);
   await closeReader();
   await expectOperationalCounts();
-  countSource = "remote";
   await choose(agents[0], "Filter fixture");
   await status("Unread").click();
   await expect(card("Remote Filter result 0-81")).toBeVisible();
@@ -1046,12 +546,11 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await expectOperationalCounts();
   await page.getByRole("button", { name: "Load more", exact: true }).click();
   await expect(card("Remote Filter result 0-1")).toHaveCount(1);
-  countSource = "local";
   await choose(agents[0]);
   await expect(card("Filter result 0-81")).toBeVisible();
   await expect(card("Remote Filter result 0-81")).toHaveCount(0);
   await expectOperationalCounts();
-  // Updates from another source cannot change the selected source counts.
+  // Updates from the unselected workspace still refresh operational counts.
   remoteSummary.working = 5;
   await page.evaluate((source) => {
     window.dispatchEvent(
@@ -1061,23 +560,16 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     );
   }, source);
   await expectOperationalCounts();
-  await page
-    .getByRole("button", { name: "Remove agent filter", exact: true })
-    .click();
   const needs = page.getByRole("region", { name: "Needs you", exact: true });
   await needs.getByRole("button", { name: "Show all", exact: true }).click();
   await expect(needs.locator(".scheduled-summary")).toContainText(
     `${(localSummary.scheduled_failed || 0) + remoteSummary.scheduled_failed} scheduled messages not sent`,
   );
   await needs.getByRole("button", { name: "Collapse", exact: true }).click();
-  countSource = "remote";
   await choose(agents[0], "Filter fixture");
   await expect(card("Remote Filter result 0-1")).toHaveCount(1);
   await expect(card("Filter result 0-81")).toHaveCount(0);
   await expectOperationalCounts();
-  await expect(
-    needs.locator(".approval-card, .native-decision, .scheduled-message"),
-  ).toHaveCount(0);
   await capture("source-isolation");
   await status("Read").click();
   const remoteUnread = page.waitForRequest(
@@ -1103,7 +595,6 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
   sourceKind = "peer";
   await page.goto(fixture.base, { waitUntil: "networkidle" });
-  countSource = "remote";
   await choose(agents[0], "Filter fixture");
   await openActions("Mixed agent results");
   const unreadAction = page.getByRole("menuitem", {
@@ -1119,7 +610,6 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   // A read-only or older peer can still show results without allowing unread.
   peerActions = [];
   await page.reload({ waitUntil: "networkidle" });
-  countSource = "remote";
   await choose(agents[0], "Filter fixture");
   await openActions("Remote Filter result 0-83");
   await expect(unreadAction).toBeDisabled();
@@ -1133,61 +623,6 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   await page.waitForTimeout(150);
   assert.deepEqual(peerReadWrites, []);
   await closeReader();
-  sourceAvailable = false;
-  await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop-source-refresh")),
-  );
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter" }),
-  ).toContainText("Unavailable agent");
-  await expect(page.getByText("No results match these filters.")).toBeVisible();
-  await expect(rows).toHaveCount(0);
-  await expect(page.locator(".collection-read-error")).toHaveCount(0);
-  sourceAvailable = true;
-  await page.evaluate(() =>
-    window.dispatchEvent(new Event("loop-source-refresh")),
-  );
-  await expect(card("Remote Filter result 0-83")).toBeVisible();
-
-  // Team creation navigates to a local team and clears the remote selection.
-  await picker.click();
-  await agentSheet
-    .getByRole("button", { name: "Manage teams", exact: true })
-    .click();
-  await page
-    .getByRole("dialog", { name: "Manage teams", exact: true })
-    .getByRole("button", { name: "New team", exact: true })
-    .click();
-  const createTeam = page.locator("dialog[open]").last();
-  await createTeam
-    .getByLabel("Team name", { exact: true })
-    .fill("Created from remote filter");
-  await createTeam
-    .getByRole("combobox", { name: "Manager", exact: true })
-    .selectOption(agents[0].id);
-  await createTeam
-    .getByRole("checkbox", { name: new RegExp(`@${agents[1].name}`) })
-    .check();
-  await createTeam
-    .getByRole("button", { name: "Create team & talk to manager", exact: true })
-    .click();
-  await expect(page.locator(".conversation-sheet")).toBeVisible();
-  await closeReader();
-  await expect(
-    page.getByRole("button", { name: "Remove agent filter" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", {
-      name: "Remove team filter: Created from remote filter",
-    }),
-  ).toBeVisible();
-  await tabs.getByRole("tab", { name: /^Working/ }).click();
-  await expect(page.locator(".feed-loading")).toHaveCount(0);
-  await expect(page.locator(".collection-read-error")).toHaveCount(0);
-  await tabs.getByRole("tab", { name: /^Done/ }).click();
-  await expect(page.locator(".feed-loading")).toHaveCount(0);
-  await expect(page.locator(".collection-read-error")).toHaveCount(0);
-  await capture("created-team-clears-remote-agent");
   // Finish background projection callbacks before the runner closes the page.
   await page.unrouteAll({ behavior: "wait" });
 }

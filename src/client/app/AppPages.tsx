@@ -22,12 +22,7 @@ import { Traces } from "../Traces";
 import { AgentMailThreads } from "../AgentMail";
 import { AgentMessages } from "../AgentMessages";
 import { afterSheetsClose } from "../sheetHistory";
-import { ProfileTeams, TeamManagement, TeamManagerShortcut } from "../Teams";
-import {
-  WorkspaceFilters,
-  workspaceAgentKey,
-  compatibleWorkspaceAgent,
-} from "../WorkspaceFilters";
+import { TeamFilter, ProfileTeams, TeamManagerShortcut } from "../Teams";
 import { Approvals } from "../Approvals";
 import { PullRequests } from "../PullRequests";
 import { Feed } from "../Feed";
@@ -85,8 +80,6 @@ export function renderAppPages(
     | "tab"
     | "project"
     | "teamVisibilityChanged"
-    | "workspaceAgent"
-    | "setWorkspaceAgent"
     | "teamSelection"
     | "setData"
     | "setTeamSelection"
@@ -170,8 +163,6 @@ export function renderAppPages(
     tab,
     project,
     teamVisibilityChanged,
-    workspaceAgent,
-    setWorkspaceAgent,
     teamSelection,
     setData,
     setTeamSelection,
@@ -228,15 +219,6 @@ export function renderAppPages(
     executionSourceId(),
     "agent-tab",
     profile?.id || "",
-  );
-  const workspaceAgents = unified.agents.filter(
-    (agent) =>
-      !projectFilter ||
-      ((agent.sourceId ?? executionSourceId()) === executionSourceId() &&
-        belongsToProject(agent.folder_id, projectFilter, data.folders)),
-  );
-  const localWorkspaceAgent = data.agents.find(
-    (agent) => workspaceAgentKey(agent, executionSourceId()) === workspaceAgent,
   );
   return (
     <main className="workspace-content">
@@ -429,6 +411,43 @@ export function renderAppPages(
           <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
         </div>
       )}
+      {tab === "feed" && !profile && !!data.teams?.length && (
+        <div className="workspace-scope">
+          <TeamFilter
+            teams={data.teams || []}
+            onVisibilityChanged={teamVisibilityChanged}
+            selected={teamSelection}
+            onDeleted={(id) => {
+              setData((old) => ({
+                ...old,
+                teams: old.teams?.filter((team) => team.id !== id),
+              }));
+              setTeamSelection((old) => old.filter((team) => team !== id));
+              void bootstrap();
+            }}
+            onChange={(ids) => {
+              setTeamSelection(ids);
+              const team =
+                ids.length === 1
+                  ? data.teams?.find((t) => t.id === ids[0])
+                  : undefined;
+              if (team && !draft.trim()) {
+                setSelected(team.manager_id);
+                setContextArtifact(null);
+              }
+            }}
+            onCreate={() => setSheet("teams")}
+            onOpen={messageTeam}
+            onMessages={setTeamMessages}
+          />
+          <TeamManagerShortcut
+            teams={data.teams || []}
+            agents={data.agents}
+            selected={teamSelection}
+            onOpen={messageTeam}
+          />
+        </div>
+      )}
       {tab === "feed" && !profile && (
         <>
           {unified.error && (
@@ -447,100 +466,22 @@ export function renderAppPages(
           )}
           {unified.agents.length > 0 && (
             <YourAgents
-              agents={workspaceAgents.filter(
-                (agent) =>
-                  !agent.retired_at &&
-                  (!teamSelection.length ||
-                    ((agent.sourceId ?? executionSourceId()) ===
-                      executionSourceId() &&
-                      data.teams?.some(
-                        (team) =>
-                          teamSelection.includes(team.id) &&
-                          [team.manager_id, ...team.members].includes(agent.id),
-                      ))) &&
-                  (!workspaceAgent ||
-                    workspaceAgentKey(agent, executionSourceId()) ===
-                      workspaceAgent),
-              )}
+              agents={
+                projectFilter || teamSelection.length
+                  ? unified.agents.filter(
+                      (agent) =>
+                        (agent.sourceId || "") === executionSourceId() &&
+                        scopedAgents.some((scoped) => scoped.id === agent.id),
+                    )
+                  : unified.agents.filter((agent) => !agent.retired_at)
+              }
               connections={unified.connections}
               runs={unified.runs}
               onProfile={openSourcedAgent}
               onCreate={startChat}
             />
           )}
-          <WorkspaceFilters
-            key={JSON.stringify([
-              session.user.id,
-              executionSourceId(),
-              projectFilter,
-            ])}
-            workspace={
-              data.folders.find((folder) => folder.id === projectFilter)
-                ?.name || "Overview"
-            }
-            teams={(data.teams || []).filter(
-              (team) =>
-                !projectFilter ||
-                belongsToProject(team.folder_id, projectFilter, data.folders),
-            )}
-            selectedTeams={teamSelection}
-            agents={unified.agents.filter(
-              (agent) =>
-                !projectFilter ||
-                (agent.sourceId ?? executionSourceId()) === executionSourceId(),
-            )}
-            agent={workspaceAgent}
-            source={executionSourceId()}
-            onChange={(teams, agent) => {
-              setTeamSelection(teams);
-              setWorkspaceAgent(agent);
-            }}
-            management={(closeFilters) => (
-              <TeamManagement
-                teams={data.teams || []}
-                onVisibilityChanged={teamVisibilityChanged}
-                onDeleted={(id) => {
-                  setData((old) => ({
-                    ...old,
-                    teams: old.teams?.filter((team) => team.id !== id),
-                  }));
-                  const remaining = teamSelection.filter((team) => team !== id);
-                  setTeamSelection(remaining);
-                  setWorkspaceAgent(
-                    compatibleWorkspaceAgent(
-                      workspaceAgent,
-                      remaining,
-                      unified.agents,
-                      data.teams || [],
-                      executionSourceId(),
-                    ),
-                  );
-                  closeFilters();
-                  void bootstrap();
-                }}
-                onCreate={() => {
-                  closeFilters();
-                  setSheet("teams");
-                }}
-                onOpen={(team) => {
-                  closeFilters();
-                  messageTeam(team);
-                }}
-                onMessages={(team) => {
-                  closeFilters();
-                  setTeamMessages(team);
-                }}
-              />
-            )}
-          />
-          <TeamManagerShortcut
-            teams={data.teams || []}
-            agents={data.agents}
-            selected={teamSelection}
-            onOpen={messageTeam}
-          />
           <Feed
-            workspaceAgent={workspaceAgent}
             key={feedHomeKey}
             filter={feedFilter}
             onFilter={setFeedFilter}
@@ -569,31 +510,24 @@ export function renderAppPages(
             onShowReminder={(id) => openLater("reminders", id)}
             onAsk={availableAgents.length ? askAboutPull : undefined}
             needsSlot={
-              (!workspaceAgent || localWorkspaceAgent) && (
-                <div className="run-list">
-                  <NativeDecisions
-                    teams={teamKey}
-                    agent={localWorkspaceAgent?.id}
-                    folder={projectFilter || undefined}
-                    onConversation={setConversation}
-                  />
-                  <Approvals
-                    teams={teamKey}
-                    agent={localWorkspaceAgent?.id}
-                    folder={projectFilter || undefined}
-                    revision={revisionFor("approvals")}
-                    onChange={() => void changed()}
-                    onConversation={setConversation}
-                  />
-                  <ScheduledSends
-                    agentId={localWorkspaceAgent?.id}
-                    revision={revisionFor("scheduled")}
-                    failedOnly
-                    onOpen={(c) => setConversation(c)}
-                    onDraft={draftFromScheduled}
-                  />
-                </div>
-              )
+              <div className="run-list">
+                <NativeDecisions onConversation={setConversation} />
+                <Approvals
+                  teams={teamKey}
+                  runIds={
+                    projectFilter ? scopedRuns.map((r) => r.id) : undefined
+                  }
+                  revision={revisionFor("approvals")}
+                  onChange={() => void changed()}
+                  onConversation={setConversation}
+                />
+                <ScheduledSends
+                  revision={revisionFor("scheduled")}
+                  failedOnly
+                  onOpen={(c) => setConversation(c)}
+                  onDraft={draftFromScheduled}
+                />
+              </div>
             }
             emptyAction={
               <button

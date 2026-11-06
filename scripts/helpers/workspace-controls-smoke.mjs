@@ -430,13 +430,9 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     members: [fixture.agents[5].id],
   });
   await page.reload();
-  await page.getByRole("button", { name: /^Filters/ }).click();
+  await page.getByRole("button", { name: /Filter by team:/ }).click();
+  await dialog().getByLabel(team.name, { exact: true }).check();
   await dialog()
-    .getByRole("button", { name: "Manage teams", exact: true })
-    .click();
-  await dialog()
-    .locator(".team-option-group")
-    .filter({ has: page.getByText(team.name, { exact: true }) })
     .getByRole("button", { name: "Delete team", exact: true })
     .click();
   await dialog()
@@ -444,19 +440,16 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     .click();
   assert((await fixture.api("/teams")).some((item) => item.id === team.id));
   await dialog()
-    .locator(".team-option-group")
-    .filter({ has: page.getByText(team.name, { exact: true }) })
     .getByRole("button", { name: "Delete team", exact: true })
     .click();
   await capture("delete-team");
   await dialog()
     .getByRole("button", { name: "Delete team", exact: true })
     .click();
-  await dialog().getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.locator("dialog[open]")).toHaveCount(0);
   await expect(
     page.getByRole("button", {
-      name: "Filters",
+      name: "Filter by team: All teams",
       exact: true,
     }),
   ).toBeVisible();

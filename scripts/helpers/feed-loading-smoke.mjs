@@ -259,12 +259,10 @@ async function feedClearTeamWithCursor(page, fixture, engine) {
     ).toBeVisible();
     page.on("pageerror", onError);
     combinedHeads = 0;
-    await page.getByRole("button", { name: /^Filters/ }).click();
+    await page.getByRole("button", { name: /^Filter by team:/ }).click();
     const dialog = page.locator("dialog[open]").last();
-    await dialog.getByRole("button", { name: "Everyone", exact: true }).click();
-    await dialog
-      .getByRole("button", { name: "Apply filters", exact: true })
-      .click();
+    await dialog.getByRole("button", { name: /^All teams/ }).click();
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
     await expect.poll(() => combinedHeads).toBeGreaterThan(0);
     await expect
       .poll(() => feed.locator(".inbox-row").count())

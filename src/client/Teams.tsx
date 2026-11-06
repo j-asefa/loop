@@ -442,8 +442,10 @@ export function TeamMessages({
   );
 }
 
-export function TeamManagement({
+export function TeamFilter({
   teams,
+  selected,
+  onChange,
   onCreate,
   onOpen,
   onMessages,
@@ -451,6 +453,8 @@ export function TeamManagement({
   onVisibilityChanged,
 }: {
   teams: Team[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
   onCreate: () => void;
   onOpen: (team: Team) => void;
   onMessages: (team: Team) => void;
@@ -469,15 +473,26 @@ export function TeamManagement({
       trigger.current?.focus({ preventScroll: true }),
     );
   }
+  const chosen = teams.filter((t) => selected.includes(t.id));
+  const summary =
+    chosen.length === 1
+      ? chosen[0].name
+      : chosen.length
+        ? `${chosen.length} teams`
+        : "All teams";
+  // A single selected team stays listed while searching, so its settings
+  // and actions remain reachable.
   const named = (t: Team) =>
     t.name.toLowerCase().includes(query.toLowerCase().trim());
-  const matches = teams.filter((t) => named(t));
+  const matches = teams.filter(
+    (t) => named(t) || (chosen.length === 1 && chosen[0].id === t.id),
+  );
   return (
     <div className="team-toolbar">
       <button
         ref={trigger}
         className="team-filter"
-        aria-label="Manage teams"
+        aria-label={`Filter by team: ${summary}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => {
@@ -486,12 +501,12 @@ export function TeamManagement({
         }}
       >
         <Users size={18} />
-        <span>Manage teams</span>
+        <span>{summary}</span>
         <ChevronDown size={16} />
       </button>
       {open && !deleting && (
         <Sheet
-          title="Manage teams"
+          title="Filter by team"
           onClose={close}
           footer={
             <div className="team-picker-actions">
@@ -511,7 +526,7 @@ export function TeamManagement({
           }
         >
           <p className="muted">
-            Manage team visibility and messages, or create and delete teams.
+            Choose the teams you want to see in your feed.
           </p>
           <label className="team-search">
             <Search size={18} aria-hidden="true" />
@@ -525,11 +540,41 @@ export function TeamManagement({
             />
           </label>
           <div className="team-options">
+            <button
+              className="team-option"
+              aria-pressed={!selected.length}
+              onClick={() => onChange([])}
+            >
+              <Users size={20} />
+              <span>
+                <strong>All teams</strong>
+                <small>Your agents and teams, with hidden cards excluded</small>
+              </span>
+              {!selected.length && <Check size={20} />}
+            </button>
             {matches.map((t) => {
               const workers = t.members.length;
+              const expanded = chosen.length === 1 && chosen[0].id === t.id;
               return (
-                <div className="team-option-group expanded" key={t.id}>
-                  <div className="team-option">
+                <div
+                  className={
+                    "team-option-group" + (expanded ? " expanded" : "")
+                  }
+                  key={t.id}
+                >
+                  <label className="team-option">
+                    <input
+                      type="checkbox"
+                      aria-label={t.name}
+                      checked={selected.includes(t.id)}
+                      onChange={(e) =>
+                        onChange(
+                          e.target.checked
+                            ? [...selected, t.id]
+                            : selected.filter((id) => id !== t.id),
+                        )
+                      }
+                    />
                     <span>
                       <strong>{t.name}</strong>
                       <small>
@@ -547,44 +592,47 @@ export function TeamManagement({
                         <EyeOff size={14} aria-hidden="true" /> Hidden
                       </span>
                     )}
-                  </div>
-                  <div className="team-option-panel">
-                    <TeamFeedVisibility
-                      team={t}
-                      onChanged={onVisibilityChanged}
-                    />
-                    <div className="team-option-actions">
-                      <button
-                        className="secondary"
-                        onClick={() => {
-                          close();
-                          onOpen(t);
-                        }}
-                      >
-                        <MessageSquare size={17} aria-hidden="true" /> Message
-                        manager
-                      </button>
-                      <button
-                        className="secondary"
-                        onClick={() => {
-                          close();
-                          onMessages(t);
-                        }}
-                      >
-                        <Mail size={17} aria-hidden="true" /> Messages
-                        {!!t.paused_threads && ` · ${t.paused_threads} paused`}
-                      </button>
-                      <button
-                        className="secondary danger"
-                        onClick={() => {
-                          setError("");
-                          setDeleting(t);
-                        }}
-                      >
-                        <Trash2 size={17} aria-hidden="true" /> Delete team
-                      </button>
+                  </label>
+                  {expanded && (
+                    <div className="team-option-panel">
+                      <TeamFeedVisibility
+                        team={t}
+                        onChanged={onVisibilityChanged}
+                      />
+                      <div className="team-option-actions">
+                        <button
+                          className="secondary"
+                          onClick={() => {
+                            close();
+                            onOpen(t);
+                          }}
+                        >
+                          <MessageSquare size={17} aria-hidden="true" /> Message
+                          manager
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={() => {
+                            close();
+                            onMessages(t);
+                          }}
+                        >
+                          <Mail size={17} aria-hidden="true" /> Messages
+                          {!!t.paused_threads &&
+                            ` · ${t.paused_threads} paused`}
+                        </button>
+                        <button
+                          className="secondary danger"
+                          onClick={() => {
+                            setError("");
+                            setDeleting(t);
+                          }}
+                        >
+                          <Trash2 size={17} aria-hidden="true" /> Delete team
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               );
             })}
@@ -597,6 +645,12 @@ export function TeamManagement({
               </p>
             )}
           </div>
+          {chosen.length > 1 && (
+            <p className="muted">
+              Select a single team to change its settings or message its
+              manager.
+            </p>
+          )}
         </Sheet>
       )}
       {deleting && (

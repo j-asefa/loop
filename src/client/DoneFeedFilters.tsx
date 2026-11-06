@@ -10,7 +10,6 @@ export const doneAgentKey = (agent: EnvironmentAgent, source: string) =>
   JSON.stringify([agent.sourceId ?? source, agent.id]);
 
 export function DoneFeedFilters({
-  hideAgent = false,
   read,
   agent,
   agents,
@@ -19,7 +18,6 @@ export function DoneFeedFilters({
   onAgent,
   onClear,
 }: {
-  hideAgent?: boolean;
   read: DoneReadFilter;
   agent: string;
   agents: EnvironmentAgent[];
@@ -58,22 +56,20 @@ export function DoneFeedFilters({
           </button>
         ))}
       </div>
-      {!hideAgent && (
-        <button
-          type="button"
-          className="done-agent-filter"
-          aria-label="Filter Done by agent"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          onClick={() => {
-            setQuery("");
-            setOpen(true);
-          }}
-        >
-          <span>{selected ? label(selected) : "All agents"}</span>
-          <ChevronDown size={16} aria-hidden="true" />
-        </button>
-      )}
+      <button
+        type="button"
+        className="done-agent-filter"
+        aria-label="Filter Done by agent"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => {
+          setQuery("");
+          setOpen(true);
+        }}
+      >
+        <span>{selected ? label(selected) : "All agents"}</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
       {open && (
         <Sheet
           title="Filter Done by agent"

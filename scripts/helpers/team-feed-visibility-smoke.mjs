@@ -10,12 +10,9 @@ export async function teamFeedVisibilitySmoke(page, fixture, engine, capture) {
   const row = page.locator(`.inbox-row[aria-label^="${target.title}"]`);
   const dialog = () => page.locator("dialog[open]").last();
   const toggle = () =>
-    dialog()
-      .locator(".team-option-group")
-      .filter({ has: page.getByText(team.name, { exact: true }) })
-      .getByRole("checkbox", {
-        name: /^Show in All teams/,
-      });
+    dialog().getByRole("checkbox", {
+      name: /^Show in All teams/,
+    });
   const filters = page.getByRole("tablist", { name: "Show", exact: true });
   const close = async () => {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
@@ -24,15 +21,10 @@ export async function teamFeedVisibilitySmoke(page, fixture, engine, capture) {
   };
   await page.goto(fixture.base, { waitUntil: "networkidle" });
   await expect(row).toBeVisible();
-  await page.getByRole("button", { name: /^Filters/ }).click();
-  await dialog().getByRole("button", { name: team.name, exact: true }).click();
+  await page.getByRole("button", { name: "Filter by team: All teams" }).click();
   await dialog()
-    .getByRole("button", { name: "Apply filters", exact: true })
-    .click();
-  await page.getByRole("button", { name: /^Filters/ }).click();
-  await dialog()
-    .getByRole("button", { name: "Manage teams", exact: true })
-    .click();
+    .getByRole("checkbox", { name: team.name, exact: true })
+    .check();
   await expect(toggle()).toBeChecked();
   await toggle().click();
   await expect(toggle()).toBeEnabled();
@@ -45,26 +37,26 @@ export async function teamFeedVisibilitySmoke(page, fixture, engine, capture) {
   await expect(
     dialog()
       .locator(".team-option-group")
-      .filter({ has: page.getByText(team.name, { exact: true }) })
+      .filter({ has: page.getByRole("checkbox", { name: team.name }) })
       .locator(".team-option-badge"),
   ).toHaveText("Hidden");
   await capture("hidden-team-setting");
-  await dialog().getByRole("button", { name: "Close", exact: true }).click();
   await close();
   // Selecting the hidden team is an explicit way back to its results.
   await expect(row).toBeVisible();
   await filters.getByRole("tab", { name: "Threads", exact: true }).click();
   await expect(row).toBeVisible();
   await page
-    .getByRole("button", {
-      name: `Remove team filter: ${team.name}`,
-      exact: true,
-    })
+    .getByRole("button", { name: `Filter by team: ${team.name}` })
     .click();
+  await dialog()
+    .getByRole("button", { name: /^All teams/ })
+    .click();
+  await close();
   await expect(row).toHaveCount(0);
   await page.reload({ waitUntil: "networkidle" });
   await expect(row).toHaveCount(0);
-  await filters.getByRole("tab", { name: /^Done/ }).click();
+  await filters.getByRole("tab", { name: "Done", exact: true }).click();
   await expect(row).toHaveCount(0);
   await filters.getByRole("tab", { name: "Threads", exact: true }).click();
   await expect(row).toHaveCount(0);
@@ -105,6 +97,6 @@ export async function teamFeedVisibilitySmoke(page, fixture, engine, capture) {
   await expect(row).toBeVisible();
   await page.reload({ waitUntil: "networkidle" });
   await expect(row).toBeVisible();
-  await filters.getByRole("tab", { name: /^Done/ }).click();
+  await filters.getByRole("tab", { name: "Done", exact: true }).click();
   await expect(row).toBeVisible();
 }

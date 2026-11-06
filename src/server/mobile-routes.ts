@@ -141,7 +141,6 @@ routes.on(workspaceApi.scheduledSendList, (req, res) =>
       res.locals.owner,
       req.query.conversation,
       req.query.failedBefore,
-      req.query.agent,
     ) as z.input<typeof workspaceApi.scheduledSendList.response>,
   ),
 );

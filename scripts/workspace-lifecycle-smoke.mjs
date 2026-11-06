@@ -101,7 +101,7 @@ for (const engine of selectedEngines()) {
       await expect(
         card.getByRole("button", { name: "Reply", exact: true }),
       ).toBeVisible();
-      await expect(page.getByLabel("Project workspace")).toBeVisible();
+      await expect(page.getByLabel("Filter by project")).toBeVisible();
       await card.evaluate((element) => {
         window.savedCard = element;
         window.savedRemoved = false;
@@ -167,12 +167,12 @@ for (const engine of selectedEngines()) {
         "Refreshing must not unmount saved cards",
       );
       await page
-        .getByLabel("Project workspace")
+        .getByLabel("Filter by project")
         .selectOption(fixture.projects[2].id);
       await expect(
         page.getByText("Tap Save on any result or message"),
       ).toBeVisible();
-      await page.getByLabel("Project workspace").selectOption("");
+      await page.getByLabel("Filter by project").selectOption("");
       await expect(card).toBeVisible();
       const team = await fixture.api("/teams", {
         name: `Saved ${engine.name()}`,
@@ -188,16 +188,12 @@ for (const engine of selectedEngines()) {
       ).toBeVisible();
       // The team filter lives on the Feed; its selection also scopes Later.
       await nav("Feed");
-      await page.getByRole("button", { name: /^Filters/ }).click();
-      await dialog()
-        .getByRole("button", { name: team.name, exact: true })
-        .click();
-      await dialog()
-        .getByRole("button", { name: "Apply filters", exact: true })
-        .click();
+      await page.getByRole("button", { name: /^Filter by team:/ }).click();
+      await dialog().getByLabel(team.name, { exact: true }).check();
+      await dialog().getByRole("button", { name: "Done", exact: true }).click();
       await expect(
         page.getByRole("button", {
-          name: `Remove team filter: ${team.name}`,
+          name: `Filter by team: ${team.name}`,
           exact: true,
         }),
       ).toBeVisible();
@@ -226,16 +222,11 @@ for (const engine of selectedEngines()) {
 
       // Failed requests leave the confirmation usable, then the same action can
       // be retried without losing agents, history or the selected-filter state.
-      await page.getByRole("button", { name: /^Filters/ }).click();
+      await page.getByRole("button", { name: /^Filter by team:/ }).click();
       await dialog()
-        .getByRole("button", { name: "Manage teams", exact: true })
-        .click();
-      await dialog()
-        .locator(".team-option-group")
-        .filter({ has: page.getByText(team.name, { exact: true }) })
         .getByRole("button", { name: "Delete team", exact: true })
         .click();
-      await expect(page.locator("dialog[open]")).toHaveCount(2);
+      await expect(page.locator("dialog[open]")).toHaveCount(1);
       await page.route(
         `**/api/teams/${team.id}`,
         (route) =>
@@ -254,13 +245,10 @@ for (const engine of selectedEngines()) {
       await dialog()
         .getByRole("button", { name: "Delete team", exact: true })
         .click();
-      await dialog()
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
       await expect(page.locator("dialog[open]")).toHaveCount(0);
       await expect(
         page.getByRole("button", {
-          name: "Filters",
+          name: "Filter by team: All teams",
           exact: true,
         }),
       ).toBeVisible();

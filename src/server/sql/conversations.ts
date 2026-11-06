@@ -121,7 +121,7 @@ export function insertFork(
   );
 }
 
-export const conversationFolder = (c: string) =>
+const conversationFolder = (c: string) =>
   `COALESCE(${c}.project_id,(SELECT json_extract(fr.payload,'$.folderId') FROM runs fr WHERE fr.owner_id=${c}.owner_id AND fr.conversation_id=${c}.id ORDER BY fr.created_at DESC,fr.rowid DESC LIMIT 1))`;
 
 const laterTargetStatement = statement(

@@ -1,4 +1,3 @@
-import { conversationFolder } from "./conversations.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -200,8 +199,6 @@ export function pendingTeams(
   db: Database.Database,
   owner: string,
   teams: readonly string[],
-  agent: string | null = null,
-  folders: (string | null)[] | null = null,
 ) {
   const filter = teams.length
     ? " AND json_extract(r.payload,'$.teamId') IN (" +
@@ -209,19 +206,12 @@ export function pendingTeams(
       ")"
     : "";
   return pendingTeamsStatements(
-    "SELECT a.*,r.conversation_id,r.input,agent.name,agent.provider FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id LEFT JOIN agents agent ON agent.id=r.agent_id AND agent.owner_id=a.owner_id WHERE a.owner_id=? AND a.state='pending' AND r.state='awaiting_approval'" +
+    "SELECT a.*,r.conversation_id,r.input,agent.name,agent.provider FROM approvals a JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents agent ON agent.id=r.agent_id AND agent.owner_id=a.owner_id WHERE a.owner_id=? AND a.state='pending' AND r.state='awaiting_approval'" +
       filter +
-      ` AND (? IS NULL OR r.agent_id=?) AND (? IS NULL OR EXISTS (SELECT 1 FROM json_each(?) WHERE value IS ${conversationFolder("c")})) ORDER BY a.created_at`,
+      " ORDER BY a.created_at",
     db,
   )
-    .all(
-      owner,
-      ...teams,
-      agent,
-      agent,
-      folders && JSON.stringify(folders),
-      folders && JSON.stringify(folders),
-    )
+    .all(owner, ...teams)
     .map((row) => parseRecord(pendingTeamsRow, row, "approvals"));
 }
 

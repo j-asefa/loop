@@ -91,8 +91,8 @@ function readFeed(
   if (more) page.pop();
   const rows = page.map(item => item.row);
   const laterDue = laterItemsQueries.dueCount(db, owner) as { n: number };
-  // Scheduled counts follow the selected agent, matching its paginated list.
-  const scheduled = scheduledSendsQueries.summary(db, owner, options.agent ?? null) as { failed: number; pending: number };
+  // Scheduled messages, owner-wide: not sent (needs you) apart from waiting.
+  const scheduled = scheduledSendsQueries.summary(db, owner) as { failed: number; pending: number };
   const last = rows.at(-1);
   return {
     items: replyPage ? replyPage.items : page.map(item => item.display),

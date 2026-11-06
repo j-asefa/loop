@@ -498,15 +498,6 @@ it("validates approvals before a decision and preserves owner checks", async () 
   expect(items.some((row) => row.id === approval.id)).toBe(true);
   expect(items.some((row) => row.id === other.id)).toBe(false);
   expect(
-    (await request(`/approvals?agent=${f.agent.id}`)).data.map(
-      (row: { id: string }) => row.id,
-    ),
-  ).toEqual([approval.id]);
-  expect((await request(`/approvals?agent=${foreign.agent.id}`)).data).toEqual(
-    [],
-  );
-
-  expect(
     (await request(`/approvals/${approval.id}`, { decision: "invalid" }))
       .status,
   ).toBe(400);
@@ -539,15 +530,6 @@ it("keeps native decisions and session controls generation-bound through the pro
   expect(
     workspaceApi.nativeDecisions.response.parse(listed.data)[0],
   ).toMatchObject({ id: decision, generation });
-  expect(
-    (await request(`/native/decisions?agent=${f.agent.id}`)).data.map(
-      (row: { id: string }) => row.id,
-    ),
-  ).toEqual([decision]);
-  expect(
-    (await request(`/native/decisions?agent=${foreign.agent.id}`)).data,
-  ).toEqual([]);
-
   expect(
     (
       await request(
@@ -593,107 +575,4 @@ it("keeps native decisions and session controls generation-bound through the pro
   expect(db.prepare("SELECT count(*) n FROM execution_commands").get()).toEqual(
     { n: 0 },
   );
-});
-
-it("filters scheduled failures by owner and agent before pagination", async () => {
-  const target = fixture(),
-    other = fixture(),
-    foreign = fixture(id());
-  const insert = db.prepare(
-    "INSERT INTO scheduled_sends(id,owner_id,agent_id,input,idempotency_key,send_at,state,created_at) VALUES(?,?,?,'Fixture failed send',?,?,'failed',?)",
-  );
-  const expected: string[] = [];
-  for (let index = 0; index < 102; index++) {
-    const send = id();
-    expected.push(send);
-    insert.run(send, owner, target.agent.id, send, index, index);
-  }
-  for (let index = 0; index < 101; index++) {
-    const send = id();
-    insert.run(send, owner, other.agent.id, send, 1000 + index, index);
-  }
-  const foreignSend = id();
-  insert.run(
-    foreignSend,
-    foreign.run.owner_id,
-    foreign.agent.id,
-    foreignSend,
-    2000,
-    2000,
-  );
-  const first = await request(`/scheduled-sends?agent=${target.agent.id}`);
-  expect(first.status).toBe(200);
-  expect(first.data.items.map((row: { id: string }) => row.id)).toEqual(
-    expected.slice(2).reverse(),
-  );
-  expect(first.data.failed_next).toBeTruthy();
-  const summary = await request(`/feed?filter=needs&agent=${target.agent.id}`);
-  expect(summary.data.summary.scheduled_failed).toBe(102);
-  expect(summary.data.summary.scheduled_pending).toBe(0);
-  expect(
-    (await request(`/feed?filter=needs&agent=${foreign.agent.id}`)).status,
-  ).toBe(404);
-
-  const second = await request(
-    `/scheduled-sends?agent=${target.agent.id}&failedBefore=${encodeURIComponent(first.data.failed_next)}`,
-  );
-  expect(second.data.items.map((row: { id: string }) => row.id)).toEqual(
-    expected.slice(0, 2).reverse(),
-  );
-  expect(second.data.failed_next).toBeNull();
-  expect(
-    (await request(`/scheduled-sends?agent=${foreign.agent.id}`)).data.items,
-  ).toEqual([]);
-});
-
-it("keeps approvals and native decisions in the conversation's Feed project", async () => {
-  const f = fixture(),
-    projectA = id(),
-    projectB = id(),
-    decision = id();
-  for (const project of [projectA, projectB])
-    db.prepare(
-      "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project',?,?)",
-    ).run(project, owner, project, now());
-  db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(
-    projectA,
-    f.run.conversation_id,
-  );
-  db.prepare(
-    "UPDATE runs SET state='awaiting_approval',payload=? WHERE id=?",
-  ).run(JSON.stringify({ folderId: projectB }), f.run.id);
-  const approval = requestApproval(f.run, { tool: "fixture" });
-  db.prepare(
-    "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,'{}',?)",
-  ).run(decision, f.run.id, f.run.conversation_id, id(), id(), now());
-  const assertProject = async (included: string, excluded: string) => {
-    for (const [path, expected] of [
-      ["approvals", approval.id],
-      ["native/decisions", decision],
-    ]) {
-      expect(
-        (
-          await request(`/${path}?agent=${f.agent.id}&folder=${included}`)
-        ).data.map((row: { id: string }) => row.id),
-      ).toEqual([expected]);
-      expect(
-        (await request(`/${path}?agent=${f.agent.id}&folder=${excluded}`)).data,
-      ).toEqual([]);
-    }
-    expect(
-      (
-        await request(
-          `/feed?filter=needs&agent=${f.agent.id}&folder=${included}`,
-        )
-      ).data.items.some(
-        (item: { conversation_id: string }) =>
-          item.conversation_id === f.run.conversation_id,
-      ),
-    ).toBe(true);
-  };
-  await assertProject(projectA, projectB);
-  db.prepare("UPDATE conversations SET project_id=NULL WHERE id=?").run(
-    f.run.conversation_id,
-  );
-  await assertProject(projectB, projectA);
 });

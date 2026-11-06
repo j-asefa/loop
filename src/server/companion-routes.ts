@@ -1,5 +1,3 @@
-import { projectFolders } from "./results.js";
-import { teamFilter } from "./teams.js";
 import * as projectPathsQueries from "./sql/project-paths.js";
 import * as workspaceProjectsQueries from "./sql/workspace-projects.js";
 import * as nativeDecisionsQueries from "./sql/native-decisions.js";
@@ -197,8 +195,7 @@ routes.on(workspaceApi.workspaceProjectUpdate, (req, res) => {
   });
 });
 routes.on(workspaceApi.nativeDecisions, (req, res) => {
-  const { conversation, agent, folder } = req.query;
-  const teams = teamFilter(req.query.teams, OWNER);
+  const { conversation } = req.query;
   if (conversation) ownedConversation(conversation, OWNER);
   res.json(
     nativeDecisionsQueries.visibleForOwner(
@@ -206,9 +203,6 @@ routes.on(workspaceApi.nativeDecisions, (req, res) => {
       OWNER,
       conversation || null,
       conversation || null,
-      agent || null,
-      teams.length ? teams : null,
-      folder ? projectFolders(OWNER, folder) : null,
     ) as z.input<typeof workspaceApi.nativeDecisions.response>,
   );
 });

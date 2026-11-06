@@ -613,7 +613,7 @@ routes.on(workspaceApi.artifactDownload, (req, res) => {
 routes.on(workspaceApi.approvals, (req, res) => {
   const teams = teamFilter(req.query.teams, res.locals.owner);
   res.json(
-    approvalsQueries.pendingTeams(db, res.locals.owner, teams, req.query.agent || null, req.query.folder ? projectFolders(res.locals.owner, req.query.folder) : null) as z.input<
+    approvalsQueries.pendingTeams(db, res.locals.owner, teams) as z.input<
       typeof workspaceApi.approvals.response
     >,
   );

@@ -1065,7 +1065,6 @@ export function Feed({
   onAsk,
   sources,
   sourcesLoading = false,
-  workspaceAgent,
 }: {
   filter: FeedFilter;
   onFilter: (filter: FeedFilter) => void;
@@ -1099,8 +1098,6 @@ export function Feed({
   sources?: AgentSource[];
   /** Initial discovery has not established the combined Feed's destinations. */
   sourcesLoading?: boolean;
-  /** Source-qualified homepage selection, shared by every tab. */
-  workspaceAgent?: string;
 }) {
   const scopedSource = useSourceId();
   const scopedCapabilities = useSourceCapabilities();
@@ -1127,18 +1124,16 @@ export function Feed({
     scope: selectionScope, read: "all", agent: "",
   });
   const combined = !!sources && !project && !teams && !scopedAgent;
-  const availableSources: AgentSource[] = combined ? sources : [{ id: scopedSource, name: "", capabilities: scopedCapabilities }];
-  const workspaceTarget = workspaceAgent ? agents.find(item => doneAgentKey(item, scopedSource) === workspaceAgent) : undefined;
-  const allSources = workspaceAgent ? availableSources.filter(source => source.id === (workspaceTarget?.sourceId ?? scopedSource) && !!workspaceTarget) : availableSources;
+  const allSources: AgentSource[] = combined ? sources : [{ id: scopedSource, name: "", capabilities: scopedCapabilities }];
   const needsSourceKey = JSON.stringify(allSources.map(source => source.id).sort());
   const doneAgents = agents.filter(item =>
     allSources.some(source => source.id === (item.sourceId ?? scopedSource)) &&
     (!scopedAgent || item.id === scopedAgent));
   const selectedAgent = doneAgents.find(item => doneAgentKey(item, scopedSource) === selection.agent);
   const doneAgent = filter === "done" ? selectedAgent : undefined;
-  const agent = workspaceTarget?.id ?? doneAgent?.id ?? scopedAgent;
+  const agent = doneAgent?.id ?? scopedAgent;
   const doneRead = filter === "done" ? selection.read : "all";
-  const doneFiltered = filter === "done" && (doneRead !== "all" || !!doneAgent || !!workspaceAgent);
+  const doneFiltered = filter === "done" && (doneRead !== "all" || !!doneAgent);
   const readRecovery = useRef(new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>());
   const recoverSource = useRef<(source: string) => void>(() => {});
   const readSnapshot = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>, purpose = "", manual = false) => {
@@ -1316,7 +1311,7 @@ export function Feed({
   // Threads waiting on you, whichever filter is shown, for the stack above
   // the filters.
   const needsKey = () =>
-    "feed-needs:" + JSON.stringify([project, workspaceTarget?.id ?? scopedAgent, teams, needsSourceKey]);
+    "feed-needs:" + JSON.stringify([project, scopedAgent, teams, needsSourceKey]);
   // Tab badges and scheduled failures share Needs you's scope, independently
   // of the selected Done agent, read state and paginated result windows.
   const summaryKey = "feed-summary:" + JSON.stringify([generation, needsKey()]);
@@ -1339,7 +1334,7 @@ export function Feed({
   } | undefined>(undefined);
   const request = useRef(0);
   const query = (before?: string, which: FeedFilter | "needs" = filter): NonNullable<RouteInput<typeof workspaceApi.feed>["query"]> => {
-    const selectedAgent = which === "needs" ? workspaceTarget?.id ?? scopedAgent : agent;
+    const selectedAgent = which === "needs" ? scopedAgent : agent;
     return {
       // The existing thread query also works with older connected workspaces.
       filter: which === "threads" ? "all" : which,
@@ -1660,11 +1655,7 @@ export function Feed({
         }
         return result.page;
       };
-      if (!activeSources.length) {
-        // An unavailable or incompatible selection is an empty view, never a
-        // reason to fall back to another source or reuse its paging cursor.
-        result = { items: [], next: null, summary: combineSummaries([]) };
-      } else if (combined) {
+      if (combined) {
         const pending = activeSources.filter(source =>
           (!pages.get(source.id)!.append || pages.get(source.id)!.before) &&
           (!onlySources || onlySources.includes(source.id)));
@@ -2714,7 +2705,6 @@ export function Feed({
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
       <div className="inbox-results" hidden={needsOpen}>
         {!hideFilters && filter === "done" && <DoneFeedFilters
-          hideAgent={workspaceAgent !== undefined}
           read={selection.read}
           agent={selectedAgent ? selection.agent : ""}
           agents={doneAgents}
