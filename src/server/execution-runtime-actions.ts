@@ -50,15 +50,25 @@ export async function authOptions({
 // Probes, sign-ins and upgrade holds now belong to the same authority as claims.
 const probes = new Map<
   string,
-  { at: number; probe: ReturnType<typeof discover> }
+  { at: number; pending: boolean; probe: ReturnType<typeof discover> }
 >();
 function recentDiscover(name: Harness, executable?: string, fresh = false) {
-  const key = name + "\0" + (executable ?? ""),
+  const key = name + "\0" + (executable ?? process.env.PATH ?? ""),
     hit = probes.get(key);
-  if (!fresh && hit && Date.now() - hit.at < 10_000) return hit.probe;
+  if (hit && (hit.pending || (!fresh && Date.now() - hit.at < 10_000)))
+    return hit.probe;
   const probe = discover(name, executable);
-  probes.set(key, { at: Date.now(), probe });
-  probe.catch(() => probes.delete(key));
+  const entry = { at: Date.now(), pending: true, probe };
+  probes.set(key, entry);
+  void probe.then(
+    () => {
+      entry.pending = false;
+      entry.at = Date.now();
+    },
+    () => {
+      if (probes.get(key) === entry) probes.delete(key);
+    },
+  );
   return probe;
 }
 export async function runtimeList({

@@ -163,6 +163,11 @@ category defaults and persistence in both browser engines without the other work
 
 Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an existing Chromium binary. Browser system libraries are required; a dependency failure is not a passing journey. In CI, smoke scripts write generated screenshots to `test-results/screenshots/` (or `LOOP_DESIGN_SCREENSHOT_DIR`); ACP browser evidence goes to `test-results/deterministic-browser/`.
 
+The companion sign-in fixture also shadows installed harness commands on PATH.
+Its Claude sign-in uses the protocol fixture; other discovered CLIs fail locally
+without starting the developer's installations. Browser checks must not launch
+real harnesses merely to populate Provider connections.
+
 After building, `node scripts/heavy-command.mjs scripts/feed-transfer-smoke.mjs`
 checks a phone-sized Feed with 100 additional avatars in Chromium and WebKit.
 It exercises deferred image loading and production cache/compression headers;

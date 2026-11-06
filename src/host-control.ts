@@ -1,11 +1,70 @@
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, delimiter, resolve } from "node:path";
 import { request } from "node:http";
 import type { Harness } from "./protocol.js";
-const exec = promisify(execFile);
+import { own, killOwned } from "./processes.js";
+const versionProbes = new Map<string, Promise<string>>();
+
+// Settings, sign-in and installation checks can request the same executable
+// concurrently. Share only the in-flight read; a later check observes upgrades.
+function versionOutput(name: Harness, executable: string) {
+  const key = name + "\0" + executable;
+  const existing = versionProbes.get(key);
+  if (existing) return existing;
+  const probe = new Promise<string>((resolve, reject) => {
+    const child = spawn(executable, ["--version"], {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        ...(name === "grok" ? { GROK_DISABLE_AUTOUPDATER: "1" } : {}),
+      },
+    });
+    // A launcher can exit while its child keeps the output pipes open. Stop
+    // the owned group on exit and at the deadline, not just the launcher PID.
+    const stop = () => killOwned(child, "SIGKILL");
+    let failure: Error | undefined;
+    let bytes = 0;
+    const output: Buffer[] = [];
+    const fail = (error: Error) => {
+      failure ??= error;
+      stop();
+    };
+    const deadline = setTimeout(
+      () => fail(new Error("Version probe timed out")),
+      10000,
+    );
+    child.stdout.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > 20000) fail(new Error("Version probe output is too large"));
+      else output.push(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > 20000) fail(new Error("Version probe output is too large"));
+    });
+    child.once("error", fail);
+    child.once("exit", stop);
+    child.once("close", (code) => {
+      clearTimeout(deadline);
+      stop();
+      if (failure || code !== 0)
+        reject(failure ?? new Error("Version probe failed"));
+      else resolve(Buffer.concat(output).toString("utf8"));
+    });
+    try {
+      own(child);
+    } catch (error) {
+      fail(error as Error);
+    }
+  }).finally(() => {
+    if (versionProbes.get(key) === probe) versionProbes.delete(key);
+  });
+  versionProbes.set(key, probe);
+  return probe;
+}
 // Floors for the adapter protocols we require, not exact release pins. New
 // stable releases are admitted; adapter startup still checks the live protocol
 // and authentication/billing contract before dispatching a prompt.
@@ -67,15 +126,7 @@ export async function discover(name: Harness, explicit?: string) {
   if (!executable)
     return { name, installed: false as const, help: install[name] };
   try {
-    const { stdout } = await exec(executable, ["--version"], {
-      timeout: 10000,
-      maxBuffer: 20000,
-      // Discovery must not start Grok's self-update.
-      env:
-        name === "grok"
-          ? { ...process.env, GROK_DISABLE_AUTOUPDATER: "1" }
-          : process.env,
-    });
+    const stdout = await versionOutput(name, executable);
     const version = stdout.match(
       /(?:^|\s)v?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=\s|$)/,
     )?.[1];
