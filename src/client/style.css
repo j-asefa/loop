@@ -761,7 +761,6 @@ small,
   }
 }
 .sheet label,
-.auth-form label,
 .feed-catalog label {
   display: flex;
   flex-direction: column;
@@ -773,7 +772,6 @@ small,
 .sheet input,
 .sheet select,
 .sheet textarea,
-.auth-form input,
 .feed-catalog input {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1333,14 +1331,6 @@ small,
   color: var(--muted);
   max-width: 320px;
 }
-.auth-lines {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-  font-size: 11px;
-  margin-top: 38px;
-  color: var(--muted);
-}
 .auth-story > .muted {
   display: flex;
   gap: 7px;
@@ -1362,10 +1352,6 @@ small,
 .auth-form .primary {
   width: 100%;
   margin-top: 15px;
-}
-.auth-form > .text-button {
-  display: flex;
-  margin: 12px auto;
 }
 @media (min-width: 1640px) {
   .composer-dock {
@@ -1547,7 +1533,6 @@ small,
     font-size: 13px;
     margin-bottom: 0;
   }
-  .auth-story .auth-lines,
   .auth-story > .muted {
     display: none;
   }

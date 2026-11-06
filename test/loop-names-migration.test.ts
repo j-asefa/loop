@@ -134,7 +134,7 @@ it("keeps workspace settings and credentials out of test subprocesses", () => {
     [
       "--input-type=module",
       "-e",
-      `const { testEnvironment } = await import(${JSON.stringify(module)}); console.log(JSON.stringify(testEnvironment({ PATH: "fixture", LOOP_HOME: "workspace", LOOP_ENCRYPTION_KEY: "fixture-secret", BETTER_AUTH_SECRET: "fixture-auth", LOOP_TEST_FLAG: "test" }, "vitest")));`,
+      `const { testEnvironment } = await import(${JSON.stringify(module)}); console.log(JSON.stringify(testEnvironment({ PATH: "fixture", LOOP_HOME: "workspace", LOOP_ENCRYPTION_KEY: "fixture-secret", LOOP_TEST_FLAG: "test" }, "vitest")));`,
     ],
     { encoding: "utf8" },
   );

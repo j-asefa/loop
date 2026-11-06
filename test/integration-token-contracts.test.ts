@@ -15,12 +15,6 @@ import { fleetAdminApi } from "../src/shared/fleet-admin-api";
 import { fleetCredentialApi } from "../src/shared/fleet-credential-api";
 import { TokenScope } from "../src/shared/token-scopes";
 
-// Dedicated protocols cannot acquire workspace bearer admission by accident.
-// @ts-expect-error Transports never admit integration credentials.
-const transport: RouteContract = {
-  ...workspaceApi.mcpFederationTransport,
-  access: { admits: ["read"] },
-};
 const fleet: FleetRouteContract = {
   ...Object.values(fleetAdminApi)[0],
   // @ts-expect-error A fleet registry accepts only its dedicated string access.
@@ -43,7 +37,7 @@ const decisionWithoutIdentity: RouteContract = {
   method: "PATCH",
   access: { admits: ["read", "approvals:decide"] },
 };
-void [transport, fleet, peer, writeWithoutIdentity, decisionWithoutIdentity];
+void [fleet, peer, writeWithoutIdentity, decisionWithoutIdentity];
 
 it.each(["companion"] as const)(
   "%s admits the declared read catalog with GET/HEAD, safe projections and owner isolation",

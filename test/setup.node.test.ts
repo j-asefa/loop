@@ -10,7 +10,6 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -153,7 +152,7 @@ test("setup preserves the environment and shared revision history across linked 
       git(repository, "blame", "--porcelain", "example.ts"),
       new RegExp(initial),
     );
-    assert.match(runSetup(repository), /\.env already exists; preserved/);
+    assert.match(runSetup(repository), /Git blame ignores/);
     assert.equal(readFileSync(join(repository, ".env"), "utf8"), environment);
 
     // Setup from a stale worktree must not erase the newer formatting commit.
@@ -187,7 +186,7 @@ test("setup preserves the environment and shared revision history across linked 
   }
 });
 
-test("setup in a source archive creates local config without configuring its parent repository", () => {
+test("setup in a source archive neither writes configuration nor configures its parent repository", () => {
   const root = mkdtempSync(join(tmpdir(), "loop-setup-archive-"));
   try {
     git(root, "init", "-q");
@@ -198,10 +197,8 @@ test("setup in a source archive creates local config without configuring its par
       join(archive, ".git-blame-ignore-revs"),
       "# No Git checkout\n",
     );
-    assert.match(runSetup(archive), /Created local configuration/);
-    const environment = readFileSync(join(archive, ".env"), "utf8");
-    assert.match(environment, /^LOOP_ENCRYPTION_KEY=[a-f0-9]{64}$/m);
-    assert.equal(statSync(join(archive, ".env")).mode & 0o777, 0o600);
+    runSetup(archive);
+    assert.equal(existsSync(join(archive, ".env")), false);
     assert.equal(
       git(root, "config", "blame.ignoreRevsFile"),
       "existing-parent-setting",

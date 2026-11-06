@@ -88,7 +88,7 @@ const PublicConversation = z.object({
 export const Bootstrap = z.object({
   agents: z.array(PublicAgent), connections: z.array(PublicConnection), folders: z.array(PublicFolder), teams: z.array(PublicTeam).optional(),
   // Older source catalogs omitted these additions. Absence grants no capability.
-  environmentName: Text.optional(), identityProviders: z.array(Text).optional(),
+  environmentName: Text.optional(),
   preview: z.object({ name: Text, mode: z.enum(["design", "working"]), build: z.object({
     id: Text, branch: Text, commit: Text, dirty: z.boolean(), builtAt: Text, sourceHash: Text, artifactHash: Text,
   }) }).optional(),
@@ -163,14 +163,14 @@ export type RouteContract = {
   multipart?: true;
   contentType?: string;
   // Documentation of existing middleware; never an authorization bypass.
-  security?: "public" | "local-setup" | "optional-session" | "paired-device" | "integration-token";
-} & (({ kind?: "stream"; protocol?: never } & (
+  security?: "public" | "optional-session" | "paired-device" | "integration-token";
+} & { kind?: "stream" } & (
     { method: "GET"; access: SessionAccess | { admits: readonly TokenAdmission[] } }
     | { method: "POST" | "PUT" | "PATCH" | "DELETE"; access: SessionAccess | { admits: readonly Exclude<TokenAdmission, "write" | "approvals:decide">[] } }
     | { method: "POST" | "PUT" | "PATCH" | "DELETE"; access: { admits: readonly TokenAdmission[] }; identity: string }
-  )) | { method: "POST" | "ALL"; kind: "transport"; protocol: "mcp" | "authentication"; access: SessionAccess });
+  );
 export type FleetRouteContract = RouteContract & { access: PeerAccess | "device:fleet" };
-export type ClientRouteContract = RouteContract & { method: Exclude<RouteContract["method"], "ALL"> };
+export type ClientRouteContract = RouteContract;
 const endpoint = <const C extends RouteContract>(contract: C) => contract;
 const base = { params: Empty, query: Empty, body: NoBody, access: "session" as const };
 export const workspaceRoutes = {
@@ -211,22 +211,7 @@ export const workspaceRoutes = {
   diagnostic: endpoint({ ...base, method: "POST", path: "/diagnostic", body: app.DiagnosticInput, response: PublicRun }),
   events: endpoint({ ...base, access: { admits: ["read"] }, method: "GET", path: "/events", query: z.object({ after: z.unknown().optional() }), response: z.array(app.PublicHttpEvent) }),
   tokenEvents: endpoint({ ...base, access: { admits: ["read"] }, security: "integration-token", method: "GET", path: "/events/stream", query: z.strictObject({ after: z.coerce.number<string>().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional() }), status: 426, response: CardErrorSchema }),
-  authOptions: endpoint({ ...base, security: "public", method: "GET", path: "/auth-options", response: app.PublicAuthOptions }),
-  authSession: endpoint({ ...base, security: "optional-session", method: "GET", path: "/auth/get-session", query: app.AuthSessionQuery, response: app.PublicAuthSession }),
-  authSignInEmail: endpoint({ ...base, method: "POST", path: "/auth/sign-in/email", body: app.AuthSignInEmailInput, kind: "transport", protocol: "authentication", response: z.unknown() }),
-  authSignUpEmail: endpoint({ ...base, method: "POST", path: "/auth/sign-up/email", body: app.AuthSignUpEmailInput, kind: "transport", protocol: "authentication", response: z.unknown() }),
-  authSignInSocial: endpoint({ ...base, method: "POST", path: "/auth/sign-in/social", body: z.object({ provider: z.literal("github"), callbackURL: Text }), kind: "transport", protocol: "authentication", response: z.object({ url: Text }) }),
-  authSignOut: endpoint({ ...base, method: "POST", path: "/auth/sign-out", body: z.unknown(), kind: "transport", protocol: "authentication", response: z.object({ success: z.boolean() }) }),
-  authTransport: endpoint({ ...base, method: "ALL", path: "/auth/*splat", body: z.unknown(), kind: "transport", protocol: "authentication", response: z.unknown() }),
-  mcpFederationTransport: endpoint({ ...base, method: "ALL", path: "/mcp/federation", body: z.unknown(), kind: "transport", protocol: "mcp", response: z.unknown() }),
-  mcpReverseTransport: endpoint({ ...base, method: "ALL", path: "/mcp/reverse", body: z.unknown(), kind: "transport", protocol: "mcp", response: z.unknown() }),
-  federationEnroll: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/enroll", body: z.unknown(), response: z.object({ token: Text }) }),
-  federationImport: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/import", body: app.FederationImportInput, response: app.PublicFederationImport }),
-  federationImportReverse: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/import-reverse", body: app.FederationReverseInput, response: app.PublicFederationImport }),
-  federationRevoke: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/revoke", body: z.unknown(), response: z.object({ peerId: Text, revoked: z.literal(true) }) }),
-  federationPending: endpoint({ ...base, security: "local-setup", method: "GET", path: "/mcp/federation/pending", query: z.object({ peerId: z.unknown().optional() }), response: app.PublicReverseCalls }),
-  federationClaim: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/claim/:id", params: Id, body: z.object({ peerId: Text }), response: z.object({ claimed: z.boolean() }) }),
-  federationComplete: endpoint({ ...base, security: "local-setup", method: "POST", path: "/mcp/federation/complete/:id", params: Id, body: z.object({ peerId: Text, state: z.enum(["completed", "unknown"]), result: z.unknown().optional() }), response: z.object({ state: z.enum(["completed", "unknown"]) }) }),
+  authSession: endpoint({ ...base, security: "optional-session", method: "GET", path: "/auth/get-session", response: app.PublicAuthSession }),
   prWatchList: endpoint({ ...base, method: "GET", path: "/pr-watches", query: z.object({ conversation: Text.max(150).optional() }), response: z.object({ watches: z.array(github.PublicPrWatch) }) }),
   prWatchCreate: endpoint({ ...base, method: "POST", path: "/pr-watches", body: github.PrWatchInput, response: github.PublicCreatedPrWatch, status: 201 }),
   prWatchResume: endpoint({ ...base, method: "POST", path: "/pr-watches/:id/resume", params: Id, body: z.unknown(), response: Ok }),

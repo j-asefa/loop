@@ -590,5 +590,5 @@ it("documents the identity, bearer security and conditional Origin for every adm
   );
   expect(
     spec.components.parameters.IntegrationWriteOrigin["x-required-for"],
-  ).toEqual(["OwnerSession", "PairedDevice"]);
+  ).toEqual(["PairedDevice"]);
 });

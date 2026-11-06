@@ -495,7 +495,7 @@ for (const engine of selectedEngines()) {
       if (legacySource && upstream.pathname === "/api/bootstrap" && response.ok()) {
         legacyMetadataReads++;
         const body = await response.json();
-        for (const key of ["teams", "environmentName", "identityProviders", "capabilities"]) delete body[key];
+        for (const key of ["teams", "environmentName", "capabilities"]) delete body[key];
         await route.fulfill({ response, json: body });
       } else if (upstream.pathname === path && response.ok()) {
         const body = await response.json();

@@ -17,7 +17,6 @@ it("removes inherited production state, services, Git overrides and fixture swit
     LOOP_SERVICE: "systemd",
     LOOP_RUNTIME_URL: "https://runtime.example",
     LOOP_TEST_CLOUDFLARED: "/fixture",
-    BETTER_AUTH_SECRET: "live-auth",
     GIT_WORK_TREE: "/live/checkout",
     NODE_OPTIONS: "--require=/live/preload.cjs",
     PORT: "3000",

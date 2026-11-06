@@ -53,8 +53,7 @@ read access is needed.
 
 Tokens cover the owner's projects. Query filters narrow a selection, not
 the grant. A token belongs to one source and owner; it cannot reach linked
-sources or proxy requests. Changing a single-user installation's selected owner
-invalidates the previous owner's tokens for that installation. Additional routes require explicit contract admission.
+sources or proxy requests. Additional routes require explicit contract admission.
 
 An Authorization header selects token authentication before any browser cookie.
 Malformed schemes (including Basic), invalid/revoked tokens and insufficient
@@ -228,8 +227,6 @@ new receiver. Revocation is terminal.
 | Installation       | Receiver destinations                                                                                            |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
 | Companion          | HTTP or HTTPS on any port for loopback, RFC 1918 and IPv6 unique-local addresses; public addresses require HTTPS |
-| Single-user server | Public HTTPS on port 443 only                                                                                    |
-| Multi-user server  | Public HTTPS on port 443 only                                                                                    |
 
 All installations reject embedded URL credentials, fragments, link-local,
 unspecified, multicast and other non-public special address classes. IPv4-mapped
@@ -520,14 +517,12 @@ The generated [OpenAPI document](openapi.json) uses the same Zod schemas
 and route definitions as the runtime. Regenerate it with `npm run openapi`;
 `npm run openapi:check` fails when the checked-in document differs. GET and HEAD,
 query parameters, result/message variants, token management and authentication
-alternatives are included. The session cookies and trusted standalone access
-boundary vary by deployment; an integration bearer always uses the same header.
+alternatives are included. Session cookie names vary by deployment; an
+integration bearer always uses the same header.
 `IntegrationBearer` is the generated bearer security scheme; `CardBearer` remains
 as a compatibility alias for one release.
-The general OpenAPI contract requires authentication. A trusted single-user
-standalone installation can additionally rely on its configured access boundary;
-this deployment exception is not declared as globally optional authentication.
-`OwnerSession` and `PairedDevice` model the complete `Cookie` header value,
+The general OpenAPI contract requires authentication.
+`PairedDevice` models the complete paired-device `Cookie` header value,
 including the names issued by that deployment. Do not rename cookie prefixes or
 isolated-preview suffixes. Browsers attach their existing cookie jar; non-browser
 clients supply the complete header. All management writes require a matching
@@ -542,8 +537,8 @@ Authorization header; the integration client refuses redirects and does not
 send browser cookies. Its base URL is one workspace origin, without a path,
 credentials, query or fragment. Remote origins require HTTPS before any request
 is sent; HTTP is accepted only for `localhost`, `127.0.0.1` and `[::1]` fixtures
-or local development. The same URLs work with a standalone server or
-a paired-host companion; no device cookie is needed for the scoped bearer path.
+or local development. Requests use the companion's workspace origin; no device
+cookie is needed for the scoped bearer path.
 
 Run the full-collection example from this checkout:
 

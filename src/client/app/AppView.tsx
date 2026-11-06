@@ -52,7 +52,6 @@ import {
   Folder,
   Users,
   Settings,
-  LogOut,
   X,
 } from "lucide-react";
 import { parse } from "../api";
@@ -79,10 +78,8 @@ import { renderAppPages } from "./AppPages";
 export function renderApp(props: AppViewProps) {
   const {
     bootstrapOwner,
-    setBootstrapOwner,
     composerOptions,
     setComposerOptions,
-    composerFocusRequest,
     startChat,
     replyQuoted,
     setLatestAgentMessage,
@@ -172,7 +169,6 @@ export function renderApp(props: AppViewProps) {
     sheet,
     refresh,
     unified,
-    stopWorkspaceEvents,
     openTeamFeed,
     project,
     teamVisibilityChanged,
@@ -192,14 +188,7 @@ export function renderApp(props: AppViewProps) {
     openSettingsPage,
     theme,
     setTheme,
-    draftOwner,
-    draftLoadedFor,
-    draftRef,
     setSharedDraft,
-    setRoutePreview,
-    setSession,
-    setItems,
-    setRuns,
     setEditError,
     setSearchAgent,
     setSearchScope,
@@ -616,64 +605,6 @@ export function renderApp(props: AppViewProps) {
               <strong>{displayName}</strong>
               <small>Personal workspace</small>
             </span>
-            {session.mode === "multi-user" && (
-              <button
-                className="text-button"
-                onClick={async () => {
-                  stopWorkspaceEvents.current();
-                  const previous = draftOwner.current;
-                  if (previous.owner && draftLoadedFor.current === previous.key)
-                    writeThreadDraft(
-                      previous.key,
-                      draftRef.current,
-                      attachmentsRef.current,
-                      previous.owner,
-                    );
-                  await callRoute(
-                    workspaceApi.authSignOut,
-                    { body: {} },
-                    executionSourceId(),
-                  );
-                  draftLoadedFor.current = null;
-                  sessionStorage.clear();
-                  setTeamSelection([]);
-                  setArchivedCard(null);
-                  setComposerExpanded(false);
-                  setSharedDraft({
-                    url: "",
-                    title: "",
-                    excerpt: "",
-                    question: "",
-                    folderId: "",
-                  });
-                  setActiveArtifact(null);
-                  setContextArtifact(null);
-                  setReplyContext(null);
-                  setRoutePreview(null);
-                  setFiling(null);
-                  setLaterCard(null);
-                  setSheet("");
-                  history.replaceState(
-                    history.state,
-                    "",
-                    sourceUrl(executionSourceId()),
-                  );
-                  setDraft("");
-                  setFolderChoice(undefined);
-                  setConversation(null);
-                  setProfile(null);
-                  setSession(null);
-                  composerFocusRequest.current = null;
-                  setData({ agents: [], connections: [], folders: [] });
-                  setBootstrapOwner(undefined);
-                  setItems([]);
-                  setRuns([]);
-                }}
-              >
-                <LogOut size={18} />
-                Sign out
-              </button>
-            )}
           </footer>
         </Sheet>
       )}
@@ -834,12 +765,7 @@ export function renderApp(props: AppViewProps) {
           }}
         />
       )}
-      {sheet === "install" && (
-        <InstallHelp
-          personal={session.mode === "single-user"}
-          onClose={closeSheet}
-        />
-      )}
+      {sheet === "install" && <InstallHelp onClose={closeSheet} />}
       {sheet === "connections" && (
         <Connections
           connections={data.connections}

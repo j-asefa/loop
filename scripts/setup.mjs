@@ -1,16 +1,9 @@
-import {
-  existsSync,
-  readFileSync,
-  writeFileSync,
-  appendFileSync,
-} from "node:fs";
-import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-// Linked worktrees share this local Git configuration. Run before the .env
-// early return so existing installations get the blame setting too.
+// Linked worktrees share this local Git configuration.
 const repository = fileURLToPath(new URL("..", import.meta.url));
 if (
   existsSync(new URL("../.git", import.meta.url)) &&
@@ -86,24 +79,3 @@ if (
     );
   }
 }
-
-if (existsSync(".env")) {
-  const prior = readFileSync(".env", "utf8");
-  const configured = new Set(
-    [...prior.matchAll(/^(LOOP_[A-Z0-9_]+)=/gm)].map((m) => m[1]),
-  );
-  const migrated = prior.replace(
-    /^(LOOP_([A-Z0-9_]+))=(.*)$/gm,
-    (line, old, suffix, value) =>
-      configured.has("LOOP_" + suffix) ? line : "LOOP_" + suffix + "=" + value,
-  );
-  if (migrated !== prior) writeFileSync(".env", migrated, { mode: 0o600 });
-  console.log(".env already exists; preserved");
-  process.exit(0);
-}
-writeFileSync(
-  ".env",
-  `LOOP_URL=http://localhost:3000\nPORT=3000\nLOOP_AUTH_MODE=single-user\nBETTER_AUTH_SECRET=${randomBytes(32).toString("hex")}\nLOOP_ENCRYPTION_KEY=${randomBytes(32).toString("hex")}\n`,
-  { mode: 0o600 },
-);
-console.log("Created local configuration.");

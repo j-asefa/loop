@@ -279,7 +279,6 @@ function response<C extends RouteContract>(contract: C, value: unknown): RouteRe
   return parsed.data as RouteResponse<C>;
 }
 export async function callRoute<C extends ClientRouteContract>(contract: C, input: RouteInput<C>, sourceId: string, signal?: AbortSignal): Promise<RouteResponse<C>> {
-  if ((contract as RouteContract).method === "ALL") throw new Error("Protocol dispatch requires a concrete HTTP method");
   const generation = viewGeneration();
   const path = routePath(contract, input);
   const routed = sourceApiPathAt("/api" + path, sourceId);

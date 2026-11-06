@@ -11,13 +11,6 @@ const db = new Database(
 await db.backup(resolve(target));
 chmodSync(target, 0o600);
 db.close();
-const auth = new Database(
-  resolve(process.env.LOOP_DATA_DIR || "data", "auth.db"),
-  { readonly: true, fileMustExist: true },
-);
-await auth.backup(resolve(target + "-auth.db"));
-chmodSync(target + "-auth.db", 0o600);
-auth.close();
 console.log(
   "Consistent SQLite backup completed. Store encryption keys separately.",
 );

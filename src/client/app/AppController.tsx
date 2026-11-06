@@ -1091,9 +1091,7 @@ export function useAppController() {
   setDraftOwner(session?.user?.id);
   setViewOwner(session?.user?.id);
   const readContract = useProjectionRoute();
-  const personalWorkspace = useRef(false);
   const stopWorkspaceEvents = useRef<() => void>(() => {});
-  personalWorkspace.current = session?.mode === "single-user";
   const resultsPager = useRef(new ResultsPager<ResultItem>());
   const cardsPager = useRef(new CardPager());
   const resultsSelection = useRef({ key: "" });
@@ -1237,7 +1235,6 @@ export function useAppController() {
     session,
     check,
     setError,
-    personalWorkspace,
     setSession,
     setData,
     setItems,
@@ -1641,7 +1638,6 @@ export function useAppController() {
     filing,
     filingResult,
     setFilingResult,
-    personalWorkspace,
     setWorkspaceLoadErrors,
     setCollectionRevisions,
     loadRuns,

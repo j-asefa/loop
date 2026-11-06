@@ -21,7 +21,6 @@ for (const explicit of [false, true]) {
     mkdirSync(project);
     writeFileSync(join(live, "migration-sentinel"), "unchanged");
     const injected: NodeJS.ProcessEnv = {
-      BETTER_AUTH_SECRET: "fixture-server-auth",
       OPENAI_API_KEY: "fixture-provider-key",
       CLAUDE_CONFIG_DIR: join(dir, "native-credentials"),
     };
@@ -33,7 +32,6 @@ for (const explicit of [false, true]) {
         [prefix + "PROFILE"]: "companion",
         [prefix + "SERVICE"]: "systemd",
         [prefix + "ENCRYPTION_KEY"]: "fixture-encryption",
-        [prefix + "GATEWAY_TOKEN"]: "fixture-gateway",
         [prefix + "EXECUTION_GENERATION"]: "fixture-generation",
         [prefix + "MEMORY_ENABLED"]: "0",
         [prefix + "TOOLS_URL"]: "http://127.0.0.1/fixture-tools",
@@ -64,7 +62,7 @@ for (const explicit of [false, true]) {
            writeSync(3,'metadata pipe preserved');
            console.log(JSON.stringify({
              data:config.data,
-             keys:Object.keys(process.env).filter(k=>/^LOOP_/.test(k)||k==='BETTER_AUTH_SECRET').sort(),
+             keys:Object.keys(process.env).filter(k=>/^LOOP_/.test(k)).sort(),
              providerPreserved:process.env.OPENAI_API_KEY==='fixture-provider-key',
              credentialHome:process.env.CLAUDE_CONFIG_DIR,
              home:process.env.HOME,

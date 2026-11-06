@@ -46,7 +46,6 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
         LOOP_PROFILE: "companion",
         LOOP_DATA_DIR: join(directory, "data"),
         LOOP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
-        BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
       },
     },
   );

@@ -4,7 +4,7 @@ import { readRoute } from "../workspace-api";
 import { workspaceApi } from "../../shared/workspace-api";
 import { useEffect } from "react";
 
-import { Auth } from "../Auth";
+import { Pairing } from "../Pairing";
 
 import type { AppModel } from "./AppController";
 
@@ -34,9 +34,7 @@ export function createSessionCheck(props: {
         // newly opened capability without storing or redeeming either half.
         discardPairingFragment();
       }
-      setSession(
-        result ? { ...result, mode: result.mode || "multi-user" } : null,
-      );
+      setSession(result);
     } catch (error) {
       if (signal.aborted) throw error;
       const failure = error as { status?: number; redirected?: boolean };
@@ -60,7 +58,6 @@ export function useSessionLifecycle(
     | "session"
     | "check"
     | "setError"
-    | "personalWorkspace"
     | "setSession"
     | "setData"
     | "setItems"
@@ -91,7 +88,6 @@ export function useSessionLifecycle(
   const {
     check,
     setError,
-    personalWorkspace,
     setSession,
     setData,
     setItems,
@@ -133,10 +129,6 @@ export function useSessionLifecycle(
       if (!controller.signal.aborted) setError(e.message);
     });
     const expire = () => {
-      if (personalWorkspace.current) {
-        location.reload();
-        return;
-      }
       setSession(null);
       composerFocusRequest.current = null;
       setData({ agents: [], connections: [], folders: [] });
@@ -190,6 +182,6 @@ export function renderSessionGate(
         {error && <button onClick={() => location.reload()}>Try again</button>}
       </div>
     );
-  if (!session?.user) return <Auth onDone={() => void check()} />;
+  if (!session?.user) return <Pairing onDone={() => void check()} />;
   return null;
 }

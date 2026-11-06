@@ -173,13 +173,11 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   registry.add(
     route.kind === "stream"
       ? z.string().meta({ format: "binary" })
-      : route.kind === "transport"
-        ? z.unknown()
-        : cardNames[name]
-          ? route.response
-          : publicResponses.has(route.response)
-            ? z.lazy(() => route.response)
-            : route.response.clone(),
+      : cardNames[name]
+        ? route.response
+        : publicResponses.has(route.response)
+          ? z.lazy(() => route.response)
+          : route.response.clone(),
     { id: prefix + "Response" },
   );
   inputs.add(route.params.clone(), { id: prefix + "Params" });
@@ -275,7 +273,6 @@ const sharedErrorGroups = new Set([
   "build",
   "diagnostic",
   "events",
-  "auth-options",
   "auth",
   "mcp",
   "pr-watches",
@@ -322,10 +319,7 @@ const sharedErrorGroups = new Set([
 ]);
 for (const [name, route] of Object.entries(workspaceRoutes)) {
   const path = "/api" + route.path.replace(/[:*]([^/]+)/g, "{$1}");
-  // OpenAPI has no ALL verb. Document the protocol's POST entrypoint and mark
-  // its delegated method dispatch explicitly, without inventing registry keys.
-  const method = route.method === "ALL" ? "post" : route.method.toLowerCase();
-  const transport = route.kind === "transport";
+  const method = route.method.toLowerCase();
   const writes = method !== "get";
   const admission =
     typeof route.access === "object" ? route.access.admits : undefined;
@@ -336,7 +330,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   const parameters = [];
   if (tokenMutation)
     parameters.push({ $ref: "#/components/parameters/IntegrationWriteOrigin" });
-  else if (writes && !transport)
+  else if (writes)
     parameters.push(
       sharedManagementGroups.has(route.path.split("/")[1])
         ? { $ref: "#/components/parameters/ManagementOrigin" }
@@ -356,26 +350,9 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
         schema,
       });
   }
-  if (route.security === "local-setup")
-    parameters.push({
-      name: "x-loop-source-setup",
-      in: "header",
-      required: true,
-      schema: { type: "string", const: "1" },
-      description:
-        "Local single-user execution-source setup only; paired browser proxies cannot forward this header.",
-    });
   const params = z.toJSONSchema(route.params, jsonOptions);
   for (const [key, schema] of Object.entries(params.properties || {}))
     parameters.push({ name: key, in: "path", required: true, schema });
-  for (const match of route.path.matchAll(/\*([^/]+)/g))
-    parameters.push({
-      name: match[1],
-      in: "path",
-      required: true,
-      schema: { type: "string" },
-      description: "Protocol-owned path, including slash-separated segments.",
-    });
   const response = {
     description:
       route.status === 302
@@ -485,35 +462,19 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
       : errors;
   const operation = {
     operationId: name,
-    ...(transport
-      ? {
-          description:
-            route.protocol === "mcp"
-              ? "Opaque MCP JSON-RPC transport. The MCP handler owns all methods, authentication and responses, including streaming. Its 12 MB JSON parser runs before dispatch. The workspace registrar does not validate or project protocol messages. Browser Origin headers are refused."
-              : "Better Auth owns request validation, session cookies, redirects and response bodies. This protocol endpoint bypasses workspace input/output projection; single-user installations retain their existing personal-workspace response or refusal.",
-          "x-loop-transport": route.protocol,
-          ...(route.method === "ALL" ? { "x-loop-method": "ALL" } : {}),
-        }
-      : {}),
     parameters,
-    security: transport
-      ? route.protocol === "mcp"
-        ? [{ FederationBearer: [] }]
-        : [{ OwnerSession: [] }, {}]
-      : route.security === "public"
+    security:
+      route.security === "public"
         ? []
         : route.security === "integration-token"
           ? [{ IntegrationBearer: [] }]
           : route.security === "paired-device"
             ? [{ PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) }]
-            : route.security === "local-setup"
-              ? [{ LocalSourceSetup: [] }]
-              : [
-                  ...(route.security === "optional-session" ? [{}] : []),
-                  ...(admission ? [{ IntegrationBearer: [] }] : []),
-                  { OwnerSession: [] },
-                  { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
-                ],
+            : [
+                ...(route.security === "optional-session" ? [{}] : []),
+                ...(admission ? [{ IntegrationBearer: [] }] : []),
+                { PairedDevice: [], ...(writes ? { PairedCsrf: [] } : {}) },
+              ],
     ...(admission ? { "x-scopes": admission } : {}),
     ...(tokenMutation
       ? {
@@ -559,14 +520,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
           ],
         ),
       ),
-      ...(transport
-        ? {
-            default: {
-              description:
-                "Protocol-owned response, including errors, redirects and streaming. The workspace registrar does not reshape it.",
-            },
-          }
-        : documentedErrors),
+      ...documentedErrors,
     },
   };
   if (name === "tokenEvents") {
@@ -616,24 +570,11 @@ const document = {
         required: false,
         schema: { type: "string", format: "uri" },
         description:
-          "Required for OwnerSession and PairedDevice writes, with the existing paired CSRF credential. IntegrationBearer needs neither; a supplied disallowed Origin or cross-site Fetch Metadata is still refused.",
-        "x-required-for": ["OwnerSession", "PairedDevice"],
+          "Required for PairedDevice writes, together with the paired CSRF credential. IntegrationBearer needs neither; a supplied disallowed Origin or cross-site Fetch Metadata is still refused.",
+        "x-required-for": ["PairedDevice"],
       },
     },
     securitySchemes: {
-      LocalSourceSetup: {
-        type: "apiKey",
-        in: "header",
-        name: "x-loop-source-setup",
-        description:
-          "Must equal 1 on an authenticated single-user request arriving at the local authority. This is a source-adapter capability unavailable through paired-browser proxies; remote or multi-user requests are refused.",
-      },
-      FederationBearer: {
-        type: "http",
-        scheme: "bearer",
-        description:
-          "Service credential issued by local execution-source enrollment. The protocol handler authenticates it independently and refuses browser origins.",
-      },
       IntegrationBearer: {
         type: "http",
         scheme: "bearer",
@@ -649,13 +590,6 @@ const document = {
         bearerFormat: "loop_card_… or loop55_card_…",
         description:
           "Compatibility alias for IntegrationBearer for one release. Legacy results:read and cards:read retain their existing Cards-only permissions.",
-      },
-      OwnerSession: {
-        type: "apiKey",
-        in: "header",
-        name: "Cookie",
-        description:
-          "Complete Cookie header from the authenticated Loop owner session, including cookie names. Preserve the deployment's names and values (HTTPS uses the __Secure- prefix). Browsers attach their cookie jar automatically; non-browser clients supply the complete header value.",
       },
       PairedDevice: {
         type: "apiKey",

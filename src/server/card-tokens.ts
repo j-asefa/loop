@@ -2,14 +2,11 @@ import { InvalidRow } from "./row-schemas.js";
 import * as cardTokensQueries from "./sql/card-tokens.js";
 import * as cardTokenIdsQueries from "./sql/card-token-ids.js";
 import * as cardTokenReadsQueries from "./sql/card-token-reads.js";
-import * as installationQueries from "./sql/installation.js";
 import * as cardOwnerLimitsQueries from "./sql/card-owner-limits.js";
 import { createHash } from "node:crypto";
 import type { CardChanges, CardPage } from "../shared/cards.js";
 import type { IncomingMessage } from "node:http";
 import { db } from "./db.js";
-import { config } from "./config.js";
-import { companionMode } from "./profile.js";
 import { OWNER } from "./native-sessions.js";
 import { Problem } from "./domain.js";
 import {
@@ -241,16 +238,8 @@ export function activeIntegrationToken(
   const token = credentialRow(() =>
     cardTokensQueries.activeScope(db, tokenId, owner),
   ) as { scope: string } | undefined;
-  const installedOwner = companionMode
-    ? OWNER
-    : config.authMode === "single-user"
-      ? (
-          credentialRow(() => installationQueries.owner(db)) as
-            { owner_id: string } | undefined
-        )?.owner_id
-      : owner;
   return (
-    owner === installedOwner &&
+    owner === OWNER &&
     !!token &&
     !!storedAdmission(token.scope)?.includes(scope)
   );
@@ -276,19 +265,11 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
             revoked_at: number | null;
           }
         | undefined;
-      const owner = companionMode
-        ? OWNER
-        : config.authMode === "single-user"
-          ? (
-              credentialRow(() => installationQueries.owner(db)) as
-                { owner_id: string } | undefined
-            )?.owner_id
-          : token?.owner_id;
       const admission = token && storedAdmission(token.scope);
       if (
         !token ||
         token.revoked_at !== null ||
-        token.owner_id !== owner ||
+        token.owner_id !== OWNER ||
         !admission
       )
         throw new Problem(401, "Invalid integration credential");
@@ -300,7 +281,7 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
         window,
         token.id,
       ) as { n: number };
-      const perOwner = cardOwnerLimitsQueries.charge(db, owner, window) as {
+      const perOwner = cardOwnerLimitsQueries.charge(db, OWNER, window) as {
         n: number;
       };
       if (perToken.n > 120 || perOwner.n > 600)

@@ -6,9 +6,7 @@ import { pathToFileURL } from "node:url";
 export function testEnvironment(env, suite) {
   const clean = Object.fromEntries(
     Object.entries(env).filter(
-      ([key]) =>
-        key !== "BETTER_AUTH_SECRET" &&
-        (!/^LOOP_/.test(key) || /^LOOP_TEST_/.test(key)),
+      ([key]) => !/^LOOP_/.test(key) || /^LOOP_TEST_/.test(key),
     ),
   );
   if (suite === "vitest") clean.LOOP_PROFILE = "companion";

@@ -72,8 +72,6 @@ function pathTypes(path: string, signal: AbortSignal) {
   routeUrl(path, {}, "");
   // @ts-expect-error JSON contracts cannot bypass response validation.
   fetchStream(workspaceApi.personalProfile, {}, "");
-  // @ts-expect-error Protocol dispatch is server-only; callers select a concrete operation.
-  callRoute(workspaceApi.authTransport, { body: {} }, "");
 }
 it("does not export a raw path transport", () => {
   for (const name of [

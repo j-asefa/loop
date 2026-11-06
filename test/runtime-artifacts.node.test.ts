@@ -20,24 +20,20 @@ import Database from "better-sqlite3";
   test("backup reads the workspace database and preserves its contents", () => {
     const dir = mkdtempSync(join(tmpdir(), "loop-backup-"));
     try {
-      for (const file of [name, "auth.db"]) {
-        const db = new Database(join(dir, file));
-        db.exec(
-          "CREATE TABLE sentinel(value TEXT); INSERT INTO sentinel VALUES ('retained')",
-        );
-        db.close();
-      }
+      const source = new Database(join(dir, name));
+      source.exec(
+        "CREATE TABLE sentinel(value TEXT); INSERT INTO sentinel VALUES ('retained')",
+      );
+      source.close();
       const target = join(dir, "snapshot.db");
       execFileSync(process.execPath, [resolve("scripts/backup.mjs"), target], {
         env: { PATH: process.env.PATH, LOOP_DATA_DIR: dir },
       });
-      for (const file of [target, target + "-auth.db"]) {
-        const db = new Database(file, { readonly: true });
-        assert.deepEqual(db.prepare("SELECT * FROM sentinel").all(), [
-          { value: "retained" },
-        ]);
-        db.close();
-      }
+      const db = new Database(target, { readonly: true });
+      assert.deepEqual(db.prepare("SELECT * FROM sentinel").all(), [
+        { value: "retained" },
+      ]);
+      db.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

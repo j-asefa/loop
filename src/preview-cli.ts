@@ -72,7 +72,7 @@ export function previewEnvironment(
     Object.entries(env).filter(([key]) => {
       if (key.startsWith("LOOP_TEST_")) return env.NODE_ENV === "test";
       if (
-        /^(LOOP_|GIT_|BETTER_AUTH_|GITHUB_CLIENT_)/.test(key) ||
+        /^(LOOP_|GIT_)/.test(key) ||
         ["PORT", "NODE_OPTIONS", "NODE_PATH"].includes(key)
       )
         return false;

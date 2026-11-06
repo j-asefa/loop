@@ -78,7 +78,6 @@ routes.on(workspaceApi.bootstrap, (_req, res) => {
     agents: agentsQueries.forOwner(db, res.locals.owner) as z.input<typeof PublicAgent>[],
     connections: connectionsQueries.publicCatalog(db, res.locals.owner) as z.input<typeof PublicConnection>[],
     folders: foldersQueries.withProjects(db, res.locals.owner) as z.input<typeof PublicFolder>[],
-    identityProviders: process.env.GITHUB_CLIENT_ID ? ["github"] : [],
   });
 });
 routes.on(workspaceApi.connectionCreate, async (req, res) => {

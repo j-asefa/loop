@@ -32,7 +32,6 @@ export function spawnNative(
     )
       delete env[key];
   }
-  delete env.BETTER_AUTH_SECRET;
   const child = spawn(
     launcher || command,
     launcher ? [command, ...args] : args,

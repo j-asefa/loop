@@ -71,7 +71,7 @@ export const designPreviewBoundary: RequestHandler = (req, res, next) => {
   }
   if (
     req.method === "GET" &&
-    (/^\/(build|bootstrap|runs|events|approvals|feed(?:\/away)?|projects\/summary|saved|later|scheduled-sends|snippets|folders|results(?:\/updates)?|messages|artifacts|teams|team-presets|preferences|search(?:\/status)?|me\/(?:profile|prompts|files|decisions)|auth\/get-session|auth-options|capabilities)$/.test(
+    (/^\/(build|bootstrap|runs|events|approvals|feed(?:\/away)?|projects\/summary|saved|later|scheduled-sends|snippets|folders|results(?:\/updates)?|messages|artifacts|teams|team-presets|preferences|search(?:\/status)?|me\/(?:profile|prompts|files|decisions)|auth\/get-session|capabilities)$/.test(
       path,
     ) ||
       /^\/agents\/[^/]+(?:\/(?:messages|traces(?:\/export)?))?$/.test(path) ||

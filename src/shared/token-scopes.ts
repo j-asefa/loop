@@ -33,7 +33,6 @@ export function admitsToken(
   admission: readonly TokenAdmission[],
 ) {
   return (
-    contract.kind !== "transport" &&
     typeof contract.access === "object" &&
     contract.access.admits.some((scope) => admission.includes(scope))
   );
@@ -47,7 +46,6 @@ export function fullCardRead(admission: readonly TokenAdmission[]) {
 export function isTokenMutation(contract: RouteContract) {
   return (
     contract.method !== "GET" &&
-    contract.kind !== "transport" &&
     typeof contract.access === "object" &&
     contract.access.admits.some(
       (scope) => scope === "write" || scope === "approvals:decide",

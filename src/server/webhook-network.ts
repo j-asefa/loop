@@ -2,7 +2,6 @@ import { lookup } from "node:dns/promises";
 import { Agent, fetch } from "undici";
 import ipaddr from "ipaddr.js";
 import { companionMode } from "./profile.js";
-import { config } from "./config.js";
 import { Problem } from "./domain.js";
 
 export class WebhookDestinationRefused extends Problem {
@@ -17,9 +16,7 @@ export function webhookPolicy() {
   return {
     installation: companionMode
       ? ("companion" as const)
-      : config.authMode === "multi-user"
-        ? ("multi-user" as const)
-        : ("single-user" as const),
+      : ("single-user" as const),
     local_receivers: companionMode,
   };
 }

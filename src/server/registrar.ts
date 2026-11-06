@@ -243,9 +243,7 @@ export function registrar(_name: string, options: Options = {}) {
     mount,
     on<C extends RouteContract>(
       contract: C,
-      handler: C extends { kind: "transport" }
-        ? Handler
-        : Parameters<typeof route<C>>[1],
+      handler: Parameters<typeof route<C>>[1],
       options: {
         wrap?: (handler: Handler) => Handler;
         middleware?: readonly Handler[];
@@ -268,18 +266,9 @@ export function registrar(_name: string, options: Options = {}) {
           );
         identity = { operation, run: options.tokenWrite };
       }
-      // Protocol owners retain raw requests, next(), body limits, cookies and
-      // streaming responses. This bypass is explicit in the registry/OpenAPI.
-      const wrapped =
-        contract.kind === "transport"
-          ? (handler as Handler)
-          : route(
-              contract,
-              handler as Parameters<typeof route<C>>[1],
-              identity,
-            );
+      const wrapped = route(contract, handler, identity);
       const method = contract.method.toLowerCase() as
-        "get" | "post" | "put" | "patch" | "delete" | "all";
+        "get" | "post" | "put" | "patch" | "delete";
       const registration = router.route(prefix + contract.path);
       registration[method](
         (_req, res, next) => {
@@ -296,8 +285,7 @@ export function registrar(_name: string, options: Options = {}) {
       probe.route(prefix + contract.path)[method]((req, res) => {
         res.locals.matched = { contract, params: req.params };
       });
-      if (!automaticOptions && method !== "all")
-        registration.options(deferOptions);
+      if (!automaticOptions) registration.options(deferOptions);
     },
   };
 }

@@ -439,6 +439,7 @@ it.each(["companion"] as const)(
 
 it("generates a schema with resolvable references and the runtime read/management operations", () => {
   const spec = JSON.parse(readFileSync("docs/openapi.json", "utf8"));
+  expect(spec.components.securitySchemes).not.toHaveProperty("OwnerSession");
   const walk = (value: any) => {
     if (!value || typeof value !== "object") return;
     if (value.$ref) {
@@ -464,6 +465,12 @@ it("generates a schema with resolvable references and the runtime read/managemen
   for (const operation of Object.values(spec.paths).flatMap((path) =>
     Object.values(path as Record<string, any>),
   )) {
+    for (const requirement of operation.security)
+      for (const scheme of Object.keys(requirement))
+        expect(
+          spec.components.securitySchemes,
+          operation.operationId,
+        ).toHaveProperty(scheme);
     if (!operation.responses[400]?.$ref) continue;
     for (const status of [400, 401, 403, 429, 500]) {
       const reference = operation.responses[status].$ref;
@@ -483,15 +490,12 @@ it("generates a schema with resolvable references and the runtime read/managemen
   expect(spec.paths["/api/v1/cards"].get.responses[400].$ref).toBeUndefined();
   for (const [key, contract] of Object.entries(workspaceRoutes)) {
     const path = "/api" + contract.path.replace(/[:*]([^/]+)/g, "{$1}");
-    const method =
-      contract.method === "ALL" ? "post" : contract.method.toLowerCase();
-    expect(spec.paths[path][method].operationId).toBe(key);
-    if (contract.method === "ALL")
-      expect(spec.paths[path][method]["x-loop-method"]).toBe("ALL");
+    expect(spec.paths[path][contract.method.toLowerCase()].operationId).toBe(
+      key,
+    );
   }
   expect(spec.paths["/api/bootstrap"].get.security).toEqual([
     { IntegrationBearer: [] },
-    { OwnerSession: [] },
     { PairedDevice: [] },
   ]);
   expect(spec.paths["/api/bootstrap"].get.requestBody).toBeUndefined();
@@ -526,14 +530,7 @@ it("generates a schema with resolvable references and the runtime read/managemen
     spec.paths["/api/mcp/oauth/callback"].get.responses[302].content,
   ).toBeUndefined();
   expect(spec.paths["/api/agents/{id}/tools"].put.responses[410]).toBeDefined();
-  const optionalAccountSession = new Set([
-    "authSession",
-    "authSignInEmail",
-    "authSignUpEmail",
-    "authSignInSocial",
-    "authSignOut",
-    "authTransport",
-  ]);
+  const optionalAccountSession = new Set(["authSession"]);
   for (const path of Object.values(spec.paths) as any[])
     for (const operation of Object.values(path) as any[])
       expect(
@@ -542,27 +539,8 @@ it("generates a schema with resolvable references and the runtime read/managemen
         ),
         operation.operationId,
       ).toHaveLength(optionalAccountSession.has(operation.operationId) ? 1 : 0);
-  for (const path of ["/capabilities", "/health", "/auth-options"])
+  for (const path of ["/capabilities", "/health"])
     expect(spec.paths["/api" + path].get.security).toEqual([]);
-  for (const path of ["/mcp/federation", "/mcp/reverse"]) {
-    const operation = spec.paths["/api" + path].post;
-    expect(operation["x-loop-method"]).toBe("ALL");
-    expect(operation["x-loop-transport"]).toBe("mcp");
-    expect(operation.security).toEqual([{ FederationBearer: [] }]);
-    expect(operation.responses.default).toBeDefined();
-    expect(operation.responses[400]).toBeUndefined();
-  }
-  const authProtocol = spec.paths["/api/auth/{splat}"].post;
-  expect(authProtocol.parameters).toContainEqual({
-    name: "splat",
-    in: "path",
-    required: true,
-    schema: { type: "string" },
-    description: "Protocol-owned path, including slash-separated segments.",
-  });
-  expect(spec.paths["/api/mcp/federation/enroll"].post.security).toEqual([
-    { LocalSourceSetup: [] },
-  ]);
   expect(
     spec.paths["/api/v1/cards"].get.parameters.map((p: any) => p.name),
   ).toEqual(

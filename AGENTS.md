@@ -17,7 +17,7 @@ Preserve owner/profile isolation, durable dispatch identities and generation-bou
 
 Loop has no installed base to preserve: every installation starts fresh, with a new data directory and newly paired devices. Don't keep or add code for earlier Loop versions, their stored data, file layouts, service units, environment variables, names or wire formats. Compatibility with external systems (providers, harness CLIs, the OS, browsers) stays.
 
-Loop ships only the companion workspace (`loop start`). The hosted server profile has no entry point; its remaining code (`serve.ts`, better-auth sign-in, runtime brokers) is being removed, so don't extend it or keep it working.
+Loop ships only the companion workspace (`loop start`). The hosted server profile has no entry point or sign-in; its remaining code (the `server` profile branches) is being removed, so don't extend it or keep it working.
 
 ## Evidence for review
 

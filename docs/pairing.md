@@ -1,6 +1,6 @@
 # Pairing and recovery
 
-Pairing belongs to the companion profile, running on a laptop or in Docker. The [server profile](server.md) uses local access, a gateway or accounts instead.
+Pairing is how every device reaches the companion workspace, running on a laptop or in Docker.
 
 ## Pair a device
 

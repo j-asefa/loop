@@ -1,15 +1,14 @@
 import * as workerHealthQueries from "./sql/worker-health.js";
-import * as requestLimitsQueries from "./sql/request-limits.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { z } from "zod";
 import { workspaceApi } from "../shared/workspace-api.js";
-import { registrar, projectResponse, mountRoutes, mountedRoute } from "./registrar.js";
+import { registrar, mountRoutes, mountedRoute } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { assetCacheControl, compressResponse } from "../http-transfer.js";
-import { companionMode, capabilities } from "./profile.js";
+import { capabilities } from "./profile.js";
 import { companion } from "./companion-routes.js";
 import { OWNER } from "./native-sessions.js";
 import { listRuns } from "./run-attention.js";
@@ -18,22 +17,7 @@ import { agentDefinitions } from "./agent-definitions.js";
 import { subscriptions } from "./subscriptions.js";
 import { sharing } from "./sharing.js";
 import { mcp } from "./mcp/routes.js";
-import {
-  enrollFederationPeer,
-  FEDERATION_SETUP_HEADER,
-  handleFederationMcp,
-  installFederationPeer,
-  revokeFederationPeer,
-} from "./mcp/federation.js";
-import {
-  claimReverseCall,
-  completeReverseCall,
-  handleReverseMcp,
-  installReverseCatalog,
-  pendingReverseCalls,
-} from "./mcp/reverse.js";
 import express from "express";
-import { toNodeHandler } from "better-auth/node";
 
 import { config } from "./config.js";
 import { db, workspaceClock } from "./db.js";
@@ -68,10 +52,6 @@ import { eventLoopHealth } from "./event-loop-health.js";
 
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 migrateMcpUrlCredentials();
-const access = companionMode ? undefined : await import("./access.js");
-const authentication = companionMode ? undefined : await import("./auth.js");
-if (authentication) await authentication.migrateAuth();
-access?.initializeAccess();
 export const app = express();
 app.disable("x-powered-by");
 app.use(compressResponse);
@@ -114,44 +94,20 @@ app.use((req, res, next) => {
   next();
 });
 app.use((req, _res, next) => {
-  req.headers["x-loop-client-ip"] =
-    process.env.LOOP_BEHIND_PROXY === "1"
-      ? String(req.headers["x-forwarded-for"] || "")
-          .split(",")
-          .at(-1)
-          ?.trim() || req.socket.remoteAddress
-      : req.socket.remoteAddress;
-  next();
-});
-app.use((req, _res, next) => {
   if (/^Bearer loop(?:55)?_(?:card|token)_/i.test(req.headers.authorization ?? ""))
     integrationRoute(req);
   next();
 });
-const appTransport = registrar("app", { prefix: "/api", automaticOptions: false });
-mountRoutes(app, appTransport.mount);
-// Keep the existing federation routes and their independent credential checks
-// ahead of workspace bearer admission. Express owns their case/trailing-slash matching.
-if (!companionMode) {
-  appTransport.on(workspaceApi.mcpFederationTransport, (req, res, next) => {
-    void handleFederationMcp(req, res, req.body).catch(next);
-  }, { middleware: [express.json({ limit: "12mb" })] });
-  appTransport.on(workspaceApi.mcpReverseTransport, (req, res, next) => {
-    void handleReverseMcp(req, res, req.body).catch(next);
-  }, { middleware: [express.json({ limit: "12mb" })] });
-}
 function integrationRoute(req: IncomingMessage) {
   const contract = mountedRoute(app, req.method, req.url);
-  if (contract?.kind === "transport" && contract.protocol === "mcp")
-    throw new Problem(403, "Execution source credential required");
-  if (!contract || contract.kind === "transport" || typeof contract.access !== "object" ||
+  if (!contract || typeof contract.access !== "object" ||
       req.headers["x-http-method-override"] !== undefined || req.headers["x-method-override"] !== undefined)
     throw new Problem(403, "Integration credentials permit declared token routes only");
   return contract;
 }
 function authorizeAdmission(req: IncomingMessage, context: CardAuthorization | undefined) {
   const contract = integrationRoute(req);
-  if (!context || !TokenAdmissions.safeParse(context.admission).success || (companionMode && context.owner !== OWNER))
+  if (!context || !TokenAdmissions.safeParse(context.admission).success || context.owner !== OWNER)
     throw new Problem(401, "Invalid integration credential");
   if (!admitsToken(contract, context.admission))
     throw new Problem(403, "This token does not permit this route");
@@ -169,10 +125,8 @@ app.use("/api", (req, res, next) => {
   // The /api mount trims req.url. Match the raw target the host also receives.
   const target = { method: req.method, url: req.originalUrl, headers: req.headers } as IncomingMessage;
   integrationRoute(target);
-  if (!companionMode && ((req.headers.origin && !access!.allowedOrigin(req)) || req.headers["sec-fetch-site"] === "cross-site"))
-    throw new Problem(403, "Origin not allowed");
   try {
-    const context = authorizeAdmission(target, companionMode ? (req as CardRequest)[cardAuthorization] : authenticateCardToken(req));
+    const context = authorizeAdmission(target, (req as CardRequest)[cardAuthorization]);
     res.locals.owner = context.owner;
     res.locals.bearer = { tokenId: context.tokenId, admission: context.admission };
     next();
@@ -185,68 +139,16 @@ const appCapabilities = registrar("app", { prefix: "/api", automaticOptions: fal
 mountRoutes(app, appCapabilities.mount);
 appCapabilities.on(workspaceApi.capabilities, (_req, res) => res.json({ ...capabilities, cardTokens: !designPreview }), { middleware: [express.json({ limit: "12mb" })] });
 const appAuth = registrar("app", { prefix: "/api", automaticOptions: false });
-if (companionMode) {
-  // Host authorizes devices, origins and CSRF before forwarding to this app.
-  app.use((_req, res, next) => {
-    if (!res.locals.bearer) res.locals.owner = OWNER;
-    next();
-  });
-  mountRoutes(app, appAuth.mount);
-  appAuth.on(workspaceApi.authSession, (_req, res) =>
-    res.json({ user: { id: OWNER, name: "Your workspace" }, mode: "paired" }),
-    { middleware: [express.json({ limit: "12mb" })] },
-  );
-  appAuth.on(workspaceApi.authOptions, (_req, res) =>
-    res.json({ mode: "paired", github: false }),
-    { middleware: [express.json({ limit: "12mb" })] },
-  );
-} else {
-  mountRoutes(app, appAuth.mount);
-  appAuth.on(workspaceApi.authSession, async (_input, res) => {
-    const request: express.Request = res.locals.authSessionRequest;
-    if (config.authMode !== "multi-user")
-      return res.json(projectResponse(workspaceApi.authSession, await access!.workspaceSession(request)));
-    // Keep Better Auth's full protocol handler (including cookie renewal and
-    // errors), projecting only the successful session JSON before it is sent.
-    return toNodeHandler(async (request) => {
-      const response = await authentication!.auth.handler(request);
-      if (!response.ok) return response;
-      const headers = new Headers(response.headers);
-      headers.delete("content-length");
-      return Response.json(projectResponse(workspaceApi.authSession, await response.json()), {
-        status: response.status, headers,
-      });
-    })(request, res);
-  }, {
-    middleware: [express.json({ limit: "12mb" })],
-    wrap: (handler) => (req, res, next) => {
-      res.locals.authSessionRequest = req;
-      return handler(req, res, next);
-    },
-  });
-  const accountProtocol: express.RequestHandler = (req, res) => {
-    if (config.authMode === "single-user") {
-      res.status(404).json({
-        error: "This is a personal workspace. No Loop account is needed.",
-      });
-      return;
-    }
-    return toNodeHandler(authentication!.auth)(req, res);
-  };
-  appAuth.on(workspaceApi.authSignInEmail, accountProtocol);
-  appAuth.on(workspaceApi.authSignUpEmail, accountProtocol);
-  appAuth.on(workspaceApi.authSignInSocial, accountProtocol);
-  appAuth.on(workspaceApi.authSignOut, accountProtocol);
-  appAuth.on(workspaceApi.authTransport, accountProtocol);
-  appAuth.on(workspaceApi.authOptions, (_req, res) =>
-    res.json({
-      mode: config.authMode === "single-user" ? "single-user" : "multi-user",
-      github:
-        config.authMode === "multi-user" && !!process.env.GITHUB_CLIENT_ID,
-    }),
-    { middleware: [express.json({ limit: "12mb" })] },
-  );
-}
+// Host authorizes devices, origins and CSRF before forwarding to this app.
+app.use((_req, res, next) => {
+  if (!res.locals.bearer) res.locals.owner = OWNER;
+  next();
+});
+mountRoutes(app, appAuth.mount);
+appAuth.on(workspaceApi.authSession, (_req, res) =>
+  res.json({ user: { id: OWNER, name: "Your workspace" }, mode: "paired" }),
+  { middleware: [express.json({ limit: "12mb" })] },
+);
 app.use(express.json({ limit: "12mb" }));
 const appHealth = registrar("app", { prefix: "/api", automaticOptions: false });
 mountRoutes(app, appHealth.mount);
@@ -259,64 +161,10 @@ appHealth.on(workspaceApi.health, (_req, res) => {
     worker: ready ? (designPreview ? "simulated" : "ready") : "unavailable",
   });
 });
-app.use("/api", async (req, res, next) => {
-  if (companionMode || res.locals.bearer) return next();
-  if (
-    !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-    !access!.allowedOrigin(req)
-  ) {
-    res.status(403).json({ error: "Origin not allowed" });
-    return;
-  }
-  const session = await access!.workspaceSession(req);
-  if (!session) {
-    res.status(401).json({ error: "Sign in to Loop" });
-    return;
-  }
-  res.locals.owner = session.user.id;
-  const window = Math.floor(Date.now() / 60000);
-  const count = requestLimitsQueries.increment(db, session.user.id, window) as { count: number };
-  if (count.count > 600) {
-    res.setHeader("Retry-After", "60");
-    res
-      .status(429)
-      .json({ error: "Too many requests. Try again in a minute." });
-    return;
-  }
-  next();
-});
 if (designPreview) app.use("/api", designPreviewBoundary);
 const appSession = registrar("app", { prefix: "/api", automaticOptions: false });
 mountRoutes(app, appSession.mount);
 appSession.on(workspaceApi.build, (_req, res) => res.json({ serving: publicBuild(observedBuild()), processes: currentBuilds(), eventLoop: eventLoopHealth() }));
-if (!companionMode) {
-  // Setup returns private service credentials. Besides arriving locally, it
-  // must carry a header that no paired-browser proxy forwards (they use
-  // header allowlists) and that a cross-site page cannot add without CORS.
-  const localFederationSetup = (req: express.Request) =>
-    config.authMode === "single-user" &&
-    access!.localRequest(req) &&
-    req.get(FEDERATION_SETUP_HEADER) === "1";
-  const localSetup = { middleware: [(req: express.Request, _res: express.Response, next: express.NextFunction) => {
-    if (!localFederationSetup(req)) throw new Problem(403, "Local execution source setup required");
-    next();
-  }] };
-  // Preserve the old string coercion for enrollment/revocation, including empty bodies.
-  const peerId = (body: unknown) => String((body as { peerId?: unknown } | null)?.peerId || "");
-  appSession.on(workspaceApi.federationEnroll, (req, res) => res.json({ token: enrollFederationPeer(res.locals.owner, peerId(req.body)) }), localSetup);
-  appSession.on(workspaceApi.federationImport, async (req, res) => {
-    const { peerId, label, endpoint, token } = req.body;
-    res.json(projectResponse(workspaceApi.federationImport, await installFederationPeer(res.locals.owner, peerId, label, endpoint, token)));
-  }, localSetup);
-  appSession.on(workspaceApi.federationImportReverse, async (req, res) => {
-    const { peerId, label, tools } = req.body;
-    res.json(projectResponse(workspaceApi.federationImportReverse, await installReverseCatalog(res.locals.owner, peerId, label, tools)));
-  }, localSetup);
-  appSession.on(workspaceApi.federationRevoke, (req, res) => res.json(projectResponse(workspaceApi.federationRevoke, revokeFederationPeer(res.locals.owner, peerId(req.body), true))), localSetup);
-  appSession.on(workspaceApi.federationPending, (req, res) => res.json(pendingReverseCalls(res.locals.owner, String(req.query.peerId || ""))), localSetup);
-  appSession.on(workspaceApi.federationClaim, (req, res) => res.json(claimReverseCall(res.locals.owner, req.body.peerId, req.params.id)), localSetup);
-  appSession.on(workspaceApi.federationComplete, (req, res) => res.json(completeReverseCall(res.locals.owner, req.body.peerId, req.params.id, req.body.state, req.body.result)), localSetup);
-}
 appSession.on(workspaceApi.diagnostic, (req, res) =>
   res.json(
     runResponse(enqueue(
@@ -335,7 +183,7 @@ appSession.on(workspaceApi.runs, (req, res) => {
   const selectedTeams = teamFilter(req.query.teams, res.locals.owner);
   res.json(listRuns(res.locals.owner, selectedTeams, req.query.active === "1") as z.input<typeof workspaceApi.runs.response>);
 });
-if (companionMode) mountRoutes(app, companion, "/api");
+mountRoutes(app, companion, "/api");
 mountRoutes(app, teams, "/api");
 mountRoutes(app, agentDefinitions, "/api");
 mountRoutes(app, agentMail, "/api");

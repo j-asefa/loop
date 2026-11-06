@@ -1,7 +1,7 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
 import { useState, useRef, useEffect } from "react";
-import { Check, Info, Share, WifiOff } from "lucide-react";
+import { Info, Share, WifiOff } from "lucide-react";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import {
   useSourceId,
@@ -302,13 +302,7 @@ function ShareForm({
     </Sheet>
   );
 }
-export function InstallHelp({
-  onClose,
-  personal = false,
-}: {
-  onClose: () => void;
-  personal?: boolean;
-}) {
+export function InstallHelp({ onClose }: { onClose: () => void }) {
   const [platform, setPlatform] = useState<"iphone" | "android" | "desktop">(
     /iPhone|iPad|iPod/.test(navigator.userAgent) ? "iphone" : "desktop",
   );
@@ -354,14 +348,10 @@ export function InstallHelp({
           </li>
         </SettingsSteps>
       )}
-      <SettingsNote
-        icon={personal ? Check : Info}
-        tone={personal ? "ready" : "muted"}
-        title={personal ? "No Loop account needed" : "Sign in once in the app"}
-      >
-        {personal
-          ? "Launch Loop from the new icon: this personal workspace opens directly."
-          : "Launch Loop from the new icon and sign in. Some Safari versions keep app and browser sign-ins separate."}
+      <SettingsNote icon={Info} tone="muted" title="Pair the installed app">
+        Open Loop from the new icon. If it asks you to pair, create a new
+        pairing link from your workspace. The installed app may need its own
+        pairing.
       </SettingsNote>
       <SettingsSection title="Once installed">
         <SettingsList>

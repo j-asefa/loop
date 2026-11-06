@@ -52,52 +52,13 @@ export const PublicHttpEvent = z.object({
   subject_kind: Text.optional(),
   subject_id: Text.nullable().optional(),
 });
-export const PublicAuthOptions = z.object({
-  mode: z.enum(["paired", "single-user", "multi-user"]),
-  github: z.boolean(),
-});
 // The session read exposes only the display identity used by the shell.
-// Better Auth still owns cookies, expiry and renewal; its session row is private.
 export const PublicAuthSession = z
   .object({
     user: z.object({ id: Text, name: Text }),
-    // Better Auth's account-session endpoint has no Loop deployment-mode field.
-    mode: z.enum(["paired", "single-user", "multi-user"]).optional(),
+    mode: z.literal("paired"),
   })
   .nullable();
-export const AuthSessionQuery = z.object({
-  disableCookieCache: z.coerce.boolean().optional(),
-  disableRefresh: z.coerce.boolean().optional(),
-});
-export const AuthSignInEmailInput = z.object({
-  email: Text,
-  password: Text,
-  name: Text.optional(),
-});
-export const AuthSignUpEmailInput = AuthSignInEmailInput.extend({ name: Text });
-export const FederationImportInput = z.object({
-  peerId: Text,
-  label: Text.max(80),
-  endpoint: Text,
-  token: Text,
-});
-export const FederationReverseInput = FederationImportInput.pick({
-  peerId: true,
-  label: true,
-}).extend({ tools: z.unknown() });
-export const PublicFederationImport = z.object({
-  id: Text,
-  status: z.literal("connected"),
-});
-export const PublicReverseCalls = z.array(
-  z.object({
-    id: Text,
-    runKey: Text,
-    requestKey: Text,
-    name: Text,
-    args: Text,
-  }),
-);
 
 export const DiagnosticInput = z
   .union([z.object({ key: z.unknown().optional() }), z.array(z.unknown())])
