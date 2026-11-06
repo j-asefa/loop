@@ -455,8 +455,8 @@ for (const engine of selectedEngines()) {
 
     // Same opaque conversation ID on another source must not reuse this page.
     // Route the fixture source over HTTP; the paired gateway's actual header
-    // forwarding is separately covered by linked-docker.node.test.ts.
-    const source = "docker:history-fixture";
+    // forwarding is separately covered by fleet-agent-source.test.ts.
+    const source = "fixture:history-fixture";
     const prefix = `/api/agent-sources/${encodeURIComponent(source)}/`;
     await fixture.api("/scheduled-sends", {
       agentId: agent, conversationId: conversation.id, input: "Scheduled recovery sentinel",

@@ -1,9 +1,4 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import {
-  linkedDockerWorkspaces,
-  proxyLinkedDocker,
-  connectLinkedDockerEvents,
-} from "./linked-docker.js";
 import type { EventSocket } from "./event-socket.js";
 
 /** An owner-visible Loop API that holds agents and their conversations. */
@@ -28,21 +23,12 @@ export type SourceAdapter = {
   ) => Promise<void>;
 };
 
-// Docker discovery admits server profiles only. Independently enrolled Docker
-// companions therefore appear solely through the peer adapter, never twice.
-export const dockerSourceAdapter: SourceAdapter = {
-  kind: "docker",
-  discover: linkedDockerWorkspaces,
-  events: connectLinkedDockerEvents,
-  proxy: proxyLinkedDocker,
-};
-
 /** Each Host owns its adapters. An owner's peer service must never be installed
  * in a process-global registry that another workspace could discover or use.
  * Opaque IDs select registered resources, never a browser-supplied network URL. */
 export class AgentSources {
   private readonly adapters = new Map<string, SourceAdapter>();
-  constructor(adapters: readonly SourceAdapter[] = [dockerSourceAdapter]) {
+  constructor(adapters: readonly SourceAdapter[] = []) {
     for (const adapter of adapters) {
       if (
         !/^[a-z][a-z0-9-]{0,31}$/.test(adapter.kind) ||

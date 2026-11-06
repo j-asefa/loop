@@ -520,9 +520,7 @@ it("generates a schema with resolvable references and the runtime read/managemen
   expect(spec.paths["/api/agent-sources"].get.security).toEqual([
     { PairedDevice: [] },
   ]);
-  expect(spec.paths["/api/mcp-sharing"].post.security).toEqual([
-    { PairedDevice: [], PairedCsrf: [] },
-  ]);
+  expect(spec.paths).not.toHaveProperty("/api/mcp-sharing");
   expect(
     spec.paths["/api/mcp/oauth/callback"].get.responses[302].headers.Location,
   ).toBeDefined();

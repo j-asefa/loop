@@ -8,7 +8,6 @@ import { chmod, readFile, rm, stat, unlink } from "node:fs/promises";
 import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { linkedDockerWorkspaces, proxyLinkedDocker } from "./linked-docker.js";
 import { AgentSources } from "./agent-sources.js";
 import type { EventSocket } from "./event-socket.js";
 import { WorkspaceMultiplex } from "./server/workspace-multiplex.js";
@@ -49,8 +48,6 @@ const webRoot = existsSync(compiledWeb + "index.html")
 // This exact dispatch table is also included in the production route inventory.
 export const pairedHostRoutes = [
   workspaceApi.agentSources,
-  workspaceApi.mcpSharing,
-  workspaceApi.mcpSharingUpdate,
   workspaceApi.workspaceDevices,
   workspaceApi.workspaceRevoke,
 ] as const;
@@ -111,10 +108,6 @@ export class Host {
     };
     status: () => unknown;
     admin: (action: string, input: any) => Promise<unknown>;
-    shareTools?: (
-      sourceId?: string,
-      action?: "connect" | "disconnect",
-    ) => Promise<unknown>;
     connect: (socket: EventSocket, url: URL) => () => void;
     originChanged: (origin: string) => void;
   };
@@ -862,24 +855,10 @@ export class Host {
           return;
         }
         if (this.workspace.isolated) {
-          if (path === "/api/linked-workspaces" && req.method === "GET")
-            return this.json(res, 200, []);
-          if (
-            path.startsWith("/api/agent-sources/") ||
-            path.startsWith("/api/linked/") ||
-            (path === "/api/mcp-sharing" && req.method !== "GET")
-          )
+          if (path.startsWith("/api/agent-sources/"))
             return this.json(res, 403, {
               error: "Previews do not connect to other Loop workspaces.",
             });
-        }
-        if (path === "/api/linked-workspaces" && req.method === "GET") {
-          const workspaces = await linkedDockerWorkspaces();
-          return this.json(
-            res,
-            200,
-            workspaces.map(({ id, name }) => ({ id, name })),
-          );
         }
         const contract = pairedHostRoutes.find(
           (route) =>
@@ -914,39 +893,20 @@ export class Host {
               });
             return this.json(res, 200, projected.data);
           }
-          if (
-            !this.workspace.isolated &&
-            contract !== workspaceApi.agentSources &&
-            !this.workspace.shareTools
-          )
-            return this.json(res, 404, { error: "Tool sharing unavailable" });
           contract.params.parse({});
           contract.query.parse(
             Object.fromEntries(new URL(req.url!, this.origin).searchParams),
           );
-          let output: unknown;
-          if (contract.method === "POST") {
-            const input = contract.body.safeParse(await body(req));
-            if (!input.success)
-              return this.json(res, 400, {
-                error: "Choose an execution source",
-              });
-            output = await this.workspace.shareTools!(
-              input.data.sourceId,
-              input.data.action,
-            );
-          } else {
-            // GET bodies are forbidden by NoBody, including on isolated hosts.
-            const hasBody =
-              Number(req.headers["content-length"] ?? 0) > 0 ||
-              req.headers["transfer-encoding"] !== undefined;
-            contract.body.parse(hasBody ? {} : undefined);
-            if (this.workspace.isolated) output = [];
-            else if (contract === workspaceApi.agentSources) {
-              const current = this.delegateFleetRequest(req, res, device);
-              output = await this.agentSources().discover();
-              current();
-            } else output = await this.workspace.shareTools!();
+          // Agent-source discovery accepts no body, including on previews.
+          const hasBody =
+            Number(req.headers["content-length"] ?? 0) > 0 ||
+            req.headers["transfer-encoding"] !== undefined;
+          contract.body.parse(hasBody ? {} : undefined);
+          let output: unknown = [];
+          if (!this.workspace.isolated) {
+            const current = this.delegateFleetRequest(req, res, device);
+            output = await this.agentSources().discover();
+            current();
           }
           const projected = contract.response.safeParse(output);
           if (!projected.success)
@@ -975,13 +935,6 @@ export class Host {
             match[2] + query,
             this.delegateFleetRequest(req, res, device),
           );
-          return;
-        }
-        if (path.startsWith("/api/linked/")) {
-          const match = /^\/api\/linked\/([a-f0-9]{64})\/(.+)$/.exec(path);
-          if (!match) return this.json(res, 404, { error: "Not found" });
-          const query = new URL(req.url!, this.origin).search;
-          await proxyLinkedDocker(req, res, match[1], match[2] + query);
           return;
         }
         this.workspace.http(req, res);

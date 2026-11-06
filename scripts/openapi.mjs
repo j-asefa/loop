@@ -287,7 +287,6 @@ const sharedErrorGroups = new Set([
   "notifications",
   "agents",
   "artifacts",
-  "mcp-sharing",
   "agent-sources",
   "workspace",
   "conversations",

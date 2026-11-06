@@ -19,7 +19,6 @@ import { WorkspaceSelection } from "./shared/workspace-multiplex.js";
 import { fleetEventProjection } from "./shared/fleet-workspace-events.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { DockerMcpSharing } from "./mcp-docker-sharing.js";
 import { preview, designPreview } from "./preview-context.js";
 import { publicBuild } from "./shared/build.js";
 import { observeProcess } from "./server/deployments.js";
@@ -55,7 +54,7 @@ import { FleetWorkspaceServices } from "./server/fleet-workspace-services.js";
 import { FleetMailServices } from "./server/fleet-mail-services.js";
 import { FleetCapacity } from "./server/fleet-capacity.js";
 import { createFleetCommandsHttp } from "./server/fleet-commands-http.js";
-import { AgentSources, dockerSourceAdapter } from "./agent-sources.js";
+import { AgentSources } from "./agent-sources.js";
 import { uploadFile } from "./server/uploads.js";
 import { seal, unseal } from "./server/secrets.js";
 
@@ -85,7 +84,6 @@ export class WorkspaceHost {
   readonly fleetMail?: FleetMailServices;
   readonly fleetCapacity?: FleetCapacity;
   private stopCapacity?: () => void;
-  private mcpSharing = new DockerMcpSharing();
   private stopWorker?: () => Promise<void>;
   private stopObservation?: () => void;
   private closing = false;
@@ -257,7 +255,7 @@ export class WorkspaceHost {
         : undefined,
       http: app,
       sources: this.fleetWorkspace
-        ? new AgentSources([dockerSourceAdapter, this.fleetWorkspace.source])
+        ? new AgentSources([this.fleetWorkspace.source])
         : undefined,
       fleetCommandsHttp:
         this.fleetWorkspace && this.pairing
@@ -333,12 +331,6 @@ export class WorkspaceHost {
           });
         throw new Error("Unknown workspace control command");
       },
-      shareTools: (sourceId, action) =>
-        sourceId
-          ? action === "disconnect"
-            ? this.mcpSharing.disconnect(sourceId)
-            : this.mcpSharing.connect(sourceId)
-          : this.mcpSharing.status(),
       originChanged: (origin) => {
         config.url = origin;
         this.execution.setOrigin?.(origin);
@@ -422,7 +414,6 @@ export class WorkspaceHost {
     }
     this.stopObservation = observeProcess("api");
     if (!preview) {
-      this.mcpSharing.start();
       this.fleetDistribution?.start();
       this.fleetMail?.start();
     }
@@ -467,7 +458,6 @@ export class WorkspaceHost {
     this.fleetLeases?.close();
     this.fleetReconcile?.close();
     this.stopObservation?.();
-    this.mcpSharing.close();
     try {
       await this.stopWorker?.();
       if (!designPreview) await this.execution.close();

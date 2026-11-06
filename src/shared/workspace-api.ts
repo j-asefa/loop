@@ -186,8 +186,6 @@ export const workspaceRoutes = {
   agentSources: endpoint({ ...base, method: "GET", path: "/agent-sources", security: "paired-device", response: mcp.PublicAgentSources }),
   workspaceDevices: endpoint({ ...base, method: "GET", path: "/workspace/devices", security: "paired-device", response: z.array(app.PublicPairedDevice) }),
   workspaceRevoke: endpoint({ ...base, method: "POST", path: "/workspace/revoke", security: "paired-device", body: app.PairedDeviceRevokeInput, response: Ok }),
-  mcpSharing: endpoint({ ...base, method: "GET", path: "/mcp-sharing", security: "paired-device", response: mcp.PublicMcpSharing }),
-  mcpSharingUpdate: endpoint({ ...base, method: "POST", path: "/mcp-sharing", security: "paired-device", body: mcp.McpSharingInput, response: mcp.PublicMcpSharingUpdate }),
   mcpPreferences: endpoint({ ...base, method: "GET", path: "/mcp/preferences", response: mcp.PublicMcpPreferences }),
   mcpPreferencesUpdate: endpoint({ ...base, method: "PUT", path: "/mcp/preferences", body: mcp.McpPreferencesInput, response: mcp.PublicMcpPreferences.extend({ resumed: z.number() }) }),
   mcpCatalog: endpoint({ ...base, method: "GET", path: "/mcp/catalog", response: mcp.PublicMcpCatalog }),

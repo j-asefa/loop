@@ -21,12 +21,6 @@ const { redactCredentials } = await import("../src/server/mcp/redaction");
 const { enqueue } = await import("../src/server/queue");
 const { requestApproval } = await import("../src/server/approvals");
 const { authorizeConnectionTool } = await import("../src/server/mcp/broker");
-const {
-  enrollFederationPeer,
-  localFederationCatalog,
-  invokeLocalFederatedTool,
-} = await import("../src/server/mcp/federation");
-
 const app = express();
 app.use(express.json(), (req, res, next) => {
   res.locals.owner = req.get("x-owner");
@@ -109,170 +103,8 @@ it("keeps a tool's published name when another connection is added or disabled",
   );
   expect(workspaceToolBindings(owner)[0].name).toBe(before?.name);
 });
-it("shares only source-owned tools and never replays a known or uncertain peer call", async () => {
-  const owner = id();
-  const other = id();
-  insert(other, [smallTool("private")]);
-  insert(owner, [smallTool("lookup")]);
-  const peerId = `docker:${id()}`;
-  enrollFederationPeer(owner, peerId);
-  const catalog = localFederationCatalog(owner);
-  expect(catalog).toHaveLength(1);
-  expect(catalog[0].name).toMatch(/^shared_[0-9a-f]{24}$/);
-  let calls = 0;
-  const restore = withTestMcp(
-    async () =>
-      ({
-        callTool: async () => {
-          calls++;
-          return { content: [{ type: "text", text: "done" }] };
-        },
-        close: async () => {},
-      }) as any,
-  );
-  try {
-    const run = id();
-    const request = "first-call";
-    const args = {};
-    const first = await invokeLocalFederatedTool(
-      owner,
-      peerId,
-      run,
-      request,
-      catalog[0].name,
-      args,
-    );
-    expect(first).toEqual({ content: [{ type: "text", text: "done" }] });
-    expect(
-      await invokeLocalFederatedTool(
-        owner,
-        peerId,
-        run,
-        request,
-        catalog[0].name,
-        args,
-      ),
-    ).toEqual(first);
-    expect(calls).toBe(1);
-    await expect(
-      invokeLocalFederatedTool(owner, peerId, run, request, catalog[0].name, {
-        changed: true,
-      }),
-    ).rejects.toThrow();
-    await expect(
-      invokeLocalFederatedTool(
-        other,
-        peerId,
-        run,
-        "foreign",
-        catalog[0].name,
-        args,
-      ),
-    ).rejects.toThrow("not shared");
-    expect(calls).toBe(1);
-  } finally {
-    restore();
-  }
-  let uncertainCalls = 0;
-  const fail = withTestMcp(
-    async () =>
-      ({
-        callTool: async () => {
-          uncertainCalls++;
-          throw new Error("connection lost after send");
-        },
-        close: async () => {},
-      }) as any,
-  );
-  try {
-    const run = id();
-    await expect(
-      invokeLocalFederatedTool(
-        owner,
-        peerId,
-        run,
-        "uncertain",
-        catalog[0].name,
-        {},
-      ),
-    ).rejects.toThrow("uncertain");
-    await expect(
-      invokeLocalFederatedTool(
-        owner,
-        peerId,
-        run,
-        "uncertain",
-        catalog[0].name,
-        {},
-      ),
-    ).rejects.toThrow("uncertain");
-    expect(uncertainCalls).toBe(1);
-  } finally {
-    fail();
-  }
-});
-it("shares GitHub merges under the approval policy while retaining the head requirement", async () => {
-  const sourceOwner = id(),
-    owner = id();
-  const source = insert(sourceOwner, [smallTool("merge_pull_request")]);
-  db.prepare(
-    "UPDATE mcp_connections SET url='https://api.githubcopilot.com/mcp/' WHERE id=?",
-  ).run(source);
-  const catalog = localFederationCatalog(sourceOwner);
-  expect(catalog).toHaveLength(1);
-  expect(catalog[0]._meta.loop).toEqual({
-    github: true,
-    sourceTool: "merge_pull_request",
-    alwaysAsk: false,
-  });
-  const connection = insert(owner, catalog);
-  db.prepare("UPDATE mcp_connections SET metadata=? WHERE id=?").run(
-    JSON.stringify({
-      transport: "federation",
-      federatedPeer: "docker:" + "d".repeat(64),
-    }),
-    connection,
-  );
-  expect(() =>
-    authorizeConnectionTool(owner, connection, catalog[0].name, {}),
-  ).toThrow(/expectedHeadSha/);
-  const args = {
-    owner: "acme",
-    repo: "api",
-    pullNumber: 42,
-    expectedHeadSha: "a".repeat(40),
-  };
-  expect(() =>
-    authorizeConnectionTool(owner, connection, catalog[0].name, args),
-  ).not.toThrow();
-  const run = enqueue(owner, "Merge the reviewed PR", id());
-  const approval = requestApproval(run, {
-    type: "mcp_tool",
-    connectionId: connection,
-    tool: catalog[0].name,
-    arguments: args,
-  });
-  db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(
-    run.id,
-  );
-  const changed = await api(
-    owner,
-    "/mcp/preferences",
-    { approvalMode: "allow" },
-    "PUT",
-  );
-  expect(changed.data.resumed).toBe(1);
-  expect(
-    db.prepare("SELECT state FROM approvals WHERE id=?").get(approval.id),
-  ).toEqual({ state: "approved" });
-  expect(
-    db
-      .prepare("SELECT 1 FROM personal_decisions WHERE approval_id=?")
-      .get(approval.id),
-  ).toBeUndefined();
-});
 
-it("honors an older shared source's explicit alwaysAsk restriction even in Allow", async () => {
+it("honors an MCP tool's explicit alwaysAsk restriction even in Allow", async () => {
   const owner = id();
   const tool = "shared_" + "b".repeat(24);
   const connection = insert(owner, [
@@ -287,16 +119,9 @@ it("honors an older shared source's explicit alwaysAsk restriction even in Allow
       },
     },
   ]);
-  // Shared tools arrive over a federation connection, the only kind whose
-  // `_meta.loop` hints are trusted.
-  db.prepare("UPDATE mcp_connections SET metadata=? WHERE id=?").run(
-    JSON.stringify({
-      transport: "federation",
-      federatedPeer: "docker:" + "c".repeat(64),
-    }),
-    connection,
-  );
-  expect(() => authorizeConnectionTool(owner, connection, tool, {})).toThrow();
+  expect(() =>
+    authorizeConnectionTool(owner, connection, tool, {}),
+  ).not.toThrow();
   const run = enqueue(owner, "Shared merge", id());
   const approval = requestApproval(run, {
     type: "mcp_tool",
@@ -639,88 +464,16 @@ it("serializes competing discoveries so only a catalog fitting the workspace can
   }
 });
 
-it("keeps a refreshed shared catalog connected when Docker's tools would exceed the budget", async () => {
-  const owner = id();
-  insert(
-    owner,
-    Array.from({ length: MCP_TOOL_BUDGET.count - 1 }, (_, i) =>
-      smallTool("local_" + i),
-    ),
-  );
-  const shared = insert(owner, [smallTool("shared_one")]);
-  const restore = fixture(
-    Array.from({ length: 10 }, (_, i) => smallTool("shared_" + i)),
-  );
-  try {
-    await expect(
-      discover(record(shared), { keepOnBudget: true }),
-    ).rejects.toBeInstanceOf(ToolBudgetError);
-    expect(record(shared).status).toBe("connected");
-    expect(JSON.parse(record(shared).tools)).toHaveLength(1);
-    // A first-time or explicit discovery still disables an oversized catalog.
-    await expect(discover(record(shared))).rejects.toBeInstanceOf(
-      ToolBudgetError,
-    );
-    expect(record(shared).status).toBe("disabled");
-  } finally {
-    restore();
-  }
-});
-
-it("trusts tool renaming and GitHub hints only from federation connections", async () => {
-  const { loopHints } = await import("../src/server/mcp/broker");
+it("ignores tool renaming and GitHub claims while preserving stricter approval", async () => {
   const tool = {
-    name: "delete_repo",
+    ...smallTool("delete_repo"),
     _meta: {
       loop: { sourceTool: "list_files", github: true, alwaysAsk: true },
     },
   };
-  expect(loopHints({ metadata: "{}" }, tool)).toEqual({
-    sourceTool: undefined,
-    github: false,
-    alwaysAsk: true,
-  });
-  expect(
-    loopHints({ metadata: JSON.stringify({ transport: "federation" }) }, tool),
-  ).toEqual({ sourceTool: "list_files", github: true, alwaysAsk: true });
-});
-
-it("keeps a shared call retryable when its connection fails before anything is sent", async () => {
   const owner = id();
-  insert(owner, [smallTool("lookup")]);
-  const peerId = `docker:${id()}`;
-  enrollFederationPeer(owner, peerId);
-  const name = localFederationCatalog(owner)[0].name;
-  const run = id();
-  let restore = withTestMcp(async () => {
-    throw new Error("connection refused");
-  });
-  try {
-    await expect(
-      invokeLocalFederatedTool(owner, peerId, run, "call", name, {}),
-    ).rejects.toThrow("connection refused");
-  } finally {
-    restore();
-  }
-  expect(
-    db
-      .prepare("SELECT count(*) n FROM mcp_federation_calls WHERE peer_id=?")
-      .get(peerId),
-  ).toEqual({ n: 0 });
-  restore = withTestMcp(
-    async () =>
-      ({
-        callTool: async () => ({
-          content: [{ type: "text", text: "sent once" }],
-        }),
-        close: async () => {},
-      }) as any,
-  );
-  try {
-    expect(
-      await invokeLocalFederatedTool(owner, peerId, run, "call", name, {}),
-    ).toMatchObject({ content: [{ text: "sent once" }] });
-  } finally {
-    restore();
-  }
+  const connection = insert(owner, [tool]);
+  const authorized = authorizeConnectionTool(owner, connection, tool.name, {});
+  expect(authorized.tool.name).toBe("delete_repo");
+  expect(authorized.hints).toEqual({ alwaysAsk: true });
 });

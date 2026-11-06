@@ -9,27 +9,24 @@ const connection = (metadata: object) =>
     metadata: JSON.stringify(metadata),
   }) as Connection;
 
-it("uses the discovered Docker workspace name instead of appending its internal hostname", () => {
+it("names enrolled Docker companions using their recorded execution location", () => {
   const connections = [
-    connection({
-      location: "docker",
-      environmentName: "Docker · container-host",
-    }),
+    connection({ location: "docker", environmentName: "Docker · research" }),
   ];
   expect(
     agentEnvironment(agent, connections, {
-      id: "docker:one",
-      kind: "docker",
-      name: "Docker · project/app",
+      id: "peer:one",
+      kind: "peer",
+      name: "Research",
     }),
-  ).toBe("Docker · project/app");
+  ).toBe("Research · Docker · research");
   expect(
     agentEnvironment(agent, connections, {
-      id: "docker:two",
-      kind: "docker",
-      name: "Docker · project/loop",
+      id: "peer:two",
+      kind: "peer",
+      name: "Docker · research",
     }),
-  ).toBe("Docker · project/loop");
+  ).toBe("Docker · research");
 });
 
 it("keeps distinct local Docker destinations and resolves legacy names from a Docker source", () => {

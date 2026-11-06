@@ -8,18 +8,6 @@ const Permission = z.enum(PERMISSION_MODES.map((mode) => mode.value));
 export const PublicAgentSources = z.array(
   z.object({ id: Text, name: Text, kind: Text }),
 );
-export const PublicMcpSharing = z.array(
-  z.object({ id: Text, name: Text, shared: z.boolean() }),
-);
-export const McpSharingInput = z.object({
-  sourceId: Text,
-  action: z.enum(["connect", "disconnect"]),
-});
-// The host's existing empty-source branch returns status instead of mutating.
-export const PublicMcpSharingUpdate = z.union([
-  PublicMcpSharing,
-  z.object({ id: Text, shared: z.boolean() }),
-]);
 export const McpPreferencesInput = z
   .strictObject({
     approvalMode: z.enum(["ask", "allow"]).optional(),

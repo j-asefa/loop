@@ -8,8 +8,9 @@ import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 
 // Exercises the production Feed and creation form with two independent API
-// sources. The browser routes stand in for linked hosts; gateway forwarding is
-// covered separately by linked-docker.node.test.ts.
+// sources. Fixture adapter IDs do not claim enrolled fleet capabilities.
+// Browser routes simulate source responses; fleet-agent-source.test.ts
+// covers paired gateway forwarding.
 export async function agentSourcesBrowser(page, workspaceUrl) {
   const now = Date.now();
   const computer = "Alex’s MacBook Pro";
@@ -21,8 +22,12 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     message: randomUUID(),
   };
   const sources = [
-    { id: `docker:${"a".repeat(64)}`, name: "Docker · Alpha", kind: "docker" },
-    { id: "cloud:beta", name: "Cloud · Beta", kind: "cloud" },
+    {
+      id: `fixture:${"a".repeat(64)}`,
+      name: "Docker · Alpha",
+      kind: "fixture",
+    },
+    { id: "fixture:beta", name: "Cloud · Beta", kind: "fixture" },
   ];
   const records = new Map(
     sources.map((source, index) => {
@@ -50,6 +55,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
         metadata: JSON.stringify({
           authMode: "subscription",
           environmentName: source.name,
+          location: index === 0 ? "docker" : "cloud",
         }),
         created_at: now,
       };

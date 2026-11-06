@@ -224,65 +224,6 @@ export function credentialsNeedAuth(
   return credentialsNeedAuthStatement(db).run(secret, id);
 }
 
-const byFederatedPeerStatement = statement(
-  "SELECT * FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.federatedPeer')=? ORDER BY created_at DESC LIMIT 1",
-);
-const byFederatedPeerRow = QueryRecords.mcp_connections;
-export function byFederatedPeer(
-  db: Database.Database,
-  owner: string,
-  peer: string,
-) {
-  const row = byFederatedPeerStatement(db).get(owner, peer);
-  return row === undefined
-    ? undefined
-    : parseRecord(byFederatedPeerRow, row, "mcp_connections");
-}
-
-const reconnectFederatedStatement = statement(
-  "UPDATE mcp_connections SET name=?,url=?,secret=?,status=CASE WHEN status='disconnected' THEN 'needs_auth' ELSE status END,metadata=? WHERE id=? AND owner_id=?",
-);
-export function reconnectFederated(
-  db: Database.Database,
-  name: string,
-  url: string,
-  secret: string,
-  metadata: string,
-  id: string,
-  owner: string,
-) {
-  return reconnectFederatedStatement(db).run(
-    name,
-    url,
-    secret,
-    metadata,
-    id,
-    owner,
-  );
-}
-
-const disconnectPeerStatement = statement(
-  "UPDATE mcp_connections SET status='disconnected',secret=?\n         WHERE owner_id=? AND json_extract(metadata,'$.federatedPeer')=?",
-);
-export function disconnectPeer(
-  db: Database.Database,
-  secret: string,
-  owner: string,
-  peer: string,
-) {
-  return disconnectPeerStatement(db).run(secret, owner, peer);
-}
-
-const localConnectedStatement = statement(
-  "SELECT * FROM mcp_connections WHERE owner_id=? AND status='connected'\n       AND coalesce(json_extract(metadata,'$.transport'),'http')<>'federation' ORDER BY id",
-);
-const localConnectedRow = QueryRecords.mcp_connections;
-export function localConnected(db: Database.Database, owner: string) {
-  return localConnectedStatement(db)
-    .all(owner)
-    .map((row) => parseRecord(localConnectedRow, row, "mcp_connections"));
-}
-
 const githubCandidatesStatement = statement(
   "SELECT * FROM mcp_connections WHERE owner_id=? AND status='connected' ORDER BY created_at,rowid",
 );

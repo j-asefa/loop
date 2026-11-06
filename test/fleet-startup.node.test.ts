@@ -103,7 +103,6 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
           if (fleetMailDiscovery(OWNER)) throw new Error('Mail enabled before listening');
           // Stub unrelated Docker discovery; exercise the actual gateway start,
           // worker scheduler, empty outbox read and gateway shutdown.
-          host.mcpSharing.start = () => {};
           let ticks = 0, mailTicks = 0;
           const flush = host.fleetDistribution.flush.bind(host.fleetDistribution);
           host.fleetDistribution.flush = async () => { ticks++; await flush(); };

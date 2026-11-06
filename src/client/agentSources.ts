@@ -56,10 +56,6 @@ export function agentEnvironment(
   connections: Connection[],
   source: AgentSource,
 ) {
-  // Discovery names the linked workspace; its own container hostname is not
-  // another execution destination within that source.
-  if (source.kind === "docker" || source.id.startsWith("docker:"))
-    return source.name;
   const connection = connections.find(
     (item) => item.id === agent.connection_id,
   );

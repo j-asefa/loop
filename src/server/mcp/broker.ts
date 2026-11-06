@@ -26,7 +26,7 @@ import { type Run, transition } from "../queue.js";
 
 import { requestApproval } from "../approvals.js";
 import { saveArtifact } from "../artifacts.js";
-import { readSecret, type MCPConnection } from "./client.js";
+import { readSecret } from "./client.js";
 import { normalizeResult, toolErrorMessage } from "./results.js";
 import { connectForRun } from "./sessions.js";
 import { redactCredentials } from "./redaction.js";
@@ -97,38 +97,15 @@ export function authorizeConnectionTool(
   }
   if (!valid)
     throw new Problem(422, "Tool arguments do not match the discovered schema");
-  const hints = loopHints(c, tool);
-  const merge =
-    (isGithubMcpUrl(c.url) || hints.github) &&
-    mergeHeadProblem(hints.sourceTool || toolName, args);
+  const hints = loopHints(tool);
+  const merge = isGithubMcpUrl(c.url) && mergeHeadProblem(toolName, args);
   if (merge) throw new Problem(422, merge);
   return { connection: c, tool, hints };
 }
-// Loop's own `_meta.loop` hints on a discovered tool. Only a federation
-// connection (another Loop source relaying its tools) may rename a tool in
-// the approval prompt or claim GitHub provenance; any other server's hints
-// could disguise an effect. `alwaysAsk` only makes approval stricter, so it
-// is honoured from any server.
-export function loopHints(
-  connection: Pick<MCPConnection, "metadata">,
-  tool: any,
-) {
-  let federated = false;
-  try {
-    federated =
-      JSON.parse(connection.metadata || "{}").transport === "federation";
-  } catch {
-    // Unreadable metadata grants no hints.
-  }
-  const loop = tool?._meta?.loop ?? tool?._meta?.loop;
-  return {
-    sourceTool:
-      federated && typeof loop?.sourceTool === "string"
-        ? (loop.sourceTool as string)
-        : undefined,
-    github: federated && loop?.github === true,
-    alwaysAsk: loop?.alwaysAsk === true,
-  };
+// A tool may make approval stricter, but its metadata cannot rename an
+// effect or claim GitHub provenance.
+export function loopHints(tool: any) {
+  return { alwaysAsk: tool?._meta?.loop?.alwaysAsk === true };
 }
 export async function invokeTool(
   run: Run,
@@ -147,13 +124,8 @@ export async function invokeTool(
   // An unpinned merge is refused before approval and never sent. Returning a
   // tool error lets the agent re-read the PR and retry with the head SHA.
   const target = ownedMcpConnection(binding.connectionId, run.owner_id);
-  const descriptor = JSON.parse(target.tools).find(
-    (tool: any) => tool.name === binding.tool,
-  );
-  const hints = loopHints(target, descriptor);
-  const displayTool = hints.sourceTool || binding.tool;
-  const githubTool = isGithubMcpUrl(target.url) || hints.github;
-  const unpinned = githubTool && mergeHeadProblem(displayTool, args);
+  const unpinned =
+    isGithubMcpUrl(target.url) && mergeHeadProblem(binding.tool, args);
   if (unpinned)
     return {
       result: { isError: true, content: [{ type: "text", text: unpinned }] },
@@ -210,7 +182,7 @@ export async function invokeTool(
             server: connection.name,
             tool: binding.tool,
             arguments: args,
-            message: `Allow @${run.payload.name || "agent"} to call ${displayTool} on ${connection.name}?`,
+            message: `Allow @${run.payload.name || "agent"} to call ${binding.tool} on ${connection.name}?`,
             callId,
           },
           automaticallyAllowed,
@@ -291,7 +263,7 @@ export async function invokeTool(
   let received = false;
   try {
     watched.signal.throwIfAborted();
-    client = await connectForRun(connection, run.id, callId);
+    client = await connectForRun(connection, run.id);
     authorizeTool(
       run.owner_id,
       run.agent_id,
@@ -327,10 +299,10 @@ export async function invokeTool(
     const metadata = JSON.parse(connection.metadata);
     const normalized = normalizeResult(result, {
       connectionId: connection.id,
-      tool: displayTool,
+      tool: binding.tool,
       fetchedAt: now(),
       fixture: metadata.fixture === true,
-      github: githubTool,
+      github: isGithubMcpUrl(connection.url),
     });
     const artifactId = db
       .transaction(() => {

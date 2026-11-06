@@ -1176,17 +1176,14 @@ export function Feed({
       ),
     [connections],
   );
-  // One badge per card. A linked Docker server is Docker by definition;
-  // on the laptop source, the connection's recorded location decides.
+  // Each source records the execution location on its connection.
   const cardEnvironment = (
     source: string,
     connectionId: string | null,
     label: string | undefined,
   ) => {
     const recorded = environments.get(`${source}:${connectionId}`);
-    const kind: ExecutionLocation | null = source.startsWith("docker:")
-      ? "docker"
-      : (recorded?.kind ?? null);
+    const kind: ExecutionLocation | null = recorded?.kind ?? null;
     const text = kind && !source ? recorded?.label : label || null;
     return text ? { kind, label: text } : null;
   };

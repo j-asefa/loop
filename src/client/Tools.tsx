@@ -1,11 +1,5 @@
 import { literalEntry } from "./textEntry";
-import { callRoute } from "./workspace-api";
-import {
-  useSourceRoute,
-  useSourceCapabilities,
-  useSourceId,
-  useProjectionRoute,
-} from "./SourceContext";
+import { useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
@@ -26,8 +20,6 @@ export function Tools({
 }) {
   const call = useSourceRoute(),
     readRoute = useProjectionRoute();
-  const capabilities = useSourceCapabilities();
-  const sourceId = useSourceId();
   const [connections, setConnections] = useState<
       RouteResponse<typeof workspaceApi.mcpList>
     >([]),
@@ -46,9 +38,6 @@ export function Tools({
   );
   const [agentMode, setAgentMode] = useState<PermissionMode | null>(null);
   const [configJson, setConfigJson] = useState("");
-  const [sharingSources, setSharingSources] = useState<
-    RouteResponse<typeof workspaceApi.mcpSharing>
-  >([]);
   const [nativeCandidates, setNativeCandidates] = useState<
     RouteResponse<typeof workspaceApi.mcpNativeCandidates>
   >([]);
@@ -61,12 +50,6 @@ export function Tools({
     } catch (e) {
       setReadErrors((old) => ({ ...old, [key]: (e as Error).message }));
     }
-  }
-  async function loadSharing() {
-    if (!capabilities.pairedDevices && !sourceId) return;
-    await read("sharing", async () => {
-      setSharingSources(await readRoute(workspaceApi.mcpSharing, {}, ""));
-    });
   }
   async function loadConnections() {
     await read("tools", async () => {
@@ -93,7 +76,6 @@ export function Tools({
   }
   useEffect(() => {
     void load();
-    void loadSharing();
     void loadCandidates();
   }, []);
   async function action(fn: () => Promise<void>) {
@@ -177,12 +159,6 @@ export function Tools({
             loadConnections,
           ],
           ["permissions", "Permissions", ["permissions"], loadPreferences],
-          [
-            "sharing",
-            "Tool sharing",
-            ["installed", "permissions"],
-            loadSharing,
-          ],
           ["imports", "Harness integrations", ["installed"], loadCandidates],
         ] as const
       ).map(
@@ -268,51 +244,6 @@ export function Tools({
               ? "Connected tools can run automatically. Connected GitHub tools still ask before merging. Calls stay in conversation history."
               : "Ask before each connected tool call. Allowing tools also resumes waiting MCP requests."}
           </p>
-          {sharingSources.length > 0 && agentMode && approvalMode && (
-            <div className="tool-sharing">
-              <p className="field-hint">
-                Use these permissions on your other connected environments.
-              </p>
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() =>
-                  void action(async () => {
-                    const targets = [
-                      "",
-                      ...sharingSources.map((source) => source.id),
-                    ].filter((id) => id !== sourceId);
-                    const results = await Promise.allSettled(
-                      targets.map((id) =>
-                        callRoute(
-                          workspaceApi.mcpPreferencesUpdate,
-                          {
-                            body: {
-                              approvalMode: approvalMode!,
-                              agentPermissionMode: agentMode!,
-                            },
-                          },
-                          id,
-                        ),
-                      ),
-                    );
-                    const failed = results.filter(
-                      (result) => result.status === "rejected",
-                    ).length;
-                    if (failed)
-                      throw new Error(
-                        `Updated ${targets.length - failed} sources; ${failed} unavailable. Refresh or update those sources and try again.`,
-                      );
-                    setNotice(
-                      `Permissions saved on ${targets.length} other sources.`,
-                    );
-                  })
-                }
-              >
-                Apply permissions to other sources
-              </button>
-            </div>
-          )}
           <SettingsNote
             icon={TriangleAlert}
             tone="attention"
@@ -348,64 +279,6 @@ export function Tools({
       )}
       {view === "catalog" && (
         <McpCatalog connections={connections} onInstalled={load} />
-      )}
-      {view === "installed" && sharingSources.length > 0 && (
-        <section className="tool-sharing">
-          <h3>Share tools across execution sources</h3>
-          <p className="field-hint">
-            Connect a Docker Loop source once to let agents on either source use
-            its connected MCP tools. Accounts stay on their original source.
-          </p>
-          {sharingSources.map((source) => (
-            <div className="tool-sharing-source" key={source.id}>
-              <span>{source.name}</span>
-              <button
-                disabled={busy}
-                onClick={() =>
-                  void action(async () => {
-                    await callRoute(
-                      workspaceApi.mcpSharingUpdate,
-                      {
-                        body: {
-                          sourceId: source.id,
-                          action: "connect",
-                        },
-                      },
-                      "",
-                    );
-                    await loadSharing();
-                    setNotice(`Tools are shared with ${source.name}.`);
-                  })
-                }
-              >
-                {source.shared ? "Refresh sharing" : "Share tools"}
-              </button>
-              {source.shared && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void action(async () => {
-                      await callRoute(
-                        workspaceApi.mcpSharingUpdate,
-                        {
-                          body: {
-                            sourceId: source.id,
-                            action: "disconnect",
-                          },
-                        },
-                        "",
-                      );
-                      await loadSharing();
-                      setNotice(`Tool sharing with ${source.name} stopped.`);
-                    })
-                  }
-                >
-                  Stop sharing
-                </button>
-              )}
-            </div>
-          ))}
-        </section>
       )}
       {view === "installed" && nativeCandidates.length > 0 && (
         <section className="tool-sharing">
@@ -524,11 +397,7 @@ export function Tools({
                 </h3>
                 <details className="settings-details">
                   <summary>Manage {c.name}</summary>
-                  <p className="field-hint">
-                    {parse<any>(c.metadata, {}).transport === "federation"
-                      ? "Shared from another execution source"
-                      : c.url}
-                  </p>
+                  <p className="field-hint">{c.url}</p>
                   <p className="field-hint">
                     {c.status === "connected"
                       ? `Available to all agents · ${approvalMode === "allow" ? "Allowed automatically" : "Ask every time"}`
@@ -541,92 +410,55 @@ export function Tools({
                     >
                       Test / reconnect
                     </button>
-                    {parse<any>(c.metadata, {}).transport !== "federation" && (
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          action(async () => {
-                            await call(workspaceApi.mcpUpdate, {
-                              params: { id: c.id },
-                              body: {
-                                action:
-                                  c.status === "disabled"
-                                    ? "enable"
-                                    : "disable",
-                              },
-                            });
-                          })
-                        }
-                      >
-                        {c.status === "disabled" ? "Enable" : "Disable"}
-                      </button>
-                    )}
-                    {parse<any>(c.metadata, {}).transport !== "federation" && (
-                      <button
-                        disabled={
-                          parse<any>(c.metadata, {}).transport === "stdio" ||
-                          c.authType === "query"
-                        }
-                        title={
-                          c.authType === "query"
-                            ? "Use Edit setup in Catalog to update this key"
-                            : undefined
-                        }
-                        onClick={() => {
-                          setView("custom");
-                          setEditing(c.id);
-                          setName(c.name);
-                          setUrl(c.url);
-                          setAuthType(c.authType);
-                        }}
-                      >
-                        Replace credentials
-                      </button>
-                    )}
-                    {parse<any>(c.metadata, {}).transport !== "federation" && (
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          action(async () => {
-                            await call(workspaceApi.mcpUpdate, {
-                              params: { id: c.id },
-                              body: { action: "disconnect" },
-                            });
-                          })
-                        }
-                      >
-                        Disconnect
-                      </button>
-                    )}
-                    {/* A Docker share is revoked from the laptop, including one
-                      left behind by a source that is no longer running. */}
-                    {!sourceId &&
-                      c.status !== "disconnected" &&
-                      /^docker:/.test(
-                        String(parse<any>(c.metadata, {}).federatedPeer || ""),
-                      ) && (
-                        <button
-                          disabled={busy}
-                          onClick={() =>
-                            action(async () => {
-                              await callRoute(
-                                workspaceApi.mcpSharingUpdate,
-                                {
-                                  body: {
-                                    sourceId: parse<any>(c.metadata, {})
-                                      .federatedPeer,
-                                    action: "disconnect",
-                                  },
-                                },
-                                "",
-                              );
-                              await loadSharing();
-                            })
-                          }
-                        >
-                          Stop sharing
-                        </button>
-                      )}
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        action(async () => {
+                          await call(workspaceApi.mcpUpdate, {
+                            params: { id: c.id },
+                            body: {
+                              action:
+                                c.status === "disabled" ? "enable" : "disable",
+                            },
+                          });
+                        })
+                      }
+                    >
+                      {c.status === "disabled" ? "Enable" : "Disable"}
+                    </button>
+                    <button
+                      disabled={
+                        parse<any>(c.metadata, {}).transport === "stdio" ||
+                        c.authType === "query"
+                      }
+                      title={
+                        c.authType === "query"
+                          ? "Use Edit setup in Catalog to update this key"
+                          : undefined
+                      }
+                      onClick={() => {
+                        setView("custom");
+                        setEditing(c.id);
+                        setName(c.name);
+                        setUrl(c.url);
+                        setAuthType(c.authType);
+                      }}
+                    >
+                      Replace credentials
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        action(async () => {
+                          await call(workspaceApi.mcpUpdate, {
+                            params: { id: c.id },
+                            body: { action: "disconnect" },
+                          });
+                        })
+                      }
+                    >
+                      Disconnect
+                    </button>
                   </div>
                   <details>
                     <summary>
