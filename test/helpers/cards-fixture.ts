@@ -11,7 +11,6 @@ import { installFixtureProjection } from "./projected-writer.js";
 import { fleetDeviceFromLink } from "../../src/shared/fleet-pairing.js";
 
 export async function cardsFixture(
-  mode: "companion",
   compiled: boolean | string = false,
   options: {
     projectedWrites?: boolean;
@@ -46,7 +45,6 @@ export async function cardsFixture(
               ([key]) => !key.startsWith("LOOP_"),
             ),
           ),
-          LOOP_PROFILE: mode,
           LOOP_DATA_DIR: dir,
           LOOP_URL: "http://127.0.0.1",
           PORT: "0",
@@ -196,7 +194,6 @@ export async function cardsFixture(
     get stderr() {
       return errors;
     },
-    mode,
     dir,
     origin,
     get transportOrigin() {

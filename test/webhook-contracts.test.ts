@@ -78,7 +78,6 @@ async function receiver() {
 async function fixture(network: "local" | "public" = "local") {
   const sink = await receiver();
   const f = await cardsFixture(
-    "companion",
     false,
     network === "local" ? {} : { webhookReceiver: sink.url },
   );
@@ -154,8 +153,8 @@ function payloads(f: Fixture, id: string) {
   ).map((row) => WebhookStop.parse(JSON.parse(row.payload)));
 }
 
-for (const mode of ["companion"] as const) {
-  it(`${mode} manages signed webhook activation, requests and owner isolation through HTTP`, async () => {
+{
+  it(`companion manages signed webhook activation, requests and owner isolation through HTTP`, async () => {
     const { f, sink, destination } = await fixture();
     const created = await create(f, destination),
       id = created.subscription.id;
@@ -259,7 +258,7 @@ for (const mode of ["companion"] as const) {
     ).toBe(true);
   }, 60000);
 
-  it(`${mode} commits each stop with the outbox, deduplicates projections and retains later stops`, async () => {
+  it(`companion commits each stop with the outbox, deduplicates projections and retains later stops`, async () => {
     const { f, sink, destination } = await fixture(),
       records = await f.integrationRecords();
     const { subscription, secret } = await create(f, destination);
@@ -345,8 +344,8 @@ async function createReplay(
   return WebhookCreated.parse(await response.json());
 }
 
-for (const mode of ["companion"] as const) {
-  it(`${mode} worker maintenance sends webhooks and shuts down an uncertain attempt`, async () => {
+{
+  it(`companion worker maintenance sends webhooks and shuts down an uncertain attempt`, async () => {
     const { f, sink, destination } = await fixture(),
       records = await f.integrationRecords();
     const created = await create(f, destination);
@@ -389,10 +388,10 @@ it("keeps timed-out activation pending and retries the same identity after resta
   expect(JSON.parse(sink.received[1].body).id).toBe(first);
 }, 60000);
 
-for (const mode of ["companion"] as const) {
-  it(`${mode} preserves attempts when worker shutdown cancels DNS before dispatch`, async () => {
+{
+  it(`companion preserves attempts when worker shutdown cancels DNS before dispatch`, async () => {
     const sink = await receiver();
-    const f = await cardsFixture(mode, false, { webhookReceiver: sink.url });
+    const f = await cardsFixture(false, { webhookReceiver: sink.url });
     const records = await f.integrationRecords();
     const destination = "https://webhook.fixture.test/receiver";
     const active = await create(f, destination);
@@ -817,10 +816,10 @@ it("reclaims a killed worker's lease with the same identity and cancels queued c
   expect(sink.received).toHaveLength(sent);
 }, 60000);
 
-for (const mode of ["companion"] as const) {
-  it(`${mode} enforces public IPv6 allocation and all resolved addresses at the HTTP boundary`, async () => {
+{
+  it(`companion enforces public IPv6 allocation and all resolved addresses at the HTTP boundary`, async () => {
     const sink = await receiver();
-    const f = await cardsFixture(mode, false, { webhookReceiver: sink.url });
+    const f = await cardsFixture(false, { webhookReceiver: sink.url });
     const destination = "https://webhook.fixture.test/receiver";
     for (const addresses of [
       ["::7f00:1"],
@@ -859,8 +858,8 @@ for (const mode of ["companion"] as const) {
   }, 30000);
 }
 
-it("refuses unsafe destinations in each installation and never follows a receiver redirect", async () => {
-  for (const mode of ["companion"] as const) {
+it("refuses unsafe destinations and never follows a receiver redirect", async () => {
+  {
     const { f, sink, destination } = await fixture();
     const denied = [
       "http://user:password@127.0.0.1/",

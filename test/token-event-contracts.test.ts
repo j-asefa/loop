@@ -160,9 +160,9 @@ async function browserFrame(f: Fixture, epoch: string, cursor: number) {
   return frames[0];
 }
 
-for (const mode of ["companion"] as const) {
-  it(`${mode} admits only read sockets and confirms connection-bound replay`, async () => {
-    const f = await cardsFixture(mode, false, {
+{
+  it(`companion admits only read sockets and confirms connection-bound replay`, async () => {
+    const f = await cardsFixture(false, {
       projectedWrites: true,
       relay: true,
     });
@@ -352,8 +352,8 @@ for (const mode of ["companion"] as const) {
     replacement.close();
   }, 40_000);
 
-  it(`${mode} refuses unoffered, stale and non-acknowledgement client messages`, async () => {
-    const f = await cardsFixture(mode, false, { relay: true }),
+  it(`companion refuses unoffered, stale and non-acknowledgement client messages`, async () => {
+    const f = await cardsFixture(false, { relay: true }),
       reader = await token(f);
     const first = await connect(f, reader.secret),
       reset = (await frame(first)).frame;
@@ -386,8 +386,8 @@ for (const mode of ["companion"] as const) {
     }
   }, 30_000);
 
-  it(`${mode} includes committed deadline payloads only through the read event grant`, async () => {
-    const f = await cardsFixture(mode, false, { relay: true }),
+  it(`companion includes committed deadline payloads only through the read event grant`, async () => {
+    const f = await cardsFixture(false, { relay: true }),
       records = await f.integrationRecords(),
       reader = await token(f);
     const expires = Date.now() + 60_000;
@@ -437,9 +437,9 @@ for (const mode of ["companion"] as const) {
   }, 20_000);
 }
 
-for (const mode of ["companion"] as const) {
-  it(`${mode} preserves whole oversize HTTP events and uses explicit resets for invalid history`, async () => {
-    const f = await cardsFixture(mode, false, { relay: true }),
+{
+  it(`companion preserves whole oversize HTTP events and uses explicit resets for invalid history`, async () => {
+    const f = await cardsFixture(false, { relay: true }),
       records = await f.integrationRecords(),
       reader = await token(f);
     const first = await connect(f, reader.secret),
@@ -574,8 +574,8 @@ for (const mode of ["companion"] as const) {
     hole.close();
   }, 30_000);
 
-  it(`${mode} drains the production listener with an idle token stream`, async () => {
-    const f = await cardsFixture(mode, false, { relay: true }),
+  it(`companion drains the production listener with an idle token stream`, async () => {
+    const f = await cardsFixture(false, { relay: true }),
       reader = await token(f),
       stream = await connect(f, reader.secret);
     await frame(stream);
@@ -586,8 +586,8 @@ for (const mode of ["companion"] as const) {
     expect(performance.now() - start).toBeLessThan(2500);
   }, 15_000);
 
-  it(`${mode} releases a non-reading token stream after overflow and drains the listener`, async () => {
-    const f = await cardsFixture(mode, false, { relay: true }),
+  it(`companion releases a non-reading token stream after overflow and drains the listener`, async () => {
+    const f = await cardsFixture(false, { relay: true }),
       records = await f.integrationRecords(),
       reader = await token(f);
     const subscribers = await f.eventSubscriberCount();
@@ -623,8 +623,8 @@ for (const mode of ["companion"] as const) {
     }
   }, 30_000);
 
-  it(`${mode} closes an idle revoked stream within thirty seconds`, async () => {
-    const f = await cardsFixture(mode, false, { relay: true }),
+  it(`companion closes an idle revoked stream within thirty seconds`, async () => {
+    const f = await cardsFixture(false, { relay: true }),
       reader = await token(f),
       stream = await connect(f, reader.secret);
     await frame(stream);

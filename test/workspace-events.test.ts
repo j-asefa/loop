@@ -21,8 +21,8 @@ afterEach(() => {
 afterAll(async () => {
   await compiled?.close();
 });
-function fixture(mode: Parameters<typeof cardsFixture>[0], projectedWrites = false) {
-  return cardsFixture(mode, compiled.source, { projectedWrites });
+function fixture(projectedWrites = false) {
+  return cardsFixture(compiled.source, { projectedWrites });
 }
 function connect(
   f: Awaited<ReturnType<typeof fixture>>,
@@ -83,7 +83,7 @@ function emit(
 }
 
 it("keeps the listener available when rejected upgrade clients reset their sockets", async () => {
-  const f = await fixture("companion");
+  const f = await fixture();
   const url = new URL(f.origin);
   for (let batch = 0; batch < 10; batch++) {
     await Promise.all(
@@ -118,9 +118,9 @@ it("keeps the listener available when rejected upgrade clients reset their socke
   await expect.poll(() => frames.length).toBe(1);
 }, 30_000);
 
-for (const mode of ["companion"] as const) {
-  it(`${mode} rejects malformed upgrade URLs without stopping the listener`, async () => {
-    const f = await fixture(mode);
+{
+  it(`companion rejects malformed upgrade URLs without stopping the listener`, async () => {
+    const f = await fixture();
     for (const headers of [{}, f.browser]) {
       const response = await f.request("//[", {
         headers: { ...headers, connection: "Upgrade", upgrade: "websocket" },
@@ -134,8 +134,8 @@ for (const mode of ["companion"] as const) {
     await expect.poll(() => frames.length).toBe(1);
   }, 30_000);
 
-  it(`${mode} pushes Working/Done changes, save/dismiss revisions and reconnect catch-up`, async () => {
-    const f = await fixture(mode);
+  it(`companion pushes Working/Done changes, save/dismiss revisions and reconnect catch-up`, async () => {
+    const f = await fixture();
     seed(f);
     const { socket, frames } = connect(f);
     await expect.poll(() => frames.length, { timeout: 7000 }).toBe(1);
@@ -206,8 +206,8 @@ for (const mode of ["companion"] as const) {
     });
   }, 40_000);
 
-  it(`${mode} reconciles oversized event replays without a repeated disconnect`, async () => {
-    const f = await fixture(mode);
+  it(`companion reconciles oversized event replays without a repeated disconnect`, async () => {
+    const f = await fixture();
     seed(f);
     const first = connect(f);
     await expect.poll(() => first.frames.length).toBe(1);
@@ -255,7 +255,7 @@ for (const mode of ["companion"] as const) {
 }
 
 it("enforces paired sessions, Origin, Cards credential restrictions and owner isolation", async () => {
-  const f = await fixture("companion");
+  const f = await fixture();
   seed(f);
   seed(f, "someone-else", "other-");
   for (const headers of [
@@ -292,7 +292,7 @@ it("enforces paired sessions, Origin, Cards credential restrictions and owner is
 }, 30_000);
 
 it("closes an established socket when its paired device is revoked", async () => {
-  const f = await fixture("companion");
+  const f = await fixture();
   const { socket, frames } = connect(f);
   await expect.poll(() => frames.length).toBe(1);
   const session = await (
@@ -309,7 +309,7 @@ it("closes an established socket when its paired device is revoked", async () =>
 }, 35_000);
 
 it("broadcasts to both owner sockets, isolates another owner, and releases subscriptions after repeated disconnects", async () => {
-  const f = await fixture("companion");
+  const f = await fixture();
   seed(f);
   seed(f, "someone-else", "other-");
   const first = connect(f),
@@ -341,7 +341,7 @@ it("broadcasts to both owner sockets, isolates another owner, and releases subsc
 }, 30_000);
 
 it("catches up every replay page without a later write even after the process cursor advanced", async () => {
-  const f = await fixture("companion");
+  const f = await fixture();
   seed(f);
   const initial = connect(f);
   await expect.poll(() => initial.frames.length).toBe(1);
@@ -366,9 +366,9 @@ it("catches up every replay page without a later write even after the process cu
   ).toEqual(ids);
 }, 15_000);
 
-for (const mode of ["companion"] as const) {
-  it(`${mode} serves typed v3, preserves v2, bounds replay and makes revision-only changes actionable`, async () => {
-    const f = await fixture(mode);
+{
+  it(`companion serves typed v3, preserves v2, bounds replay and makes revision-only changes actionable`, async () => {
+    const f = await fixture();
     seed(f);
     const live = connect(f, "?v=3&clock=1"),
       legacy = connect(f);
@@ -479,9 +479,9 @@ for (const mode of ["companion"] as const) {
 }
 
 it("negotiates v3 through paired source routing into another compiled companion", async () => {
-  const remote = await fixture("companion", true);
+  const remote = await fixture(true);
   seed(remote);
-  const paired = await fixture("companion", true);
+  const paired = await fixture(true);
   await paired.linkCompanion(remote);
   seed(paired);
   const sources = await (
@@ -548,7 +548,7 @@ it("negotiates v3 through paired source routing into another compiled companion"
 // These cases start an isolated compiled server, like the other endpoint tests.
 // Keep their fixture budget consistent; event polling retains its own bound.
 it.each(["secret", "routing"] as const)("revokes a connection with invalid %s through the compiled v3 endpoint", async (invalid) => {
-  const f = await fixture("companion");
+  const f = await fixture();
   const socket = connect(f, "?v=3&clock=1");
   await expect.poll(() => socket.frames.length).toBe(1);
   const metadata = invalid === "routing" ? '{"loopHarness":false}' : '{}';

@@ -159,7 +159,7 @@ export async function webhookSettingsReceiver() {
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
     },
-    async exercise(page, fixture, mode, width) {
+    async exercise(page, fixture, width) {
       status = 503;
       const destination = url + "?width=" + width;
       await expect(
@@ -397,7 +397,7 @@ export async function webhookSettingsReceiver() {
       await expect(
         row.getByRole("button", { name: "Retry deliveries", exact: true }),
       ).toHaveCount(0);
-      console.log(`Webhook Settings journey passed: ${mode}, ${width}px`);
+      console.log(`Webhook Settings journey passed: companion, ${width}px`);
     },
   };
 }

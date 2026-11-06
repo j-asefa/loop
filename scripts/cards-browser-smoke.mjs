@@ -11,9 +11,9 @@ const browser = await chromium.launch({
     : {}),
 });
 try {
-  for (const mode of ["companion"]) {
+  {
     const receiver = await webhookSettingsReceiver();
-    const fixture = await cardsFixture(mode, true);
+    const fixture = await cardsFixture(true);
     try {
       for (const width of [390, 1280]) {
         const context = await browser.newContext({
@@ -43,7 +43,7 @@ try {
         await page
           .getByRole("button", { name: "Integration tokens", exact: true })
           .click();
-        const title = mode + " " + width;
+        const title = "companion " + width;
         await page.getByLabel("Token name", { exact: true }).fill(title);
         const read = page.getByRole("checkbox", {
           name: /^Read workspace/,
@@ -255,7 +255,7 @@ try {
           !noSecrets.includes(lostRequest.secret) &&
             !noSecrets.includes(pendingRequest.secret),
         );
-        await receiver.exercise(page, fixture, mode, width);
+        await receiver.exercise(page, fixture, width);
         // A linked source can return a transient 404 while reconnecting.
         await page
           .getByRole("dialog", { name: "Integration tokens", exact: true })
@@ -341,7 +341,7 @@ try {
         await context.close();
       }
       console.log(
-        `Card token Settings journey passed: ${mode}, phone and desktop`,
+        `Card token Settings journey passed: companion, phone and desktop`,
       );
     } finally {
       await fixture.close();

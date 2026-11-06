@@ -6,9 +6,9 @@ import { compressResponse } from "../src/http-transfer.js";
 import { cardsFixture } from "./helpers/cards-fixture.js";
 import { rawGet } from "./helpers/raw-http.js";
 
-for (const mode of ["companion"] as const) {
-  it(`${mode} compresses authenticated JSON once and keeps it private`, async () => {
-    const fixture = await cardsFixture(mode);
+{
+  it(`companion compresses authenticated JSON once and keeps it private`, async () => {
+    const fixture = await cardsFixture();
     const insert = fixture.db.prepare(
       "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'openai','fixture',1)",
     );

@@ -22,8 +22,8 @@ afterEach(() => {
 afterAll(async () => {
   await compiled.close();
 });
-function fixture(mode: "companion" = "companion") {
-  return cardsFixture(mode, compiled.source);
+function fixture() {
+  return cardsFixture(compiled.source);
 }
 function watch(f: Awaited<ReturnType<typeof fixture>>, query = "") {
   const socket = new WebSocket(
@@ -75,7 +75,7 @@ function seed(f: Awaited<ReturnType<typeof fixture>>) {
 it.each(["mutation", "socket"] as const)(
   "reads a new owner's snapshot clock under a writer lock before its first %s",
   async (first) => {
-    const f = await fixture("companion");
+    const f = await fixture();
     await f.setBusyTimeout(20);
     expect(
       f.db
@@ -590,423 +590,420 @@ it("invalidates Later when target content, metadata or access changes", async ()
   );
 }, 20_000);
 
-for (const mode of ["companion"] as const)
-  it(`${mode} delivers owned route mutations with explicit subjects and collection scopes`, async () => {
-    const f = await fixture(mode);
-    seed(f);
-    const stream = watch(f);
-    await expect.poll(() => stream.frames.length).toBeGreaterThan(0);
-    expect(stream.frames[0]).toMatchObject({
-      type: "reset",
-      capabilities: { invalidations: "complete", deadlines: true },
-      nextDeadline: null,
-    });
-    const mutate = async (
-      path: string,
-      body: unknown,
-      method: string,
-      kind: string,
-      collection: string,
-      wantedId?: string,
-      type = "invalidate",
-    ) => {
-      const cursor = (
-        f.db
-          .prepare(
-            "SELECT last_event_id FROM change_watermark WHERE owner_id=?",
-          )
-          .get(f.owner) as { last_event_id: number }
-      ).last_event_id;
-      const res = await f.request("/api" + path, {
-        method,
-        body,
-        headers: f.browser,
-      });
-      const result = await res.json();
-      expect(res.status, JSON.stringify(result)).toBeLessThan(300);
-      await expect
-        .poll(
-          () =>
-            stream
-              .events()
-              .some(
-                ({ id, event }) =>
-                  id > cursor &&
-                  event.type === type &&
-                  event.subject?.kind === kind &&
-                  (!wantedId || event.subject.id === wantedId) &&
-                  eventScopes(event).some(
-                    (scope) =>
-                      scope.kind === "collection" && scope.id === collection,
-                  ),
-              ),
-          { timeout: 2500 },
-        )
-        .toBe(true);
-      return result;
-    };
-    const queued = await mutate(
-      "/runs",
-      {
-        agentId: "agent",
-        input: "Queued",
-        idempotencyKey: "queued-fixture-key",
-        queue: true,
-      },
-      "POST",
-      "run",
-      "runs",
-    );
-    expect(
-      stream
-        .events()
-        .some(
-          ({ event }) =>
-            event.subject?.kind === "conversation" &&
-            event.subject.id === queued.conversation_id,
-        ),
-    ).toBe(true);
-    expect(
-      stream
-        .events()
-        .some(
-          ({ event }) =>
-            event.subject?.kind === "message" &&
-            eventScopes(event).some(
-              (scope) =>
-                scope.kind === "conversation" &&
-                scope.id === queued.conversation_id,
-            ),
-        ),
-    ).toBe(true);
-    await mutate(
-      "/runs/" + queued.id + "/cancel",
-      {},
-      "POST",
-      "run",
-      "feed",
-      queued.id,
-    );
-    f.db
-      .prepare(
-        "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('approval-run',?,'Review','awaiting_approval','approval-key',1,1)",
-      )
-      .run(f.owner);
-    f.db
-      .prepare(
-        "INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES('action-approval',?,'approval-run','action','{}','pending',1,?)",
-      )
-      .run(f.owner, Date.now() + 60_000);
-    await mutate(
-      "/approvals/action-approval",
-      { decision: "reject" },
-      "POST",
-      "approval",
-      "approvals",
-      "action-approval",
-    );
-    await expect
-      .poll(() =>
-        stream
-          .events()
-          .some(
-            ({ event }) =>
-              event.type === "invalidate" &&
-              event.subject?.kind === "collection" &&
-              event.subject.id === "decisions" &&
-              eventScopes(event).some(
-                (scope) =>
-                  scope.kind === "collection" && scope.id === "approvals",
-              ),
-          ),
-      )
-      .toBe(true);
-    const history = await f.request("/api/me/decisions?kind=approval", {
+it(`companion delivers owned route mutations with explicit subjects and collection scopes`, async () => {
+  const f = await fixture();
+  seed(f);
+  const stream = watch(f);
+  await expect.poll(() => stream.frames.length).toBeGreaterThan(0);
+  expect(stream.frames[0]).toMatchObject({
+    type: "reset",
+    capabilities: { invalidations: "complete", deadlines: true },
+    nextDeadline: null,
+  });
+  const mutate = async (
+    path: string,
+    body: unknown,
+    method: string,
+    kind: string,
+    collection: string,
+    wantedId?: string,
+    type = "invalidate",
+  ) => {
+    const cursor = (
+      f.db
+        .prepare("SELECT last_event_id FROM change_watermark WHERE owner_id=?")
+        .get(f.owner) as { last_event_id: number }
+    ).last_event_id;
+    const res = await f.request("/api" + path, {
+      method,
+      body,
       headers: f.browser,
     });
-    expect(history.status).toBe(200);
-    expect((await history.json()).items).toMatchObject([
-      { id: "approval:action-approval", choice: "reject", state: "resolved" },
-    ]);
-    const subscription = {
-      endpoint: "https://fcm.googleapis.com/fixture",
-      keys: {
-        p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString(
-          "base64url",
-        ),
-        auth: Buffer.alloc(16, 1).toString("base64url"),
-      },
-    };
-    await mutate(
-      "/notifications/subscriptions",
-      subscription,
-      "POST",
-      "collection",
-      "metadata",
-      "metadata",
-    );
-    await mutate(
-      "/notifications/subscriptions",
-      { endpoint: subscription.endpoint },
-      "DELETE",
-      "collection",
-      "metadata",
-      "metadata",
-      "tombstone",
-    );
-    const folder = await mutate(
-      "/folders",
-      { name: "Project", kind: "project" },
-      "POST",
-      "folder",
-      "metadata",
-    );
-    await mutate(
-      "/folders/" + folder.id,
-      { name: "Renamed" },
-      "PATCH",
-      "folder",
-      "results",
-      folder.id,
-    );
-    await mutate(
-      "/agents/agent",
-      { folderId: folder.id, instructions: "Updated" },
-      "PATCH",
-      "agent",
-      "feed",
-      "agent",
-    );
-    const artifact = await mutate(
-      "/artifacts",
-      { title: "Note", content: "Body", folder: folder.id },
-      "POST",
-      "artifact",
-      "results",
-    );
-    await mutate(
-      "/artifacts/" + artifact.id,
-      { pinned: true, version: 1 },
-      "PATCH",
-      "artifact",
-      "saved",
-      artifact.id,
-    );
-    await mutate(
-      "/results/" + artifact.id,
-      { hidden: true },
-      "PATCH",
-      "artifact",
-      "results",
-      artifact.id,
-    );
-    await mutate(
-      "/messages/message/saved",
-      undefined,
-      "POST",
-      "message",
-      "saved",
-      "message",
-    );
-    await mutate(
-      "/saved/label",
-      { key: "m:message", label: "Keep" },
-      "PUT",
-      "collection",
-      "saved",
-      "saved",
-    );
-    await mutate(
-      "/messages/message/saved",
-      undefined,
-      "DELETE",
-      "collection",
-      "saved",
-      "saved",
-      "tombstone",
-    );
-    await mutate(
-      "/conversations/thread/position",
-      { positionMessageId: "message" },
-      "PUT",
-      "conversation",
-      "feed",
-      "thread",
-    );
-    await mutate(
-      "/feed/thread",
-      { hidden: true, cardKey: "run:run" },
-      "PATCH",
-      "conversation",
-      "feed",
-      "thread",
-    );
-    const later = await mutate(
-      "/later",
-      {
-        kind: "conversation",
-        targetId: "thread",
-        condition: "time",
-        dueAt: Date.now() + 60_000,
-      },
-      "POST",
-      "later",
-      "later",
-    );
-    await mutate(
-      "/later/" + later.id,
-      undefined,
-      "DELETE",
-      "later",
-      "later",
-      later.id,
-    );
-    const scheduled = await mutate(
-      "/scheduled-sends",
-      {
-        agentId: "agent",
-        conversationId: "thread",
-        input: "Later",
-        idempotencyKey: "scheduled-fixture",
-        sendAt: Date.now() + 60_000,
-      },
-      "POST",
-      "scheduled_send",
-      "scheduled",
-    );
-    await mutate(
-      "/scheduled-sends/" + scheduled.id,
-      undefined,
-      "DELETE",
-      "scheduled_send",
-      "scheduled",
-      scheduled.id,
-    );
-    const team = await mutate(
-      "/teams",
-      { name: "Team", managerId: "agent", members: ["worker"] },
-      "POST",
-      "team",
-      "metadata",
-    );
-    await mutate(
-      "/teams/" + team.id + "/members",
-      { agentId: "extra" },
-      "POST",
-      "team",
-      "mail",
-      team.id,
-    );
-    await mutate(
-      "/teams/" + team.id + "/feed-visibility",
-      { hideResultsFromFeed: true },
-      "PATCH",
-      "team",
-      "feed",
-      team.id,
-    );
-    // Social mutation routes need no live feed fetch.
-    await mutate(
-      "/social/feeds/hackernews",
-      undefined,
-      "PUT",
-      "collection",
-      "social",
-      "social",
-    );
-    await mutate(
-      "/social/mutes",
-      { phrase: "quiet" },
-      "POST",
-      "collection",
-      "social",
-      "social",
-    );
-    const feedWatch = await mutate(
-      "/social/watches",
-      { query: "fixture" },
-      "POST",
-      "collection",
-      "social",
-      "social",
-    );
-    await mutate(
-      "/social/watches/" + feedWatch.id,
-      undefined,
-      "DELETE",
-      "collection",
-      "social",
-      "social",
-      "tombstone",
-    );
-    await mutate(
-      "/social/preferences",
-      { images: true },
-      "PUT",
-      "collection",
-      "social",
-      "social",
-    );
-    f.db
-      .prepare(
-        "INSERT INTO feed_stories(feed_id,story_id,url,title,story,first_seen_at,fetched_at) VALUES('hackernews','story','https://example.com/story','Story',?,1,1)",
+    const result = await res.json();
+    expect(res.status, JSON.stringify(result)).toBeLessThan(300);
+    await expect
+      .poll(
+        () =>
+          stream
+            .events()
+            .some(
+              ({ id, event }) =>
+                id > cursor &&
+                event.type === type &&
+                event.subject?.kind === kind &&
+                (!wantedId || event.subject.id === wantedId) &&
+                eventScopes(event).some(
+                  (scope) =>
+                    scope.kind === "collection" && scope.id === collection,
+                ),
+            ),
+        { timeout: 2500 },
       )
-      .run(
-        JSON.stringify({
-          id: "story",
-          title: "Story",
-          url: "https://example.com/story",
-          summary: "Fixture",
-          published_at: 1,
-        }),
-      );
-    await mutate(
-      "/social/read",
-      { stories: ["hackernews:story"] },
-      "POST",
-      "collection",
-      "social",
-      "social",
+      .toBe(true);
+    return result;
+  };
+  const queued = await mutate(
+    "/runs",
+    {
+      agentId: "agent",
+      input: "Queued",
+      idempotencyKey: "queued-fixture-key",
+      queue: true,
+    },
+    "POST",
+    "run",
+    "runs",
+  );
+  expect(
+    stream
+      .events()
+      .some(
+        ({ event }) =>
+          event.subject?.kind === "conversation" &&
+          event.subject.id === queued.conversation_id,
+      ),
+  ).toBe(true);
+  expect(
+    stream
+      .events()
+      .some(
+        ({ event }) =>
+          event.subject?.kind === "message" &&
+          eventScopes(event).some(
+            (scope) =>
+              scope.kind === "conversation" &&
+              scope.id === queued.conversation_id,
+          ),
+      ),
+  ).toBe(true);
+  await mutate(
+    "/runs/" + queued.id + "/cancel",
+    {},
+    "POST",
+    "run",
+    "feed",
+    queued.id,
+  );
+  f.db
+    .prepare(
+      "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('approval-run',?,'Review','awaiting_approval','approval-key',1,1)",
+    )
+    .run(f.owner);
+  f.db
+    .prepare(
+      "INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES('action-approval',?,'approval-run','action','{}','pending',1,?)",
+    )
+    .run(f.owner, Date.now() + 60_000);
+  await mutate(
+    "/approvals/action-approval",
+    { decision: "reject" },
+    "POST",
+    "approval",
+    "approvals",
+    "action-approval",
+  );
+  await expect
+    .poll(() =>
+      stream
+        .events()
+        .some(
+          ({ event }) =>
+            event.type === "invalidate" &&
+            event.subject?.kind === "collection" &&
+            event.subject.id === "decisions" &&
+            eventScopes(event).some(
+              (scope) =>
+                scope.kind === "collection" && scope.id === "approvals",
+            ),
+        ),
+    )
+    .toBe(true);
+  const history = await f.request("/api/me/decisions?kind=approval", {
+    headers: f.browser,
+  });
+  expect(history.status).toBe(200);
+  expect((await history.json()).items).toMatchObject([
+    { id: "approval:action-approval", choice: "reject", state: "resolved" },
+  ]);
+  const subscription = {
+    endpoint: "https://fcm.googleapis.com/fixture",
+    keys: {
+      p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString(
+        "base64url",
+      ),
+      auth: Buffer.alloc(16, 1).toString("base64url"),
+    },
+  };
+  await mutate(
+    "/notifications/subscriptions",
+    subscription,
+    "POST",
+    "collection",
+    "metadata",
+    "metadata",
+  );
+  await mutate(
+    "/notifications/subscriptions",
+    { endpoint: subscription.endpoint },
+    "DELETE",
+    "collection",
+    "metadata",
+    "metadata",
+    "tombstone",
+  );
+  const folder = await mutate(
+    "/folders",
+    { name: "Project", kind: "project" },
+    "POST",
+    "folder",
+    "metadata",
+  );
+  await mutate(
+    "/folders/" + folder.id,
+    { name: "Renamed" },
+    "PATCH",
+    "folder",
+    "results",
+    folder.id,
+  );
+  await mutate(
+    "/agents/agent",
+    { folderId: folder.id, instructions: "Updated" },
+    "PATCH",
+    "agent",
+    "feed",
+    "agent",
+  );
+  const artifact = await mutate(
+    "/artifacts",
+    { title: "Note", content: "Body", folder: folder.id },
+    "POST",
+    "artifact",
+    "results",
+  );
+  await mutate(
+    "/artifacts/" + artifact.id,
+    { pinned: true, version: 1 },
+    "PATCH",
+    "artifact",
+    "saved",
+    artifact.id,
+  );
+  await mutate(
+    "/results/" + artifact.id,
+    { hidden: true },
+    "PATCH",
+    "artifact",
+    "results",
+    artifact.id,
+  );
+  await mutate(
+    "/messages/message/saved",
+    undefined,
+    "POST",
+    "message",
+    "saved",
+    "message",
+  );
+  await mutate(
+    "/saved/label",
+    { key: "m:message", label: "Keep" },
+    "PUT",
+    "collection",
+    "saved",
+    "saved",
+  );
+  await mutate(
+    "/messages/message/saved",
+    undefined,
+    "DELETE",
+    "collection",
+    "saved",
+    "saved",
+    "tombstone",
+  );
+  await mutate(
+    "/conversations/thread/position",
+    { positionMessageId: "message" },
+    "PUT",
+    "conversation",
+    "feed",
+    "thread",
+  );
+  await mutate(
+    "/feed/thread",
+    { hidden: true, cardKey: "run:run" },
+    "PATCH",
+    "conversation",
+    "feed",
+    "thread",
+  );
+  const later = await mutate(
+    "/later",
+    {
+      kind: "conversation",
+      targetId: "thread",
+      condition: "time",
+      dueAt: Date.now() + 60_000,
+    },
+    "POST",
+    "later",
+    "later",
+  );
+  await mutate(
+    "/later/" + later.id,
+    undefined,
+    "DELETE",
+    "later",
+    "later",
+    later.id,
+  );
+  const scheduled = await mutate(
+    "/scheduled-sends",
+    {
+      agentId: "agent",
+      conversationId: "thread",
+      input: "Later",
+      idempotencyKey: "scheduled-fixture",
+      sendAt: Date.now() + 60_000,
+    },
+    "POST",
+    "scheduled_send",
+    "scheduled",
+  );
+  await mutate(
+    "/scheduled-sends/" + scheduled.id,
+    undefined,
+    "DELETE",
+    "scheduled_send",
+    "scheduled",
+    scheduled.id,
+  );
+  const team = await mutate(
+    "/teams",
+    { name: "Team", managerId: "agent", members: ["worker"] },
+    "POST",
+    "team",
+    "metadata",
+  );
+  await mutate(
+    "/teams/" + team.id + "/members",
+    { agentId: "extra" },
+    "POST",
+    "team",
+    "mail",
+    team.id,
+  );
+  await mutate(
+    "/teams/" + team.id + "/feed-visibility",
+    { hideResultsFromFeed: true },
+    "PATCH",
+    "team",
+    "feed",
+    team.id,
+  );
+  // Social mutation routes need no live feed fetch.
+  await mutate(
+    "/social/feeds/hackernews",
+    undefined,
+    "PUT",
+    "collection",
+    "social",
+    "social",
+  );
+  await mutate(
+    "/social/mutes",
+    { phrase: "quiet" },
+    "POST",
+    "collection",
+    "social",
+    "social",
+  );
+  const feedWatch = await mutate(
+    "/social/watches",
+    { query: "fixture" },
+    "POST",
+    "collection",
+    "social",
+    "social",
+  );
+  await mutate(
+    "/social/watches/" + feedWatch.id,
+    undefined,
+    "DELETE",
+    "collection",
+    "social",
+    "social",
+    "tombstone",
+  );
+  await mutate(
+    "/social/preferences",
+    { images: true },
+    "PUT",
+    "collection",
+    "social",
+    "social",
+  );
+  f.db
+    .prepare(
+      "INSERT INTO feed_stories(feed_id,story_id,url,title,story,first_seen_at,fetched_at) VALUES('hackernews','story','https://example.com/story','Story',?,1,1)",
+    )
+    .run(
+      JSON.stringify({
+        id: "story",
+        title: "Story",
+        url: "https://example.com/story",
+        summary: "Fixture",
+        published_at: 1,
+      }),
     );
-    await mutate(
-      "/social/dismiss",
-      { stories: ["hackernews:story"] },
-      "POST",
-      "collection",
-      "social",
-      "social",
-    );
-    await mutate(
-      "/social/read-all",
-      { feed: "hackernews" },
-      "POST",
-      "collection",
-      "social",
-      "social",
-    );
-    await mutate(
-      "/social/feeds/hackernews",
-      undefined,
-      "DELETE",
-      "collection",
-      "social",
-      "social",
-      "tombstone",
-    );
-    const response = await f.request("/api/feed", { headers: f.browser });
-    expect(response.headers.get("x-loop-change-epoch")).toBe(
-      stream.frames[0].epoch,
-    );
-    expect(Number(response.headers.get("x-loop-server-now"))).toBeGreaterThan(
-      Date.now() - 5000,
-    );
-    expect(response.headers.get("x-loop-next-deadline")).toBe("null");
-    expect(
-      stream.frames
-        .filter((frame) => frame.type === "events")
-        .every((frame) => frame.events.length > 0),
-    ).toBe(true);
-  }, 30_000);
+  await mutate(
+    "/social/read",
+    { stories: ["hackernews:story"] },
+    "POST",
+    "collection",
+    "social",
+    "social",
+  );
+  await mutate(
+    "/social/dismiss",
+    { stories: ["hackernews:story"] },
+    "POST",
+    "collection",
+    "social",
+    "social",
+  );
+  await mutate(
+    "/social/read-all",
+    { feed: "hackernews" },
+    "POST",
+    "collection",
+    "social",
+    "social",
+  );
+  await mutate(
+    "/social/feeds/hackernews",
+    undefined,
+    "DELETE",
+    "collection",
+    "social",
+    "social",
+    "tombstone",
+  );
+  const response = await f.request("/api/feed", { headers: f.browser });
+  expect(response.headers.get("x-loop-change-epoch")).toBe(
+    stream.frames[0].epoch,
+  );
+  expect(Number(response.headers.get("x-loop-server-now"))).toBeGreaterThan(
+    Date.now() - 5000,
+  );
+  expect(response.headers.get("x-loop-next-deadline")).toBe("null");
+  expect(
+    stream.frames
+      .filter((frame) => frame.type === "events")
+      .every((frame) => frame.events.length > 0),
+  ).toBe(true);
+}, 30_000);
 
 it("emits no unauthorized deletion and retains a tombstone across a run cascade and replay hole", async () => {
   const f = await fixture();
@@ -1097,65 +1094,64 @@ function pendingApproval(
     )
     .run(id, f.owner, id, Date.now(), expires);
 }
-for (const mode of ["companion"] as const)
-  it(`${mode} keeps owner-wide change clocks out of scoped Cards responses`, async () => {
-    const f = await fixture(mode);
-    seed(f);
-    const expires = Date.now() + 60_000;
-    pendingApproval(f, "private-approval", expires);
-    f.db
-      .prepare(
-        "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES('published',?,'agent','thread','run','Result','markdown','Published','{}',1,1)",
-      )
-      .run(f.owner);
-    const ownerResponse = await f.request("/api/v1/cards?view=results", {
+it(`companion keeps owner-wide change clocks out of scoped Cards responses`, async () => {
+  const f = await fixture();
+  seed(f);
+  const expires = Date.now() + 60_000;
+  pendingApproval(f, "private-approval", expires);
+  f.db
+    .prepare(
+      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES('published',?,'agent','thread','run','Result','markdown','Published','{}',1,1)",
+    )
+    .run(f.owner);
+  const ownerResponse = await f.request("/api/v1/cards?view=results", {
+    headers: f.browser,
+  });
+  expect(ownerResponse.status).toBe(200);
+  expect(ownerResponse.headers.get("x-loop-next-deadline")).toBe(
+    String(expires),
+  );
+  expect(ownerResponse.headers.has("x-loop-change-cursor")).toBe(true);
+  for (const scope of ["results:read", "cards:read"] as const) {
+    const created = await f.request("/api/card-tokens", {
       headers: f.browser,
+      body: cardTokenRequest(scope, scope),
     });
-    expect(ownerResponse.status).toBe(200);
-    expect(ownerResponse.headers.get("x-loop-next-deadline")).toBe(
-      String(expires),
-    );
-    expect(ownerResponse.headers.has("x-loop-change-cursor")).toBe(true);
-    for (const scope of ["results:read", "cards:read"] as const) {
-      const created = await f.request("/api/card-tokens", {
-        headers: f.browser,
-        body: cardTokenRequest(scope, scope),
-      });
-      expect(created.status).toBe(201);
-      const { secret } = await created.json();
-      for (const headers of [
-        { authorization: "Bearer " + secret },
-        { ...f.browser, authorization: "Bearer " + secret },
-      ]) {
-        const page = await (
-          await f.request("/api/v1/cards?view=results", { headers })
-        ).json();
-        expect(
-          page.items.map((item: { card: { id: string } }) => item.card.id),
-        ).toContain("a:published");
-        for (const path of [
-          "/api/v1/cards?view=results",
-          "/api/v1/cards/changes?view=results&after=" +
-            encodeURIComponent(page.revision),
-          "/api/v1/cards/a%3Apublished",
-        ])
-          for (const method of ["GET", "HEAD"]) {
-            const response = await f.request(path, { headers, method });
-            expect(response.status).toBe(200);
-            for (const header of [
-              "x-loop-change-epoch",
-              "x-loop-change-cursor",
-              "x-loop-server-now",
-              "x-loop-next-deadline",
-            ])
-              expect(
-                response.headers.has(header),
-                `${scope} ${method} ${path}: ${header}`,
-              ).toBe(false);
-          }
-      }
+    expect(created.status).toBe(201);
+    const { secret } = await created.json();
+    for (const headers of [
+      { authorization: "Bearer " + secret },
+      { ...f.browser, authorization: "Bearer " + secret },
+    ]) {
+      const page = await (
+        await f.request("/api/v1/cards?view=results", { headers })
+      ).json();
+      expect(
+        page.items.map((item: { card: { id: string } }) => item.card.id),
+      ).toContain("a:published");
+      for (const path of [
+        "/api/v1/cards?view=results",
+        "/api/v1/cards/changes?view=results&after=" +
+          encodeURIComponent(page.revision),
+        "/api/v1/cards/a%3Apublished",
+      ])
+        for (const method of ["GET", "HEAD"]) {
+          const response = await f.request(path, { headers, method });
+          expect(response.status).toBe(200);
+          for (const header of [
+            "x-loop-change-epoch",
+            "x-loop-change-cursor",
+            "x-loop-server-now",
+            "x-loop-next-deadline",
+          ])
+            expect(
+              response.headers.has(header),
+              `${scope} ${method} ${path}: ${header}`,
+            ).toBe(false);
+        }
     }
-  }, 15_000);
+  }
+}, 15_000);
 
 // The outer budget includes compiled-server startup and teardown; the deadline
 // polling bounds below still enforce prompt expiry delivery and timer clearing.

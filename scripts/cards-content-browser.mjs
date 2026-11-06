@@ -10,8 +10,8 @@ const browser = await chromium.launch({
     : {}),
 });
 try {
-  for (const mode of ["companion"]) {
-    const fixture = await cardsFixture(mode, true);
+  {
+    const fixture = await cardsFixture(true);
     try {
       const { file } = await seedCards(fixture);
       const imageForm = new FormData();
@@ -284,7 +284,7 @@ try {
           await editor.fill(
             (await editor.inputValue()) +
               "\n\nSaved reader edit " +
-              mode +
+              "companion" +
               width,
           );
           const editResponse = page.waitForResponse(
@@ -324,10 +324,10 @@ try {
           await expect(cards).toHaveCount(46);
           fixture.db
             .prepare("UPDATE artifacts SET content=? WHERE id='result-000'")
-            .run("Old loaded result updated " + mode + width);
+            .run("Old loaded result updated " + "companion" + width);
           await expect(
             page.locator('[data-card-id="a:result-000"]'),
-          ).toContainText("Old loaded result updated " + mode + width, {
+          ).toContainText("Old loaded result updated " + "companion" + width, {
             timeout: 20000,
           });
           // Files remains the deliberate compatibility route.
@@ -357,7 +357,7 @@ try {
             await expect(cards).toHaveCount(46);
             await expect(
               page.locator('[data-card-id="a:result-000"]'),
-            ).toContainText("Old loaded result updated " + mode + width);
+            ).toContainText("Old loaded result updated " + "companion" + width);
             await page
               .getByRole("tab", { name: "Files", exact: true })
               .first()
@@ -474,11 +474,11 @@ try {
             .click();
           await page
             .getByLabel("Label", { exact: true })
-            .fill("Chosen " + mode + width);
+            .fill("Chosen " + "companion" + width);
           await page
             .getByRole("button", { name: "Save label", exact: true })
             .click();
-          await expect(savedRow).toContainText("Chosen " + mode + width);
+          await expect(savedRow).toContainText("Chosen " + "companion" + width);
           await expect(cards).toHaveCount(80);
           // Attachment preview uses the source-relative signed-in file route.
           await savedMessage
@@ -667,12 +667,12 @@ try {
           );
           assert.deepEqual(errors, []);
           await page.screenshot({
-            path: `/tmp/cards-content-${mode}-${width}.png`,
+            path: `/tmp/cards-content-companion-${width}.png`,
           });
-          console.log(`Card content journey passed: ${mode}, ${width}px`);
+          console.log(`Card content journey passed: companion, ${width}px`);
         } catch (error) {
           await page.screenshot({
-            path: `/tmp/cards-content-failure-${mode}-${width}.png`,
+            path: `/tmp/cards-content-failure-companion-${width}.png`,
             fullPage: true,
           });
           throw error;

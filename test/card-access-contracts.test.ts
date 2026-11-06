@@ -109,77 +109,73 @@ it("keeps the literal Cards admission boundary when paths come from mounted cont
     }
 });
 
-it.each(["companion"] as const)(
-  "%s enforces NoBody for raw GET and HEAD through session and both bearer grants",
-  async (mode) => {
-    const fixture = await cardsFixture(mode);
-    try {
-      const id = await publishCard(fixture);
-      const credentials: [string, Record<string, string>][] = [
-        ["session", fixture.browser],
-      ];
-      for (const scope of ["results:read", "cards:read"] as const) {
-        const created = await fixture.request("/api/card-tokens", {
-          headers: fixture.browser,
-          body: cardTokenRequest(scope, scope),
-        });
-        expect(created.status).toBe(201);
-        const { secret } = workspaceApi.cardTokenCreate.response.parse(
-          await created.json(),
-        );
-        credentials.push([scope, { authorization: "Bearer " + secret }]);
-      }
-      const first = await fixture.request("/api/v1/cards", {
+it("companion enforces NoBody for raw GET and HEAD through session and both bearer grants", async () => {
+  const fixture = await cardsFixture();
+  try {
+    const id = await publishCard(fixture);
+    const credentials: [string, Record<string, string>][] = [
+      ["session", fixture.browser],
+    ];
+    for (const scope of ["results:read", "cards:read"] as const) {
+      const created = await fixture.request("/api/card-tokens", {
         headers: fixture.browser,
+        body: cardTokenRequest(scope, scope),
       });
-      expect(first.status).toBe(200);
-      const page = workspaceApi.cardList.response.parse(await first.json());
-      expect(page.items.some((item) => item.card.id === "a:" + id)).toBe(true);
-      const reads = [
-        ["/api/v1/cards", workspaceApi.cardList.response],
-        [
-          "/api/v1/cards/changes?after=" + encodeURIComponent(page.revision),
-          workspaceApi.cardChanges.response,
-        ],
-        [
-          "/api/v1/cards/" + encodeURIComponent("a:" + id),
-          workspaceApi.cardDetail.response,
-        ],
-      ] as const;
-      for (const [identity, headers] of credentials) {
-        for (const [path, schema] of reads) {
-          for (const method of ["GET", "HEAD"]) {
-            const valid = await fixture.request(path, { method, headers });
-            expect(valid.status, `${identity} ${method} ${path}`).toBe(200);
-            if (method === "GET")
-              expect(schema.safeParse(await valid.json()).success).toBe(true);
-            else expect(await valid.text()).toBe("");
-            const invalid = await fixture.request(path, {
-              method,
-              headers,
-              body: {},
+      expect(created.status).toBe(201);
+      const { secret } = workspaceApi.cardTokenCreate.response.parse(
+        await created.json(),
+      );
+      credentials.push([scope, { authorization: "Bearer " + secret }]);
+    }
+    const first = await fixture.request("/api/v1/cards", {
+      headers: fixture.browser,
+    });
+    expect(first.status).toBe(200);
+    const page = workspaceApi.cardList.response.parse(await first.json());
+    expect(page.items.some((item) => item.card.id === "a:" + id)).toBe(true);
+    const reads = [
+      ["/api/v1/cards", workspaceApi.cardList.response],
+      [
+        "/api/v1/cards/changes?after=" + encodeURIComponent(page.revision),
+        workspaceApi.cardChanges.response,
+      ],
+      [
+        "/api/v1/cards/" + encodeURIComponent("a:" + id),
+        workspaceApi.cardDetail.response,
+      ],
+    ] as const;
+    for (const [identity, headers] of credentials) {
+      for (const [path, schema] of reads) {
+        for (const method of ["GET", "HEAD"]) {
+          const valid = await fixture.request(path, { method, headers });
+          expect(valid.status, `${identity} ${method} ${path}`).toBe(200);
+          if (method === "GET")
+            expect(schema.safeParse(await valid.json()).success).toBe(true);
+          else expect(await valid.text()).toBe("");
+          const invalid = await fixture.request(path, {
+            method,
+            headers,
+            body: {},
+          });
+          expect(
+            invalid.status,
+            `${identity} ${method} ${path} with JSON body`,
+          ).toBe(400);
+          if (method === "GET")
+            expect(await invalid.json()).toEqual({
+              error: expect.any(String),
             });
-            expect(
-              invalid.status,
-              `${identity} ${method} ${path} with JSON body`,
-            ).toBe(400);
-            if (method === "GET")
-              expect(await invalid.json()).toEqual({
-                error: expect.any(String),
-              });
-            else expect(await invalid.text()).toBe("");
-          }
+          else expect(await invalid.text()).toBe("");
         }
       }
-    } finally {
-      await fixture.close();
     }
-  },
-  30_000,
-);
+  } finally {
+    await fixture.close();
+  }
+}, 30_000);
 
 it("validates detail output before persisting a bearer read receipt", async () => {
-  const fixture = await cardsFixture("companion");
+  const fixture = await cardsFixture();
   try {
     const id = await publishCard(fixture);
     const created = await fixture.request("/api/card-tokens", {

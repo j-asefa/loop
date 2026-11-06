@@ -18,7 +18,7 @@ for (const engine of selectedEngines()) {
       ? { executablePath: process.env.CHROMIUM_PATH }
       : {}),
   });
-  const fixture = await cardsFixture("companion", true, {
+  const fixture = await cardsFixture(true, {
     nodeEnv: "production",
   });
   try {

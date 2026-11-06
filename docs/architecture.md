@@ -39,8 +39,7 @@ A companion gateway started with `--fleet` ([fleets](pairing.md#fleets-experimen
 `fleet_machine_identity`. Its private key uses the existing encrypted secret
 store and stays on that installation; changing a tunnel origin does not replace
 it. Missing or inconsistent signing material fails startup rather than creating
-a replacement identity. Server-profile and preview gateways do not initialize
-this identity. Initializing an identity alone does not enroll peers or enable
+a replacement identity. Preview gateways do not initialize this identity. Initializing an identity alone does not enroll peers or enable
 remote access.
 
 The fleet authority layer stores signed directory history, local owner consent,
@@ -187,7 +186,7 @@ these services through
 owner. The same lifecycle mounts named actions, files, uploads and device-only
 receipt reconciliation, and closes pending services before stopping the gateway.
 Constructing a companion installs no peer grant and starts no workspace polling.
-Server profiles and isolated previews do not mount these services.
+Isolated previews do not mount these services.
 
 The dedicated machine event socket requires an events-scoped credential in its
 authorization header and refuses browser credentials or URL parameters. It reuses
@@ -214,15 +213,15 @@ source reset at its current watermark so HTTP snapshots reconcile the missing
 facts. A browser above the 2 MiB outgoing buffer limit reconnects and reconciles.
 Subscription input is bounded to 40 KiB and rate limited; opened detail unions
 allow at most 16 conversations and 16 runs per source. Local and peer producers
-filter unopened transcript and trace payloads; legacy linked sources are filtered
-at the gateway. Older V2 sources retain invalidation fallback.
+filter unopened transcript and trace payloads. Older V2 sources retain invalidation
+fallback.
 
 The page releases its socket and pauses event polling while hidden, then resumes
 its independent source cursors on foreground. Fallback event reads share four
 active slots and a four-per-second token bucket with a burst of eight. Queued
 subscriptions coalesce by logical source subscription, with 32 initial tokens and
-16 replenished per second. Server-profile clients retain their existing event
-socket; preview multiplexers can access only their isolated local workspace.
+16 replenished per second. Preview multiplexers can access only their isolated
+local workspace.
 
 One companion shares its [capacity budget](../src/server/fleet-capacity.ts)
 across workspace HTTP, browser and integration-token sockets, peer HTTP/sockets
@@ -436,7 +435,7 @@ service replacement or worker retirement rejects outstanding reads without repla
 at most sixteen outstanding reads with a 45-second IPC deadline. The host retains
 its slot until the underlying read settles, including after an IPC timeout.
 Normal companion startup configures the bridge before opening the execution
-worker. Server profiles and isolated previews do not install it.
+worker. Isolated previews do not install it.
 
 The [mail service lifecycle](../src/server/fleet-mail-services.ts)
 composes that bridge, destination policy, discovery and autonomous delivery with
@@ -645,7 +644,7 @@ The worker coalesces scheduling wakes from queue and run-state publications, wit
 
 Active consumers share one [run subscription](../src/server/run-signal.ts) per run and process, released when its last consumer finishes. Committed run and provider-connection changes abort managed/native IO with a readable cause; steering, approval and delegation waits subscribe to changes. One two-second fallback per held run recovers missed notifications. Connection status and its owner-scoped event commit together, contain no credentials, and need no run identity. Run subjects retain their run foreign key and cascade behavior. Steering retains claim-before-delivery and never replays an uncertain handoff. Approval expiry has its own deadline. Mail and artifact publications also wake the worker's three-second maintenance pass, which remains responsible for Later and scheduled sends.
 
-Thread openings reuse the owner's cached transcript and linked-source metadata while reconciling with the server. Only an initial unanchored read sends `resume=1`; the conversation route chooses an older saved-position page in that response and reports `resumed`, while ordinary refreshes continue to return the latest page. Explicit message anchors and history cursors keep their existing behavior. Older linked servers without the `resumed` response marker retain their compatibility anchor read. Owner changes clear cached views, and source/conversation generations discard stale responses. A source's HTTP 429 `Retry-After` pauses its reads, including fallback polls; domain refusals without that header retain their actionable error and do not impose a cooldown. Scheduled-send and review-status reads also recover at the deadline with view-bound cancellation. Zero, past, or malformed retry deadlines have a one-second minimum. Approval polling reports cooldowns quietly and clears recovered read failures independently of action errors. Cached threads stay readable and retry at the deadline. Failed linked metadata refreshes retain a visible connection retry alongside the transcript, so updated agent settings can recover without reopening. Linked Docker responses preserve the header. Writes are never automatically retried by this mechanism.
+Thread openings reuse the owner's cached transcript and linked-source metadata while reconciling with the server. Only an initial unanchored read sends `resume=1`; the conversation route chooses an older saved-position page in that response and reports `resumed`, while ordinary refreshes continue to return the latest page. Explicit message anchors and history cursors keep their existing behavior. Older linked servers without the `resumed` response marker retain their compatibility anchor read. Owner changes clear cached views, and source/conversation generations discard stale responses. A source's HTTP 429 `Retry-After` pauses its reads, including fallback polls; domain refusals without that header retain their actionable error and do not impose a cooldown. Scheduled-send and review-status reads also recover at the deadline with view-bound cancellation. Zero, past, or malformed retry deadlines have a one-second minimum. Approval polling reports cooldowns quietly and clears recovered read failures independently of action errors. Cached threads stay readable and retry at the deadline. Failed linked metadata refreshes retain a visible connection retry alongside the transcript, so updated agent settings can recover without reopening. Writes are never automatically retried by this mechanism.
 
 The registry’s `channels.events` entry shares the V3 frame, event, capability and clock schemas with the socket transport and browser parser. Its `fallback` points to the existing `events` HTTP route; `workspaceRoutes` exposes only HTTP entries for registration and generation. Channel documentation references the HTTP fallback’s raw event page without duplicating its schema. Sockets negotiate V3 with the first `v=3` query value and serialize the original frame after validation, preserving field order.
 

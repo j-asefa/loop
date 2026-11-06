@@ -132,12 +132,9 @@ async function firstFrame(
   return { raw: frames[0], frame: JSON.parse(frames[0]) };
 }
 
-for (const [mode, path] of [
-  ["companion", "/api/events/ws"],
-  ["companion", "/ws"],
-] as const) {
-  it(`${mode} ${path} preserves reset/replay bytes and legacy version negotiation`, async () => {
-    const fixture = await cardsFixture(mode, compiled.source);
+for (const path of ["/api/events/ws", "/ws"] as const) {
+  it(`companion ${path} preserves reset/replay bytes and legacy version negotiation`, async () => {
+    const fixture = await cardsFixture(compiled.source);
     const reset = await firstFrame(fixture, path, "?v=3");
     expect(reset.frame.type).toBe("reset");
     expect(channel.frames.parse(reset.frame)).toEqual(reset.frame);

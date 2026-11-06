@@ -84,12 +84,12 @@ for (const engine of engines) {
       : {}),
   });
   try {
-    for (const mode of ["companion"]) {
+    {
       let fixture, remote, context;
       try {
-        remote = await cardsFixture(mode, true, { projectedWrites: true });
+        remote = await cardsFixture(true, { projectedWrites: true });
         seed(remote, "Remote", 2, 0);
-        fixture = await cardsFixture(mode, true, { projectedWrites: true });
+        fixture = await cardsFixture(true, { projectedWrites: true });
         await fixture.linkCompanion(remote);
         seed(fixture, "Local");
         context = await browser.newContext({
@@ -243,7 +243,7 @@ for (const engine of engines) {
         await working.waitForTimeout(700);
         assert.deepEqual(await working.evaluate(() => {window.__feedResetObserver.disconnect();return window.__feedResetErrors;}),[]);
         await stopResetRoute();
-        console.log(`PASS ${engine}/${mode} reset during Feed read does not report source failure`);
+        console.log(`PASS ${engine}/companion reset during Feed read does not report source failure`);
         if (remote) {
           await expect(row(working, "Remote task")).toHaveCount(1);
           await expect(working.getByRole("region", { name: "Your agents" })).toContainText("@Remote");
@@ -734,7 +734,7 @@ for (const engine of engines) {
         await closePage(done);
         await fixture.close();
         fixture = undefined;
-        fixture = await cardsFixture(mode, true, { projectedWrites: true });
+        fixture = await cardsFixture(true, { projectedWrites: true });
         await fixture.linkCompanion(remote);
         seed(fixture, "Local", 2, 0);
         complete(fixture, "Local");
@@ -811,7 +811,7 @@ for (const engine of engines) {
         await expect(fallback.locator(".workspace-connection")).toHaveText(
           "Connected to workspace",
         ).catch(error => {
-          console.error("HTTP fallback diagnostic", JSON.stringify({engine,mode,requests:fallbackRequests}));
+          console.error("HTTP fallback diagnostic", JSON.stringify({engine,requests:fallbackRequests}));
           throw error;
         });
         await expect(fallback.locator(".connection-notice")).toHaveCount(0);
@@ -846,7 +846,7 @@ for (const engine of engines) {
         await expect(row(fallback, "Local task")).toHaveCount(1, {
           timeout: 5000,
         }).catch(error => {
-          console.error("HTTP fallback transition diagnostic", JSON.stringify({engine,mode,requests:fallbackRequests}));
+          console.error("HTTP fallback transition diagnostic", JSON.stringify({engine,requests:fallbackRequests}));
           throw error;
         });
         await expect(fallback.locator(".workspace-connection")).toHaveText(
@@ -856,7 +856,7 @@ for (const engine of engines) {
         assert(legacyEventRows.has(eventId), "HTTP fallback renders production events without legacy subject fields");
         assert.deepEqual(errors, []);
         console.log(
-          `PASS ${engine}/${mode}: Working -> Done, retained history, concurrent refresh, reconnect, HTTP fallback health${remote ? ", linked source isolation" : ""}`,
+          `PASS ${engine}/companion: Working -> Done, retained history, concurrent refresh, reconnect, HTTP fallback health${remote ? ", linked source isolation" : ""}`,
         );
       } finally {
         for (const page of context?.pages() || []) {

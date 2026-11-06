@@ -35,8 +35,8 @@ for (const engine of process.env.LOOP_BROWSER
       : {}),
   });
   try {
-    for (const mode of ["companion"]) {
-      const fixture = await cardsFixture(mode, true, { projectedWrites: true });
+    {
+      const fixture = await cardsFixture(true, { projectedWrites: true });
       let context;
       try {
         const { db, owner } = fixture;
@@ -384,7 +384,7 @@ for (const engine of process.env.LOOP_BROWSER
           await thread.close();
         }
         console.log(
-          `PASS ${engine}/${mode}: Files keeps loaded pages and scroll, queues updates during append, catches up 125 new files, isolates source/filter changes and retains history on failure`,
+          `PASS ${engine}/companion: Files keeps loaded pages and scroll, queues updates during append, catches up 125 new files, isolates source/filter changes and retains history on failure`,
         );
       } finally {
         await context?.close();

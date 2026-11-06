@@ -12,7 +12,7 @@ let fixture: Awaited<ReturnType<typeof cardsFixture>>;
 const sockets: WebSocket[] = [];
 beforeAll(async () => {
   compiled = await compiledServerFixture();
-  fixture = await cardsFixture("companion", compiled.source, { projectedWrites: true });
+  fixture = await cardsFixture(compiled.source, { projectedWrites: true });
 }, 30000);
 afterAll(async () => {
   sockets.forEach((s) => s.terminate());
