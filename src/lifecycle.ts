@@ -92,10 +92,43 @@ function dead(owner: Owner) {
 }
 const RECOVERING =
   "Another process is recovering the workspace lock. Retry shortly; workspace data is preserved.";
+/** Claim exactly this stale recovery record, so only one starter takes it over.
+ * A leftover claim from a killed claimant is reclaimed; a live claimant's
+ * claim refuses every later starter. */
+function claimStale(temp: string, claim: string): boolean {
+  for (;;) {
+    try {
+      linkSync(temp, claim);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    let owner: Owner;
+    try {
+      owner = JSON.parse(readFileSync(claim, "utf8"));
+    } catch {
+      return false;
+    }
+    if (!dead(owner)) return false;
+    // A dead claimant cannot finish its takeover; take over its claim. Two
+    // starters that both observe the same dead claim can each unlink the
+    // other's freshly re-linked claim; this residual needs a claimant killed
+    // within a microsecond plus concurrent starts, and the surviving
+    // claimant's verify-before-rename still holds, so it is at worst a
+    // transient "still recovering" refusal.
+    try {
+      unlinkSync(claim);
+    } catch {
+      return false;
+    }
+  }
+}
 /**
  * Hold the recovery lock. A recoverer that was killed mid-recovery leaves its
- * record behind; once that owner is dead its record is moved aside atomically
- * and checked, so a live recoverer's record is never removed.
+ * record behind; a later starter takes over that dead record exclusively (via
+ * a claim), so simultaneously starting recoverers can never both pass. The
+ * record is replaced atomically, so `recovery` is never absent while a third
+ * starter could claim the empty fast path.
  */
 function takeRecovery(temp: string, recovery: string, nonce: string) {
   try {
@@ -112,30 +145,35 @@ function takeRecovery(temp: string, recovery: string, nonce: string) {
   }
   if (!stale.identity || !stale.nonce || !dead(stale))
     throw new Error(RECOVERING);
-  const moved = recovery + "." + nonce;
+  // Take over this specific stale record; never rename a record we do not own.
+  const claim = recovery + ".stale." + stale.nonce;
+  if (!claimStale(temp, claim)) throw new Error(RECOVERING);
+  let tookOver = false;
   try {
-    renameSync(recovery, moved);
-  } catch {
-    throw new Error(RECOVERING);
-  }
-  try {
-    if (JSON.parse(readFileSync(moved, "utf8")).nonce !== stale.nonce) {
-      // A live recoverer replaced the stale record first: give it back.
-      try {
-        linkSync(moved, recovery);
-      } catch {
-        /* Another recoverer holds the lock now. */
-      }
+    // Re-check the record is still the stale one we claimed (a live recoverer
+    // may have replaced it; its nonce would differ and it is not dead).
+    const current = JSON.parse(readFileSync(recovery, "utf8")) as Owner;
+    if (current.nonce !== stale.nonce || !dead(current))
       throw new Error(RECOVERING);
-    }
+    // Replace it atomically so `recovery` is never missing mid-takeover and a
+    // third starter cannot grab the empty fast path. `temp` stays a hardlink.
+    const mine = recovery + "." + nonce + ".new";
+    linkSync(temp, mine);
+    renameSync(mine, recovery);
+    tookOver = true;
   } finally {
-    unlinkSync(moved);
+    // Release only a claim that is still ours. If a process is killed after the
+    // rename but before this release, the orphan `.stale.<nonce>`/`.new` file is
+    // harmless: the next starter either reclaims it (dead owner) or ignores it.
+    // Release only a claim that is still ours.
+    try {
+      if ((JSON.parse(readFileSync(claim, "utf8")) as Owner).nonce === nonce)
+        unlinkSync(claim);
+    } catch {
+      /* Already released or unreadable. */
+    }
   }
-  try {
-    linkSync(temp, recovery);
-  } catch {
-    throw new Error(RECOVERING);
-  }
+  if (!tookOver) throw new Error(RECOVERING);
 }
 const WORKSPACE_LOCK = {
   name: "host.lock",
@@ -185,7 +223,17 @@ export function workspaceLock(
         unlinkSync(path);
         linkSync(temp, path);
       } finally {
-        unlinkSync(recovery);
+        // Release only a recovery record that is still ours, never a newer
+        // recoverer's.
+        try {
+          if (
+            (JSON.parse(readFileSync(recovery, "utf8")) as Owner).nonce ===
+            owner.nonce
+          )
+            unlinkSync(recovery);
+        } catch {
+          /* Already gone. */
+        }
       }
     }
   } finally {
