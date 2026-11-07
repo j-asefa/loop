@@ -807,16 +807,39 @@ export class NativeSessions {
       return false;
     } catch (error) {
       this.projectOutput(live, true);
-      const message =
-        error instanceof Error
-          ? error.message.slice(0, 2000)
-          : "Native outcome is unknown";
-      nativeDispatchQueries.setError(db, message, run.id);
-      runsQueries.setError(
-        db,
-        "Native outcome unknown: " + message + ". No automatic retry was made.",
-        run.id,
-      );
+      if (error instanceof NotDelivered) {
+        // Nothing was handed to the harness (for example a provider change
+        // closed the live during start), so there is no uncertain external
+        // outcome to record; the turn simply never dispatched. Settle the
+        // dispatch row to a terminal state (the guarded setState) so it is
+        // not treated as an unconfirmed in-flight delivery.
+        db.transaction(() => {
+          nativeDispatchQueries.setState(db, "interrupted", run.id);
+          nativeDispatchQueries.setError(
+            db,
+            "The session closed before the prompt was sent.",
+            run.id,
+          );
+          runsQueries.setError(
+            db,
+            "This native turn was not started because the session closed before dispatch. Nothing was sent; review and send an explicit follow-up.",
+            run.id,
+          );
+        }).immediate();
+      } else {
+        const message =
+          error instanceof Error
+            ? error.message.slice(0, 2000)
+            : "Native outcome is unknown";
+        nativeDispatchQueries.setError(db, message, run.id);
+        runsQueries.setError(
+          db,
+          "Native outcome unknown: " +
+            message +
+            ". No automatic retry was made.",
+          run.id,
+        );
+      }
       transition(run, "interrupted");
       await this.dispose(live);
       recaptureAfterStop(run);

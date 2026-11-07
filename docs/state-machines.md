@@ -115,6 +115,10 @@ that call identity with 409.
 | pending/sending → **delivered** / **failed** | delivery outcome | sql |
 | pending/sending → **failed** | run ended | trigger (migration 025) |
 
+A delivery acknowledges only when the write actually takes the row to
+`delivered`; if a run-end trigger already failed it, no late `steering.delivered`
+fires.
+
 ### `scheduled_sends.state`
 
 scheduled → **submitted**, scheduled → failed, scheduled/failed → **cancelled**,
@@ -153,7 +157,9 @@ command ID joins the in-flight promise or returns the stored outcome; a
 returned) → **completed**/**failed**/**interrupted**/**stopped** on the first
 terminal status event (sql: `unknown` or `accepted`). A later terminal status
 from the same turn only retires the session. A run with a dispatch row is
-never claimed or dispatched again.
+never claimed or dispatched again. A turn that ends before the prompt is
+handed over (for example a provider change closing the session during start) is
+recorded as not started, not as a "Native outcome unknown".
 
 ### `companion_sessions.state`
 
@@ -178,7 +184,8 @@ pending → deciding (sql, after live, generation and run checks with no await)
 → pending (sql, answer not sent) / **resolved** / **expired** / **unknown**.
 pending → expired when its run ends, its generation is disposed, or at
 startup; deciding → unknown at startup. The generation is re-checked just
-before the answer is sent.
+before the answer is sent. A re-emitted request id that this generation has
+already resolved is ignored and does not move the run to `awaiting_approval`.
 
 ### In-memory `Live` session
 
@@ -216,7 +223,10 @@ an existing `unknown` row answers 409.
 
 queued → leased (tx) → sending (lease, attempts+1) → settled / delivered /
 exhausted (lease). A crashed `sending` row becomes `uncertain` at the next
-claim. Delivery is at-least-once by contract with a stable
+claim. A later attempt that fails before dispatch keeps an earlier `uncertain`
+(outcome only downgrades to `unattempted`/`blocked` when it was never
+dispatched), so settings still show the receiver may hold the delivery ID.
+Delivery is at-least-once by contract with a stable
 `X-Loop-Delivery` id ([integration API](cards-api.md)).
 
 ### `token_requests.state`
@@ -228,7 +238,9 @@ claim. Delivery is at-least-once by contract with a stable
 
 due → claimed (`available_at` = now + 60 s, attempts+1, tx) → delivered /
 retry / dead (5 attempts) → pruned after 7 days. A 404/410 deletes the
-subscription and its queued pushes.
+subscription and its queued pushes only when the stored subscription still
+holds the keys that delivery used; a browser that re-subscribed the same
+endpoint in the meantime keeps its newer subscription.
 
 ### `pr_watches.state`
 
@@ -337,6 +349,11 @@ test that fails on the earlier code.
 | S1 | approvals, tool_invocations | A crash during an MCP call left the approval and invocation `executing` forever; no sweep marked them `unknown`. A run reaching a terminal state now moves its `executing` approvals and tool invocations to `unknown` via a run-end trigger (migration 151), with a one-time `sweepLeftoverToolCalls` at worker startup for any leftover, so the stored state reflects the uncertain outcome. ([#355](https://github.com/j-asefa/loop/issues/355)) | `test/recover-stuck.test.ts` S1 sweep and the tick-driven crash-recovery case |
 | S2 | runs | An expired approval left its run `awaiting_approval`, holding the agent's queue, while the Feed hid the approval. `recoverStuckRuns` now fails a non-native run whose pending approvals all expired, releasing the queue and never running the call. ([#355](https://github.com/j-asefa/loop/issues/355)) | `test/recover-stuck.test.ts` "fails a non-native run whose approvals all expired" |
 | S3 | runs | A graceful worker stop interrupted non-native runs that were only `awaiting_approval` and rejected their approvals; a crash left the same runs approvable. `quiesce` now interrupts only running/pausing and native awaiting_approval runs, so non-native awaiting_approval runs survive shutdown just as they survive a crash. ([#355](https://github.com/j-asefa/loop/issues/355)) | `test/recover-stuck.test.ts` "a graceful shutdown does not interrupt non-native awaiting_approval runs" |
+| M1 | run_steering | When the run ended while a delivery was in flight, the run-end trigger stored the row `failed` but `steering.ts` still emitted a late `steering.delivered`. A delivery now acknowledges `delivered` only when the write actually took the row there, so a run-ended row never fires a false `delivered`. | covered by steering/native suite and review |
+| M2 | webhook_deliveries | A later attempt that failed before dispatch wrote `unattempted`/`blocked`, replacing an earlier `uncertain` and hiding from settings that the receiver may already hold the delivery ID. The outcome now keeps the earlier `uncertain` unless it was never dispatched. | `test/minor-state-defects.test.ts` "a later pre-dispatch failure keeps an earlier uncertain webhook outcome" |
+| M3 | push_subscriptions | A stale 404/410 deleted the subscription by id even when the browser had re-subscribed the same endpoint (upsert keeps the id), losing the new keys and queued pushes. It is now removed only when the stored subscription still matches the delivery's keys. | `test/minor-state-defects.test.ts` "a stale 404/410 does not delete a push subscription that was re-subscribed" |
+| M4 | native_dispatch | A provider change racing a session start closed the live and recorded a never-sent prompt as "Native outcome unknown". A turn that ends before the prompt is handed over is now recorded as not started, not as an uncertain outcome. | covered by native session suite and review |
+| M5 | native_decisions | A harness re-emitting an already-resolved request id in the same generation moved the run back to `awaiting_approval` with no decision to answer. The re-emitted id is now ignored unless its recorded decision is still `pending`. | covered by native decision suite and review |
 
 ### Open
 
@@ -344,4 +361,4 @@ test that fails on the earlier code.
 | -- | ------- | ------ | ----- |
 | F1 | fleet_binding | A handoff whose proposal never reached the destination keeps the controller `handoff_pending`: a `missing` receipt is not final, so only an explicit recover (a new lineage) clears it. A committed source enrollment whose destination is gone cannot be cancelled. | [#356](https://github.com/j-asefa/loop/issues/356) |
 | F2 | fleet_binding | `removed` is absorbing: the machine cannot create, recover or enroll without deleting its data directory. | [#356](https://github.com/j-asefa/loop/issues/356) |
-| M1 | various | Lower impact: a late steering receipt emits `delivered` after the run-end trigger stored `failed`; a webhook's pre-dispatch failure replaces an earlier `uncertain` outcome label; a stale push 410 can delete a just-renewed subscription; a provider change racing a native session start records an undelivered prompt as uncertain; a re-emitted native request ID after resolution leaves the run waiting. | [#357](https://github.com/j-asefa/loop/issues/357) |
+

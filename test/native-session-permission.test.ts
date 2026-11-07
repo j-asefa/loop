@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import * as nativeDecisionsQueries from "../src/server/sql/native-decisions";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-session-mode-")));
 process.env.LOOP_DATA_DIR = dir;
@@ -480,6 +482,88 @@ it("keeps the first terminal status of a native turn", async () => {
       (db.prepare("SELECT error FROM runs WHERE id=?").get(task.id) as any)
         .error,
     ).toBeNull();
+  } finally {
+    prompt.mockRestore();
+    await sessions.dispose(live);
+  }
+});
+
+it("records a cancelled-before-dispatch turn as interrupted, not unknown outcome", async () => {
+  const sessions = new NativeSessions();
+  const task = claimed("not-delivered");
+  const live = await sessions.session(task);
+  const prompt = vi
+    .spyOn(live.adapter, "prompt")
+    .mockImplementation(async (_input: unknown, before?: () => void) => {
+      // An interrupt lands after the turn attaches but before dispatch.
+      live.cancelling = true;
+      before?.(); // beforeDispatch throws NotDelivered
+    });
+  try {
+    await expect(sessions.execute(task)).resolves.toBe(false);
+    expect(prompt).toHaveBeenCalled();
+    // The dispatch row is settled to a terminal state (guarded setState).
+    expect(
+      db
+        .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+        .get(task.id),
+    ).toEqual({ state: "interrupted" });
+    expect(
+      (db.prepare("SELECT state FROM runs WHERE id=?").get(task.id) as any)
+        .state,
+    ).toBe("interrupted");
+    // Nothing was sent; the reason is recorded, not an "unknown outcome".
+    expect(
+      (db.prepare("SELECT error FROM runs WHERE id=?").get(task.id) as any)
+        .error,
+    ).toMatch(/was not started/);
+  } finally {
+    prompt.mockRestore();
+    await sessions.dispose(live);
+  }
+});
+
+it("ignores a re-emitted request id this generation already resolved", async () => {
+  const sessions = new NativeSessions();
+  const task = claimed("re-emit");
+  const live = await sessions.session(task);
+  // A decision for this request id was already resolved in this generation.
+  const decisionId = randomUUID();
+  nativeDecisionsQueries.insertPending(
+    db,
+    decisionId,
+    task.id,
+    live.binding.conversation_id,
+    live.generation,
+    "req-1",
+    JSON.stringify({ id: "req-1", kind: "approval", title: "t", detail: "" }),
+    Date.now(),
+  );
+  nativeDecisionsQueries.finishById(db, "resolved", decisionId);
+  const prompt = vi
+    .spyOn(live.adapter, "prompt")
+    .mockImplementation(async () => {
+      // The harness re-emits the already-resolved request in this generation.
+      sessions.event(live, {
+        type: "request",
+        request: { id: "req-1", kind: "approval", title: "t", detail: "" },
+      });
+      // It must not move the run to awaiting_approval or set it waiting.
+      expect(
+        (db.prepare("SELECT state FROM runs WHERE id=?").get(task.id) as any)
+          .state,
+      ).toBe("running");
+      expect(live.waiting).toBe(false);
+      sessions.event(live, { type: "status", status: "completed" });
+    });
+  try {
+    // The turn still completes: the ignored re-emit never moved the run back
+    // to awaiting_approval with nothing to answer.
+    await expect(sessions.execute(task)).resolves.toBe(true);
+    expect(
+      (db.prepare("SELECT state FROM runs WHERE id=?").get(task.id) as any)
+        .state,
+    ).not.toBe("awaiting_approval");
   } finally {
     prompt.mockRestore();
     await sessions.dispose(live);

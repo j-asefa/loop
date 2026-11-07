@@ -121,11 +121,25 @@ export class SteeringInbox {
   private pending() {
     return runSteeringQueries.pendingMessages(db, this.run.id) as Input[];
   }
-  private receipt(input: Input, state: "delivered" | "failed", error?: string) {
-    runSteeringQueries.finish(db, state, error || null, input.id);
-    emit(this.run.owner_id, this.run.id, `steering.${state}`, {
-      messageId: input.message_id,
-    });
+  // Returns whether the row actually took this state. A run that ended while
+  // a delivery was in flight is failed by the run-end trigger, so a late
+  // "delivered" must not overwrite it or fire a false delivered event.
+  private receipt(
+    input: Input,
+    state: "delivered" | "failed",
+    error?: string,
+  ): boolean {
+    const changed = runSteeringQueries.finish(
+      db,
+      state,
+      error || null,
+      input.id,
+    ).changes;
+    if (changed)
+      emit(this.run.owner_id, this.run.id, `steering.${state}`, {
+        messageId: input.message_id,
+      });
+    return changed > 0;
   }
   listen(deliver: Delivery) {
     if (this.listener || this.busy)
@@ -146,8 +160,7 @@ export class SteeringInbox {
             deliver(value, input.id),
           );
           db.transaction(() => {
-            this.delivered(value);
-            this.receipt(input, "delivered");
+            if (this.receipt(input, "delivered")) this.delivered(value);
           }).immediate();
         } catch (error) {
           // Certainly not handed over: keep it pending for a later attempt.
@@ -191,8 +204,7 @@ export class SteeringInbox {
       try {
         withEffect(this.run.owner_id, "steering", input.id, () => {
           history.push(message(input, this.replyToolAvailable));
-          this.receipt(input, "delivered");
-          delivered++;
+          if (this.receipt(input, "delivered")) delivered++;
         });
       } catch (error) {
         if (!(error instanceof ExecutionRefused)) throw error;

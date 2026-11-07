@@ -406,6 +406,26 @@ export function claimWebhooks(only?: string) {
     })
     .immediate();
 }
+/** Delivery outcome for an attempt. An earlier attempt may already have
+ * reached the receiver ('uncertain' dispatched without confirmation, or
+ * 'rejected' with a receiver response), so a later attempt that fails before
+ * dispatch must not downgrade that to 'unattempted'/'blocked', or settings
+ * would hide that the receiver may hold the delivery ID. */
+export function webhookOutcome(
+  prior: string,
+  accepted: boolean,
+  permanent: boolean,
+  status: number | null,
+  dispatched: boolean,
+): string {
+  const reached = prior === "uncertain" || prior === "rejected";
+  if (accepted) return "accepted";
+  if (permanent) return reached ? prior : "blocked";
+  if (status !== null) return "rejected";
+  if (dispatched) return "uncertain";
+  return reached ? prior : "unattempted";
+}
+
 export function webhookSignature(
   secret: string,
   timestamp: string,
@@ -502,15 +522,13 @@ async function deliverClaim(
     const attempts = job.attempts + (dispatched ? 0 : 1),
       accepted = status !== null && status >= 200 && status < 300;
     const exhausted = current.state === "revoked" || permanent || attempts >= 6;
-    const outcome = accepted
-      ? "accepted"
-      : permanent
-        ? "blocked"
-        : status !== null
-          ? "rejected"
-          : dispatched
-            ? "uncertain"
-            : "unattempted";
+    const outcome = webhookOutcome(
+      job.outcome,
+      accepted,
+      permanent,
+      status,
+      dispatched,
+    );
     webhookDeliveriesQueries.settle(
       db,
       attempts,

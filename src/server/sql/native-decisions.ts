@@ -39,6 +39,22 @@ export function insertPending(
   );
 }
 
+const byRequestStatement = statement(
+  "SELECT state FROM native_decisions WHERE conversation_id=? AND generation=? AND native_id=?",
+);
+const byRequestRow = QueryRecords.native_decisions.pick({ state: true });
+export function byRequest(
+  db: Database.Database,
+  conversation: string,
+  generation: string,
+  native: string,
+) {
+  const row = byRequestStatement(db).get(conversation, generation, native);
+  return row === undefined
+    ? undefined
+    : parseRecord(byRequestRow, row, "native_decisions").state;
+}
+
 const getStatement = statement("SELECT * FROM native_decisions WHERE id=?");
 const getRow = QueryRecords.native_decisions;
 export function get(db: Database.Database, id: string) {

@@ -287,9 +287,19 @@ export async function deliverNotifications(send = webpush.sendNotification) {
         settle(job, "delivered", now());
       } catch (error) {
         const status = (error as { statusCode?: number }).statusCode;
-        if (status === 404 || status === 410)
-          pushSubscriptionsQueries.remove(db, job.subscription_id);
-        else
+        if (status === 404 || status === 410) {
+          // A browser that re-subscribed the same endpoint keeps the same id
+          // but a newer sealed subscription; a stale 404/410 for an old key
+          // must not delete it, or the new keys and queued pushes would be
+          // lost. job.subscription is the stored sealed value read at the
+          // claim JOIN, so one atomic statement removes it only if it still
+          // matches the delivery that was rejected.
+          pushSubscriptionsQueries.removeIfSubscription(
+            db,
+            job.subscription_id,
+            job.subscription,
+          );
+        } else
           settle(
             job,
             "retry",

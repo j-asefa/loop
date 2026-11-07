@@ -99,3 +99,17 @@ const removeStatement = statement("DELETE FROM push_subscriptions WHERE id=?");
 export function remove(db: Database.Database, id: string) {
   return removeStatement(db).run(id);
 }
+
+// Remove only the subscription whose stored sealed value still matches the
+// delivery that the 404/410 rejected, in one atomic statement: a browser that
+// re-subscribed the same endpoint in between keeps its newer subscription.
+const removeIfSubscriptionStatement = statement(
+  "DELETE FROM push_subscriptions WHERE id=? AND subscription=?",
+);
+export function removeIfSubscription(
+  db: Database.Database,
+  id: string,
+  subscription: string,
+) {
+  return removeIfSubscriptionStatement(db).run(id, subscription);
+}

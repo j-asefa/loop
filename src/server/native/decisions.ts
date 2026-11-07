@@ -63,7 +63,6 @@ export class NativeDecisions {
       );
       return false;
     }
-    live.requests.set(event.request.id, event.request);
     const decisionId = id();
     const recorded = db
       .transaction(() => {
@@ -80,6 +79,23 @@ export class NativeDecisions {
         return changed;
       })
       .immediate();
+    if (!recorded) {
+      // A request id the harness already answered in this generation must not
+      // re-ask or send the run back to awaiting_approval with no decision to
+      // answer; ignore the re-emitted event. For a resolved/expired decision
+      // the request is done. An 'unknown' decision's answer may already have
+      // applied some effect, so it is deliberately never replayed and a re-ask
+      // is ignored rather than risk double-applying an uncertain effect. A
+      // still-pending re-emit is a genuine duplicate and proceeds below.
+      const existing = nativeDecisionsQueries.byRequest(
+        db,
+        live.binding.conversation_id,
+        live.generation,
+        event.request.id,
+      );
+      if (existing && existing !== "pending") return false;
+    }
+    live.requests.set(event.request.id, event.request);
     if (recorded && allow) {
       // "Never ask" answers routine tool approvals for the user. Questions
       // and forms requiring input have no allow choice and still wait. A failed
