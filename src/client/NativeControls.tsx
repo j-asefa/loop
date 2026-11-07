@@ -1,4 +1,5 @@
 import { literalEntry, proseEntry } from "./textEntry";
+import { AutofillBoundary } from "./AutofillBoundary";
 import { readRoute } from "./workspace-api";
 import {
   workspaceApi,
@@ -250,18 +251,20 @@ function QuestionResponse({
       onChange={(e) => onChange(e.target.value)}
     />
   ) : (
-    <textarea
-      {...proseEntry}
-      {...props}
-      ref={ref}
-      className="native-question-response"
-      rows={1}
-      onChange={(e) => {
-        e.target.style.height = "auto";
-        e.target.style.height = e.target.scrollHeight + "px";
-        onChange(e.target.value);
-      }}
-    />
+    <AutofillBoundary>
+      <textarea
+        {...proseEntry}
+        {...props}
+        ref={ref}
+        className="native-question-response"
+        rows={1}
+        onChange={(e) => {
+          e.target.style.height = "auto";
+          e.target.style.height = e.target.scrollHeight + "px";
+          onChange(e.target.value);
+        }}
+      />
+    </AutofillBoundary>
   );
 }
 function DecisionCard({

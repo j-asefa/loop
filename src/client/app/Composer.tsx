@@ -1,4 +1,5 @@
 import { proseEntry } from "../textEntry";
+import { AutofillBoundary } from "../AutofillBoundary";
 import {
   useEffect,
   useLayoutEffect,
@@ -1132,34 +1133,36 @@ export function renderComposer({
               </div>
             )}
             <div className="composer-main">
-              <textarea
-                {...proseEntry}
-                id="composer"
-                aria-label={
-                  replyContext || conversation
-                    ? "Reply to agent"
-                    : "Message your agent"
-                }
-                disabled={busy}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onFocus={() => {
-                  if (threadMode) setComposerExpanded(true);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setComposerExpanded(false);
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    void send();
+              <AutofillBoundary>
+                <textarea
+                  {...proseEntry}
+                  id="composer"
+                  aria-label={
+                    replyContext || conversation
+                      ? "Reply to agent"
+                      : "Message your agent"
                   }
-                }}
-                placeholder={
-                  threadMode
-                    ? `Reply to ${(activeAgent?.name || "agent").replace(/^./, (c) => c.toUpperCase())}…`
-                    : "Ask anything…"
-                }
-                rows={threadMode ? 1 : 2}
-              />
+                  disabled={busy}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onFocus={() => {
+                    if (threadMode) setComposerExpanded(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setComposerExpanded(false);
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  placeholder={
+                    threadMode
+                      ? `Reply to ${(activeAgent?.name || "agent").replace(/^./, (c) => c.toUpperCase())}…`
+                      : "Ask anything…"
+                  }
+                  rows={threadMode ? 1 : 2}
+                />
+              </AutofillBoundary>
               {draft.length > 0 && (
                 <button
                   type="button"

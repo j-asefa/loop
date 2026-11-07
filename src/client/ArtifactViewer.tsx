@@ -29,6 +29,7 @@ import { PublishedFile, CardFile, RunFiles } from "./PublishedFiles";
 import { FileLink } from "./FilePreview";
 import { Diagram } from "./Diagram";
 import { parse } from "./api";
+import { AutofillBoundary } from "./AutofillBoundary";
 import type { Agent, Artifact, Connection } from "../shared/types";
 export function ArtifactContent({ item }: { item: Artifact }) {
   if (parse<any>(item.metadata, {}).uploaded)
@@ -345,12 +346,14 @@ export function ArtifactViewer({
         )}
         <div className="artifact-body">
           {editing ? (
-            <textarea
-              {...proseEntry}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={16}
-            />
+            <AutofillBoundary>
+              <textarea
+                {...proseEntry}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={16}
+              />
+            </AutofillBoundary>
           ) : card ? (
             <CardBody card={card} />
           ) : (

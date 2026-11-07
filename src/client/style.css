@@ -10702,3 +10702,6 @@ label.catalog-filter-chip {
   object-fit: contain;
   border-radius: 20%;
 }
+.autofill-boundary {
+  display: contents;
+}
