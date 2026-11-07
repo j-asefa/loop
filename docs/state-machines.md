@@ -61,7 +61,8 @@ Invariants:
 | pausing → completed | worker finishes without a saved answer | `completeLeased` | tx + lease |
 | running/pausing/awaiting_approval → failed | worker error | `worker.ts` (`leaseError`) | tx + lease |
 | running/pausing → interrupted | heartbeat older than 60 s | `recoverStale` | tx |
-| running/pausing/awaiting_approval → interrupted | graceful worker stop | `worker.ts` `quiesce` | tx |
+| running/pausing → interrupted, and native awaiting_approval → interrupted | graceful worker stop | `worker.ts` `quiesce` | tx |
+| awaiting_approval → failed | all pending approvals expired | `recover-stuck.ts` `recoverStuckRuns` | tx |
 | running/pausing/awaiting_approval/queued → interrupted | native recovery at startup | `native/supervisor.ts` `recover` | tx |
 | running → awaiting_approval | tool approval needed | `mcp/broker.ts`, `native-tools.ts`, `native/decisions.ts` | tx |
 | awaiting_approval → queued / failed | owner decides (non-native) | `approvals.ts` `decide` | tx re-checks approval and run |
@@ -93,11 +94,15 @@ outcome is uncertain and it is never replayed.
 | executing → completed | broker saves the result | inside the broker's tx |
 | approved → completed | native config install | `native-tools.ts`; idempotent by fingerprint |
 | executing → unknown | call failed or timed out | sql |
+| executing → unknown | run ended (crash) | trigger (migration 151), `sweepLeftoverToolCalls` | sql |
 
 ### `tool_invocations.state`
 
 pending → executing (sql) → **completed**/**failed** (the same call) or
-**unknown** (sql). A row in `executing` or `unknown` refuses a new request for
+**unknown** (sql). A crash during a call leaves the invocation `executing`;
+when the run reaches a terminal state the migration-151 trigger (and the
+one-time `sweepLeftoverToolCalls`) marks it `unknown`.
+A row in `executing` or `unknown` refuses a new request for
 that call identity with 409.
 
 ### `run_steering.state`
@@ -329,14 +334,14 @@ test that fails on the earlier code.
 | H2 | workspace lock | A stale lock whose PID was reused by another user's process returned EPERM and was treated as a live owner without checking its identity. ([#352](https://github.com/j-asefa/loop/issues/352)) | same file, "PID now belongs to another user's process" |
 | W1 | pr_watches | Resume read `paused` and then wrote `watching` unguarded; a stop committed by the worker in between (pull request merged) was revived and polled again. ([#353](https://github.com/j-asefa/loop/issues/353)) | `test/sql-pr-watches.test.ts` "resumes only a paused watch" |
 | C1 | send receipt, retry, upgrade | Pending composer receipts lived in `sessionStorage`, which a killed home-screen app, a new tab or auth expiry (`sessionStorage.clear()`) discarded; the restored draft then sent with a new key and could run an accepted request twice. "Retry as a new run" kept its key only in a `useRef` map, and each harness-upgrade click minted a new command ID. They now live in owner/source/thread-scoped durable storage and are cleared on settlement and owner change. ([#354](https://github.com/j-asefa/loop/issues/354)) | `test/client-pending-identities.test.ts` |
+| S1 | approvals, tool_invocations | A crash during an MCP call left the approval and invocation `executing` forever; no sweep marked them `unknown`. A run reaching a terminal state now moves its `executing` approvals and tool invocations to `unknown` via a run-end trigger (migration 151), with a one-time `sweepLeftoverToolCalls` at worker startup for any leftover, so the stored state reflects the uncertain outcome. ([#355](https://github.com/j-asefa/loop/issues/355)) | `test/recover-stuck.test.ts` S1 sweep and the tick-driven crash-recovery case |
+| S2 | runs | An expired approval left its run `awaiting_approval`, holding the agent's queue, while the Feed hid the approval. `recoverStuckRuns` now fails a non-native run whose pending approvals all expired, releasing the queue and never running the call. ([#355](https://github.com/j-asefa/loop/issues/355)) | `test/recover-stuck.test.ts` "fails a non-native run whose approvals all expired" |
+| S3 | runs | A graceful worker stop interrupted non-native runs that were only `awaiting_approval` and rejected their approvals; a crash left the same runs approvable. `quiesce` now interrupts only running/pausing and native awaiting_approval runs, so non-native awaiting_approval runs survive shutdown just as they survive a crash. ([#355](https://github.com/j-asefa/loop/issues/355)) | `test/recover-stuck.test.ts` "a graceful shutdown does not interrupt non-native awaiting_approval runs" |
 
 ### Open
 
 | ID | Machine | Defect | Issue |
 | -- | ------- | ------ | ----- |
-| S1 | approvals, tool_invocations | A crash during an MCP call leaves the approval and invocation `executing` forever; no startup sweep marks them `unknown`. | [#355](https://github.com/j-asefa/loop/issues/355) |
-| S2 | runs | An expired approval leaves its run `awaiting_approval`, holding the agent's queue, while the Feed hides the approval. | [#355](https://github.com/j-asefa/loop/issues/355) |
-| S3 | runs | A graceful worker stop interrupts non-native runs that were only `awaiting_approval` and rejects their approvals; a crash leaves the same runs approvable. | [#355](https://github.com/j-asefa/loop/issues/355) |
 | F1 | fleet_binding | A handoff whose proposal never reached the destination keeps the controller `handoff_pending`: a `missing` receipt is not final, so only an explicit recover (a new lineage) clears it. A committed source enrollment whose destination is gone cannot be cancelled. | [#356](https://github.com/j-asefa/loop/issues/356) |
 | F2 | fleet_binding | `removed` is absorbing: the machine cannot create, recover or enroll without deleting its data directory. | [#356](https://github.com/j-asefa/loop/issues/356) |
 | M1 | various | Lower impact: a late steering receipt emits `delivered` after the run-end trigger stored `failed`; a webhook's pre-dispatch failure replaces an earlier `uncertain` outcome label; a stale push 410 can delete a just-renewed subscription; a provider change racing a native session start records an undelivered prompt as uncertain; a re-emitted native request ID after resolution leaves the run waiting. | [#357](https://github.com/j-asefa/loop/issues/357) |

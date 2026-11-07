@@ -26,6 +26,7 @@ import {
   type Run,
 } from "./queue.js";
 import { RunDeferred } from "./run-deferred.js";
+import { recoverStuckRuns, sweepLeftoverToolCalls } from "./recover-stuck.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { providerChangeInProgress } from "./native-provider-locks.js";
 import { nativeSignIns } from "./native-auth.js";
@@ -65,6 +66,7 @@ export async function tick(
   if (!accepting()) return false;
   assertExecutionGeneration(workerId);
   recoverStale();
+  recoverStuckRuns();
   void reconcileCheckouts().catch(() => {});
   const run = claim(workerId, (candidate) => {
     if (!accepting()) return false;
@@ -173,6 +175,9 @@ export function startWorker() {
   const stopObservation = observeProcess("worker");
   migrateMcpUrlCredentials();
   nativeSessions.recover();
+  // Sweep calls a crashed earlier worker left 'executing' once here, after the
+  // stale-run recovery, rather than scanning those tables on every tick.
+  sweepLeftoverToolCalls();
   let active = 0;
   let stopping = false;
   const inflight = new Set<Promise<unknown>>();
@@ -336,7 +341,7 @@ export function startWorker() {
     // Shutdown owns this transition before native IO is terminated; a
     // resulting pipe failure must not reclassify an interrupted turn as failed.
     for (const run of RunIdentity.array().parse(
-      runsQueries.workerIdentities(db, workerId),
+      runsQueries.workerShutdownIdentities(db, workerId),
     ))
       transition(run, "interrupted");
   };

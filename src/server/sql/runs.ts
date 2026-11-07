@@ -787,6 +787,72 @@ export function workerIdentities(db: Database.Database, worker: string | null) {
     .map((row) => parseRecord(workerIdentitiesRow, row, "runs"));
 }
 
+// Graceful shutdown interrupts what a crash leaves recoverable. A run that is
+// only awaiting_approval (durable checkpoint, no in-flight execution) lives on
+// through a crash, so shutdown must not interrupt it either, or the two paths
+// disagree (#355 S3). Native awaiting_approval runs are still interrupted so
+// native session teardown owns the transition before its IO is terminated.
+const workerShutdownIdentitiesStatement = statement(
+  `SELECT r.id,r.owner_id FROM runs r
+   LEFT JOIN native_dispatch d ON d.run_id=r.id
+   LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') AND c.owner_id=r.owner_id
+   WHERE r.worker_id=?
+     AND (r.state IN ('running','pausing')
+       OR (r.state='awaiting_approval' AND (d.run_id IS NOT NULL OR json_extract(c.metadata,'$.loopHarness') IS NOT NULL)))`,
+);
+const workerShutdownIdentitiesRow = RunIdentity;
+export function workerShutdownIdentities(
+  db: Database.Database,
+  worker: string | null,
+) {
+  return workerShutdownIdentitiesStatement(db)
+    .all(worker)
+    .map((row) => parseRecord(workerShutdownIdentitiesRow, row, "runs"));
+}
+
+// Non-native runs stuck in awaiting_approval with only expired pending
+// approvals (nothing actionable, nothing in flight) leave awaiting_approval so
+// they stop holding the agent's queue and the Feed stops hiding the approval
+// (#355 S2). Never runs the call: the caller only transitions the run.
+const staleAwaitingApprovalStatement = statement(
+  `SELECT r.id, r.owner_id FROM runs r
+   LEFT JOIN native_dispatch d ON d.run_id = r.id
+   WHERE r.state = 'awaiting_approval'
+     AND d.run_id IS NULL
+     AND EXISTS (SELECT 1 FROM approvals a WHERE a.run_id=r.id AND a.owner_id=r.owner_id AND a.state='pending' AND a.expires_at<?)
+     AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.run_id=r.id AND a.owner_id=r.owner_id AND a.state='pending' AND a.expires_at>=?)
+     AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.run_id=r.id AND a.owner_id=r.owner_id AND a.state IN ('approved','executing'))`,
+);
+const staleAwaitingApprovalRow = RunIdentity;
+export function staleAwaitingApproval(db: Database.Database, time: number) {
+  return staleAwaitingApprovalStatement(db)
+    .all(time, time)
+    .map((row) => parseRecord(staleAwaitingApprovalRow, row, "runs"));
+}
+
+// Single-run recheck used inside the same transaction as the expiry fail, so a
+// concurrent approve that moved the run or refreshed its approvals is never
+// overwritten. The strict `<`/`>=` boundary matches `decide`, which still
+// accepts an approval exactly at `expires_at == now`.
+const isStaleAwaitingApprovalStatement = statement(
+  `SELECT 1 FROM runs r
+   LEFT JOIN native_dispatch d ON d.run_id = r.id
+   WHERE r.id=? AND r.owner_id=? AND r.state = 'awaiting_approval'
+     AND d.run_id IS NULL
+     AND EXISTS (SELECT 1 FROM approvals a WHERE a.run_id=r.id AND a.owner_id=r.owner_id AND a.state='pending' AND a.expires_at<?)
+     AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.run_id=r.id AND a.owner_id=r.owner_id AND a.state='pending' AND a.expires_at>=?)
+     AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.run_id=r.id AND a.owner_id=r.owner_id AND a.state IN ('approved','executing'))`,
+);
+export function isStaleAwaitingApproval(
+  db: Database.Database,
+  time: number,
+  id: string,
+  owner: string,
+) {
+  const row = isStaleAwaitingApprovalStatement(db).get(id, owner, time, time);
+  return !!(row !== undefined);
+}
+
 const activeImportStatement = statement(
   "SELECT * FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=? AND state IN ('queued','running','pausing','paused')",
 );

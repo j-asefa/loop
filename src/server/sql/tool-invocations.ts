@@ -85,8 +85,18 @@ export function complete(
   return completeStatement(db).run(state, result, artifact, id);
 }
 
+// A crash during a tool call leaves the invocation 'executing' forever. Once
+// its run is no longer actively executing (recovered, ended), mark it
+// 'unknown' so the stored state reflects the uncertain outcome (#355 S1).
+const sweepExecutingStatement = statement(
+  "UPDATE tool_invocations SET state='unknown',result=? WHERE state='executing' AND run_id IN (SELECT id FROM runs WHERE state NOT IN ('running','pausing'))",
+);
+export function sweepExecuting(db: Database.Database, result: string) {
+  return sweepExecutingStatement(db).run(result);
+}
+
 const unknownExecutingStatement = statement(
-  "UPDATE tool_invocations SET state='unknown',result=? WHERE id=? AND state='executing'",
+  "UPDATE tool_invocations SET state='unknown',result=? WHERE id=? AND state IN ('executing','unknown')",
 );
 export function unknownExecuting(
   db: Database.Database,
