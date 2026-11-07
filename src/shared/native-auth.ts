@@ -21,7 +21,7 @@ export const signInFailureMessages: Record<SignInFailureCode, string> = {
 };
 export type SignIn = {
   id: string;
-  commandId?: string;
+  commandId: string;
   provider: string;
   method: string;
   state:

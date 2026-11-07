@@ -37,6 +37,19 @@ export async function sourceConversationBrowser(
       execution_backend: "native",
       execution_connection_id: record.agent.connection_id,
       project_id: null,
+      feed_hidden: 0,
+      feed_run_id: null,
+      feed_run_raw_state: null,
+      feed_run_state: null,
+      feed_run_dismissed_at: null,
+      feed_queued: 0,
+      feed_done_run_id: null,
+      feed_done_at: null,
+      feed_last_activity_at: null,
+      feed_last_message_id: null,
+      feed_folder_id: null,
+      feed_visible: 0,
+      feed_approval_until: null,
     },
     messages: [
       {
@@ -150,7 +163,7 @@ export async function sourceConversationBrowser(
     });
     if (await minimize.isVisible()) await minimize.click();
     await page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: record.thread.title })
       .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
@@ -168,7 +181,7 @@ export async function sourceConversationBrowser(
     // Reading a linked host's card fetches its message from that same host,
     // and Reply keeps the source even when conversation ids collide.
     await page
-      .locator(".inbox-row")
+      .locator(".feed-row")
       .filter({ hasText: remote.thread.title })
       .click();
     const reading = page.locator("dialog.feed-reading-sheet[open]");
@@ -184,7 +197,7 @@ export async function sourceConversationBrowser(
     await close();
     await page.evaluate(() => {
       window.__sourceDocument = "retained";
-      document.querySelector(".inbox").dataset.sourceRetained = "yes";
+      document.querySelector(".feed-view").dataset.sourceRetained = "yes";
     });
     const waitingForThread = new Promise((started) => {
       holdRead = () =>
@@ -194,7 +207,7 @@ export async function sourceConversationBrowser(
         });
     });
     await page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: local.thread.title })
       .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
@@ -219,7 +232,7 @@ export async function sourceConversationBrowser(
     await reply().fill("");
     await close();
     await page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: remote.thread.title })
       .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
@@ -365,7 +378,7 @@ export async function sourceConversationBrowser(
     await page.goBack();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     await expect(
-      page.locator('.inbox[data-source-retained="yes"]'),
+      page.locator('.feed-view[data-source-retained="yes"]'),
     ).toBeVisible();
     assert.equal(
       await page.evaluate(() => window.__sourceDocument),
@@ -430,7 +443,7 @@ export async function sourceConversationBrowser(
         });
     });
     await page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: remote.thread.title })
       .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
@@ -445,7 +458,7 @@ export async function sourceConversationBrowser(
     await close();
     offline = true;
     await page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: remote.thread.title })
       .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();
@@ -490,7 +503,7 @@ export async function sourceConversationBrowser(
       );
       await close();
       await expect(
-        page.locator(".inbox-row").filter({ hasText: local.thread.title }),
+        page.locator(".feed-row").filter({ hasText: local.thread.title }),
       ).toBeVisible();
     }
     const dockerShell = new URL(workspaceUrl);

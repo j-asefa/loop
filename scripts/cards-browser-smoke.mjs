@@ -310,13 +310,12 @@ try {
         await expect(
           page.getByLabel("Token name", { exact: true }),
         ).toBeVisible();
-        // Older sources omit the capability; previews explicitly disable it.
-        for (const advertised of [undefined, false]) {
+        // Preview workspaces explicitly disable token management.
+        for (const advertised of [false]) {
           await page.route("**/api/capabilities", async (route) => {
             const response = await route.fetch();
             const body = await response.json();
-            if (advertised === undefined) delete body.cardTokens;
-            else body.cardTokens = advertised;
+            body.cardTokens = advertised;
             await route.fulfill({ response, json: body });
           });
           await page.reload();

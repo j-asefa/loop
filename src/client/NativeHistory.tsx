@@ -154,7 +154,7 @@ export function NativeHistory({
                     if (ticket !== selection.current) return;
                     setSelected({ ...c, note: r.note });
                     setItems(r.items);
-                    setActivities((r.activities || []).map((a) => a.record));
+                    setActivities(r.activities.map((a) => a.record));
                   } catch (e) {
                     if (ticket === selection.current)
                       setError((e as Error).message);

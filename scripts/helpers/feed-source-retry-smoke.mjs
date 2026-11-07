@@ -36,10 +36,10 @@ export async function sourceRetryFeedSmoke(
       );
     }, sources);
   const card = (surface, title) =>
-    page.locator(`${surface} .inbox-card`).filter({ hasText: title });
+    page.locator(`${surface} .feed-item-card`).filter({ hasText: title });
   try {
     await page.goto(origin + "/?filter=working");
-    await expect(card(".inbox-results", "Remote task")).toHaveCount(1);
+    await expect(card(".feed-results", "Remote task")).toHaveCount(1);
     await expect(card(".needs-stack", "Remote approval task")).toHaveCount(1);
     await page.waitForTimeout(2500);
     stopFeedRoute = await temporaryPageRoute(page, feedRoute, async (route) => {
@@ -86,7 +86,7 @@ export async function sourceRetryFeedSmoke(
     });
     await refresh(["", remoteSource]);
     await expect.poll(() => remoteWorkingAttempts).toBeGreaterThan(0);
-    await expect(card(".inbox-results", "Healthy local working 1")).toHaveCount(
+    await expect(card(".feed-results", "Healthy local working 1")).toHaveCount(
       1,
     );
     await expect(card(".needs-stack", "Healthy local needs 1")).toHaveCount(1);
@@ -96,16 +96,14 @@ export async function sourceRetryFeedSmoke(
     ).toBeVisible();
     localVersion = 2;
     await refresh([""]);
-    await expect(card(".inbox-results", "Healthy local working 2")).toHaveCount(
+    await expect(card(".feed-results", "Healthy local working 2")).toHaveCount(
       1,
     );
     await expect(card(".needs-stack", "Healthy local needs 2")).toHaveCount(1);
     await expect.poll(() => remoteWorkingAttempts).toBeGreaterThan(1);
     // Recovery gets no new invalidation or database mutation.
     refusing = false;
-    await expect(card(".inbox-results", "Recovered remote Feed")).toHaveCount(
-      1,
-    );
+    await expect(card(".feed-results", "Recovered remote Feed")).toHaveCount(1);
     await expect(card(".needs-stack", "Recovered remote Needs")).toHaveCount(1);
     await expect(
       page.getByText("Some environments could not refresh.", { exact: false }),

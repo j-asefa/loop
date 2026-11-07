@@ -374,7 +374,7 @@ function FeedCard({
   return (
     <li
       className={
-        "card-swipe inbox-card-wrap" +
+        "card-swipe feed-item-wrap" +
         (swipe.armed ? " armed-" + swipe.armed : "") +
         (swipe.offset ? " swiping" : "")
       }
@@ -385,7 +385,7 @@ function FeedCard({
         </span>
       )}
       <article
-        className={"feed-card inbox-card" + (aggregationId ? " done-card-interactive" : "") + (selected ? " card-selected" : "") + (swipe.lifted || swipe.dragging ? " card-dragging" : "")}
+        className={"feed-card feed-item-card" + (aggregationId ? " done-card-interactive" : "") + (selected ? " card-selected" : "") + (swipe.lifted || swipe.dragging ? " card-dragging" : "")}
         style={
           swipe.offset
             ? { transform: `translateX(${swipe.offset}px)` }
@@ -396,7 +396,7 @@ function FeedCard({
         <div className="card-byline">
           {onSelect && <input type="checkbox" aria-label={`Select ${item.title}`} checked={!!selected} onChange={onSelect} />}
           <button className="identity" disabled={!onAgent} onClick={onAgent}>
-            <span className="inbox-avatar">
+            <span className="feed-avatar">
               <Avatar
                 name={name || "Loop"}
                 provider={(item.provider || agent?.provider) as any}
@@ -438,7 +438,7 @@ function FeedCard({
           </button>
         </div>
         <div
-          className="card-content inbox-row"
+          className="card-content feed-row"
           role="button"
           tabIndex={0}
           aria-label={`${item.title}${status.label ? `, ${status.label}` : ""}`}
@@ -459,7 +459,7 @@ function FeedCard({
             }
           }}
         >
-          <span className="eyebrow inbox-eyebrow">
+          <span className="eyebrow feed-eyebrow">
             {groupCount ? <><Layers size={14} /> Thread · {groupCount} cards{item.read_at === null && <Chip tone="working">Unread</Chip>}</> : item.reply ? (
               <>Reply{item.reply.read_at === null && <Chip tone="working">Unread</Chip>}</>
             ) : status.label && status.tone !== "done" ? (
@@ -477,7 +477,7 @@ function FeedCard({
           <h2>
             <InlineMarkdown content={item.title} />
           </h2>
-          {detail && <p className="field-hint inbox-detail">{detail}</p>}
+          {detail && <p className="field-hint feed-detail">{detail}</p>}
           {item.live_preview ? (
             // A working agent's output so far, as on the old Running cards.
             <div className="preview live-preview">
@@ -488,7 +488,7 @@ function FeedCard({
             item.last_message?.role !== "assistant" ? (
             // The server hides the prompt while its run works; say whether
             // the agent has written anything yet, and who started the work.
-            <p className="field-hint inbox-detail inbox-awaiting-update">
+            <p className="field-hint feed-detail feed-awaiting-update">
               {item.run.automation
                 ? automationLabel(
                     item.run.automation,
@@ -505,7 +505,7 @@ function FeedCard({
             )?.trim() && (
               <div className="preview">
                 {item.last_message!.role === "user" && (
-                  <span className="inbox-you">
+                  <span className="feed-you">
                     {automationLabel(
                       item.last_message!.automation,
                       item.last_message!.automation_from,
@@ -528,7 +528,7 @@ function FeedCard({
             </button>
           )}
           {draft && (
-            <p className="inbox-draft">
+            <p className="feed-draft">
               <em className="draft-label">Draft:</em> {preview(draft, 120)}
             </p>
           )}
@@ -791,7 +791,7 @@ function AwaySummary({
     // The card leaves, so bring the threads it summarized into view.
     requestAnimationFrame(() =>
       document
-        .querySelector(attention ? ".needs-stack" : ".inbox-filters")
+        .querySelector(attention ? ".needs-stack" : ".feed-tabs")
         ?.scrollIntoView({ behavior: "smooth", block: "start" }),
     );
   };
@@ -960,7 +960,7 @@ function MoveQueued({
 
 // Every card that waits on you, whichever component renders it.
 const NEEDS_CARDS =
-  ".approval-card, .native-decision, .scheduled-message, .inbox-card-wrap";
+  ".approval-card, .native-decision, .scheduled-message, .feed-item-wrap";
 
 /**
  * What needs you, above the Feed filters. One card shows with the rest
@@ -1606,7 +1606,7 @@ export function Feed({
               next: window.page.next, summary: operational.summary,
             };
           }
-          if (doneRead !== "all") throw new Error(`Update Loop in ${activeSources.find(item => item.id === source)?.name || "this workspace"} to filter Done by read status.`);
+          if (doneRead !== "all") throw new Error(`Read status filtering is unavailable in ${activeSources.find(item => item.id === source)?.name || "this workspace"}. Reconnect that source and try again.`);
           fallbackTransition = !!cachedView<CardWindow>(cardKey);
           if (fallbackTransition) doneRefresh.current.sources.delete(source);
         }
@@ -2583,7 +2583,7 @@ export function Feed({
     onFilter(nextFilter);
   }
   return (
-    <section className="inbox" aria-label="Feed">
+    <section className="feed-view" aria-label="Feed">
       {!hideFilters && (
         <AwaySummary
           sources={allSources}
@@ -2597,7 +2597,7 @@ export function Feed({
         <NeedsStack open={needsOpen} onOpen={setNeedsOpen}>
           {needsSlot}
           {!!needsThreads.length && (
-            <ul className="inbox-list feed">
+            <ul className="feed-list feed">
               {needsThreads.map((item) => card(item, true))}
             </ul>
           )}
@@ -2627,7 +2627,7 @@ export function Feed({
       )}
       {!hideFilters && (
         <div
-          className="chip-row inbox-filters"
+          className="chip-row feed-tabs"
           role="tablist"
           aria-label="Show"
         >
@@ -2673,7 +2673,7 @@ export function Feed({
         <button disabled={bulkReadBusy} onClick={() => setSelectedCards(null)}>Cancel</button>
       </div>}
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
-      <div className="inbox-results" hidden={needsOpen}>
+      <div className="feed-results" hidden={needsOpen}>
         {!hideFilters && filter === "done" && <DoneFeedFilters
           read={selection.read}
           agent={selectedAgent ? selection.agent : ""}
@@ -2695,14 +2695,14 @@ export function Feed({
               <span />
             </div>
           ) : feedRows.length ? (
-            <ul className="inbox-list feed">
+            <ul className="feed-list feed">
               {feedRows.map(row => row.kind === "card" ? card(row.card.item, false, row.card.thread) : <AgentThreadCard
                 key={row.key} thread={row.thread} environment={row.thread.source ? activeSources.find(source => source.id === row.thread.source)?.name : undefined}
                 onOpen={() => setReadingMail({ ...row.thread, generation })} />)}
             </ul>
           ) : (
             !error && !readError && (
-              <div className="inbox-empty">
+              <div className="feed-empty">
                 <p>
                   <strong>
                     {doneFiltered

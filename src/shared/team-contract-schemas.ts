@@ -149,14 +149,13 @@ export const RoutingInput = z.object({
 });
 export const PublicSharePreview = z.object({
   mode: z.enum(["queue", "create"]),
-  // Sharing predates effort in its read projection (added in 68789931).
   agent: z
     .object({
       id: Text,
       name: Text,
       provider: ProviderSchema,
       model: Text,
-      effort: Text.nullable().optional(),
+      effort: Text.nullable(),
     })
     .nullable(),
   // A source is returned only when the request included a link.
@@ -212,10 +211,9 @@ export const NotificationSubscriptionInput = PushSubscription.extend({
 export const PublicNotifications = z.object({
   publicKey: Text,
   endpoints: z.array(Text),
-  // Older sources expose endpoints only; category preferences arrived in 9e3781584.
-  devices: z
-    .array(z.object({ endpoint: Text, preferences: NotificationPreferences }))
-    .optional(),
+  devices: z.array(
+    z.object({ endpoint: Text, preferences: NotificationPreferences }),
+  ),
 });
 
 const Geometry = z.number().finite().min(-1e9).max(1e9);

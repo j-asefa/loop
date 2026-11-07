@@ -149,20 +149,20 @@ it("uses the agent project for new work and retains the conversation project acr
     idempotencyKey: id(),
   });
   expect(fresh.payload.folderId).toBe(second.id);
-  const inbox = submit("alice", {
+  const unfiled = submit("alice", {
     agentId: a.id,
-    input: "Explicit inbox",
+    input: "Explicit unfiled",
     folderId: null,
     idempotencyKey: id(),
   });
-  expect(inbox.payload.folderId).toBeNull();
-  const inboxReply = submit("alice", {
+  expect(unfiled.payload.folderId).toBeNull();
+  const unfiledReply = submit("alice", {
     agentId: a.id,
-    conversationId: inbox.conversation_id!,
-    input: "Stay in inbox",
+    conversationId: unfiled.conversation_id!,
+    input: "Stay in unfiled",
     idempotencyKey: id(),
   });
-  expect(inboxReply.payload.folderId).toBeNull();
+  expect(unfiledReply.payload.folderId).toBeNull();
   expect(
     belongsToProject("child", first.id, [
       { ...first, parent_id: null },

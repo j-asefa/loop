@@ -40,8 +40,7 @@ export const PublicRuntimeAuth = z.object({
   attempt: z
     .object({
       id: Text,
-      // Sources before 231973a9 omit start-command identity; absence cannot resolve a lost start.
-      commandId: Text.optional(),
+      commandId: Text,
       provider: Text,
       method: Text,
       state: z.enum([
@@ -93,10 +92,14 @@ export const PublicWorkspace = z.object({
 export const PublicRuntimes = z.object({
   computer: Text,
   online: z.literal(true),
-  // Discovery before 922d849d did not report setup lifecycle metadata.
-  setup: z
-    .enum(["idle", "preparing", "starting", "ready", "failed", "stopped"])
-    .optional(),
+  setup: z.enum([
+    "idle",
+    "preparing",
+    "starting",
+    "ready",
+    "failed",
+    "stopped",
+  ]),
   runtimes: z.array(
     z.object({
       name: RuntimeHarness,
@@ -193,12 +196,9 @@ export const PublicNativeHistory = z.object({
 export const PublicNativeHistoryDetail = z.object({
   items: z.array(PublicNativeItem),
   note: Text,
-  // Native history before d124e8c9 predates structured activity projections.
-  activities: z
-    .array(
-      z.object({ key: Text, kind: ActivityKind, record: ActivityRecordSchema }),
-    )
-    .optional(),
+  activities: z.array(
+    z.object({ key: Text, kind: ActivityKind, record: ActivityRecordSchema }),
+  ),
 });
 const ActivityRunIds = z.array(Text.min(1).max(150)).min(1).max(50);
 export const ActivityQuery = z.object({

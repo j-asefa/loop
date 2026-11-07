@@ -10,12 +10,10 @@ export const FleetSourceCapabilities = z.strictObject({
 });
 export const Capabilities = z.object({
   pairedDevices: z.boolean(),
-  /** Absent on older sources; preview sources explicitly disable management. */
-  cardTokens: z.boolean().optional(),
-  /** Absent on sources that predate personal decision history. */
-  personalDecisions: z.boolean().optional(),
-  /** Absent on sources without full recorded approval details. */
-  personalApprovalDetails: z.boolean().optional(),
+  /** Preview and fleet sources explicitly disable token management. */
+  cardTokens: z.boolean(),
+  personalDecisions: z.boolean(),
+  personalApprovalDetails: z.boolean(),
   /** Gateway projection of this enrolled machine's verified catalog. */
   fleet: FleetSourceCapabilities.optional(),
 });

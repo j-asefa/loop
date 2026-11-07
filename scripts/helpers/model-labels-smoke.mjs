@@ -77,7 +77,7 @@ export async function modelLabelsSmoke(page, fixture, capture) {
       waitUntil: "networkidle",
     });
     await expect(
-      page.locator(".inbox-row").filter({ hasText: run.input }),
+      page.locator(".feed-row").filter({ hasText: run.input }),
     ).toHaveAttribute("aria-label", /, Working$/);
     await capture("resolved-default-running");
 

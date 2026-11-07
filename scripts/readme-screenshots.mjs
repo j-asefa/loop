@@ -369,9 +369,9 @@ try {
   await capture("saved");
   await page.goto(fixture.base + "/?filter=done", { waitUntil: "networkidle" });
   await page
-    .locator(".inbox-results .inbox-card")
+    .locator(".feed-results .feed-item-card")
     .filter({ hasText: "off by a cent" })
-    .locator(".inbox-row")
+    .locator(".feed-row")
     .click();
   const reader = page.locator("dialog.feed-reading-sheet[open]");
   await reader.waitFor();

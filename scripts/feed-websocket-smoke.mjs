@@ -144,20 +144,19 @@ for (const engine of engines) {
           /\/api\/(?:agent-sources\/[^/]+\/)?events\?/,
           (route) => route.abort(),
         );
-        let legacyBootstraps = 0, legacyFeeds = 0, legacyEvents;
-        const legacySource = url => url.pathname.startsWith("/api/agent-sources/") && /\/(bootstrap|feed)$/.test(url.pathname);
-        const legacyResponse = async route => {
+        let currentBootstraps = 0, currentFeeds = 0, httpEvents;
+        const currentSource = url => url.pathname.startsWith("/api/agent-sources/") && /\/(bootstrap|feed)$/.test(url.pathname);
+        const currentResponse = async route => {
           const sourcePage = route.request().frame().page();
           try {
             const response = await route.fetch();
             if (!response.ok()) return await route.fulfill({ response });
             const body = await response.json();
             if (new URL(route.request().url()).pathname.endsWith("/bootstrap")) {
-              legacyBootstraps++;
-              for (const key of ["teams", "environmentName", "capabilities"]) delete body[key];
+              currentBootstraps++;
+              for (const key of ["teams", "environmentName"]) assert(Object.hasOwn(body, key), "Current bootstrap includes " + key);
             } else {
-              legacyFeeds++;
-              for (const item of body.items) delete item.pull;
+              currentFeeds++;
             }
             await route.fulfill({ response, json: body });
           } catch (error) {
@@ -169,16 +168,16 @@ for (const engine of engines) {
             await route.abort().catch(() => {});
           }
         };
-        const installLegacySource = async page => {
-          if (remote) await temporaryPageRoute(page, legacySource, legacyResponse);
+        const installCurrentSource = async page => {
+          if (remote) await temporaryPageRoute(page, currentSource, currentResponse);
         };
         // Keep asynchronous response transforms on the page that owns the
         // temporary routes. Removing the last page route can otherwise
         // continue a request still being fulfilled by a context callback.
         const newPage = async () => {
           const page = await context.newPage();
-          await installLegacySource(page);
-          if (legacyEvents) await temporaryPageRoute(page, /\/api\/(?:agent-sources\/[^/]+\/)?events\?/, legacyEvents);
+          await installCurrentSource(page);
+          if (httpEvents) await temporaryPageRoute(page, /\/api\/(?:agent-sources\/[^/]+\/)?events\?/, httpEvents);
           return page;
         };
         const closePage = async page => {
@@ -197,7 +196,7 @@ for (const engine of engines) {
         await working.goto(fixture.origin + "/?filter=working");
         assert.equal(await working.evaluate(() => "size" in new URLSearchParams()), false);
         const row = (page, text) =>
-          page.locator(".inbox-results .inbox-card").filter({ hasText: text });
+          page.locator(".feed-results .feed-item-card").filter({ hasText: text });
         await expect(row(working, "Local task"))
           .toHaveCount(1)
           .catch(async (error) => {
@@ -227,10 +226,10 @@ for (const engine of engines) {
         await working.evaluate(() => {
           window.__feedResetErrors=[];
           window.__feedResetObserver=new MutationObserver(() => {
-            for(const alert of document.querySelectorAll('.inbox [role="alert"]'))
+            for(const alert of document.querySelectorAll('.feed-view [role="alert"]'))
               if(/could not refresh|load the Feed/i.test(alert.textContent)) window.__feedResetErrors.push(alert.textContent);
           });
-          window.__feedResetObserver.observe(document.querySelector('.inbox'),{subtree:true,childList:true,characterData:true});
+          window.__feedResetObserver.observe(document.querySelector('.feed-view'),{subtree:true,childList:true,characterData:true});
           window.dispatchEvent(new CustomEvent("loop-workspace-change",{detail:{sources:[""],changes:[{source:"",events:[{type:"invalidate",scope:{kind:"collection",id:"feed"}}]}]}}));
         });
         await expect.poll(() => heldFeed).toBe(true);
@@ -247,8 +246,8 @@ for (const engine of engines) {
         if (remote) {
           await expect(row(working, "Remote task")).toHaveCount(1);
           await expect(working.getByRole("region", { name: "Your agents" })).toContainText("@Remote");
-          assert.ok(legacyBootstraps > 0 && legacyFeeds > 0, "Linked catalogs and Feed pages with omitted optional fields must both reach the UI");
-          console.log(`PASS ${engine} linked legacy bootstrap metadata and unknown pull state remain readable`);
+          assert.ok(currentBootstraps > 0 && currentFeeds > 0, "Current linked catalogs and Feed pages must both reach the UI");
+          console.log(`PASS ${engine} linked current bootstrap metadata and Feed state remain readable`);
           const failedSource = await newPage();
           const unavailable = "**/api/agent-sources/*/feed?*";
           const stopUnavailable = await temporaryPageRoute(failedSource, unavailable, async route => {
@@ -303,7 +302,7 @@ for (const engine of engines) {
           }
           const needsPage = await newPage();
           await needsPage.goto(fixture.origin + "/?filter=working");
-          const remoteNeed = needsPage.locator(".needs-stack .inbox-card").filter({hasText:"Remote approval task"});
+          const remoteNeed = needsPage.locator(".needs-stack .feed-item-card").filter({hasText:"Remote approval task"});
           await expect(remoteNeed).toHaveCount(1,{timeout:revisionTimeout});
           await needsPage.waitForTimeout(2500);
           const sourceIds = await needsPage.evaluate(() => [...new Set(window.__eventStreams.filter(stream => stream.readyState === WebSocket.OPEN).map(stream => stream.source))]);
@@ -361,7 +360,7 @@ for (const engine of engines) {
             await refreshNeedsSources([""]);
             await (await localNeedsRead).finished();
             releaseRemoteNeeds();
-            await expect(needsPage.locator(".needs-stack .inbox-card").filter({ hasText: "Updated remote approval task" })).toHaveCount(1);
+            await expect(needsPage.locator(".needs-stack .feed-item-card").filter({ hasText: "Updated remote approval task" })).toHaveCount(1);
           } finally {
             releaseRemoteNeeds();
             await stopNeedsHold();
@@ -496,7 +495,7 @@ for (const engine of engines) {
         await done.getByRole("button", { name: /Load more/i }).click();
         await expect(row(done, "Local history 0")).toHaveCount(1);
         const beforeCount = await done
-          .locator(".inbox-results .inbox-card")
+          .locator(".feed-results .feed-item-card")
           .count();
         // A foreground append must preserve a notification queued behind a
         // slower head read. Start a fresh page to exclude periodic recovery.
@@ -566,7 +565,7 @@ for (const engine of engines) {
         });
         await expect(row(done, "Local history 0")).toHaveCount(1);
         assert.ok(
-          (await done.locator(".inbox-results .inbox-card").count()) >
+          (await done.locator(".feed-results .feed-item-card").count()) >
             beforeCount,
         );
         if (remote) {
@@ -743,8 +742,8 @@ for (const engine of engines) {
           await context.addCookies([{name,value,url:fixture.origin,httpOnly:true,sameSite:"Lax"}]);
         }
         await context.unroute(/\/api\/(?:agent-sources\/[^/]+\/)?events\?/);
-        const legacyEventRows = new Set();
-        legacyEvents = async route => {
+        const httpEventRows = new Set();
+        httpEvents = async route => {
           const response = await route.fetch();
           if (!response.ok()) return route.fulfill({ response });
           const rows = await response.json();
@@ -753,11 +752,11 @@ for (const engine of engines) {
             if (new URL(route.request().url()).pathname === "/api/events" &&
                 row.owner_id === fixture.owner &&
                 ("subject_kind" in row || "subject_id" in row)) localRows.push(row.id);
-            delete row.subject_kind;
-            delete row.subject_id;
+            assert(Object.hasOwn(row, "subject_kind"));
+            assert(Object.hasOwn(row, "subject_id"));
           }
           await route.fulfill({ response, json: rows });
-          for (const id of localRows) legacyEventRows.add(id);
+          for (const id of localRows) httpEventRows.add(id);
         };
         const replay = await newPage();
         replay.on("pageerror", e => { if (!isWebKitNavigationFetchError(engine,e,fixture.origin)) errors.push(e.message); });
@@ -836,7 +835,7 @@ for (const engine of engines) {
               .run(fixture.owner, Date.now()).lastInsertRowid;
           })
           .immediate());
-        await expect.poll(() => legacyEventRows.has(eventId), {
+        await expect.poll(() => httpEventRows.has(eventId), {
           message: "The actual new event reaches HTTP fallback without subject fields",
           timeout: revisionTimeout,
         }).toBe(true);
@@ -853,7 +852,7 @@ for (const engine of engines) {
           "Connected to workspace",
         );
         await expect(fallback.locator(".connection-notice")).toHaveCount(0);
-        assert(legacyEventRows.has(eventId), "HTTP fallback renders production events without legacy subject fields");
+        assert(httpEventRows.has(eventId), "HTTP fallback renders current production events");
         assert.deepEqual(errors, []);
         console.log(
           `PASS ${engine}/companion: Working -> Done, retained history, concurrent refresh, reconnect, HTTP fallback health${remote ? ", linked source isolation" : ""}`,

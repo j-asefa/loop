@@ -58,7 +58,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
   await page.locator("#composer").fill("Keep my existing draft.");
   await page.getByRole("button", { name: "Collapse composer" }).click();
   const card = (index) =>
-    page.locator(".inbox-results [data-done-card]").filter({
+    page.locator(".feed-results [data-done-card]").filter({
       has: page.getByRole("heading", {
         name: done[index].title,
         exact: true,
@@ -229,7 +229,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
     await transfer.dispose();
     await expect(aggregation).toHaveCount(0);
 
-    await card(0).locator(".inbox-row").press("Shift+F10");
+    await card(0).locator(".feed-row").press("Shift+F10");
     await menu
       .getByRole("menuitem", { name: /^Combine with another card/ })
       .click();
@@ -265,7 +265,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
       .getByRole("menuitem", { name: /^Combine into a new thread/ })
       .click();
     await expect(aggregation).toHaveCount(0);
-    const grouped = page.locator(".inbox-results .inbox-card").filter({
+    const grouped = page.locator(".feed-results .feed-item-card").filter({
       has: page.getByRole("heading", {
         name: "Basil and Willow",
         exact: true,
@@ -322,7 +322,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
     await doneTab.click();
     await expect(card(0)).toHaveCount(1);
     await expect(card(1)).toHaveCount(1);
-    await card(0).locator(".inbox-row").press("Shift+F10");
+    await card(0).locator(".feed-row").press("Shift+F10");
     await menu
       .getByRole("menuitem", { name: "Select cards", exact: true })
       .click();
@@ -332,7 +332,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
     await expect(selection).toContainText("2 selected");
     // Bulk read choices affect both selected results and survive a reload.
     const selectPair = async () => {
-      await card(0).locator(".inbox-row").press("Shift+F10");
+      await card(0).locator(".feed-row").press("Shift+F10");
       await menu
         .getByRole("menuitem", { name: "Select cards", exact: true })
         .click();
@@ -491,7 +491,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
     await expect(grouped).toContainText("Result 1.");
     await expect(grouped).not.toContainText("Later work stays separate");
     await expect(
-      page.locator(".inbox-results .inbox-card").filter({
+      page.locator(".feed-results .feed-item-card").filter({
         has: page.getByRole("heading", {
           name: "A later separate result",
           exact: true,
@@ -521,7 +521,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
     })();
     await page.reload({ waitUntil: "networkidle" });
     await expect(grouped).toHaveCount(1);
-    await expect(page.locator(".inbox-results .inbox-card")).toHaveCount(41);
+    await expect(page.locator(".feed-results .feed-item-card")).toHaveCount(41);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Load more", exact: true }),

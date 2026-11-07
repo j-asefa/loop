@@ -213,6 +213,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     }
     if (match[2] === "bootstrap")
       return fulfill(route, {
+        environmentName: JSON.parse(record.connection.metadata).environmentName,
         agents: [record.agent],
         connections: [record.connection],
         folders: [],
@@ -273,18 +274,18 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     ).toContainText(computer);
     await expect(
       page
-        .locator(".inbox-card")
+        .locator(".feed-item-card")
         .filter({ hasText: "Laptop thread" })
         .locator(".card-environment"),
     ).toHaveText(computer);
     await expect(
-      page.locator(".inbox-row").filter({ hasText: "Laptop thread" }),
+      page.locator(".feed-row").filter({ hasText: "Laptop thread" }),
     ).toBeVisible();
     await expect(
-      page.locator(".inbox-row").filter({ hasText: "Remote thread 0" }),
+      page.locator(".feed-row").filter({ hasText: "Remote thread 0" }),
     ).toBeVisible();
     await expect(
-      page.locator(".inbox-row").filter({ hasText: "Remote thread 1" }),
+      page.locator(".feed-row").filter({ hasText: "Remote thread 1" }),
     ).toBeVisible();
     await expect(
       page.locator(".card-environment").filter({ hasText: "Docker · Alpha" }),
@@ -298,7 +299,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     );
     // A transient discovery/read failure retains both agent and thread DOM.
     await page
-      .locator(".inbox-row")
+      .locator(".feed-row")
       .filter({ hasText: "Remote thread 0" })
       .evaluate((el) => {
         el.dataset.retained = "yes";
@@ -341,7 +342,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       ),
     ).toBeVisible({ timeout: 20_000 });
     assert.equal(failedDiscoveryReads, 3);
-    await expect(page.locator('.inbox-row[data-retained="yes"]')).toBeVisible();
+    await expect(page.locator('.feed-row[data-retained="yes"]')).toBeVisible();
     await expect(
       strip.getByRole("button", { name: /@remote-0/ }),
     ).toBeVisible();
@@ -369,7 +370,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     // Empty Queued is loaded content. Observe every DOM mutation across
     // refreshes so even a brief skeleton flash fails this regression.
     await page.getByRole("tab", { name: /^Queued/ }).click();
-    await expect(page.locator(".inbox-row")).toHaveCount(0);
+    await expect(page.locator(".feed-row")).toHaveCount(0);
     await expect(page.locator(".feed-loading")).toHaveCount(0);
     await page.evaluate(() => {
       window.__feedFlashes = 0;
@@ -383,7 +384,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
             )
               window.__feedFlashes++;
       });
-      window.__feedObserver.observe(document.querySelector(".inbox"), {
+      window.__feedObserver.observe(document.querySelector(".feed-view"), {
         childList: true,
         subtree: true,
       });
@@ -536,12 +537,12 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     dockerPage.searchParams.set("source", sources[0].id);
     await page.goto(dockerPage.toString());
     await page
-      .locator(".inbox-row")
+      .locator(".feed-row")
       .filter({ hasText: "Laptop thread" })
       .waitFor();
     assert.equal(new URL(page.url()).searchParams.get("source"), sources[0].id);
     await page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: "Laptop thread" })
       .getByRole("button", { name: /^(Reply|Continue draft)$/ })
       .click();

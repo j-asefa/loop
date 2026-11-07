@@ -373,10 +373,10 @@ for (const engine of selectedEngines()) {
       await openTab(page, "Feed");
       await page.getByRole("tab", { name: "Threads", exact: true }).click();
       const title = await feedTitle(id);
-      const cards = page.locator(".inbox-card").filter({ has: page.locator(".inbox-row").filter({ hasText: title }) });
+      const cards = page.locator(".feed-item-card").filter({ has: page.locator(".feed-row").filter({ hasText: title }) });
       const remoteEnvironment = page.locator(".card-environment").getByText("Connected environment", { exact: true });
       const card = cards.filter(source ? { has: remoteEnvironment } : { hasNot: remoteEnvironment }).first();
-      await card.locator(".inbox-row").click();
+      await card.locator(".feed-row").click();
       await expect.poll(() => page.locator("dialog.conversation-sheet[open], dialog.feed-reading-sheet[open]").count()).toBeGreaterThan(0);
       const reader = page.locator("dialog.feed-reading-sheet[open]");
       if (await reader.count()) await reader.getByRole("button", { name: /^(Reply|Continue draft)$/ }).click();
@@ -518,7 +518,7 @@ for (const engine of selectedEngines()) {
     await expect.poll(() => linkedMetadataReads).toBeGreaterThan(0);
     await page.waitForTimeout(2500);
     await page.getByRole("tab", { name: "Threads", exact: true }).click();
-    await expect(page.locator(".inbox-row").filter({ hasText: await feedTitle(conversation.id) }).first()).toBeVisible();
+    await expect(page.locator(".feed-row").filter({ hasText: await feedTitle(conversation.id) }).first()).toBeVisible();
     linkedHold = true;
     linkedGate = new Promise(resolve => { releaseLinked = resolve; });
     await openThread(conversation.id, source);
@@ -732,7 +732,7 @@ async function anchoredLiveTail(engine) {
     };
     await openTab(page, "Feed");
     await page.getByRole("tab", { name: "Threads", exact: true }).click();
-    await page.locator(".inbox-row").filter({ hasText: "Anchored live tail" }).first().click();
+    await page.locator(".feed-row").filter({ hasText: "Anchored live tail" }).first().click();
     await expect(page.locator(`[data-message-id="${saved}"]`)).toBeInViewport();
     assert.equal(reads.length,1,"A cold saved-position open must use one conversation request");
     const liveRun = randomUUID(), liveUser = randomUUID(), liveAnswer = randomUUID(), at = Date.now();
@@ -898,7 +898,7 @@ async function snapshotRecovery(engine) {
     const openConversation = async () => {
       await openTab(page, "Feed");
       await page.getByRole("tab", { name: "Threads", exact: true }).click();
-      await page.locator(".inbox-row").filter({ hasText: conversation.title }).first().click();
+      await page.locator(".feed-row").filter({ hasText: conversation.title }).first().click();
       await expect.poll(() => page.locator("dialog.conversation-sheet[open], dialog.feed-reading-sheet[open]").count()).toBeGreaterThan(0);
       const reader = page.locator("dialog.feed-reading-sheet[open]");
       if (await reader.count()) await reader.getByRole("button", { name: /^(Reply|Continue draft)$/ }).click();

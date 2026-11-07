@@ -89,7 +89,7 @@ export async function conversationLiveSmoke(page, capture) {
         )
         .run(location, connection.id);
     const workingCard = page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: conversation.title });
     // The badge fixture changes a connection other fixture agents share;
     // restore it even when an assertion fails.
@@ -104,10 +104,10 @@ export async function conversationLiveSmoke(page, capture) {
       await page.goto(fixture.base + "/?filter=working", {
         waitUntil: "networkidle",
       });
-      await expect(workingCard.locator(".inbox-awaiting-update")).toContainText(
+      await expect(workingCard.locator(".feed-awaiting-update")).toContainText(
         "Waiting for agent update",
       );
-      await expect(workingCard.locator(".inbox-you")).toHaveCount(0);
+      await expect(workingCard.locator(".feed-you")).toHaveCount(0);
       const bootstrap = await fixture.api("/bootstrap");
       await expect(workingCard.locator(".agent-environment.laptop")).toHaveText(
         bootstrap.environmentName,

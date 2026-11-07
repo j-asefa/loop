@@ -484,7 +484,7 @@ export function workspaceList(
 ) {
   let where = "a.owner_id=? AND a.archived=0";
   const args: unknown[] = [owner];
-  if (options.folder === "inbox") where += " AND a.folder_id IS NULL";
+  if (options.folder === "unfiled") where += " AND a.folder_id IS NULL";
   else if (options.folder) {
     where += options.workspace
       ? " AND (a.folder_id=? OR a.folder_id IS NULL)"

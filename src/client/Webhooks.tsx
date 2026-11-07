@@ -231,7 +231,8 @@ export function Webhooks({
   if (unavailable)
     return (
       <SettingsNote title="Webhooks unavailable">
-        Update this source to manage webhook receivers.
+        Webhook management is unavailable on this source. Open its local
+        workspace or retry when it reconnects.
         <button
           type="button"
           onClick={() => {

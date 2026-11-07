@@ -860,13 +860,13 @@ async function browserMeasurements(gateway, destination) {
       const start = performance.now();
       await page.goto(gateway.origin, { waitUntil: "domcontentloaded" });
       await page
-        .locator(".inbox-row")
+        .locator(".feed-row")
         .first()
         .waitFor({ state: "visible", timeout: 30_000 });
       const firstUsefulFeedMs = Math.round(performance.now() - start);
       for (const machine of machines)
         await page
-          .locator(".inbox-row")
+          .locator(".feed-row")
           .filter({ hasText: "Fleet acceptance on " + machine.name })
           .waitFor({ state: "visible", timeout: 30_000 });
       await eventually(
@@ -893,7 +893,7 @@ async function browserMeasurements(gateway, destination) {
       const beforeActive = { ...metrics },
         activeAt = performance.now();
       await page
-        .locator(".inbox-row")
+        .locator(".feed-row")
         .filter({ hasText: "Fleet acceptance on " + destination.name })
         .click();
       await page

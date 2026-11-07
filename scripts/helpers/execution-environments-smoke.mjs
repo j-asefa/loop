@@ -36,7 +36,9 @@ export async function executionEnvironmentsSmoke(
   try {
     setEnvironment("laptop", "This laptop");
     await page.goto(fixture.base + "/?filter=working");
-    const card = page.locator(".inbox-card").filter({ hasText: thread.title });
+    const card = page
+      .locator(".feed-item-card")
+      .filter({ hasText: thread.title });
     const strip = page.getByRole("region", {
       name: "Your agents",
       exact: true,

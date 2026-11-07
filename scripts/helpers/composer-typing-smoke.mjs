@@ -65,7 +65,7 @@ export async function composerTypingSmoke(page, fixture, engine, capture) {
     }
   })();
   await page.goto(fixture.base, { waitUntil: "networkidle" });
-  await expect(page.locator(".inbox-results .inbox-card")).toHaveCount(40);
+  await expect(page.locator(".feed-results .feed-item-card")).toHaveCount(40);
   await page
     .getByRole("button", { name: "Compose a message", exact: true })
     .click();

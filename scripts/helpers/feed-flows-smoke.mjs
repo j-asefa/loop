@@ -6,12 +6,12 @@ import { collectionReadRecovery, signalCollection } from "./browser-errors.mjs";
 
 // Core Feed journeys: open a thread, reply in place, save a message into
 // Later, jump through the outline and set a thread reminder.
-export async function inboxFlowsSmoke(page, fixture, capture) {
+export async function feedFlowsSmoke(page, fixture, capture) {
   const dialog = () => page.locator("dialog[open]").last();
   const thread = () => page.locator("dialog.conversation-sheet[open]");
   const nav = (name) =>
     page.locator(".mobile-nav").getByRole("button", { name, exact: true });
-  const row = (title) => page.locator(`.inbox-row[aria-label^="${title}"]`);
+  const row = (title) => page.locator(`.feed-row[aria-label^="${title}"]`);
   const settled = async () => {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
     await page.waitForFunction(() => history.state?.loopSheet !== true);
@@ -90,13 +90,13 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     const reading = page.locator("dialog.feed-reading-sheet[open]");
     await expect(reading).toHaveAttribute("aria-label", target.title);
     await expect(reading.locator(".artifact-body")).toContainText(findings);
-    await capture("inbox-reading-card");
+    await capture("feed-reading-card");
     await reading.getByRole("button", { name: "Reply", exact: true }).click();
     await expect(thread()).toHaveAttribute("aria-label", target.title);
     await expect
       .poll(() => new URL(page.url()).searchParams.get("conversation"))
       .toBe(target.id);
-    await capture("inbox-open-thread");
+    await capture("feed-open-thread");
     await closeThread();
     await row(target.title).focus();
     await page.keyboard.press("Enter");
@@ -144,7 +144,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       if (route.request().method() !== "POST") return route.continue();
       requests.push(route.request().postDataJSON());
       await route.fulfill({
-        json: runReceipt(route.request(), "inbox-flow-reply"),
+        json: runReceipt(route.request(), "feed-flow-reply"),
       });
     };
     await page.route("**/api/runs", accept);
@@ -270,7 +270,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await settled();
     await page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ has: row(snoozed.title) })
       .getByRole("button", { name: "Thread actions", exact: true })
       .click();
@@ -280,17 +280,17 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       .click();
     await expect(dialog()).toHaveAttribute("aria-label", "Remind me");
     await expect(dialog()).toContainText("Nothing is sent to an agent.");
-    let omittedReplacement = false;
-    const olderCreated = async (route) => {
+    let observedReplacement = false;
+    const currentCreated = async (route) => {
       if (route.request().method() !== "POST") return route.continue();
       const response = await route.fetch();
       const data = await response.json();
       assert(Object.hasOwn(data, "replaced"));
-      delete data.replaced;
-      omittedReplacement = true;
+      assert.equal(data.replaced, null);
+      observedReplacement = true;
       await route.fulfill({ response, json: data });
     };
-    await page.route("**/api/later", olderCreated);
+    await page.route("**/api/later", currentCreated);
     await dialog()
       .getByRole("button", { name: /^Tomorrow morning/ })
       .click();
@@ -298,8 +298,8 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await expect(page.locator(".action-toast")).toContainText(
       "Reminder set: tomorrow morning.",
     );
-    assert(omittedReplacement);
-    await page.unroute("**/api/later", olderCreated);
+    assert(observedReplacement);
+    await page.unroute("**/api/later", currentCreated);
     await expect(row(snoozed.title)).toHaveCount(1);
     await expect(row(target.title)).toHaveCount(1);
     await nav("Your profile").click();
@@ -332,32 +332,26 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
         ),
     });
     await laterTab("Reminders").click();
-    // Older linked sources omit these additions independently. Remove only
-    // that field from a real response, then render the production client.
-    for (const field of ["snoozes", "url"]) {
-      let omitted = 0;
-      const olderLater = async (route) => {
-        const response = await route.fetch();
-        const data = await response.json();
-        for (const item of [...data.due, ...data.upcoming]) {
-          assert(Object.hasOwn(item, field));
-          delete item[field];
-          omitted++;
-        }
-        await route.fulfill({ response, json: data });
-      };
-      await page.route("**/api/later", olderLater);
-      try {
-        await page.reload({ waitUntil: "networkidle" });
-        await laterTab("Reminders").click();
-        await expect.poll(() => omitted).toBeGreaterThan(0);
-        await expect(reminder).toHaveCount(1);
-        await expect(reminder.locator(".subline")).toContainText("Tomorrow at");
-        await expect(later.getByRole("alert")).toHaveCount(0);
-        await capture(`later-without-${field}`);
-      } finally {
-        await page.unroute("**/api/later", olderLater);
+    // Current responses include reminder metadata; reloading keeps it readable.
+    const currentLater = async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      for (const item of [...data.due, ...data.upcoming]) {
+        assert(Object.hasOwn(item, "snoozes"));
+        assert(Object.hasOwn(item, "url"));
       }
+      await route.fulfill({ response, json: data });
+    };
+    await page.route("**/api/later", currentLater);
+    try {
+      await page.reload({ waitUntil: "networkidle" });
+      await laterTab("Reminders").click();
+      await expect(reminder).toHaveCount(1);
+      await expect(reminder.locator(".subline")).toContainText("Tomorrow at");
+      await expect(later.getByRole("alert")).toHaveCount(0);
+      await capture("later-current-metadata");
+    } finally {
+      await page.unroute("**/api/later", currentLater);
     }
     await reminder
       .getByRole("button", {
@@ -374,7 +368,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     await page.setViewportSize({ width: 320, height: 780 });
     await nav("Feed").click();
     await row(target.title).waitFor();
-    await capture("overflow-inbox-320");
+    await capture("overflow-feed-320");
     await nav("Your profile").click();
     for (const tab of ["Messages", "Saved", "Reminders", "Scheduled"]) {
       await laterTab(tab).click();

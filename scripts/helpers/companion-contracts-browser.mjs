@@ -6,8 +6,7 @@ import {
   collectionReadRecovery,
 } from "./browser-errors.mjs";
 
-// Omit additive fields from real paired production responses, never substitute
-// successful responses. Older sources must keep rendering without new authority.
+// Inspect current paired production responses while exercising their views.
 export async function companionContractsBrowser({ browser, host, db }) {
   // The main smoke sets its isolated data directory before loading server modules.
   const { applyActivity } = await import("../../dist/server/activities.js");
@@ -30,16 +29,15 @@ export async function companionContractsBrowser({ browser, host, db }) {
     )
       errors.push(error.message);
   });
-  let setupOmitted = 0,
-    historyOmitted = 0,
+  let setupReads = 0,
+    historyReads = 0,
     activityReads = 0;
   await context.route(/\/api\/workspace\/runtimes(\?.*)?$/, async (route) => {
     const response = await route.fetch(),
       body = await response.json();
     assert(response.ok());
     assert("setup" in body);
-    delete body.setup;
-    setupOmitted++;
+    setupReads++;
     await route.fulfill({ response, json: body });
   });
   await context.route(/\/api\/native\/history\/[^/?]+$/, async (route) => {
@@ -47,8 +45,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
       body = await response.json();
     assert(response.ok());
     assert(Array.isArray(body.activities));
-    delete body.activities;
-    historyOmitted++;
+    historyReads++;
     await route.fulfill({ response, json: body });
   });
   await context.route(
@@ -86,7 +83,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
       exact: true,
     });
     await expect(connections).toContainText("Claude Code");
-    await expect.poll(() => setupOmitted).toBeGreaterThan(0);
+    await expect.poll(() => setupReads).toBeGreaterThan(0);
     await expect(connections.getByRole("alert")).toHaveCount(0);
     await page.goto(host.origin);
     await settings("Native conversations");
@@ -106,7 +103,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
     await expect(
       history.getByText("Native saved context", { exact: true }),
     ).toBeVisible();
-    assert(historyOmitted > 0);
+    assert(historyReads > 0);
     await expect(history.getByRole("alert")).toHaveCount(0);
     await collectionReadRecovery(page, {
       route: (url) => url.pathname === "/api/native/history",
@@ -136,7 +133,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
         {
           v: 1,
           kind: "plan",
-          id: "contract-compatibility",
+          id: "contract-projection",
           source: {
             transport: "native",
             harness: "claude",
@@ -146,7 +143,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
             steps: [
               {
                 id: "read",
-                title: "Read compatibility projection",
+                title: "Read current projection",
                 status: "completed",
               },
             ],
@@ -166,7 +163,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
       exact: true,
     });
     await expect(
-      activity.getByText("Read compatibility projection", { exact: true }),
+      activity.getByText("Read current projection", { exact: true }),
     ).toBeVisible();
     await expect.poll(() => activityReads).toBeGreaterThan(0);
     await expect(activity.getByRole("alert")).toHaveCount(0);
@@ -181,9 +178,9 @@ export async function companionContractsBrowser({ browser, host, db }) {
       fullPage: true,
     });
     assert.deepEqual(errors, []);
-    console.log("Older-source companion contract omissions render:", {
-      setupOmitted,
-      historyOmitted,
+    console.log("Current companion contracts render:", {
+      setupReads,
+      historyReads,
       activityReads,
     });
   } finally {

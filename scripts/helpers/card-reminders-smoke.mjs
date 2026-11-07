@@ -24,7 +24,7 @@ export async function cardRemindersSmoke(page, fixture, _engine, capture) {
 
   const dialog = () => page.locator("dialog[open]").last();
   const card = (title) =>
-    page.locator(".inbox-results .inbox-card").filter({
+    page.locator(".feed-results .feed-item-card").filter({
       has: page.getByRole("heading", { name: title, exact: true }),
     });
   const settled = async () => {

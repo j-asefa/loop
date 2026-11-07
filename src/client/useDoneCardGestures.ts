@@ -79,7 +79,7 @@ export function useDoneCardGestures({
       .elementFromPoint(x, y)
       ?.closest<HTMLElement>("[data-done-card]");
     // A drag belongs to this Feed, even if another list is mounted nearby.
-    const list = active.current?.element.closest(".inbox-results");
+    const list = active.current?.element.closest(".feed-results");
     return element && element.dataset.doneCard !== id && list?.contains(element)
       ? element
       : null;

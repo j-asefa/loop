@@ -131,7 +131,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     );
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
     const before = refreshes;
-    await swipe(page.locator(".inbox-results .inbox-card").first(), 0, 260);
+    await swipe(page.locator(".feed-results .feed-item-card").first(), 0, 260);
     await page.waitForTimeout(300);
     assert.equal(refreshes, before, "Only a pull at the top refreshes");
     await page.evaluate(() =>
@@ -158,7 +158,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     // the same place, and earlier pages keep their query, results and section.
     // Put a thread title on screen, then preserve that reading position.
     // Card height changes as the Feed gains source previews and actions.
-    const visibleTitle = page.locator(".inbox-results .inbox-row h2").first();
+    const visibleTitle = page.locator(".feed-results .feed-row h2").first();
     await visibleTitle.evaluate((el) =>
       el.scrollIntoView({ block: "center", behavior: "instant" }),
     );
@@ -226,7 +226,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
       await expect(page.locator(".profile-head h1")).toBeVisible();
       await page.getByRole("tab", { name: "Results", exact: true }).click();
       const loaded = await (await profileFeed).json();
-      const cards = page.locator(".feed-card:not(.inbox-card)");
+      const cards = page.locator(".feed-card:not(.feed-item-card)");
       const cardCount = loaded.items.filter(
         (entry) => entry.card.type === "result",
       ).length;
@@ -250,7 +250,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     if (client) {
       await page.goto(fixture.base, { waitUntil: "networkidle" });
       const row = page.locator(
-        `.inbox-row[aria-label^="${fixture.conversations[0].title}"]`,
+        `.feed-row[aria-label^="${fixture.conversations[0].title}"]`,
       );
       await expect(row).toHaveCount(1);
       await swipe(row);

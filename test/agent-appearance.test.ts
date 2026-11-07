@@ -9,7 +9,6 @@ const names = readdirSync(robotDirectory)
   .filter((file) => file.endsWith(".webp"))
   .map((file) => file.slice(0, -5));
 const covers = new Set([
-  "/profile-cover.webp",
   ...readdirSync(new URL("profile-covers/", publicDirectory))
     .filter((file) => file.endsWith(".webp"))
     .map((file) => `/profile-covers/${file}`),
@@ -44,8 +43,8 @@ describe("agent appearance", () => {
     expect(namedCovers.size).toBe(100);
   });
 
-  it("makes all 112 covers reachable and varies covers for shared avatars", () => {
-    expect(covers.size).toBe(112);
+  it("makes all 100 covers reachable and varies covers for shared avatars", () => {
+    expect(covers.size).toBe(100);
     const selected = new Set<string>();
     const perAvatar = new Map<string, Set<string>>();
     for (let index = 0; index < 10000; index++) {
@@ -62,40 +61,6 @@ describe("agent appearance", () => {
     }
     for (const name of ["", "../outside", "constructor", "a/b?c", "Agent 🚀"]) {
       expect(covers.has(agentAppearance(name).cover)).toBe(true);
-    }
-  });
-
-  it("preserves existing avatar assignments and the original twelve covers", () => {
-    const originals = [
-      "atlas",
-      "nova",
-      "sage",
-      "echo",
-      "orbit",
-      "moss",
-      "ember",
-      "cobalt",
-      "owl",
-      "prism",
-      "pebble",
-      "flint",
-    ];
-    for (const name of originals) {
-      expect(agentAppearance(name).cover).toBe(
-        name === "atlas"
-          ? "/profile-cover.webp"
-          : `/profile-covers/${name}.webp`,
-      );
-    }
-    for (const [name, character, background] of [
-      // Historical name data must retain its original avatar after a rename.
-      ["Loop", "archer", "#c6ad92"],
-      ["code-reviewer", "horizon", "#d8b544"],
-      ["research-assistant", "blossom", "#b8adb7"],
-      ["planner", "mercury", "#c6ad92"],
-      ["", "ocean", "#a6b9b8"],
-    ]) {
-      expect(agentAppearance(name)).toMatchObject({ character, background });
     }
   });
 });

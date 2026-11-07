@@ -102,8 +102,8 @@ export function CardTokens({
   if (unavailable)
     return (
       <SettingsNote tone="attention">
-        Integration tokens are unavailable on this source. Update that workspace
-        to enable them, or retry when it reconnects.{" "}
+        Integration tokens are unavailable on this source. Use its local
+        workspace to manage tokens, or retry when it reconnects.{" "}
         <button type="button" onClick={() => void load()}>
           Retry list
         </button>

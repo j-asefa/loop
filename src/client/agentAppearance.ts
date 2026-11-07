@@ -1,4 +1,4 @@
-// Keep this order stable: it defines existing avatar and backdrop assignments.
+// Character order defines deterministic avatar and backdrop assignments.
 const characters = {
   atlas: "atlas",
   nova: "nova",
@@ -115,11 +115,11 @@ const backdrops = [
   "#c6ad92",
 ];
 
-// Each palette keeps its original cover and adds one scene per character.
+// Each palette contains one scene per character.
 const coverFamilies = new Map<string, string[]>();
 for (const character of names) {
   const family = characters[character];
-  const variants = coverFamilies.get(family) ?? [family];
+  const variants = coverFamilies.get(family) ?? [];
   variants.push(`${character}-scene`);
   coverFamilies.set(family, variants);
 }
@@ -134,20 +134,13 @@ export function agentAppearance(name: string) {
   const character = names[named < 0 ? (seed >>> 8) % names.length : named];
   const family = characters[character];
   const variants = coverFamilies.get(family)!;
-  // Named characters have distinct covers; the original twelve keep theirs.
+  // Named characters have distinct covers.
   // Other names vary within the palette, even when they share an avatar.
   const cover =
-    named < 0
-      ? variants[seed % variants.length]
-      : character === family
-        ? family
-        : `${character}-scene`;
+    named < 0 ? variants[seed % variants.length] : `${character}-scene`;
   return {
     character,
     background: backdrops[(named < 0 ? seed >>> 16 : named) % backdrops.length],
-    cover:
-      cover === "atlas"
-        ? "/profile-cover.webp"
-        : `/profile-covers/${cover}.webp`,
+    cover: `/profile-covers/${cover}.webp`,
   };
 }

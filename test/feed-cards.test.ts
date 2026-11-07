@@ -158,7 +158,7 @@ it("retains two nonempty source windows through outage, append and recovery", as
   ).resolves.toBeNull();
 });
 
-it("re-probes an upgraded source and distinguishes invalid cursors from lost capability", async () => {
+it("re-probes a restored source and distinguishes invalid cursors from lost capability", async () => {
   const reader = new DoneCardsReader("owner/source");
   expect(
     await reader.load(
@@ -172,10 +172,10 @@ it("re-probes an upgraded source and distinguishes invalid cursors from lost cap
   const request: CardReadTransport = async (contract, input) =>
     routePath(contract, input).includes("/changes?")
       ? { revision: "new", items: [], removed: [], more: false }
-      : { revision: "old", items: [entry("upgraded", 1)], next: "older" };
+      : { revision: "old", items: [entry("restored", 1)], next: "older" };
   expect(
     (await reader.load(request, selection, false))!.page.items[0].card.id,
-  ).toBe("d:message:upgraded");
+  ).toBe("d:message:restored");
   await expect(
     reader.load(
       async (contract, input) => {

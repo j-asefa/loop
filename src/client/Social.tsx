@@ -1634,7 +1634,7 @@ export function Social({
         </p>
       )}
       {onPage.length ? (
-        <ul className="inbox-list feed news-list" aria-label="Social">
+        <ul className="feed-list feed news-list" aria-label="Social">
           {onPage.map((story) => {
             const feed = known.get(story.feed);
             if (!feed) return null;
@@ -1691,7 +1691,7 @@ export function Social({
                           }}
                         />
                       )}
-                      <span className="eyebrow inbox-eyebrow">
+                      <span className="eyebrow feed-eyebrow">
                         {feed.kind.charAt(0).toUpperCase() + feed.kind.slice(1)}
                         <span className="card-project">
                           {" "}
@@ -1812,7 +1812,7 @@ export function Social({
           <span />
         </div>
       ) : (
-        <div className="inbox-empty">
+        <div className="feed-empty">
           <p>
             <strong>No posts right now.</strong>
           </p>

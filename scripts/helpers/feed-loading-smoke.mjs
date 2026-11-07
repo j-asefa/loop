@@ -165,7 +165,7 @@ async function feedRetryDoneSummary(page, fixture) {
     // outage, as in the other collection recovery cases.
     await page.waitForTimeout(2500);
     const feed = page.getByRole("region", { name: "Feed", exact: true });
-    const rows = feed.locator(".inbox-results .inbox-row");
+    const rows = feed.locator(".feed-results .feed-row");
     const notice = feed.locator(".collection-read-error");
     const retry = notice.getByRole("button", {
       name: "Retry connection",
@@ -253,7 +253,7 @@ async function feedClearTeamWithCursor(page, fixture, engine) {
       `${fixture.base}/?filter=done&teams=${team.id}`,
     );
     const feed = page.getByRole("region", { name: "Feed", exact: true });
-    await expect(feed.locator(".inbox-row")).toHaveCount(1);
+    await expect(feed.locator(".feed-row")).toHaveCount(1);
     await expect(
       feed.getByRole("button", { name: "Load more", exact: true }),
     ).toBeVisible();
@@ -265,7 +265,7 @@ async function feedClearTeamWithCursor(page, fixture, engine) {
     await dialog.getByRole("button", { name: "Done", exact: true }).click();
     await expect.poll(() => combinedHeads).toBeGreaterThan(0);
     await expect
-      .poll(() => feed.locator(".inbox-row").count())
+      .poll(() => feed.locator(".feed-row").count())
       .toBeGreaterThan(1);
     await expect(feed.locator(".collection-read-error")).toHaveCount(0);
     expect(errors).toEqual([]);
@@ -431,7 +431,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
   let refreshReads = 0;
   let discoveryReads = 0;
   const paginationReads = [];
-  const rows = page.locator(".inbox-results .inbox-row");
+  const rows = page.locator(".feed-results .feed-row");
   const first = rows.filter({ hasText: "First environment result" });
   const second = rows.filter({ hasText: "Second environment result" });
   const loading = page.getByRole("status", {
@@ -686,12 +686,11 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
           for (const node of record.addedNodes)
             if (
               node.nodeType === 1 &&
-              (node.matches(".inbox-empty") ||
-                node.querySelector(".inbox-empty"))
+              (node.matches(".feed-empty") || node.querySelector(".feed-empty"))
             )
               window.__feedEmptyFlashes++;
       });
-      window.__feedEmptyObserver.observe(document.querySelector(".inbox"), {
+      window.__feedEmptyObserver.observe(document.querySelector(".feed-view"), {
         childList: true,
         subtree: true,
       });
@@ -1035,11 +1034,11 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     );
     await expect(rows).toHaveCount(0);
     await expect(loading).toBeVisible();
-    await expect(page.locator(".inbox-empty")).toHaveCount(0);
+    await expect(page.locator(".feed-empty")).toHaveCount(0);
     workingHold.resolve();
     workingHold = null;
     await expect(rows).toHaveCount(0);
-    await expect(page.locator(".inbox-empty")).toBeVisible();
+    await expect(page.locator(".feed-empty")).toBeVisible();
     await page.getByRole("tab", { name: /^Queued/ }).click();
     workingHistory = false;
 
@@ -1052,7 +1051,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     pause = Promise.withResolvers();
     queuedHold = Promise.withResolvers();
     await page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: "First environment page 1" })
       .getByRole("button", { name: "Thread actions", exact: true })
       .click();
@@ -1097,7 +1096,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
       element.dataset.retained = "yes";
     });
     const firstBadge = page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: "First environment result" })
       .locator(".card-environment");
     await expect(firstBadge).toHaveText("Connected environment");
@@ -1120,7 +1119,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(second).toBeVisible();
-    await expect(page.locator('.inbox-row[data-retained="yes"]')).toBeVisible();
+    await expect(page.locator('.feed-row[data-retained="yes"]')).toBeVisible();
 
     await page.getByRole("tab", { name: /^Queued/ }).click();
     await expect(
@@ -1187,10 +1186,10 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     await expect(second).toHaveCount(0);
     await expect(loadMore).toHaveCount(0);
     const firstCard = page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: "First environment result" });
     const secondCard = page
-      .locator(".inbox-card")
+      .locator(".feed-item-card")
       .filter({ hasText: "Second environment result" });
     await firstCard
       .getByRole("button", { name: "Thread actions", exact: true })

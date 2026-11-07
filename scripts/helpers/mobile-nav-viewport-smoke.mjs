@@ -32,7 +32,7 @@ export async function mobileNavViewportSmoke(page, fixture, capture) {
     await page.setViewportSize({ width, height: 844 });
     await aligned();
     await page
-      .locator(".inbox-results .inbox-card")
+      .locator(".feed-results .feed-item-card")
       .first()
       .getByRole("button", { name: "Reply", exact: true })
       .click();

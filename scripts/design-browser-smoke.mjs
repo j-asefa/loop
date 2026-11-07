@@ -28,7 +28,7 @@ const names = [
   "withdraw-draft",
   "upload-destination",
   "attachment-picker",
-  "inbox",
+  "feed",
   "card-reminders",
   "needs-stack",
   "continuity-320",

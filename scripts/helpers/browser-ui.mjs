@@ -76,7 +76,7 @@ export async function openAgentProfile(page, name) {
 
 // Open a Feed row's action sheet (context menu) and pick an item.
 export async function inboxRowAction(page, rowName, item) {
-  const row = page.locator(".inbox-row").filter({ hasText: rowName }).first();
+  const row = page.locator(".feed-row").filter({ hasText: rowName }).first();
   await row.click({ button: "right" });
   const sheet = page.locator("dialog[open].action-sheet").last();
   await sheet.waitFor();

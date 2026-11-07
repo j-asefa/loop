@@ -7,7 +7,7 @@ export async function teamFeedVisibilitySmoke(page, fixture, engine, capture) {
   fixture.db
     .prepare("UPDATE conversations SET team_id=? WHERE id=?")
     .run(team.id, target.id);
-  const row = page.locator(`.inbox-row[aria-label^="${target.title}"]`);
+  const row = page.locator(`.feed-row[aria-label^="${target.title}"]`);
   const dialog = () => page.locator("dialog[open]").last();
   const toggle = () =>
     dialog().getByRole("checkbox", {

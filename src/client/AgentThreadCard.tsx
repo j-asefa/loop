@@ -48,7 +48,7 @@ export function AgentThreadCard({
   return (
     <li className="agent-thread-feed-row">
       <article
-        className="feed-card inbox-card agent-thread-card"
+        className="feed-card feed-item-card agent-thread-card"
         data-agent-thread={thread.id}
       >
         <header className="agent-thread-byline">
@@ -67,7 +67,7 @@ export function AgentThreadCard({
           </time>
         </header>
         <div
-          className="card-content inbox-row"
+          className="card-content feed-row"
           role="button"
           tabIndex={0}
           onClick={onOpen}

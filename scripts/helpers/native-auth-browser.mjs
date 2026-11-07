@@ -328,17 +328,8 @@ export async function nativeAuthBrowser({ browser, host, dir, db }) {
       "Account change was not confirmed",
     );
     const failedAccountStart = signInIds.at(-1);
-    await context.route(
-      "**/api/workspace/runtimes/claude/auth/status",
-      async (route) => {
-        const response = await route.fetch(),
-          body = await response.json();
-        assert.equal(body.attempt.commandId, previousAttempt.commandId);
-        delete body.attempt.commandId;
-        await route.fulfill({ response, json: body });
-      },
-      { times: 1 },
-    );
+    // The prior attempt has its own command identity, so it cannot confirm
+    // the new account change whose result was lost. Read the real response.
     await login
       .getByRole("button", { name: "Check sign-in status", exact: true })
       .click();

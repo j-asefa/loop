@@ -72,12 +72,12 @@ export async function pendingSourceRefreshSmoke(
     await page.goto(origin + "/?filter=working");
     await expect(
       page
-        .locator(".inbox-results .inbox-card")
+        .locator(".feed-results .feed-item-card")
         .filter({ hasText: "Remote task" }),
     ).toHaveCount(1);
     await expect(
       page
-        .locator(".needs-stack .inbox-card")
+        .locator(".needs-stack .feed-item-card")
         .filter({ hasText: "Remote approval task" }),
     ).toHaveCount(1);
     // Both sources must publish their initial reset and finish its reads before
@@ -133,29 +133,29 @@ export async function pendingSourceRefreshSmoke(
     await refresh([remoteSource]);
     await expect(
       page
-        .locator(".inbox-results .inbox-card")
+        .locator(".feed-results .feed-item-card")
         .filter({ hasText: "Remote pending Feed update" }),
     ).toHaveCount(1);
     await expect(
       page
-        .locator(".needs-stack .inbox-card")
+        .locator(".needs-stack .feed-item-card")
         .filter({ hasText: "Remote pending approval update" }),
     ).toHaveCount(1);
     await refresh([""]);
     releaseLocal();
     await expect(
       page
-        .locator(".inbox-results .inbox-card")
+        .locator(".feed-results .feed-item-card")
         .filter({ hasText: "Local read two" }),
     ).toHaveCount(1);
     await expect(
       page
-        .locator(".inbox-results .inbox-card")
+        .locator(".feed-results .feed-item-card")
         .filter({ hasText: "Remote pending Feed update" }),
     ).toHaveCount(1);
     await expect(
       page
-        .locator(".needs-stack .inbox-card")
+        .locator(".needs-stack .feed-item-card")
         .filter({ hasText: "Remote pending approval update" }),
     ).toHaveCount(1);
   } finally {

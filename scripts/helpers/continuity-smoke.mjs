@@ -17,8 +17,8 @@ export async function continuitySmoke(page, fixture, capture) {
   const nav = (name) =>
     page.locator(".mobile-nav").getByRole("button", { name, exact: true });
   const card = (title) =>
-    page.locator(".inbox-card").filter({
-      has: page.locator(`.inbox-row[aria-label^="${title}"]`),
+    page.locator(".feed-item-card").filter({
+      has: page.locator(`.feed-row[aria-label^="${title}"]`),
     });
   const later = page.getByRole("region", { name: "Later", exact: true });
   // Later's sections are tabs on your profile.
@@ -456,27 +456,26 @@ export async function continuitySmoke(page, fixture, capture) {
     });
     await expect(scheduled).toHaveClass(/anchored/);
     await expect(scheduled).toContainText("Waiting to send");
-    let omittedExcerpt = false;
-    const withoutExcerpt = async (route) => {
+    let observedExcerpt = false;
+    const withExcerpt = async (route) => {
       const response = await route.fetch();
       const data = await response.json();
       for (const item of data.items) {
         assert(Object.hasOwn(item, "reply_excerpt"));
-        delete item.reply_excerpt;
-        omittedExcerpt = true;
+        observedExcerpt = true;
       }
       await route.fulfill({ response, json: data });
     };
     const excerptPattern = /\/api\/scheduled-sends(?:\?|$)/;
-    await page.route(excerptPattern, withoutExcerpt);
+    await page.route(excerptPattern, withExcerpt);
     try {
       await page.reload({ waitUntil: "networkidle" });
       await laterTab("Scheduled").click();
-      await expect.poll(() => omittedExcerpt).toBe(true);
+      await expect.poll(() => observedExcerpt).toBe(true);
       await expect(scheduled).toContainText("Waiting to send");
       await expect(later.getByRole("alert")).toHaveCount(0);
     } finally {
-      // Each compatibility phase owns the page's only route. Let in-flight
+      // Each observation phase owns the page's only route. Let in-flight
       // fetch/fulfill handlers finish before removing their interception.
       await page.unrouteAll({ behavior: "wait" });
     }
@@ -497,8 +496,8 @@ export async function continuitySmoke(page, fixture, capture) {
 
     // A message refused when due stays in Needs you and Scheduled with its
     // text and reason, and can be copied back to a draft.
-    const legacyUpload = new FormData();
-    legacyUpload.append(
+    const releaseUpload = new FormData();
+    releaseUpload.append(
       "file",
       new Blob(["Release notes"], { type: "text/plain" }),
       "notes.txt",
@@ -506,14 +505,14 @@ export async function continuitySmoke(page, fixture, capture) {
     const uploaded = await fetch(fixture.base + "/api/uploads", {
       method: "POST",
       headers: fixture.headers,
-      body: legacyUpload,
+      body: releaseUpload,
     });
     assert(uploaded.ok);
-    const legacyAttachment = await uploaded.json();
+    const releaseAttachment = await uploaded.json();
     const failing = await fixture.api("/scheduled-sends", {
       agentId: agent.id,
       input: "Post the release notes",
-      attachmentIds: [legacyAttachment.id],
+      attachmentIds: [releaseAttachment.id],
       idempotencyKey: "continuity-" + randomUUID(),
       sendAt: Date.now() + 3600000,
     });
@@ -523,25 +522,23 @@ export async function continuitySmoke(page, fixture, capture) {
       "This agent is retired. Restore it from its profile before sending new work.",
       failing.id,
     );
-    // Before #40 the list had attachment IDs but no display descriptors.
-    // The real failed row must still render and copy its text to a draft.
-    let omittedScheduledFiles = false;
+    // The failed row includes attachment descriptors and can copy its text to a draft.
+    let observedScheduledFiles = false;
     const scheduledPattern = /\/api\/scheduled-sends(?:\?|$)/;
-    const olderScheduled = async (route) => {
+    const currentScheduled = async (route) => {
       const response = await route.fetch();
       const data = await response.json();
       for (const item of data.items) {
         if (item.id === failing.id) {
           assert(
-            item.attachments.some((file) => file.id === legacyAttachment.id),
+            item.attachments.some((file) => file.id === releaseAttachment.id),
           );
-          omittedScheduledFiles = true;
+          observedScheduledFiles = true;
         }
-        delete item.attachments;
       }
       await route.fulfill({ response, json: data });
     };
-    await page.route(scheduledPattern, olderScheduled);
+    await page.route(scheduledPattern, currentScheduled);
     await nav("Feed").click();
     await showNeeds();
     await expect(page.locator(".scheduled-summary")).toContainText(
@@ -563,7 +560,7 @@ export async function continuitySmoke(page, fixture, capture) {
     const failedRow = later
       .locator(".scheduled-message.not-sent")
       .filter({ hasText: "Post the release notes" });
-    await expect.poll(() => omittedScheduledFiles).toBe(true);
+    await expect.poll(() => observedScheduledFiles).toBe(true);
     await failedRow.getByRole("button", { name: "Copy to a draft" }).click();
     await expect(page.locator("#composer")).toHaveValue(
       "Post the release notes",
@@ -737,8 +734,8 @@ export async function continuitySmoke(page, fixture, capture) {
     requestWindow();
     // 6. Project history: search, outcomes, saved decisions and unfinished
     // work, keeping project scope through a thread and back.
-    let historicalSearch = false;
-    const searchWithoutLaterFields = async (route) => {
+    let currentSearch = false;
+    const searchCurrentFields = async (route) => {
       const response = await route.fetch();
       const data = await response.json();
       assert.ok(
@@ -747,12 +744,10 @@ export async function continuitySmoke(page, fixture, capture) {
       );
       assert.ok(data.items.length);
       assert.ok(data.items.every((item) => "message_id" in item));
-      delete data.semantic;
-      for (const item of data.items) delete item.message_id;
-      historicalSearch = true;
+      currentSearch = true;
       await route.fulfill({ response, json: data });
     };
-    await page.route("**/api/search?**", searchWithoutLaterFields);
+    await page.route("**/api/search?**", searchCurrentFields);
     await nav("Projects").click();
     const allProjects = page.getByRole("button", {
       name: "All projects",
@@ -768,8 +763,8 @@ export async function continuitySmoke(page, fixture, capture) {
     const projectHit = page.locator(".project-search-results .search-result");
     await expect(projectHit).toHaveCount(1);
     assert.ok(
-      historicalSearch,
-      "Search renders the production response without older-source optional fields",
+      currentSearch,
+      "Search renders the current indexing status and message references",
     );
     await page.unrouteAll({ behavior: "wait" });
     await capture("continuity-project-search");
@@ -783,9 +778,9 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.getByRole("button", { name: "Saved decisions" }).click();
     await expect(page.locator(".saved-item")).toHaveCount(1);
     await page.getByRole("button", { name: "Unfinished work" }).click();
-    await expect(page.locator(".inbox-card").first()).toBeVisible();
+    await expect(page.locator(".feed-item-card").first()).toBeVisible();
     await page.getByRole("button", { name: "Recent outcomes" }).click();
-    await expect(page.locator(".inbox-card").first()).toBeVisible();
+    await expect(page.locator(".feed-item-card").first()).toBeVisible();
     await page.getByRole("button", { name: /^Back to/ }).click();
     await expect(page.locator(".project-history-head")).toHaveCount(0);
 
@@ -1046,7 +1041,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(dialog()).not.toContainText("filtered content, compared raw");
     assert.ok(
       historicalCheckout,
-      "Checkout renders the production response without older-source optional fields",
+      "Checkout renders a current unscoped, unfiltered comparison",
     );
     await page.unrouteAll({ behavior: "wait" });
     await expect(dialog()).not.toContainText("theme.css");

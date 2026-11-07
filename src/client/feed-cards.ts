@@ -2,7 +2,7 @@ import { CardPager, type CardWindow } from "./card-pager";
 import { contractCardReader } from "../shared/card-client";
 import type { CardSelection } from "../shared/cards";
 
-/** One source/owner/selection. Unsupported sources retain the legacy Done path. */
+/** One source/owner/selection. Unavailable card reads can use the Feed read. */
 export class DoneCardsReader {
   readonly pager = new CardPager();
   hasMore = false;
@@ -35,7 +35,7 @@ export class DoneCardsReader {
     allowResync = true,
   ): Promise<CardWindow | null> {
     if (this.supported === false) {
-      // Re-probe on refresh: a paired source can upgrade without a page reload.
+      // Re-probe on refresh: source availability can change without a page reload.
       this.supported = null;
       this.pager.reset(this.key);
     }
@@ -59,7 +59,7 @@ export class DoneCardsReader {
             this.supported = true;
             return page;
           } catch (error) {
-            // Only a first-page capability probe may use the old contract.
+            // Only a first-page availability probe may use the Feed contract.
             // A failed cursor, expired session or outage must retain its window.
             if (
               this.supported === null &&

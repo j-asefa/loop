@@ -118,15 +118,27 @@ it("preserves source-bound request filters without URLSearchParams.size", async 
   }
 });
 
-it("reads legacy source catalogs without inventing optional metadata or accepting malformed present fields", async () => {
-  const catalog = { agents: [], connections: [], folders: [] };
+it("reads current source catalogs and refuses missing or malformed metadata", async () => {
+  const catalog = {
+    agents: [],
+    connections: [],
+    folders: [],
+    teams: [],
+    environmentName: "Source",
+  };
   fetcher.mockResolvedValueOnce(Response.json(catalog));
   await expect(
-    callRoute(workspaceApi.bootstrap, {}, "docker:legacy"),
+    callRoute(workspaceApi.bootstrap, {}, "docker:source"),
   ).resolves.toEqual(catalog);
+  fetcher.mockResolvedValueOnce(
+    Response.json({ ...catalog, teams: undefined }),
+  );
+  await expect(
+    callRoute(workspaceApi.bootstrap, {}, "docker:source"),
+  ).rejects.toBeInstanceOf(UnavailableResponse);
   fetcher.mockResolvedValueOnce(Response.json({ ...catalog, teams: null }));
   await expect(
-    callRoute(workspaceApi.bootstrap, {}, "docker:legacy"),
+    callRoute(workspaceApi.bootstrap, {}, "docker:source"),
   ).rejects.toBeInstanceOf(UnavailableResponse);
 });
 

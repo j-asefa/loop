@@ -42,7 +42,7 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   await expect(
     filters.getByRole("tab", { name: "Done", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(".inbox-results .inbox-list")).toContainText(
+  await expect(page.locator(".feed-results .feed-list")).toContainText(
     "Workspace notes are ready.",
   );
   await page.evaluate((project) => {
@@ -72,7 +72,7 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   await expect(
     page.getByRole("searchbox", { name: "Search Workspace", exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".inbox-results .inbox-list")).toContainText(
+  await expect(page.locator(".feed-results .feed-list")).toContainText(
     "Organize workspace notes",
   );
   await tabs.getByRole("button", { name: "Agents", exact: true }).click();

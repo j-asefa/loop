@@ -34,7 +34,6 @@ export function MarkdownDefinitions({
   }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [unavailable, setUnavailable] = useState(false);
   const [revision, setRevision] = useState(0);
   const locked = useRef(false);
   const alive = useRef(true);
@@ -69,11 +68,6 @@ export function MarkdownDefinitions({
       })
       .catch((e) => {
         if (!controller.signal.aborted && owner === viewOwner()) {
-          // A missing linked workspace also returns 404. Preserve its recovery
-          // guidance; only an absent endpoint means the feature is unavailable.
-          setUnavailable(
-            e.status === 404 && e.message === "Endpoint not found",
-          );
           setError(e.message);
         }
       });
@@ -132,25 +126,6 @@ export function MarkdownDefinitions({
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  if (unavailable)
-    return (
-      <Sheet title="Markdown definitions" onClose={onClose}>
-        <p role="status">
-          Markdown definitions are unavailable in this workspace. Update Loop on
-          that computer to use them.
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            setUnavailable(false);
-            setError("");
-            setRevision((value) => value + 1);
-          }}
-        >
-          Check again
-        </button>
-      </Sheet>
-    );
   return (
     <Sheet
       title={editing ? "Edit Markdown definition" : "Markdown definitions"}

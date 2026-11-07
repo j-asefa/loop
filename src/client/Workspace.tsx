@@ -218,7 +218,7 @@ export function FileSheet({
           <div className="actions">
             <a
               className="text-button"
-              href={`/?folder=${result.folderId || "inbox"}`}
+              href={`/?folder=${result.folderId || "unfiled"}`}
             >
               Open folder
               <ArrowUpRight size={16} />
@@ -337,7 +337,8 @@ export function Saved({
     try {
       const query: RouteInput<typeof workspaceApi.artifactList>["query"] = {};
       if (!embedded && view === "pinned") query.pinned = "1";
-      else if (embedded || view === "folders") query.folder = folder || "inbox";
+      else if (embedded || view === "folders")
+        query.folder = folder || "unfiled";
       if (append && next) query.before = String(next);
       const r = await callRoute(
         workspaceApi.artifactList,

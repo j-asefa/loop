@@ -142,7 +142,7 @@ export async function agentThreadFeedSmoke(page, fixture, _engine, capture) {
   await expect(mailCard(separate)).toHaveCount(1);
   await expect(mailCard(separate)).toContainText(longSubject);
   const widths = await page
-    .locator(".inbox-results .inbox-list > li")
+    .locator(".feed-results .feed-list > li")
     .evaluateAll((rows) =>
       rows.map((row) => [
         row.getBoundingClientRect().width,
@@ -240,7 +240,7 @@ export async function agentThreadFeedSmoke(page, fixture, _engine, capture) {
   await close(reader);
   await expect(mailCard(first)).toContainText("3 messages");
   await expect(
-    page.locator(".inbox-results .inbox-card").filter({
+    page.locator(".feed-results .feed-item-card").filter({
       has: page.getByRole("heading", {
         name: "Unrelated task result",
         exact: true,

@@ -142,12 +142,12 @@ export const PublicLater = z.object({
   created_at: Time,
   surfaced_at: Time.nullable(),
   done_at: Time.nullable(),
-  // Sources before mobile continuity (#40, 74d4971a) omit this counter.
-  snoozes: z.number().optional(),
+
+  snoozes: z.number(),
 });
-// Sources before mobile continuity (#40, 74d4971a) omit the Undo receipt.
+
 export const PublicCreatedLater = PublicLater.extend({
-  replaced: MaybeText.optional(),
+  replaced: MaybeText,
 });
 export const PublicLaterView = PublicLater.extend({
   title: Text,
@@ -158,8 +158,8 @@ export const PublicLaterView = PublicLater.extend({
   message_id: MaybeText,
   agent_name: MaybeText,
   project_name: MaybeText,
-  // Sources before Social reminders (#95, 84927d11) omit the external URL.
-  url: MaybeText.optional(),
+
+  url: MaybeText,
 });
 export const PublicLaterList = z.object({
   due: z.array(PublicLaterView),
@@ -183,8 +183,8 @@ export const PublicScheduledSend = z.object({
   input: Text,
   attachment_ids: Text,
   reply_to_message_id: MaybeText,
-  // Sources before partial replies (#49, 7451a561) omit the excerpt column.
-  reply_excerpt: MaybeText.optional(),
+
+  reply_excerpt: MaybeText,
   idempotency_key: Text,
   send_at: Time,
   state: Text,
@@ -197,8 +197,8 @@ export const PublicScheduledView = PublicScheduledSend.extend({
   provider: MaybeText,
   conversation_title: MaybeText,
   folder_name: MaybeText,
-  // Sources before mobile continuity (#40, 74d4971a) return IDs but no descriptors.
-  attachments: z.array(PublicUploadDescriptor).optional(),
+
+  attachments: z.array(PublicUploadDescriptor),
 });
 export const PublicScheduledList = z.object({
   items: z.array(PublicScheduledView),
@@ -218,9 +218,8 @@ const Tokens = z.object({
 export const PublicUsage = z.object({
   runs: z.record(Text, Tokens),
   total: Tokens,
-  // Sources before thread decluttering (#54, 360472ad) omit receipt identities.
-  // Absence must not offer a Memory used action.
-  memory: z.array(Text).optional(),
+
+  memory: z.array(Text),
 });
 export const PublicSnippets = z.object({
   items: z.array(

@@ -58,7 +58,7 @@ export async function replyKeyboardSmoke(page, fixture, capture) {
         await page.goto(fixture.base, { waitUntil: "networkidle" });
         await openAgentProfile(page, author);
         await page
-          .locator(".feed-card:not(.inbox-card)")
+          .locator(".feed-card:not(.feed-item-card)")
           .first()
           .getByRole("button", { name: "Reply", exact: true })
           .click();

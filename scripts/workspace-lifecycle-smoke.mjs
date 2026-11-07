@@ -42,11 +42,11 @@ for (const engine of selectedEngines()) {
         .locator(".mobile-nav")
         .getByRole("button", { name, exact: true })
         .click();
-    const inboxFilter = (name) =>
+    const feedFilter = (name) =>
       page
-        .locator(".inbox")
+        .locator(".feed-view")
         .getByRole("tablist", { name: "Show" })
-        .getByRole("tab", { name, exact: true });
+        .getByRole("tab", { name: new RegExp(`^${name}(?: \\d+)?$`) });
     // The header gear opens the settings drawer; its pages open from there.
     const accountMenu = async (item) => {
       await page
@@ -211,13 +211,10 @@ for (const engine of selectedEngines()) {
         page.getByText("Tap Save on any result or message"),
       ).toBeVisible();
       await nav("Feed");
-      await expect(inboxFilter("Done")).toHaveAttribute(
-        "aria-selected",
-        "true",
-      );
+      await expect(feedFilter("Done")).toHaveAttribute("aria-selected", "true");
       // The saved result's thread is in the selected team's Feed.
       await expect(
-        page.locator(`.inbox-row[aria-label^="${saved.title}"]`),
+        page.locator(`.feed-row[aria-label^="${saved.title}"]`),
       ).toBeVisible();
 
       // Failed requests leave the confirmation usable, then the same action can
@@ -477,8 +474,8 @@ for (const engine of selectedEngines()) {
           Date.now(),
         );
       const watchRoute = (url) => url.pathname === "/api/pr-watches";
-      let olderWatchReads = 0;
-      const olderWatch = async (route) => {
+      let currentWatchReads = 0;
+      const currentWatch = async (route) => {
         if (route.request().method() !== "GET") return route.continue();
         const response = await route.fetch();
         const body = await response.json();
@@ -493,13 +490,12 @@ for (const engine of selectedEngines()) {
               Object.hasOwn(watch, field),
               "Current production response includes " + field,
             );
-            delete watch[field];
           }
-          olderWatchReads++;
+          currentWatchReads++;
         }
         await route.fulfill({ response, json: body });
       };
-      await page.route(watchRoute, olderWatch);
+      await page.route(watchRoute, currentWatch);
       await page.goto(fixture.base + "/?artifact=" + prCard);
       const watch = page.getByRole("group", { name: "Watch pull request" });
       await expect(watch).toContainText("Watching. CI results, reviews");
@@ -523,10 +519,10 @@ for (const engine of selectedEngines()) {
       );
       await expect(watch.getByRole("button")).toHaveCount(0);
       assert(
-        olderWatchReads > 0,
-        "Older watch projections remain readable through the production client",
+        currentWatchReads > 0,
+        "Current watch projections remain readable through the production client",
       );
-      await page.unroute(watchRoute, olderWatch);
+      await page.unroute(watchRoute, currentWatch);
     }
     await page.goto(fixture.base);
     await accountMenu("Notifications");
@@ -562,42 +558,6 @@ for (const engine of selectedEngines()) {
       "Notifications are off for this device.",
     );
     assert.deepEqual((await fixture.api("/notifications")).endpoints, []);
-    // Sources before notification categories returned publicKey/endpoints only.
-    // Preserve device opt-in without offering unsupported category controls.
-    const notificationEndpoint = fixture.base + "/api/notifications";
-    let legacyNotifications = 0;
-    const withoutDevices = async (route) => {
-      const response = await route.fetch();
-      assert.equal(response.ok(), true);
-      const body = await response.json();
-      delete body.devices;
-      legacyNotifications++;
-      await route.fulfill({ response, json: body });
-    };
-    await page.route(notificationEndpoint, withoutDevices);
-    try {
-      await page.goto(fixture.base);
-      await accountMenu("Notifications");
-      await expect(resultNotifications()).toBeEnabled();
-      await resultNotifications().click();
-      await expect(dialog().getByRole("status")).toHaveText(
-        "Notifications are on for this device.",
-      );
-      await expect(dialog().getByRole("checkbox")).toHaveCount(1);
-      await expect(dialog().getByRole("alert")).toHaveCount(0);
-      assert.ok(legacyNotifications >= 2);
-      if (evidence)
-        await page.screenshot({
-          path: `${evidence}/${engine.name()}-notifications-older-response.png`,
-        });
-      await resultNotifications().click();
-      await expect(dialog().getByRole("status")).toHaveText(
-        "Notifications are off for this device.",
-      );
-      assert.deepEqual((await fixture.api("/notifications")).endpoints, []);
-    } finally {
-      await page.unroute(notificationEndpoint, withoutDevices);
-    }
     if (!notificationsOnly) {
       const capture = async (name) => {
         if (evidence)
@@ -607,17 +567,16 @@ for (const engine of selectedEngines()) {
       };
       await teamPresetsSmoke(page, fixture, engine, capture);
       await markdownDefinitionsSmoke(page, fixture, engine, capture);
-      // The sharing projection originally omitted effort. Retain the actual
-      // route's selected agent and allow previewing without that display field.
+      // Inspect the current sharing projection without altering its fields.
       const shareEndpoint = fixture.base + "/api/share/preview";
-      let legacyShares = 0;
-      const withoutEffort = async (route) => {
+      let currentShares = 0;
+      const currentShare = async (route) => {
         const response = await route.fetch();
         assert.equal(response.ok(), true);
         const body = await response.json();
         assert.equal(body.agent.id, fixture.agents[0].id);
-        delete body.agent.effort;
-        legacyShares++;
+        assert(Object.hasOwn(body.agent, "effort"));
+        currentShares++;
         await route.fulfill({ response, json: body });
       };
       try {
@@ -628,7 +587,7 @@ for (const engine of selectedEngines()) {
         );
         // Register on the loaded page: WebKit intermittently bypassed the
         // same handler when it was installed before this navigation.
-        await page.route(shareEndpoint, withoutEffort);
+        await page.route(shareEndpoint, currentShare);
         const share = page.getByRole("dialog", {
           name: "Bring it into Loop",
           exact: true,
@@ -643,10 +602,10 @@ for (const engine of selectedEngines()) {
           share.getByRole("button", { name: "Send after review", exact: true }),
         ).toBeEnabled();
         await expect(share.getByRole("alert")).toHaveCount(0);
-        assert.equal(legacyShares, 1);
-        await capture("sharing-older-response");
+        assert.equal(currentShares, 1);
+        await capture("sharing-current-response");
       } finally {
-        await page.unroute(shareEndpoint, withoutEffort);
+        await page.unroute(shareEndpoint, currentShare);
       }
     }
     assert.deepEqual(errors, []);

@@ -33,12 +33,11 @@ export type WatchRow = {
   head_sha: string | null;
   ci_sha: string | null;
   ci_conclusion: string | null;
-  /** Absent from an older linked server: freshness is then unknown. */
-  ci_pending?: number;
-  read_at?: number | null;
+  ci_pending: number;
+  read_at: number | null;
   /** The result the last read saw, which may still be waiting for delivery. */
-  seen_ci_sha?: string | null;
-  seen_ci_conclusion?: string | null;
+  seen_ci_sha: string | null;
+  seen_ci_conclusion: string | null;
 };
 
 export function pullStateFromWatch(watch: WatchRow): PullState {
@@ -61,9 +60,7 @@ export function pullStateFromWatch(watch: WatchRow): PullState {
     error: watch.error,
     head_sha: watch.head_sha,
     ci: concluded,
-    // Without the freshness fields (an older linked server), a conclusion
-    // is never shown as current.
-    pending: watch.ci_pending === undefined ? true : !!watch.ci_pending,
-    checked_at: watch.read_at === undefined ? null : watch.read_at,
+    pending: !!watch.ci_pending,
+    checked_at: watch.read_at,
   };
 }

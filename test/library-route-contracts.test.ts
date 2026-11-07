@@ -364,15 +364,6 @@ it("runCheckout projects a captured Git checkout without internal capture coordi
       (file: { path: string }) => file.path === "tracked.txt",
     ).filtered,
   ).toBe(true);
-  const older = structuredClone(result.data);
-  delete older.summary.scope;
-  for (const file of [
-    ...older.files,
-    ...older.working.files,
-    ...(older.committed?.files ?? []),
-  ])
-    delete file.filtered;
-  expect(workspaceApi.runCheckout.response.parse(older)).toEqual(older);
   expect(await invalid(`/runs/${run.id}/checkout`)).toMatchObject(bad);
 });
 it("runVerifications returns observed command exits and output tails", async () => {
@@ -417,10 +408,6 @@ it("search preserves excerpts and pagination while dropping retrieval internals"
     delete item.vector;
   }
   expect(result.data).toEqual(expected);
-  const older = structuredClone(result.data);
-  delete older.semantic;
-  for (const item of older.items) delete item.message_id;
-  expect(workspaceApi.search.response.parse(older)).toEqual(older);
   expect(await request("/search")).toMatchObject(bad);
   expect(
     (await request("/search?q=library&agent=a&agent=b&from=bad")).data,

@@ -343,11 +343,11 @@ try {
   const feedStart = performance.now();
   await page.evaluate(() => window.showFeed());
   await page
-    .locator(".inbox-results .inbox-row")
+    .locator(".feed-results .feed-row")
     .first()
     .waitFor({ state: "visible" });
   const firstUsefulFeedMs = Math.round(performance.now() - feedStart);
-  await expect(page.locator(".inbox-results .inbox-row")).toHaveCount(8);
+  await expect(page.locator(".feed-results .feed-row")).toHaveCount(8);
   assert(
     pending.size > 0,
     "Healthy Feed rows must render while the slow source remains pending",
@@ -366,7 +366,7 @@ try {
       "Some environments could not refresh. Showing their last loaded threads.",
     ),
   ).toBeVisible();
-  await expect(page.locator(".inbox-results .inbox-row")).toHaveCount(8);
+  await expect(page.locator(".feed-results .feed-row")).toHaveCount(8);
   assert(
     feedMetrics.peak <= 4,
     "Feed reads must retain the production four-source concurrency bound",
@@ -393,7 +393,7 @@ try {
   mode = "needs";
   hold = true;
   await page.evaluate(() => window.showNeeds());
-  await expect(page.locator(".needs-stack .inbox-row")).toHaveCount(8);
+  await expect(page.locator(".needs-stack .feed-row")).toHaveCount(8);
   await expect(page.locator('[data-filter="working"] .chip-count')).toHaveText(
     "8",
   );
@@ -427,7 +427,7 @@ try {
   hold = false;
   for (const release of pending) release();
   pending.clear();
-  await expect(page.locator(".needs-stack .inbox-row")).toHaveCount(9);
+  await expect(page.locator(".needs-stack .feed-row")).toHaveCount(9);
   await expect(page.locator('[data-filter="working"] .chip-count')).toHaveText(
     "9",
   );

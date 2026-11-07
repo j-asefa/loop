@@ -5840,7 +5840,7 @@ select {
 }
 
 /* ---------------------------------------------------------------------------
-   Mobile return & defer: Inbox, Later, compact threads and shared controls.
+   Mobile return & defer: Feed, Later, compact threads and shared controls.
    Appended last so it takes precedence over the earlier layered rules.
 --------------------------------------------------------------------------- */
 
@@ -5901,17 +5901,17 @@ select {
 }
 /* The four Feed filters fit a phone without scrolling: they share the row
    and their counts sit on the corner instead of widening the chip. */
-.inbox-filters {
+.feed-tabs {
   gap: 6px;
   padding-top: 9px;
 }
-.inbox-filters .chip {
+.feed-tabs .chip {
   position: relative;
   flex: 1 0 auto;
   justify-content: center;
   padding: 6px 10px;
 }
-.inbox-filters .chip-count {
+.feed-tabs .chip-count {
   position: absolute;
   top: -8px;
   right: 2px;
@@ -6002,7 +6002,7 @@ select {
 }
 .needs-stack-cards .run-list,
 .needs-stack-cards .scheduled-sends,
-.needs-stack-cards .inbox-list {
+.needs-stack-cards .feed-list {
   display: contents;
 }
 .needs-stack-cards :is(.approval-card, .native-decision, .scheduled-message) {
@@ -6192,8 +6192,8 @@ select {
   margin: 0 0 8px;
 }
 
-/* Inbox: threads as full-size cards (same size as result cards) */
-.inbox-list {
+/* Feed: threads as full-size cards (same size as result cards) */
+.feed-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -6202,27 +6202,27 @@ select {
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
-.inbox-card .inbox-avatar {
+.feed-item-card .feed-avatar {
   position: relative;
   display: inline-flex;
 }
-.inbox-eyebrow {
+.feed-eyebrow {
   display: flex;
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
 }
-.inbox-detail {
+.feed-detail {
   margin: 0 0 8px;
 }
-.inbox-you {
+.feed-you {
   display: block;
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
   margin-bottom: 4px;
 }
-.inbox-draft {
+.feed-draft {
   margin: 8px 0 0;
   font-size: 14px;
   color: var(--muted);
@@ -6254,17 +6254,17 @@ select {
 .armed-left .swipe-under.right {
   opacity: 1;
 }
-.inbox-empty {
+.feed-empty {
   padding: 28px 16px;
   text-align: center;
   color: var(--muted);
   border: 1px dashed var(--line);
   border-radius: 16px;
 }
-.inbox-empty strong {
+.feed-empty strong {
   color: var(--text);
 }
-.inbox .run-list {
+.feed-view .run-list {
   display: grid;
   gap: 12px;
   margin-bottom: 14px;
@@ -7693,12 +7693,12 @@ details > summary {
   align-items: center;
   gap: 6px;
 }
-.inbox-card-details {
+.feed-item-details {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.inbox-card-details .changes-chip {
+.feed-item-details .changes-chip {
   min-width: 0;
   max-width: 100%;
   min-height: 24px;
@@ -7713,12 +7713,12 @@ details > summary {
   text-align: left;
   gap: 4px;
 }
-.inbox-card-details .changes-chip > svg {
+.feed-item-details .changes-chip > svg {
   width: 12px;
   height: 12px;
   flex-shrink: 0;
 }
-.inbox-card-details .changes-chip > span {
+.feed-item-details .changes-chip > span {
   font-weight: inherit;
   white-space: nowrap;
   overflow: hidden;
@@ -7969,10 +7969,10 @@ details > summary {
 .outline-copy {
   grid-template-columns: minmax(0, 1fr);
 }
-.inbox-card-wrap .swipe-under.left {
+.feed-item-wrap .swipe-under.left {
   background: var(--blue);
 }
-.inbox-card-wrap .swipe-under.right {
+.feed-item-wrap .swipe-under.right {
   background: var(--brass-text);
 }
 .queued-controls {
@@ -9537,7 +9537,7 @@ html:has(.sheet.side-panel[open]) {
 .workspace-content:has(.social-controls[hidden]) > .page-heading,
 .workspace-content:has(.social-controls[hidden]) > .workspace-scope,
 .workspace-content:has(.social-controls[hidden]) > .your-agents,
-.inbox:has(.social-controls[hidden]) > .away-card {
+.feed-view:has(.social-controls[hidden]) > .away-card {
   display: none;
 }
 .social-intro {

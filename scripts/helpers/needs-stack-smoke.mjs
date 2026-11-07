@@ -17,7 +17,7 @@ export async function needsStackSmoke(page, fixture, capture) {
     // No card from the selected Feed filter may remain visible alongside
     // the expanded attention cards.
     const visibleCards = feed.locator(
-      ".approval-card:visible, .native-decision:visible, .scheduled-message:visible, .inbox-card-wrap:visible, .news-card:visible",
+      ".approval-card:visible, .native-decision:visible, .scheduled-message:visible, .feed-item-wrap:visible, .news-card:visible",
     );
     await expect(visibleCards).toHaveCount(3);
     expect(
@@ -37,7 +37,7 @@ export async function needsStackSmoke(page, fixture, capture) {
     ["Queued", "queued"],
   ]) {
     await tab(filter).click();
-    const selectedCard = feed.locator(".inbox-row").filter({
+    const selectedCard = feed.locator(".feed-row").filter({
       hasText: fixture.conversations.find((c) => c.state === state).title,
     });
     await expect(selectedCard).toBeVisible();
@@ -59,7 +59,7 @@ export async function needsStackSmoke(page, fixture, capture) {
     await tab(filter).click();
     await expect(collapse).toHaveCount(0);
     await expect(tab(filter)).toHaveAttribute("aria-selected", "true");
-    await expect(feed.locator(".inbox-row:visible").first()).toBeVisible();
+    await expect(feed.locator(".feed-row:visible").first()).toBeVisible();
   }
 
   // Double-tapping Feed returns to Done, including when Done was already
@@ -73,7 +73,7 @@ export async function needsStackSmoke(page, fixture, capture) {
     .dblclick({ delay: 100 });
   await expect(collapse).toHaveCount(0);
   await expect(tab("Done")).toHaveAttribute("aria-selected", "true");
-  await expect(feed.locator(".inbox-row:visible")).toHaveCount(2);
+  await expect(feed.locator(".feed-row:visible")).toHaveCount(2);
 
   // When only one attention card remains, folding automatically restores
   // the selected feed instead of leaving it hidden.
@@ -101,7 +101,7 @@ export async function needsStackSmoke(page, fixture, capture) {
     }),
   );
   await needs
-    .locator(".inbox-card")
+    .locator(".feed-item-card")
     .filter({ hasText: failed.title })
     .getByRole("button", { name: "Thread actions", exact: true })
     .click();
@@ -137,7 +137,7 @@ export async function needsStackSmoke(page, fixture, capture) {
   );
   await expect(collapse).toHaveCount(0);
   await expect(tab("Working")).toHaveAttribute("aria-selected", "true");
-  await expect(feed.locator(".inbox-row:visible")).toHaveCount(1);
+  await expect(feed.locator(".feed-row:visible")).toHaveCount(1);
 
   // A host restart can interrupt an agent while its MCP call is awaiting
   // approval. The approval card must become a visible interruption card.
@@ -153,7 +153,7 @@ export async function needsStackSmoke(page, fixture, capture) {
     window.dispatchEvent(new Event("loop-source-refresh")),
   );
   const interrupted = needs
-    .locator(".inbox-card")
+    .locator(".feed-item-card")
     .filter({ hasText: awaiting.title });
   await expect(interrupted).toBeVisible();
   await expect(interrupted).toContainText(

@@ -1766,7 +1766,7 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
   expect((db.prepare("SELECT content FROM messages WHERE run_id=?").get(third.id) as any).content).toBe("third, edited");
   expect((await api("intruder", `/runs/${third.id}`, "PATCH", { input: "x" })).status).toBe(404);
   expect((await api(w.owner, `/runs/${third.id}`, "PATCH", { input: "" })).status).toBe(400);
-  // The inbox offers only the moves a reorder can make.
+  // The Feed offers only the moves a reorder can make.
   const moves = async (conversationId: string) => {
     const item = (await api(w.owner, "/feed?filter=queued")).data.items.find(
       (i: any) => i.conversation_id === conversationId,
@@ -1782,7 +1782,7 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
   ).queued_runs;
   expect(listed.map((r: any) => r.id)).toEqual([first.id, second.id, third.id]);
   expect(listed.every((r: any) => r.can_edit)).toBe(true);
-  // Opening a long queued prompt from the Inbox and saving it unchanged keeps
+  // Opening a long queued prompt from the Feed and saving it unchanged keeps
   // every character.
   const long = "Step " + "x".repeat(714);
   await api(w.owner, `/runs/${second.id}`, "PATCH", { input: long });

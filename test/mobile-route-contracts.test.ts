@@ -276,13 +276,10 @@ it("savedList preserves both production bookmark and pinned-artifact projections
   expect(
     result.data.items.map((item: { kind: string }) => item.kind).sort(),
   ).toEqual(["message", "result"]);
-  const older = structuredClone(result.data);
-  for (const item of older.items) delete item.label;
-  expect(workspaceApi.savedList.response.parse(older)).toEqual(older);
   expect(
     workspaceApi.savedList.response.safeParse({
-      ...older,
-      items: older.items.map((item: object) => ({ ...item, label: 123 })),
+      ...result.data,
+      items: result.data.items.map((item: object) => ({ ...item, label: 123 })),
     }).success,
   ).toBe(false);
   expect(await request("/saved?before=invalid")).toMatchObject(bad);
@@ -332,8 +329,6 @@ it("laterCreate requires its existing target and trigger, and reports replacemen
   const result = await request("/later", laterInput());
   valid(workspaceApi.laterCreate, result);
   expect(result.data).toEqual({ ...laterRow(result.data.id)!, replaced: null });
-  const { replaced: _, ...older } = result.data;
-  expect(workspaceApi.laterCreate.response.parse(older)).toEqual(older);
   const next = await request("/later", laterInput());
   valid(workspaceApi.laterCreate, next);
   expect(next.data.replaced).toBe(result.data.id);
@@ -347,17 +342,11 @@ it("laterCreate requires its existing target and trigger, and reports replacemen
     ).status,
   ).toBe(404);
 });
-it("laterList preserves production views and only historically optional additions can be absent", async () => {
+it("laterList preserves production reminder views", async () => {
   const result = await request("/later");
   valid(workspaceApi.laterList, result);
   expect(result.data).toEqual(mobile.listLater(owner));
   expect(result.data.upcoming.length).toBeGreaterThan(0);
-  const older = structuredClone(result.data);
-  for (const item of [...older.due, ...older.upcoming]) {
-    delete item.snoozes;
-    delete item.url;
-  }
-  expect(workspaceApi.laterList.response.parse(older)).toEqual(older);
   expect(await invalid("/later")).toMatchObject(bad);
 });
 it("laterFinish marks a reminder done without deleting its identity", async () => {
@@ -443,11 +432,6 @@ it("scheduledSendList projects stored upload descriptors and preserves the faile
   valid(workspaceApi.scheduledSendList, result);
   expect(result.data).toEqual(mobile.listScheduledSends(owner));
   expect(result.data.items[0].attachments[0]).toEqual(file);
-  for (const field of ["attachments", "reply_excerpt"]) {
-    const older = structuredClone(result.data);
-    for (const item of older.items) delete item[field];
-    expect(workspaceApi.scheduledSendList.response.parse(older)).toEqual(older);
-  }
   expect(await request("/scheduled-sends?failedBefore=invalid")).toMatchObject(
     bad,
   );
@@ -600,7 +584,7 @@ it("conversationFork copies production messages through the requested message", 
   );
   expect(JSON.parse(copied.at(-1)!.metadata).sourceMessage).toBe(message.id);
 });
-it("conversationUsage preserves production receipts and tolerates only absent legacy memory identities", async () => {
+it("conversationUsage preserves production receipts and memory identities", async () => {
   db.prepare(
     "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,?,'native.usage',?,?)",
   ).run(
@@ -617,11 +601,9 @@ it("conversationUsage preserves production receipts and tolerates only absent le
   valid(workspaceApi.conversationUsage, result);
   expect(result.data).toEqual(mobile.conversationUsage(owner, conversation));
   expect(result.data.memory).toContain(run.id);
-  const { memory: _, ...older } = result.data;
-  expect(workspaceApi.conversationUsage.response.parse(older)).toEqual(older);
   expect(
     workspaceApi.conversationUsage.response.safeParse({
-      ...older,
+      ...result.data,
       memory: "invalid",
     }).success,
   ).toBe(false);
@@ -641,25 +623,17 @@ it("snippetList returns production snippet artifacts with their timestamps", asy
   expect(result.data.items[0].id).toBe(snippet);
   expect(await invalid("/snippets")).toMatchObject(bad);
 });
-it("typed mobile clients consume production receipts, older saved envelopes and cancellation", async () => {
+it("typed mobile clients consume production receipts, saved envelopes and cancellation", async () => {
   const realFetch = globalThis.fetch;
   vi.stubGlobal("location", { href: origin + "/", origin, search: "" });
   vi.stubGlobal("window", new EventTarget());
   vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
-    const target = new URL(path, origin),
-      response = await realFetch(target, init);
-    if (target.pathname !== "/api/saved") return response;
-    // Saved now renders through Cards. Its retained HTTP list has no browser
-    // component consumer; exercise the actual typed transport with the older
-    // envelope, derived only from this production response.
-    const data = await response.json();
-    for (const item of data.items) delete item.label;
-    return Response.json(data, { status: response.status });
+    return realFetch(new URL(path, origin), init);
   });
   try {
     const saved = await callRoute(workspaceApi.savedList, {}, "");
     expect(saved.items).not.toHaveLength(0);
-    for (const item of saved.items) expect(item).not.toHaveProperty("label");
+    for (const item of saved.items) expect(item).toHaveProperty("label");
     const row = await callRoute(
       workspaceApi.laterCreate,
       { body: { ...laterInput(), kind: "conversation", condition: "time" } },

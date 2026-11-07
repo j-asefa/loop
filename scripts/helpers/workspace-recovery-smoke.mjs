@@ -47,7 +47,7 @@ export async function workspaceRecoverySmoke(page, fixture) {
     // "More actions" menu.
     await openAgentProfile(page, fixture.agents[0].name);
     await page
-      .locator(".feed-card:not(.inbox-card)")
+      .locator(".feed-card:not(.feed-item-card)")
       .first()
       .getByRole("button", { name: "More actions", exact: true })
       .click();

@@ -103,7 +103,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
       waitUntil: "networkidle",
     });
     const card = page
-      .locator(".inbox-results .inbox-card")
+      .locator(".feed-results .feed-item-card")
       .filter({ hasText: item.title });
     if (filter === "done") {
       await expectMailHeading(card.getByRole("heading", { level: 2 }));
@@ -111,7 +111,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
         "End of the full result.",
       );
     }
-    await card.locator(".inbox-row").click();
+    await card.locator(".feed-row").click();
     await expect(reader).toBeVisible();
     await expect(thread).toHaveCount(0);
     await expect(reader.locator(".result-identity")).toBeVisible();
@@ -185,7 +185,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
     ).toBeFocused();
     await close(thread);
     // Keyboard opening and closing returns to the same feed filter.
-    await card.locator(".inbox-row").focus();
+    await card.locator(".feed-row").focus();
     await page.keyboard.press("Enter");
     await expect(reader).toBeVisible();
     await close(reader);
@@ -199,7 +199,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
     }),
   );
   await page
-    .locator(".inbox-results .inbox-row")
+    .locator(".feed-results .feed-row")
     .filter({ hasText: done.title })
     .click();
   // Cards already contains the full body; opening it needs no per-message read.
@@ -224,7 +224,7 @@ export async function feedReadingSmoke(page, fixture, capture) {
   );
   await page.reload({ waitUntil: "networkidle" });
   await page
-    .locator(".inbox-results .inbox-row")
+    .locator(".feed-results .feed-row")
     .filter({ hasText: done.title })
     .click();
   const draftPreview = reader.getByRole("region", { name: "Draft message" });

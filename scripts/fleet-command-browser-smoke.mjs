@@ -92,6 +92,9 @@ try {
     if (req.url === "/api/capabilities" && req.method === "GET") {
       reply(200, {
         pairedDevices: true,
+        cardTokens: true,
+        personalDecisions: true,
+        personalApprovalDetails: true,
       });
       return;
     }

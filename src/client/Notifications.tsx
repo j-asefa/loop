@@ -38,7 +38,6 @@ export function Notifications() {
     "PushManager" in window &&
     "Notification" in window;
   const [enabled, setEnabled] = useState(false);
-  const [categoriesSupported, setCategoriesSupported] = useState(false);
   const [preferences, setPreferences] = useState<NotificationPreferences>(
     defaultNotificationPreferences,
   );
@@ -62,8 +61,7 @@ export function Notifications() {
         controller.signal,
       );
       if (current) {
-        setCategoriesSupported(state.devices !== undefined);
-        const device = state.devices?.find(
+        const device = state.devices.find(
           (d) => d.endpoint === subscription?.endpoint,
         );
         if (device) setPreferences(device.preferences);
@@ -136,13 +134,12 @@ export function Notifications() {
         }
         setEnabled(false);
       } else {
-        const { publicKey, devices } = await readRoute(
+        const { publicKey } = await readRoute(
           workspaceApi.notifications,
           {},
           executionSourceId(),
           new AbortController().signal,
         );
-        setCategoriesSupported(devices !== undefined);
         const key = Uint8Array.from(
           atob(publicKey.replaceAll("-", "+").replaceAll("_", "/")),
           (c) => c.charCodeAt(0),
@@ -165,7 +162,7 @@ export function Notifications() {
           {
             body: {
               ...PushSubscription.parse(subscription.toJSON()),
-              ...(devices === undefined ? {} : { preferences }),
+              preferences,
             },
           },
           executionSourceId(),
@@ -231,7 +228,7 @@ export function Notifications() {
               onChange={() => void toggle()}
             />
           </SettingsList>
-          {enabled && categoriesSupported && (
+          {enabled && (
             <>
               <p className="settings-intro">
                 Choose what notifies you. For action-only alerts, leave just

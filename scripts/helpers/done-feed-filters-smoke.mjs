@@ -85,7 +85,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
     await expect(agentSheet).toHaveCount(0);
     await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
-  const rows = page.locator(".inbox-results .inbox-row");
+  const rows = page.locator(".feed-results .feed-row");
   const card = (title) =>
     rows.filter({
       has: page.getByRole("heading", { name: title, exact: true }),
@@ -183,7 +183,7 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
   const beforeUnread = await unreadCount();
   const openActions = async (title) => {
     await page
-      .locator(".inbox-results article")
+      .locator(".feed-results article")
       .filter({
         has: page.getByRole("heading", { name: title, exact: true }),
       })

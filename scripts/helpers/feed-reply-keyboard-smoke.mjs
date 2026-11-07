@@ -26,7 +26,7 @@ export async function feedReplyKeyboardSmoke(page, fixture, capture) {
   });
   await page.getByRole("tab", { name: "Done", exact: true }).click();
   // Done cards are separate from the collapsed Needs-you stack above them.
-  const card = page.locator(".inbox-results .inbox-card").first();
+  const card = page.locator(".feed-results .feed-item-card").first();
   await expect(card).toBeVisible();
   // This is the Feed card's Reply control, not a result on an agent profile
   // and not an already-open conversation. Let the app perform delayed focus.

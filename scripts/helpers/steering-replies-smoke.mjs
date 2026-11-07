@@ -66,7 +66,7 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
   );
   await page.goto(fixture.base + "/?filter=replies");
   const feed = page.getByRole("region", { name: "Feed", exact: true });
-  const rows = feed.locator(":scope > .inbox-results .inbox-card");
+  const rows = feed.locator(":scope > .feed-results .feed-item-card");
   await expect(rows).toHaveCount(2);
   await expect(
     feed.getByRole("tab", { name: "Replies 2", exact: true }),
@@ -271,7 +271,7 @@ async function replySourceFailureSmoke(page, fixture, capture) {
   ];
   for (const [pattern, handler] of routes) await page.route(pattern, handler);
   try {
-    const rows = page.locator(".inbox-results .inbox-card");
+    const rows = page.locator(".feed-results .feed-item-card");
     const refresh = () =>
       page.evaluate(() =>
         window.dispatchEvent(new Event("loop-source-refresh")),

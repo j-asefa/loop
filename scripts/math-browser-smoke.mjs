@@ -76,7 +76,7 @@ for (const engine of selectedEngines()) {
       });
       await page.goto(fixture.base, { waitUntil: "networkidle" });
       await expect(
-        page.locator(".inbox-results .inbox-row").first(),
+        page.locator(".feed-results .feed-row").first(),
       ).toBeVisible();
       assert(
         !requests.some((url) => mathAsset.test(new URL(url).pathname)),
@@ -101,7 +101,7 @@ for (const engine of selectedEngines()) {
       await page.reload({ waitUntil: "domcontentloaded" });
       await requestedMath;
       const card = page
-        .locator(".inbox-results .inbox-card")
+        .locator(".feed-results .feed-item-card")
         .filter({ hasText: done.title });
       await expect(card.locator(".preview")).toContainText("\\frac{1}{2}");
       await expect(card.locator(".katex")).toHaveCount(0);
@@ -113,7 +113,7 @@ for (const engine of selectedEngines()) {
         window.dispatchEvent(new Event("loop-source-refresh")),
       );
       await expect(card.locator(".katex")).toHaveCount(7);
-      await card.locator(".inbox-row").click();
+      await card.locator(".feed-row").click();
       const reader = page.locator("dialog.feed-reading-sheet[open]");
       await expect(reader.locator(".katex")).toHaveCount(7);
       await expect(reader.locator(".katex-error")).toHaveCount(0);
@@ -177,7 +177,7 @@ for (const engine of selectedEngines()) {
       update(working, String.raw`Streaming $\frac{1}{`);
       await page.goto(`${fixture.base}/?filter=working`);
       await page
-        .locator(".inbox-row")
+        .locator(".feed-row")
         .filter({ hasText: working.title })
         .click();
       await expect(reader).toContainText(String.raw`Streaming $\frac{1}{`);
@@ -210,7 +210,7 @@ for (const engine of selectedEngines()) {
       await fallback.goto(fixture.base);
       await failed;
       await fallback
-        .locator(".inbox-row")
+        .locator(".feed-row")
         .filter({ hasText: done.title })
         .click();
       const fallbackReader = fallback.locator(

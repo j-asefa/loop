@@ -490,7 +490,7 @@ a:focus-visible {
 }
 
 /* Underline tabs distinguish content navigation from form choices. */
-.inbox-filters,
+.feed-tabs,
 .profile-head + .profile-tabs,
 .my-profile-tabs,
 .project-tabs {
@@ -504,11 +504,11 @@ a:focus-visible {
   padding: 0;
   background: transparent;
 }
-.inbox-filters {
+.feed-tabs {
   margin: 0 -32px;
   padding-inline: 32px;
 }
-.inbox-filters .chip,
+.feed-tabs .chip,
 .profile-tabs button,
 .my-profile-tabs button,
 .project-tabs button {
@@ -523,11 +523,11 @@ a:focus-visible {
   font-size: 14px;
   font-weight: 500;
 }
-.inbox-filters .chip {
+.feed-tabs .chip {
   flex: 1;
   justify-content: center;
 }
-.inbox-filters .chip[aria-selected="true"],
+.feed-tabs .chip[aria-selected="true"],
 .profile-tabs button.selected,
 .my-profile-tabs button[aria-selected="true"],
 .project-tabs button.selected {
@@ -535,7 +535,7 @@ a:focus-visible {
   color: var(--brass-text);
   font-weight: 650;
 }
-.inbox-filters .chip[aria-selected="true"]::after,
+.feed-tabs .chip[aria-selected="true"]::after,
 .profile-tabs button.selected::after,
 .my-profile-tabs button[aria-selected="true"]::after,
 .project-tabs button.selected::after {
@@ -548,7 +548,7 @@ a:focus-visible {
   border-radius: 4px 4px 0 0;
   background: var(--brass);
 }
-.inbox-filters .chip-count {
+.feed-tabs .chip-count {
   position: static;
   background: transparent;
   color: inherit;
@@ -557,10 +557,10 @@ a:focus-visible {
   padding-inline: 2px;
   box-shadow: none;
 }
-.inbox-filters [data-filter="done"] .chip-count,
-.inbox-filters [data-filter="working"] .chip-count,
-.inbox-filters [data-filter="queued"] .chip-count,
-.inbox-filters [data-filter="replies"] .chip-count {
+.feed-tabs [data-filter="done"] .chip-count,
+.feed-tabs [data-filter="working"] .chip-count,
+.feed-tabs [data-filter="queued"] .chip-count,
+.feed-tabs [data-filter="replies"] .chip-count {
   background: var(--brass);
   color: #1a1a1c;
   font-weight: 700;
@@ -573,7 +573,7 @@ a:focus-visible {
 
 /* Continuous posts. The avatar provides the left edge; content aligns with the author. */
 .workspace-content .feed,
-.workspace-content .inbox-list {
+.workspace-content .feed-list {
   gap: 0;
 }
 .workspace-content .feed-card {
@@ -674,7 +674,7 @@ a:focus-visible {
   font-weight: 500;
   margin: 0;
 }
-.workspace-content .inbox-card-details {
+.workspace-content .feed-item-details {
   margin: 0 0 0 54px;
   padding-top: 4px;
   flex-wrap: wrap;
@@ -686,7 +686,7 @@ a:focus-visible {
 .workspace-content .feed-card .preview img {
   border-radius: 12px;
 }
-.inbox-empty,
+.feed-empty,
 .empty {
   border: 0;
   background: transparent;
@@ -731,7 +731,7 @@ a:focus-visible {
 .needs-stack .needs-stack-cards {
   gap: 0;
 }
-.needs-stack-cards :is(.run-list, .scheduled-sends, .inbox-list) {
+.needs-stack-cards :is(.run-list, .scheduled-sends, .feed-list) {
   display: contents;
   margin: 0;
 }
@@ -1459,17 +1459,17 @@ label.catalog-search {
     padding-inline: 12px;
     font-size: 13px;
   }
-  .inbox-filters {
+  .feed-tabs {
     margin-inline: -16px;
     padding-inline: 4px;
     gap: 4px;
   }
-  .inbox-filters .chip {
+  .feed-tabs .chip {
     font-size: 13px;
     padding: 24px 4px 8px;
   }
   /* Five tabs fit a narrow phone; counts use the space above their labels. */
-  .inbox-filters .chip-count {
+  .feed-tabs .chip-count {
     position: absolute;
     top: 3px;
     right: 4px;
@@ -1491,7 +1491,7 @@ label.catalog-search {
     width: calc(100% - 48px);
   }
   .workspace-content .feed-card > .card-actions,
-  .workspace-content .inbox-card-details {
+  .workspace-content .feed-item-details {
     margin-left: 48px;
   }
   .workspace-content .feed-card .card-content h2 {

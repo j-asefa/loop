@@ -221,16 +221,15 @@ export const PiActionInput = PiRollbackInput.extend({
   action: z.enum(["install", "remove", "update"]),
 });
 export const PublicAgentMessages = z.object({
-  // Older linked sources omit run/model metadata and may encode final as a boolean.
   items: z.array(
     z.object({
       id: Text,
       content: Text,
       created_at: z.number(),
       conversation_id: Text.nullable(),
-      run_id: Text.nullish(),
-      final: z.union([z.number(), z.boolean()]),
-      model: Text.nullish(),
+      run_id: Text.nullable(),
+      final: z.number(),
+      model: Text.nullable(),
     }),
   ),
   next: Text.nullable(),

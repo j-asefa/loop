@@ -57,7 +57,7 @@ import { dialogKeyboardSmoke } from "./helpers/dialog-keyboard-smoke.mjs";
 import { profileWorkSmoke } from "./helpers/profile-work-smoke.mjs";
 import { conversationLiveSmoke } from "./helpers/conversation-live-smoke.mjs";
 import { messageNavigationSmoke } from "./helpers/message-navigation-smoke.mjs";
-import { inboxFlowsSmoke } from "./helpers/inbox-flows-smoke.mjs";
+import { feedFlowsSmoke } from "./helpers/feed-flows-smoke.mjs";
 import { cardRemindersSmoke } from "./helpers/card-reminders-smoke.mjs";
 import { needsStackSmoke } from "./helpers/needs-stack-smoke.mjs";
 import { continuitySmoke } from "./helpers/continuity-smoke.mjs";
@@ -134,7 +134,7 @@ const scenarios = {
   "upload-destination": uploadDestinationSmoke,
   "attachment-picker": attachmentPickerSmoke,
   "withdraw-draft": withdrawDraftSmoke,
-  inbox: (p, f, e, c) => inboxFlowsSmoke(p, f, c),
+  feed: (p, f, e, c) => feedFlowsSmoke(p, f, c),
   "card-reminders": cardRemindersSmoke,
   "needs-stack": (p, f, e, c) => needsStackSmoke(p, f, c),
   "continuity-320": async (p, f, e, c) => {
@@ -266,11 +266,11 @@ for (const engine of selectedEngines()) {
       if (scenario === "core") {
         await seedNewerReplyMessage(fixture);
         await page.goto(fixture.base);
-        const inbox = page.getByRole("region", { name: "Feed", exact: true });
+        const feed = page.getByRole("region", { name: "Feed", exact: true });
         // The filtered list, not the Needs you stack above the filters.
-        const inboxRows = inbox.locator(":scope > .inbox-results .inbox-row");
-        const needsStack = inbox.getByRole("region", { name: "Needs you" });
-        await inboxRows.first().waitFor();
+        const feedRows = feed.locator(":scope > .feed-results .feed-row");
+        const needsStack = feed.getByRole("region", { name: "Needs you" });
+        await feedRows.first().waitFor();
         await capture("feed");
         await expect(
           page.getByRole("heading", { name: "Feed", exact: true }),
@@ -301,8 +301,8 @@ for (const engine of selectedEngines()) {
           needsStack.locator(".approval-card").first(),
           "First card that needs you",
         );
-        const inboxFilters = inbox.getByRole("tablist", { name: "Show" });
-        await expect(inboxFilters.getByRole("tab")).toHaveText([
+        const feedFilters = feed.getByRole("tablist", { name: "Show" });
+        await expect(feedFilters.getByRole("tab")).toHaveText([
           "Done",
           /^Working/,
           /^Queued/,
@@ -310,12 +310,12 @@ for (const engine of selectedEngines()) {
           "Replies",
         ]);
         await expect(
-          inboxFilters.getByRole("tab", { name: "Done", exact: true }),
+          feedFilters.getByRole("tab", { name: "Done", exact: true }),
         ).toHaveAttribute("aria-selected", "true");
         // Every Feed filter fits a small phone. Social lives on Your profile.
         await page.setViewportSize({ width: 360, height: 780 });
         assert.ok(
-          await inboxFilters.evaluate((el) => el.scrollWidth <= el.clientWidth),
+          await feedFilters.evaluate((el) => el.scrollWidth <= el.clientWidth),
           "The Feed filters fit a 360px phone",
         );
         await page.setViewportSize({ width: 390, height: 844 });
@@ -323,14 +323,14 @@ for (const engine of selectedEngines()) {
         const finished = fixture.conversations.filter(
           (c) => c.state === "completed",
         ).length;
-        await expect(inboxRows).toHaveCount(finished);
+        await expect(feedRows).toHaveCount(finished);
         // The Results and All filters are gone; their old links open Done.
         for (const old of ["results", "all"]) {
           await page.goto(fixture.base + "/?filter=" + old);
           await expect(
-            inboxFilters.getByRole("tab", { name: "Done", exact: true }),
+            feedFilters.getByRole("tab", { name: "Done", exact: true }),
           ).toHaveAttribute("aria-selected", "true");
-          await expect(inboxRows).toHaveCount(finished);
+          await expect(feedRows).toHaveCount(finished);
         }
         const shortcuts = page.getByRole("region", {
           name: "Your agents",
@@ -372,7 +372,7 @@ for (const engine of selectedEngines()) {
             "SELECT g.name FROM agents g JOIN artifacts a ON a.agent_id=g.id WHERE a.id=?",
           )
           .get(fixture.artifacts[0]).name;
-        const results = page.locator(".feed-card:not(.inbox-card)");
+        const results = page.locator(".feed-card:not(.feed-item-card)");
         const openResults = async () => {
           await shortcuts
             .getByRole("button", { name: new RegExp(`^@${resultsAuthor} ·`) })
@@ -804,7 +804,7 @@ for (const engine of selectedEngines()) {
         // What needs you stacks above the filters: one card, the rest behind.
         await expect(needsStack).toContainText("1 more needs you");
         // The Running tab became the Feed Working filter.
-        await inboxFilters.getByRole("tab", { name: /^Working/ }).click();
+        await feedFilters.getByRole("tab", { name: /^Working/ }).click();
         await expect(page).toHaveURL(/filter=working/);
         await expect(page.getByLabel("Filter by project")).toHaveValue(
           fixture.projects[0].id,
@@ -817,17 +817,17 @@ for (const engine of selectedEngines()) {
           page.locator('.mobile-nav [aria-current="page"]'),
         ).toContainText("Feed");
         await expect(
-          inboxFilters.getByRole("tab", { name: /^Working/ }),
+          feedFilters.getByRole("tab", { name: /^Working/ }),
         ).toHaveAttribute("aria-selected", "true");
         await page.getByLabel("Filter by project").selectOption("");
-        await expect(inboxRows).toHaveCount(1);
-        await expect(inboxRows.first()).toHaveAccessibleName(
+        await expect(feedRows).toHaveCount(1);
+        await expect(feedRows.first()).toHaveAccessibleName(
           /^Review GitHub pull request #42 .*Working$/,
         );
         // Failed runs need you: the thread row shows the failure and opens it.
         await needsStack.getByRole("button", { name: "Show all" }).click();
         await expect(needsStack).toContainText(/\d+ need you/);
-        const failedRow = needsStack.locator(".inbox-row").filter({
+        const failedRow = needsStack.locator(".feed-row").filter({
           hasText: "Check why the GitHub review could not be posted",
         });
         await expect(failedRow).toHaveAccessibleName(/, Failed$/);
@@ -836,7 +836,7 @@ for (const engine of selectedEngines()) {
         );
         await capture("needs-you");
         await needsStack
-          .locator(".inbox-card")
+          .locator(".feed-item-card")
           .filter({
             hasText: "Check why the GitHub review could not be posted",
           })
@@ -1003,7 +1003,7 @@ for (const engine of selectedEngines()) {
             .getByRole("button", { name, exact: true });
         await projectTab("Threads").click();
         await expect(
-          page.locator(".projects-view .inbox-row").first(),
+          page.locator(".projects-view .feed-row").first(),
         ).toBeVisible();
         await capture("project-threads");
         await projectTab("Activity").click();
@@ -1164,7 +1164,7 @@ for (const engine of selectedEngines()) {
         await capture("desktop");
       } else {
         await page.goto(fixture.base);
-        await expect(page.locator(".inbox-row:visible").first()).toBeVisible();
+        await expect(page.locator(".feed-row:visible").first()).toBeVisible();
         await scenarios[scenario](page, fixture, engine.name(), capture);
       }
       assert.deepEqual(errors, [], "Unexpected browser errors");

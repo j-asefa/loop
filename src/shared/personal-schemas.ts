@@ -42,8 +42,8 @@ export const PersonalPromptsPage = z.object({
       content: Text,
       created_at: z.number(),
       conversation_id: Text,
-      // The service already parses stored JSON. Older attachments can lack newer
-      // upload fields; this is an opaque history value, not a new upload request.
+      // The service parses stored JSON from native and imported history.
+      // This opaque history value is not a new upload request.
       attachments: z.json(),
       conversation_title: Text,
       agent_name: MaybeText,

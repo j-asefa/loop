@@ -47,8 +47,8 @@ export async function feedThreadsSmoke(page, fixture, capture) {
 
   const filters = page.getByRole("tablist", { name: "Show", exact: true });
   const threads = filters.getByRole("tab", { name: "Threads", exact: true });
-  const cards = page.locator(".inbox-results .inbox-card");
-  const titles = cards.locator(".inbox-row > h2");
+  const cards = page.locator(".feed-results .feed-item-card");
+  const titles = cards.locator(".feed-row > h2");
   const reader = page.locator("dialog.feed-reading-sheet[open]");
   const thread = page.locator("dialog.conversation-sheet[open]");
   const close = async (sheet) => {
@@ -92,7 +92,7 @@ export async function feedThreadsSmoke(page, fixture, capture) {
   await expect(cards).toHaveCount(fixture.conversations.length);
 
   // Card reading and Reply keep the selected thread and filter.
-  await cards.first().locator(".inbox-row").focus();
+  await cards.first().locator(".feed-row").focus();
   await page.keyboard.press("Enter");
   await expect(reader).toBeVisible();
   await expect(reader.locator(".artifact-body")).toContainText(
@@ -123,7 +123,7 @@ export async function feedThreadsSmoke(page, fixture, capture) {
     const stoppedCard = cards.filter({
       has: page.getByRole("heading", { name: stopped.title, exact: true }),
     });
-    await expect(stoppedCard.locator(".inbox-you")).toHaveText("You");
+    await expect(stoppedCard.locator(".feed-you")).toHaveText("You");
     await stoppedCard
       .getByRole("button", { name: "Open thread", exact: true })
       .click();
@@ -210,7 +210,7 @@ export async function feedThreadsSmoke(page, fixture, capture) {
   expect(new Set(await titles.allTextContents()).size).toBe(
     history.length + fixture.conversations.length,
   );
-  await cards.last().locator(".inbox-row").click();
+  await cards.last().locator(".feed-row").click();
   await expect(reader).toBeVisible();
   await close(reader);
   await expect(cards).toHaveCount(

@@ -106,8 +106,7 @@ export const PublicSearchItem = z.object({
   snippet: SearchExcerptSchema,
   score: Num,
   url: Text,
-  // Sources before search result deduplication (#2, f28e61b2) omit the linked message.
-  message_id: MaybeText.optional(),
+  message_id: MaybeText,
 });
 export const PublicSearch = z.object({
   mode: Text,
@@ -115,8 +114,7 @@ export const PublicSearch = z.object({
   pending: Num,
   next: Num.nullable(),
   items: z.array(PublicSearchItem),
-  // Sources before search-index status (#2, f28e61b2) omit this status object.
-  semantic: PublicSearchStatus.optional(),
+  semantic: PublicSearchStatus,
 });
 // A workspace without a preference row returns only embedding_enabled: 0.
 // The other branch projects the two keys that SearchSettings actually reads.
@@ -166,7 +164,7 @@ export const PublicCheckoutFile = z.object({
   additions: Num,
   deletions: Num,
   binary: z.boolean(),
-  // Absent on unfiltered files and sources before raw-filter capture (5679a467).
+  // Absent on unfiltered files.
   filtered: z.boolean().optional(),
 });
 const CheckoutStat = z.object({
@@ -177,7 +175,7 @@ const CheckoutStat = z.object({
 export const PublicCheckoutSummary = z.object({
   id: Text,
   state: z.enum(["started", "captured", "failed"]),
-  // Sources before per-run baselines (52b679a2) report cumulative comparisons.
+  // Present when a start-patch baseline was captured for this run.
   scope: z.literal("run").optional(),
   branch: Text,
   base_ref: MaybeText,

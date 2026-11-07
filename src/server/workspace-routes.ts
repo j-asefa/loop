@@ -159,13 +159,14 @@ routes.on(workspaceApi.folderUpdate, (req, res) => {
 routes.on(workspaceApi.artifactList, (req, res) => {
   const folder = req.query.folder ? String(req.query.folder) : undefined;
   const agent = req.query.agent ? String(req.query.agent) : undefined;
-  if (folder && folder !== "inbox") owned("folders", folder, res.locals.owner);
+  if (folder && folder !== "unfiled")
+    owned("folders", folder, res.locals.owner);
   if (agent) owned("agents", agent, res.locals.owner);
   const items = artifactsQueries.workspaceList(db, res.locals.owner, {
     folder,
     workspace:
       !!folder &&
-      folder !== "inbox" &&
+      folder !== "unfiled" &&
       isWorkspaceProject(res.locals.owner, folder),
     agent,
     pinned: req.query.pinned === "1",

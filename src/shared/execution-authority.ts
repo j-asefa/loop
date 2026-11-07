@@ -134,7 +134,7 @@ const SignIn = z.strictObject({
   attempt: z
     .strictObject({
       id: Id,
-      commandId: Id.optional(),
+      commandId: Id,
       provider: Id,
       method: Id,
       state: z.enum([

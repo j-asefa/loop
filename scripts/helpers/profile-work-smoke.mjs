@@ -53,7 +53,7 @@ export async function profileWorkSmoke(page, capture) {
     });
     // A direct thread is correctly absent from the team Feed.
     await expect(
-      page.locator(".inbox-row").filter({ hasText: previous.title }),
+      page.locator(".feed-row").filter({ hasText: previous.title }),
     ).toHaveCount(0);
     await page
       .getByRole("region", { name: "Your agents", exact: true })
@@ -66,7 +66,7 @@ export async function profileWorkSmoke(page, capture) {
     // "Open conversation" became the profile's Threads tab.
     const threads = async () => {
       await page.getByRole("tab", { name: "Threads", exact: true }).click();
-      return page.locator(".inbox-row");
+      return page.locator(".feed-row");
     };
     const openThread = async (title) =>
       (await threads()).filter({ hasText: title }).first().click();
@@ -222,16 +222,16 @@ export async function profileWorkSmoke(page, capture) {
     await expect(page.locator(".profile-head")).toHaveCount(0);
     for (const filter of [/^Working/, /^Queued/]) {
       await page.getByRole("tab", { name: filter }).click();
-      await expect(page.locator(".inbox-empty")).toBeVisible();
+      await expect(page.locator(".feed-empty")).toBeVisible();
       await expect(
-        page.locator(".inbox-row").filter({ hasText: prompt }),
+        page.locator(".feed-row").filter({ hasText: prompt }),
       ).toHaveCount(0);
     }
     await page.goto(fixture.base + "/?filter=working", {
       waitUntil: "networkidle",
     });
     await expect(
-      page.locator(".inbox-row").filter({ hasText: prompt }),
+      page.locator(".feed-row").filter({ hasText: prompt }),
     ).toHaveCount(1);
     console.log(
       "Profile scope, conversation access, send receipt and steering passed",

@@ -358,25 +358,6 @@ it("keeps unavailable payloads readable in run lists and binds projection bodies
   const parsed = workspaceApi.conversation.response.parse(page.data);
   expect(parsed.steerable_run_id).toBeNull();
   expect(parsed.messages[0].metadata).toEqual(expect.any(String));
-  const legacy = structuredClone(page.data);
-  for (const field of ["projection", "range", "steerable_run_id", "resumed"])
-    delete legacy[field];
-  for (const field of Object.keys(legacy.conversation))
-    if (field.startsWith("feed_")) delete legacy.conversation[field];
-  expect(workspaceApi.conversation.response.safeParse(legacy).success).toBe(
-    true,
-  );
-  legacy.conversation.agent_id = 42;
-  expect(workspaceApi.conversation.response.safeParse(legacy).success).toBe(
-    false,
-  );
-  const legacyFeed = (await request("/feed?filter=working")).data;
-  expect(legacyFeed.items.length).toBeGreaterThan(0);
-  for (const item of legacyFeed.items) delete item.pull;
-  const projected = workspaceApi.feed.response.parse(legacyFeed);
-  expect(projected.items[0]).not.toHaveProperty("pull");
-  legacyFeed.items[0].pull = 42;
-  expect(workspaceApi.feed.response.safeParse(legacyFeed).success).toBe(false);
   const foreign = fixture(id());
   expect(
     (await request(`/conversations/${foreign.run.conversation_id}`)).status,

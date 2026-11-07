@@ -50,7 +50,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
   try {
     await page.goto(fixture.base, { waitUntil: "networkidle" });
     const row = page.locator(
-      `.inbox-row[aria-label^="${fixture.conversations[0].title}"]`,
+      `.feed-row[aria-label^="${fixture.conversations[0].title}"]`,
     );
     await expect(row).toHaveCount(1);
     await swipe(row);
@@ -124,7 +124,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         if (await showAll.isVisible()) await showAll.click();
       }
       const activeRow = page.locator(
-        '.inbox-row[aria-label^="Follow-up stays visible"]',
+        '.feed-row[aria-label^="Follow-up stays visible"]',
       );
       await expect(activeRow).toHaveCount(1);
       await expect(
@@ -149,7 +149,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       .run(randomUUID(), fixture.owner, target.id, followUp, started + 1);
     await page.goto(fixture.base, { waitUntil: "networkidle" });
     const newResult = page.locator(
-      '.inbox-row[aria-label^="Follow-up stays visible"]',
+      '.feed-row[aria-label^="Follow-up stays visible"]',
     );
     await expect(newResult).toHaveCount(1);
     await expect(newResult).toContainText("The follow-up result is visible.");
@@ -212,7 +212,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       });
       if (await showAll.isVisible()) await showAll.click();
       const failedRow = needs.locator(
-        '.inbox-row[aria-label^="Dismiss this old failure"]',
+        '.feed-row[aria-label^="Dismiss this old failure"]',
       );
       await expect(failedRow).toBeVisible();
       await swipe(failedRow);
@@ -276,7 +276,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     }
     await page.reload({ waitUntil: "networkidle" });
     const history = page.locator(
-      '.inbox-results .inbox-row[aria-label^="Historical result "]',
+      '.feed-results .feed-row[aria-label^="Historical result "]',
     );
     await expect(history).toHaveCount(40);
     for (const count of [80, 120, 125]) {
@@ -317,7 +317,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     );
     await expect(
       page.locator(
-        '.inbox-results .inbox-row[aria-label^="New result while reading"]',
+        '.feed-results .feed-row[aria-label^="New result while reading"]',
       ),
     ).toHaveCount(1);
     await expect(history).toHaveCount(125);
@@ -492,11 +492,11 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await expect(history).toHaveCount(39); // The newest result occupies one row.
     await expect(
       page.locator(
-        '.inbox-results .inbox-row[aria-label^="Remote completed result"]',
+        '.feed-results .feed-row[aria-label^="Remote completed result"]',
       ),
     ).toHaveCount(1);
     const remoteRow = page.locator(
-      '.inbox-results .inbox-row[aria-label^="Remote completed result"]',
+      '.feed-results .feed-row[aria-label^="Remote completed result"]',
     );
     await remoteRow
       .getByRole("button", { name: "Preview remote.txt", exact: true })
@@ -765,9 +765,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(
-      page.locator(
-        '.inbox-results .inbox-row[aria-label^="Burst completion "]',
-      ),
+      page.locator('.feed-results .feed-row[aria-label^="Burst completion "]'),
     ).toHaveCount(125);
     await expect(history).toHaveCount(119);
     // A replacement revision domain invalidates old history, unlike an outage.
@@ -796,9 +794,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     );
     await expect(history).toHaveCount(0);
     await expect(
-      page.locator(
-        '.inbox-results .inbox-row[aria-label^="Burst completion "]',
-      ),
+      page.locator('.feed-results .feed-row[aria-label^="Burst completion "]'),
     ).toHaveCount(0);
     await expect(remoteRow).toHaveCount(1);
     await expect(
@@ -811,9 +807,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
     await expect(
-      page.locator(
-        '.inbox-results .inbox-row[aria-label^="Burst completion "]',
-      ),
+      page.locator('.feed-results .feed-row[aria-label^="Burst completion "]'),
     ).toHaveCount(40);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
     await expect(page.locator(".collection-read-error")).toContainText(

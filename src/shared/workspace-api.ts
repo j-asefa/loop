@@ -79,16 +79,14 @@ export const PublicRun = z.object({
 const PublicConversation = z.object({
   id: Text, owner_id: Text, agent_id: MaybeText, title: Text, origin: Text, external_id: MaybeText, created_at: Time,
   team_id: MaybeText, execution_backend: Text, execution_connection_id: MaybeText, project_id: MaybeText,
-  // Legacy linked sources can omit these operational display columns.
-  feed_hidden: z.number().optional(), feed_run_id: MaybeText.optional(), feed_run_raw_state: MaybeText.optional(), feed_run_state: MaybeText.optional(),
-  feed_run_dismissed_at: Time.nullable().optional(), feed_queued: z.number().optional(), feed_done_run_id: MaybeText.optional(), feed_done_at: Time.nullable().optional(),
-  feed_last_activity_at: Time.nullable().optional(), feed_last_message_id: MaybeText.optional(), feed_folder_id: MaybeText.optional(),
-  feed_visible: z.number().optional(), feed_approval_until: Time.nullable().optional(),
+  feed_hidden: z.number(), feed_run_id: MaybeText, feed_run_raw_state: MaybeText, feed_run_state: MaybeText,
+  feed_run_dismissed_at: Time.nullable(), feed_queued: z.number(), feed_done_run_id: MaybeText, feed_done_at: Time.nullable(),
+  feed_last_activity_at: Time.nullable(), feed_last_message_id: MaybeText, feed_folder_id: MaybeText,
+  feed_visible: z.number(), feed_approval_until: Time.nullable(),
 });
 export const Bootstrap = z.object({
-  agents: z.array(PublicAgent), connections: z.array(PublicConnection), folders: z.array(PublicFolder), teams: z.array(PublicTeam).optional(),
-  // Older source catalogs omitted these additions. Absence grants no capability.
-  environmentName: Text.optional(),
+  agents: z.array(PublicAgent), connections: z.array(PublicConnection), folders: z.array(PublicFolder), teams: z.array(PublicTeam),
+  environmentName: Text,
   preview: z.object({ name: Text, mode: z.enum(["design", "working"]), build: z.object({
     id: Text, branch: Text, commit: Text, dirty: z.boolean(), builtAt: Text, sourceHash: Text, artifactHash: Text,
   }) }).optional(),
@@ -98,7 +96,7 @@ export type Bootstrap = z.infer<typeof Bootstrap>;
 export const FEED_FILTERS = ["all", "done", "replies", "needs", "working", "queued", "later", "outcomes", "unfinished"] as const;
 export const FeedItem = DoneDisplaySchema.extend({
   reply_card_key: Text.optional(), reply: ReplyContext.optional(),
-  // Missing means this source cannot report PR state; null means no watch.
+  // Reply cards do not include pull-watch state.
   pull: DoneDisplaySchema.shape.pull.optional(),
   last_activity_at: Time,
   last_message: DoneDisplaySchema.shape.last_message.unwrap().extend({ created_at: Time, content: Text.optional(), saved: z.boolean().optional() }).nullable(),
@@ -404,9 +402,8 @@ export const workspaceRoutes = {
   messageSave: endpoint({ ...base, method: "POST", path: "/messages/:id/saved", params: Id, body: z.unknown(), response: Ok.extend({ saved: z.boolean() }) }),
   messageUnsave: endpoint({ ...base, method: "DELETE", path: "/messages/:id/saved", params: Id, body: z.unknown(), response: Ok.extend({ saved: z.boolean() }) }),
   savedList: endpoint({ ...base, method: "GET", path: "/saved", query: z.object({ before: Text.max(500).optional(), folder: Text.max(150).optional(), teams: Teams, q: Text.max(200).optional() }), response: z.object({ items: z.array(z.discriminatedUnion("kind", [
-    // Sources before Saved labels (#40, 74d4971a) omit the envelope label.
-    z.object({ kind: z.literal("message"), key: Text, saved_at: Time, label: MaybeText.optional(), message: mobile.PublicSavedMessage }),
-    z.object({ kind: z.literal("result"), key: Text, saved_at: Time, label: MaybeText.optional(), result: PublicArtifact.extend({ team_id: MaybeText }) }),
+    z.object({ kind: z.literal("message"), key: Text, saved_at: Time, label: MaybeText, message: mobile.PublicSavedMessage }),
+    z.object({ kind: z.literal("result"), key: Text, saved_at: Time, label: MaybeText, result: PublicArtifact.extend({ team_id: MaybeText }) }),
   ])), next: MaybeText }) }),
   savedLabel: endpoint({ ...base, method: "PUT", path: "/saved/label", body: mobile.SavedLabelInput, response: z.object({ key: Text, label: MaybeText }) }),
   conversationOutline: endpoint({ ...base, method: "GET", path: "/conversations/:id/outline", params: Id, query: z.object({ q: Text.max(200).optional() }), response: mobile.PublicOutline }),
