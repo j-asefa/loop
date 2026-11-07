@@ -83,7 +83,7 @@ for (const harness of [
   "codex",
   "pi",
   "opencode",
-  "gemini",
+
   "muse",
   "grok",
   "acp",
@@ -150,7 +150,7 @@ for (const harness of [
               }
             : {
                 executable: resolve(
-                  ["gemini", "muse", "grok"].includes(harness)
+                  ["muse", "grok"].includes(harness)
                     ? `test/fixtures/fake-${harness}.mjs`
                     : "test/harness.mjs",
                 ),

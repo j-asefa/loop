@@ -73,7 +73,10 @@ it("rejects malformed claim candidates individually while control and notice rea
   try {
     insert("damaged", "alice", 1);
     insert("healthy", "alice", 2);
-    runs.setPayload(db, '{"maxTokens":0}', "damaged");
+    db.prepare("UPDATE runs SET payload=? WHERE id=?").run(
+      '{"maxTokens":0}',
+      "damaged",
+    );
     const rejected: string[] = [];
     expect(
       runs

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { workspaceApi, type RouteInput } from "./workspace-api.js";
-import { routePath } from "./route-path.js";
 
 export type CardListInput = Partial<
   z.output<typeof workspaceApi.cardList.query>
@@ -20,15 +19,6 @@ export type CardReadTransport = <C extends CardReadContract>(
   signal?: AbortSignal,
 ) => Promise<unknown>;
 
-export class CardApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public retryAfter: number | null = null,
-  ) {
-    super(message);
-  }
-}
 /** The transport captures one authorized source and its cancellation lifetime. */
 export function contractCardReader(request: CardReadTransport) {
   return {
@@ -50,54 +40,3 @@ export function contractCardReader(request: CardReadTransport) {
   };
 }
 export type CardReader = ReturnType<typeof contractCardReader>;
-
-export function createCardClient({
-  baseUrl,
-  token,
-  fetch: send = fetch,
-}: {
-  baseUrl: string;
-  token: string;
-  fetch?: typeof fetch;
-}): CardReader {
-  const base = new URL(baseUrl);
-  if (
-    !["http:", "https:"].includes(base.protocol) ||
-    base.username ||
-    base.password ||
-    base.search ||
-    base.hash ||
-    base.pathname !== "/"
-  )
-    throw new Error("Choose the origin URL of one Loop workspace");
-  if (
-    base.protocol !== "https:" &&
-    !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname)
-  )
-    throw new Error("Cards credentials require HTTPS outside local loopback");
-  if (!token || /\s/.test(token))
-    throw new Error(
-      "Provide a card token through the environment or a secret store",
-    );
-  return contractCardReader(async (contract, input, signal) => {
-    const path = routePath(contract, input);
-    const response = await send(base.origin + "/api" + path, {
-      method: contract.method,
-      signal,
-      redirect: "error",
-      credentials: "omit",
-      cache: "no-store",
-      headers: { authorization: "Bearer " + token, accept: "application/json" },
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      const retry = Number(response.headers.get("retry-after"));
-      throw new CardApiError(
-        response.status,
-        typeof body?.error === "string" ? body.error : "Card request failed",
-        Number.isFinite(retry) && retry > 0 ? retry : null,
-      );
-    }
-    return response.json();
-  });
-}

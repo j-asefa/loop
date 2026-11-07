@@ -6,7 +6,7 @@ const names = [
   "create-agent-models",
   "profile-photos-recipient",
   "visual-layout",
-  "gemini",
+
   "antigravity",
   "harness-providers",
   "agent-mail",

@@ -13,7 +13,6 @@ import {
   ProviderRemove,
   ProviderRefresh,
 } from "./native-providers.js";
-import { signInFailureCodes } from "./native-auth.js";
 import { Harness } from "../protocol.js";
 import {
   SessionControls as Controls,
@@ -88,7 +87,7 @@ export const RuntimeHarness = z.enum([
   "pi",
   "opencode",
   "antigravity",
-  "gemini",
+
   "muse",
   "grok",
 ]);
@@ -98,7 +97,7 @@ export const AuthHarness = z.enum([
   "pi",
   "opencode",
   "antigravity",
-  "gemini",
+
   "muse",
   "grok",
 ]);
@@ -146,7 +145,6 @@ const SignIn = z.strictObject({
         "expired",
       ]),
       expiresAt: z.number(),
-      failureCode: z.enum(signInFailureCodes).optional(),
       url: z.string().optional(),
       code: z.string().optional(),
       instructions: z.string().optional(),

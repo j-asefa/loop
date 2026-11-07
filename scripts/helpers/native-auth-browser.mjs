@@ -12,16 +12,8 @@ export async function prepareNativeAuthBrowser(dir) {
   const originalPath = process.env.PATH;
   // Discovery probes every supported CLI, including ones this fixture never
   // enables. Shadow the developer's installations so browser checks cannot
-  // launch real Gemini/Pi/etc. processes or consult their account state.
-  for (const command of [
-    "codex",
-    "pi",
-    "opencode",
-    "agy",
-    "gemini",
-    "muse",
-    "grok",
-  ])
+  // launch real Pi/Grok/etc. processes or consult their account state.
+  for (const command of ["codex", "pi", "opencode", "agy", "muse", "grok"])
     await writeFile(join(bin, command), "#!/bin/sh\nexit 127\n", {
       mode: 0o755,
     });

@@ -345,7 +345,7 @@ export class Acp implements Adapter {
     }
   }
   private refreshModels(response: unknown) {
-    // Gemini still reports the ACP model extension, removed from SDK 1.5's
+    // Current ACP agents can report the model extension, absent from SDK 1.5's
     // static types. Validate the native catalog before exposing it to the UI.
     const parsed = z
       .object({

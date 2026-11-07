@@ -771,15 +771,6 @@ export function workerIdentities(db: Database.Database, worker: string | null) {
     .map((row) => parseRecord(workerIdentitiesRow, row, "runs"));
 }
 
-const setPayloadStatement = statement("UPDATE runs SET payload=? WHERE id=?");
-export function setPayload(
-  db: Database.Database,
-  payload: string | null,
-  id: string | null,
-) {
-  return setPayloadStatement(db).run(payload, id);
-}
-
 const activeImportStatement = statement(
   "SELECT * FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=? AND state IN ('queued','running','pausing','paused')",
 );

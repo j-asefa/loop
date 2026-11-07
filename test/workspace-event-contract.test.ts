@@ -263,12 +263,11 @@ it("reconciles malformed historical rows and unknown future events without inven
   ).toThrow();
 });
 
-it("checks producer ownership and accepts deletion evidence only for its original owner", async () => {
+it("rejects an event producer targeting another owner", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-event-ownership-"));
   vi.resetModules();
   vi.stubEnv("LOOP_DATA_DIR", dir);
-  const { db, changes, deadlines, emit, ownedEventSubject } =
-    await import("../src/server/db");
+  const { db, changes, deadlines, emit } = await import("../src/server/db");
   try {
     db.exec(
       "INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES('artifact','alice','A','markdown','Body',1,1)",
@@ -281,32 +280,6 @@ it("checks producer ownership and accepts deletion evidence only for its origina
       }),
     ).toThrow(/not owned/);
     expect(count()).toEqual(before);
-    const proof = ownedEventSubject("alice", {
-      kind: "artifact",
-      id: "artifact",
-    });
-    db.transaction(() => {
-      db.exec("DELETE FROM artifacts WHERE id='artifact'");
-      emit("alice", { kind: "collection", id: "saved" }, "tombstone", {
-        scope: { kind: "collection", id: "saved" },
-        removed: proof,
-      });
-    }).immediate();
-    expect(() =>
-      emit("bob", { kind: "collection", id: "saved" }, "tombstone", {
-        scope: { kind: "collection", id: "saved" },
-        removed: proof,
-      }),
-    ).toThrow(/another owner/);
-    expect(() =>
-      emit("alice", { kind: "collection", id: "saved" }, "tombstone", {
-        scope: { kind: "collection", id: "saved" },
-        removed: { ...proof },
-      }),
-    ).toThrow(/not owned/);
-    expect(
-      db.prepare("SELECT run_id FROM events WHERE type='tombstone'").all(),
-    ).toEqual([{ run_id: null }, { run_id: null }]);
   } finally {
     deadlines.close();
     changes.close();

@@ -648,7 +648,6 @@ async function main() {
       "local-only": { type: "boolean" },
       "public-url": { type: "string" },
       providers: { type: "string" },
-      execution: { type: "string" },
       "tunnel-name": { type: "string" },
       "tunnel-config": { type: "string" },
       force: { type: "boolean" },
@@ -669,11 +668,10 @@ loop start              Start this computer and show a pairing QR code.
                         Discovers installed harnesses and reuses their native sign-in.
 loop                  Alias for loop start.
 loop start [--providers installed|codex,claude,opencode,pi,antigravity,muse,grok]
-     [--execution native]
      [--project PATH] [--tunnel-name NAME --public-url https://HOST]
      [--fleet]          Also run the experimental multi-machine fleet
                         extension (off unless given). See docs/pairing.md.
-loop codex|claude|pi|opencode|antigravity|gemini|muse|grok [--project PATH] [--executable PATH]
+loop codex|claude|pi|opencode|antigravity|muse|grok [--project PATH] [--executable PATH]
      [--billing subscription|existing] [--resume NATIVE_SESSION]
      [--local-only | --public-url https://stable-origin] [--foreground]
                         Start this computer's workspace with that harness,
@@ -732,11 +730,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const logPath = join(dir, "daemon.log");
   if (daemonChild) installDaemonLog(logPath);
   let project = await realpath(resolve(values.project ?? process.cwd()));
-  const action = !positionals.length
-    ? "start"
-    : positionals[0] === "claude-code"
-      ? "claude"
-      : positionals[0];
+  const action = positionals[0] ?? "start";
   if (values["stopped-generation"] && action !== "recover-execution")
     throw new Error(
       "--stopped-generation applies only to loop recover-execution.",
@@ -759,7 +753,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     ].includes(action)
   )
     throw new Error(
-      "--fleet applies to loop start or loop codex|claude|pi|opencode|antigravity|gemini|muse|grok. Run loop stop, then loop start --fleet.",
+      "--fleet applies to loop start or loop codex|claude|pi|opencode|antigravity|muse|grok. Run loop stop, then loop start --fleet.",
     );
   if (action === "recover-execution") {
     if (positionals.length !== 1)
@@ -1073,7 +1067,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       values["acp-arg"]?.length)
   )
     throw new Error(
-      "Runtime options belong to loop codex|claude|pi|opencode|antigravity|gemini|muse|grok|acp. Use loop start without a runtime, then choose it in the app.",
+      "Runtime options belong to loop codex|claude|pi|opencode|antigravity|muse|grok|acp. Use loop start without a runtime, then choose it in the app.",
     );
   const preferencesPath = join(dir, "preferences.json");
   const preferences = await readFile(preferencesPath, "utf8")
@@ -1083,11 +1077,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const running = await control(dir, "status").catch(() => undefined);
   if (neutral && !values.project && preferences.project)
     project = await realpath(preferences.project);
-  const execution = values.execution ?? "native";
-  if (execution !== "native")
-    throw new Error(
-      "Use docker compose -f compose.companion.yaml up -d for Docker execution. Local loop starts native harnesses.",
-    );
   const { selectedHarnesses } = await import("./start-selection.js");
   const providers = selectedHarnesses(
     values.providers ?? preferences.providers ?? "installed",
@@ -1139,7 +1128,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   let billing =
     values.billing ??
     preferences.billing?.[selected] ??
-    (["acp", "antigravity", "gemini", "muse", "grok"].includes(selected)
+    (["acp", "antigravity", "muse", "grok"].includes(selected)
       ? "existing"
       : "subscription");
   if (selected === "acp" && billing !== "existing")
@@ -1192,7 +1181,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
       ...(neutral
         ? {
             providers: values.providers ?? preferences.providers ?? "installed",
-            execution: "native",
           }
         : {}),
       publicUrl: values["public-url"],
@@ -1260,9 +1248,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     ...(selected === "acp"
       ? (values["acp-arg"] ?? []).map((arg) => "--acp-arg=" + arg)
       : []),
-    ...(neutral
-      ? ["--providers", providers.join(","), "--execution", "native"]
-      : []),
+    ...(neutral ? ["--providers", providers.join(",")] : []),
     ...(values["local-only"] ? ["--local-only"] : []),
     ...(values["public-url"] ? ["--public-url", values["public-url"]] : []),
     ...(values["tunnel-name"] ? ["--tunnel-name", values["tunnel-name"]] : []),

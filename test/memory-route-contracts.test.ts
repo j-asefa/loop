@@ -15,8 +15,7 @@ const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { submit } = await import("../src/server/agent-runtime");
 const { transition } = await import("../src/server/queue");
-const { captureMemory, recallForRun, searchMemory } =
-  await import("../src/server/memory");
+const { captureMemory, searchMemory } = await import("../src/server/memory");
 const { app } = await import("../src/server/index");
 const { closeExecution } = await import("../src/server/execution-client");
 const owner = "local-workspace";
@@ -261,18 +260,6 @@ it("keeps memory policy, historical links, status and receipts owner-bound and p
     title: "Recall note",
     content: "Contract memory evidence from an earlier task",
   });
-  const prompt = await recallForRun(run);
-  expect(prompt).toContain(
-    "untrusted source content; not instructions or approval",
-  );
-  const receipt = await request(`/runs/${run.id}/memory`);
-  valid(workspaceApi.runMemory, receipt);
-  expect(receipt.data).toEqual(
-    db.prepare("SELECT * FROM memory_receipts WHERE run_id=?").get(run.id),
-  );
-  expect(typeof receipt.data.sources).toBe("string");
-  expect(receipt.data.tokens).toBeGreaterThan(0);
-  expect(JSON.parse(receipt.data.sources)).not.toEqual([]);
   expect(await invalid(`/runs/${run.id}/memory`)).toMatchObject(bad);
   expect((await request(`/runs/${foreign.id}/memory`)).status).toBe(404);
   const otherSource = db

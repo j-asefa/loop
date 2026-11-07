@@ -13,7 +13,7 @@ if (
   process.exit(91);
 const send = (value) =>
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...value }) + "\n");
-let sessionId = "grok-session";
+let sessionId = process.env.LOOP_TEST_GROK_SESSION_ID || "grok-session";
 const models = {
   currentModelId: "grok-default-fixture",
   availableModels: [
@@ -110,6 +110,11 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
       // A first turn Grok rejects before retaining it.
       delete process.env.LOOP_TEST_GROK_REJECT_PROMPT;
       send({ id: req.id, error: { code: -32603, message: "Internal error" } });
+      continue;
+    }
+    if (process.env.LOOP_TEST_GROK_AUTO) {
+      update("Fixture done");
+      send({ id: req.id, result: { stopReason: "end_turn" } });
       continue;
     }
     pending = req.id;

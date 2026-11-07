@@ -695,7 +695,6 @@ it.each([
   ["pi", true],
   ["muse", true],
   ["opencode", false],
-  ["gemini", false],
   ["grok", false],
   ["acp", false],
 ] as const)(

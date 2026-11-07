@@ -57,7 +57,7 @@ async function workspace(extraEnv: Record<string, string> = {}) {
     "pi",
     "opencode",
     "agy",
-    "gemini",
+
     "muse",
     "grok",
   ])
@@ -1005,7 +1005,7 @@ test("loop start pairs with no installed harness, reuses the host and survives r
       "pi",
       "opencode",
       "agy",
-      "gemini",
+
       "muse",
       "grok",
     ])
@@ -1060,18 +1060,6 @@ test("loop start pairs with no installed harness, reuses the host and survives r
       w.loop(["start", "--local-only", "--project", otherProject]),
       /Run loop stop before changing the running workspace/,
     );
-    await assert.rejects(
-      w.loop([
-        "start",
-        "--local-only",
-        "--providers",
-        "anthropic",
-        "--execution",
-        "docker",
-      ]),
-      /Use docker compose/,
-    );
-    assert.equal((await w.status()).pid, status.pid);
     // Each pairing request replaces only the unused prior code.
     const current = bare.stdout.match(PAIR_URL)![0];
     const origin = new URL(current).origin;
@@ -1129,7 +1117,6 @@ test("bare loop restores a saved managed project from another directory", async 
       JSON.stringify({
         ...preferences,
         providers: "openai",
-        execution: "native",
       }),
     );
     const bare = await w.loop(["--local-only"]);

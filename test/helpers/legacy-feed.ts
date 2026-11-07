@@ -1,3 +1,4 @@
+import { summarize } from "../../src/shared/verification.js";
 // Permanent pre-projection Feed oracle. Its SQL and presentation are retained
 // from mobile-return.ts before PR 9b; only the retired trigger-maintained columns
 // are derived from raw history here. Never read feed_cards or its renderer.
@@ -7,8 +8,8 @@ import { ownedAgent, ownedFolder, Problem } from "../../src/server/domain.js";
 import { projectFolders } from "../../src/server/results.js";
 import { unreadCount } from "../../src/server/news.js";
 import { nonemptyAnswer } from "../../src/server/feed-answers.js";
-import { checkoutSummary } from "../../src/server/run-checkouts.js";
-import { verificationSummary } from "../../src/server/run-verifications.js";
+import { checkoutDetail } from "../../src/server/run-checkouts.js";
+import { runVerifications } from "../../src/server/run-verifications.js";
 import { pullStatus } from "../../src/server/pr-watches.js";
 import { runPreview } from "../../src/server/run-attention.js";
 import { NATIVE_CONNECTION_SQL } from "../../src/server/native-connections.js";
@@ -757,8 +758,9 @@ function feedItem(
           // What Loop observed in the agent's worktree. Absent for API agents
           // and for runs that have not started, so those cards are unchanged.
           ...(() => {
-            const checkout = checkoutSummary(owner, run.id);
-            const verification = verificationSummary(owner, run.id);
+            const checkout = checkoutDetail(owner, run.id)?.summary;
+            const observed = runVerifications(owner, run.id);
+            const verification = observed.length ? summarize(observed) : null;
             return {
               ...(checkout ? { checkout } : {}),
               ...(verification ? { verification } : {}),

@@ -645,15 +645,6 @@ export function checkoutDetail(
   const row = select(runId, owner);
   return row ? toDetail(row) : null;
 }
-/** The card summary, as stored JSON, for feed and thread projections. */
-export function checkoutSummary(
-  owner: string,
-  runId: string,
-): CheckoutSummary | null {
-  const row = runCheckoutsQueries.ownedSummary(db, runId, owner) as
-    { summary: string | null } | undefined;
-  return row?.summary ? (JSON.parse(row.summary) as CheckoutSummary) : null;
-}
 /** The start capture's overall budget: it runs before the agent is dispatched. */
 const START_BUDGET_MS = 20000;
 /**

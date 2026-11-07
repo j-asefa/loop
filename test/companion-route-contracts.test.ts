@@ -65,15 +65,7 @@ const originalPath = process.env.PATH;
 process.env.LOOP_DATA_DIR = directory;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 process.env.LOOP_TEST_HISTORY_PROJECT = project;
-for (const name of [
-  "codex",
-  "claude",
-  "pi",
-  "opencode",
-  "gemini",
-  "muse",
-  "grok",
-]) {
+for (const name of ["codex", "claude", "pi", "opencode", "muse", "grok"]) {
   writeFileSync(
     join(bin, name),
     `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${directory}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
@@ -271,7 +263,7 @@ it("workspace projects registered harnesses and directories from production writ
 it("runtimeList returns real CLI discovery and setup state", async () => {
   const result = await request("/workspace/runtimes?fresh=1");
   valid(workspaceApi.runtimeList, result);
-  expect(result.data.runtimes).toHaveLength(8);
+  expect(result.data.runtimes).toHaveLength(7);
   expect(
     result.data.runtimes.some(
       (runtime: { name: string }) => runtime.name === "antigravity",

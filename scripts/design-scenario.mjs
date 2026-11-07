@@ -1,7 +1,6 @@
 import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-smoke.mjs";
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
 import { agentThreadFeedSmoke } from "./helpers/agent-thread-feed-smoke.mjs";
-import { geminiSmoke } from "./helpers/gemini-smoke.mjs";
 import { antigravitySmoke } from "./helpers/antigravity-smoke.mjs";
 import { harnessProvidersSmoke } from "./helpers/harness-providers-smoke.mjs";
 import { createAgentLayoutSmoke } from "./helpers/create-agent-layout-smoke.mjs";
@@ -85,7 +84,7 @@ const scenarios = {
   "create-agent-models": createAgentModelsSmoke,
   "profile-photos-recipient": profilePhotosRecipientSmoke,
   "visual-layout": visualLayoutSmoke,
-  gemini: geminiSmoke,
+
   antigravity: antigravitySmoke,
   "harness-providers": harnessProvidersSmoke,
   "workspace-project": workspaceProjectSmoke,

@@ -443,7 +443,7 @@ it("fails closed without the optional discovery service and does not alter local
   disable = installFleetMailTools(owner, discovery);
 });
 
-it.each(["claude", "codex", "pi", "opencode", "gemini", "muse", "grok", "acp"])(
+it.each(["claude", "codex", "pi", "opencode", "muse", "grok", "acp"])(
   "rejects a late %s directory response after its executing generation changes",
   async (harness) => {
     const { run } = source(harness);

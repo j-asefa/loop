@@ -21,15 +21,7 @@ test("paired provider authentication protects credentials, checks project owners
   const bin = join(dir, "bin");
   await mkdir(bin);
   const originalPath = process.env.PATH;
-  for (const name of [
-    "codex",
-    "claude",
-    "pi",
-    "opencode",
-    "gemini",
-    "muse",
-    "grok",
-  ]) {
+  for (const name of ["codex", "claude", "pi", "opencode", "muse", "grok"]) {
     await writeFile(
       join(bin, name),
       `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
@@ -213,58 +205,6 @@ test("paired provider authentication protects credentials, checks project owners
         /fixture-super-private|fixture-token-private|fixture-code/,
       );
     assert.equal((db.prepare("SELECT count(*) n FROM runs").get() as any).n, 0);
-    // Gemini has no login command; its route must still reach the driver.
-    const gemini = "/workspace/runtimes/gemini/auth";
-    const geminiStart = await api(gemini + "/start", {
-      projectId,
-      provider: "google",
-      method: "oauth",
-      commandId: randomUUID(),
-    });
-    await until(async () => !!(await api(gemini + "/status")).attempt?.prompt);
-    const geminiPrompt = (await api(gemini + "/status")).attempt.prompt;
-    await api(gemini + "/input", {
-      attemptId: geminiStart.attempt.id,
-      promptId: geminiPrompt.id,
-      value: "fixture-code",
-    });
-    await until(
-      async () => (await api(gemini + "/status")).attempt?.state === "complete",
-    );
-    assert.match(
-      await readFile(join(dir, "auth-audit"), "utf8"),
-      /gemini:authenticate/,
-    );
-    await writeFile(join(dir, "gemini-auth-failure"), "retired");
-    try {
-      await api(gemini + "/start", {
-        projectId,
-        provider: "google",
-        method: "oauth",
-        commandId: randomUUID(),
-      });
-      await until(
-        async () => (await api(gemini + "/status")).attempt?.state === "failed",
-        25000,
-      );
-      const rejected = await api(gemini + "/status");
-      assert.equal(
-        rejected.attempt.failureCode,
-        "gemini_google_sign_in_retired",
-      );
-      assert.equal(rejected.attempt.url, undefined);
-      assert.equal(rejected.attempt.prompt, undefined);
-      assert.doesNotMatch(
-        JSON.stringify(rejected),
-        /fixture-private|fixture-token|fixture-code/,
-      );
-      assert.equal(
-        (await request(gemini + "/status", undefined, false)).status,
-        401,
-      );
-    } finally {
-      await rm(join(dir, "gemini-auth-failure"));
-    }
     const muse = "/workspace/runtimes/muse/auth";
     await api(muse + "/start", {
       projectId,

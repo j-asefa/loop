@@ -10,19 +10,11 @@ import {
   openSync,
   closeSync,
   fsyncSync,
-  copyFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 const exec = promisify(execFile);
 export type UpgradeHarness =
-  | "codex"
-  | "claude"
-  | "pi"
-  | "opencode"
-  | "antigravity"
-  | "gemini"
-  | "muse"
-  | "grok";
+  "codex" | "claude" | "pi" | "opencode" | "antigravity" | "muse" | "grok";
 export type ReleaseCheck = {
   installedVersion?: string;
   latestVersion?: string;
@@ -58,7 +50,6 @@ const packages: Partial<Record<UpgradeHarness, string>> = {
   claude: "@anthropic-ai/claude-code",
   pi: "@earendil-works/pi-coding-agent",
   opencode: "opencode-ai",
-  gemini: "@google/gemini-cli",
 };
 const READY =
   "New sessions use the updated runtime; refresh its models before creating an agent.";
@@ -83,37 +74,6 @@ export function compareVersions(a: string, b: string) {
 }
 const exact = (version: unknown): version is string =>
   typeof version === "string" && /^\d+\.\d+\.\d+$/.test(version);
-
-// Loop ships exact pins for its private helper tree, and an in-app upgrade
-// rewrites that tree's manifest. Always restore the shipped manifest and
-// lockfile, so a bumped pin reaches existing installs, then reapply only the
-// upgrades still newer than their shipped pin: a deliberate upgrade is never
-// downgraded, and a newer shipped pin always wins. Returns the npm arguments
-// that install the resulting tree.
-export function nativeHelperInstall(directory: string, source: string) {
-  const shipped: Record<string, string> = JSON.parse(
-    readFileSync(join(source, "package.json"), "utf8"),
-  ).dependencies;
-  let current: Record<string, unknown> = {};
-  try {
-    current = JSON.parse(
-      readFileSync(join(directory, "package.json"), "utf8"),
-    ).dependencies;
-  } catch {
-    /* first install */
-  }
-  const newer = Object.entries(shipped).flatMap(([name, pin]) => {
-    const installed = current?.[name];
-    return exact(installed) && compareVersions(installed, pin) > 0
-      ? [name + "@" + installed]
-      : [];
-  });
-  for (const file of ["package.json", "package-lock.json"])
-    copyFileSync(join(source, file), join(directory, file));
-  return newer.length
-    ? ["install", "--omit=dev", "--save-exact", ...newer]
-    : ["ci", "--omit=dev"];
-}
 
 export function upgradeLauncher(name: UpgradeHarness, executable: string) {
   const real = realpathSync(executable);
@@ -156,7 +116,6 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
       claude: ["claude-code", "claude-code@latest"],
       pi: ["pi"],
       opencode: ["opencode"],
-      gemini: ["gemini-cli"],
     };
     if (!allowed[name].includes(brew[3]))
       throw new Error(

@@ -18,7 +18,6 @@ const { db } = await import("../src/server/db");
 const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
 const { createAgent, ownedConnection } = await import("../src/server/domain");
 const { enqueue, claim, transition } = await import("../src/server/queue");
-const { acceptsLiveInput } = await import("../src/server/native-connections");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
 const { harnessName } = await import("../src/client/modelChoices");
 const sessions = new NativeSessions();
@@ -61,7 +60,6 @@ it("registers Muse Code as a live-input native connection and resumes its genera
     }),
   ).toBe("Muse Code");
   // Replies during a turn reach Muse through turn/steer, not the queue.
-  expect(acceptsLiveInput(connection)).toBe(true);
   expect(connection.metadata).toMatchObject({
     loopHarness: "muse",
     authMode: "native-existing",

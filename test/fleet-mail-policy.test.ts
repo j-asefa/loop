@@ -200,7 +200,7 @@ it("rechecks local recipient retirement, conversation ownership and profile at t
   db.prepare("UPDATE agents SET retired_at=NULL WHERE id=?").run(f.local.id);
 });
 
-it.each(["claude", "codex", "pi", "opencode", "gemini", "muse", "grok", "acp"])(
+it.each(["claude", "codex", "pi", "opencode", "muse", "grok", "acp"])(
   "retains local %s recipient eligibility without assuming a live-input capability",
   (harness) => {
     const f = fixture(harness);

@@ -90,16 +90,9 @@ export function eligibleMailAgent(owner: string, agentId: string) {
     );
   if (
     meta.loopHarness != null &&
-    ![
-      "codex",
-      "claude",
-      "pi",
-      "opencode",
-      "gemini",
-      "muse",
-      "grok",
-      "acp",
-    ].includes(meta.loopHarness)
+    !["codex", "claude", "pi", "opencode", "muse", "grok", "acp"].includes(
+      meta.loopHarness,
+    )
   )
     throw new MailRefusal(
       409,

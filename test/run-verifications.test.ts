@@ -10,9 +10,9 @@ process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 
 const { db, id, now } = await import("../src/server/db");
 const { ownedRun } = await import("../src/server/domain");
-const { observeCompletedOutput, runVerifications, verificationSummary } =
+const { observeCompletedOutput, runVerifications } =
   await import("../src/server/run-verifications");
-const { classifyVerification, verificationLine } =
+const { classifyVerification, verificationLine, summarize } =
   await import("../src/shared/verification");
 const { shellWords, createdPullRequest } =
   await import("../src/shared/pr-command");
@@ -188,7 +188,7 @@ it("keeps one observation per invocation when a later update brings the exit", (
   const items = runVerifications(owner, run.id);
   expect(items.map((i) => i.status)).toEqual(["passed", "passed"]);
   expect(items[0].output_tail).toBe("12 passed\n");
-  expect(verificationSummary(owner, run.id)).toMatchObject({
+  expect(summarize(runVerifications(owner, run.id))).toMatchObject({
     passed: 2,
     unknown: 0,
   });
@@ -241,7 +241,7 @@ it("records the exit Loop saw, including failures, unknown exits and cut output"
   expect(items[1].output_tail).toContain("error TS2322");
   expect(items[3].output_tail).toBeNull();
   expect(items[4].output_tail!.length).toBe(1500);
-  const summary = verificationSummary(owner, run.id)!;
+  const summary = summarize(runVerifications(owner, run.id))!;
   expect(summary).toMatchObject({ passed: 3, failed: 1, unknown: 1 });
   expect(verificationLine(summary)).toBe(
     "Ran npm test ✓ · tsc ✗ · eslint ? · pytest ✓ · 1 more",
@@ -274,7 +274,7 @@ it("gives a chain one exit shared by its tools, and only trusts a zero exit", ()
     [["npm test"], "unknown", 1],
     [["npm test"], "failed", 1],
   ]);
-  expect(verificationLine(verificationSummary(owner, run.id))).toBe(
+  expect(verificationLine(summarize(runVerifications(owner, run.id)))).toBe(
     "Ran npm run typecheck + npm test ✓ · npm run typecheck + npm test ? · npm test ? · npm test ✗",
   );
 });

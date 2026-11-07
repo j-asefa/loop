@@ -76,19 +76,7 @@ Loop uses the documented [streaming CLI](https://antigravity.google/docs/cli/hea
 
 Antigravity requires `--billing existing`. Its native account, model and permission settings apply; Loop does not change them or verify a subscription entitlement. Headless mode cannot relay approvals or questions to Loop. Configure needed tool permissions in Antigravity; tools needing interactive approval can be denied by the CLI. The CLI then reports success without an answer; Loop shows that run as a recoverable failure, keeps the conversation open and does not resend the prompt. The adapter does not inject Loop workspace tools, so Agent mail, team delegation and Loop tool integrations are unavailable. Antigravity is not bundled in the Docker images.
 
-To migrate an existing Gemini agent, enable Antigravity, select its connection and a model in the agent's settings, then send an explicit follow-up. Agents on active teams must retain a harness with Loop workspace tools. Loop starts a new Antigravity conversation in the agent's existing workspace and carries the displayed conversation as quoted context. Gemini's native session ID and credential store cannot be reused by Antigravity. Existing Gemini connections, sessions and explicit provider selections are preserved; default `installed` discovery now selects Antigravity instead. Legacy Gemini remains an explicit opt-in for supported enterprise/API configurations.
-
-## Gemini CLI (legacy)
-
-Install [Gemini CLI](https://geminicli.com/docs/get-started/installation/) **0.64.0 or newer** and configure a supported account or API credential in the CLI. Google [retired personal-account sign-in](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals), including Google AI Pro and Ultra, and directs those users to Antigravity. Updating Gemini CLI or repeating Google sign-in does not restore that access. API credentials use their own billing. Loop reports this known provider rejection with migration guidance and never switches billing automatically.
-
-For an account still supported by Gemini CLI, choose **Sign in to Gemini CLI** in **Settings → Provider connections → Harnesses**, or sign in with the CLI on the execution computer. After sign-in, enable Gemini CLI there or run `loop gemini` in your project. `loop start --providers gemini` limits automatic discovery to Gemini. Loop does not install the CLI.
-
-Gemini CLI has no login command. Loop's sign-in runs `gemini --acp` in a temporary trusted workspace that selects Google sign-in with `NO_BROWSER=true`. Gemini prints its own authorization URL and reads the code you paste back. Once Gemini accepts the code, Loop sends ACP `authenticate` for `oauth-personal`, so Gemini saves Google as its sign-in method in its own user settings. A rejected code ends the attempt; start again for a new URL. Cached Google credentials skip the browser exchange and go directly to native account verification, including when Google saved the credential but subsequently rejected Gemini CLI access.
-
-Loop uses Gemini's [ACP mode](https://geminicli.com/docs/cli/acp-mode/) for native tools, approvals, model selection and conversation resume. Account and model checks create a native session without submitting a model prompt. Gemini keeps its credentials and conversation context; outside that explicit sign-in, Loop never calls ACP `authenticate`, changes the saved sign-in method or falls back to another billing method. Saved agent instructions accompany each explicit Gemini prompt, including after a resume; earlier user tasks are not replayed. Follow-up messages during a turn queue for the next turn.
-
-Gemini defaults to `--billing existing`: its selected CLI account and configuration determine usage charges. ACP does not attest subscription entitlement, so `--billing subscription` is rejected. Choose Google sign-in in the CLI if that is the account you intend to use; a CLI already configured for API billing retains that configuration. Model choices come from Gemini's session catalog. A missing or expired sign-in blocks enablement until you sign in again. Gemini is discovered on PATH; the supplied Docker images do not install it.
+Loop supports fresh data directories and same-build peers only. Earlier launch flags, retired Gemini rows and the `claude-code` alias are intentionally unsupported.
 
 ## Muse Code
 
@@ -149,8 +137,6 @@ Finish active runs and sign-in before upgrading a harness. Loop uses the install
 ## Recovering retired connections
 
 Migration 071 makes direct connections retired by migration 067 eligible for verification again, preserving their IDs, agents, teams, conversation history and native bindings. Local startup verifies saved native registrations before reconnecting them. Server subscription accounts can be checked through Provider connections. Intentionally disconnected accounts remain disconnected. Failed or uncertain work is not automatically replayed.
-
-Connections from the earlier HAPI release stay disconnected; see [architecture](architecture.md#execution-paths). Previously saved launcher execution flags are normalized on restart; explicit `--execution docker`/`both` is replaced by the Docker deployments below.
 
 ## Containers and services
 

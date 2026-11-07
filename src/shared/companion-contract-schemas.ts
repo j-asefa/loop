@@ -11,7 +11,6 @@ import {
   PublicModel,
 } from "./agent-contract-schemas.js";
 import { SessionCapabilities } from "./session-controls.js";
-import { signInFailureCodes } from "./native-auth.js";
 import { NativeProvider } from "./native-providers.js";
 
 const Text = z.string();
@@ -52,7 +51,6 @@ export const PublicRuntimeAuth = z.object({
         "expired",
       ]),
       expiresAt: z.number(),
-      failureCode: z.enum(signInFailureCodes).optional(),
       // code is the displayed OAuth user_code, never the secret device_code polling token.
       url: Text.optional(),
       code: Text.optional(),

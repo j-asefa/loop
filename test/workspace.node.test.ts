@@ -182,7 +182,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
           "antigravity",
           "claude",
           "codex",
-          "gemini",
+
           "grok",
           "muse",
           "opencode",

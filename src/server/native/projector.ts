@@ -385,7 +385,7 @@ export class NativeProjector {
       live.binding.conversation_id,
     ) as { generation: string | null } | undefined;
     if (current?.generation !== live.generation) return;
-    const transport = ["acp", "gemini", "grok"].includes(live.binding.harness)
+    const transport = ["acp", "grok"].includes(live.binding.harness)
       ? "acp"
       : "native";
     if (event.type === "activity_capabilities") {

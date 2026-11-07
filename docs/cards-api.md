@@ -525,52 +525,6 @@ clients supply the complete header. All management writes require a matching
 read its value from the authenticated `/session` response. Browser requests
 supply `Origin` automatically.
 
-`src/shared/card-client.ts` provides `createCardClient({ baseUrl, token })` for
-integrations and `cardReader(transport)` for source-bound browser sessions.
-Responses are validated against the shared schemas. Tokens are sent only in the
-Authorization header; the integration client refuses redirects and does not
-send browser cookies. Its base URL is one workspace origin, without a path,
-credentials, query or fragment. Remote origins require HTTPS before any request
-is sent; HTTP is accepted only for `localhost`, `127.0.0.1` and `[::1]` fixtures
-or local development. Requests use the companion's workspace origin; no device
-cookie is needed for the scoped bearer path.
-
-Run the full-collection example from this checkout:
-
-```sh
-export CARDS_BASE_URL='https://your-workspace.example'
-# Set CARDS_TOKEN from your secret store; never commit the value.
-npm run cards:example
-```
-
-Optional environment variables are `CARDS_VIEW` (default `results`),
-`CARDS_PROJECT`, `CARDS_AGENT`, `CARDS_TEAMS` and `CARDS_QUERY`. Search requires
-`CARDS_VIEW=saved` or `CARDS_VIEW=sent`; Results does not support `CARDS_QUERY`.
-The example and `CardCollection` omit empty or whitespace-only queries. The script
-paginates the complete selection, keeps the first watermark, then drains all
-changes and removals before grouping cards by project. Output IDs are qualified
-by source. `CardCollection.sync()` can be called again to reconcile subsequent
-changes without another backfill. It returns deeply frozen, readonly snapshots;
-copy data before making local edits so consumers cannot alter the cached server
-state or each other's concurrent result. The collection copies incoming entries
-before freezing its own snapshot; a custom reader's objects remain untouched.
-For a grouped aggregate, importing
-`syncExample(environment)` from the example returns an async read function;
-call that function again to reconcile the same collection and regroup it.
-Create a new collection when the owner,
-source, credential or selection changes; discard previous results and abort
-pending reads. A 409 clears the collection and requires a fresh sync. A 404 for
-a deleted filter means the selection itself must change; retrying it unchanged
-does not restore that object. Credential failures are surfaced immediately.
-On 429 with a positive `Retry-After`, collection synchronization waits and retries
-that read, retaining its unpublished pages and watermark. Large backfills and
-change backlogs can cross multiple rate windows without restarting. Abort the
-supplied signal to cancel a wait. Concurrent calls share a sync only when they
-use the same signal (or all omit it); a different signal is rejected, so one
-caller's cancellation cannot be silently ignored or control another caller.
-Other failures, including 429 without a retry
-delay, are surfaced. The lower-level client reports errors without retrying.
-
 ## First-party readers and compatibility
 
 Feed Done, Agent Results, project Activity, Saved and personally sent Messages use the
@@ -600,8 +554,7 @@ serialized and coalesced; a source/owner/filter change invalidates pending
 responses. Committed windows and Saved searches are retained in the bounded
 in-memory view cache for their owner, source and selection. Returning to a tab
 restores that window and reconciles changes; logout/account changes clear it.
-Full-collection integrations omit `through` and use `CardCollection` as described
-above. A still-eligible card below `through` is not a removal.
+Full-collection integrations omit `through` and paginate the HTTP results. A still-eligible card below `through` is not a removal.
 
 The Files tab retains `/api/results?view=files` and its legacy renderer adapter.
 Remaining `/api/results`, `/api/results/updates`, `/api/saved`, `/api/me/prompts`

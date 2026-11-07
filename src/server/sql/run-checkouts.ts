@@ -4,21 +4,6 @@ import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement, statementVariants } from "./statement.js";
 
-const ownedSummaryStatement = statement(
-  "SELECT summary FROM run_checkouts WHERE run_id=? AND owner_id=?",
-);
-const ownedSummaryRow = QueryRecords.run_checkouts.pick({ summary: true });
-export function ownedSummary(
-  db: Database.Database,
-  run: string,
-  owner: string,
-) {
-  const row = ownedSummaryStatement(db).get(run, owner);
-  return row === undefined
-    ? undefined
-    : parseRecord(ownedSummaryRow, row, "run_checkouts");
-}
-
 const clearPendingStatement = statement(
   "UPDATE run_checkouts SET capture_pending=0 WHERE run_id=?",
 );

@@ -6,7 +6,6 @@ import { Pi } from "../src/adapters/pi.js";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { Muse } from "../src/adapters/muse.js";
 import { Acp } from "../src/adapters/acp.js";
-import { Gemini } from "../src/adapters/gemini.js";
 import { Grok } from "../src/adapters/grok.js";
 import { Antigravity } from "../src/adapters/antigravity.js";
 import { NotDelivered } from "../src/adapters/types.js";
@@ -225,7 +224,6 @@ test("Muse rechecks after applying a pending model before starting a turn", asyn
 
 for (const [harness, Adapter] of [
   ["acp", Acp],
-  ["gemini", Gemini],
   ["grok", Grok],
   ["antigravity", Antigravity],
 ] as const) {

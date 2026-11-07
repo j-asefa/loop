@@ -87,7 +87,6 @@ export function ensureWorkspaceOwner(owner: string): string {
     .immediate();
 }
 // Capture before deleting a subject, inside the deletion transaction.
-export const ownedEventSubject = subjects.prove;
 export function emit(
   owner: string,
   input: string | WorkspaceSubject,

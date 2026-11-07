@@ -16,7 +16,6 @@ const { createAgent, ownedConnection, ownedRun } =
 const { enqueue, claim } = await import("../src/server/queue");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
 const { createTeam } = await import("../src/server/teams");
-const { acceptsLiveInput } = await import("../src/server/native-connections");
 const { harnessName } = await import("../src/client/modelChoices");
 const sessions = new NativeSessions();
 afterAll(async () => {
@@ -98,7 +97,7 @@ function task(key: string) {
   return { agent, run };
 }
 
-it("registers Antigravity separately from Gemini with honest capabilities and owner isolation", async () => {
+it("registers Antigravity with honest capabilities and owner isolation", async () => {
   const registration = await sessions.enable({
     harness: "antigravity",
     executable: resolve("test/fixtures/fake-antigravity.mjs"),
@@ -128,7 +127,6 @@ it("registers Antigravity separately from Gemini with honest capabilities and ow
     },
   });
   expect(() => ownedConnection(connection.id, "other-owner")).toThrow();
-  expect(acceptsLiveInput(connection)).toBe(false);
   expect(
     harnessName({
       ...connection,
@@ -175,11 +173,11 @@ it("resumes only its saved native ID under a new generation without replaying ta
   await sessions.dispose(resumed);
 });
 
-it("an explicit Gemini-to-Antigravity switch retains the agent workspace and starts fresh native context", async () => {
+it("an explicit Grok-to-Antigravity switch retains the agent workspace and starts fresh native context", async () => {
   await sessions.enable({
-    harness: "gemini",
-    executable: resolve("test/fixtures/fake-gemini.mjs"),
-    version: "0.64.0",
+    harness: "grok",
+    executable: resolve("test/fixtures/fake-grok.mjs"),
+    version: "1.0.70",
     project: dir,
     billing: "existing",
   });
@@ -188,25 +186,25 @@ it("an explicit Gemini-to-Antigravity switch retains the agent workspace and sta
     ...run,
     payload: {
       ...run.payload,
-      connectionId: "native-gemini",
-      provider: "gemini",
-      model: "gemini-fixture",
+      connectionId: "native-grok",
+      provider: "grok",
+      model: "grok-fixture",
     },
   });
   const project = legacy.binding.project;
-  expect(legacy.binding.native_id).toBe("gemini-session");
+  expect(legacy.binding.native_id).toBe("grok-session");
   await sessions.dispose(legacy);
   db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('legacy-message',?,?,'user','Earlier Gemini task',0)",
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('legacy-message',?,?,'user','Earlier Grok task',0)",
   ).run(OWNER, run.conversation_id);
   const switched = await sessions.session(run);
   expect(switched.binding.harness).toBe("antigravity");
   expect(switched.binding.project).toBe(project);
   expect(switched.binding.native_id).toBe("agy-switch");
-  expect(switched.binding.instructions).toContain("Earlier Gemini task");
+  expect(switched.binding.instructions).toContain("Earlier Grok task");
   expect(requests().at(-1).args).not.toContain("--conversation");
   expect(requests().filter((r) => r.event === "user")).toHaveLength(0);
-  expect(ownedConnection("native-gemini", OWNER).provider).toBe("gemini");
+  expect(ownedConnection("native-grok", OWNER).provider).toBe("grok");
   await sessions.dispose(switched);
 });
 

@@ -25,8 +25,8 @@ const chat = join(root, "chat");
 const other = join(root, "other");
 for (const directory of [data, chat, other]) mkdirSync(directory);
 process.env.LOOP_DATA_DIR = data;
-process.env.LOOP_TEST_GEMINI_AUTO = "1";
-process.env.LOOP_TEST_GEMINI_LOG = join(root, "requests");
+process.env.LOOP_TEST_GROK_AUTO = "1";
+process.env.LOOP_TEST_GROK_LOG = join(root, "requests");
 const { db } = await import("../src/server/db.js");
 const { nativeSessions, NativeSessions, OWNER } =
   await import("../src/server/native-sessions.js");
@@ -35,9 +35,9 @@ const { tick, execute } = await import("../src/server/worker.js");
 const { completeCheckout } = await import("../src/server/run-checkouts.js");
 
 await nativeSessions.enable({
-  harness: "gemini",
-  executable: resolve("test/fixtures/fake-gemini.mjs"),
-  version: "0.64.0",
+  harness: "grok",
+  executable: resolve("test/fixtures/fake-grok.mjs"),
+  version: "1.0.70",
   project: chat,
   billing: "existing",
 });
@@ -54,9 +54,9 @@ afterAll(async () => {
   await nativeSessions.close();
   db.close();
   for (const name of [
-    "LOOP_TEST_GEMINI_AUTO",
-    "LOOP_TEST_GEMINI_LOG",
-    "LOOP_TEST_GEMINI_SESSION_ID",
+    "LOOP_TEST_GROK_AUTO",
+    "LOOP_TEST_GROK_LOG",
+    "LOOP_TEST_GROK_SESSION_ID",
     "LOOP_TEST_ACP_SESSION_ID",
   ])
     delete process.env[name];
@@ -87,10 +87,10 @@ function submit(
   options: {
     conversation?: string;
     agent?: string;
-    harness?: "gemini" | "acp";
+    harness?: "grok" | "acp";
   } = {},
 ) {
-  const { conversation = key, agent = key, harness = "gemini" } = options;
+  const { conversation = key, agent = key, harness = "grok" } = options;
   const folder = nativeSessions.addProject(project) as { id: string };
   db.prepare(
     "INSERT OR IGNORE INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,?,'native-default',0)",
@@ -114,7 +114,7 @@ function submit(
 }
 async function run(...args: Parameters<typeof submit>) {
   const task = submit(...args);
-  process.env.LOOP_TEST_GEMINI_SESSION_ID = "workspace-" + args[1];
+  process.env.LOOP_TEST_GROK_SESSION_ID = "workspace-" + args[1];
   process.env.LOOP_TEST_ACP_SESSION_ID = "workspace-" + args[1];
   expect(await tick(execute)).toBe(true);
   await completeCheckout(task.id);
@@ -179,7 +179,7 @@ it("completes native output for a legacy payload without copying unknown fields"
     JSON.stringify({ ...task.payload, historicalLabel: "Old label" }),
     task.id,
   );
-  process.env.LOOP_TEST_GEMINI_SESSION_ID = "workspace-legacy-payload";
+  process.env.LOOP_TEST_GROK_SESSION_ID = "workspace-legacy-payload";
   expect(await tick(execute)).toBe(true);
   await completeCheckout(task.id);
   expect(result(task)).toMatchObject({
@@ -230,7 +230,7 @@ it("binds a fresh ordinary-folder import for catalogs, native resume and harness
     await import("../src/server/migration.js");
   const project = directory("import-" + kind);
   const nativeId = "imported-" + kind;
-  const options = { ...nativeSessions.registration("gemini"), project };
+  const options = { ...nativeSessions.registration("grok"), project };
   const prepared = await prepareImportSession(
     options,
     "desktop",
@@ -301,7 +301,7 @@ it("binds a fresh ordinary-folder import for catalogs, native resume and harness
   expect(repeated).not.toBe(conversation);
   expect(binding(repeated).worktree_agent_id).not.toBe(agent.id);
   expect(binding(repeated)).toMatchObject({
-    harness: "gemini",
+    harness: "grok",
     native_id: nativeId,
     project,
   });
@@ -317,16 +317,10 @@ it("preserves directory-scoped native history instead of relocating it to a Git 
   const { resumeFromDesktop } = await import("../src/server/migration.js");
   const project = directory("directory-scoped-handoff");
   gitProject(project);
-  for (const harness of [
-    "gemini",
-    "claude",
-    "pi",
-    "opencode",
-    "acp",
-  ] as const) {
+  for (const harness of ["grok", "claude", "pi", "opencode", "acp"] as const) {
     await expect(
       resumeFromDesktop(
-        { ...nativeSessions.registration("gemini"), harness, project },
+        { ...nativeSessions.registration("grok"), harness, project },
         "scoped-" + harness,
       ),
     ).rejects.toThrow(
@@ -350,7 +344,7 @@ it.each(["concurrent", "failed-insert"])(
     gitProject(project);
     const nativeId = "durable-handoff-" + mode;
     const options = {
-      ...nativeSessions.registration("gemini"),
+      ...nativeSessions.registration("grok"),
       harness: "codex" as const,
       project,
     };
@@ -424,7 +418,7 @@ it.each(["plain", "git"])(
     if (kind === "git") for (const project of projects) gitProject(project);
     const nativeId = "conflicting-handoff-" + kind;
     const options = {
-      ...nativeSessions.registration("gemini"),
+      ...nativeSessions.registration("grok"),
       harness: "codex" as const,
     };
     const outcomes = await Promise.allSettled(
@@ -478,7 +472,7 @@ it.each(["plain", "git"])(
     if (kind === "git") gitProject(project);
     const nativeId = "retry-binding-" + kind;
     const options = {
-      ...nativeSessions.registration("gemini"),
+      ...nativeSessions.registration("grok"),
       harness: "codex" as const,
       project,
     };
@@ -540,7 +534,7 @@ it("allows a new explicit handoff destination after preparation fails while reta
     join(root, "missing-import-remote"),
   ]);
   const options = {
-    ...nativeSessions.registration("gemini"),
+    ...nativeSessions.registration("grok"),
     harness: "codex" as const,
     project: firstProject,
   };
@@ -584,7 +578,7 @@ it.each(["symlink", "lexical", "missing"])(
           ? project + "/../legacy-open-" + mode
           : project;
     const options = {
-      ...nativeSessions.registration("gemini"),
+      ...nativeSessions.registration("grok"),
       project: source,
     };
     const nativeId = "legacy-open-" + mode;
@@ -614,7 +608,7 @@ it("preserves legacy ordinary-folder sessions when resuming or switching harness
   ).run("legacy-plain");
   const saved = binding("legacy-plain");
   const before = requests().length;
-  for (const harness of ["gemini", "acp"] as const) {
+  for (const harness of ["grok", "acp"] as const) {
     const task = await run(project, "legacy-plain-" + harness, {
       conversation: "legacy-plain",
       agent: "legacy-plain",
@@ -667,16 +661,16 @@ it("preserves the native binding if the workspace changes during a harness switc
 });
 
 it("switches harnesses after a cancelled startup publishes its native session id", async () => {
-  const { Gemini } = await import("../src/adapters/gemini.js");
-  const original = Gemini.prototype.start;
+  const { Grok } = await import("../src/adapters/grok.js");
+  const original = Grok.prototype.start;
   let release!: () => void;
   const ready = new Promise<void>((resolve) => {
     release = resolve;
   });
   let starting = false;
   const delayed = vi
-    .spyOn(Gemini.prototype, "start")
-    .mockImplementation(async function (this: InstanceType<typeof Gemini>) {
+    .spyOn(Grok.prototype, "start")
+    .mockImplementation(async function (this: InstanceType<typeof Grok>) {
       starting = true;
       await ready;
       return original.call(this);
@@ -684,7 +678,7 @@ it("switches harnesses after a cancelled startup publishes its native session id
   const key = "cancelled-startup-switch";
   const project = directory(key);
   const first = submit(project, key);
-  process.env.LOOP_TEST_GEMINI_SESSION_ID = key;
+  process.env.LOOP_TEST_GROK_SESSION_ID = key;
   process.env.LOOP_TEST_ACP_SESSION_ID = key;
   const firstExecution = tick(execute);
   let secondExecution: Promise<boolean> | undefined;
@@ -773,7 +767,7 @@ it.each(["live", "cached", "restarted"])(
     const project = directory(key);
     const first = await run(project, key);
     expect(result(first).state).toBe("completed");
-    const agent = { id: key, connection_id: "native-gemini" };
+    const agent = { id: key, connection_id: "native-grok" };
     expect((await nativeSessions.catalog(agent, key)).available).toBe(true);
     const sessions = mode === "live" ? nativeSessions : new NativeSessions();
     try {
@@ -803,7 +797,7 @@ it.each(["live", "cached", "restarted"])(
     gitProject(project);
     const first = await run(project, key);
     expect(result(first).state).toBe("completed");
-    const agent = { id: key, connection_id: "native-gemini" };
+    const agent = { id: key, connection_id: "native-grok" };
     expect((await nativeSessions.catalog(agent, key)).available).toBe(true);
     const sessions = mode === "live" ? nativeSessions : new NativeSessions();
     try {
@@ -905,7 +899,7 @@ it("requires a new conversation when an ordinary folder becomes a repository, pr
     harness: "acp",
   });
   expect(result(switched).state).toBe("failed");
-  expect(binding("before-git").harness).toBe("gemini");
+  expect(binding("before-git").harness).toBe("grok");
   const fresh = await run(project, "after-git-new", { agent: "before-git" });
   expect(result(fresh)).toMatchObject({ state: "completed" });
   expect(binding("after-git-new").project).not.toBe(project);

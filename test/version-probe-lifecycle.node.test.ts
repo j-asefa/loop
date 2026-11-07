@@ -30,25 +30,25 @@ function alive(pid: number) {
 test("concurrent discovery shares a version process and later probes observe changes", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "loop-version-probe-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const executable = join(dir, "gemini");
+  const executable = join(dir, "grok");
   const calls = join(dir, "calls");
   await writeFile(
     executable,
     `#!/usr/bin/env node
 require('node:fs').appendFileSync(${JSON.stringify(calls)}, 'probe\\n');
-setTimeout(() => console.log('0.65.0'), 300);
+setTimeout(() => console.log('1.0.71'), 300);
 `,
     { mode: 0o755 },
   );
   const results = await Promise.all(
-    Array.from({ length: 8 }, () => discover("gemini", executable)),
+    Array.from({ length: 8 }, () => discover("grok", executable)),
   );
-  assert(results.every((r) => r.supported && r.version === "0.65.0"));
+  assert(results.every((r) => r.supported && r.version === "1.0.71"));
   assert.equal(readFileSync(calls, "utf8"), "probe\n");
-  await writeFile(executable, "#!/usr/bin/env node\nconsole.log('0.66.0');\n", {
+  await writeFile(executable, "#!/usr/bin/env node\nconsole.log('1.0.72');\n", {
     mode: 0o755,
   });
-  assert.equal((await discover("gemini", executable)).version, "0.66.0");
+  assert.equal((await discover("grok", executable)).version, "1.0.72");
 });
 
 for (const hangs of [false, true]) {
@@ -66,7 +66,7 @@ for (const hangs of [false, true]) {
         }
         await rm(dir, { recursive: true, force: true });
       });
-      const executable = join(dir, "gemini");
+      const executable = join(dir, "grok");
       const descendant = `
 require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid));
 process.on('SIGTERM', () => {});
@@ -81,12 +81,12 @@ spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], {stdio:'inherit'}
 const timer=setInterval(() => {
   if (!existsSync(${JSON.stringify(marker)})) return;
   clearInterval(timer);
-  ${hangs ? "process.on('SIGTERM',()=>{});setInterval(()=>{},1000);" : "process.stdout.write('0.65.0\\n',()=>process.exit(0));"}
+  ${hangs ? "process.on('SIGTERM',()=>{});setInterval(()=>{},1000);" : "process.stdout.write('1.0.71\\n',()=>process.exit(0));"}
 }, 20);
 `,
         { mode: 0o755 },
       );
-      const found = await discover("gemini", executable);
+      const found = await discover("grok", executable);
       assert.equal(found.supported, !hangs);
       assert(existsSync(marker), "the descendant was started");
       await until(() => !alive(Number(readFileSync(marker, "utf8"))));

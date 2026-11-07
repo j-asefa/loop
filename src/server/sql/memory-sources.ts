@@ -78,21 +78,6 @@ export function setComplete(
   return setCompleteStatement(db).run(complete, id);
 }
 
-const inConversationStatement = statement(
-  "SELECT 1 FROM memory_sources WHERE id=? AND conversation_id=?",
-);
-const inConversationRow = z.object({ "1": z.number() });
-export function inConversation(
-  db: Database.Database,
-  id: string,
-  conversation: string | null,
-) {
-  const row = inConversationStatement(db).get(id, conversation);
-  return row === undefined
-    ? undefined
-    : parseRecord(inConversationRow, row, "memory_sources");
-}
-
 const summariesStatement = statement(
   "SELECT id,title,kind,project_id,revision,eligible,tombstone FROM memory_sources WHERE owner_id=? ORDER BY updated_at DESC LIMIT 100",
 );

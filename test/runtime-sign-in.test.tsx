@@ -43,13 +43,9 @@ it("keeps account sign-in copy for harnesses that own an account", () => {
 });
 
 it("lets an account signed in outside Loop connect without a new sign-in", () => {
-  // Gemini and CLI harnesses do not report sign-ins made before Loop's auth
+  // CLI harnesses do not report sign-ins made before Loop's auth
   // manager saw them; enabling verifies the account itself.
-  const html = render(
-    "gemini",
-    "Gemini CLI",
-    <button>Enable Gemini CLI</button>,
-  );
+  const html = render("grok", "Grok Build", <button>Enable Grok Build</button>);
   expect(html).toContain("Already signed in on loop-dev?");
-  expect(html).toContain("Enable Gemini CLI");
+  expect(html).toContain("Enable Grok Build");
 });

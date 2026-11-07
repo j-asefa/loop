@@ -1,10 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type { Duplex } from "node:stream";
 import { Native } from "../native.js";
 import { museHost } from "../adapters/muse.js";
@@ -14,14 +12,7 @@ import type {
   AuthInteraction,
   AuthOptions,
 } from "../server/native-auth.js";
-import type { AuthProvider, SignInFailureCode } from "../shared/native-auth.js";
-
-// Only classified failures cross the browser boundary, never provider output.
-export class AuthFailure extends Error {
-  constructor(readonly code: SignInFailureCode) {
-    super(code);
-  }
-}
+import type { AuthProvider } from "../shared/native-auth.js";
 
 async function stop(child?: ChildProcess) {
   if (!child?.pid || child.exitCode !== null || child.signalCode !== null)
@@ -520,230 +511,6 @@ async function openCodeDriver(options: AuthOptions): Promise<AuthDriver> {
   };
 }
 
-// Gemini has no login command. With Google sign-in selected and NO_BROWSER,
-// `gemini --acp` runs its own user-code exchange on stdin before serving ACP.
-// A throwaway trusted workspace selects Google for this process only; ACP
-// `authenticate` then lets Gemini save the chosen method in its user settings.
-let geminiSignInScreenWait = 15000;
-/** Tests shorten the cached-credential wait. */
-export function setGeminiSignInScreenWait(ms: number) {
-  geminiSignInScreenWait = ms;
-}
-function geminiDriver(options: AuthOptions): AuthDriver {
-  let child: ChildProcess | undefined;
-  let workspace: string | undefined;
-  const cleanup = async () => {
-    await stop(child);
-    if (workspace) await rm(workspace, { recursive: true, force: true });
-    workspace = undefined;
-  };
-  return {
-    async providers() {
-      return [
-        {
-          id: "google",
-          name: "Google",
-          methods: [
-            { id: "oauth", type: "oauth", label: "Sign in with Google" },
-          ],
-        },
-      ];
-    },
-    async login(_provider, _method, io) {
-      await cleanup();
-      workspace = await mkdtemp(join(tmpdir(), "loop-gemini-sign-in-"));
-      await mkdir(join(workspace, ".gemini"));
-      await writeFile(
-        join(workspace, ".gemini", "settings.json"),
-        JSON.stringify({
-          security: { auth: { selectedType: "oauth-personal" } },
-        }),
-      );
-      const process = (child = spawn(options.executable, ["--acp"], {
-        cwd: workspace,
-        env: {
-          ...(options.env ?? globalThis.process.env),
-          NO_BROWSER: "true",
-          GEMINI_CLI_TRUST_WORKSPACE: "true",
-        },
-        stdio: "pipe",
-        detached: true,
-      }));
-      own(process);
-      try {
-        await new Promise<void>((resolve, reject) => {
-          let output = "",
-            late = "",
-            diagnostics = "",
-            assumed = false,
-            phase: "link" | "code" | "exchange" | "acp" = "link";
-          // Cached Google credentials skip the code exchange: Gemini never
-          // opens its sign-in screen and goes straight to serving ACP. Let
-          // ACP authenticate confirm them instead of waiting for a URL.
-          const cached = setTimeout(() => {
-            if (phase !== "link" || output.includes("\x1b[?1049h")) return;
-            assumed = true;
-            phase = "acp";
-            output = "";
-            begin();
-          }, geminiSignInScreenWait);
-          const abort = () => {
-            clearTimeout(cached);
-            void stop(process);
-            reject(new Error("Sign-in cancelled"));
-          };
-          io.signal.addEventListener("abort", abort, { once: true });
-          const retiredGoogleSignIn = (message: string) =>
-            /This client is no longer supported for Gemini Code Assist for individuals/i.test(
-              message,
-            );
-          const fail = (message: string) => {
-            clearTimeout(cached);
-            void stop(process);
-            reject(
-              retiredGoogleSignIn(message)
-                ? new AuthFailure("gemini_google_sign_in_retired")
-                : new Error("Sign-in failed"),
-            );
-          };
-          const send = (id: number, method: string, params: unknown) =>
-            process.stdin!.write(
-              JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n",
-            );
-          const begin = () => {
-            clearTimeout(cached);
-            send(1, "initialize", {
-              protocolVersion: PROTOCOL_VERSION,
-              clientInfo: { name: "Loop", version: "0.1.0" },
-              clientCapabilities: {},
-            });
-          };
-          // The last Google authorization URL before Gemini's code prompt.
-          const relay = (text: string) => {
-            const url = (text.match(/https:\/\/[^\s<>"'\x1b]+/g) || [])
-              .filter((value) => {
-                try {
-                  const parsed = new URL(value);
-                  return (
-                    parsed.hostname === "accounts.google.com" &&
-                    !parsed.username &&
-                    !parsed.password
-                  );
-                } catch {
-                  return false;
-                }
-              })
-              .pop();
-            if (!url) return fail("Unsupported sign-in response");
-            // The sign-in screen is real now; later ACP output is genuine.
-            assumed = false;
-            late = "";
-            phase = "code";
-            clearTimeout(cached);
-            try {
-              io.link(url);
-            } catch {
-              return fail("Unsupported sign-in response");
-            }
-            void io
-              .prompt({
-                type: "manual_code",
-                message: "Paste the authorization code from Google",
-              })
-              .then(
-                (value) => {
-                  if (io.signal.aborted) return;
-                  phase = "exchange";
-                  output = "";
-                  // One line only: later stdin lines are ACP frames.
-                  process.stdin!.write(value.replace(/\s+/g, "") + "\n");
-                },
-                () => {},
-              );
-          };
-          process.stdout!.on("data", (chunk: Buffer) => {
-            if (io.signal.aborted) return;
-            output = (output + chunk.toString()).slice(-20000);
-            if (phase === "link") {
-              if (/Enter the authorization code/.test(output)) relay(output);
-            } else if (phase === "exchange") {
-              // Gemini leaves its sign-in screen once the code is accepted.
-              if (!output.includes("\x1b[?1049l")) return;
-              phase = "acp";
-              output = "";
-              begin();
-            } else if (phase === "acp") {
-              // A slow, signed-out start can open the sign-in screen after Loop
-              // assumed cached credentials. Gemini reads Loop's initialize
-              // frame as a bad code and asks again with a new URL: relay that
-              // second prompt so the person can still sign in.
-              if (assumed) {
-                late = (late + chunk.toString()).slice(-40000);
-                const prompts = late.match(/Enter the authorization code/g);
-                if (prompts && prompts.length >= 2) return relay(late);
-                if (prompts) return;
-              }
-              let end;
-              while ((end = output.indexOf("\n")) >= 0) {
-                const line = output.slice(0, end).trim();
-                output = output.slice(end + 1);
-                if (!line.startsWith("{")) continue;
-                let message;
-                try {
-                  message = JSON.parse(line);
-                } catch {
-                  return fail("Unsupported sign-in response");
-                }
-                if (message.error)
-                  return fail(
-                    typeof message.error.message === "string"
-                      ? message.error.message
-                      : "Sign-in failed",
-                  );
-                if (message.id === 1)
-                  send(2, "authenticate", { methodId: "oauth-personal" });
-                if (message.id === 2) {
-                  io.signal.removeEventListener("abort", abort);
-                  return resolve();
-                }
-              }
-            }
-          });
-          // Gemini reports a rejected code on stderr, then asks again. End
-          // the attempt rather than relaying a second authorization URL. (A
-          // late sign-in screen's rejection of Loop's frame is expected.)
-          process.stderr!.on("data", (chunk: Buffer) => {
-            if (io.signal.aborted) return;
-            diagnostics = (diagnostics + chunk.toString()).slice(-20000);
-            if (
-              retiredGoogleSignIn(diagnostics) ||
-              (phase === "exchange" &&
-                /Failed to authenticate[^\r\n]*[\r\n]/.test(diagnostics))
-            )
-              fail(diagnostics);
-          });
-          process.stdin!.on("error", () => {});
-          process.once("error", () => {
-            io.signal.removeEventListener("abort", abort);
-            reject(new Error("Sign-in process failed"));
-          });
-          process.once("exit", () => {
-            clearTimeout(cached);
-            io.signal.removeEventListener("abort", abort);
-            reject(new Error("Sign-in failed"));
-          });
-          if (io.signal.aborted) abort();
-        });
-      } finally {
-        await cleanup();
-      }
-    },
-    async dispose() {
-      await cleanup();
-    },
-  };
-}
-
 // agy has no login command; its terminal UI signs in. Run it under script(1)
 // for a terminal wide enough to print Google's URL on one line, choose Google
 // OAuth and type back the code that antigravity.google shows. agy stores the
@@ -1043,7 +810,6 @@ export async function createAuthDriver(
     return cliDriver(options);
   if (options.name === "pi") return piDriver(options);
   if (options.name === "opencode") return openCodeDriver(options);
-  if (options.name === "gemini") return geminiDriver(options);
   if (options.name === "muse") return museDriver(options);
   if (options.name === "antigravity") return antigravityDriver(options);
   throw new Error("Unsupported sign-in harness");

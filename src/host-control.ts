@@ -75,7 +75,7 @@ const minimumVersions = {
   opencode: "1.18.32",
   // Public stream-json input/output, exact conversation resume and literal prompts.
   antigravity: "1.4.9",
-  gemini: "0.64.0",
+
   // Account sign-in and login methods on the experimental MSP surface.
   muse: "1.4.12",
   // ACP over `grok agent stdio`, verified with this release.
@@ -87,7 +87,7 @@ const install = {
   pi: "https://github.com/earendil-works/pi",
   opencode: "https://opencode.ai/docs",
   antigravity: "https://antigravity.google/docs/getting-started?tab=cli",
-  gemini: "https://geminicli.com/docs/get-started/installation/",
+
   muse: "https://dev.meta.ai/docs/muse-code/",
   grok: "https://x.ai/cli",
 };

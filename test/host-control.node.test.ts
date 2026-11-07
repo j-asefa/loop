@@ -26,12 +26,6 @@ const versions = {
     latest: "1.0.70",
     format: (v: string) => `grok ${v} (f50904eaee6c)\n`,
   },
-  gemini: {
-    minimum: "0.64.0",
-    older: "0.63.0",
-    latest: "0.65.0",
-    format: (v: string) => `${v}\n`,
-  },
   codex: {
     minimum: "0.157.0",
     older: "0.156.99",

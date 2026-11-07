@@ -869,7 +869,7 @@ it.each(["cancel", "retire", "delete-conversation", "change-provider"])(
   },
 );
 
-it.each(["claude", "codex", "pi", "opencode", "gemini", "muse", "grok", "acp"])(
+it.each(["claude", "codex", "pi", "opencode", "muse", "grok", "acp"])(
   "fences an active %s generation while preserving completed mail through an idle restart",
   async (harness) => {
     const first = source(harness),

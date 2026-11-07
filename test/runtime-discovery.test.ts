@@ -21,7 +21,7 @@ it("refreshes and an expired cache share a pending probe, then cache from comple
     finish = resolve;
   });
   probe.mockImplementation((name: string) =>
-    name === "gemini"
+    name === "grok"
       ? pending
       : Promise.resolve({ name, installed: false, help: "fixture" }),
   );
@@ -31,19 +31,19 @@ it("refreshes and an expired cache share a pending probe, then cache from comple
   const refresh = runtimeList({ fresh: true });
   clock.mockReturnValue(original + 20000);
   const expired = runtimeList({ fresh: false });
-  const calls = () => probe.mock.calls.filter(([name]) => name === "gemini");
+  const calls = () => probe.mock.calls.filter(([name]) => name === "grok");
   expect(calls()).toHaveLength(1);
   finish({
-    name: "gemini",
+    name: "grok",
     installed: true,
     supported: true,
-    version: "0.65.0",
+    version: "1.0.71",
     help: "",
   });
   const results = await Promise.all([first, refresh, expired]);
   expect(
     results.every(
-      (r) => r.runtimes.find((h) => h.name === "gemini")?.version === "0.65.0",
+      (r) => r.runtimes.find((h) => h.name === "grok")?.version === "1.0.71",
     ),
   ).toBe(true);
   clock.mockReturnValue(original + 25000);

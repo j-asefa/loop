@@ -19,14 +19,14 @@ export function selectedHarnesses(value = "installed"): Harness[] {
           "pi",
           "opencode",
           "antigravity",
-          "gemini",
+
           "muse",
           "grok",
         ].includes(n),
     )
   )
     throw new Error(
-      "Choose installed, codex, claude, pi, opencode, antigravity, muse or grok (legacy: gemini). Register custom ACP agents with loop acp --executable PATH.",
+      "Choose installed, codex, claude, pi, opencode, antigravity, muse or grok. Register custom ACP agents with loop acp --executable PATH.",
     );
   return names as Harness[];
 }

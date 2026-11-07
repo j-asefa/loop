@@ -5,11 +5,8 @@ import type { OutputData } from "../agent-activities.js";
 import {
   chainLength,
   classifyVerification,
-  summarize,
-  verificationLine,
   type VerificationItem,
   type VerificationStatus,
-  type VerificationSummary,
 } from "../shared/verification.js";
 
 /**
@@ -128,18 +125,3 @@ export function runVerifications(owner: string, runId: string) {
     runVerificationsQueries.forRun(db, owner, runId) as VerificationRow[]
   ).map((row) => ({ ...toItem(row), output_tail: row.output_tail }));
 }
-
-/** The card summary, or null when nothing was observed. */
-export function verificationSummary(
-  owner: string,
-  runId: string,
-): VerificationSummary | null {
-  const rows = runVerificationsQueries.forRun(
-    db,
-    owner,
-    runId,
-  ) as VerificationRow[];
-  return rows.length ? summarize(rows.map(toItem)) : null;
-}
-
-export { verificationLine };

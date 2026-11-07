@@ -54,7 +54,6 @@ test("the shipped Docker command selects all four runtimes with empty preference
     allowPositionals: true,
     options: {
       foreground: { type: "boolean" },
-      execution: { type: "string" },
       providers: { type: "string" },
     },
   });
@@ -65,5 +64,4 @@ test("the shipped Docker command selects all four runtimes with empty preference
     "opencode",
     "pi",
   ]);
-  assert.equal(values.execution, "native");
 });

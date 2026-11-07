@@ -6,7 +6,7 @@ import type {
   NativeAuthView,
   SignIn,
 } from "../shared/native-auth.js";
-import { AuthFailure, createAuthDriver } from "../native-auth/drivers.js";
+import { createAuthDriver } from "../native-auth/drivers.js";
 import { Problem } from "../shared/problem.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { NativeProvider } from "../shared/native-providers.js";
@@ -380,7 +380,6 @@ export class NativeSignIns {
         },
         (error) => {
           if (!live()) return;
-          if (error instanceof AuthFailure) attempt.failureCode = error.code;
           this.end(session, "failed");
         },
       );

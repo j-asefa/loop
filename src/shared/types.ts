@@ -5,7 +5,6 @@ export type Provider =
   | "pi"
   | "opencode"
   | "antigravity"
-  | "gemini"
   | "muse"
   | "grok"
   | "acp";

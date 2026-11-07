@@ -14,7 +14,7 @@ import {
   WebhookCreated,
   WebhookDelivery,
   WebhookList,
-  WebhookPayload,
+  WebhookPing,
   WebhookStop,
   WebhookSubscription,
 } from "../src/shared/webhooks";
@@ -162,7 +162,7 @@ function payloads(f: Fixture, id: string) {
     expect(created.secret).toBe(created.request.secret);
     expect(sink.received).toHaveLength(1);
     const ping = sink.received[0],
-      body = WebhookPayload.parse(JSON.parse(ping.body));
+      body = WebhookPing.parse(JSON.parse(ping.body));
     expect("type" in body && body.type).toBe("ping");
     const timestamp = String(ping.req.headers["x-loop-timestamp"]);
     expect(ping.req.headers["x-loop-signature"]).toBe(
@@ -317,13 +317,13 @@ function payloads(f: Fixture, id: string) {
             .digest("hex"),
       );
       expect(
-        WebhookPayload.safeParse({
+        WebhookStop.safeParse({
           ...JSON.parse(received.body),
           owner_id: f.owner,
         }).success,
       ).toBe(false);
       expect(
-        WebhookPayload.safeParse({
+        WebhookStop.safeParse({
           ...JSON.parse(received.body),
           secret_sealed: "secret",
         }).success,

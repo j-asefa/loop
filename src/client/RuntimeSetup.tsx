@@ -24,7 +24,7 @@ const labels: Record<string, string> = {
   pi: "Pi",
   opencode: "OpenCode",
   antigravity: "Antigravity",
-  gemini: "Gemini CLI",
+
   muse: "Muse Code",
   grok: "Grok Build",
 };
@@ -32,7 +32,6 @@ const labels: Record<string, string> = {
 const existingOnly = (name: string) =>
   connectsModelProvider(name) ||
   name === "antigravity" ||
-  name === "gemini" ||
   name === "muse" ||
   name === "grok";
 function matchesRuntime(connection: Connection, runtime: Runtime) {

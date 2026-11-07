@@ -33,8 +33,7 @@
     "smoke:fleet-commands": "node scripts/heavy-command.mjs scripts/fleet-command-browser-smoke.mjs",
     "feeds:check": "node --import tsx scripts/feed-liveness.mjs",
     "openapi": "node --import tsx scripts/openapi.mjs",
-    "openapi:check": "npm run openapi -- --check",
-    "cards:example": "node --import tsx examples/cards-sync.ts"
+    "openapi:check": "npm run openapi -- --check"
   },
   "repository": {
     "type": "git",

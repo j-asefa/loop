@@ -42,7 +42,6 @@ const {
   completeCheckout,
   reconcileCheckouts,
   checkoutDetail,
-  checkoutSummary,
   PATCH_LIMIT,
 } = await import("../src/server/run-checkouts");
 const { checkoutLine, unquoteGitPath, patchByFile } =
@@ -104,14 +103,14 @@ it("records the worktree before and after a run, as Loop observed it", async () 
   expect(started.base_sha).toBe(git(project, "rev-parse", "HEAD"));
   expect(started.start_dirty).toBe(0);
   expect(started.generation).toBe("g1");
-  expect(checkoutSummary(owner, run.id)).toMatchObject({
+  expect(checkoutDetail(owner, run.id)?.summary ?? null).toMatchObject({
     state: "started",
     files: 0,
     ahead: null,
   });
-  expect(checkoutLine(checkoutSummary(owner, run.id)!)).not.toContain(
-    "undefined",
-  );
+  expect(
+    checkoutLine((checkoutDetail(owner, run.id)?.summary ?? null)!),
+  ).not.toContain("undefined");
 
   // The agent commits one change, leaves another uncommitted, and adds a file.
   writeFileSync(join(checkout, "tracked.txt"), "committed\nby the agent\n");
@@ -177,7 +176,7 @@ it("counts each run's edits when separate agents start far ahead of the source c
   await startCheckout(idle, first, repo, "g1");
   await startCheckout(editing, second, repo, "g1");
   await completeCheckout(idle.id);
-  expect(checkoutSummary(owner, idle.id)).toMatchObject({
+  expect(checkoutDetail(owner, idle.id)?.summary ?? null).toMatchObject({
     scope: "run",
     files: 0,
     additions: 0,
@@ -205,12 +204,12 @@ it("counts each run's edits when separate agents start far ahead of the source c
     { path: "tracked.txt", additions: 2, deletions: 1, binary: false },
   ]);
   expect(detail.patch).not.toContain("shared.txt");
-  expect(checkoutSummary(owner, idle.id)!.files).toBe(0);
+  expect((checkoutDetail(owner, idle.id)?.summary ?? null)!.files).toBe(0);
   // A later no-op turn on the editing agent does not repeat earlier edits.
   const followup = runFixture("thread-stale-followup");
   await startCheckout(followup, second, repo, "g2");
   await completeCheckout(followup.id);
-  expect(checkoutSummary(owner, followup.id)).toMatchObject({
+  expect(checkoutDetail(owner, followup.id)?.summary ?? null).toMatchObject({
     files: 0,
     additions: 0,
     deletions: 0,
@@ -237,7 +236,7 @@ it("subtracts pre-existing staged, unstaged and binary edits without modifying t
   const run = runFixture("thread-dirty-baseline");
   await startCheckout(run, repo, repo, "g1");
   await completeCheckout(run.id);
-  expect(checkoutSummary(owner, run.id)).toMatchObject({
+  expect(checkoutDetail(owner, run.id)?.summary ?? null).toMatchObject({
     scope: "run",
     files: 0,
     additions: 0,
@@ -320,7 +319,9 @@ it("fails capture instead of using an incomplete starting snapshot", async () =>
     "complete run baseline",
   );
   await completeCheckout(run.id);
-  expect(checkoutSummary(owner, run.id)!.state).toBe("failed");
+  expect((checkoutDetail(owner, run.id)?.summary ?? null)!.state).toBe(
+    "failed",
+  );
 });
 
 it("lets one capture at a time own a run, and reruns for a request that arrived meanwhile", async () => {
@@ -387,7 +388,9 @@ it("records other runs active on the same checkout as overlap, not authorship", 
   expect(overlap).toContain(ended.id);
   expect(overlap).toContain(longRunning.id);
   expect(overlap).not.toContain(finishedBefore.id);
-  expect(checkoutSummary(owner, first.id)!.overlap).toBe(overlap.length);
+  expect((checkoutDetail(owner, first.id)?.summary ?? null)!.overlap).toBe(
+    overlap.length,
+  );
 });
 
 it("records overlap when another run starts during terminal checkout capture", async () => {
@@ -414,7 +417,9 @@ it("records overlap when another run starts during terminal checkout capture", a
     end_head: commit,
     overlap: [later.id],
   });
-  expect(checkoutSummary(owner, first.id)).toMatchObject({ overlap: 1 });
+  expect(checkoutDetail(owner, first.id)?.summary ?? null).toMatchObject({
+    overlap: 1,
+  });
 });
 
 it("keeps filenames that contain tabs and renames intact", async () => {
@@ -1032,7 +1037,7 @@ it("records a capture failure on the run instead of raising it", async () => {
 it("has no record for runs without a worktree", async () => {
   const run = runFixture("thread-7");
   expect(checkoutDetail(owner, run.id)).toBeNull();
-  expect(checkoutSummary(owner, run.id)).toBeNull();
+  expect(checkoutDetail(owner, run.id)?.summary ?? null).toBeNull();
   await completeCheckout(run.id);
   expect(checkoutDetail(owner, run.id)).toBeNull();
 });

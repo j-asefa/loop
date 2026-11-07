@@ -66,7 +66,7 @@ export async function prepareLocalHarnesses(
                 "opencode",
                 "pi",
                 "antigravity",
-                "gemini",
+
                 "muse",
                 "grok",
                 "acp",

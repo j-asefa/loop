@@ -16,7 +16,7 @@ test("one launch selects all installed harnesses, with explicit opt-in subsets",
     "antigravity",
     "codex",
   ]);
-  assert.deepEqual(selectedHarnesses("gemini,codex"), ["gemini", "codex"]);
+  assert.deepEqual(selectedHarnesses("grok,codex"), ["grok", "codex"]);
   assert.deepEqual(selectedHarnesses("both"), ["codex", "claude"]);
   assert.deepEqual(selectedHarnesses("pi,codex,pi"), ["pi", "codex"]);
   assert.throws(() => selectedHarnesses("acp"), /Register custom ACP/);

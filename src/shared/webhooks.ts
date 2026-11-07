@@ -52,7 +52,6 @@ export const WebhookPing = z
     sent_at: Time,
   })
   .strict();
-export const WebhookPayload = z.union([WebhookStop, WebhookPing]);
 export const WebhookOutcome = z.enum([
   "unattempted",
   "sending",

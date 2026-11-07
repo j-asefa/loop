@@ -667,10 +667,6 @@ export function setFeedPreferences(
   return feedPreferences(owner);
 }
 
-/** Kept for callers that only turn agent access on or off. */
-export const setAgentFeedAccess = (owner: string, allowed: boolean) =>
-  setFeedPreferences(owner, { agent_access: allowed });
-
 /**
  * Stories for an agent that was asked about the feed, or for a digest. Reads
  * the store only: it fetches nothing, marks nothing read, and never sees a

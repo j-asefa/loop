@@ -1,8 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { computerName } from "../src/computer-name";
 import {
-  LOCAL_ENVIRONMENT_NAMES,
-  environmentLocation,
   hostLocation,
   hostEnvironmentName,
 } from "../src/server/execution-location";
@@ -38,33 +36,4 @@ it("names standalone Docker environments without changing their location", () =>
   delete process.env.LOOP_COMPANION_CONTAINER;
   process.env.LOOP_ENVIRONMENT_NAME = "container-only";
   expect(hostEnvironmentName()).toBe(computerName());
-});
-
-it("locates only environments this process provisioned locally", () => {
-  delete process.env.LOOP_COMPANION_CONTAINER;
-  const local = "local-" + "0".repeat(36);
-  expect(
-    environmentLocation({
-      instance_id: local,
-      name: LOCAL_ENVIRONMENT_NAMES.native,
-    }),
-  ).toBe("laptop");
-  expect(
-    environmentLocation({
-      instance_id: local,
-      name: LOCAL_ENVIRONMENT_NAMES.docker,
-    }),
-  ).toBe("docker");
-  // A remote runner named "Docker" is not a local Docker environment.
-  expect(
-    environmentLocation({ instance_id: "i-1234567890abcdef0", name: "Docker" }),
-  ).toBeUndefined();
-  // The companion container's own runner is inside Docker.
-  process.env.LOOP_COMPANION_CONTAINER = "1";
-  expect(
-    environmentLocation({
-      instance_id: local,
-      name: LOCAL_ENVIRONMENT_NAMES.native,
-    }),
-  ).toBe("docker");
 });

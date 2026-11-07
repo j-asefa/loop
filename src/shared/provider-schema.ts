@@ -7,7 +7,7 @@ export const ProviderSchema = z.enum([
   "pi",
   "opencode",
   "antigravity",
-  "gemini",
+
   "muse",
   "grok",
   "acp",

@@ -178,7 +178,7 @@ const HARNESSES: Record<string, string> = {
   pi: "Pi",
   opencode: "OpenCode",
   antigravity: "Antigravity",
-  gemini: "Gemini CLI",
+
   muse: "Muse Code",
   grok: "Grok Build",
   acp: "ACP agent",

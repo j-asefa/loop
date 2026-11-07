@@ -15,7 +15,6 @@ const {
   createAuthDriver,
   setAntigravityExchangeWait,
   setAntigravityStartWait,
-  setGeminiSignInScreenWait,
 } = await import("../src/native-auth/drivers.js");
 after(async () => {
   db.close();
@@ -206,15 +205,7 @@ test("out-of-band completion clears an obsolete prompt and selects validate thei
   }
 });
 
-for (const name of [
-  "codex",
-  "claude",
-  "pi",
-  "opencode",
-  "gemini",
-  "muse",
-  "grok",
-]) {
+for (const name of ["codex", "claude", "pi", "opencode", "muse", "grok"]) {
   test(`${name}: native sign-in protocol and credential storage without any model session`, async () => {
     const project = join(dir, name);
     await mkdir(project);
@@ -279,7 +270,6 @@ for (const name of [
       );
       const audit = await readFile(join(project, "auth-audit"), "utf8");
       assert.doesNotMatch(audit, /\/session|prompt/);
-      if (name === "gemini") assert.match(audit, /gemini:authenticate/);
     } finally {
       await auth.close();
       if (priorHostOnly === undefined) delete process.env.LOOP_TEST_HOST_ONLY;
@@ -315,102 +305,6 @@ test("Pi rejects invalid prompts and lets the next sign-in start", async () => {
     await auth.close();
   }
 });
-
-test("Gemini ends a sign-in on a rejected code without authenticating or relaying a second URL", async () => {
-  const project = join(dir, "gemini-bad-code");
-  await mkdir(project);
-  const executable = join(project, "gemini");
-  await writeFile(
-    executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
-    { mode: 0o755 },
-  );
-  const auth = new NativeSignIns(createAuthDriver);
-  const opts = {
-    name: "gemini",
-    executable,
-    project,
-    env: { ...process.env, HOME: project },
-  };
-  try {
-    await auth.start(opts, "google", "oauth", randomUUID());
-    await until(() => !!auth.status("gemini").attempt?.prompt);
-    const attempt = auth.status("gemini").attempt!;
-    assert.equal(new URL(attempt.url!).hostname, "accounts.google.com");
-    auth.answer("gemini", attempt.id, attempt.prompt!.id, "wrong-code");
-    await until(() => auth.status("gemini").attempt?.state === "failed");
-    assert.ok(!existsSync(join(project, "gemini-credential.json")));
-    const audit = await readFile(join(project, "auth-audit"), "utf8");
-    assert.doesNotMatch(audit, /authenticate/);
-    await auth.start(opts, "google", "oauth", randomUUID());
-    await until(() => !!auth.status("gemini").attempt?.prompt);
-    const retry = auth.status("gemini").attempt!;
-    assert.notEqual(retry.id, attempt.id);
-    assert.notEqual(retry.url, attempt.url);
-    auth.answer("gemini", retry.id, retry.prompt!.id, "fixture-code");
-    await until(() => auth.status("gemini").attempt?.state === "complete");
-  } finally {
-    await auth.close();
-  }
-});
-
-for (const failure of ["retired", "retired-stderr", "unknown"]) {
-  test(`Gemini ${failure} rejection survives cached-login retry without exposing provider output`, async () => {
-    const project = join(dir, `gemini-rejection-${failure}`);
-    await mkdir(project);
-    const executable = join(project, "gemini");
-    await writeFile(
-      executable,
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
-      { mode: 0o755 },
-    );
-    const auth = new NativeSignIns(createAuthDriver);
-    const opts = {
-      name: "gemini",
-      executable,
-      project,
-      env: {
-        ...process.env,
-        HOME: project,
-        LOOP_TEST_GEMINI_AUTH_FAILURE: failure,
-      },
-    };
-    setGeminiSignInScreenWait(200);
-    try {
-      await auth.start(opts, "google", "oauth", randomUUID());
-      await until(() => !!auth.status("gemini").attempt?.prompt);
-      const first = auth.status("gemini").attempt!;
-      auth.answer("gemini", first.id, first.prompt!.id, "fixture-code");
-      await until(() => auth.status("gemini").attempt?.state === "failed");
-      assert(existsSync(join(project, "gemini-credential.json")));
-      const checkFailure = () => {
-        const result = auth.status("gemini");
-        assert.equal(
-          result.attempt?.failureCode,
-          failure.startsWith("retired")
-            ? "gemini_google_sign_in_retired"
-            : undefined,
-        );
-        assert.equal(result.attempt?.url, undefined);
-        assert.equal(result.attempt?.prompt, undefined);
-        assert.doesNotMatch(
-          JSON.stringify(result),
-          /fixture-private|fixture-code|fixture-token/,
-        );
-      };
-      checkFailure();
-      // Google saved the credential before rejecting access. A fresh process
-      // skips the browser exchange, but must preserve the same safe reason.
-      await auth.start(opts, "google", "oauth", randomUUID());
-      assert.notEqual(auth.status("gemini").attempt?.id, first.id);
-      await until(() => auth.status("gemini").attempt?.state === "failed");
-      checkFailure();
-    } finally {
-      setGeminiSignInScreenWait(15000);
-      await auth.close();
-    }
-  });
-}
 
 test("Antigravity signs in through agy's terminal sign-in and confirms with agy models", async () => {
   const project = join(dir, "antigravity-sign-in");
@@ -628,97 +522,6 @@ test("Muse stores an API key through its own account API and signs out", async (
     assert.equal((await driver.providers())[0].configured, false);
   } finally {
     await driver.dispose();
-  }
-});
-
-test("Gemini with cached Google credentials completes without a code", async () => {
-  const project = join(dir, "gemini-cached");
-  await mkdir(project);
-  const executable = join(project, "gemini");
-  await writeFile(
-    executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexport LOOP_TEST_GEMINI_CACHED=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
-    { mode: 0o755 },
-  );
-  setGeminiSignInScreenWait(200);
-  const auth = new NativeSignIns(createAuthDriver);
-  const opts = {
-    name: "gemini",
-    executable,
-    project,
-    env: { ...process.env, HOME: project },
-  };
-  try {
-    await auth.start(opts, "google", "oauth", randomUUID());
-    await until(() => auth.status("gemini").attempt?.state === "complete");
-    assert.equal(auth.status("gemini").attempt?.prompt, undefined);
-    assert.match(
-      await readFile(join(project, "auth-audit"), "utf8"),
-      /gemini:authenticate/,
-    );
-  } finally {
-    setGeminiSignInScreenWait(15000);
-    await auth.close();
-  }
-});
-
-test("Gemini relays the fresh URL when its sign-in screen opens after the cached-credential wait", async () => {
-  const project = join(dir, "gemini-slow");
-  await mkdir(project);
-  const executable = join(project, "gemini");
-  await writeFile(
-    executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexport LOOP_TEST_GEMINI_DELAY_MS=500\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
-    { mode: 0o755 },
-  );
-  setGeminiSignInScreenWait(100);
-  const auth = new NativeSignIns(createAuthDriver);
-  const opts = {
-    name: "gemini",
-    executable,
-    project,
-    env: { ...process.env, HOME: project },
-  };
-  try {
-    await auth.start(opts, "google", "oauth", randomUUID());
-    // Gemini read Loop's initialize frame as a bad code and asked again.
-    await until(() => !!auth.status("gemini").attempt?.prompt);
-    const attempt = auth.status("gemini").attempt!;
-    assert.equal(new URL(attempt.url!).hostname, "accounts.google.com");
-    auth.answer("gemini", attempt.id, attempt.prompt!.id, "fixture-code");
-    await until(() => auth.status("gemini").attempt?.state === "complete");
-    assert.match(
-      await readFile(join(project, "auth-audit"), "utf8"),
-      /gemini:authenticate/,
-    );
-  } finally {
-    setGeminiSignInScreenWait(15000);
-    await auth.close();
-  }
-});
-
-test("Gemini refuses an authorization URL carrying credentials without crashing", async () => {
-  const project = join(dir, "gemini-userinfo");
-  await mkdir(project);
-  const executable = join(project, "gemini");
-  await writeFile(
-    executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=gemini\nexport LOOP_TEST_GEMINI_URL='https://x@accounts.google.com/o/oauth2/v2/auth'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
-    { mode: 0o755 },
-  );
-  const auth = new NativeSignIns(createAuthDriver);
-  const opts = {
-    name: "gemini",
-    executable,
-    project,
-    env: { ...process.env, HOME: project },
-  };
-  try {
-    await auth.start(opts, "google", "oauth", randomUUID());
-    await until(() => auth.status("gemini").attempt?.state === "failed");
-    assert.equal(auth.status("gemini").attempt?.url, undefined);
-  } finally {
-    await auth.close();
   }
 });
 

@@ -10,7 +10,7 @@ export const Provider = z.enum([
   "pi",
   "opencode",
   "antigravity",
-  "gemini",
+
   "muse",
   "grok",
   "acp",

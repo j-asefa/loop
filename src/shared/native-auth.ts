@@ -13,12 +13,6 @@ export type AuthPrompt = {
   message: string;
   options?: { id: string; label: string }[];
 };
-export const signInFailureCodes = ["gemini_google_sign_in_retired"] as const;
-export type SignInFailureCode = (typeof signInFailureCodes)[number];
-export const signInFailureMessages: Record<SignInFailureCode, string> = {
-  gemini_google_sign_in_retired:
-    "Google has retired personal-account sign-in for Gemini CLI, including Google AI Pro and Ultra. Use Antigravity for Google sign-in, or configure Gemini CLI with API credentials (separate billing). Signing in again with the same account will not fix this.",
-};
 export type SignIn = {
   id: string;
   commandId: string;
@@ -27,7 +21,6 @@ export type SignIn = {
   state:
     "starting" | "waiting" | "complete" | "failed" | "cancelled" | "expired";
   expiresAt: number;
-  failureCode?: SignInFailureCode;
   url?: string;
   code?: string;
   instructions?: string;

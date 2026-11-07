@@ -239,4 +239,3 @@ Documentation-only changes need valid relative links/anchors, real package comma
 Follow the [API boundary](architecture.md#dependencies-and-boundaries) when adding routes or browser calls: use registry contracts through the server registrar and client workspace API.
 
 `npm run openapi:check` checks the generated HTTP document and [event-channel companion](openapi-channels.json) against the unified workspace and Cards contracts. `npm run openapi` regenerates both documents.
-`npm run cards:example` runs the source-bound full-collection sync example; see [Cards API](cards-api.md#typed-readers-and-the-example) for its environment.

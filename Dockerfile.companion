@@ -26,4 +26,4 @@ USER node
 WORKDIR /workspaces
 VOLUME ["/data/loop", "/workspaces"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD node /app/scripts/companion-health.mjs
-CMD ["loop", "start", "--foreground", "--execution", "native", "--providers", "codex,claude,opencode,pi"]
+CMD ["loop", "start", "--foreground", "--providers", "codex,claude,opencode,pi"]

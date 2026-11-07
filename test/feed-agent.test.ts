@@ -14,7 +14,7 @@ const {
   news,
   withNewsFixture,
   feedForAgent,
-  setAgentFeedAccess,
+  setFeedPreferences,
   forgetCachedStories,
 } = await import("../src/server/news");
 const { nativeBindings, invokeNative } =
@@ -101,13 +101,13 @@ it("keeps the feed from agents until it is turned on", async () => {
   } as any;
   // Off by default: the tool is not even offered.
   expect(nativeBindings(run).map((t) => t.tool)).not.toContain("loop_feed");
-  setAgentFeedAccess("tess", true);
+  setFeedPreferences("tess", { agent_access: true });
   expect(nativeBindings(run).map((t) => t.tool)).toContain("loop_feed");
   const described = nativeBindings(run).find((t) => t.tool === "loop_feed")!;
   expect(described.description).toMatch(
     /reads only the feeds they already follow/i,
   );
-  setAgentFeedAccess("tess", false);
+  setFeedPreferences("tess", { agent_access: false });
   expect(nativeBindings(run).map((t) => t.tool)).not.toContain("loop_feed");
   // Calling it anyway is refused: invokeNative only runs a tool that
   // nativeBindings offered for this run.

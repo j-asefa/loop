@@ -16,7 +16,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   HarnessUpgrades,
-  nativeHelperInstall,
   upgradePlan,
   type UpgradeRunner,
 } from "../src/harness-upgrades.js";
@@ -35,7 +34,6 @@ const packages = {
   claude: "@anthropic-ai/claude-code",
   pi: "@earendil-works/pi-coding-agent",
   opencode: "opencode-ai",
-  gemini: "@google/gemini-cli",
 } as const;
 
 // Every upgrade test injects this runner, so no test spawns a package manager
@@ -496,85 +494,6 @@ test("finished outcomes can be dismissed without allowing their operation to rer
   assert.equal(
     new HarnessUpgrades(join(dir, "upgrades.json"), run).status("codex"),
     null,
-  );
-});
-
-test("shipped helper pins reach existing installs without downgrading a newer in-app upgrade", (t) => {
-  const dir = fixture(t);
-  const source = join(dir, "shipped");
-  const helpers = join(dir, "helpers/native");
-  mkdirSync(source, { recursive: true });
-  mkdirSync(helpers, { recursive: true });
-  const ship = (dependencies: Record<string, string>) => {
-    writeFileSync(
-      join(source, "package.json"),
-      JSON.stringify({ dependencies }),
-    );
-    writeFileSync(
-      join(source, "package-lock.json"),
-      JSON.stringify({ shipped: dependencies }),
-    );
-  };
-  const installedManifest = () =>
-    JSON.parse(readFileSync(join(helpers, "package.json"), "utf8"))
-      .dependencies;
-  const pins = {
-    "@openai/codex": "0.159.0",
-    "@anthropic-ai/claude-code": "2.1.280",
-  };
-  ship(pins);
-  assert.deepEqual(nativeHelperInstall(helpers, source), ["ci", "--omit=dev"]);
-  assert.deepEqual(installedManifest(), pins);
-  // An in-app upgrade rewrote the private manifest past the shipped pin.
-  writeFileSync(
-    join(helpers, "package.json"),
-    JSON.stringify({ dependencies: { ...pins, "@openai/codex": "0.161.0" } }),
-  );
-  // A Loop release bumps another pin: it is taken, the newer upgrade is kept.
-  ship({ ...pins, "@anthropic-ai/claude-code": "2.1.290" });
-  assert.deepEqual(nativeHelperInstall(helpers, source), [
-    "install",
-    "--omit=dev",
-    "--save-exact",
-    "@openai/codex@0.161.0",
-  ]);
-  assert.deepEqual(installedManifest(), {
-    ...pins,
-    "@anthropic-ai/claude-code": "2.1.290",
-  });
-  assert.equal(
-    readFileSync(join(helpers, "package-lock.json"), "utf8"),
-    readFileSync(join(source, "package-lock.json"), "utf8"),
-  );
-  // npm records the reapplied upgrade; a later release shipping a newer pin wins.
-  writeFileSync(
-    join(helpers, "package.json"),
-    JSON.stringify({ dependencies: { ...pins, "@openai/codex": "0.161.0" } }),
-  );
-  ship({ ...pins, "@openai/codex": "0.162.0" });
-  assert.deepEqual(nativeHelperInstall(helpers, source), ["ci", "--omit=dev"]);
-  assert.equal(installedManifest()["@openai/codex"], "0.162.0");
-});
-
-test("Loop's shipped codex pin replaces an older helper manifest", (t) => {
-  const dir = fixture(t);
-  const helpers = join(dir, "helpers/native");
-  mkdirSync(helpers, { recursive: true });
-  const source = join(import.meta.dirname, "../deployment/native");
-  const shipped = JSON.parse(
-    readFileSync(join(source, "package.json"), "utf8"),
-  );
-  writeFileSync(
-    join(helpers, "package.json"),
-    JSON.stringify({
-      ...shipped,
-      dependencies: { ...shipped.dependencies, "@openai/codex": "0.157.0" },
-    }),
-  );
-  assert.deepEqual(nativeHelperInstall(helpers, source), ["ci", "--omit=dev"]);
-  assert.deepEqual(
-    JSON.parse(readFileSync(join(helpers, "package.json"), "utf8")),
-    shipped,
   );
 });
 

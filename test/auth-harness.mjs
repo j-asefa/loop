@@ -10,17 +10,13 @@ import {
   writeFileSync,
 } from "node:fs";
 const kind = process.env.LOOP_TEST_HARNESS;
-// Gemini signs in from a throwaway workspace, not the project or HOME.
 if (
   process.env.LOOP_TEST_CLEAN_ENV === "1" &&
-  (process.env.LOOP_TEST_HOST_ONLY ||
-    (kind !== "gemini" && process.env.HOME !== process.cwd()))
+  (process.env.LOOP_TEST_HOST_ONLY || process.env.HOME !== process.cwd())
 ) {
   process.exit(91);
 }
-const path =
-  process.env.LOOP_TEST_AUTH_DIR ||
-  (kind === "gemini" ? process.env.HOME : process.cwd());
+const path = process.env.LOOP_TEST_AUTH_DIR || process.cwd();
 const credential = path + "/" + kind + "-credential.json";
 const finish = path + "/authorize-" + kind;
 const save = (method, key = "fixture-token-private") =>
@@ -34,7 +30,6 @@ if (process.argv.includes("--version")) {
       claude: "2.1.284",
       pi: "0.87.1",
       opencode: "1.18.33",
-      gemini: "0.65.0",
       muse: "Muse Code 1.4.12 (1.4.12-R6909.1)",
       grok: "grok 1.0.70 (f50904eaee6c)",
     }[kind],
@@ -213,84 +208,6 @@ if (process.argv.includes("--version")) {
   audit("login");
   process.env.LOOP_TEST_MUSE_DIR = path;
   await import("./fixtures/fake-muse.mjs");
-} else if (kind === "gemini" && process.argv[2] === "--acp") {
-  audit("login");
-  const selected = JSON.parse(
-    readFileSync(process.cwd() + "/.gemini/settings.json", "utf8"),
-  ).security.auth.selectedType;
-  if (
-    selected !== "oauth-personal" ||
-    process.env.NO_BROWSER !== "true" ||
-    process.env.GEMINI_CLI_TRUST_WORKSPACE !== "true"
-  )
-    process.exit(1);
-  const failure =
-    process.env.LOOP_TEST_GEMINI_AUTH_FAILURE ||
-    (existsSync(path + "/gemini-auth-failure")
-      ? readFileSync(path + "/gemini-auth-failure", "utf8")
-      : undefined);
-  const failureMessage = failure?.startsWith("retired")
-    ? "This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google fixture-private-provider-detail"
-    : "Unknown provider rejection: fixture-private-token";
-  const reply = (message) => {
-    if (message.method === "authenticate") {
-      if (message.params.methodId !== "oauth-personal") process.exit(1);
-      audit("authenticate");
-    }
-    process.stdout.write(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: message.id,
-        ...(failure && message.method === "authenticate"
-          ? { error: { code: -32000, message: failureMessage } }
-          : { result: {} }),
-      }) + "\n",
-    );
-  };
-  if (process.env.LOOP_TEST_GEMINI_CACHED || existsSync(credential)) {
-    // Cached credentials: no sign-in screen, straight to ACP.
-    createInterface({ input: process.stdin }).on("line", (line) => {
-      reply(JSON.parse(line));
-    });
-  } else {
-    const ask = () =>
-      process.stdout.write(
-        "\x1b[?1049hPlease visit the following URL to authorize the application:\n\n" +
-          (process.env.LOOP_TEST_GEMINI_URL ||
-            `https://accounts.google.com/o/oauth2/v2/auth?state=fixture-${process.pid}`) +
-          "\n\n\x1b[1G\x1b[0JEnter the authorization code: ",
-      );
-    // A slow start opens the sign-in screen late.
-    setTimeout(ask, Number(process.env.LOOP_TEST_GEMINI_DELAY_MS || 0));
-    let authorized = false;
-    createInterface({ input: process.stdin }).on("line", (line) => {
-      if (!authorized) {
-        if (line !== "fixture-code") {
-          process.stderr.write(
-            "Failed to authenticate with authorization code:invalid_grant\n",
-          );
-          return ask();
-        }
-        authorized = true;
-        save("oauth");
-        if (failure === "retired-stderr") {
-          process.stderr.write(
-            "Failed to authenticate: This client is no longer supported for Gemini ",
-          );
-          setTimeout(
-            () =>
-              process.stderr.write(
-                "Code Assist for individuals. fixture-private-provider-detail\n",
-              ),
-            20,
-          );
-          return;
-        }
-        return process.stdout.write("\x1b[?1049l");
-      }
-      reply(JSON.parse(line));
-    });
-  }
 } else if (kind === "opencode" && process.argv[2] === "serve") {
   const expected =
     "Basic " +

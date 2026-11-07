@@ -10,7 +10,7 @@ export const Harness = z.enum([
   "codex",
   "opencode",
   "antigravity",
-  "gemini",
+
   "muse",
   "grok",
   "acp",
