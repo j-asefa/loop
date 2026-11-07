@@ -8,7 +8,7 @@ vi.mock("../src/server/agent-runtime", () => ({ executeAgent }));
 vi.mock("../src/server/search", () => ({ indexPending: async () => {} }));
 vi.mock("../src/server/memory", async (original) => ({
   ...(await original<any>()),
-  indexMemory: async () => {},
+  captureMemory: () => {},
 }));
 
 it("schedules 32 running tasks and admits the 33rd only after a slot is released", async () => {

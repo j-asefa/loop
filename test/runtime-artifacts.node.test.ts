@@ -7,11 +7,9 @@ import {
   readFileSync,
   rmSync,
   writeFileSync,
-  copyFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import Database from "better-sqlite3";
 
@@ -39,28 +37,6 @@ import Database from "better-sqlite3";
     }
   });
 }
-
-test("the guard copied into OpenCode imports without checkout dependencies", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-guard-"));
-  try {
-    const file = join(dir, "loop-execution-guard.ts");
-    copyFileSync(resolve("native/opencode-execution-guard.ts"), file);
-    for (const setting of ["LOOP_OPENCODE_SUBSCRIPTION_ONLY"]) {
-      const output = execFileSync(
-        process.execPath,
-        [
-          "--input-type=module",
-          "-e",
-          `const {executionGuardStatus} = await import(${JSON.stringify(pathToFileURL(file).href)}); console.log(JSON.stringify(executionGuardStatus()));`,
-        ],
-        { env: { PATH: process.env.PATH, [setting]: "1" }, encoding: "utf8" },
-      );
-      assert.equal(JSON.parse(output).active, true);
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 test("service-worker activation retires earlier shell caches and fetch uses its own cache", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-worker-"));

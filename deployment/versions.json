@@ -3,14 +3,7 @@
   "platform": "linux/amd64",
   "codex": "0.160.0",
   "claudeCode": "2.1.280",
-  "memsearch": "0.4.21",
-  "memsearchCommit": "2a4652fa086fbd45e92bfd8da7781ebe1642baa7",
-  "embeddingModel": "gpahal/bge-m3-onnx-int8",
-  "embeddingRevision": "2b34e84df040034d4b9eabb62383a87c18955822",
   "node": "node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
   "opencode": "1.18.32",
-  "opencodeCommit": "545f51d26cc39a907d2867492d498d9607ea5fa4",
-  "opencodeBun": "1.3.14",
-  "opencodeModelsSha256": "37656bb9cc760e3c3bda50219a819d5c51e1e82a27a226e1dec0637553c24aaa",
   "pi": "0.87.1"
 }

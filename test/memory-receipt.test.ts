@@ -90,27 +90,27 @@ it("reports the recorded sources and the added memory's size", async () => {
   ];
   db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
     rid,
-    "lexical-degraded",
+    "lexical",
     JSON.stringify(sources),
     980,
     now(),
   );
   const { data } = await receipt(owner, rid);
   expect(memoryReceiptText(data)).toBe(
-    "Added 2 saved sources, about 980 tokens of context. Matched by keyword only: memory search was unavailable.",
+    "Added 2 saved sources, about 980 tokens of context.",
   );
 });
 
 it("tells an empty search apart from memory being off", () => {
-  expect(
-    memoryReceiptText({ mode: "semantic", sources: "[]", tokens: 0 }),
-  ).toBe("No saved memory matched this message.");
+  expect(memoryReceiptText({ mode: "lexical", sources: "[]", tokens: 0 })).toBe(
+    "No saved memory matched this message.",
+  );
   expect(
     memoryReceiptText({ mode: "disabled", sources: "[]", tokens: 0 }),
   ).toBe("Memory is turned off here, so none was added.");
   expect(
     memoryReceiptText({
-      mode: "semantic",
+      mode: "lexical",
       sources: JSON.stringify([{ id: "a" }]),
       tokens: 1,
     }),

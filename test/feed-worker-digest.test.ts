@@ -17,7 +17,7 @@ vi.mock("../src/server/agent-runtime", async (original) => ({
 vi.mock("../src/server/search", () => ({ indexPending: async () => {} }));
 vi.mock("../src/server/memory", async (original) => ({
   ...(await original<any>()),
-  indexMemory: async () => {},
+  captureMemory: () => {},
 }));
 
 const dirs: string[] = [];

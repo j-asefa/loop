@@ -362,7 +362,7 @@ test("recognizes all npm harnesses and private helpers without modifying project
   assert.throws(() => upgradePlan("codex", custom), /custom installation/);
 });
 
-test("keeps launch symlinks for native Claude, recognizes brew, and refuses guarded OpenCode", (t) => {
+test("keeps launch symlinks for native Claude and recognizes brew and plain OpenCode", (t) => {
   const dir = fixture(t);
   const claude = join(dir, ".local/share/claude/versions/2.1.280");
   script(claude, 'console.log("2.1.280")');
@@ -378,9 +378,6 @@ test("keeps launch symlinks for native Claude, recognizes brew, and refuses guar
     command: join(dir, "bin/brew"),
     args: ["upgrade", "codex"],
   });
-  const guarded = join(dir, "helpers/opencode-identity/bin/opencode");
-  script(guarded, 'console.log("1.18.32")');
-  assert.throws(() => upgradePlan("opencode", guarded), /guarded build/);
   const opencode = join(dir, "opencode");
   script(opencode, 'console.log("1.18.32")');
   assert.deepEqual(upgradePlan("opencode", opencode), {

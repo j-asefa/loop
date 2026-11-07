@@ -24,23 +24,8 @@ export const PublicMemorySummary = z.object({
   revision: Count,
   eligible: Count,
   tombstone: Count,
-  indexed_revision: Count.nullable(),
 });
 export const PublicMemoryStatus = z.object({
-  readiness: z.discriminatedUnion("ready", [
-    z.object({
-      ready: z.literal(false),
-      mode: z.literal("lexical-degraded"),
-    }),
-    z.object({
-      ready: z.literal(true),
-      provider: Text,
-      model: Text,
-      revision: Text,
-      sources: Count,
-    }),
-  ]),
-  backlog: Count,
   policies: z.array(z.object({ scope: Text, enabled: Count })),
   sources: z.array(PublicMemorySummary),
 });

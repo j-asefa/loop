@@ -1,4 +1,4 @@
-import { afterAll, expect, it, vi } from "vitest";
+import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,14 +15,11 @@ const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { submit } = await import("../src/server/agent-runtime");
 const { transition } = await import("../src/server/queue");
-const { memoryIndex, captureMemory, recallForRun } =
+const { captureMemory, recallForRun, searchMemory } =
   await import("../src/server/memory");
 const { app } = await import("../src/server/index");
 const { closeExecution } = await import("../src/server/execution-client");
 const owner = "local-workspace";
-const index = vi
-  .spyOn(memoryIndex, "request")
-  .mockRejectedValue(new Error("Fixture index offline"));
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 const origin = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
@@ -101,14 +98,13 @@ function fixture(who = owner) {
   return run;
 }
 afterAll(async () => {
-  index.mockRestore();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeExecution();
   db.close();
   rmSync(directory, { recursive: true, force: true });
 });
 
-it("preserves note revisions, optimistic edits, versions and tombstone outbox writes through HTTP", async () => {
+it("preserves note revisions, optimistic edits and local recall without a sidecar", async () => {
   const count = () => db.prepare("SELECT count(*) n FROM memory_sources").get();
   const before = count();
   expect(
@@ -172,11 +168,14 @@ it("preserves note revisions, optimistic edits, versions and tombstone outbox wr
     versions.data.map((version: { revision: number }) => version.revision),
   ).toEqual([2, 1]);
   expect(await invalid(`/memory/notes/${key}/versions`)).toMatchObject(bad);
-  expect(
-    db
-      .prepare("SELECT revision,action FROM memory_outbox WHERE source_id=?")
-      .get(key),
-  ).toEqual({ revision: 2, action: "index" });
+  expect(process.env.LOOP_MEMORY_URL).toBeUndefined();
+  expect(process.env.LOOP_MEMORY_TOKEN).toBeUndefined();
+  const recalled = await searchMemory(owner, null, "revised");
+  expect(recalled.mode).toBe("lexical");
+  expect(recalled.sources).toEqual([
+    expect.objectContaining({ id: key, revision: 2 }),
+  ]);
+  expect((await searchMemory(id(), null, "revised")).sources).toEqual([]);
   expect(await invalid(`/memory/sources/${key}`, "DELETE")).toMatchObject(bad);
   const deleted = await request(
     `/memory/sources/${key}`,
@@ -186,11 +185,7 @@ it("preserves note revisions, optimistic edits, versions and tombstone outbox wr
   valid(workspaceApi.memorySourceDelete, deleted);
   expect(deleted.data).toEqual({ ok: true, originalHistoryRetained: true });
   expect(row()).toMatchObject({ tombstone: 1, eligible: 0, revision: 3 });
-  expect(
-    db
-      .prepare("SELECT revision,action FROM memory_outbox WHERE source_id=?")
-      .get(key),
-  ).toEqual({ revision: 3, action: "delete" });
+  expect((await searchMemory(owner, null, "revised")).sources).toEqual([]);
   expect(
     db
       .prepare("SELECT count(*) n FROM memory_note_versions WHERE source_id=?")
@@ -249,10 +244,8 @@ it("keeps memory policy, historical links, status and receipts owner-bound and p
   expect(source.data.link).toContain(encodeURIComponent(conversation));
   const status = await request("/memory?ignored=yes");
   valid(workspaceApi.memoryStatus, status);
-  expect(status.data.readiness).toEqual({
-    ready: false,
-    mode: "lexical-degraded",
-  });
+  expect(status.data).not.toHaveProperty("readiness");
+  expect(status.data).not.toHaveProperty("backlog");
   expect(
     status.data.sources.some((row: { id: string }) => row.id === historical.id),
   ).toBe(true);
@@ -315,7 +308,7 @@ it("keeps memory policy, historical links, status and receipts owner-bound and p
   ).toMatchObject({ status: 404 });
 });
 
-it("projects memory display fields and reports malformed index health as a generic response failure", async () => {
+it("projects only public memory display fields", async () => {
   const created = await request("/memory/notes", {
     title: "Projection note",
     content: "Historical evidence remains untrusted",
@@ -334,38 +327,6 @@ it("projects memory display fields and reports malformed index health as a gener
     expect(JSON.stringify((await request("/memory")).data)).not.toContain(
       "fixture-private-column",
     );
-    const count = db.prepare("SELECT count(*) n FROM memory_sources").get() as {
-      n: number;
-    };
-    // The index is an isolated protocol fixture, not a live provider. Its
-    // production /health shape has these fields; unexpected fields stay private.
-    index.mockResolvedValueOnce({
-      ready: true,
-      provider: "fixture",
-      model: "fixture",
-      revision: "fixture",
-      sources: count.n,
-      credential: "fixture-health-secret",
-    });
-    const ready = await request("/memory");
-    valid(workspaceApi.memoryStatus, ready);
-    expect(ready.data.readiness).toEqual({
-      ready: true,
-      provider: "fixture",
-      model: "fixture",
-      revision: "fixture",
-      sources: count.n,
-    });
-    index.mockResolvedValueOnce({
-      ready: true,
-      credential: "fixture-health-secret",
-    });
-    expect(await request("/memory")).toEqual({
-      status: 500,
-      data: {
-        error: "The workspace response is unavailable. Please try again.",
-      },
-    });
   } finally {
     db.exec("ALTER TABLE memory_sources DROP COLUMN credential");
   }

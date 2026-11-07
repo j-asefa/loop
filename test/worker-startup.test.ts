@@ -6,7 +6,7 @@ import { join } from "node:path";
 vi.mock("../src/server/search", () => ({ indexPending: async () => {} }));
 vi.mock("../src/server/memory", async (original) => ({
   ...(await original<any>()),
-  indexMemory: async () => {},
+  captureMemory: () => {},
 }));
 
 it("starts a worker on a populated database without replaying history into claim attempts", async () => {

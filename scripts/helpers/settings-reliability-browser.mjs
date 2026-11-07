@@ -98,6 +98,12 @@ export async function settingsReliabilityBrowser(
       name: "Shared memory",
       exact: true,
     });
+    await expect(
+      memory.getByText("Local keyword search", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      memory.getByText("The semantic index is unavailable.", { exact: true }),
+    ).toHaveCount(0);
     const recall = memory.getByRole("checkbox", {
       name: /Enable shared recall/,
     });
@@ -117,6 +123,9 @@ export async function settingsReliabilityBrowser(
     await memory.getByRole("button", { name: "Pin note", exact: true }).click();
     const source = memory.getByRole("button", { name: title, exact: true });
     await expect(source).toContainText("Revision 1");
+    await expect(
+      memory.locator(".memory-source", { hasText: title }),
+    ).toContainText("Saved");
     await source.click();
     await expect(
       memory.getByLabel("Note content", { exact: true }),

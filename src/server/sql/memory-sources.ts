@@ -78,18 +78,6 @@ export function setComplete(
   return setCompleteStatement(db).run(complete, id);
 }
 
-const markIndexedStatement = statement(
-  "UPDATE memory_sources SET indexed_revision=? WHERE id=? AND revision=?",
-);
-export function markIndexed(
-  db: Database.Database,
-  indexed: number,
-  id: string,
-  revision: number,
-) {
-  return markIndexedStatement(db).run(indexed, id, revision);
-}
-
 const inConversationStatement = statement(
   "SELECT 1 FROM memory_sources WHERE id=? AND conversation_id=?",
 );
@@ -106,7 +94,7 @@ export function inConversation(
 }
 
 const summariesStatement = statement(
-  "SELECT id,title,kind,project_id,revision,eligible,tombstone,indexed_revision FROM memory_sources WHERE owner_id=? ORDER BY updated_at DESC LIMIT 100",
+  "SELECT id,title,kind,project_id,revision,eligible,tombstone FROM memory_sources WHERE owner_id=? ORDER BY updated_at DESC LIMIT 100",
 );
 const summariesRow = QueryRecords.memory_sources.pick({
   id: true,
@@ -116,7 +104,6 @@ const summariesRow = QueryRecords.memory_sources.pick({
   revision: true,
   eligible: true,
   tombstone: true,
-  indexed_revision: true,
 });
 export function summaries(db: Database.Database, owner: string) {
   return summariesStatement(db)

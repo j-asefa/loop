@@ -149,10 +149,6 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
       "Antigravity updates itself. Run agy update on the computer.",
     );
   const real = realpathSync(executable);
-  if (name === "opencode" && /loop-opencode|helpers\/opencode/.test(real))
-    throw new Error(
-      "Managed OpenCode uses Loop’s guarded build. Update Loop and restart the workspace to update this runtime.",
-    );
   const brew = real.match(/^(.*)\/(Cellar|Caskroom)\/([^/]+)\//);
   if (brew) {
     const allowed = {

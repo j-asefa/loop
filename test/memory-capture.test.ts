@@ -77,10 +77,8 @@ it("uses an indexed source lookup and captures changed content without duplicati
     content: "Corrected saved answer",
   });
   expect(
-    db
-      .prepare("SELECT revision FROM memory_outbox WHERE source_id=?")
-      .get(first.id),
-  ).toEqual({ revision: 2 });
+    db.prepare("SELECT content FROM memory_fts WHERE id=?").get(first.id),
+  ).toEqual({ content: "Corrected saved answer" });
 });
 
 it("does not let another owner's saved source suppress capture", () => {

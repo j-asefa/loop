@@ -189,5 +189,4 @@ export const MemorySourceRecord = z.object({
   complete: z.number(),
   created_at: z.number(),
   updated_at: z.number(),
-  indexed_revision: z.number().nullable(),
 });

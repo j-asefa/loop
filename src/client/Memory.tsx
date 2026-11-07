@@ -70,9 +70,7 @@ export function Memory({
       ? { label: "Removed", tone: "muted" as const }
       : !s.eligible
         ? { label: "Excluded", tone: "muted" as const }
-        : s.indexed_revision === s.revision
-          ? { label: "Indexed", tone: "ready" as const }
-          : { label: "Pending", tone: "muted" as const };
+        : { label: "Saved", tone: "ready" as const };
   return (
     <Sheet title="Shared memory" onClose={onClose}>
       <div className="native-settings">
@@ -98,18 +96,9 @@ export function Memory({
             <SettingsNote
               icon={Info}
               role="status"
-              title={
-                data.readiness.ready
-                  ? "Semantic memory ready"
-                  : "Keyword matching for now"
-              }
+              title="Local keyword search"
             >
-              {(data.readiness.ready
-                ? "Related ideas are matched by meaning."
-                : "The semantic index is unavailable.") +
-                " " +
-                data.backlog +
-                " pending updates."}
+              Saved sources are matched by keyword on this computer.
             </SettingsNote>
             <SettingsSection title="Projects included">
               <SettingsList>
@@ -344,10 +333,7 @@ export function memoryReceiptText(receipt: MemoryReceipt) {
   if (!count) return "No saved memory matched this message.";
   return (
     `Added ${count} saved source${count === 1 ? "" : "s"}, about ` +
-    `${receipt.tokens.toLocaleString()} token${receipt.tokens === 1 ? "" : "s"} of context.` +
-    (receipt.mode === "lexical-degraded"
-      ? " Matched by keyword only: memory search was unavailable."
-      : "")
+    `${receipt.tokens.toLocaleString()} token${receipt.tokens === 1 ? "" : "s"} of context.`
   );
 }
 export function MemoryUsed({ runId }: { runId: string }) {

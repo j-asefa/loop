@@ -3,7 +3,6 @@ import * as artifactsQueries from "./sql/artifacts.js";
 import * as nativeSessionsQueries from "./sql/native-sessions.js";
 import * as memorySourcesQueries from "./sql/memory-sources.js";
 import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
-import * as memoryOutboxQueries from "./sql/memory-outbox.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
@@ -107,12 +106,6 @@ function putSource(s: any) {
       s.content,
       now(),
     );
-  memoryOutboxQueries.enqueueResetAttempts(
-    db,
-    sourceId,
-    revision,
-    s.eligible ? "index" : "delete",
-  );
 }
 export function captureMemory() {
   db.transaction(() => {
@@ -163,73 +156,6 @@ export function captureMemory() {
         });
   }).immediate();
 }
-export interface MemoryIndex {
-  request(path: string, data?: unknown, timeout?: number): Promise<any>;
-}
-export const memoryIndex: MemoryIndex = {
-  async request(path, data, timeout = 1500) {
-    if (!process.env.LOOP_MEMORY_URL || !process.env.LOOP_MEMORY_TOKEN)
-      throw new Error("Memory index unavailable");
-    const r = await fetch(process.env.LOOP_MEMORY_URL + path, {
-      method: data === undefined ? "GET" : "POST",
-      headers: {
-        authorization: "Bearer " + process.env.LOOP_MEMORY_TOKEN,
-        "content-type": "application/json",
-      },
-      body: data === undefined ? undefined : JSON.stringify(data),
-      signal: AbortSignal.timeout(timeout),
-      redirect: "error",
-    });
-    if (!r.ok) throw new Error("Memory index degraded");
-    return r.json();
-  },
-};
-let indexing = false;
-export async function indexMemory() {
-  if (indexing) return;
-  indexing = true;
-  try {
-    captureMemory();
-    const jobs = memoryOutboxQueries.due(
-      db,
-      now(),
-    ) as QueryRow<"memory_outbox">[];
-    for (const job of jobs) {
-      const s = memorySourcesQueries.get(db, job.source_id) as
-        QueryRow<"memory_sources"> | undefined;
-      try {
-        if (!s)
-          throw new Error(`Memory source ${job.source_id} no longer exists`);
-        await memoryIndex.request(
-          "/source",
-          {
-            id: s.id,
-            owner: s.owner_id,
-            project: s.project_id,
-            revision: s.revision,
-            action: eligible(s) ? "index" : "delete",
-            content: s.content,
-            title: s.title,
-          },
-          120000,
-        );
-        db.transaction(() => {
-          memorySourcesQueries.markIndexed(db, s.revision, s.id, s.revision);
-          memoryOutboxQueries.removeRevision(db, s.id, s.revision);
-        }).immediate();
-      } catch {
-        memoryOutboxQueries.backoff(
-          db,
-          now() + Math.min(300000, 5000 * 2 ** Math.min(job.attempts, 6)),
-          job.source_id,
-          job.revision,
-        );
-      }
-    }
-  } finally {
-    indexing = false;
-  }
-}
 export function readMemory(
   owner: string,
   sourceId: string,
@@ -265,30 +191,13 @@ export async function searchMemory(
   owner: string,
   project: string | null,
   query: string,
-  index: MemoryIndex = memoryIndex,
 ) {
   if (
     !enabled(owner, "workspace") ||
     (project && !enabled(owner, "project:" + project))
   )
     return { mode: "disabled", sources: [] };
-  let candidates: any[] = [],
-    mode = "semantic";
-  try {
-    const result = await index.request("/search", {
-      owner,
-      project,
-      query: query.slice(0, 2000),
-      limit: 20,
-    });
-    candidates = result.results.map((r: any) => ({
-      id: r.id,
-      revision: r.revision,
-      score: r.score,
-    }));
-  } catch {
-    mode = "lexical-degraded";
-  }
+  const candidates: { id: string; revision: number }[] = [];
   const stop = new Set(
     "a an the is are was were do does did in on at to of for and or it this that what which who how we our my earlier".split(
       " ",
@@ -329,12 +238,11 @@ export async function searchMemory(
         complete: !!s.complete,
         excerpt,
         link: s.link,
-        indexed: s.indexed_revision === s.revision,
       });
     } catch {}
     if (sources.length >= 5) break;
   }
-  return { mode, sources };
+  return { mode: "lexical", sources };
 }
 export async function recallForRun(run: Run) {
   const p = run.payload,
@@ -375,16 +283,10 @@ routes.on(workspaceApi.conversationMemory, (req, res) => {
     ),
   });
 });
-routes.on(workspaceApi.memoryStatus, async (_req, res) => {
+routes.on(workspaceApi.memoryStatus, (_req, res) => {
   const owner = res.locals.owner;
-  let readiness: unknown = { ready: false, mode: "lexical-degraded" };
-  try {
-    readiness = await memoryIndex.request("/health");
-  } catch {}
   res.json(
     projectResponse(workspaceApi.memoryStatus, {
-      readiness,
-      backlog: (memoryOutboxQueries.ownedCount(db, owner) as { n: number }).n,
       policies: memoryPolicyQueries.forOwner(db, owner),
       sources: memorySourcesQueries.summaries(db, owner),
     }),
@@ -414,12 +316,6 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
       )
         continue;
       memorySourcesQueries.advanceRevision(db, now(), s.id);
-      memoryOutboxQueries.enqueue(
-        db,
-        s.id,
-        s.revision + 1,
-        eligible(s) ? "index" : "delete",
-      );
     }
   }).immediate();
   res.json({ ok: true });
@@ -441,7 +337,6 @@ routes.on(workspaceApi.memorySourceDelete, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   db.transaction(() => {
     memorySourcesQueries.tombstone(db, s.id);
-    memoryOutboxQueries.enqueueDelete(db, s.id, s.revision + 1);
   }).immediate();
   res.json({ ok: true, originalHistoryRetained: true });
 });

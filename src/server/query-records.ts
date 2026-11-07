@@ -611,13 +611,6 @@ export const QueryRecords = {
     created_at: z.number(),
     updated_at: z.number(),
   }),
-  memory_outbox: z.object({
-    source_id: z.string(),
-    revision: z.number(),
-    action: z.string(),
-    attempts: z.number(),
-    next_attempt: z.number(),
-  }),
   memory_policy: z.object({
     owner_id: z.string(),
     scope: z.string(),

@@ -29,7 +29,7 @@ import { harnessUpgrades } from "./harness-upgrades.js";
 import { providerChangeInProgress } from "./native-provider-locks.js";
 import { nativeSignIns } from "./native-auth.js";
 import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
-import { indexMemory } from "./memory.js";
+import { captureMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
 import { deliverWebhooks } from "./webhooks.js";
@@ -262,7 +262,14 @@ export function startWorker() {
       inflight.add(promise);
     }, 60_000),
   );
-  maintenanceTimers.push(setInterval(() => void indexMemory(), 5000));
+  maintenanceTimers.push(
+    setInterval(() => {
+      if (stopping) return;
+      try {
+        captureMemory();
+      } catch {}
+    }, 5000),
+  );
   const health = setInterval(heartbeat, 5000);
   const index = setInterval(() => void indexPending().catch(() => {}), 5000);
   let scheduled: ReturnType<typeof setImmediate> | undefined;
