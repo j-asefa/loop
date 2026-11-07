@@ -5,7 +5,11 @@ import {
   type RouteResponse,
 } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
-import { clearUpgradeCommandId, upgradeCommandId } from "./durableIdentities";
+import {
+  beginUpgradeStart,
+  clearUpgradeCommandId,
+  confirmUpgradeStart,
+} from "./durableIdentities";
 import { useSourceId } from "./SourceContext";
 import { viewGeneration } from "./viewCache";
 type UpgradeView = RouteResponse<typeof workspaceApi.runtimeUpgrade>;
@@ -163,14 +167,22 @@ function HarnessUpgradeControls({
           setSending(true);
           setError("");
           try {
-            // Reuse a pending command id until the upgrade settles, so the
-            // host's command-id dedupe recognizes a retried start.
-            const commandId = upgradeCommandId(localStorage, sourceId, runtime);
+            // Reuse a pending command id only across an uncertain start, so
+            // the host's command-id dedupe recognizes a retried start.
+            const commandId = beginUpgradeStart(
+              localStorage,
+              sourceId,
+              runtime,
+            );
             const value = await callRoute(
               workspaceApi.runtimeUpgradeStart,
               { params: { name: runtime }, body: { commandId } },
               sourceId,
             );
+            // The host accepted this start, so the command id is consumed; a
+            // later genuine upgrade must mint a fresh id rather than dedupe
+            // onto this already-settled one (which would run no installer).
+            confirmUpgradeStart(localStorage, sourceId, runtime);
             setUpgrade(value.upgrade);
             setRelease(undefined);
           } catch (e) {

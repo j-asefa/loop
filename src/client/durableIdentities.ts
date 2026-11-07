@@ -70,3 +70,22 @@ export function clearUpgradeCommandId(
 ) {
   remove(storage, `loop-upgrade-cmd:${JSON.stringify([source, runtime])}`);
 }
+
+/** The command id to send for a harness upgrade: a pending id is reused so a
+ * lost start reply hits the host's command-id dedupe. */
+export function beginUpgradeStart(
+  storage: Storage,
+  source: string,
+  runtime: string,
+): string {
+  return upgradeCommandId(storage, source, runtime);
+}
+/** Consume the command id once the host confirms a start, so a later genuine
+ * start mints a fresh id instead of deduping onto an already-settled record. */
+export function confirmUpgradeStart(
+  storage: Storage,
+  source: string,
+  runtime: string,
+) {
+  clearUpgradeCommandId(storage, source, runtime);
+}

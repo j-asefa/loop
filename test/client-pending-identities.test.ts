@@ -5,8 +5,10 @@ import {
   type SendReceipt,
 } from "../src/client/sendIntent";
 import {
+  beginUpgradeStart,
   clearRunRetryKey,
   clearUpgradeCommandId,
+  confirmUpgradeStart,
   runRetryKey,
   upgradeCommandId,
 } from "../src/client/durableIdentities";
@@ -125,4 +127,16 @@ it("a harness upgrade reuses its command id until the upgrade settles", () => {
   // Once settled, a later start gets a fresh id.
   clearUpgradeCommandId(durable, "laptop", "host");
   expect(upgradeCommandId(durable, "laptop", "host")).not.toBe(first);
+});
+
+it("keeps an upgrade command id only across an uncertain start", () => {
+  const durable = new MemoryStorage();
+  // An uncertain start (lost reply) keeps the id for the retry.
+  const pending = beginUpgradeStart(durable, "laptop", "host");
+  expect(beginUpgradeStart(durable, "laptop", "host")).toBe(pending);
+  // The host confirms the start: the id is consumed, so a later genuine
+  // upgrade mints a fresh id instead of deduping onto a settled record (which
+  // would run no installer).
+  confirmUpgradeStart(durable, "laptop", "host");
+  expect(beginUpgradeStart(durable, "laptop", "host")).not.toBe(pending);
 });
