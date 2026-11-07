@@ -368,7 +368,7 @@ it("preserves old native sessions instead of resuming them in a different checko
   const sessions = new NativeSessions();
   const task = run("worktree-legacy");
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,instructions,updated_at) VALUES(?,'claude',?,'old-native-session','',0)",
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,native_id,instructions,updated_at) VALUES('other-agent',?,'claude',?,'old-native-session','',0)",
   ).run(task.conversation_id, dir);
   await expect(sessions.session(task)).rejects.toThrow(/new conversation/);
   expect(

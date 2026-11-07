@@ -97,7 +97,7 @@ export function insertImported(
   project: string,
   updated: number,
   source: string | null,
-  agent: string | null,
+  agent: string,
 ) {
   return insertImportedStatement(db).run(
     conversation,
@@ -185,7 +185,7 @@ export function removeBinding(
   generation: string | null,
   native: string | null,
   project: string,
-  agent: string | null,
+  agent: string,
   source: string | null,
 ) {
   return removeBindingStatement(db).run(
@@ -212,7 +212,7 @@ export function insertBinding(
   updated: number,
   effort: string | null,
   source: string | null,
-  agent: string | null,
+  agent: string,
 ) {
   return insertBindingStatement(db).run(
     conversation,

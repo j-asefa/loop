@@ -2,12 +2,9 @@ import type Database from "better-sqlite3";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  legacyMigrationNames,
-  translateLegacyMigrations,
-} from "./legacy-migrations.js";
+import { historicalMigrationNames } from "./historical-migration-names.js";
 
-const historicalNames = new Set(legacyMigrationNames.values());
+const historicalNames = new Set(historicalMigrationNames.values());
 
 // Tokenize comments and quoted identifiers too: whitespace, OR IGNORE and
 // main."schema_version" must not hide an accidental legacy completion write.
@@ -58,10 +55,7 @@ export function applyMigrations(
       if (names.has(name)) throw new Error(`Duplicate migration name: ${name}`);
       names.add(name);
       const sql = readFileSync(join(path, file), "utf8");
-      const ownedLedgers = new Set([
-        "schema_migrations",
-        "schema_migration_state",
-      ]);
+      const ownedLedgers = new Set(["schema_migrations"]);
       if (!historicalNames.has(name)) ownedLedgers.add("schema_version");
       if (writesLedger(sql, ownedLedgers))
         throw new Error(
@@ -75,24 +69,21 @@ export function applyMigrations(
     );
 
   db.transaction(() => {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS schema_migrations(
-        name TEXT PRIMARY KEY, prefix INTEGER NOT NULL, applied_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS schema_migration_state(
-        singleton INTEGER PRIMARY KEY CHECK(singleton=1), legacy_translated_at INTEGER NOT NULL
-      );
-    `);
+    const table = (name: string) =>
+      db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
+        .get(name);
     if (
-      !db
-        .prepare("SELECT 1 FROM schema_migration_state WHERE singleton=1")
-        .get()
-    ) {
-      translateLegacyMigrations(db);
-      db.prepare("INSERT INTO schema_migration_state VALUES(1,?)").run(
-        Date.now(),
+      !table("schema_migrations") &&
+      table("schema_version") &&
+      db.prepare("SELECT 1 FROM schema_version LIMIT 1").get()
+    )
+      throw new Error(
+        "Earlier Loop database layouts are unsupported. Start with a fresh LOOP_DATA_DIR.",
       );
-    }
+    db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations(
+      name TEXT PRIMARY KEY, prefix INTEGER NOT NULL, applied_at INTEGER NOT NULL
+    )`);
     const applied = db.prepare("SELECT 1 FROM schema_migrations WHERE name=?");
     const record = db.prepare(
       "INSERT INTO schema_migrations(name,prefix,applied_at) VALUES(?,?,?)",

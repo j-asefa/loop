@@ -302,7 +302,7 @@ function source(harness?: string) {
   if (harness) {
     const generation = id();
     db.prepare(
-      "INSERT INTO companion_sessions(conversation_id,harness,project,generation,state,updated_at) VALUES(?,?,?,?,'running',?)",
+      "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,generation,state,updated_at) VALUES('fixture-agent',?,?,?,?,'running',?)",
     ).run(run.conversation_id, harness, dir, generation, now());
     db.prepare(
       "INSERT INTO native_dispatch VALUES(?,?,?,'accepted',NULL,?)",

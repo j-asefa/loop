@@ -175,7 +175,7 @@ test("the HTTP gateway uses atomic companion pairing without exchanging an enrol
     await control(dir, "revoke", { id: session.body.device.id });
     assert.equal(
       (
-        db.prepare("SELECT count(*) n FROM fleet_devices").get() as {
+        db.prepare("SELECT count(*) n FROM devices").get() as {
           n: number;
         }
       ).n,
@@ -195,7 +195,7 @@ test("the HTTP gateway uses atomic companion pairing without exchanging an enrol
       });
       const expiredCookie = response.headers["set-cookie"]![0].split(";")[0];
       const expires = now + 1000;
-      db.prepare("UPDATE fleet_devices SET expires=?,max_expires=?").run(
+      db.prepare("UPDATE devices SET expires=?,max_expires=?").run(
         expires,
         expires,
       );
@@ -225,7 +225,7 @@ test("the HTTP gateway uses atomic companion pairing without exchanging an enrol
     const response = await send("/pair", { ...fresh, name: "Crossing expiry" });
     const crossingCookie = response.headers["set-cookie"]![0].split(";")[0];
     const expires = now + 1000;
-    db.prepare("UPDATE fleet_devices SET expires=?,max_expires=?").run(
+    db.prepare("UPDATE devices SET expires=?,max_expires=?").run(
       expires,
       expires,
     );

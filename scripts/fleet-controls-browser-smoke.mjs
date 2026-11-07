@@ -451,7 +451,7 @@ try {
           external_id: null,
           created_at: 1,
           team_id: null,
-          execution_backend: "native",
+
           execution_connection_id: null,
           project_id: null,
         },

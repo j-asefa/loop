@@ -1,4 +1,4 @@
-import * as fleetPairingCeremoniesQueries from "./sql/fleet-pairing-ceremonies.js";
+import * as pairingCeremoniesQueries from "./sql/pairing-ceremonies.js";
 import type Database from "better-sqlite3";
 import { performance } from "node:perf_hooks";
 import { z } from "zod";
@@ -112,7 +112,7 @@ export class FleetPairing extends DevicePairing {
     const now = this.now();
     return this.db
       .transaction(() => {
-        const raw = fleetPairingCeremoniesQueries.enrollment(
+        const raw = pairingCeremoniesQueries.enrollment(
           this.db,
           value.ceremonyId,
           this.owner,
@@ -139,7 +139,7 @@ export class FleetPairing extends DevicePairing {
         )
           throw rejected();
         if (
-          fleetPairingCeremoniesQueries.operationExists(
+          pairingCeremoniesQueries.operationExists(
             this.db,
             this.owner,
             value.operationId,
@@ -156,7 +156,7 @@ export class FleetPairing extends DevicePairing {
         const json = JSON.stringify(result);
         if (!json || Buffer.byteLength(json) > 64 * 1024)
           throw new Problem(413, "Enrollment receipt exceeds its bound.");
-        fleetPairingCeremoniesQueries.consumeEnrollment(
+        pairingCeremoniesQueries.consumeEnrollment(
           this.db,
           value.operationId,
           digest,

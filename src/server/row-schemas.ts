@@ -79,7 +79,6 @@ export const RunPayload = AgentSnapshot.partial().extend({
   tool: Id.optional(),
   arguments: z.record(z.string(), z.json()).optional(),
   idempotencyKey: Id.optional(),
-  execution: z.strictObject({ backend: z.literal("hapi") }).optional(),
 });
 export type RunPayload = z.infer<typeof RunPayload>;
 
@@ -177,8 +176,6 @@ export const ConnectionMetadata = z.strictObject({
     ])
     .optional(),
   capabilities: z.record(z.string(), z.json()).optional(),
-  retiredDirectRuntime: z.boolean().optional(),
-  nativeRecoveryRequired: z.boolean().optional(),
 });
 export type ConnectionMetadata = z.infer<typeof ConnectionMetadata>;
 export const ConnectionModels = z.array(

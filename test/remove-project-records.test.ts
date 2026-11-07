@@ -1,19 +1,29 @@
 import Database from "better-sqlite3";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  copyFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { expect, it } from "vitest";
+import { applyMigrations } from "../src/server/migrations";
 
 it("upgrades populated records, preserves source work and restarts without retired producers", () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-remove-project-records-"));
   let db = new Database(join(dir, "loop.db"));
   try {
     db.pragma("foreign_keys = ON");
+    const migrationDir = join(dir, "migrations");
+    mkdirSync(migrationDir);
     for (const file of readdirSync("migrations")
       .filter((f) => f.endsWith(".sql") && f < "100")
       .sort())
-      db.exec(readFileSync("migrations/" + file, "utf8"));
+      copyFileSync(join("migrations", file), join(migrationDir, file));
+    applyMigrations(db, migrationDir);
     db.exec(`
       INSERT INTO deployment_profile VALUES(1,'server');
       INSERT INTO folders(id,owner_id,name,kind,created_at) VALUES('workspace','owner','Workspace','project',1),('project','owner','Named','project',1),('other','other-owner','Other','project',1);
@@ -34,10 +44,9 @@ it("upgrades populated records, preserves source work and restarts without retir
       INSERT INTO run_checkout_versions VALUES('old-checkout','owner','run',1,'{}');
       INSERT INTO checkout_build_targets VALUES('checkout','owner','run','github.com/j-asefa/loop','sha','[]');
       INSERT INTO deployment_observations VALUES('observation','owner','workspace','checkout','run','thread','sha','included','fixture','[]','signature',1);
-      DELETE FROM schema_version WHERE version IN (93,94);
     `);
     db.close();
-    // Exercise the actual startup migrator, including the old 93/94 repair and a restart.
+    // Exercise the actual startup migrator and a restart using its current ledger.
     for (let attempt = 0; attempt < 2; attempt++) {
       execFileSync(
         process.execPath,

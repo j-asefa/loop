@@ -51,7 +51,6 @@ export const ConversationRecord = z.object({
   external_id: z.string().nullable(),
   created_at: z.number(),
   team_id: z.string().nullable(),
-  execution_backend: z.string(),
   execution_connection_id: z.string().nullable(),
   project_id: z.string().nullable(),
   feed_hidden: z.number(),

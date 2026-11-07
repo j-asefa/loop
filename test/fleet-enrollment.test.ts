@@ -849,7 +849,7 @@ it("does not consume either capability when preparing the durable grant fails", 
   );
   expect(
     b.db
-      .prepare("SELECT state FROM fleet_pairing_ceremonies WHERE id=?")
+      .prepare("SELECT state FROM pairing_ceremonies WHERE id=?")
       .get(input.intent.ceremonyId),
   ).toEqual({ state: "pending" });
   b.db.exec("DROP TRIGGER fixture_enroll_failure");

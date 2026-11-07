@@ -25,7 +25,7 @@ it.each([false, true])(
       INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('unconnected','other-owner','Unconnected','unconnected','codex','native-default',1);
       INSERT INTO preferences(owner_id) VALUES('other-owner');`);
       db.exec(`INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('legacy-chat','owner','agent','Gemini history',1);
-      INSERT INTO companion_sessions(conversation_id,harness,native_id,project,generation,state,updated_at) VALUES('legacy-chat','gemini','original-gemini-session','/original/project','old-generation','disconnected',1);
+      INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,native_id,project,generation,state,updated_at) VALUES('fixture-agent','legacy-chat','gemini','original-gemini-session','/original/project','old-generation','disconnected',1);
       INSERT INTO harnesses(name,options,billing,capabilities,models,updated_at) VALUES('gemini','{"executable":"/custom/gemini","billing":"existing"}','{}','{}','[]',1);`);
       const tables = [
         "connections",

@@ -392,7 +392,7 @@ test("device renewal persists but cannot exceed its fixed maximum lifetime", asy
     let store = new Database(file);
     const cap = Date.now() + 120000;
     store
-      .prepare("UPDATE fleet_devices SET expires=?,max_expires=?")
+      .prepare("UPDATE devices SET expires=?,max_expires=?")
       .run(Date.now() + 60000, cap);
     store.close();
     host = createHost(dir);
@@ -408,12 +408,12 @@ test("device renewal persists but cannot exceed its fixed maximum lifetime", asy
     await host.close();
     store = new Database(file);
     const renewed = store
-      .prepare("SELECT expires,max_expires AS maxExpires FROM fleet_devices")
+      .prepare("SELECT expires,max_expires AS maxExpires FROM devices")
       .get() as { expires: number; maxExpires: number };
     assert.equal(renewed.expires, cap);
     assert.equal(renewed.maxExpires, cap);
     store
-      .prepare("UPDATE fleet_devices SET expires=?,max_expires=?")
+      .prepare("UPDATE devices SET expires=?,max_expires=?")
       .run(Date.now() - 1, Date.now() - 1);
     store.close();
     host = createHost(dir);

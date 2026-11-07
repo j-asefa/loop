@@ -12,9 +12,9 @@ export type Binding = {
   native_id: string | null;
   project: string;
   // A bound agent with no worktree source uses its ordinary project directory.
-  // The agent id pins both modes; a missing id identifies a legacy session.
-  worktree_source?: string | null;
-  worktree_agent_id?: string | null;
+  // The agent identity pins both workspace modes.
+  worktree_source: string | null;
+  worktree_agent_id: string;
   model: string | null;
   effort?: string | null;
   permission_mode?: string | null;

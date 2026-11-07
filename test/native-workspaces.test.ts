@@ -254,9 +254,9 @@ it("binds a fresh ordinary-folder import for catalogs, native resume and harness
       ),
     )
     .immediate();
-  expect(importSession(options, nativeId, [], "Repeated import")).toBe(
-    conversation,
-  );
+  expect(
+    importSession(options, nativeId, [], "Repeated import", prepared),
+  ).toBe(conversation);
   const agent = db
     .prepare(
       "SELECT a.* FROM agents a JOIN conversations c ON c.agent_id=a.id WHERE c.id=?",
@@ -561,67 +561,6 @@ it("allows a new explicit handoff destination after preparation fails while reta
       .get(OWNER, JSON.stringify(["codex", nativeId, firstProject])),
   ).toEqual(first);
   expect(binding(conversation).worktree_agent_id).not.toBe(first.agent_id);
-});
-
-it.each(["symlink", "lexical", "missing"])(
-  "reopens legacy history with a %s project path without changing its binding",
-  async (mode) => {
-    const { importSession, resumeFromDesktop } =
-      await import("../src/server/migration.js");
-    const project = directory("legacy-open-" + mode);
-    const alias = join(root, "legacy-alias-" + mode);
-    if (mode === "symlink") symlinkSync(project, alias);
-    const source =
-      mode === "symlink"
-        ? alias
-        : mode === "lexical"
-          ? project + "/../legacy-open-" + mode
-          : project;
-    const options = {
-      ...nativeSessions.registration("grok"),
-      project: source,
-    };
-    const nativeId = "legacy-open-" + mode;
-    const conversation = db
-      .transaction(() => importSession(options, nativeId, [], "Legacy history"))
-      .immediate();
-    const saved = binding(conversation);
-    expect(saved.worktree_agent_id).toBeNull();
-    if (mode === "missing") renameSync(project, project + "-moved");
-    await expect(resumeFromDesktop(options, nativeId)).resolves.toBe(
-      conversation,
-    );
-    expect(binding(conversation)).toEqual(saved);
-    expect(
-      db
-        .prepare("SELECT 1 FROM native_import_workspaces WHERE source=?")
-        .get(nativeId),
-    ).toBeUndefined();
-  },
-);
-
-it("preserves legacy ordinary-folder sessions when resuming or switching harnesses", async () => {
-  const project = directory("legacy-plain");
-  expect(result(await run(project, "legacy-plain")).state).toBe("completed");
-  db.prepare(
-    "UPDATE companion_sessions SET worktree_agent_id=NULL WHERE conversation_id=?",
-  ).run("legacy-plain");
-  const saved = binding("legacy-plain");
-  const before = requests().length;
-  for (const harness of ["grok", "acp"] as const) {
-    const task = await run(project, "legacy-plain-" + harness, {
-      conversation: "legacy-plain",
-      agent: "legacy-plain",
-      harness,
-    });
-    expect(result(task).state).toBe("failed");
-    expect(result(task).error).toContain("Start a new conversation");
-    expect(binding("legacy-plain")).toEqual(saved);
-    expect(
-      db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(task.id),
-    ).toBeUndefined();
-  }
-  expect(requests()).toHaveLength(before);
 });
 
 it("preserves the native binding if the workspace changes during a harness switch", async () => {

@@ -45,14 +45,13 @@ write completion records, including `schema_version`. Duplicate names and new
 files that write a completion ledger fail startup. If any file fails, all changes
 in that startup transaction roll back before another process can migrate.
 
-`legacy-migrations.ts` freezes the old number-to-name mapping through prefix 121
-and its historical branch repairs. A one-time translation normalizes those old
-branch numbers, copies the applied history, and commits a translation marker in
-the same transaction. Afterward, completion decisions use only the named ledger.
-Do not extend the frozen mapping for new migrations. Historical SQL retains its
-old completion inserts for fresh installs, so `schema_version` remains a
-compatibility table; its contents are not the current applied set. An unknown
-legacy version fails translation rather than guessing which migration it meant.
+Historical SQL remains unchanged. `historical-migration-names.ts` lists the
+files through prefix121 that write `schema_version`; only those immutable files
+may write that ledger. New installs execute the whole chain and record every
+completion in `schema_migrations`. Restarts consult only that named ledger.
+Earlier numbered-only databases are refused; start with a fresh data directory.
+Forward migrations assume data written by the current build. They do not
+repair rows only earlier builds wrote, and may drop them instead.
 
 ## Build provenance
 

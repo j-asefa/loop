@@ -1,10 +1,18 @@
 import { expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { execFile } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  mkdirSync,
+  copyFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+
+import { applyMigrations } from "../src/server/migrations.js";
 
 const exec = promisify(execFile);
 const start = async (directory: string) => {
@@ -33,12 +41,15 @@ it("upgrades run events without reusing deleted IDs and admits connection subjec
   try {
     db.pragma("foreign_keys=ON");
     db.transaction(() => {
+      const history = join(directory, "migrations");
+      mkdirSync(history);
       for (const name of readdirSync("migrations")
         .filter(
           (name) => name.endsWith(".sql") && Number(name.split("-")[0]) < 107,
         )
         .sort())
-        db.exec(readFileSync(join("migrations", name), "utf8"));
+        copyFileSync(join("migrations", name), join(history, name));
+      applyMigrations(db, history);
     }).immediate();
     db.exec(`
       INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at)

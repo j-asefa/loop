@@ -50,7 +50,7 @@ const restore = withTestAdapter("openai", {
     for (const [index, text] of chunks.entries()) {
       const snapshot = () =>
         prepare(`SELECT a.id, f.content fts, s.content search,
-        r.revision FROM artifacts a JOIN artifact_fts f ON f.artifact_id=a.id
+        r.revision FROM artifacts a JOIN search_fts f ON f.id='artifact:'||a.id
         JOIN search_documents s ON s.id='artifact:'||a.id
         JOIN feed_revisions r ON r.object_id=a.id AND r.entity='artifact'
         WHERE a.run_id=?`).get(runId);
@@ -145,7 +145,7 @@ it("keeps the result live while deferring its indexes until completion", async (
   expect(runPreview("alice", run.id).artifact?.content).toBe(answer);
   const indexedFinal =
     prepare(`SELECT f.content fts, s.content search, r.revision
-    FROM artifacts a JOIN artifact_fts f ON f.artifact_id=a.id
+    FROM artifacts a JOIN search_fts f ON f.id='artifact:'||a.id
     JOIN search_documents s ON s.id='artifact:'||a.id
     JOIN feed_revisions r ON r.object_id=a.id AND r.entity='artifact'
     WHERE a.run_id=?`).get(run.id) as {

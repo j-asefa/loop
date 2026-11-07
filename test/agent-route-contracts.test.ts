@@ -343,9 +343,28 @@ it("agentTraces preserves production trace fields and rejects invalid page bound
   valid(workspaceApi.agentTraces, result);
   expect(result.data.items[0]).toMatchObject({
     title: "Fixture tool",
+    trace_key: "contract-tool",
+    run_error: null,
+    server: null,
+    invocation_state: null,
     metadata: '{"fixture":true}',
     owner_id: owner,
   });
+  for (const field of [
+    "trace_key",
+    "run_error",
+    "server",
+    "invocation_state",
+  ]) {
+    const incomplete = { ...result.data.items[0] };
+    delete incomplete[field];
+    expect(
+      workspaceApi.agentTraces.response.safeParse({
+        ...result.data,
+        items: [incomplete],
+      }).success,
+    ).toBe(false);
+  }
   expect(await request(`/agents/${apiAgent.id}/traces?before=0`)).toMatchObject(
     { status: 400, data: { error: expect.any(String) } },
   );

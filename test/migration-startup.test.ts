@@ -99,7 +99,7 @@ it("rejects pre-unification databases before migrating them", () => {
     );
     database.close();
     expect(openDatabase(dir)).toContain(
-      "Pre-unification databases are unsupported",
+      "Earlier Loop database layouts are unsupported",
     );
     const unchanged = new Database(join(dir, "loop.db"));
     expect(unchanged.prepare("SELECT * FROM schema_version").all()).toEqual([

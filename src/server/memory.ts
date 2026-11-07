@@ -1,6 +1,5 @@
 import * as memoryPolicyQueries from "./sql/memory-policy.js";
 import * as artifactsQueries from "./sql/artifacts.js";
-import * as nativeSessionsQueries from "./sql/native-sessions.js";
 import * as memorySourcesQueries from "./sql/memory-sources.js";
 import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
@@ -55,9 +54,6 @@ function eligible(s: any) {
   if (s.conversation_id) {
     if (!enabled(s.owner_id, "conversation:" + s.conversation_id, false))
       return false;
-    const native = nativeSessionsQueries.coherent(db, s.conversation_id) as
-      Pick<QueryRow<"native_sessions">, "coherent"> | undefined;
-    if (native && !native.coherent) return false;
     if (s.message_id) {
       const m = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id) as
         Pick<QueryRow<"messages">, "metadata"> | undefined;

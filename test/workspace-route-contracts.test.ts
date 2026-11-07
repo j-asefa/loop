@@ -499,7 +499,7 @@ it("keeps native decisions and session controls generation-bound through the pro
     generation = id(),
     decision = id();
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,generation,updated_at) VALUES(?,'codex',?,?,?)",
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,generation,updated_at) VALUES('fixture-agent',?,'codex',?,?,?)",
   ).run(f.run.conversation_id, directory, generation, now());
   db.prepare(
     "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,created_at) VALUES(?,?,?,?,?,'{}',?)",

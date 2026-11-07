@@ -1338,8 +1338,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           }
         : { mode: values["local-only"] ? "local" : "external-proxy" },
     });
-    const { migrateLegacy, resumeFromDesktop } =
-      await import("./server/migration.js");
+    const { resumeFromDesktop } = await import("./server/migration.js");
     const onListening = async (description: string) => {
       // Single-use pairing codes are shown on a terminal or sent over IPC, never
       // written to a log file or a service manager's journal.
@@ -1385,7 +1384,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
     const enabled = await host.start(
       options,
       async () => {
-        await migrateLegacy(root);
         if (!stopping && values.resume)
           await resumeFromDesktop(options, values.resume);
       },

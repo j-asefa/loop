@@ -19,6 +19,8 @@ function live(conversation: string, run: any, generation: string): Live {
   return {
     run,
     binding: {
+      worktree_source: null,
+      worktree_agent_id: "fixture-agent",
       conversation_id: conversation,
       harness: "codex",
       native_id: null,

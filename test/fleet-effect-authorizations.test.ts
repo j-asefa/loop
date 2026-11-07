@@ -468,7 +468,7 @@ it("refuses retained queued effects and a delayed async action after the peer is
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Fleet setting fixture',0)",
   ).run(conversation, owner);
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,model,instructions,generation,state,updated_at) VALUES(?,'codex',?,NULL,'',?,'idle',0)",
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,model,instructions,generation,state,updated_at) VALUES('fixture-agent',?,'codex',?,NULL,'',?,'idle',0)",
   ).run(conversation, root, generation);
   const adapter = new Codex(
     {
@@ -487,6 +487,8 @@ it("refuses retained queued effects and a delayed async action after the peer is
     adapter,
     generation,
     binding: {
+      worktree_source: null,
+      worktree_agent_id: "fixture-agent",
       conversation_id: conversation,
       harness: "codex",
       project: root,

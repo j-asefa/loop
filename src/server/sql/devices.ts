@@ -4,9 +4,7 @@ import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
-const insertStatement = statement(
-  "INSERT INTO fleet_devices VALUES(?,?,?,?,?,?,?)",
-);
+const insertStatement = statement("INSERT INTO devices VALUES(?,?,?,?,?,?,?)");
 export function insert(
   db: Database.Database,
   id: string,
@@ -21,45 +19,41 @@ export function insert(
 }
 
 const listStatement = statement(
-  "SELECT id,name,hash,csrf,expires,max_expires AS maxExpires FROM fleet_devices WHERE owner_id=?",
+  "SELECT id,name,hash,csrf,expires,max_expires AS maxExpires FROM devices WHERE owner_id=?",
 );
-const listRow = QueryRecords.fleet_devices
+const listRow = QueryRecords.devices
   .pick({ id: true, name: true, hash: true, csrf: true, expires: true })
-  .extend({ maxExpires: QueryRecords.fleet_devices.shape.max_expires });
+  .extend({ maxExpires: QueryRecords.devices.shape.max_expires });
 export function list(db: Database.Database, owner: string) {
   return listStatement(db)
     .all(owner)
-    .map((row) => parseRecord(listRow, row, "fleet_devices"));
+    .map((row) => parseRecord(listRow, row, "devices"));
 }
 
 const byIdStatement = statement(
-  "SELECT id,name,hash,csrf,expires,max_expires AS maxExpires FROM fleet_devices WHERE owner_id=? AND id=?",
+  "SELECT id,name,hash,csrf,expires,max_expires AS maxExpires FROM devices WHERE owner_id=? AND id=?",
 );
-const byIdRow = QueryRecords.fleet_devices
+const byIdRow = QueryRecords.devices
   .pick({ id: true, name: true, hash: true, csrf: true, expires: true })
-  .extend({ maxExpires: QueryRecords.fleet_devices.shape.max_expires });
+  .extend({ maxExpires: QueryRecords.devices.shape.max_expires });
 export function byId(db: Database.Database, owner: string, id: string) {
   const row = byIdStatement(db).get(owner, id);
-  return row === undefined
-    ? undefined
-    : parseRecord(byIdRow, row, "fleet_devices");
+  return row === undefined ? undefined : parseRecord(byIdRow, row, "devices");
 }
 
 const byHashStatement = statement(
-  "SELECT id,name,hash,csrf,expires,max_expires AS maxExpires FROM fleet_devices WHERE owner_id=? AND hash=?",
+  "SELECT id,name,hash,csrf,expires,max_expires AS maxExpires FROM devices WHERE owner_id=? AND hash=?",
 );
-const byHashRow = QueryRecords.fleet_devices
+const byHashRow = QueryRecords.devices
   .pick({ id: true, name: true, hash: true, csrf: true, expires: true })
-  .extend({ maxExpires: QueryRecords.fleet_devices.shape.max_expires });
+  .extend({ maxExpires: QueryRecords.devices.shape.max_expires });
 export function byHash(db: Database.Database, owner: string, hash: string) {
   const row = byHashStatement(db).get(owner, hash);
-  return row === undefined
-    ? undefined
-    : parseRecord(byHashRow, row, "fleet_devices");
+  return row === undefined ? undefined : parseRecord(byHashRow, row, "devices");
 }
 
 const renewStatement = statement(
-  "UPDATE fleet_devices SET expires=max(expires,?) WHERE owner_id=? AND id=? AND hash=? AND expires>? AND max_expires>?",
+  "UPDATE devices SET expires=max(expires,?) WHERE owner_id=? AND id=? AND hash=? AND expires>? AND max_expires>?",
 );
 export function renew(
   db: Database.Database,
@@ -74,14 +68,14 @@ export function renew(
 }
 
 const removeStatement = statement(
-  "DELETE FROM fleet_devices WHERE owner_id=? AND id=?",
+  "DELETE FROM devices WHERE owner_id=? AND id=?",
 );
 export function remove(db: Database.Database, owner: string, id: string) {
   return removeStatement(db).run(owner, id);
 }
 
 const expireStatement = statement(
-  "DELETE FROM fleet_devices WHERE owner_id=? AND (expires<=? OR max_expires<=?)",
+  "DELETE FROM devices WHERE owner_id=? AND (expires<=? OR max_expires<=?)",
 );
 export function expire(
   db: Database.Database,
@@ -93,12 +87,10 @@ export function expire(
 }
 
 const countStatement = statement(
-  "SELECT count(*) n FROM fleet_devices WHERE owner_id=?",
+  "SELECT count(*) n FROM devices WHERE owner_id=?",
 );
 const countRow = z.object({ n: z.number() });
 export function count(db: Database.Database, owner: string) {
   const row = countStatement(db).get(owner);
-  return row === undefined
-    ? undefined
-    : parseRecord(countRow, row, "fleet_devices");
+  return row === undefined ? undefined : parseRecord(countRow, row, "devices");
 }

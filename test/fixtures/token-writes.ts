@@ -40,7 +40,7 @@ export function nativeTokenDecision(fail: boolean) {
     (candidate) => candidate.id === queued.id,
   )!;
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,generation,updated_at) VALUES(?,'codex',?,?,?)",
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,generation,updated_at) VALUES('fixture-agent',?,'codex',?,?,?)",
   ).run(conversation, process.cwd(), generation, now());
   const live = {
     run,

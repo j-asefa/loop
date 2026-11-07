@@ -1294,7 +1294,7 @@ it.each([
     const delivery = runOf(mail(receipt.messageId).run_id);
     if (state === "refused") {
       db.prepare(
-        "UPDATE conversations SET execution_backend='hapi' WHERE id=?",
+        "UPDATE runs SET payload=json_set(payload,'$.reviewId','snapshot') WHERE conversation_id=?",
       ).run(delivery.conversation_id);
       expect(
         claim("refuse-status", (r) => r.id === delivery.id),
@@ -1651,7 +1651,7 @@ it("holds mail at queue pressure and refuses obsolete targets on recovery withou
   expect(mail(accepted.messageId).state).toBe("sent");
   const targetConversation = mail(accepted.messageId).recipient_conversation_id;
   db.prepare(
-    "UPDATE conversations SET execution_backend='hapi' WHERE id=?",
+    "UPDATE runs SET payload=json_set(payload,'$.reviewId','snapshot') WHERE conversation_id=?",
   ).run(targetConversation);
   expect(() =>
     sendMail(source, "obsolete", {
@@ -1951,7 +1951,7 @@ it("establishes an empty direct binding from the earlier ordinary message before
   ).toEqual({ conversation_id: bound });
 });
 
-it.each(["hapi", "review"])(
+it.each(["review"])(
   "refuses an automatically selected %s conversation instead of choosing another task",
   (backend) => {
     const owner = "direct-interrupt-ineligible-" + backend;
@@ -1960,14 +1960,9 @@ it.each(["hapi", "review"])(
     const source = running(owner, sender.id, {});
     const eligible = running(owner, recipient.id, {});
     const target = running(owner, recipient.id, {});
-    if (backend === "hapi")
-      db.prepare(
-        "UPDATE conversations SET execution_backend='hapi' WHERE id=?",
-      ).run(target.conversation_id);
-    else
-      db.prepare(
-        "UPDATE runs SET payload=json_set(payload,'$.reviewId','snapshot') WHERE id=?",
-      ).run(target.id);
+    db.prepare(
+      "UPDATE runs SET payload=json_set(payload,'$.reviewId','snapshot') WHERE id=?",
+    ).run(target.id);
     expect(() =>
       sendMail(source, "interrupt", {
         to: recipient.id,
@@ -2029,7 +2024,7 @@ it.each(["pending", "held"])(
     });
     expect(urgent.delivery).toBe(state);
     db.prepare(
-      "UPDATE conversations SET execution_backend='hapi' WHERE id=?",
+      "UPDATE runs SET payload=json_set(payload,'$.reviewId','snapshot') WHERE conversation_id=?",
     ).run(target.conversation_id);
     db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
       recipient.connection_id,

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const root = mkdtempSync(join(tmpdir(), "loop-native-recovery-"));
@@ -24,7 +24,7 @@ afterAll(async () => {
   db.close();
   rmSync(root, { recursive: true, force: true });
 });
-function connection(name: string, status: string, retired = false) {
+function connection(name: string, status: string) {
   db.prepare(
     "INSERT OR REPLACE INTO connections(id,owner_id,provider,label,secret,status,metadata,models,created_at) VALUES(?,?,?,'Native','',?,?,?,?)",
   ).run(
@@ -35,7 +35,6 @@ function connection(name: string, status: string, retired = false) {
     JSON.stringify({
       loopHarness: name,
       authMode: "subscription",
-      ...(retired ? { retiredDirectRuntime: true } : {}),
     }),
     JSON.stringify([{ id: "native-default" }]),
     now(),
@@ -63,7 +62,7 @@ function mocks() {
   );
   vi.spyOn(Claude.prototype, "dispose").mockResolvedValue();
 }
-it("recovers retired connections only after account verification, preserving team threads and native identities", async () => {
+it("reconnects available accounts only after verification, preserving team threads and native identities", async () => {
   connection("codex", "connected");
   connection("pi", "connected");
   connection("claude", "connected");
@@ -89,23 +88,12 @@ it("recovers retired connections only after account verification, preserving tea
     idempotencyKey: id(),
   });
   db.prepare(
-    "UPDATE runs SET state='failed',error='requires HAPI' WHERE id=?",
+    "UPDATE runs SET state='failed',error='fixture failure' WHERE id=?",
   ).run(first.id);
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,native_id,project,state,updated_at) VALUES(?,'codex','original-native-thread',?,'disconnected',?)",
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,native_id,project,state,updated_at) VALUES('fixture-agent',?,'codex','original-native-thread',?,'disconnected',?)",
   ).run(team.conversation_id, root, now());
-  db.exec(
-    "UPDATE connections SET status='disconnected',metadata=json_set(metadata,'$.retiredDirectRuntime',json('true')); DELETE FROM schema_version WHERE version=71",
-  );
-  db.exec(
-    readFileSync(
-      new URL(
-        "../migrations/071-restore-native-harnesses.sql",
-        import.meta.url,
-      ),
-      "utf8",
-    ),
-  );
+  db.exec("UPDATE connections SET status='needs_sign_in'");
   expect(
     db.prepare("SELECT status FROM connections WHERE id='native-codex'").get(),
   ).toEqual({ status: "needs_sign_in" });
@@ -151,7 +139,7 @@ it("leaves intentional disconnects disconnected and does not invoke their accoun
   ).toEqual({ status: "disconnected" });
 });
 it("keeps other harnesses usable when discovery fails and never substitutes a billing policy", async () => {
-  connection("codex", "needs_sign_in", true);
+  connection("codex", "needs_sign_in");
   mocks();
   probe.mockImplementation(async (name: string) => {
     if (name === "claude") throw new Error("offline");
@@ -170,9 +158,9 @@ it("keeps other harnesses usable when discovery fails and never substitutes a bi
 });
 
 it("keeps an explicitly revoked damaged native connection disconnected on startup", async () => {
-  connection("codex", "connected", true);
+  connection("codex", "connected");
   db.prepare(
-    "UPDATE connections SET metadata=json_set(metadata,'$.permissionMode','bogus','$.nativeRecoveryRequired',json('true')) WHERE id='native-codex'",
+    "UPDATE connections SET metadata=json_set(metadata,'$.permissionMode','bogus') WHERE id='native-codex'",
   ).run();
   const { default: express } = await import("express");
   const { core } = await import("../src/server/core-routes");

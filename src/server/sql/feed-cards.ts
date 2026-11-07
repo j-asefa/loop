@@ -102,14 +102,12 @@ export function feedPage(
   filter: FeedFilter,
   results: boolean,
 ) {
-  const sort = filter === "done" && !results ? "p.legacy_sort_at" : "p.sort_at";
-  const hidden = results ? "p.hidden" : "p.legacy_hidden";
+  const sort = "p.sort_at";
+  const hidden = "p.hidden";
   const where = {
     replies: "0", // Explicit replies use their own immutable publication rows.
     all: "t.snoozed=0",
-    done: results
-      ? `(p.kind='result' OR (${idle})) AND NOT ${hidden}`
-      : `(json_extract(p.payload,'$.legacy.row.done_run_id') IS NOT NULL OR NOT (${needs} OR t.working OR t.queued)) AND NOT t.snoozed AND NOT ${hidden}`,
+    done: `(p.kind='result' OR (${idle})) AND NOT ${hidden}`,
     needs: `(t.needs_run=1 OR t.approval_until IS NOT NULL) AND ${needs}`,
     working: "t.working=1",
     queued: "t.queued=1",
@@ -123,7 +121,7 @@ export function feedPage(
       AND (${where})
       ${filter === "all" || filter === "done" || filter === "outcomes" ? "AND (@teams IS NOT NULL OR @agent IS NOT NULL OR NOT t.hide_results)" : ""}
       AND (@at IS NULL OR ${sort}<@at OR (${sort}=@at AND (p.conversation_id<@after OR
-        (p.conversation_id=@after AND ${results ? "(@afterCard IS NULL OR p.card_key<@afterCard)" : "p.card_key<@afterCard"}))))
+        (p.conversation_id=@after AND p.card_key<@afterCard))))
     ORDER BY ${sort} DESC,p.conversation_id DESC,p.card_key DESC LIMIT 41`;
   // One indexed page selection and covering-index aggregate in one statement.
   // LEFT JOIN preserves summary counts even when this continuation has no rows.

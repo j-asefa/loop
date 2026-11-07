@@ -83,7 +83,7 @@ it("companion admits the declared read catalog with GET/HEAD, safe projections a
     agentMessages: `/agents/${local.agent}/messages`,
     agentTraces: `/agents/${local.agent}/traces`,
     agentTracesExport: `/agents/${local.agent}/traces/export?run=${local.run}`,
-    feed: "/feed?expand=results",
+    feed: "/feed",
     feedAway: "/feed/away?since=0",
     conversation: `/conversations/${local.conversation}`,
     messageSearch: "/messages?q=Integration",

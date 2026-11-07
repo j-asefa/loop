@@ -22,7 +22,6 @@ const { invokeNative, nativeBindings } =
   await import("../src/server/native-tools");
 const { withTestAdapter } = await import("../src/server/providers");
 const { mobile } = await import("../src/server/mobile-routes");
-const { feed: legacyFeed } = await import("./helpers/legacy-feed");
 const { core } = await import("../src/server/core-routes");
 const { recordConversationUpdate } =
   await import("../src/server/conversation-updates");
@@ -50,19 +49,6 @@ async function replies(owner: string, query = "") {
   const response = await request(owner, "/feed?filter=replies" + query);
   expect(response.status).toBe(200);
   const page = FeedPage.parse(response.body);
-  const params = new URLSearchParams(query);
-  if (!params.has("known")) {
-    const { projection, projectionRows, ...selection } = page;
-    expect(selection).toEqual(
-      legacyFeed(owner, {
-        filter: "replies",
-        folder: params.get("folder") ?? undefined,
-        agent: params.get("agent") ?? undefined,
-        teams: params.get("teams")?.split(","),
-        before: params.get("before") ?? undefined,
-      }),
-    );
-  }
   return page;
 }
 function fixture(owner = id()) {
@@ -248,8 +234,7 @@ it("publishes from the API runtime without finishing the task and keeps replies 
     (await request(f.owner, `/replies/${messageId}`, { read: true })).status,
   ).toBe(200);
   expect((await replies(f.owner)).items[0].reply!.read_at).toBe(firstReadAt);
-  const done = (await request(f.owner, "/feed?filter=done&expand=results"))
-    .body;
+  const done = (await request(f.owner, "/feed?filter=done")).body;
   expect(done.items).toHaveLength(1);
   expect(done.items[0].last_message.preview).toContain("The task is complete");
   await request(f.owner, `/feed/${f.run.conversation_id}`, {
@@ -273,9 +258,9 @@ it("publishes from the API runtime without finishing the task and keeps replies 
   ).toEqual(before.items.map((item) => item.reply_card_key));
   await request(f.owner, `/replies/${messageId}`, { archived: true });
   expect((await replies(f.owner)).items).toHaveLength(1);
-  expect(
-    (await request(f.owner, "/feed?filter=done&expand=results")).body.items,
-  ).toHaveLength(1);
+  expect((await request(f.owner, "/feed?filter=done")).body.items).toHaveLength(
+    1,
+  );
   await request(f.owner, `/replies/${messageId}`, { archived: false });
   expect((await replies(f.owner)).items).toHaveLength(2);
   expect((await replies(f.owner)).summary.replies_unread).toBe(1);

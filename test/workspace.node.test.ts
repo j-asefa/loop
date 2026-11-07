@@ -574,43 +574,6 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
       }
     });
     await t.test(
-      "legacy migration preserves source files and is idempotent",
-      async () => {
-        const legacyRoot = join(dir, "legacy-root"),
-          legacyPath = join(legacyRoot, "projects", "a".repeat(20));
-        await mkdir(legacyPath, { recursive: true });
-        const legacy = JSON.stringify({
-          snapshot: {
-            harness: "codex",
-            nativeSession: "legacy-thread",
-            project: projectA,
-            version: "fixture",
-            billing: { mode: "existing" },
-            items: [
-              {
-                id: "old",
-                kind: "assistant",
-                text: "Legacy content preserved",
-              },
-            ],
-          },
-        });
-        await writeFile(join(legacyPath, "session.json"), legacy);
-        const { migrateLegacy } = await import("../src/server/migration.js");
-        await migrateLegacy(legacyRoot);
-        await migrateLegacy(legacyRoot);
-        assert.equal(
-          (db.prepare("SELECT count(*) n FROM legacy_imports").get() as any).n,
-          1,
-        );
-        assert.equal(
-          await readFile(join(legacyPath, "session.json"), "utf8"),
-          legacy,
-        );
-        assert.equal((await readdir(join(dir, "legacy-backups"))).length, 1);
-      },
-    );
-    await t.test(
       "enabling another harness and recovery never replays native prompts",
       async () => {
         process.env.LOOP_TEST_HARNESS = "pi";

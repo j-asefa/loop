@@ -29,7 +29,6 @@ it("marks existing Done results read once, including dismissed and grouped cards
     ))
       copyFileSync(join("migrations", file), join(oldMigrations, file));
     applyMigrations(db, oldMigrations);
-    installFixtureProjection(db);
     db.transaction(() => {
       for (const owner of owners) {
         const conversation = owner + "-thread";
@@ -73,6 +72,19 @@ it("marks existing Done results read once, including dismissed and grouped cards
             owner + "-group",
             conversation,
           );
+        // Seed the immutable pre-137 projection shape directly. The current
+        // projector targets the current schema, which no longer has these columns.
+        for (const kind of ["result", "read", "dismissed", "imported"])
+          db.prepare(
+            "INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,sort_at,legacy_sort_at,payload,unread) VALUES(?,?,'result',?,3,3,'{}',?)",
+          ).run(
+            owner,
+            conversation,
+            kind === "imported"
+              ? "message:" + owner + "-imported"
+              : "run:" + owner + "-" + kind,
+            kind === "read" ? 0 : 1,
+          );
       }
     }).immediate();
     expect(
@@ -91,7 +103,17 @@ it("marks existing Done results read once, including dismissed and grouped cards
         "done_thread_members",
         "done_card_dismissals",
       ].map((table) =>
-        db.prepare("SELECT * FROM " + table + " ORDER BY owner_id").all(),
+        db
+          .prepare(
+            "SELECT " +
+              (table === "conversations"
+                ? "id,owner_id,agent_id,title,origin,external_id,created_at,team_id,execution_connection_id,project_id,feed_hidden"
+                : "*") +
+              " FROM " +
+              table +
+              " ORDER BY owner_id",
+          )
+          .all(),
       );
     const before = sources();
     expect(before[0]).toEqual(
@@ -114,7 +136,7 @@ it("marks existing Done results read once, including dismissed and grouped cards
           const { listDoneThreads } = await import('./src/server/done-threads.ts');
           const result = ${JSON.stringify(owners)}.map(owner => ({
             owner,
-            unread: feed(owner, { filter: 'done', expand: 'results' }).summary.done_unread,
+            unread: feed(owner, { filter: 'done' }).summary.done_unread,
             cards: Object.fromEntries(doneCards(owner, { folders: null, teamIds: [], limit: 50,
               ids: db.prepare("SELECT 'd:'||card_key id FROM feed_cards WHERE owner_id=? AND kind='result'").all(owner).map(row => row.id),
               includeDismissed: true,
@@ -137,6 +159,7 @@ it("marks existing Done results read once, including dismissed and grouped cards
     };
     const migratedAt = Date.now();
     const first = await start();
+    installFixtureProjection(db);
     expect(first).toHaveLength(2);
     for (const [index, owner] of owners.entries()) {
       expect(first[index]).toMatchObject({ owner, unread: 0, groups: [0] });
@@ -151,7 +174,8 @@ it("marks existing Done results read once, including dismissed and grouped cards
       ).toBeGreaterThanOrEqual(migratedAt);
     }
     // The later name migration updates only these conversation origins.
-    // Every other source field must survive the full production upgrade.
+    // Current source identities and content survive; retired cache columns
+    // are intentionally outside the selected source projection.
     expect(sources()).toEqual([
       before[0].map((row) => ({
         ...(row as Record<string, unknown>),

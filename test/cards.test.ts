@@ -1373,7 +1373,7 @@ it("Done preserves independent completion identities, full bodies and exact dism
     "d:run:done-first",
   ]);
   expect(cache.items.get("d:run:done-first")?.card.content).toHaveLength(7000);
-  const legacy = feed("done-contract", { filter: "done", expand: "results" });
+  const legacy = feed("done-contract", { filter: "done" });
   expect(
     [...cache.items.values()].map(
       (e) => e.card.type === "done" && e.card.display.done_card_key,
@@ -1738,7 +1738,7 @@ it("Done revises eligible partial answers and preserves conversation-agent attri
   expect(
     cards.map((e) => e.card.type === "done" && e.card.display.done_card_key),
   ).toEqual(
-    feed(owner, { filter: "done", expand: "results", agent: owner }).items.map(
+    feed(owner, { filter: "done", agent: owner }).items.map(
       (e) => e.done_card_key,
     ),
   );

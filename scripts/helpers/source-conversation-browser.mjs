@@ -34,7 +34,7 @@ export async function sourceConversationBrowser(
       external_id: null,
       created_at: record.thread.last_activity_at,
       team_id: null,
-      execution_backend: "native",
+
       execution_connection_id: record.agent.connection_id,
       project_id: null,
       feed_hidden: 0,

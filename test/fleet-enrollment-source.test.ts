@@ -221,7 +221,7 @@ it("proves the exact destination before releasing its capability and rejects dev
   expect(f.calls.prepare).toBe(0);
   expect(
     f.b.db
-      .prepare("SELECT state FROM fleet_pairing_ceremonies WHERE id=?")
+      .prepare("SELECT state FROM pairing_ceremonies WHERE id=?")
       .get(input.link.ceremonyId),
   ).toEqual({ state: "pending" });
   f.controls.fault = undefined;
@@ -470,7 +470,7 @@ it("fences an old identity probe across a replacement using another database con
   expect(f.a.authority.status(f.a.owner).head).toBe(input.expected);
   expect(
     f.b.db
-      .prepare("SELECT state FROM fleet_pairing_ceremonies WHERE id=?")
+      .prepare("SELECT state FROM pairing_ceremonies WHERE id=?")
       .get(input.link.ceremonyId),
   ).toEqual({ state: "pending" });
   expect(() => source.cancel(input.operationId)).toThrow("replaced");

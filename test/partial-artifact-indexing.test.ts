@@ -29,7 +29,7 @@ it("upgrades existing drafts, defers their indexes, and invalidates the indexed 
       ).content;
     const snapshot = () => ({
       artifact: content("artifacts", "id", "draft"),
-      fts: content("artifact_fts", "artifact_id", "draft"),
+
       search: content("search_documents", "id", "artifact:draft"),
       searchFts: content("search_fts", "id", "artifact:draft"),
       revision: (
@@ -75,7 +75,7 @@ it("upgrades existing drafts, defers their indexes, and invalidates the indexed 
     const completed = snapshot();
     expect(completed).toMatchObject({
       artifact: "final chunk",
-      fts: "final chunk",
+
       search: "final chunk",
       searchFts: "final chunk",
     });
@@ -84,25 +84,18 @@ it("upgrades existing drafts, defers their indexes, and invalidates the indexed 
       n: 0,
     });
     expect(content("search_documents", "id", "artifact:other")).toBe("initial");
-    expect(
-      db
-        .prepare(
-          "SELECT artifact_id FROM artifact_fts WHERE artifact_fts MATCH 'final'",
-        )
-        .all(),
-    ).toEqual([{ artifact_id: "draft" }]);
+
     expect(
       db
         .prepare("SELECT id FROM search_fts WHERE search_fts MATCH 'final'")
         .all(),
     ).toEqual([{ id: "artifact:draft" }]);
 
-    // Completed edits still index immediately, including legacy metadata without partial.
+    // Completed edits still index immediately, including metadata without a partial marker.
     db.exec(
       "UPDATE artifacts SET metadata='{}',content='edited' WHERE id='draft'",
     );
     expect(snapshot()).toMatchObject({
-      fts: "edited",
       search: "edited",
       searchFts: "edited",
     });
@@ -115,9 +108,7 @@ it("upgrades existing drafts, defers their indexes, and invalidates the indexed 
     change.run("unfinished"); // interruption leaves last indexed snapshot available
     expect(snapshot()).toEqual({ ...partialAgain, artifact: "unfinished" });
     db.exec("DELETE FROM artifacts WHERE id='draft'");
-    expect(
-      db.prepare("SELECT * FROM artifact_fts WHERE artifact_id='draft'").all(),
-    ).toEqual([]);
+
     expect(
       db
         .prepare("SELECT * FROM search_documents WHERE id='artifact:draft'")

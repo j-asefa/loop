@@ -121,7 +121,7 @@ export function sourceCards(
   db: Database.Database,
   owner: string,
   conversation: string,
-  kind: "thread" | "legacy" | "result" | "idle",
+  kind: "thread" | "result" | "idle",
   keys: string[] | null = null,
 ): SourceRow[] {
   let prepared = selections.get(db);

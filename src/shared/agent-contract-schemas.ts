@@ -235,10 +235,9 @@ export const PublicAgentMessages = z.object({
   next: Text.nullable(),
 });
 export const PublicAgentTrace = z.object({
-  // These display details were optional in the client before contract migration.
   id: z.number(),
   owner_id: Text,
-  trace_key: Text.optional(),
+  trace_key: Text,
   run_id: Text,
   kind: Text,
   title: Text,
@@ -248,10 +247,10 @@ export const PublicAgentTrace = z.object({
   created_at: z.number(),
   input: Text,
   run_state: Text,
-  run_error: Text.nullish(),
+  run_error: Text.nullable(),
   conversation_id: Text.nullable(),
-  server: Text.nullish(),
-  invocation_state: Text.nullish(),
+  server: Text.nullable(),
+  invocation_state: Text.nullable(),
 });
 export const PublicAgentTraces = z.object({
   items: z.array(PublicAgentTrace),

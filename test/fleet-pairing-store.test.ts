@@ -151,12 +151,10 @@ it("keeps the two capabilities independent, consumes both on device pairing and 
   ).toThrow();
   expect(reopened.devices()).toHaveLength(1);
   expect(
-    JSON.stringify(
-      m.db.prepare("SELECT * FROM fleet_pairing_ceremonies").all(),
-    ),
+    JSON.stringify(m.db.prepare("SELECT * FROM pairing_ceremonies").all()),
   ).not.toContain(c.device.secret);
   expect(
-    JSON.stringify(m.db.prepare("SELECT * FROM fleet_devices").all()),
+    JSON.stringify(m.db.prepare("SELECT * FROM devices").all()),
   ).not.toContain(device.token);
 });
 
@@ -207,7 +205,7 @@ it("persists grant, mutual consumption and a projected receipt atomically; bound
     reopened.redeem({ ...c.device, name: "Phone" }, origin),
   ).toThrow();
   expect(reopened.devices()).toEqual([]);
-  const row = b.db.prepare("SELECT * FROM fleet_pairing_ceremonies").get();
+  const row = b.db.prepare("SELECT * FROM pairing_ceremonies").get();
   expect(JSON.stringify(row)).not.toContain("must-not-be-stored");
   expect(JSON.stringify(row)).not.toContain(c.enrollment.enrollment);
 });
@@ -219,7 +217,7 @@ it("rolls back grant and device writes with failed consumption without reviving 
     c = capabilities(pairing),
     approval = proposed(a, b);
   b.db.exec(
-    "CREATE TRIGGER reject_consumption BEFORE UPDATE ON fleet_pairing_ceremonies BEGIN SELECT RAISE(ABORT,'fixture disk failure'); END",
+    "CREATE TRIGGER reject_consumption BEFORE UPDATE ON pairing_ceremonies BEGIN SELECT RAISE(ABORT,'fixture disk failure'); END",
   );
   expect(() =>
     pairing.consumeEnrollment(
@@ -288,7 +286,7 @@ it("rolls back a process exit between a grant write and ceremony commit", () => 
   const old = fleetEnrollmentFromLink(printed.url);
   expect(
     b.db
-      .prepare("SELECT state FROM fleet_pairing_ceremonies WHERE id=?")
+      .prepare("SELECT state FROM pairing_ceremonies WHERE id=?")
       .get(old.ceremonyId),
   ).toEqual({ state: "pending" });
   const reopened = b.open();
@@ -481,7 +479,7 @@ it("keeps an observed expiry durable under a writer lock while another valid dev
     origin,
   );
   m.db
-    .prepare("UPDATE fleet_devices SET expires=?,max_expires=? WHERE id=?")
+    .prepare("UPDATE devices SET expires=?,max_expires=? WHERE id=?")
     .run(now + 1000, now + 1000, expiredId);
   const observer = m.open(),
     writer = new Database(m.path);
@@ -493,7 +491,7 @@ it("keeps an observed expiry durable under a writer lock while another valid dev
     expect(pairing.authenticate(hash(issued.token))).toBeUndefined();
     expect(observer.authenticate(hash(issued.token))).toBeUndefined();
     expect(pairing.authenticate(hash(valid.token))).toBeDefined();
-    expect(m.db.prepare("SELECT count(*) n FROM fleet_devices").get()).toEqual({
+    expect(m.db.prepare("SELECT count(*) n FROM devices").get()).toEqual({
       n: 2,
     });
     expect(m.db.pragma("busy_timeout", { simple: true })).toBe(20);
@@ -555,7 +553,7 @@ it("keeps a prewritten expiry intent through simultaneous storage failures and r
       origin,
     );
   m.db
-    .prepare("UPDATE fleet_devices SET expires=?,max_expires=?")
+    .prepare("UPDATE devices SET expires=?,max_expires=?")
     .run(now + 1000, now + 1000);
   const writer = new Database(m.path);
   writer.exec("BEGIN IMMEDIATE");
@@ -568,7 +566,7 @@ it("keeps a prewritten expiry intent through simultaneous storage failures and r
     const guard = readFileSync(join(checks, guards[0]), "utf8");
     expect(guard).not.toContain(issued.token);
     expect(guard).not.toContain(hash(issued.token));
-    expect(m.db.prepare("SELECT count(*) n FROM fleet_devices").get()).toEqual({
+    expect(m.db.prepare("SELECT count(*) n FROM devices").get()).toEqual({
       n: 1,
     });
   } finally {
@@ -581,7 +579,7 @@ it("keeps a prewritten expiry intent through simultaneous storage failures and r
   chmodSync(checks, 0o700);
   now -= 500;
   expect(m.open().authenticate(hash(issued.token))).toBeUndefined();
-  expect(m.db.prepare("SELECT count(*) n FROM fleet_devices").get()).toEqual({
+  expect(m.db.prepare("SELECT count(*) n FROM devices").get()).toEqual({
     n: 0,
   });
   expect(readdirSync(checks)).toEqual([]);
@@ -631,7 +629,7 @@ it("conservatively retires only the device in a clock check interrupted by real 
     if (interrupted.includes(device.id)) expect(authenticated).toBeUndefined();
     else expect(authenticated).toBeDefined();
   }
-  expect(m.db.prepare("SELECT count(*) n FROM fleet_devices").get()).toEqual({
+  expect(m.db.prepare("SELECT count(*) n FROM devices").get()).toEqual({
     n: 1,
   });
 });
@@ -645,10 +643,10 @@ it("retains expiry guards on database errors and refuses malformed guard recover
     origin,
   );
   m.db
-    .prepare("UPDATE fleet_devices SET expires=?,max_expires=?")
+    .prepare("UPDATE devices SET expires=?,max_expires=?")
     .run(now + 1000, now + 1000);
   m.db.exec(
-    "CREATE TRIGGER fixture_retirement_failure BEFORE DELETE ON fleet_devices BEGIN SELECT RAISE(ABORT,'fixture retirement failure'); END",
+    "CREATE TRIGGER fixture_retirement_failure BEFORE DELETE ON devices BEGIN SELECT RAISE(ABORT,'fixture retirement failure'); END",
   );
   now += 1001;
   expect(() => pairing.expire()).not.toThrow();
@@ -672,7 +670,7 @@ it("retains an interrupted expiry check when a prior failed clock write makes th
     origin,
   );
   m.db
-    .prepare("UPDATE fleet_devices SET expires=?,max_expires=?")
+    .prepare("UPDATE devices SET expires=?,max_expires=?")
     .run(now + 1000, now + 1000);
   m.db.pragma("busy_timeout=20");
   const writer = new Database(m.path);

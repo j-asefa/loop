@@ -83,11 +83,6 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       409,
       "Antigravity does not expose Loop workspace tools. Agent mail and team delegation require another harness.",
     );
-  if (meta.backend === "hapi")
-    throw new MailRefusal(
-      409,
-      "Archived HAPI agents cannot receive mail. Select a supported connection first.",
-    );
   if (
     meta.loopHarness != null &&
     !["codex", "claude", "pi", "opencode", "muse", "grok", "acp"].includes(
@@ -116,16 +111,13 @@ export function mailConversation(
     conversation,
     owner,
     agent,
-  ) as { execution_backend: string | null } | undefined;
+  ) as { id: string } | undefined;
   if (!row)
     throw new MailRefusal(
       404,
       "The bound conversation is unavailable. Start a new message thread.",
     );
-  if (
-    row.execution_backend === "hapi" ||
-    runsQueries.hasReviewInConversation(db, conversation, owner)
-  )
+  if (runsQueries.hasReviewInConversation(db, conversation, owner))
     throw new MailRefusal(
       409,
       "The bound conversation cannot accept agent mail. Start a new message thread.",

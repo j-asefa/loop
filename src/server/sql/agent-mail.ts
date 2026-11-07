@@ -570,8 +570,7 @@ export function ownedThreadPage(
 const queuedRunsStatement =
   statement(`SELECT DISTINCT r.* FROM agent_mail m JOIN runs r ON ((m.run_id=r.id AND m.steering_id IS NULL) OR m.requeued_run_id=r.id) AND m.owner_id=r.owner_id
          WHERE r.state='queued' AND r.worker_id IS NULL
-         AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)
-         AND NOT EXISTS(SELECT 1 FROM native_dispatches d WHERE d.run_id=r.id)`);
+         AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)`);
 // Reject malformed execution data individually, before queue availability checks.
 export function queuedRuns(
   db: Database.Database,

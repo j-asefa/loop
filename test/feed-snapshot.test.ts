@@ -65,7 +65,7 @@ const cases: [string, string][] = [
   ...filters.flatMap((filter) =>
     Object.entries(scopes).map(([scope, query]): [string, string] => [
       `feed-${filter}-${scope}`,
-      `${feedPath}?filter=${filter}${filter === "done" ? "&expand=results" : ""}${query}`,
+      `${feedPath}?filter=${filter}${query}`,
     ]),
   ),
   ["feed-away", `${feedPath}/away?since=0`],

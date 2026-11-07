@@ -225,7 +225,6 @@ const PublicConversation = z.object({
   external_id: MaybeText,
   created_at: Time,
   team_id: MaybeText,
-  execution_backend: Text,
   execution_connection_id: MaybeText,
   project_id: MaybeText,
   feed_hidden: z.number(),
@@ -2452,7 +2451,6 @@ export const workspaceRoutes = {
     path: "/feed",
     query: z.object({
       filter: z.enum(FEED_FILTERS).default("all"),
-      expand: z.literal("results").optional(),
       folder: Text.min(1).max(150).optional(),
       agent: Text.min(1).max(150).optional(),
       before: Text.min(1).max(512).optional(),

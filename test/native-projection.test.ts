@@ -51,6 +51,8 @@ it("flushes dirty native items and completes after exceeding the display window"
   const live: Live = {
     run,
     binding: {
+      worktree_source: null,
+      worktree_agent_id: "fixture-agent",
       conversation_id: "conversation",
       harness: "codex",
       native_id: null,
@@ -357,6 +359,8 @@ it("drops item events from a superseded session generation", () => {
   const make = (generation: string): Live => ({
     run,
     binding: {
+      worktree_source: null,
+      worktree_agent_id: "fixture-agent",
       conversation_id: "superseded",
       harness: "codex",
       native_id: null,

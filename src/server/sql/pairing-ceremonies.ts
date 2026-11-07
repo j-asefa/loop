@@ -5,14 +5,14 @@ import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
 const cancelPendingStatement = statement(
-  "UPDATE fleet_pairing_ceremonies SET state='cancelled' WHERE owner_id=? AND state='pending'",
+  "UPDATE pairing_ceremonies SET state='cancelled' WHERE owner_id=? AND state='pending'",
 );
 export function cancelPending(db: Database.Database, owner: string) {
   return cancelPendingStatement(db).run(owner);
 }
 
 const cancelOtherOriginsStatement = statement(
-  "UPDATE fleet_pairing_ceremonies SET state='cancelled' WHERE owner_id=? AND state='pending' AND origin<>?",
+  "UPDATE pairing_ceremonies SET state='cancelled' WHERE owner_id=? AND state='pending' AND origin<>?",
 );
 export function cancelOtherOrigins(
   db: Database.Database,
@@ -23,21 +23,21 @@ export function cancelOtherOrigins(
 }
 
 const expireStatement = statement(
-  "DELETE FROM fleet_pairing_ceremonies WHERE owner_id=? AND state<>'enrollment' AND expires_at<=?",
+  "DELETE FROM pairing_ceremonies WHERE owner_id=? AND state<>'enrollment' AND expires_at<=?",
 );
 export function expire(db: Database.Database, owner: string, now: number) {
   return expireStatement(db).run(owner, now);
 }
 
 const clearCancelledStatement = statement(
-  "DELETE FROM fleet_pairing_ceremonies WHERE owner_id=? AND state='cancelled'",
+  "DELETE FROM pairing_ceremonies WHERE owner_id=? AND state='cancelled'",
 );
 export function clearCancelled(db: Database.Database, owner: string) {
   return clearCancelledStatement(db).run(owner);
 }
 
 const insertStatement = statement(
-  "INSERT INTO fleet_pairing_ceremonies VALUES(?,?,?,?,?,?,?,?,?,'pending',NULL,NULL,NULL)",
+  "INSERT INTO pairing_ceremonies VALUES(?,?,?,?,?,?,?,?,?,'pending',NULL,NULL,NULL)",
 );
 export function insert(
   db: Database.Database,
@@ -65,18 +65,18 @@ export function insert(
 }
 
 const deviceStatement = statement(
-  "SELECT * FROM fleet_pairing_ceremonies WHERE owner_id=? AND device_hash=?",
+  "SELECT * FROM pairing_ceremonies WHERE owner_id=? AND device_hash=?",
 );
-const deviceRow = QueryRecords.fleet_pairing_ceremonies;
+const deviceRow = QueryRecords.pairing_ceremonies;
 export function device(db: Database.Database, owner: string, hash: string) {
   const row = deviceStatement(db).get(owner, hash);
   return row === undefined
     ? undefined
-    : parseRecord(deviceRow, row, "fleet_pairing_ceremonies");
+    : parseRecord(deviceRow, row, "pairing_ceremonies");
 }
 
 const consumeDeviceStatement = statement(
-  "UPDATE fleet_pairing_ceremonies SET state='device' WHERE id=? AND owner_id=?",
+  "UPDATE pairing_ceremonies SET state='device' WHERE id=? AND owner_id=?",
 );
 export function consumeDevice(
   db: Database.Database,
@@ -87,9 +87,9 @@ export function consumeDevice(
 }
 
 const enrollmentStatement = statement(
-  "SELECT * FROM fleet_pairing_ceremonies WHERE id=? AND owner_id=? AND enrollment_hash=?",
+  "SELECT * FROM pairing_ceremonies WHERE id=? AND owner_id=? AND enrollment_hash=?",
 );
-const enrollmentRow = QueryRecords.fleet_pairing_ceremonies;
+const enrollmentRow = QueryRecords.pairing_ceremonies;
 export function enrollment(
   db: Database.Database,
   id: string,
@@ -99,11 +99,11 @@ export function enrollment(
   const row = enrollmentStatement(db).get(id, owner, hash);
   return row === undefined
     ? undefined
-    : parseRecord(enrollmentRow, row, "fleet_pairing_ceremonies");
+    : parseRecord(enrollmentRow, row, "pairing_ceremonies");
 }
 
 const operationExistsStatement = statement(
-  "SELECT 1 FROM fleet_pairing_ceremonies WHERE owner_id=? AND operation_id=?",
+  "SELECT 1 FROM pairing_ceremonies WHERE owner_id=? AND operation_id=?",
 );
 const operationExistsRow = z.object({ "1": z.number() });
 export function operationExists(
@@ -114,11 +114,11 @@ export function operationExists(
   const row = operationExistsStatement(db).get(owner, operation);
   return row === undefined
     ? undefined
-    : parseRecord(operationExistsRow, row, "fleet_pairing_ceremonies");
+    : parseRecord(operationExistsRow, row, "pairing_ceremonies");
 }
 
 const consumeEnrollmentStatement = statement(
-  "UPDATE fleet_pairing_ceremonies SET state='enrollment',operation_id=?,payload_digest=?,result=? WHERE id=? AND owner_id=?",
+  "UPDATE pairing_ceremonies SET state='enrollment',operation_id=?,payload_digest=?,result=? WHERE id=? AND owner_id=?",
 );
 export function consumeEnrollment(
   db: Database.Database,

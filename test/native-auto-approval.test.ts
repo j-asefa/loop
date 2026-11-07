@@ -59,6 +59,8 @@ function session(
   const live: Live = {
     run,
     binding: {
+      worktree_source: null,
+      worktree_agent_id: "fixture-agent",
       conversation_id: name,
       harness,
       native_id: null,
@@ -514,7 +516,7 @@ it("Ask every time leaves tool approvals for the user", () => {
 it("a session's own permission mode outranks the workspace level", async () => {
   const kept = session("session-plan", "bypassPermissions");
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at,generation) VALUES(?,'claude',?,0,'test')",
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at,generation) VALUES('fixture-agent',?,'claude',?,0,'test')",
   ).run("session-plan", dir);
   vi.spyOn(kept.live.adapter, "setSetting" as any).mockResolvedValue({
     options: [{ id: "mode", confirmed: "plan" }],

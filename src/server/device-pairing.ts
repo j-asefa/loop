@@ -1,7 +1,7 @@
-import * as fleetDeviceStoreQueries from "./sql/fleet-device-store.js";
-import * as fleetPairingCeremoniesQueries from "./sql/fleet-pairing-ceremonies.js";
-import * as fleetPairingClockQueries from "./sql/fleet-pairing-clock.js";
-import * as fleetDevicesQueries from "./sql/fleet-devices.js";
+import * as deviceStoreQueries from "./sql/device-store.js";
+import * as pairingCeremoniesQueries from "./sql/pairing-ceremonies.js";
+import * as pairingClockQueries from "./sql/pairing-clock.js";
+import * as devicesQueries from "./sql/devices.js";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
@@ -13,7 +13,7 @@ import { PAIRING_LIFETIME_MS } from "../shared/pairing.js";
 import { DeviceExpiryChecks, type DeviceExpiryCheck } from "./device-expiry.js";
 
 // Device pairing and trust are core: every companion pairs phones without a
-// fleet identity. Their tables keep the names they were introduced with.
+// fleet identity.
 const Id = z.string().uuid();
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 /** 256-bit base64url secret, the same format fleet links use. */
@@ -71,19 +71,19 @@ export class DevicePairing implements DeviceTrust {
     privateDir(directory);
     this.checks = new DeviceExpiryChecks(directory, owner);
     db.transaction(() => {
-      const store = fleetDeviceStoreQueries.owner(db) as
+      const store = deviceStoreQueries.owner(db) as
         { owner_id: string } | undefined;
       if (store) {
         if (store.owner_id !== owner)
           throw new Problem(403, "Device trust belongs to another owner.");
         return;
       }
-      fleetDeviceStoreQueries.initialize(db, owner);
+      deviceStoreQueries.initialize(db, owner);
     }).immediate();
     this.checks.recover(db);
     // Preserve completed receipts and device trust, but never reconstruct an
     // unused code's elapsed lifetime from wall time after a restart.
-    fleetPairingCeremoniesQueries.cancelPending(db, owner);
+    pairingCeremoniesQueries.cancelPending(db, owner);
     this.expire();
   }
 
@@ -97,7 +97,7 @@ export class DevicePairing implements DeviceTrust {
         409,
         "Device expiry could not be persisted. Repair local storage and restart Loop.",
       );
-    const prior = fleetPairingClockQueries.current(this.db) as
+    const prior = pairingClockQueries.current(this.db) as
       { observed_at: number } | undefined;
     const value = Math.floor(this.wall());
     if (
@@ -111,12 +111,12 @@ export class DevicePairing implements DeviceTrust {
         "The local clock moved backwards. Restore the clock before pairing or authenticating.",
       );
     this.observedWall = value;
-    if (persist) fleetPairingClockQueries.observe(this.db, value);
+    if (persist) pairingClockQueries.observe(this.db, value);
     return value;
   }
   private insertDevice(device: TrustedDevice) {
     const d = Device.parse(device);
-    fleetDevicesQueries.insert(
+    devicesQueries.insert(
       this.db,
       d.id,
       this.owner,
@@ -156,7 +156,7 @@ export class DevicePairing implements DeviceTrust {
     }
   }
   private selectDevices() {
-    return fleetDevicesQueries
+    return devicesQueries
       .list(this.db, this.owner)
       .map((row) => Device.parse(row));
   }
@@ -166,11 +166,11 @@ export class DevicePairing implements DeviceTrust {
     return this.selectDevices();
   }
   device(id: string) {
-    const row = fleetDevicesQueries.byId(this.db, this.owner, id);
+    const row = devicesQueries.byId(this.db, this.owner, id);
     return row ? this.checked(Device.parse(row))?.device : undefined;
   }
   authenticate(digest: string) {
-    const row = fleetDevicesQueries.byHash(this.db, this.owner, digest);
+    const row = devicesQueries.byHash(this.db, this.owner, digest);
     if (!row) return;
     const checked = this.checked(Device.parse(row));
     if (!checked) return;
@@ -182,7 +182,7 @@ export class DevicePairing implements DeviceTrust {
       }) as number;
       try {
         this.db.pragma("busy_timeout = 0");
-        const update = fleetDevicesQueries.renew(
+        const update = devicesQueries.renew(
           this.db,
           expires,
           this.owner,
@@ -203,7 +203,7 @@ export class DevicePairing implements DeviceTrust {
     return device;
   }
   revoke(id: string) {
-    fleetDevicesQueries.remove(this.db, this.owner, id);
+    devicesQueries.remove(this.db, this.owner, id);
   }
   private retire(id: string, check: DeviceExpiryCheck, now: number) {
     const timeout = this.db.pragma("busy_timeout", { simple: true }) as number;
@@ -211,8 +211,8 @@ export class DevicePairing implements DeviceTrust {
       this.db.pragma("busy_timeout = 0");
       this.db
         .transaction(() => {
-          fleetPairingClockQueries.observe(this.db, now);
-          fleetDevicesQueries.remove(this.db, this.owner, id);
+          pairingClockQueries.observe(this.db, now);
+          devicesQueries.remove(this.db, this.owner, id);
         })
         .immediate();
       this.checks.finish(check);
@@ -231,11 +231,7 @@ export class DevicePairing implements DeviceTrust {
     for (const device of this.selectDevices()) this.checked(device);
   }
   originChanged(origin: string) {
-    fleetPairingCeremoniesQueries.cancelOtherOrigins(
-      this.db,
-      this.owner,
-      origin,
-    );
+    pairingCeremoniesQueries.cancelOtherOrigins(this.db, this.owner, origin);
   }
   /** The directory head a new ceremony expects; none without an extension. */
   protected ceremonyHead(): string | null {
@@ -282,12 +278,12 @@ export class DevicePairing implements DeviceTrust {
         const id = randomUUID(),
           device = kind === "enrollment" ? null : secret(),
           enrollment = kind === "device" ? null : secret();
-        fleetPairingCeremoniesQueries.expire(this.db, this.owner, now);
-        fleetPairingCeremoniesQueries.cancelPending(this.db, this.owner);
+        pairingCeremoniesQueries.expire(this.db, this.owner, now);
+        pairingCeremoniesQueries.cancelPending(this.db, this.owner);
         // Rapid minting is bounded as well as expiry; cancelled capabilities can
         // be removed because an absent ceremony can never be redeemed.
-        fleetPairingCeremoniesQueries.clearCancelled(this.db, this.owner);
-        fleetPairingCeremoniesQueries.insert(
+        pairingCeremoniesQueries.clearCancelled(this.db, this.owner);
+        pairingCeremoniesQueries.insert(
           this.db,
           id,
           this.owner,
@@ -335,7 +331,7 @@ export class DevicePairing implements DeviceTrust {
     const now = this.now();
     return this.db
       .transaction(() => {
-        const row = fleetPairingCeremoniesQueries.device(
+        const row = pairingCeremoniesQueries.device(
           this.db,
           this.owner,
           hash(value.secret),
@@ -350,8 +346,8 @@ export class DevicePairing implements DeviceTrust {
           (value.ceremonyId && value.ceremonyId !== ceremony.id)
         )
           throw rejected();
-        fleetDevicesQueries.expire(this.db, this.owner, now, now);
-        const count = fleetDevicesQueries.count(this.db, this.owner) as {
+        devicesQueries.expire(this.db, this.owner, now, now);
+        const count = devicesQueries.count(this.db, this.owner) as {
           n: number;
         };
         if (count.n >= 10)
@@ -369,7 +365,7 @@ export class DevicePairing implements DeviceTrust {
           expires,
           maxExpires: now + 2 * year,
         });
-        fleetPairingCeremoniesQueries.consumeDevice(
+        pairingCeremoniesQueries.consumeDevice(
           this.db,
           ceremony.id,
           this.owner,

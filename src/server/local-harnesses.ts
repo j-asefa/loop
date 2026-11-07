@@ -16,7 +16,7 @@ export async function prepareLocalHarnesses(
   setRuntimeSetupState("preparing");
   const registered = nativeSessions.registrations();
   // Custom ACP executables are never discovered from browser input. Restore only
-  // an existing desktop registration, including one retired by migration 067.
+  // an existing desktop registration.
   const selected = [
     ...new Set([
       ...names,
@@ -32,11 +32,7 @@ export async function prepareLocalHarnesses(
       OWNER,
     ) as { status: string; metadata: string } | undefined;
     // An intentional disconnect is not an invitation to sign in again.
-    if (
-      connection?.status === "disconnected" &&
-      !JSON.parse(connection.metadata).retiredDirectRuntime
-    )
-      continue;
+    if (connection?.status === "disconnected") continue;
     const saved = registered.some((r) => r.name === name)
       ? nativeSessions.registration(name)
       : undefined;

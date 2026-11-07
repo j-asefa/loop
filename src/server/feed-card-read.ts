@@ -33,12 +33,11 @@ function display(
   record: RecordRow,
   mode: "thread" | "working" | "done",
   at: number,
-  legacy: boolean,
   full: boolean,
 ) {
   const stored = JSON.parse(record.payload) as StoredCard;
   const thread = JSON.parse(record.thread_payload) as StoredCard;
-  const card = legacy ? stored.legacy! : stored;
+  const card = stored;
   const row: SourceRow = {
     ...stored.row,
     ...card.row,
@@ -100,17 +99,7 @@ export function projectionFeed(
   const { needs: needsCount, working, queued, done_unread } = rows[0];
   return {
     page: rows.flatMap((row) =>
-      row.payload === null
-        ? []
-        : [
-            display(
-              row,
-              mode,
-              params.now,
-              filter === "done" && !results,
-              false,
-            ),
-          ],
+      row.payload === null ? [] : [display(row, mode, params.now, false)],
     ),
     summary: { needs: needsCount, working, queued, done_unread },
   };
@@ -130,7 +119,7 @@ export function projectionDoneRows(
 ) {
   const rows = feedCardsQueries.donePage(db, params);
   return rows.map((row) => ({
-    ...display(row, "done", params.now, false, true),
+    ...display(row, "done", params.now, true),
     // Only results are read; an idle thread has no result to open.
     read_at: row.kind === "result" ? (row.read_at ?? null) : undefined,
     unread_version: row.kind === "result" ? row.unread_version : undefined,

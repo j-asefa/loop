@@ -434,12 +434,13 @@ export class NativeSessions {
       if (!run.agent_id)
         throw new Problem(409, "Native work requires an agent identity.");
       assertEffect(run.owner_id, "run", run.id);
+      const agentId = run.agent_id;
       const workspace = prepareWorkspace(
         source,
         source,
         {
           ownerId: run.owner_id,
-          agentId: run.agent_id,
+          agentId,
           environmentId: realpathSync(config.data),
           projectId: source,
         },
@@ -471,7 +472,7 @@ export class NativeSessions {
             previousBinding.generation,
             previousBinding.native_id,
             previousBinding.project,
-            previousBinding.worktree_agent_id ?? null,
+            previousBinding.worktree_agent_id,
             previousBinding.worktree_source ?? null,
           );
           if (!removed.changes)
@@ -490,7 +491,7 @@ export class NativeSessions {
           now(),
           snapshot.effort || null,
           workspace.worktreeSource,
-          run.agent_id,
+          agentId,
         );
       }).immediate();
       binding = companionSessionsQueries.get(db, conversation) as Binding;

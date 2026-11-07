@@ -86,17 +86,16 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       )
       .run(followUp, followUp, started, started, target.run);
     await page.reload({ waitUntil: "networkidle" });
-    const before = (await fixture.api("/feed?filter=done&expand=results"))
-      .summary;
+    const before = (await fixture.api("/feed?filter=done")).summary;
     assert(before.done_unread > 0);
     await swipe(row);
     await expect(row).toHaveCount(0);
     // Dismissing an unread result removes it from the Done badge, while
     // follow-up work and every other operational count stay unchanged.
-    assert.deepEqual(
-      (await fixture.api("/feed?filter=done&expand=results")).summary,
-      { ...before, done_unread: before.done_unread - 1 },
-    );
+    assert.deepEqual((await fixture.api("/feed?filter=done")).summary, {
+      ...before,
+      done_unread: before.done_unread - 1,
+    });
     let dismissRequests = 0;
     const countDismiss = (request) => {
       if (
@@ -196,8 +195,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       `,
         )
         .run(failed, state, failed, time, time, followUp);
-      const doneBefore = (await fixture.api("/feed?filter=done&expand=results"))
-        .items;
+      const doneBefore = (await fixture.api("/feed?filter=done")).items;
       const runsBefore = fixture.db
         .prepare("SELECT id,state FROM runs ORDER BY id")
         .all();
@@ -232,7 +230,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         runsBefore,
       );
       assert.deepEqual(
-        (await fixture.api("/feed?filter=done&expand=results")).items,
+        (await fixture.api("/feed?filter=done")).items,
         doneBefore,
       );
       await page.reload({ waitUntil: "networkidle" });
@@ -366,7 +364,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       }),
     );
     let remoteWorking = 0;
-    let remoteLegacy = false;
+    let remoteReadRejected = false;
     let remoteHidden = false;
     const remoteActions = [];
     let rejectSave = false,
@@ -451,8 +449,8 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       }
       if (path.includes("/v1/cards"))
         return route.fulfill(
-          remoteLegacy
-            ? { status: 400, json: { error: "Unsupported view" } }
+          remoteReadRejected
+            ? { status: 400, json: { error: "Invalid cursor" } }
             : {
                 json: path.endsWith("/changes")
                   ? {
@@ -469,7 +467,13 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
               },
         );
       const json = path.endsWith("/bootstrap")
-        ? { agents: [], connections: [], folders: [] }
+        ? {
+            agents: [],
+            connections: [],
+            folders: [],
+            teams: [],
+            environmentName: "Remote fixture",
+          }
         : path.endsWith("/feed")
           ? {
               items:
@@ -616,12 +620,12 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         ).replace("Working", ""),
       ) - remoteWorking;
     let localUnavailable = false;
-    let localLegacy = false;
+    let localReadRejected = false;
     await page.route("**/api/v1/cards**", (route) =>
-      localLegacy
+      localReadRejected
         ? route.fulfill({
             status: 400,
-            json: { error: "Unsupported Done view" },
+            json: { error: "Invalid cursor" },
           })
         : localUnavailable &&
             new URL(route.request().url()).searchParams.get("view") === "done"
@@ -631,15 +635,25 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
             })
           : route.continue(),
     );
-    // Replace a source with an older server, then upgrade it again without
-    // reloading the SPA. Contract transitions must retain all loaded history.
-    localLegacy = true;
+    // A current Cards read can reject its cursor. Recover without reloading
+    // the SPA, retaining all loaded history.
+    const fallbackRead = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.origin === fixture.base &&
+        url.pathname === "/api/feed" &&
+        url.searchParams.get("filter") === "done" &&
+        response.status() === 200
+      );
+    });
+    localReadRejected = true;
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
+    await fallbackRead;
     await page.waitForLoadState("networkidle");
     await expect(history).toHaveCount(125);
-    // Retained rows stay visible during upgrade catch-up. Wait for the final
+    // Retained rows stay visible during recovery catch-up. Wait for the final
     // Cards page and its pagination state before starting the outage.
     const reconciled = page.waitForResponse(async (response) => {
       const url = new URL(response.url());
@@ -652,7 +666,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         (await response.json()).next === null
       );
     });
-    localLegacy = false;
+    localReadRejected = false;
     for (let i = 0; i < 4; i++) {
       await page.evaluate(() =>
         window.dispatchEvent(new Event("loop-source-refresh")),
@@ -710,7 +724,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     // A brief reconnect may append a page before the next outage. It must
     // extend the restored source cache instead of replacing its earlier pages.
     localUnavailable = false;
-    remoteLegacy = true;
+    remoteReadRejected = true;
     await page.reload({ waitUntil: "networkidle" });
     await expect(history).toHaveCount(39);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
@@ -741,7 +755,7 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     await expect(
       page.getByRole("button", { name: "Load more", exact: true }),
     ).toBeVisible();
-    // A burst larger than two legacy pages must reconcile automatically while
+    // A burst larger than two Feed pages must reconcile automatically while
     // retaining the already-loaded older window.
     localUnavailable = false;
     const burstAt = Date.now() + 1000;

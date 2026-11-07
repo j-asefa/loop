@@ -6,13 +6,11 @@ import { pathToFileURL } from "node:url";
 import { productionApp } from "./helpers/app";
 let fixture: Awaited<ReturnType<typeof createFeedFixture>>;
 let app: Awaited<ReturnType<typeof productionApp>>;
-let oracle: typeof import("./helpers/legacy-feed");
 let readers: typeof import("../src/server/mobile-return");
 beforeAll(async () => {
   vi.spyOn(Date, "now").mockReturnValue(NOW);
   fixture = await createFeedFixture();
   readers = await import("../src/server/mobile-return");
-  oracle = await import("./helpers/legacy-feed");
   app = await productionApp(OWNER);
 });
 afterAll(async () => {
@@ -28,53 +26,24 @@ async function equivalent() {
       { agent: "agent-api" },
       { teams: ["team-1"] },
     ]) {
-      for (const expand of filter === "done"
-        ? [undefined, "results" as const]
-        : [undefined]) {
-        const options = { filter, ...scope, expand };
-        const query = new URLSearchParams({
-          filter,
-          ...(expand ? { expand } : {}),
-          ...("folder" in scope ? { folder: scope.folder! } : {}),
-          ...("agent" in scope ? { agent: scope.agent! } : {}),
-          ...("teams" in scope ? { teams: scope.teams!.join(",") } : {}),
-        });
-        const response = await app.fetch("/api/feed?" + query);
-        expect(response.status).toBe(200);
-        // PR 7 adds transport handoff metadata around the unchanged Feed
-        // selection. Keep comparing every item, cursor and summary field.
-        const { projection, projectionRows, ...expected } =
-          await response.json();
-        expect(expected).toEqual(oracle.feed(OWNER, options));
-        expect(projection).toBeDefined();
-        expect(projectionRows.delta).toBe(false);
-        expect(readers.feed(OWNER, options), JSON.stringify(options)).toEqual(
-          expected,
-        );
-      }
+      const options = { filter, ...scope };
+      const query = new URLSearchParams({
+        filter,
+        ...("folder" in scope ? { folder: scope.folder! } : {}),
+        ...("agent" in scope ? { agent: scope.agent! } : {}),
+        ...("teams" in scope ? { teams: scope.teams!.join(",") } : {}),
+      });
+      const response = await app.fetch("/api/feed?" + query);
+      expect(response.status).toBe(200);
+      // Transport handoff metadata wraps the current Feed selection.
+      // Compare every item, cursor and summary field through the route.
+      const { projection, projectionRows, ...expected } = await response.json();
+      expect(projection).toBeDefined();
+      expect(projectionRows.delta).toBe(false);
+      expect(readers.feed(OWNER, options), JSON.stringify(options)).toEqual(
+        expected,
+      );
     }
-  for (const folders of [null, ["proj", "nested", "deep"], [null]]) {
-    const options = { folders, teamIds: [], limit: 100 };
-    const old = oracle.doneCardRows(OWNER, options);
-    const projected = readers.doneCardRows(OWNER, options);
-    expect(projected.map((r) => r.display)).toEqual(old.map((r) => r.display));
-    expect(projected.map((r) => r.read_at)).toEqual(old.map((r) => r.read_at));
-    const fields = [
-      "conversation_id",
-      "done_card_key",
-      "sort_at",
-      "message_id",
-      "message_content",
-      "message_metadata",
-      "card_run",
-      "folder_id",
-      "project_id",
-      "project_name",
-    ] as const;
-    expect(projected.map((r) => fields.map((k) => r.row[k]))).toEqual(
-      old.map((r) => fields.map((k) => r.row[k])),
-    );
-  }
   expect(fixture.db.prepare("SELECT * FROM feed_card_dirty").all()).toEqual([]);
 }
 it(
@@ -186,32 +155,30 @@ it("retains multiple results alongside active work and paginates ties identicall
     }
   }).immediate();
   await equivalent();
-  for (const expand of [undefined, "results" as const]) {
-    let before: string | undefined;
-    for (let page = 0; page < 4; page++) {
-      const options = { filter: "done" as const, expand, before };
-      const old = oracle.feed(OWNER, options);
-      expect(readers.feed(OWNER, options)).toEqual(old);
-      if (!old.next) break;
-      before = old.next;
+  const seen = new Set<string>();
+  let before: string | undefined;
+  for (let page = 0; page < 4; page++) {
+    const current = readers.feed(OWNER, { filter: "done", before });
+    for (const card of current.items) {
+      const identity = card.conversation_id + ":" + card.done_card_key;
+      expect(seen.has(identity)).toBe(false);
+      seen.add(identity);
     }
+    if (!current.next) break;
+    expect(
+      JSON.parse(Buffer.from(current.next, "base64url").toString()),
+    ).toHaveLength(3);
+    before = current.next;
   }
-  const legacyCursor = Buffer.from(
-    JSON.stringify([NOW - 10, "c-running"]),
-  ).toString("base64url");
-  expect(
+  expect(seen.size).toBeGreaterThan(40);
+  expect(() =>
     readers.feed(OWNER, {
       filter: "done",
-      expand: "results",
-      before: legacyCursor,
+      before: Buffer.from(JSON.stringify([NOW - 10, "c-running"])).toString(
+        "base64url",
+      ),
     }),
-  ).toEqual(
-    oracle.feed(OWNER, {
-      filter: "done",
-      expand: "results",
-      before: legacyCursor,
-    }),
-  );
+  ).toThrow();
   const beforeHistory = db
     .prepare(
       "SELECT payload FROM feed_cards WHERE kind='result' AND conversation_id='c-running' ORDER BY card_key",
@@ -264,9 +231,11 @@ it("projects maintenance moves, owner changes and cascaded deletes through the p
   }).immediate();
   await equivalent();
   for (const filter of readers.FEED_FILTERS)
-    expect(readers.feed("other", { filter, expand: "results" })).toEqual(
-      oracle.feed("other", { filter, expand: "results" }),
-    );
+    expect(
+      readers
+        .feed("other", { filter })
+        .items.every((item) => item.conversation_id === "c-imported"),
+    ).toBe(true);
   db.transaction(() => {
     db.prepare("DELETE FROM messages WHERE conversation_id='c-imported'").run();
     db.prepare(
@@ -275,7 +244,7 @@ it("projects maintenance moves, owner changes and cascaded deletes through the p
     db.prepare("DELETE FROM runs WHERE conversation_id='c-imported'").run();
     db.prepare("DELETE FROM conversations WHERE id='c-imported'").run();
   }).immediate();
-  expect(readers.feed("other", {})).toEqual(oracle.feed("other", {}));
+  expect(readers.feed("other", {}).items).toEqual([]);
   await equivalent();
 }, 30_000);
 
@@ -538,7 +507,7 @@ it("recreates an idle fallback when the last result becomes ineligible without c
   ).run();
   expect(kinds()).toEqual([{ kind: "idle" }, { kind: "thread" }]);
   // Historical columns remain only so upgrades do not rebuild conversations.
-  // Neither the production reader nor its independent oracle can depend on them.
+  // The production reader must not depend on them.
   db.prepare(
     "UPDATE conversations SET feed_run_state='running',feed_visible=0,feed_approval_until=? WHERE id='projection-idle'",
   ).run(NOW + 100_000);
@@ -622,7 +591,6 @@ it("bounds streamed thread display storage while preserving complete results and
     );
     expect(response.status).toBe(200);
     const { projection, projectionRows, ...page } = await response.json();
-    expect(page).toEqual(oracle.feed(OWNER, options));
     const card = page.items.find(
       (item: { conversation_id: string }) => item.conversation_id === key,
     );
@@ -630,11 +598,10 @@ it("bounds streamed thread display storage while preserving complete results and
     expect(card.run.input).toBe(input.slice(0, 1000));
     expect(card.last_message.content).toBe("🧪".repeat(1000));
     expect(readers.feed(OWNER, options)).toEqual(page);
-    const legacyOptions = { filter: "done" as const, agent: "agent-api" };
-    const legacyPage = readers.feed(OWNER, legacyOptions);
-    expect(legacyPage).toEqual(oracle.feed(OWNER, legacyOptions));
+    const doneOptions = { filter: "done" as const, agent: "agent-api" };
+    const donePage = readers.feed(OWNER, doneOptions);
     expect(
-      legacyPage.items.find((item) => item.conversation_id === key)?.title,
+      donePage.items.find((item) => item.conversation_id === key)?.title,
     ).toBe("Previous task");
   };
   await check();
@@ -674,8 +641,6 @@ it("bounds streamed thread display storage while preserving complete results and
   expect(complete).toHaveLength(1);
   expect(complete[0].row.message_content).toBe(content);
   expect(complete[0].row.message_metadata).toBe(metadata);
-  expect(complete.map((item) => item.display)).toEqual(
-    oracle.doneCardRows(OWNER, options).map((item) => item.display),
-  );
+  expect(complete[0].display.last_message?.content).toBe(content);
   await equivalent();
 }, 30_000);

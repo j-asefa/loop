@@ -1704,7 +1704,6 @@ export function Feed({
     return {
       // The existing thread query also works with older connected workspaces.
       filter: which === "threads" ? "all" : which,
-      ...(which === "done" ? { expand: "results" } : {}),
       ...(project ? { folder: project } : {}),
       ...(selectedAgent ? { agent: selectedAgent } : {}),
       ...(teams ? { teams } : {}),

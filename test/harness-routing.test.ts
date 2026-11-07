@@ -158,11 +158,11 @@ it("probes the bound project when the chat stays on its harness", async () => {
   expect(start).toHaveBeenCalledOnce();
 });
 
-it("rejects a legacy conversation catalog before starting a native probe", async () => {
+it("rejects a conversation bound to another agent before starting a native probe", async () => {
   const aid = agent(codexConnection),
     cid = directChat(aid);
   db.prepare(
-    "UPDATE companion_sessions SET worktree_agent_id=NULL WHERE conversation_id=?",
+    "UPDATE companion_sessions SET worktree_agent_id='other-agent' WHERE conversation_id=?",
   ).run(cid);
   const start = vi.spyOn(Codex.prototype, "start");
   expect(await catalog(aid, cid)).toMatchObject({

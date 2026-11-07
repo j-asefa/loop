@@ -29,7 +29,7 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
     )
       removedReads.push(request.url());
   });
-  const { summary } = await api("/feed?filter=done&expand=results");
+  const { summary } = await api("/feed?filter=done");
   await page.goto(fixture.base + "/?filter=status");
   const filters = page.getByRole("tablist", { name: "Show", exact: true });
   await expect(filters.getByRole("tab")).toHaveText([

@@ -23,10 +23,6 @@ const exemptions = new Map([
   ],
   ["migrations.ts", "Runs immutable, point-in-time schema migrations."],
   [
-    "legacy-migrations.ts",
-    "Bootstraps the historical migration ledger; migrations stay independent.",
-  ],
-  [
     "projected-database.ts",
     "Wraps statements to preserve synchronous projection transactions.",
   ],

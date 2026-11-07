@@ -311,14 +311,14 @@ for (const engine of selectedEngines()) {
         );
         const feedFilters = feed.getByRole("tablist", { name: "Show" });
         await expect(feedFilters.getByRole("tab")).toHaveText([
-          "Done",
+          /^Done/,
           /^Working/,
           /^Queued/,
-          "Threads",
           "Replies",
+          "Threads",
         ]);
         await expect(
-          feedFilters.getByRole("tab", { name: "Done", exact: true }),
+          feedFilters.getByRole("tab", { name: /^Done/ }),
         ).toHaveAttribute("aria-selected", "true");
         // Every Feed filter fits a small phone. Social lives on Your profile.
         await page.setViewportSize({ width: 360, height: 780 });
@@ -332,14 +332,12 @@ for (const engine of selectedEngines()) {
           (c) => c.state === "completed",
         ).length;
         await expect(feedRows).toHaveCount(finished);
-        // The Results and All filters are gone; their old links open Done.
-        for (const old of ["results", "all"]) {
-          await page.goto(fixture.base + "/?filter=" + old);
-          await expect(
-            feedFilters.getByRole("tab", { name: "Done", exact: true }),
-          ).toHaveAttribute("aria-selected", "true");
-          await expect(feedRows).toHaveCount(finished);
-        }
+        // Unknown filter input selects the default without changing results.
+        await page.goto(fixture.base + "/?filter=fixture-unknown");
+        await expect(
+          feedFilters.getByRole("tab", { name: /^Done/ }),
+        ).toHaveAttribute("aria-selected", "true");
+        await expect(feedRows).toHaveCount(finished);
         const shortcuts = page.getByRole("region", {
           name: "Your agents",
           exact: true,
@@ -565,31 +563,7 @@ for (const engine of selectedEngines()) {
         fixture.db
           .prepare("UPDATE runs SET input=? WHERE id=?")
           .run(longPrompt, fixture.conversations[0].run);
-        // Older linked workspaces omit optional message/trace display metadata.
-        // Remove it from real production responses, then exercise the real views.
-        const removedMetadata = new Set();
-        const olderAgentResponse = async (route) => {
-          const response = await route.fetch();
-          assert(response.ok());
-          const body = await response.json();
-          const messages = new URL(route.request().url()).pathname.endsWith(
-            "/messages",
-          );
-          const keys = messages
-            ? ["model", "run_id"]
-            : ["trace_key", "run_error", "server", "invocation_state"];
-          for (const item of body.items) {
-            for (const key of keys) {
-              if (Object.hasOwn(item, key)) removedMetadata.add(key);
-              delete item[key];
-            }
-            if (messages) item.final = Boolean(item.final);
-          }
-          await route.fulfill({ response, json: body });
-        };
-        const agentHistory = (url) =>
-          /^\/api\/agents\/[^/]+\/(messages|traces)$/.test(url.pathname);
-        await page.route(agentHistory, olderAgentResponse);
+        // Exercise the current production message and trace responses.
         await page.getByRole("tab", { name: "Messages", exact: true }).click();
         const agentMessages = page.getByRole("region", {
           name: "Agent messages",
@@ -640,18 +614,6 @@ for (const engine of selectedEngines()) {
         );
         await capture("traces-dark");
         await expect(page.locator(".trace-list [role=alert]")).toHaveCount(0);
-        assert.deepEqual(
-          [...removedMetadata].sort(),
-          [
-            "model",
-            "run_id",
-            "trace_key",
-            "run_error",
-            "server",
-            "invocation_state",
-          ].sort(),
-        );
-        await page.unroute(agentHistory, olderAgentResponse);
         await page.evaluate(
           () => (document.documentElement.dataset.theme = "light"),
         );
@@ -980,22 +942,34 @@ for (const engine of selectedEngines()) {
         await dialog()
           .getByRole("button", { name: /Provider connections/ })
           .click();
-        await dialog()
-          .getByRole("button", { name: "Add a provider", exact: true })
-          .click();
-        await dialog()
-          .getByRole("button", { name: "Claude", exact: true })
-          .click();
-        await dialog()
-          .getByRole("button", { name: "Add a remote machine", exact: true })
-          .click();
-        await expect(dialog().getByLabel("Connection type")).toHaveValue(
-          "native-host",
+        await expect(dialog()).toHaveAttribute(
+          "aria-label",
+          "Provider connections",
         );
-        await capture("remote");
+        await expect(
+          dialog().getByRole("button", { name: "Harnesses", exact: true }),
+        ).toHaveAttribute("aria-pressed", "true");
+        await expect(
+          dialog().getByRole("button", { name: "Add a remote machine" }),
+        ).toHaveCount(0);
+        await dialog()
+          .getByRole("button", { name: "Loop runtime API", exact: true })
+          .click();
+        await dialog()
+          .getByRole("button", {
+            name: "Connect an API key for Loop's own agent runtime",
+            exact: true,
+          })
+          .click();
+        await dialog()
+          .getByRole("combobox", { name: /^Provider\b/ })
+          .selectOption("anthropic");
+        await expect(
+          dialog().getByLabel("API key", { exact: true }),
+        ).toHaveAttribute("type", "password");
+        await capture("provider-connections");
         await close();
-        await expect(dialog()).toHaveAttribute("aria-label", "Connect Claude");
-        await close();
+        await expect(dialog()).toHaveAttribute("aria-label", "Settings");
         await close();
         await nav("Projects");
         await expect(

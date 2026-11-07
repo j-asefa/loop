@@ -68,7 +68,7 @@ function fixture() {
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
   // The conversation's native session works in this computer's project.
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,generation,updated_at) VALUES(?,'codex',?,?,?)",
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,generation,updated_at) VALUES('fixture-agent',?,'codex',?,?,?)",
   ).run(run.conversation_id, workspace, id(), now());
   const binding = nativeBindings(run).find(
     (b) => b.tool === "loop_publish_file",

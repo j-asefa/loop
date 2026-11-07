@@ -55,7 +55,7 @@ for (const c of ["conv", "other"])
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','t',0)",
   ).run(c);
 db.prepare(
-  "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES('conv','codex',?,0)",
+  "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent','conv','codex',?,0)",
 ).run(dir);
 
 function turn(conversation: string, key: string) {
@@ -72,6 +72,8 @@ function start(
 ) {
   const live: Live = {
     binding: {
+      worktree_source: null,
+      worktree_agent_id: "fixture-agent",
       conversation_id: conversation,
       harness: "codex",
       native_id: null,
@@ -302,7 +304,7 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
       "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','PR creation',?)",
     ).run(conversation, now());
     db.prepare(
-      "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES(?,?,?,?)",
+      "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent',?,?,?,?)",
     ).run(conversation, harness, dir, now());
     db.prepare(
       "INSERT INTO mcp_connections(id,owner_id,name,url,secret,status,metadata,created_at) VALUES(?,'owner','GitHub','https://api.githubcopilot.com/mcp/',?,'connected','{}',?)",
@@ -687,7 +689,7 @@ it("persists native tool items and deltas as paged activities across reloads and
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','Tools',0)",
   ).run(conversation);
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES(?,'codex',?,0)",
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent',?,'codex',?,0)",
   ).run(conversation, dir);
   const queued = enqueue("owner", "test", "tool-item-run", { conversation });
   const run = claim("tool-worker", (candidate) => candidate.id === queued.id)!;

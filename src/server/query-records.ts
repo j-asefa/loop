@@ -169,7 +169,7 @@ export const QueryRecords = {
     permission_mode: z.string().nullable(),
     permission_base: z.string().nullable(),
     worktree_source: z.string().nullable(),
-    worktree_agent_id: z.string().nullable(),
+    worktree_agent_id: z.string(),
   }),
   agent_threads: z.object({
     id: z.string(),
@@ -344,11 +344,11 @@ export const QueryRecords = {
     expires_at: z.number(),
     observed_at: z.number(),
   }),
-  fleet_device_store: z.object({
+  device_store: z.object({
     owner_id: z.string(),
     singleton: z.number(),
   }),
-  fleet_devices: z.object({
+  devices: z.object({
     id: z.string(),
     owner_id: z.string(),
     name: z.string(),
@@ -357,11 +357,11 @@ export const QueryRecords = {
     expires: z.number(),
     max_expires: z.number(),
   }),
-  fleet_pairing_clock: z.object({
+  pairing_clock: z.object({
     singleton: z.number(),
     observed_at: z.number(),
   }),
-  fleet_pairing_ceremonies: z.object({
+  pairing_ceremonies: z.object({
     id: z.string(),
     owner_id: z.string(),
     origin: z.string(),
@@ -639,27 +639,7 @@ export const QueryRecords = {
     digest: z.string().nullable(),
     created_at: z.number(),
   }),
-  native_sessions: z.object({
-    conversation_id: z.string(),
-    owner_id: z.string(),
-    environment_id: z.string(),
-    generation: z.number(),
-    flavor: z.string(),
-    billing: z.string(),
-    launch_id: z.string(),
-    hub_session_id: z.string().nullable(),
-    native_thread_id: z.string().nullable(),
-    lineage: z.string(),
-    state: z.string(),
-    history_epoch: z.number().nullable(),
-    cursor_seq: z.number().nullable(),
-    cursor_at: z.number().nullable(),
-    sse_cursor: z.string().nullable(),
-    coherent: z.number(),
-    gateway_secret: z.string(),
-    gateway_hash: z.string(),
-    created_at: z.number(),
-  }),
+
   oauth_states: z.object({
     state: z.string(),
     owner_id: z.string(),
@@ -853,8 +833,6 @@ export const QueryRecords = {
     completed: z.number(),
     hidden: z.number(),
     hide_results: z.number(),
-    legacy_sort_at: z.number(),
-    legacy_hidden: z.number(),
     payload: z.string(),
     unread: z.number(),
   }),
@@ -1075,12 +1053,7 @@ export const QueryRecords = {
     item: z.string(),
     updated_at: z.number(),
   }),
-  legacy_imports: z.object({
-    path: z.string(),
-    conversation_id: z.string(),
-    digest: z.string(),
-    created_at: z.number(),
-  }),
+
   mcp_preferences: z.object({
     owner_id: z.string(),
     approval_mode: z.enum(["ask", "allow"]),

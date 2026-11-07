@@ -88,7 +88,6 @@ function readFeed(
   owner: string,
   options: {
     filter?: (typeof FEED_FILTERS)[number];
-    expand?: "results";
     folder?: string;
     teams?: string[];
     agent?: string;
@@ -97,9 +96,7 @@ function readFeed(
 ): FeedPage {
   if (options.agent) ownedAgent(options.agent, owner);
   const filter = options.filter || "all";
-  // Older open tabs key and paginate by conversation. Only clients that
-  // understand independent result identities opt into the expanded collection.
-  const results = filter === "done" && options.expand === "results";
+  const results = filter === "done";
   const teams = options.teams?.length ? options.teams : undefined;
   let folders: (string | null)[] | undefined;
   if (options.folder) {
@@ -107,15 +104,18 @@ function readFeed(
     folders = projectFolders(owner, options.folder);
   }
   const cursor = options.before
-    ? decode(
+    ? decode<[number, string, string?]>(
         options.before,
-        z.tuple([
-          z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-          z.string().min(1).max(150),
-          // Older cursors contain only a time and conversation. New Done
-          // cursors also distinguish results that finished at the same time.
-          z.string().min(1).max(200).optional(),
-        ]),
+        results || filter === "replies"
+          ? z.tuple([
+              z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+              z.string().min(1).max(150),
+              z.string().min(1).max(200),
+            ])
+          : z.tuple([
+              z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+              z.string().min(1).max(150),
+            ]),
         "feed",
       )
     : undefined;

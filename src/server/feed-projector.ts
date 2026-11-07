@@ -20,7 +20,6 @@ import {
 export type StoredCard = {
   row: SourceRow;
   detail: FeedCardDetail;
-  legacy?: { row: Partial<SourceRow>; detail: FeedCardDetail };
   thread?: ThreadDetails;
 };
 export type CardKind = "thread" | "result" | "idle";
@@ -83,8 +82,8 @@ export function projectFeed(db: Database.Database, emit: Emit) {
   }
   const insert =
     db.prepare(`INSERT INTO feed_cards(owner_id,conversation_id,kind,card_key,folder_id,agent_id,team_id,sort_at,
-    needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,payload,legacy_sort_at,legacy_hidden,unread)
-    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@payload,@legacy_sort_at,@legacy_hidden,@unread)
+    needs_run,approval_until,working,queued,snoozed,completed,hidden,hide_results,payload,unread)
+    VALUES(@owner,@conversation,@kind,@key,@folder_id,@agent_id,@team_id,@sort_at,@needs_run,@approval_until,@working,@queued,@snoozed,@completed,@hidden,@hide_results,@payload,@unread)
 `);
   for (const { owner, conversation, keys } of groups.values()) {
     const subject = { kind: "collection" as const, id: "feed" };
@@ -141,8 +140,7 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         hidden: r.hidden,
         hide_results: r.hide_results,
         payload: JSON.stringify(stored),
-        legacy_sort_at: stored.legacy?.row.sort_at ?? r.sort_at,
-        legacy_hidden: stored.legacy?.row.hidden ?? r.hidden,
+
         // Only a result is read; its read time stays in done_card_reads.
         unread:
           kind === "result" &&
@@ -214,23 +212,9 @@ export function projectFeed(db: Database.Database, emit: Emit) {
         });
       }
     }
-    const legacy = sourceCards(db, owner, conversation, "legacy")[0];
-    const threadRow = threadDisplayRow(row);
-    const legacyRow = threadDisplayRow(legacy);
-    // Both presentations share most context. Store only the legacy differences
-    // so every streamed chunk does not rewrite another copy of that context.
-    const legacyChanges: Partial<SourceRow> = {};
-    for (const key of Object.keys(legacyRow) as (keyof SourceRow)[])
-      if (legacyRow[key] !== threadRow[key])
-        Object.assign(legacyChanges, { [key]: legacyRow[key] });
-    // The read predicate needs this identity directly. Titles are optional and
-    // must not inherit the current prompt's derived title when legacy has none.
-    legacyChanges.done_run_id = legacyRow.done_run_id;
-    legacyChanges.card_title = legacyRow.card_title;
     save("thread", {
-      row: threadRow,
+      row: threadDisplayRow(row),
       detail: detail(row.card_run),
-      legacy: { row: legacyChanges, detail: detail(legacy.card_run) },
       thread,
     });
     const selected = keys.has("*")

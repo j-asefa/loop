@@ -255,7 +255,7 @@ Follow-up runs use the idempotency key `pr-watch:<id>:<hash>`.
 
 ### Pairing ceremonies and devices
 
-`fleet_pairing_ceremonies`: ∅ → pending (older pending cancelled) → **device**
+`pairing_ceremonies`: ∅ → pending (older pending cancelled) → **device**
 / **enrollment** on redemption (tx: pending, unexpired, origin, in-memory
 liveness) or → **cancelled** (sql) on restart or origin change. A combined link
 consumes both capabilities. Devices are renewed only while unexpired (sql) and

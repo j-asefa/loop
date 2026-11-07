@@ -1,10 +1,17 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  copyFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import Database from "better-sqlite3";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
+import { applyMigrations } from "../src/server/migrations";
 import {
   DEFINITION_EXAMPLES,
   MAX_DEFINITION_BYTES,
@@ -13,13 +20,15 @@ import {
 const dir = mkdtempSync(join(tmpdir(), "loop-definitions-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-// Upgrade a workspace that already recorded main's migration 119. A reused
-// migration number would silently skip the definitions tables on startup.
+// Seed the historical subset through the current named migration ledger.
 const existing = new Database(join(dir, "loop.db"));
+const migrationDir = join(dir, "migrations");
+mkdirSync(migrationDir);
 for (const file of readdirSync("migrations")
   .filter((file) => file.endsWith(".sql") && Number(file.split("-")[0]) <= 119)
   .sort())
-  existing.exec(readFileSync(join("migrations", file), "utf8"));
+  copyFileSync(join("migrations", file), join(migrationDir, file));
+applyMigrations(existing, migrationDir);
 existing.close();
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");

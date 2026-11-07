@@ -130,7 +130,7 @@ export function reconnect(
 }
 
 const disconnectStatement = statement(
-  "UPDATE connections SET secret='',status='disconnected',metadata=CASE WHEN json_valid(metadata) THEN json_remove(metadata,'$.retiredDirectRuntime','$.nativeRecoveryRequired') ELSE metadata END WHERE id=? AND owner_id=?",
+  "UPDATE connections SET secret='',status='disconnected' WHERE id=? AND owner_id=?",
 );
 export function disconnect(db: Database.Database, id: string, owner: string) {
   return disconnectStatement(db).run(id, owner);

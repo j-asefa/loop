@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { legacyMigrationNames } from "../src/server/legacy-migrations";
+import { historicalMigrationNames } from "../src/server/historical-migration-names";
 
 it("starts concurrent database clients and applies each migration once", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-concurrent-start-"));
@@ -60,7 +60,7 @@ it("starts concurrent database clients and applies each migration once", async (
           .prepare("SELECT version FROM schema_version ORDER BY version")
           .all(),
       ).toEqual(
-        [...legacyMigrationNames.keys()]
+        [...historicalMigrationNames.keys()]
           .sort((a, b) => a - b)
           .map((version) => ({ version })),
       );

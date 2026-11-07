@@ -113,8 +113,8 @@ it("keeps live user edits and their versions while the generator finishes its ow
     // Completion indexes the user's saved revision, not the generator's text.
     expect(
       db
-        .prepare("SELECT content FROM artifact_fts WHERE artifact_id=?")
-        .get(artifact().id),
+        .prepare("SELECT content FROM search_fts WHERE id=?")
+        .get("artifact:" + artifact().id),
     ).toEqual({ content: "My saved edit" });
     expect(
       db

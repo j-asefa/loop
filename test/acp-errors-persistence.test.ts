@@ -26,13 +26,15 @@ it("persists only fixed guidance for ACP prompt and setting failures", async () 
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('acp-errors','owner','t',0)",
   ).run();
   db.prepare(
-    "INSERT INTO companion_sessions(conversation_id,harness,project,generation,updated_at) VALUES('acp-errors','acp',?,'acp-generation',0)",
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,generation,updated_at) VALUES('fixture-agent','acp-errors','acp',?,'acp-generation',0)",
   ).run(dir);
   enqueue("owner", "t", "acp-bootstrap", { conversation: "acp-errors" });
   const bootstrap = claim("w")!;
   const sessions = new NativeSessions();
   const live: Live = {
     binding: {
+      worktree_source: null,
+      worktree_agent_id: "fixture-agent",
       conversation_id: "acp-errors",
       harness: "acp",
       native_id: null,

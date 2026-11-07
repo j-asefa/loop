@@ -118,6 +118,8 @@ function nativeLive(
     adapter,
     generation,
     binding: {
+      worktree_source: null,
+      worktree_agent_id: "fixture-agent",
       conversation_id: run.conversation_id!,
       harness,
       project: root,
@@ -712,7 +714,7 @@ it.each(["accepted", "stale", "invalid-choice", "uncertain"] as const)(
       waiting: true,
     });
     db.prepare(
-      "INSERT INTO companion_sessions(conversation_id,harness,project,model,instructions,generation,state,updated_at) VALUES(?,'claude',?,NULL,'',?,'idle',0)",
+      "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,model,instructions,generation,state,updated_at) VALUES('fixture-agent',?,'claude',?,NULL,'',?,'idle',0)",
     ).run(run.conversation_id, root, generation);
     (sessions as unknown as { live: Map<string, Live> }).live.set(
       run.conversation_id!,

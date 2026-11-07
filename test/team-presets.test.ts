@@ -387,7 +387,7 @@ it("lets a working agent request a review of its own worktree, waits for the lea
       idempotencyKey: id(),
     });
     db.prepare(
-      "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES(?,'claude',?,?)",
+      "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent',?,'claude',?,?)",
     ).run(run.conversation_id, project, now());
     db.prepare(
       "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",

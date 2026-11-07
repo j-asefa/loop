@@ -118,9 +118,7 @@ it("projects real paired devices and revokes only within their authorized host",
     readonly: true,
   });
   const stored = store
-    .prepare(
-      "SELECT id,name,expires,hash,csrf FROM fleet_devices ORDER BY rowid",
-    )
+    .prepare("SELECT id,name,expires,hash,csrf FROM devices ORDER BY rowid")
     .all() as {
     id: string;
     name: string;
