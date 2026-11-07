@@ -55,7 +55,7 @@ import {
   latestAgentMessage,
 } from "./conversation-messages.js";
 import { conversationPulls } from "./conversation-pulls.js";
-import { cancelRun, dismissRun } from "./run-attention.js";
+import { cancelRun, controlRun, dismissRun } from "./run-attention.js";
 import { conversationReturnState } from "./mobile-return.js";
 import { isSubscription, runtimeAction } from "./subscriptions.js";
 
@@ -552,11 +552,6 @@ routes.on(
         409,
         "This harness cannot suspend an active native turn. Interrupt this run, then send a follow-up; other agents keep running.",
       );
-    if (action === "resume" && run.state !== "paused")
-      throw new Problem(
-        409,
-        "Only a paused run can be resumed. Use a new retry for interrupted work.",
-      );
     if (action === "retry") {
       if (
         !["failed", "interrupted"].includes(run.state) ||
@@ -586,28 +581,12 @@ routes.on(
       res.json(runResponse(replacement));
       return;
     }
-    if (action === "resume" && run.state === "paused" && run.result) {
-      if (!transition(run, "completed"))
-        throw new Problem(409, "Run has already changed");
-      res.json({ ok: true });
-      return;
-    }
-    const next =
-      action === "pause"
-        ? run.state === "queued"
-          ? "paused"
-          : "pausing"
-        : action === "resume"
-          ? "queued"
-          : null;
-    if (!next || !transition(run, next))
+    if (action !== "pause" && action !== "resume")
       throw new Problem(
         409,
         "That action is not available in the current state",
       );
-    if (action === "pause" && run.worker_id === null && run.state === "running")
-      transition(run, "paused");
-    res.json({ ok: true });
+    res.json(controlRun(res.locals.owner, run.id, action));
   },
   {
     tokenWrite: runControlTokenWrite,

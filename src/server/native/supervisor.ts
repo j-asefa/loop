@@ -656,53 +656,65 @@ export class NativeSessions {
     clearTimeout(live.idle);
     live.run = run;
     live.cancelling = false;
-    this.projector.recordModel(live);
-    const snapshot = agentPayload(run);
-    // The native session keeps the snapshot context after the first review turn.
-    const opensReview =
-      snapshot.reviewId &&
-      !runsQueries.hasEarlierConversationRun(db, run.conversation_id, run.id);
-    const input =
-      replyPrompt(run.input, snapshot.replyTo) +
-      (opensReview ? "\n\n" + reviewContext(run) : "");
-    db.transaction(() => {
-      const messageId = id();
-      messagesQueries.insertNativePlaceholder(
-        db,
-        messageId,
-        run.owner_id,
-        run.conversation_id,
-        run.id,
-        now(),
-      );
-      const artifact = saveArtifact(run.owner_id, {
-        title: run.input.slice(0, 85),
-        content: "",
-        agent: run.agent_id,
-        conversation: run.conversation_id,
-        run: run.id,
-        folder: snapshot.folderId,
-        metadata: { native: true, partial: true, messageId },
-      });
-      agentCheckpointsQueries.insertNative(db, run.id, messageId, artifact);
-      nativeDispatchQueries.insertUnknown(
-        db,
-        run.id,
-        live.generation,
-        createHash("sha256").update(input).digest("hex"),
-        now(),
-      );
-      companionSessionsQueries.markRunning(
-        db,
-        run.id,
-        now(),
-        run.conversation_id,
-      );
-    }).immediate();
+    let snapshot: ReturnType<typeof agentPayload>;
+    let input: string;
+    let watched: ReturnType<typeof watchRun>;
+    try {
+      this.projector.recordModel(live);
+      snapshot = agentPayload(run);
+      // The native session keeps the snapshot context after the first review turn.
+      const opensReview =
+        snapshot.reviewId &&
+        !runsQueries.hasEarlierConversationRun(db, run.conversation_id, run.id);
+      input =
+        replyPrompt(run.input, snapshot.replyTo) +
+        (opensReview ? "\n\n" + reviewContext(run) : "");
+      db.transaction(() => {
+        const messageId = id();
+        messagesQueries.insertNativePlaceholder(
+          db,
+          messageId,
+          run.owner_id,
+          run.conversation_id,
+          run.id,
+          now(),
+        );
+        const artifact = saveArtifact(run.owner_id, {
+          title: run.input.slice(0, 85),
+          content: "",
+          agent: run.agent_id,
+          conversation: run.conversation_id,
+          run: run.id,
+          folder: snapshot.folderId,
+          metadata: { native: true, partial: true, messageId },
+        });
+        agentCheckpointsQueries.insertNative(db, run.id, messageId, artifact);
+        nativeDispatchQueries.insertUnknown(
+          db,
+          run.id,
+          live.generation,
+          createHash("sha256").update(input).digest("hex"),
+          now(),
+        );
+        companionSessionsQueries.markRunning(
+          db,
+          run.id,
+          now(),
+          run.conversation_id,
+        );
+      }).immediate();
+      watched = watchRun(run);
+    } catch (error) {
+      // Nothing was sent. Release the session so later turns, settings and
+      // provider changes are not refused as "already running".
+      live.run = undefined;
+      if (!live.closed)
+        live.idle = setTimeout(() => void this.dispose(live), 60_000);
+      throw error;
+    }
     const complete = new Promise<string>((resolve) => {
       live.finish = resolve;
     });
-    const watched = watchRun(run);
     const stop = () => {
       const cause = watched.signal.reason;
       if (!live.cancelling)
@@ -818,6 +830,8 @@ export class NativeSessions {
       live.run = undefined;
       live.finish = undefined;
       live.waiting = false;
+      // An interrupt belongs to this turn; the idle session accepts settings.
+      live.cancelling = false;
       if (!live.closed)
         live.idle = setTimeout(() => void this.dispose(live), 60_000);
     }

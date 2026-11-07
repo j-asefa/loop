@@ -243,16 +243,24 @@ export class NativeProjector {
       event.type === "status" &&
       ["completed", "failed", "interrupted", "stopped"].includes(event.status)
     ) {
+      const unavailable =
+        (event.status === "failed" && !event.recoverable) ||
+        live.adapter.reusable === false;
+      // The first terminal status settles the turn. A later one (the turn's
+      // process failing while it winds down) only retires the session.
+      if (
+        !nativeDispatchQueries.setState(db, event.status, run.id).changes &&
+        nativeDispatchQueries.exists(db, run.id)
+      ) {
+        if (unavailable) void this.context.dispose(live);
+        return;
+      }
       if (event.detail)
         runsQueries.setError(db, event.detail.slice(0, 2000), run.id);
       this.context.projectOutput(live, event.status !== "completed");
       live.requests.clear();
       live.waiting = false;
       nativeDecisionsQueries.finishPendingRun(db, "expired", run.id);
-      nativeDispatchQueries.setState(db, event.status, run.id);
-      const unavailable =
-        (event.status === "failed" && !event.recoverable) ||
-        live.adapter.reusable === false;
       companionSessionsQueries.setState(
         db,
         unavailable ? "unavailable" : "idle",

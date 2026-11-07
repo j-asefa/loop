@@ -377,3 +377,111 @@ it("preserves old native sessions instead of resuming them in a different checko
       .get(task.conversation_id),
   ).toEqual({ project: dir, native_id: "old-native-session" });
 });
+
+function claimed(name: string) {
+  const task = run(name);
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='w1',heartbeat=? WHERE id=?",
+  ).run(Date.now(), task.id);
+  return task;
+}
+
+it("accepts setting changes once an interrupted turn has ended", async () => {
+  const sessions = new NativeSessions();
+  const task = claimed("after-interrupt");
+  const live = await sessions.session(task);
+  const prompt = vi
+    .spyOn(live.adapter, "prompt")
+    .mockImplementation(async () => {});
+  const cancel = vi
+    .spyOn(live.adapter, "cancel")
+    .mockImplementation(async () => {
+      sessions.event(live, { type: "status", status: "interrupted" });
+    });
+  try {
+    const turn = sessions.execute(task);
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
+    await sessions.interrupt(task.id);
+    await expect(turn).resolves.toBe(false);
+    expect(live.run).toBeUndefined();
+    await sessions.setSetting(
+      "after-interrupt",
+      "mode",
+      "acceptEdits",
+      live.adapter.settings!.revision,
+      live.generation,
+    );
+    expect(mode("after-interrupt")).toBe("acceptEdits");
+  } finally {
+    prompt.mockRestore();
+    cancel.mockRestore();
+    await sessions.dispose(live);
+  }
+});
+
+it("releases the session when a turn fails before it is dispatched", async () => {
+  const sessions = new NativeSessions();
+  const task = claimed("before-dispatch");
+  const live = await sessions.session(task);
+  const prompt = vi.spyOn(live.adapter, "prompt");
+  // The dispatch record cannot be written (for example a busy database).
+  db.exec(
+    "CREATE TRIGGER refuse_dispatch BEFORE INSERT ON native_dispatch BEGIN SELECT RAISE(ABORT,'database is locked'); END",
+  );
+  try {
+    await expect(sessions.execute(task)).rejects.toThrow("database is locked");
+    expect(prompt).not.toHaveBeenCalled();
+    expect(live.run).toBeUndefined();
+    expect(
+      db
+        .prepare("SELECT count(*) n FROM native_dispatch WHERE run_id=?")
+        .get(task.id),
+    ).toEqual({ n: 0 });
+    // The conversation is not left "already running".
+    await sessions.setSetting(
+      "before-dispatch",
+      "mode",
+      "acceptEdits",
+      live.adapter.settings!.revision,
+      live.generation,
+    );
+  } finally {
+    db.exec("DROP TRIGGER refuse_dispatch");
+    prompt.mockRestore();
+    await sessions.dispose(live);
+  }
+});
+
+it("keeps the first terminal status of a native turn", async () => {
+  const sessions = new NativeSessions();
+  const task = claimed("late-status");
+  const live = await sessions.session(task);
+  const prompt = vi
+    .spyOn(live.adapter, "prompt")
+    .mockImplementation(async () => {
+      queueMicrotask(() => {
+        sessions.event(live, { type: "status", status: "completed" });
+        // The harness process then fails while the turn winds down.
+        sessions.event(live, {
+          type: "status",
+          status: "failed",
+          detail: "Harness exited",
+        });
+      });
+    });
+  try {
+    await expect(sessions.execute(task)).resolves.toBe(true);
+    expect(
+      db
+        .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+        .get(task.id),
+    ).toEqual({ state: "completed" });
+    expect(
+      (db.prepare("SELECT error FROM runs WHERE id=?").get(task.id) as any)
+        .error,
+    ).toBeNull();
+  } finally {
+    prompt.mockRestore();
+    await sessions.dispose(live);
+  }
+});

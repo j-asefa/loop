@@ -84,8 +84,10 @@ export function setError(db: Database.Database, error: string, run: string) {
   return setErrorStatement(db).run(error, run);
 }
 
+// Only the first terminal status settles a dispatch; a late status from the
+// same turn (for example a crash while steering stops) cannot replace it.
 const setStateStatement = statement(
-  "UPDATE native_dispatch SET state=? WHERE run_id=?",
+  "UPDATE native_dispatch SET state=? WHERE run_id=? AND state IN ('unknown','accepted')",
 );
 export function setState(db: Database.Database, state: string, run: string) {
   return setStateStatement(db).run(state, run);

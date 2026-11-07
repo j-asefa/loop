@@ -174,7 +174,7 @@ export function owned(db: Database.Database, id: string, owner: string) {
 }
 
 const resumeStatement = statement(
-  "UPDATE pr_watches SET state='watching',error=NULL,next_poll_at=0,updated_at=? WHERE id=?",
+  "UPDATE pr_watches SET state='watching',error=NULL,next_poll_at=0,updated_at=? WHERE id=? AND state='paused'",
 );
 export function resume(db: Database.Database, updated: number, id: string) {
   return resumeStatement(db).run(updated, id);

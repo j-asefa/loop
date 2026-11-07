@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { workspaceLock } from "../src/lifecycle.js";
+import { identity, workspaceLock } from "../src/lifecycle.js";
 test("workspace ownership is exclusive, recovers a proven stale owner, and never removes a replacement lock", () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-lock-"));
   try {
@@ -34,6 +34,55 @@ test("workspace ownership is exclusive, recovers a proven stale owner, and never
     assert(existsSync(join(dir, "host.lock")));
     writeFileSync(join(dir, "host.lock"), "invalid");
     assert.throws(() => workspaceLock(dir), /unreadable/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a recoverer killed mid-recovery does not block later starts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-lock-recovery-"));
+  const stale = (nonce: string) =>
+    JSON.stringify({ pid: 99999999, identity: "dead", nonce });
+  try {
+    writeFileSync(join(dir, "host.lock"), stale("old-host"));
+    writeFileSync(join(dir, "host.lock.recovery"), stale("old-recoverer"));
+    const release = workspaceLock(dir);
+    assert.equal(
+      JSON.parse(readFileSync(join(dir, "host.lock"), "utf8")).pid,
+      process.pid,
+    );
+    assert(!existsSync(join(dir, "host.lock.recovery")));
+    release();
+    // A live recoverer keeps its record and the lock it is recovering.
+    const live = JSON.stringify({
+      pid: process.pid,
+      identity: identity(process.pid),
+      nonce: "live-recoverer",
+    });
+    writeFileSync(join(dir, "host.lock"), stale("old-host"));
+    writeFileSync(join(dir, "host.lock.recovery"), live);
+    assert.throws(() => workspaceLock(dir), /recovering the workspace lock/);
+    assert.equal(readFileSync(join(dir, "host.lock.recovery"), "utf8"), live);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a stale lock whose PID now belongs to another user's process is recovered", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-lock-eperm-"));
+  try {
+    // PID 1 is alive and, for a non-root test, signalling it fails with
+    // EPERM; its identity is not the crashed host's.
+    writeFileSync(
+      join(dir, "host.lock"),
+      JSON.stringify({ pid: 1, identity: "crashed-host", nonce: "old" }),
+    );
+    const release = workspaceLock(dir);
+    assert.equal(
+      JSON.parse(readFileSync(join(dir, "host.lock"), "utf8")).pid,
+      process.pid,
+    );
+    release();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -14,7 +14,8 @@ export const RUN_TRANSITIONS = {
     "interrupted",
     "awaiting_approval",
   ],
-  pausing: ["paused", "failed", "cancelled", "interrupted"],
+  // pausing → completed: the work finished before reaching a pause boundary.
+  pausing: ["paused", "completed", "failed", "cancelled", "interrupted"],
   paused: ["queued", "completed", "cancelled"],
   awaiting_approval: [
     "queued",

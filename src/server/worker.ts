@@ -18,6 +18,7 @@ import { indexPending } from "./search.js";
 import { executeAgent } from "./agent-runtime.js";
 import {
   claim,
+  completeLeased,
   RunIdentity,
   deferUndispatched,
   recoverStale,
@@ -99,7 +100,7 @@ export async function tick(
   );
   try {
     const complete = await execute(run);
-    if (complete !== false) transition(run, "completed");
+    if (complete !== false) completeLeased(run, workerId);
   } catch (error) {
     if (error instanceof RunDeferred && deferUndispatched(run, workerId))
       return true;

@@ -282,8 +282,10 @@ export async function invokeTool(
       binding.tool,
       args,
     );
+    // A pause requested during the connect lets this approved call finish;
+    // the runtime pauses at its next boundary.
     const live = ownedRun(run.id, run.owner_id);
-    if (live.state !== "running")
+    if (live.state !== "running" && live.state !== "pausing")
       throw new Problem(409, "Run is no longer executing");
     assertEffect(run.owner_id, "run", run.id);
     phase = "calling";

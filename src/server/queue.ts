@@ -194,6 +194,29 @@ function transitionState(
     })
     .immediate();
 }
+/**
+ * Complete a run this worker still leases; a worker whose lease was released
+ * or replaced cannot finish the run. A pause that arrived after the runtime's
+ * last boundary pauses a saved answer (resume completes it without running
+ * again); work without a saved answer has finished, so it completes.
+ */
+export function completeLeased(
+  run: Pick<Run, "id" | "owner_id">,
+  worker: string,
+) {
+  return db
+    .transaction(() => {
+      const current = runsQueries.leasedState(db, run.id, run.owner_id, worker);
+      if (!current) return false;
+      if (current.state === "pausing" && current.result !== null)
+        return transition(run, "paused", {
+          message:
+            "Response completed and saved. Resume to mark this run complete.",
+        });
+      return transition(run, "completed");
+    })
+    .immediate();
+}
 export function recoverStale() {
   const stale = z
     .array(RunIdentity)

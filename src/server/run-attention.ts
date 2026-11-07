@@ -5,7 +5,7 @@ import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
 
 import { db, emit, now } from "./db.js";
-import { ownedRunControl, Problem } from "./domain.js";
+import { ownedRun, ownedRunControl, Problem } from "./domain.js";
 import { RunIdentity, transition } from "./queue.js";
 import type { RunEventPayload } from "../shared/workspace-events.js";
 
@@ -43,6 +43,42 @@ export function cancelRun(owner: string, runId: string) {
           "That action is not available in the current state",
         );
       cancelChildren(owner, run.id);
+      return { ok: true };
+    })
+    .immediate();
+}
+
+// Decide from the row as it is now, in the same transaction as the change: a
+// worker may claim the run between the request's read and this write. A
+// leased run stays pausing so its worker stops at the next boundary; only a
+// run with no worker (queued, or waiting for its children) pauses at once.
+export function controlRun(
+  owner: string,
+  runId: string,
+  action: "pause" | "resume",
+) {
+  return db
+    .transaction(() => {
+      const run = ownedRun(runId, owner);
+      if (action === "resume") {
+        if (run.state !== "paused")
+          throw new Problem(
+            409,
+            "Only a paused run can be resumed. Use a new retry for interrupted work.",
+          );
+        // A paused run that already saved its answer only needs completing.
+        if (!transition(run, run.result ? "completed" : "queued"))
+          throw new Problem(409, "Run has already changed");
+        return { ok: true };
+      }
+      const next = run.state === "queued" ? "paused" : "pausing";
+      if (!transition(run, next))
+        throw new Problem(
+          409,
+          "That action is not available in the current state",
+        );
+      if (next === "pausing" && run.worker_id === null)
+        transition(run, "paused");
       return { ok: true };
     })
     .immediate();

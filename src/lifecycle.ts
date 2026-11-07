@@ -1,4 +1,10 @@
-import { linkSync, readFileSync, readlinkSync, unlinkSync } from "node:fs";
+import {
+  linkSync,
+  readFileSync,
+  readlinkSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -68,7 +74,9 @@ function dead(owner: Owner) {
     process.kill(owner.pid, 0);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ESRCH") return true;
-    return false;
+    // EPERM: the PID is alive but belongs to another user, so it may have
+    // been reused after a crash or reboot. Its identity below decides.
+    if ((error as NodeJS.ErrnoException).code !== "EPERM") return false;
   }
   // A zombie has exited even if PID 1 has not reaped it yet.
   if (process.platform === "linux") {
@@ -81,6 +89,53 @@ function dead(owner: Owner) {
     }
   }
   return processIdentityState(owner.pid, owner.identity) === "different";
+}
+const RECOVERING =
+  "Another process is recovering the workspace lock. Retry shortly; workspace data is preserved.";
+/**
+ * Hold the recovery lock. A recoverer that was killed mid-recovery leaves its
+ * record behind; once that owner is dead its record is moved aside atomically
+ * and checked, so a live recoverer's record is never removed.
+ */
+function takeRecovery(temp: string, recovery: string, nonce: string) {
+  try {
+    linkSync(temp, recovery);
+    return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  let stale: Owner;
+  try {
+    stale = JSON.parse(readFileSync(recovery, "utf8"));
+  } catch {
+    throw new Error(RECOVERING);
+  }
+  if (!stale.identity || !stale.nonce || !dead(stale))
+    throw new Error(RECOVERING);
+  const moved = recovery + "." + nonce;
+  try {
+    renameSync(recovery, moved);
+  } catch {
+    throw new Error(RECOVERING);
+  }
+  try {
+    if (JSON.parse(readFileSync(moved, "utf8")).nonce !== stale.nonce) {
+      // A live recoverer replaced the stale record first: give it back.
+      try {
+        linkSync(moved, recovery);
+      } catch {
+        /* Another recoverer holds the lock now. */
+      }
+      throw new Error(RECOVERING);
+    }
+  } finally {
+    unlinkSync(moved);
+  }
+  try {
+    linkSync(temp, recovery);
+  } catch {
+    throw new Error(RECOVERING);
+  }
 }
 const WORKSPACE_LOCK = {
   name: "host.lock",
@@ -120,13 +175,7 @@ export function workspaceLock(
       if (!prior.identity || !prior.nonce || !dead(prior))
         throw new Error(lock.owner);
       const recovery = path + ".recovery";
-      try {
-        linkSync(temp, recovery);
-      } catch {
-        throw new Error(
-          "Another process is recovering the workspace lock. Retry shortly; workspace data is preserved.",
-        );
-      }
+      takeRecovery(temp, recovery, owner.nonce);
       try {
         const current = JSON.parse(readFileSync(path, "utf8"));
         if (current.nonce !== prior.nonce || !dead(current))

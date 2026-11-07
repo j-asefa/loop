@@ -106,3 +106,38 @@ it("keeps lazy query statements on their supplied connection and inside the proj
     second.close();
   }
 });
+
+it("resumes only a paused watch, so a stop committed first is kept", () => {
+  const db = new Database(":memory:");
+  try {
+    db.pragma("foreign_keys = ON");
+    applyMigrations(db);
+    db.prepare(
+      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('thread','alice','Thread',10)",
+    ).run();
+    watches.insert(
+      db,
+      "watch",
+      "alice",
+      "thread",
+      "agent",
+      "acme",
+      "repo",
+      42,
+      null,
+      10,
+      10,
+      10,
+    );
+    watches.pause(db, "Hourly limit", 20, "watch");
+    // The API read the watch as paused; the worker then ends it (merged).
+    watches.end(db, "The pull request merged.", 30, "watch");
+    expect(watches.resume(db, 40, "watch").changes).toBe(0);
+    expect(watches.owned(db, "watch", "alice")).toMatchObject({
+      state: "stopped",
+      ended_reason: "The pull request merged.",
+    });
+  } finally {
+    db.close();
+  }
+});

@@ -310,13 +310,21 @@ export function stopWatch(owner: string, watchId: string) {
 }
 
 export function resumeWatch(owner: string, watchId: string) {
-  const watch = ownedWatch(owner, watchId);
-  if (watch.state !== "paused")
-    throw new Problem(409, "Only a paused watch can be resumed");
-  watchQueries.resume(db, now(), watch.id);
-  // A resumed watch starts a fresh hour.
-  prWatchDeliveriesQueries.removeWatch(db, watch.id);
-  return { ok: true };
+  return db
+    .transaction(() => {
+      const watch = ownedWatch(owner, watchId);
+      // Guarded in SQL too: the worker may stop the watch (the pull request
+      // merged or closed) between this read and the write.
+      if (
+        watch.state !== "paused" ||
+        !watchQueries.resume(db, now(), watch.id).changes
+      )
+        throw new Problem(409, "Only a paused watch can be resumed");
+      // A resumed watch starts a fresh hour.
+      prWatchDeliveriesQueries.removeWatch(db, watch.id);
+      return { ok: true };
+    })
+    .immediate();
 }
 
 // Both leave a watch alone once it has moved on (for example you stopped it

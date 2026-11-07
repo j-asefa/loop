@@ -55,7 +55,7 @@ db.prepare(
 
 let writes: { method: string; event?: string }[] = [],
   draft = false;
-const restoreMcp = withTestMcp(async () => {
+const reviewServer = async () => {
   const server = new McpServer({ name: "review-errors-fixture", version: "1" });
   server.registerTool(
     "pull_request_review_write",
@@ -108,7 +108,8 @@ const restoreMcp = withTestMcp(async () => {
   const client = new Client({ name: "fixture", version: "1" });
   await client.connect(right);
   return client;
-});
+};
+const restoreMcp = withTestMcp(reviewServer);
 await discover(
   db.prepare("SELECT * FROM mcp_connections WHERE id=?").get(connection) as any,
 );
@@ -491,3 +492,38 @@ it.each([true, false])(
     }
   },
 );
+
+it("finishes an approved tool call when a pause arrives before it is sent", async () => {
+  writes = [];
+  draft = false;
+  setMcpApprovalMode("alice", "allow");
+  const run = submit("alice", {
+    agentId: agent.id,
+    input: "Pause while the tool connects",
+    idempotencyKey: id(),
+  });
+  // Earlier cases replace the fixture server and clear it afterwards.
+  withTestMcp(reviewServer);
+  // The owner pressed Pause while the worker was connecting to the server.
+  db.prepare(
+    "UPDATE runs SET state='pausing',worker_id='w1',heartbeat=? WHERE id=?",
+  ).run(now(), run.id);
+  const outcome = await invokeTool(
+    run,
+    toolBindings("alice", agent.id)[0],
+    "pause-call",
+    { method: "create" },
+  );
+  expect(outcome).toMatchObject({
+    result: { content: [{ type: "text", text: "Pending review 733" }] },
+  });
+  expect(writes).toEqual([{ method: "create" }]);
+  expect(
+    db.prepare("SELECT state FROM tool_invocations WHERE run_id=?").get(run.id),
+  ).toEqual({ state: "completed" });
+  // The runtime pauses at its next boundary.
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
+    state: "pausing",
+  });
+  db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(run.id);
+});

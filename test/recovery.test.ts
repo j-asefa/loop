@@ -257,3 +257,87 @@ it("initializes a fresh database safely from simultaneous API and worker process
     }
   }
 }, 15000);
+
+it("pauses a run from its current lease, not the request's earlier read", async () => {
+  const { controlRun } = await import("../src/server/run-attention");
+  const a = createAgent("alice", {
+    name: "pause-lease-agent",
+    connectionId: account("alice"),
+    model: "fixture",
+  });
+  const r = submit("alice", {
+    agentId: a.id,
+    input: "Wait for children",
+    idempotencyKey: "pause-lease",
+  });
+  // The run waits for its children with no worker; the request reads that.
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id=NULL,heartbeat=NULL WHERE id=?",
+  ).run(r.id);
+  // Before the pause commits, a worker claims the run again.
+  db.prepare("UPDATE runs SET worker_id='w2',heartbeat=? WHERE id=?").run(
+    now(),
+    r.id,
+  );
+  controlRun("alice", r.id, "pause");
+  // The worker still holds it: it stops at its next boundary, so the run
+  // cannot be resumed (and claimed again) while that worker still runs it.
+  expect(
+    db.prepare("SELECT state,worker_id FROM runs WHERE id=?").get(r.id),
+  ).toEqual({ state: "pausing", worker_id: "w2" });
+  expect(() => controlRun("alice", r.id, "resume")).toThrow(
+    "Only a paused run can be resumed",
+  );
+  // With no worker, the pause applies at once.
+  db.prepare("UPDATE runs SET state='running',worker_id=NULL WHERE id=?").run(
+    r.id,
+  );
+  controlRun("alice", r.id, "pause");
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(r.id)).toEqual({
+    state: "paused",
+  });
+  transition(r, "cancelled");
+});
+
+it("completes only under the worker's lease and keeps a pause that arrived after the last boundary", async () => {
+  const { completeLeased } = await import("../src/server/queue");
+  const { controlRun } = await import("../src/server/run-attention");
+  const a = createAgent("alice", {
+    name: "complete-lease-agent",
+    connectionId: account("alice"),
+    model: "fixture",
+  });
+  const lease = (key: string, result: string | null) => {
+    const r = submit("alice", {
+      agentId: a.id,
+      input: "Finish me",
+      idempotencyKey: key,
+    });
+    db.prepare(
+      "UPDATE runs SET state='running',worker_id='w1',heartbeat=?,result=? WHERE id=?",
+    ).run(now(), result, r.id);
+    return r;
+  };
+  const state = (r: { id: string }) =>
+    (db.prepare("SELECT state FROM runs WHERE id=?").get(r.id) as any).state;
+  // The runtime saw `running` at its last boundary; the pause lands before
+  // the worker records completion.
+  const saved = lease("complete-lease-saved", "The answer");
+  transition(saved, "pausing");
+  expect(completeLeased(saved, "w1")).toBe(true);
+  expect(state(saved)).toBe("paused");
+  controlRun("alice", saved.id, "resume");
+  expect(state(saved)).toBe("completed");
+  // Finished work without a saved answer completes rather than stalling
+  // until stale-lease recovery reports it interrupted.
+  const unsaved = lease("complete-lease-unsaved", null);
+  transition(unsaved, "pausing");
+  expect(completeLeased(unsaved, "w1")).toBe(true);
+  expect(state(unsaved)).toBe("completed");
+  // A worker whose lease was replaced cannot finish the run.
+  const replaced = lease("complete-lease-replaced", "Late");
+  db.prepare("UPDATE runs SET worker_id='w2' WHERE id=?").run(replaced.id);
+  expect(completeLeased(replaced, "w1")).toBe(false);
+  expect(state(replaced)).toBe("running");
+  transition(replaced, "cancelled");
+});

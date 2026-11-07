@@ -1,0 +1,335 @@
+# State machines
+
+This is the canonical list of Loop's stateful records and in-memory session
+objects: their states, the invariants each state carries, and every
+transition with the code that performs it and the guard that makes it safe.
+The last section lists invalid states or transitions the code could reach,
+with their status. Update the relevant table in the same change that adds a
+state, an edge or a writer.
+
+## Conventions
+
+The API and the worker are separate processes sharing one SQLite database
+through better-sqlite3, which is synchronous. A read and a write with no
+`await` between them, inside one `.immediate()` transaction, cannot interleave
+with another process. Any `await` between a read and a dependent write is a
+window. The guard column uses these terms:
+
+| Guard | Meaning |
+| ----- | ------- |
+| **tx** | The writer re-reads the row and checks its state inside the same immediate transaction. |
+| **sql** | The `UPDATE` itself requires the prior state (`WHERE state=…`), so a stale caller changes nothing. |
+| **lease** | The write also requires the caller's lease, token, attempt or generation. |
+| **mem** | Only in-process state guards the write; correct only while one process owns the object. |
+| **trigger** | A database trigger in `migrations/` performs or constrains the transition. |
+
+Terminal states are written in **bold**.
+
+## Runs
+
+### `runs.state`
+
+Owner: [`src/shared/run-state.ts`](../src/shared/run-state.ts) (`RUN_TRANSITIONS`).
+Every edge below goes through `transition()` in
+[`queue.ts`](../src/server/queue.ts), which re-reads the state and applies the
+edge in one immediate transaction (**tx**). Lease operations are separate.
+
+States: `queued`, `running`, `pausing`, `paused`, `awaiting_approval`,
+`interrupted`, **`completed`**, **`failed`**, **`cancelled`**.
+
+Invariants:
+
+- `queued` has no `worker_id` (`transition(…,"queued")` clears the lease).
+- `running` and `pausing` have a `worker_id` and a recent `heartbeat`, except a
+  manager run waiting for its children, which is `running` with `worker_id`
+  NULL (`releaseForChildren`).
+- `awaiting_approval` keeps the claiming worker's `worker_id`.
+- `active_since` is set only while `running` or `pausing`.
+- A run with a `native_dispatch` row is never claimed again.
+- Ending a run (`completed`, `failed`, `cancelled`, `interrupted`) rejects its
+  pending approvals and fails its unsent steering (**trigger**, migrations 025
+  and 103) and records a pending checkout capture.
+
+| From → to | Trigger | Code | Guard |
+| --------- | ------- | ---- | ----- |
+| ∅ → queued | `submit` / `enqueue` | `agent-runtime.ts`, `queue.ts` | idempotency key, tx |
+| queued → running/pausing | worker claim | `queue.ts` `claim` → `sql/runs.ts` `claimLease` | candidate select and update in one tx |
+| running (no worker) → running | claim after children finish | same | same |
+| running → queued | adapter not ready before dispatch | `deferUndispatched` | sql + lease, no dispatch row |
+| running → completed | worker finishes | `worker.ts` → `completeLeased` | tx + lease |
+| pausing → paused | worker finishes with a saved answer | `completeLeased` | tx + lease |
+| pausing → completed | worker finishes without a saved answer | `completeLeased` | tx + lease |
+| running/pausing/awaiting_approval → failed | worker error | `worker.ts` (`leaseError`) | tx + lease |
+| running/pausing → interrupted | heartbeat older than 60 s | `recoverStale` | tx |
+| running/pausing/awaiting_approval → interrupted | graceful worker stop | `worker.ts` `quiesce` | tx |
+| running/pausing/awaiting_approval/queued → interrupted | native recovery at startup | `native/supervisor.ts` `recover` | tx |
+| running → awaiting_approval | tool approval needed | `mcp/broker.ts`, `native-tools.ts`, `native/decisions.ts` | tx |
+| awaiting_approval → queued / failed | owner decides (non-native) | `approvals.ts` `decide` | tx re-checks approval and run |
+| awaiting_approval → running | native decision resolved | `native/projector.ts`, `approvals.ts` | tx |
+| queued → paused; running → pausing | Pause | `run-attention.ts` `controlRun` | tx on the current row |
+| pausing → paused | Pause of a run with no worker | `controlRun` | same tx |
+| pausing → paused | runtime boundary | `agent-runtime.ts`, `mcp/routes.ts`, `imports.ts` | tx |
+| paused → queued / completed | Resume (completed when the answer is saved) | `controlRun` | tx |
+| any non-terminal → cancelled | Cancel, Dismiss, parent cancel cascade, draft move, import cancel | `run-attention.ts`, `mobile-return/queued-runs.ts`, `workspace-routes.ts`, `queue.ts` | tx |
+| queued → failed | invalid saved work | `queue.ts` `rejectInvalidRun` | sql: no worker |
+
+`interrupted → queued` is legal but unused: Retry creates a new run with a new
+idempotency key and inherits the effect authority.
+
+### `approvals.state`
+
+States: `pending`, `approved`, `executing`, **`rejected`**, **`completed`**,
+**`unknown`**. `pending` has an `expires_at`; its run is `awaiting_approval`.
+`executing` means the external call may be in flight; `unknown` means its
+outcome is uncertain and it is never replayed.
+
+| From → to | Code | Guard |
+| --------- | ---- | ----- |
+| ∅ → pending / approved | `approvals.ts` (digest lookup first) | tx |
+| pending → approved / rejected | `decide` | sql + run state in tx |
+| pending → approved (automatic) | `sql/approvals.ts` auto-approve | sql: `pending` and unexpired |
+| pending → rejected | run ended | trigger (migration 103), `rejectPending` |
+| approved → executing | broker starts the call | sql, with the tool invocation in the same tx |
+| executing → completed | broker saves the result | inside the broker's tx |
+| approved → completed | native config install | `native-tools.ts`; idempotent by fingerprint |
+| executing → unknown | call failed or timed out | sql |
+
+### `tool_invocations.state`
+
+pending → executing (sql) → **completed**/**failed** (the same call) or
+**unknown** (sql). A row in `executing` or `unknown` refuses a new request for
+that call identity with 409.
+
+### `run_steering.state`
+
+| From → to | Code | Guard |
+| --------- | ---- | ----- |
+| ∅ → pending | `steering.ts` | unique idempotency key |
+| pending → sending | `sql/run-steering.ts` | sql + run is `running`/`awaiting_approval` |
+| sending → pending | definitely not handed over | sql |
+| pending/sending → **delivered** / **failed** | delivery outcome | sql |
+| pending/sending → **failed** | run ended | trigger (migration 025) |
+
+### `scheduled_sends.state`
+
+scheduled → **submitted**, scheduled → failed, scheduled/failed → **cancelled**,
+failed → scheduled (retry). Every caller in
+[`mobile-return/scheduled-sends.ts`](../src/server/mobile-return/scheduled-sends.ts)
+re-reads the row in an immediate transaction (tx); submission is a savepoint,
+so a refusal rolls back the partial run. The idempotency key is reused across
+retries.
+
+`later_items` use `surfaced_at` and `done_at`; every write is guarded with
+`IS NULL` (sql).
+
+### `run_checkouts.state`
+
+∅ → started / failed (insert or ignore) → captured / failed. The capture holds
+a 120 s token lease (lease); a result for a replaced token is dropped. The
+capture request is recorded with the terminal run transition, so
+`reconcileCheckouts` finds captures that never ran.
+
+`run_verifications` are per-source observations, upserted only for the current
+session generation; they have no lifecycle.
+
+## Native harness sessions
+
+### `execution_commands.state`
+
+[`execution-commands.ts`](../src/server/execution-commands.ts): ∅ → started (tx,
+primary key owner+command) → **completed** (sql + generation) or **unknown**
+(sql + generation); a refused command's row is deleted. A retry of the same
+command ID joins the in-flight promise or returns the stored outcome; a
+`started` row left by a crash answers "unknown" and is never replayed.
+
+### `native_dispatch.state`
+
+∅ → unknown (written before the prompt is sent) → accepted (sql, prompt
+returned) → **completed**/**failed**/**interrupted**/**stopped** on the first
+terminal status event (sql: `unknown` or `accepted`). A later terminal status
+from the same turn only retires the session. A run with a dispatch row is
+never claimed or dispatched again.
+
+### `companion_sessions.state`
+
+States: idle, disconnected, starting, failed, running, unavailable, with a
+`generation`.
+
+| From → to | Code | Guard |
+| --------- | ---- | ----- |
+| ∅ → idle | bind (`supervisor.ts` `session`) | tx |
+| any → starting (new generation) | session start | mem: previous live closed |
+| starting → idle / failed | start result | mem / sql generation |
+| idle → running | turn dispatch | same tx as the dispatch row |
+| running → idle / unavailable | terminal status | mem: current live |
+| all → disconnected, generation NULL | worker start or close | `recover` |
+
+Disposal does not rewrite the row; readers go through the in-memory live
+session or the run's state.
+
+### `native_decisions.state`
+
+pending → deciding (sql, after live, generation and run checks with no await)
+→ pending (sql, answer not sent) / **resolved** / **expired** / **unknown**.
+pending → expired when its run ends, its generation is disposed, or at
+startup; deciding → unknown at startup. The generation is re-checked just
+before the answer is sent.
+
+### In-memory `Live` session
+
+[`native/state.ts`](../src/server/native/state.ts), owned by one worker
+process. Fields: `run` (the attached turn), `cancelling`, `waiting`,
+`closed`/`disposal`, `requests`, `finish`, `idle` timer.
+
+| From → to | Trigger | Code |
+| --------- | ------- | ---- |
+| idle → turn (`run` set, `cancelling` false) | `execute` | `supervisor.ts` |
+| turn → idle (`run`, `finish`, `waiting`, `cancelling` cleared; idle timer armed) | turn ends, including failures before dispatch | `execute` `catch`/`finally` |
+| turn → cancelling | `interrupt` | `supervisor.ts` |
+| any → closed | `dispose` (idempotent) | `supervisor.ts` |
+
+Invariants: `run` is set only while `execute` owns the turn; `cancelling` is
+true only while that turn is being interrupted; a closed live is never reused.
+Pending protocol requests are rejected on exit or disposal.
+
+`native_history_actions`: ∅ → unknown (written before the fork) → completed;
+an existing `unknown` row answers 409.
+
+## Delivery and access
+
+### `webhook_subscriptions.state`
+
+| From → to | Code | Guard |
+| --------- | ---- | ----- |
+| ∅ → pending_activation | create | tx, request identity |
+| pending_activation → active | accepted activation ping | sql |
+| active → failed | `run.stopped` delivery exhausted | sql (not revoked) |
+| failed → active | owner Retry | tx, no live lease |
+| any → **revoked** | revoke (also cancels undelivered deliveries) | idempotent |
+
+### `webhook_deliveries` (implicit)
+
+queued → leased (tx) → sending (lease, attempts+1) → settled / delivered /
+exhausted (lease). A crashed `sending` row becomes `uncertain` at the next
+claim. Delivery is at-least-once by contract with a stable
+`X-Loop-Delivery` id ([integration API](cards-api.md)).
+
+### `token_requests.state`
+
+∅ → pending (tx) → complete (sql; 409 if already complete) → expired marker
+(operation and hash cleared). A pending identity refuses every replay.
+
+### Push deliveries (implicit)
+
+due → claimed (`available_at` = now + 60 s, attempts+1, tx) → delivered /
+retry / dead (5 attempts) → pruned after 7 days. A 404/410 deletes the
+subscription and its queued pushes.
+
+### `pr_watches.state`
+
+| From → to | Code | Guard |
+| --------- | ---- | ----- |
+| ∅ → watching | create | tx |
+| watching → paused | hourly limit | sql |
+| paused → watching | Resume (`resumeWatch`) | tx + sql |
+| non-stopped → **stopped** | Stop, merged or closed | sql |
+
+Follow-up runs use the idempotency key `pr-watch:<id>:<hash>`.
+
+### Pairing ceremonies and devices
+
+`fleet_pairing_ceremonies`: ∅ → pending (older pending cancelled) → **device**
+/ **enrollment** on redemption (tx: pending, unexpired, origin, in-memory
+liveness) or → **cancelled** (sql) on restart or origin change. A combined link
+consumes both capabilities. Devices are renewed only while unexpired (sql) and
+retired with a write-ahead expiry intent. `oauth_states` are selected and
+deleted in one transaction.
+
+### `agent_mail.state`
+
+∅ → pending (tx, unique idempotency key) → held / **sent** / **refused**;
+pending → pending on retry; held → sent / refused; sent → refused only for a
+steering message proven unsent. Delegation results are keyed
+`result:<child>:<state>`.
+
+## Fleets (experimental)
+
+| Record | States and edges | Guards |
+| ------ | ---------------- | ------ |
+| `fleet_binding` | ∅ → controller/replica; controller → handoff_pending → replica; replica → controller (accept handoff); any except removed → controller (explicit recover); → **removed** | tx, signed head/parent checks; `removed` is absorbing |
+| `fleet_handoffs` | prepared → committed | sql |
+| `fleet_handoff_jobs` | ready → uncertain(attempt) → **complete**; ready → **superseded**; uncertain → uncertain(no attempt) at startup | sql + attempt; completion needs a verified signed directory |
+| `fleet_command_receipts` | ∅ → started → **completed** / **unknown** / **refused**; ∅ → refused (reconcile retires an absent ID) | tx, sql |
+| `fleet_forwarded_actions` | ∅ → unknown → started → **completed** / **refused** / unknown | sql (`unknown`/`started` only) |
+| `fleet_enrollments` (source) | ready → preparing → prepared/uncertain → published → uncertain → **complete**/**cancelled** | sql + attempt, tx on receipts |
+| `fleet_enrollments` (destination) | ∅ → prepared → **complete** / **cancelled** | tx |
+| `fleet_distribution` | pending → acked / incompatible; incompatible → pending (local admin restart) | sql |
+| `fleet_mail_outbox` | ∅ → pending → unknown → **accepted** / **refused** | tx, monotonic receipt revision |
+| `fleet_mail_inbox` | ∅ → prepared/admitted; prepared → admitted / refused (expired) | tx |
+
+## Client and host
+
+### Composer send receipt
+
+[`sendIntent.ts`](../src/client/sendIntent.ts): `{signature, key, intent,
+pending}` per thread, stored in `sessionStorage`. Empty → pending (new key) →
+cleared on 2xx, refused (key kept) on a Loop response below 500, unchanged on
+5xx or no response. A pending receipt for the same message is resent with the
+same key and intent. Fleet sends also use the IndexedDB command journal in
+[`fleetCommand.ts`](../src/client/fleetCommand.ts) (reserved → dispatched →
+removed on a terminal answer), which turns a repeat into a receipt-only query.
+
+### Workspace event socket
+
+[`workspace-events.ts`](../src/client/workspace-events.ts): connecting → ready
+→ retry with backoff → stopped (close code 4003). Polling runs while not
+ready. Frames from a replaced socket or an earlier owner generation are
+ignored, and replays below the cursor are refused.
+
+### Workspace lock
+
+[`lifecycle.ts`](../src/lifecycle.ts): absent → held (`link`). A held lock whose
+owner is proven dead (no such process, a zombie, or a different process
+identity, including a PID now owned by another user) is recovered under
+`host.lock.recovery`. A recovery record whose owner is dead is moved aside
+atomically and checked before it is replaced, so a live recoverer is never
+displaced. Release removes the lock only when the nonce still matches.
+
+### Harness upgrade
+
+[`harness-upgrades.ts`](../src/harness-upgrades.ts): running → complete /
+restart-required / failed / unconfirmed; unconfirmed after a host restart;
+restart-required → complete / unconfirmed on reconcile; unconfirmed → failed /
+restart-required by owner confirmation; finished → dismissed. One upgrade runs
+at a time; starts are deduplicated by command ID.
+
+## Reachable invalid states
+
+Found by reading every writer of each state; each fixed item has a regression
+test that fails on the earlier code.
+
+### Fixed
+
+| ID | Machine | Defect | Regression |
+| -- | ------- | ------ | ---------- |
+| R1 | runs | Pause read `worker_id` before its transaction. If a worker claimed a manager run between that read and the write, the run became `paused` while the worker kept executing it; Resume then let a second worker claim it. The decision now uses the current row in one transaction. ([#350](https://github.com/j-asefa/loop/issues/350)) | `test/recovery.test.ts` "pauses a run from its current lease" |
+| R2 | runs | A pause landing after the runtime's last boundary made `pausing → completed` illegal; the finished run stayed `pausing` and stale-lease recovery reported it `interrupted`. Completion is now lease-checked and pauses a saved answer or completes unsaved finished work. ([#350](https://github.com/j-asefa/loop/issues/350)) | `test/recovery.test.ts` "completes only under the worker's lease" |
+| R3 | runs, approvals | A pause during an MCP connect failed the run with "Run is no longer executing" and marked the approved, unsent call `unknown`. A `pausing` run now finishes the call and pauses at its next boundary. ([#350](https://github.com/j-asefa/loop/issues/350)) | `test/mcp-errors.test.ts` "finishes an approved tool call when a pause arrives" |
+| N1 | Live session | A throw between attaching a turn and dispatch (for example `SQLITE_BUSY` on the dispatch record) left `live.run` set: every later turn answered "already running" and settings and provider changes were refused until restart. ([#351](https://github.com/j-asefa/loop/issues/351)) | `test/native-session-permission.test.ts` "releases the session when a turn fails before it is dispatched" |
+| N2 | Live session | `cancelling` stayed true after an interrupted turn, so setting changes were refused until the next turn. ([#351](https://github.com/j-asefa/loop/issues/351)) | same file, "accepts setting changes once an interrupted turn has ended" |
+| N3 | native_dispatch | A second terminal status (the harness failing as the turn wound down) overwrote `completed` with `failed`, set an error on a completed run and made fleet mail refuse the run's outgoing mail. ([#351](https://github.com/j-asefa/loop/issues/351)) | same file, "keeps the first terminal status of a native turn" |
+| H1 | workspace lock | A recoverer killed during recovery left `host.lock.recovery`; every later `loop start` failed with "Another process is recovering" until the file was deleted by hand. ([#352](https://github.com/j-asefa/loop/issues/352)) | `test/lifecycle.node.test.ts` "a recoverer killed mid-recovery" |
+| H2 | workspace lock | A stale lock whose PID was reused by another user's process returned EPERM and was treated as a live owner without checking its identity. ([#352](https://github.com/j-asefa/loop/issues/352)) | same file, "PID now belongs to another user's process" |
+| W1 | pr_watches | Resume read `paused` and then wrote `watching` unguarded; a stop committed by the worker in between (pull request merged) was revived and polled again. ([#353](https://github.com/j-asefa/loop/issues/353)) | `test/sql-pr-watches.test.ts` "resumes only a paused watch" |
+
+### Open
+
+| ID | Machine | Defect | Issue |
+| -- | ------- | ------ | ----- |
+| C1 | send receipt | Pending composer receipts live in `sessionStorage`, which a killed home-screen app, a new tab or auth expiry (`sessionStorage.clear()`) discards; the restored draft is then sent with a new idempotency key. "Retry as a new run" keeps its key only in memory, and each harness upgrade click mints a new command ID. | [#354](https://github.com/j-asefa/loop/issues/354) |
+| S1 | approvals, tool_invocations | A crash during an MCP call leaves the approval and invocation `executing` forever; no startup sweep marks them `unknown`. | [#355](https://github.com/j-asefa/loop/issues/355) |
+| S2 | runs | An expired approval leaves its run `awaiting_approval`, holding the agent's queue, while the Feed hides the approval. | [#355](https://github.com/j-asefa/loop/issues/355) |
+| S3 | runs | A graceful worker stop interrupts non-native runs that were only `awaiting_approval` and rejects their approvals; a crash leaves the same runs approvable. | [#355](https://github.com/j-asefa/loop/issues/355) |
+| F1 | fleet_binding | A handoff whose proposal never reached the destination keeps the controller `handoff_pending`: a `missing` receipt is not final, so only an explicit recover (a new lineage) clears it. A committed source enrollment whose destination is gone cannot be cancelled. | [#356](https://github.com/j-asefa/loop/issues/356) |
+| F2 | fleet_binding | `removed` is absorbing: the machine cannot create, recover or enroll without deleting its data directory. | [#356](https://github.com/j-asefa/loop/issues/356) |
+| M1 | various | Lower impact: a late steering receipt emits `delivered` after the run-end trigger stored `failed`; a webhook's pre-dispatch failure replaces an earlier `uncertain` outcome label; a stale push 410 can delete a just-renewed subscription; a provider change racing a native session start records an undelivered prompt as uncertain; a re-emitted native request ID after resolution leaves the run waiting. | [#357](https://github.com/j-asefa/loop/issues/357) |

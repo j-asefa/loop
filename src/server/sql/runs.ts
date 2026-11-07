@@ -579,6 +579,22 @@ export function ownedState(
     : parseRecord(ownedStateRow, row, "runs");
 }
 
+const leasedStateStatement = statement(
+  "SELECT state,result FROM runs WHERE id=? AND owner_id=? AND worker_id=?",
+);
+const leasedStateRow = QueryRecords.runs.pick({ state: true, result: true });
+export function leasedState(
+  db: Database.Database,
+  id: string,
+  owner: string,
+  worker: string,
+) {
+  const row = leasedStateStatement(db).get(id, owner, worker);
+  return row === undefined
+    ? undefined
+    : parseRecord(leasedStateRow, row, "runs");
+}
+
 const transitionStateStatement =
   statement(`UPDATE runs SET state=?,updated_at=?,
       active_ms=active_ms+CASE WHEN active_since IS NOT NULL AND ? NOT IN ('running','pausing')

@@ -9,6 +9,7 @@
 | [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels, recovery and fleets          |
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |
 | [Contract rules](contracts.md)               | API contract authoring, public projections and boundary evidence |
+| [State machines](state-machines.md)          | States, invariants and transition tables; known invalid states    |
 | [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and notifications          |
 | [Integration API](cards-api.md)                    | Scoped tokens, workspace reads and Cards synchronization |
 | [Development](development.md)                | Tests, builds, packaging and manual verification                  |
