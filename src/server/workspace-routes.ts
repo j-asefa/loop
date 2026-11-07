@@ -24,7 +24,6 @@ import { db, id, now } from "./db.js";
 import {
   owned,
   ownedFolder,
-  ownedAgent,
   ownedArtifact,
   ownedConnection,
   ownedImport,

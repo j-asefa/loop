@@ -43,7 +43,6 @@ import { notify } from "./toast";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { relativeTime } from "./threadView";
 import {
-  feedById,
   feedCatalog,
   type FeedEntry,
   type SocialResponse,

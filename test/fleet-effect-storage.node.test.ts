@@ -49,7 +49,6 @@ after(() => {
 function peer() {
   const storage = new Database(":memory:");
   applyMigrations(storage);
-  storage.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const identity = new FleetAuthority(storage, secrets).identity;
   storage.close();
   const current = authority.directory(owner)!;

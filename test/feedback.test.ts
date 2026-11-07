@@ -19,7 +19,7 @@ vi.mock("../src/server/local-embeddings.js", () => ({
 }));
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { ownedArtifact, createAgent, owned, Problem } =
+const { ownedArtifact, createAgent, Problem } =
   await import("../src/server/domain");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");

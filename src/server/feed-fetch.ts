@@ -236,7 +236,7 @@ function closings(text: string) {
 function lastClosing(text: string) {
   CLOSES.lastIndex = 0;
   let end = 0;
-  for (let match; (match = CLOSES.exec(text));) end = CLOSES.lastIndex;
+  while (CLOSES.exec(text)) end = CLOSES.lastIndex;
   return end;
 }
 

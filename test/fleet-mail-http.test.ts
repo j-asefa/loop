@@ -8,7 +8,6 @@ import { join } from "node:path";
 import { request } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { Headers, Response, type fetch as PeerFetch } from "undici";
-import { Host } from "../src/host.js";
 import { applyMigrations } from "../src/server/migrations.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetCredentials } from "../src/server/fleet-credentials.js";
@@ -58,7 +57,6 @@ function machine() {
   writeFileSync(join(dir, "db.sqlite"), schema);
   const db = new Database(join(dir, "db.sqlite"));
   db.pragma("foreign_keys=ON");
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   db.exec(
     "CREATE TABLE fixture_mail_queue(id TEXT PRIMARY KEY, body TEXT NOT NULL)",
   );

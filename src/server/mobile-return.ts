@@ -35,10 +35,9 @@ import {
   ownedFolder,
   ownedConversation,
   ownedMessage,
-  owned,
   Problem,
 } from "./domain.js";
-import { projectFolders, resultUrl } from "./results.js";
+import { projectFolders } from "./results.js";
 import { unreadCount } from "./news.js";
 import { FEED_FILTERS, type FeedPage } from "../shared/workspace-api.js";
 import {
@@ -367,14 +366,6 @@ export function setDoneCardRead(
     })
     .immediate();
 }
-type AwayItem = {
-  conversation_id: string;
-  title: string;
-  agent_name: string | null;
-  run_id: string;
-  state: string;
-  updated_at: number;
-};
 export function awaySummary(owner: string, since: number) {
   return runsQueries.awaySummary(db, owner, since, now);
 }

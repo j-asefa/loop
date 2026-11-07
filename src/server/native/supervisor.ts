@@ -13,7 +13,6 @@ import { ExecutionRefused } from "../execution-refusal.js";
 import { providerChangeInProgress } from "../native-provider-locks.js";
 import { nativeSignIns } from "../native-auth.js";
 import { watchRun } from "../run-signal.js";
-import { READABLE_MAIL_SQL } from "../mail-context.js";
 import { harnessUpgrades } from "../harness-upgrades.js";
 import { type AgentWorkspace } from "../agent-worktree.js";
 import { completeCheckout, startCheckout } from "../run-checkouts.js";

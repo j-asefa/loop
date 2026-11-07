@@ -1,5 +1,5 @@
 import { literalEntry, proseEntry } from "./textEntry";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { callRoute } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
 import { Avatar, Sheet } from "./components";

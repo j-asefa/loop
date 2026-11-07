@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ContentCard } from "./ContentCard";
 import { useCards } from "./useCards";
 import { CollectionReadNotice } from "./CollectionRead";
-import type { Agent, Provider } from "../shared/types";
+import type { Agent } from "../shared/types";
 
 export { opensContentCard as opensConversationFromCard } from "./ContentCard";
 export type PromptReply = {

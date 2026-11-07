@@ -18,7 +18,6 @@ const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { SteeringInbox } = await import("../src/server/steering");
 const { NotDelivered } = await import("../src/adapters/types");
-const { recordTrace } = await import("../src/server/traces");
 const { conversationMessages } =
   await import("../src/server/conversation-messages");
 const { uploadFile, readRunFile } = await import("../src/server/uploads");

@@ -39,7 +39,6 @@ function machine() {
   const db = new Database(join(dir, "workspace.db"));
   databases.push(db);
   applyMigrations(db);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const authority = new FleetAuthority(db, secrets);
   const proof = new FleetProof(db, authority.identity, secrets);
   const sync = new FleetDirectorySync(db, authority, owner, secrets);

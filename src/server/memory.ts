@@ -9,7 +9,6 @@ import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import type { QueryRow } from "./query-records.js";
 
-import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { db, id, now } from "./db.js";
 import {
   ownedArtifact,

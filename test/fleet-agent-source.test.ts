@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request, type IncomingHttpHeaders } from "node:http";
 import { Headers, Response, type fetch as undiciFetch } from "undici";
-import { Host } from "../src/host.js";
 import { AgentSources } from "../src/agent-sources.js";
 import { fleetAgentSource } from "../src/server/fleet-agent-source.js";
 import { createFleetCommandsHttp } from "../src/server/fleet-commands-http.js";
@@ -86,7 +85,6 @@ const { fleetEffectAuthority } =
 registerEffectAuthority(fleetEffectAuthority);
 const sourceDb = new Database(join(root, "source.db"));
 applyMigrations(sourceDb);
-sourceDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const source = new FleetAuthority(sourceDb, secrets),
   destination = new FleetAuthority(db, secrets),
   credentials = new FleetCredentials(db, destination, secrets),

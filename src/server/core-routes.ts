@@ -3,7 +3,6 @@ import * as connectionsQueries from "./sql/connections.js";
 import * as foldersQueries from "./sql/folders.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as conversationsQueries from "./sql/conversations.js";
-import * as nativeDispatchQueries from "./sql/native-dispatch.js";
 import * as artifactsQueries from "./sql/artifacts.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
@@ -33,7 +32,6 @@ import {
   runResponse,
   messageResponse,
 } from "./row-schemas.js";
-import type { QueryRow } from "./query-records.js";
 
 import { projectionSnapshot } from "./projection-snapshot.js";
 import { writeConnectionStatus } from "./connection-status.js";
@@ -81,7 +79,6 @@ import { adapter } from "./providers.js";
 import { seal, unseal } from "./secrets.js";
 import { nextTurnConnection, submit } from "./agent-runtime.js";
 import { activeRun } from "./steering.js";
-import { transition } from "./queue.js";
 import { assertEffect, inheritEffect } from "./effect-authority.js";
 
 import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
@@ -149,7 +146,6 @@ routes.on(workspaceApi.connectionCreate, async (req, res) => {
 routes.on(workspaceApi.connectionRefresh, async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner);
   if (isNativeConnection(c)) {
-    const harness = c.metadata.loopHarness;
     return res.json(
       await executionRequest(
         "runtime.refresh",

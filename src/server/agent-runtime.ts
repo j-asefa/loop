@@ -1,7 +1,6 @@
 import * as teamsQueries from "./sql/teams.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as conversationsQueries from "./sql/conversations.js";
-import * as agentActivitiesQueries from "./sql/agent-activities.js";
 import * as nativeDispatchQueries from "./sql/native-dispatch.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as artifactsQueries from "./sql/artifacts.js";
@@ -25,7 +24,6 @@ import { QueryRecords, type QueryRow } from "./query-records.js";
 import { watchRun } from "./run-signal.js";
 import { isNativeConnection } from "./native-connections.js";
 import { queuedMailReady } from "./agent-mail-policy.js";
-import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { RunDeferred } from "./run-deferred.js";
 import { invokeTool, toolBindings, type ToolBinding } from "./mcp/broker.js";
 import { agentPermissionMode } from "./mcp/approval-policy.js";

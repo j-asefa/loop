@@ -22,7 +22,7 @@ import {
   fleetDeviceFromLink,
   fleetEnrollmentFromLink,
 } from "../src/shared/fleet-pairing.js";
-import { hash, secret } from "../src/state.js";
+import { hash } from "../src/state.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-pairing-"));
 process.env.LOOP_DATA_DIR = root;
@@ -47,7 +47,6 @@ function machine(
   db.pragma("foreign_keys=ON");
   db.pragma("busy_timeout=5000");
   applyMigrations(db);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   databases.push(db);
   const authority = new FleetAuthority(db, secrets);
   return {

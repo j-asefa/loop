@@ -66,7 +66,6 @@ import {
 import { ArtifactViewer } from "../ArtifactViewer";
 import { Conversation } from "../Conversation";
 import { Avatar, Sheet } from "../components";
-import type { Agent } from "../../shared/types";
 import { PreviewBanner } from "../PreviewBanner";
 
 import { tabs } from "./AppController";

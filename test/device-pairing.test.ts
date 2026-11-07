@@ -27,7 +27,6 @@ function workspace(owner = randomUUID()) {
   mkdirSync(dir);
   const db = new Database(join(dir, "workspace.db"));
   applyMigrations(db);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   databases.push(db);
   return { owner, dir, db };
 }

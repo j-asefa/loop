@@ -19,7 +19,7 @@ import type { Request } from "../protocol";
 import { Check, X } from "lucide-react";
 import { SessionActivityControls } from "./SessionActivityControls";
 import { Tools } from "./Tools";
-import { ConnectionNotice, setConnection } from "./ConnectionNotice";
+import { setConnection } from "./ConnectionNotice";
 import { NativeRequestDetails } from "./NativeRequestDetails";
 import { watchWorkspaceEvents } from "./workspace-events";
 import {

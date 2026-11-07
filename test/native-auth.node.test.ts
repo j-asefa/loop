@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { until } from "./helpers.js";
-import type { AuthDriver, AuthInteraction } from "../src/server/native-auth.js";
+import type { AuthDriver } from "../src/server/native-auth.js";
 await mkdir(".tmp", { recursive: true });
 const dir = await mkdtemp(resolve(".tmp/native-auth-test-"));
 process.env.LOOP_DATA_DIR = dir;

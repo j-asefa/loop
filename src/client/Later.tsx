@@ -1,14 +1,12 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { reactiveSource, surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
   ArrowUpRight,
-  Bookmark,
   Check,
   Clock3,
-  MessageSquare,
   Search,
   Tag,
 } from "lucide-react";
@@ -30,12 +28,7 @@ import {
 } from "./ThreadTools";
 import type { Artifact } from "../shared/types";
 import { Avatar, RichText, Sheet } from "./components";
-import {
-  dayLabel,
-  relativeTime,
-  reminderReason,
-  timeLabel,
-} from "./threadView";
+import { relativeTime, reminderReason } from "./threadView";
 import { notify } from "./toast";
 
 type LaterView = RouteResponse<typeof workspaceApi.laterList>["due"][number];

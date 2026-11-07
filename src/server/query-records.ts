@@ -509,7 +509,6 @@ export const QueryRecords = {
     parent_digest: z.string(),
   }),
 
-  deployment_profile: z.object({ singleton: z.number(), profile: z.string() }),
   fleet_machine_identity: z.object({
     singleton: z.number(),
     machine_id: z.string(),

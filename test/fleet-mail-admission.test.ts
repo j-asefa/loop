@@ -6,7 +6,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
-import { Host } from "../src/host.js";
 import { applyMigrations } from "../src/server/migrations.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetCredentials } from "../src/server/fleet-credentials.js";
@@ -62,7 +61,6 @@ const origin = "https://recipient.example";
 const authority = new FleetAuthority(db, secrets);
 const peerDb = new Database(":memory:");
 applyMigrations(peerDb);
-peerDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const peer = new FleetAuthority(peerDb, secrets);
 const first = authority.create(owner, {
   mutationId: id(),

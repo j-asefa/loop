@@ -10,6 +10,7 @@
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "strict": true,
+    "noUnusedLocals": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,

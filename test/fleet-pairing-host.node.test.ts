@@ -27,7 +27,6 @@ test("the HTTP gateway uses atomic companion pairing without exchanging an enrol
   const secrets = await import("../src/server/secrets.js");
   const db = new Database(join(dir, "workspace.db"));
   applyMigrations(db);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const authority = new FleetAuthority(db, secrets),
     owner = "local-destination-owner";
   const origin = "https://destination.example";

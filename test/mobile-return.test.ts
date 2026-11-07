@@ -27,7 +27,7 @@ db.prepare = ((sql: string) => {
   }
   return statement;
 }) as typeof db.prepare;
-const { ownedRun, ownedConversation, createAgent, owned, Problem } =
+const { ownedRun, ownedConversation, createAgent, Problem } =
   await import("../src/server/domain");
 const { recordConversationUpdate } =
   await import("../src/server/conversation-updates");

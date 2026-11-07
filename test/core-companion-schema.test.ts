@@ -30,6 +30,7 @@ it("creates core pairing tables and enforces agent-bound native sessions without
     ])
       expect(objects.has(name), name).toBe(true);
     for (const name of [
+      "deployment_profile",
       "fleet_devices",
       "fleet_device_store",
       "fleet_pairing_ceremonies",

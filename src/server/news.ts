@@ -79,12 +79,6 @@ const MAX_MUTES = 100;
 /** A stored story carries when Loop first read it, which the list sorts by. */
 type StoredStory = NewsStory & { first_seen_at: number };
 type Shown = { stories: StoredStory[]; fetched_at: number };
-type Failure = {
-  error: unknown;
-  failed_at: number;
-  retry_at: number;
-  failures: number;
-};
 /** Raised for a feed that is still loading, to tell it apart from a failure. */
 class Pending extends Error {}
 /** Rejects with Pending once a feed has had its moment to answer. */

@@ -76,7 +76,6 @@ const host = new WorkspaceHost(
 );
 const sourceDb = new Database(":memory:");
 applyMigrations(sourceDb);
-sourceDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const source = new FleetAuthority(sourceDb, secrets),
   sourceOwner = randomUUID();
 const sourceCredentials = new FleetCredentials(sourceDb, source, secrets);

@@ -16,7 +16,6 @@ import { fleetWorkspaceApi } from "../src/shared/fleet-workspace-api.js";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.js";
 import { fleetCredentialApi } from "../src/shared/fleet-credential-api.js";
 import { until } from "./helpers.js";
-import { Host } from "../src/host.js";
 import { applyMigrations } from "../src/server/migrations.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetCredentials } from "../src/server/fleet-credentials.js";
@@ -60,7 +59,6 @@ const { createFleetPeerHttp } =
 const secrets = await import("../src/server/secrets.js");
 const sourceDb = new Database(join(root, "source.db"));
 applyMigrations(sourceDb);
-sourceDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const source = new FleetAuthority(sourceDb, secrets),
   destination = new FleetAuthority(db, secrets),
   credentials = new FleetCredentials(db, destination, secrets),
@@ -69,9 +67,6 @@ const source = new FleetAuthority(sourceDb, secrets),
   origin = "https://destination.example";
 const alternateDb = new Database(join(root, "alternate.db"));
 applyMigrations(alternateDb);
-alternateDb
-  .prepare("INSERT INTO deployment_profile VALUES(1,'companion')")
-  .run();
 const alternate = new FleetAuthority(alternateDb, secrets),
   alternateOwner = randomUUID();
 const first = source.create(sourceOwner, {

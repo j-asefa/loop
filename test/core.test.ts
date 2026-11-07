@@ -8,7 +8,7 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { seal, unseal } = await import("../src/server/secrets");
-const { ownedAgent, createAgent, renameAgent, owned } =
+const { ownedAgent, createAgent, renameAgent } =
   await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");

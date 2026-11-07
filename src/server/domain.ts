@@ -19,7 +19,6 @@ import {
 } from "../shared/agent-contract-schemas.js";
 import { type Connection } from "./row-schemas.js";
 import * as rows from "./row-schemas.js";
-import { z } from "zod";
 import { db, id, now } from "./db.js";
 
 import { Problem } from "../shared/problem.js";

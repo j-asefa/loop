@@ -16,7 +16,6 @@ import { FleetCredentialLeases } from "../src/server/fleet-credential-leases.js"
 import { FleetDirectoryReconcile } from "../src/server/fleet-directory-reconcile.js";
 import { FleetDirectorySync } from "../src/server/fleet-directory-sync.js";
 import { Problem } from "../src/shared/problem.js";
-import type { FleetCredentialProof } from "../src/shared/fleet-credentials.js";
 import { FLEET_CREDENTIAL_LIFETIME_MS as TTL } from "../src/shared/fleet-credentials.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-renewal-"));
@@ -61,7 +60,6 @@ function fixture(random = 0.5) {
       owner = randomUUID();
     databases.push(db);
     applyMigrations(db);
-    db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
     const authority = new FleetAuthority(db, secrets),
       offset = { mono: 0 };
     const clock = {

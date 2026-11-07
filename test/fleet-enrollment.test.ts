@@ -52,9 +52,6 @@ function machine(
   databases.push(db);
   db.pragma("foreign_keys=ON");
   applyMigrations(db);
-  db.prepare(
-    "INSERT OR IGNORE INTO deployment_profile VALUES(1,'companion')",
-  ).run();
   const state = {
     origin: options.origin ?? `https://${randomUUID()}.example`,
     now: options.now ?? 1_000_000,

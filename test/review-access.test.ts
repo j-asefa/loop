@@ -1,11 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { afterAll, expect, it, vi } from "vitest";
+import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { ReviewSnapshot } from "../src/server/review-snapshot";
-import type { Run } from "../src/server/queue";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-review-access-"));
 process.env.LOOP_DATA_DIR = dir;

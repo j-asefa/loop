@@ -49,7 +49,6 @@ const { directoryDigest } = await import("../src/server/fleet-crypto.js");
 const secrets = await import("../src/server/secrets.js");
 const peerDb = new Database(":memory:");
 applyMigrations(peerDb);
-peerDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const authority = new FleetAuthority(db, secrets);
 const peer = new FleetAuthority(peerDb, secrets);
 const first = authority.create(OWNER, {

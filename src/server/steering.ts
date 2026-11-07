@@ -13,7 +13,6 @@ import type { ChatMessage } from "./providers.js";
 import { attachmentPrompt } from "./uploads.js";
 import { replyPrompt } from "../shared/replies.js";
 import { steeredReplyPrompt } from "../shared/steering-replies.js";
-import { RUN_LIVE_INPUT_SQL } from "./native-connections.js";
 import { NotDelivered } from "../adapters/types.js";
 
 type Delivery = (message: ChatMessage, id: string) => Promise<void>;

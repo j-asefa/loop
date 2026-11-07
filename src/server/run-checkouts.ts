@@ -866,7 +866,7 @@ async function captureClaimed(
         fields.behind = behind;
       }
     }
-    const { untracked, tracked } = await status(directory);
+    const { untracked } = await status(directory);
     const initialUntracked = new Set<string>(
       JSON.parse(row.start_untracked_paths ?? "[]"),
     );

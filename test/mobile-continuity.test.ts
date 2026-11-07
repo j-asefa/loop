@@ -1,4 +1,4 @@
-import { afterAll, expect, it, vi } from "vitest";
+import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,13 +8,11 @@ import { ZodError } from "zod";
 const dir = mkdtempSync(join(tmpdir(), "loop-mobile-continuity-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-const { db, id, now, emit } = await import("../src/server/db");
-const { createAgent, owned, Problem } = await import("../src/server/domain");
-const { recordTrace } = await import("../src/server/traces");
+const { db, id, now } = await import("../src/server/db");
+const { createAgent, Problem } = await import("../src/server/domain");
 const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
-const { transition } = await import("../src/server/queue");
 const { requestApproval } = await import("../src/server/approvals");
 const { uploadFile } = await import("../src/server/uploads");
 const { surfaceLater, deliverScheduledSends } =

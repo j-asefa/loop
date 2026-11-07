@@ -48,9 +48,6 @@ function machine(
   db.pragma("foreign_keys=ON");
   db.pragma("busy_timeout=5000");
   applyMigrations(db);
-  db.prepare(
-    "INSERT OR IGNORE INTO deployment_profile VALUES(1,'companion')",
-  ).run();
   databases.push(db);
   return { owner, db, path, authority: new FleetAuthority(db, secrets) };
 }
@@ -909,7 +906,6 @@ it("upgrades old command receipts without inventing their action or losing uncer
   const db = new Database(join(root, "old-commands.db"));
   databases.push(db);
   applyMigrations(db, previous);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const owner = randomUUID(),
     id = randomUUID(),
     digest = "a".repeat(64);
@@ -957,7 +953,6 @@ it("migrates an existing companion without changing its identity or workspace re
   databases.push(db);
   db.pragma("foreign_keys=ON");
   applyMigrations(db, previous);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   db.prepare(
     "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES('kept','existing-owner',NULL,'folder','Keep me',1)",
   ).run();

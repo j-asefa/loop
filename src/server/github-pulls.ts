@@ -36,7 +36,6 @@ import {
   type PullRequestState,
 } from "../shared/github.js";
 import {
-  isRepoPath,
   repoMediaType,
   type ChecksState,
   type MergeMethod,

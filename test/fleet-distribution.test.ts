@@ -56,7 +56,6 @@ function machine(migrations?: string) {
   const db = new Database(path);
   databases.push(db);
   if (migrations) applyMigrations(db, migrations);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const authority = new FleetAuthority(db, secrets);
   return {
     dir,

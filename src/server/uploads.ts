@@ -3,8 +3,6 @@ import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 import * as messagesQueries from "./sql/messages.js";
 import { type Artifact } from "./row-schemas.js";
 
-import { z } from "zod";
-import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -21,11 +19,7 @@ import { saveArtifact } from "./artifacts.js";
 import { assertFleetAction } from "./fleet-action-context.js";
 
 import type { ChatMessage } from "./providers.js";
-import {
-  MAX_MESSAGE_FILES,
-  MAX_UPLOAD_BYTES,
-  type UploadedFile,
-} from "../shared/uploads.js";
+import { MAX_UPLOAD_BYTES, type UploadedFile } from "../shared/uploads.js";
 
 import { AttachmentIds as attachmentIds } from "../shared/uploads.js";
 export { attachmentIds };

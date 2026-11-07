@@ -10,7 +10,6 @@ import {
   SignedFleetDirectory,
 } from "../shared/fleet.js";
 import {
-  FleetEnrollmentIntent,
   FleetEnrollmentProbe,
   FleetPrepareEnrollment,
   SignedFleetEnrollmentProbe,

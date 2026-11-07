@@ -45,7 +45,6 @@ function machine(owner: string) {
   const db = new Database(path);
   databases.push(db);
   db.pragma("foreign_keys=ON");
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   db.exec(
     "CREATE TABLE fixture_queue(id TEXT PRIMARY KEY, body TEXT NOT NULL)",
   );

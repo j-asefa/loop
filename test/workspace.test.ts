@@ -14,7 +14,7 @@ const { enqueue, claim, transition, recoverStale } =
 const { saveArtifact } = await import("../src/server/artifacts");
 const { moveArtifact, undoMove, naturalDestination } =
   await import("../src/server/filing");
-const { lexical, cosine } = await import("../src/server/search");
+const { lexical } = await import("../src/server/search");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -48,7 +48,7 @@ it("deduplicates repeated uploads and safely restarts import work", async () => 
   const bytes = readFileSync("test/fixtures/chatgpt-export.zip");
   const a = await stageImport("alice", bytes, "export.zip");
   expect((await stageImport("alice", bytes, "export.zip")).id).toBe(a.id);
-  const run = enqueue("alice", "Import", "import-test-key", {
+  enqueue("alice", "Import", "import-test-key", {
     kind: "import",
     payload: { importId: a.id },
   });

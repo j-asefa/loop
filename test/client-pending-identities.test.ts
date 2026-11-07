@@ -105,7 +105,6 @@ it("a pending composer receipt survives a session wipe and reload, reusing its k
 
 it("a pending receipt is owner/thread scoped", () => {
   const durable = new MemoryStorage();
-  const a = new MemoryStorage();
   const receipt: SendReceipt = {
     signature: "m",
     key: "k",

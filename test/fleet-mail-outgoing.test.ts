@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
 import { Response, type fetch as PeerFetch } from "undici";
-import { Host } from "../src/host.js";
 import { applyMigrations } from "../src/server/migrations.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetCredentials } from "../src/server/fleet-credentials.js";
@@ -74,7 +73,6 @@ const owner = "source-owner",
 const authority = new FleetAuthority(db, secrets);
 const peerDb = new Database(":memory:");
 applyMigrations(peerDb);
-peerDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 peerDb.exec(
   "CREATE TABLE fixture_mail_queue(id TEXT PRIMARY KEY,body TEXT NOT NULL)",
 );
@@ -895,9 +893,6 @@ it.each(["sender", "resume"])(
   async (kind) => {
     const initiatingDb = new Database(":memory:");
     applyMigrations(initiatingDb);
-    initiatingDb
-      .prepare("INSERT INTO deployment_profile VALUES(1,'companion')")
-      .run();
     const initiator = new FleetAuthority(initiatingDb, secrets);
     try {
       directory = authority.revise(owner, {

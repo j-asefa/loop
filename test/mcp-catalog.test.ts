@@ -17,7 +17,7 @@ vi.mock("../src/server/mcp/client.js", async (original) => ({
 }));
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { ownedMcpConnection, createAgent, owned, Problem } =
+const { ownedMcpConnection, createAgent, Problem } =
   await import("../src/server/domain");
 const { mcp } = await import("../src/server/mcp/routes");
 const { catalog } = await import("../src/server/mcp/catalog-data");

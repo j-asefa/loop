@@ -121,9 +121,9 @@ it("creates one persistent Workspace per owner and recovers only its existing un
     b = f.run(f.loose),
     named = f.run(f.named),
     nested = f.run(f.nested);
-  const foreign = other.run();
+  other.run();
   // Mixed run history must keep each run's original fallback scope.
-  const mixed = f.run(f.named, "completed", a.conversation);
+  f.run(f.named, "completed", a.conversation);
   const bootstrap = (await api(f.owner, "/bootstrap")).data;
   const project = bootstrap.folders.find((p: any) => p.is_workspace);
   expect(project).toMatchObject({
@@ -201,7 +201,7 @@ it("keeps live Workspace counts scoped to the current project", async () => {
     now(),
     now() + 60_000,
   );
-  const named = f.run(f.named, "running");
+  f.run(f.named, "running");
   // A conversation's explicit project also wins over an unassigned run.
   const filed = f.run(null, "running");
   db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(

@@ -14,20 +14,12 @@ import {
   stat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { randomUUID, createHash, createHmac } from "node:crypto";
+import { join } from "node:path";
+import { createHash, createHmac } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { WebSocket } from "ws";
 import { control } from "../src/host-control.js";
 import { Tunnel, tunnelUrl } from "../src/tunnel.js";
-async function until(fn: () => boolean) {
-  const end = Date.now() + 5000;
-  while (!fn()) {
-    if (Date.now() > end) throw new Error("Timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
-
 test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentication", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-cookie-"));
   const host = createHost(dir);

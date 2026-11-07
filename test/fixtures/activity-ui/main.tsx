@@ -1,4 +1,3 @@
-import React from "react";
 import { createRoot } from "react-dom/client";
 import { Traces } from "../../../src/client/Traces";
 import { Conversation } from "../../../src/client/Conversation";

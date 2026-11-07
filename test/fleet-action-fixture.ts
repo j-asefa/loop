@@ -14,7 +14,6 @@ export function fleetActor(
 ) {
   const peerDb = new Database(":memory:");
   applyMigrations(peerDb);
-  peerDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const identity = new FleetAuthority(peerDb, secrets).identity;
   peerDb.close();
   const current = authority.directory(owner)!;

@@ -4,7 +4,6 @@ import { projectFeed } from "./feed-projector.js";
 import { installProjectionBoundary } from "./projected-database.js";
 import Database from "better-sqlite3";
 import { applyMigrations } from "./migrations.js";
-import { join } from "node:path";
 import { config } from "./config.js";
 import { changeClock, createDeadlineScheduler } from "./change-deadlines.js";
 import { createChangeBus } from "./changes.js";

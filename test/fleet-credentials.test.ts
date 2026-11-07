@@ -33,9 +33,6 @@ function machine(
   databases.push(db);
   db.pragma("foreign_keys=ON");
   applyMigrations(db);
-  db.prepare(
-    "INSERT OR IGNORE INTO deployment_profile VALUES(1,'companion')",
-  ).run();
   const authority = new FleetAuthority(db, secrets);
   const time = { wall, mono: 0 };
   const credentials = new FleetCredentials(db, authority, secrets, {

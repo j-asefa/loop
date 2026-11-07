@@ -108,7 +108,7 @@ import {
   runModelName,
   type ExecutionLocation,
 } from "./modelChoices";
-import type { Agent, Connection } from "../shared/types";
+import type { Agent } from "../shared/types";
 import {
   ActionSheet,
   Chip,

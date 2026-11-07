@@ -22,7 +22,6 @@ import { nativeBindings, invokeNative } from "./native-tools.js";
 import { toolBindings, invokeTool, type ToolBinding } from "./mcp/broker.js";
 import { db, now } from "./db.js";
 import { Problem } from "../shared/problem.js";
-import type { Run } from "./queue.js";
 
 type Ticket = {
   conversation: string;

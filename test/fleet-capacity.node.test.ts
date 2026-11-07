@@ -18,7 +18,6 @@ import { WebSocket, WebSocketServer } from "ws";
 const dir = mkdtempSync(join(tmpdir(), "loop-fleet-capacity-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-const { Host } = await import("../src/host.js");
 const { FleetCapacity } = await import("../src/server/fleet-capacity.js");
 const { FleetWorkspaceHttpTransport } =
   await import("../src/server/fleet-workspace-http.js");

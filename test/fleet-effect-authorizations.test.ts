@@ -46,10 +46,8 @@ const owner = "local-workspace",
   peerOwner = randomUUID();
 const peerDb = new Database(join(root, "peer.db"));
 applyMigrations(peerDb);
-peerDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const editorDb = new Database(join(root, "editor.db"));
 applyMigrations(editorDb);
-editorDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const local = new FleetAuthority(db, secrets),
   peer = new FleetAuthority(peerDb, secrets),
   editor = new FleetAuthority(editorDb, secrets);

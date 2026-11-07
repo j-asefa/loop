@@ -6,7 +6,6 @@ import { OpenCode } from "../src/adapters/opencode";
 import {
   ActivityUpdate,
   reduceActivities,
-  reduceActivity,
   outputText,
 } from "../src/agent-activities";
 import { DirectControls } from "../src/adapters/direct-controls";

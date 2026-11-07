@@ -36,7 +36,7 @@ export class FleetWorkspaceEvents {
   private stopped = false;
   private readonly proof: FleetProof;
   constructor(
-    private readonly db: Database.Database,
+    db: Database.Database,
     private readonly authority: FleetAuthority,
     private readonly credentials: FleetCredentials,
     private readonly owner: string,

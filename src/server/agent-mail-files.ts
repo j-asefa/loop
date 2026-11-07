@@ -6,7 +6,6 @@ import { FleetMailFile } from "../shared/fleet-mail.js";
 import { MAX_UPLOAD_BYTES } from "../shared/uploads.js";
 import { db } from "./db.js";
 import { ownedArtifact, ownedObject, Problem } from "./domain.js";
-import { READABLE_MAIL_SQL } from "./mail-context.js";
 import { localArtifact } from "./published-files.js";
 import { MailRefusal } from "./agent-mail-policy.js";
 import type { Run } from "./queue.js";

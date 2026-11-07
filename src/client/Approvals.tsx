@@ -24,7 +24,7 @@ import { Tools } from "./Tools";
 
 // One-tap decisions only for requests that need no answers or install review.
 function quickDecision(item: Approval) {
-  const { request, args } = describeApproval(item.request);
+  const { request } = describeApproval(item.request);
   return (
     !request.deliveryUnknown &&
     request.type !== "mcp_install" &&

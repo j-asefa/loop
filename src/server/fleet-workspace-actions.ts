@@ -5,7 +5,6 @@ import * as approvalsQueries from "./sql/approvals.js";
 import * as foldersQueries from "./sql/folders.js";
 import * as nativeDecisionsQueries from "./sql/native-decisions.js";
 import type Database from "better-sqlite3";
-import { z } from "zod";
 import {
   FleetActionInput,
   FleetActionRequest,

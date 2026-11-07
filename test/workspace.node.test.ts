@@ -9,8 +9,6 @@ import {
   realpath,
   rm,
   chmod,
-  writeFile,
-  readdir,
 } from "node:fs/promises";
 import { hostname, platform, tmpdir } from "node:os";
 import { join, resolve } from "node:path";

@@ -226,3 +226,5 @@ it("keeps a mutation's session and outcome uncertain while Loop restarts", async
     "loop-auth-expired",
   );
 });
+
+void pathTypes;

@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 async function startup(directory: string, extra: Record<string, string> = {}) {
   const { stdout } = await promisify(execFile)(

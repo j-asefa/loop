@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
 import { setImmediate } from "node:timers/promises";
-import { Host } from "../src/host.js";
 import { applyMigrations } from "../src/server/migrations.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetCredentials } from "../src/server/fleet-credentials.js";
@@ -44,7 +43,6 @@ const { createFleetPeerHttp } =
 const secrets = await import("../src/server/secrets.js");
 const sourceDb = new Database(join(root, "source.db"));
 applyMigrations(sourceDb);
-sourceDb.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
 const source = new FleetAuthority(sourceDb, secrets),
   destination = new FleetAuthority(db, secrets),
   credentials = new FleetCredentials(db, destination, secrets),

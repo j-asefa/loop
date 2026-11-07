@@ -94,3 +94,5 @@ function registrationTypes() {
   // @ts-expect-error The mount has no Express registration surface.
   routes.mount.post("/unlisted", () => {});
 }
+
+void registrationTypes;

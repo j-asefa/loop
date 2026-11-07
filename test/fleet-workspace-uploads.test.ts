@@ -6,7 +6,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
-import { Host } from "../src/host.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetCredentials } from "../src/server/fleet-credentials.js";
 import { FleetPairing } from "../src/server/fleet-pairing.js";
@@ -57,7 +56,6 @@ const secrets = await import("../src/server/secrets.js");
 function peer() {
   const db = new Database(":memory:");
   applyMigrations(db);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const authority = new FleetAuthority(db, secrets);
   return {
     db,

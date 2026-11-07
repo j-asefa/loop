@@ -128,7 +128,6 @@ async function machine(): Promise<Machine> {
   mkdirSync(dir);
   const db = new Database(join(dir, "workspace.db"));
   applyMigrations(db);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const authority = new FleetAuthority(db, secrets),
     pairing = new FleetPairing(db, authority, owner, dir);
   const host = createHost(dir, pairing);

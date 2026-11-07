@@ -20,7 +20,7 @@ export class FleetWorkspaceRead {
   private pending = 0;
   private stopped = false;
   constructor(
-    private readonly db: Database.Database,
+    db: Database.Database,
     private readonly authority: FleetAuthority,
     private readonly credentials: FleetCredentials,
     private readonly owner: string,

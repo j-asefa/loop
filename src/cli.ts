@@ -4,7 +4,7 @@ import { realpath, readFile, open } from "node:fs/promises";
 import { openSync, closeSync, statSync, existsSync } from "node:fs";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import { join, resolve, dirname, isAbsolute } from "node:path";
+import { join, resolve, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";

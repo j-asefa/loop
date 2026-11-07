@@ -2,11 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { compiledServerFixture } from "./helpers/compiled-server";
-import {
-  WorkspaceFrameV3,
-  eventScopes,
-  type WorkspaceEvent,
-} from "../src/shared/workspace-events";
+import { WorkspaceFrameV3, eventScopes } from "../src/shared/workspace-events";
 import { integrationTokenRequest } from "../src/shared/card-access";
 
 let compiled: Awaited<ReturnType<typeof compiledServerFixture>>;

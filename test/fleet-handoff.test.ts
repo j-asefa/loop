@@ -35,7 +35,6 @@ function machine() {
     db = new Database(join(root, randomUUID() + ".db"));
   databases.push(db);
   applyMigrations(db);
-  db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const authority = new FleetAuthority(db, secrets);
   return { owner, db, authority, origin: `https://${randomUUID()}.example` };
 }
