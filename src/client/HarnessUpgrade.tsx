@@ -108,7 +108,7 @@ function HarnessUpgradeControls({
     // A settled upgrade has consumed its command id; a fresh start later must
     // get a new one rather than dedupe onto the finished installer.
     if (upgrade?.state === "complete" || upgrade?.state === "failed")
-      clearUpgradeCommandId(localStorage, sourceId, runtime);
+      clearUpgradeCommandId(localStorage, sourceId, runtime, upgrade.commandId);
     // Refresh once per confirmed operation, not on every parent's render.
   }, [upgrade?.commandId, upgrade?.state]);
   return (
@@ -182,7 +182,7 @@ function HarnessUpgradeControls({
             // The host accepted this start, so the command id is consumed; a
             // later genuine upgrade must mint a fresh id rather than dedupe
             // onto this already-settled one (which would run no installer).
-            confirmUpgradeStart(localStorage, sourceId, runtime);
+            confirmUpgradeStart(localStorage, sourceId, runtime, commandId);
             setUpgrade(value.upgrade);
             setRelease(undefined);
           } catch (e) {

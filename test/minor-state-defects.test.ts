@@ -1,6 +1,4 @@
 import { it, expect, afterAll } from "vitest";
-import { webhookOutcome } from "../src/server/webhooks";
-import { seal } from "../src/server/secrets";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,11 +7,17 @@ const dbDir = mkdtempSync(join(tmpdir(), "minor-state-defects-"));
 process.env.LOOP_DATA_DIR = dbDir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
+const { webhookOutcome } = await import("../src/server/webhooks");
+const { seal } = await import("../src/server/secrets");
 import * as pushSubscriptionsQueries from "../src/server/sql/push-subscriptions";
 
 afterAll(() => {
   db.close();
   rmSync(dbDir, { recursive: true, force: true });
+});
+
+it("opens only the isolated fixture database", () => {
+  expect(db.name).toBe(join(dbDir, "loop.db"));
 });
 
 const p256dh = () =>

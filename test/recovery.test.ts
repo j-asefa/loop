@@ -341,3 +341,32 @@ it("completes only under the worker's lease and keeps a pause that arrived after
   expect(state(replaced)).toBe("running");
   transition(replaced, "cancelled");
 });
+
+it("refuses to pause a native run a worker claimed after the request read it", async () => {
+  const { controlRun } = await import("../src/server/run-attention");
+  const a = createAgent("alice", {
+    name: "native-pause-agent",
+    connectionId: account("alice"),
+    model: "fixture",
+  });
+  const r = submit("alice", {
+    agentId: a.id,
+    input: "Native turn",
+    idempotencyKey: "native-pause-claimed",
+  });
+  // The request read the run as queued; a worker then claimed and dispatched
+  // it to its harness before the pause transaction.
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='w1',heartbeat=? WHERE id=?",
+  ).run(now(), r.id);
+  db.prepare(
+    "INSERT INTO native_dispatch VALUES(?,'generation','digest','accepted',NULL,?)",
+  ).run(r.id, now());
+  expect(() => controlRun("alice", r.id, "pause")).toThrow(
+    "cannot suspend an active native turn",
+  );
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(r.id)).toEqual({
+    state: "running",
+  });
+  transition(r, "cancelled");
+});

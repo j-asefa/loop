@@ -1,8 +1,9 @@
 // Pending command identities must survive reloads and uncertain responses so
 // a retry repeats the same idempotency key the server or host already saw,
 // instead of minting a fresh one and running an accepted effect twice (#354).
-// They are kept in owner/source/thread-scoped durable storage and cleared on
-// settlement. The storage is injected so the behavior is testable; the app
+// Retry keys are owner/source/run-scoped; upgrade command ids belong to a
+// source's host runtime, which every owner of that host shares. All are kept in
+// durable storage and cleared on settlement. The storage is injected so the behavior is testable; the app
 // passes `localStorage`, which Session's `sessionStorage.clear()` never wipes.
 
 function read(storage: Storage, key: string): string | null {
@@ -26,13 +27,16 @@ function remove(storage: Storage, key: string) {
 }
 
 /** The idempotency key to retry a run as a new run, remembered across
- * reloads so a lost retry response is not submitted a second time. */
+ * reloads so a lost retry response is not submitted a second time. The local
+ * workspace's source is "", a valid scope; only a missing owner (signed out)
+ * gets an unremembered key. */
 export function runRetryKey(
   storage: Storage,
-  owner: string,
+  owner: string | undefined,
   source: string,
   runId: string,
 ): string {
+  if (!owner) return crypto.randomUUID();
   const key = `loop-retry-key:${JSON.stringify([owner, source, runId])}`;
   const existing = read(storage, key);
   if (existing) return existing;
@@ -42,10 +46,11 @@ export function runRetryKey(
 }
 export function clearRunRetryKey(
   storage: Storage,
-  owner: string,
+  owner: string | undefined,
   source: string,
   runId: string,
 ) {
+  if (!owner) return;
   remove(storage, `loop-retry-key:${JSON.stringify([owner, source, runId])}`);
 }
 
@@ -63,12 +68,17 @@ export function upgradeCommandId(
   write(storage, key, fresh);
   return fresh;
 }
+/** Clear the stored id, but only while it is still `commandId`: a late answer
+ * for an earlier start (from this tab or another) must not drop a newer
+ * start's pending id. */
 export function clearUpgradeCommandId(
   storage: Storage,
   source: string,
   runtime: string,
+  commandId: string,
 ) {
-  remove(storage, `loop-upgrade-cmd:${JSON.stringify([source, runtime])}`);
+  const key = `loop-upgrade-cmd:${JSON.stringify([source, runtime])}`;
+  if (read(storage, key) === commandId) remove(storage, key);
 }
 
 /** The command id to send for a harness upgrade: a pending id is reused so a
@@ -86,6 +96,7 @@ export function confirmUpgradeStart(
   storage: Storage,
   source: string,
   runtime: string,
+  commandId: string,
 ) {
-  clearUpgradeCommandId(storage, source, runtime);
+  clearUpgradeCommandId(storage, source, runtime, commandId);
 }

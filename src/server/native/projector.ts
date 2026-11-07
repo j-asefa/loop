@@ -255,20 +255,31 @@ export class NativeProjector {
         if (unavailable) void this.context.dispose(live);
         return;
       }
-      if (event.detail)
-        runsQueries.setError(db, event.detail.slice(0, 2000), run.id);
-      this.context.projectOutput(live, event.status !== "completed");
-      live.requests.clear();
-      live.waiting = false;
-      nativeDecisionsQueries.finishPendingRun(db, "expired", run.id);
-      companionSessionsQueries.setState(
-        db,
-        unavailable ? "unavailable" : "idle",
-        now(),
-        live.binding.conversation_id,
-      );
-      live.finish?.(event.status);
-      if (unavailable) void this.context.dispose(live);
+      // The dispatch is settled now, and a repeated status is ignored above,
+      // so the turn must finish even if recording its output throws. A
+      // failed projection cannot certify a completed result to the worker.
+      let recorded = false;
+      try {
+        try {
+          if (event.detail)
+            runsQueries.setError(db, event.detail.slice(0, 2000), run.id);
+          this.context.projectOutput(live, event.status !== "completed");
+        } finally {
+          live.requests.clear();
+          live.waiting = false;
+          nativeDecisionsQueries.finishPendingRun(db, "expired", run.id);
+          companionSessionsQueries.setState(
+            db,
+            unavailable ? "unavailable" : "idle",
+            now(),
+            live.binding.conversation_id,
+          );
+        }
+        recorded = true;
+      } finally {
+        live.finish?.(recorded ? event.status : "interrupted");
+        if (unavailable) void this.context.dispose(live);
+      }
     }
     if (event.type === "error")
       runsQueries.setError(db, event.message.slice(0, 2000), run.id);

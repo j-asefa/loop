@@ -11,72 +11,57 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { identity, workspaceLock } from "../src/lifecycle.js";
-test("workspace ownership is exclusive, recovers a proven stale owner, and never removes a replacement lock", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-lock-"));
+
+// Records as the lock writes them; nonces are always randomUUID().
+const deadRecord = (nonce = randomUUID()) =>
+  JSON.stringify({ pid: 99999999, identity: "dead", nonce });
+const liveRecord = (nonce = randomUUID()) =>
+  JSON.stringify({ pid: process.pid, identity: identity(process.pid), nonce });
+const nonceOf = (path: string) => JSON.parse(readFileSync(path, "utf8")).nonce;
+function withDir(name: string, run: (dir: string) => void) {
+  const dir = mkdtempSync(join(tmpdir(), name));
   try {
+    run(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("workspace ownership is exclusive, recovers a proven stale owner, and never removes a replacement lock", () => {
+  withDir("loop-lock-", (dir) => {
+    const lock = join(dir, "host.lock");
     const release = workspaceLock(dir);
     assert.throws(() => workspaceLock(dir), /starting or running/);
     release();
-    assert(!existsSync(join(dir, "host.lock")));
-    writeFileSync(
-      join(dir, "host.lock"),
-      JSON.stringify({ pid: 99999999, identity: "dead", nonce: "old" }),
-    );
+    assert(!existsSync(lock));
+    writeFileSync(lock, deadRecord());
     const next = workspaceLock(dir);
-    const record = JSON.parse(readFileSync(join(dir, "host.lock"), "utf8"));
+    const record = JSON.parse(readFileSync(lock, "utf8"));
     assert.equal(record.pid, process.pid);
-    writeFileSync(
-      join(dir, "host.lock"),
-      JSON.stringify({ ...record, nonce: "replacement" }),
-    );
+    writeFileSync(lock, JSON.stringify({ ...record, nonce: randomUUID() }));
     next();
-    assert(existsSync(join(dir, "host.lock")));
-    writeFileSync(join(dir, "host.lock"), "invalid");
+    assert(existsSync(lock));
+    writeFileSync(lock, "invalid");
     assert.throws(() => workspaceLock(dir), /unreadable/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("a recoverer killed mid-recovery does not block later starts", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-lock-recovery-"));
-  const stale = (nonce: string) =>
-    JSON.stringify({ pid: 99999999, identity: "dead", nonce });
-  try {
-    writeFileSync(join(dir, "host.lock"), stale("old-host"));
-    writeFileSync(join(dir, "host.lock.recovery"), stale("old-recoverer"));
-    const release = workspaceLock(dir);
-    assert.equal(
-      JSON.parse(readFileSync(join(dir, "host.lock"), "utf8")).pid,
-      process.pid,
+    // A nonce is used in a claim path, so a malformed one is never trusted.
+    writeFileSync(
+      lock,
+      JSON.stringify({ pid: 99999999, identity: "dead", nonce: "../x" }),
     );
-    assert(!existsSync(join(dir, "host.lock.recovery")));
-    release();
-    // A live recoverer keeps its record and the lock it is recovering.
-    const live = JSON.stringify({
-      pid: process.pid,
-      identity: identity(process.pid),
-      nonce: "live-recoverer",
-    });
-    writeFileSync(join(dir, "host.lock"), stale("old-host"));
-    writeFileSync(join(dir, "host.lock.recovery"), live);
-    assert.throws(() => workspaceLock(dir), /recovering the workspace lock/);
-    assert.equal(readFileSync(join(dir, "host.lock.recovery"), "utf8"), live);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+    assert.throws(() => workspaceLock(dir), /unreadable/);
+  });
 });
 
 test("a stale lock whose PID now belongs to another user's process is recovered", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-lock-eperm-"));
-  try {
+  withDir("loop-lock-eperm-", (dir) => {
     // PID 1 is alive and, for a non-root test, signalling it fails with
     // EPERM; its identity is not the crashed host's.
     writeFileSync(
       join(dir, "host.lock"),
-      JSON.stringify({ pid: 1, identity: "crashed-host", nonce: "old" }),
+      JSON.stringify({ pid: 1, identity: "crashed-host", nonce: randomUUID() }),
     );
     const release = workspaceLock(dir);
     assert.equal(
@@ -84,9 +69,95 @@ test("a stale lock whose PID now belongs to another user's process is recovered"
       process.pid,
     );
     release();
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  });
+});
+
+test("a live claimant on the stale lock refuses a later starter and keeps every file", () => {
+  withDir("loop-lock-live-claim-", (dir) => {
+    const stale = randomUUID();
+    const claim = join(dir, "host.lock.stale." + stale);
+    writeFileSync(join(dir, "host.lock"), deadRecord(stale));
+    const claimant = liveRecord();
+    writeFileSync(claim, claimant);
+    assert.throws(() => workspaceLock(dir), /recovering the workspace lock/);
+    assert.equal(nonceOf(join(dir, "host.lock")), stale);
+    assert.equal(readFileSync(claim, "utf8"), claimant);
+  });
+});
+
+test("a dead claimant's claim is taken over through its own claim, never removed after a check", () => {
+  withDir("loop-lock-dead-claim-", (dir) => {
+    const stale = randomUUID(),
+      deadClaimant = randomUUID();
+    const claim = join(dir, "host.lock.stale." + stale);
+    writeFileSync(join(dir, "host.lock"), deadRecord(stale));
+    writeFileSync(claim, deadRecord(deadClaimant));
+    // Another starter is already taking over the dead claim: the reclaim is
+    // exclusive too, so this starter refuses instead of unlinking it.
+    const nested = join(dir, "host.lock.stale." + deadClaimant);
+    writeFileSync(nested, liveRecord());
+    assert.throws(() => workspaceLock(dir), /recovering the workspace lock/);
+    assert.equal(nonceOf(join(dir, "host.lock")), stale);
+    assert.equal(nonceOf(claim), deadClaimant);
+    // Once that starter has gone (killed too), the chain is taken over.
+    writeFileSync(nested, deadRecord());
+    const release = workspaceLock(dir);
+    assert.equal(
+      JSON.parse(readFileSync(join(dir, "host.lock"), "utf8")).pid,
+      process.pid,
+    );
+    release();
+  });
+});
+
+test("deep dead claimant chains recover while a live deepest claimant stays exclusive", () => {
+  withDir("loop-lock-deep-", (dir) => {
+    const root = join(dir, "host.lock");
+    let path = root;
+    const records = new Map<string, string>();
+    for (let depth = 0; depth < 12; depth++) {
+      const nonce = randomUUID();
+      const record = deadRecord(nonce);
+      records.set(path, record);
+      writeFileSync(path, record);
+      path = root + ".stale." + nonce;
+    }
+    const live = liveRecord();
+    writeFileSync(path, live);
+    assert.throws(() => workspaceLock(dir), /recovering the workspace lock/);
+    for (const [file, record] of records)
+      assert.equal(readFileSync(file, "utf8"), record);
+    assert.equal(readFileSync(path, "utf8"), live);
+    writeFileSync(path, deadRecord());
+    const release = workspaceLock(dir);
+    assert.deepEqual(readdirSync(dir), ["host.lock"]);
+    assert.throws(() => workspaceLock(dir), /starting or running/);
+    release();
+    assert.deepEqual(readdirSync(dir), []);
+  });
+});
+
+test("a takeover leaves no markers and removes dead starters' leftovers", () => {
+  withDir("loop-lock-leftovers-", (dir) => {
+    const deadTemp = randomUUID(),
+      deadRename = randomUUID();
+    writeFileSync(join(dir, "host.lock"), deadRecord());
+    writeFileSync(join(dir, "host.lock." + deadTemp), deadRecord(deadTemp));
+    writeFileSync(
+      join(dir, "host.lock." + deadRename + ".new"),
+      deadRecord(deadRename),
+    );
+    writeFileSync(join(dir, "host.lock.stale." + randomUUID()), deadRecord());
+    // A live starter's temp file is not ours to remove.
+    const liveTemp = randomUUID();
+    writeFileSync(join(dir, "host.lock." + liveTemp), liveRecord(liveTemp));
+    const release = workspaceLock(dir);
+    assert.deepEqual(readdirSync(dir).sort(), [
+      "host.lock",
+      "host.lock." + liveTemp,
+    ]);
+    release();
+  });
 });
 
 test("compiled macOS workspace lock preserves a live owner across a timezone change", () => {
@@ -121,80 +192,6 @@ test("compiled macOS workspace lock preserves a live owner across a timezone cha
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("a leftover claim from a dead recoverer is reclaimed, not stuck", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-lock-reclaim-"));
-  const stale = (nonce: string) =>
-    JSON.stringify({ pid: 99999999, identity: "dead", nonce });
-  try {
-    writeFileSync(join(dir, "host.lock"), stale("old-host"));
-    writeFileSync(join(dir, "host.lock.recovery"), stale("old-record"));
-    // A recoverer died after claiming the stale record: its claim is a leftover
-    // that must not block a later start, and must be cleaned up on takeover.
-    writeFileSync(
-      join(dir, "host.lock.recovery.stale.old-record"),
-      stale("dead-claimant"),
-    );
-    const release = workspaceLock(dir);
-    assert.equal(
-      JSON.parse(readFileSync(join(dir, "host.lock"), "utf8")).pid,
-      process.pid,
-    );
-    assert(!existsSync(join(dir, "host.lock.recovery.stale.old-record")));
-    release();
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("a live recoverer's claim refuses a later starter", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-lock-live-claim-"));
-  const stale = (nonce: string) =>
-    JSON.stringify({ pid: 99999999, identity: "dead", nonce });
-  const live = JSON.stringify({
-    pid: process.pid,
-    identity: identity(process.pid),
-    nonce: "live-claimant",
-  });
-  try {
-    writeFileSync(join(dir, "host.lock"), stale("old-host"));
-    writeFileSync(join(dir, "host.lock.recovery"), stale("old-record"));
-    writeFileSync(join(dir, "host.lock.recovery.stale.old-record"), live);
-    assert.throws(() => workspaceLock(dir), /recovering the workspace lock/);
-    // A live recoverer's claim and its stale target are both untouched.
-    assert.equal(
-      readFileSync(join(dir, "host.lock.recovery"), "utf8"),
-      stale("old-record"),
-    );
-    assert.equal(
-      readFileSync(join(dir, "host.lock.recovery.stale.old-record"), "utf8"),
-      live,
-    );
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("a recovery takeover replaces the stale record and leaves no takeover markers", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-lock-takeover-"));
-  const stale = (nonce: string) =>
-    JSON.stringify({ pid: 99999999, identity: "dead", nonce });
-  try {
-    writeFileSync(join(dir, "host.lock"), stale("old-host"));
-    writeFileSync(join(dir, "host.lock.recovery"), stale("old-record"));
-    const release = workspaceLock(dir);
-    assert.equal(
-      JSON.parse(readFileSync(join(dir, "host.lock"), "utf8")).pid,
-      process.pid,
-    );
-    // The recovery record is released and no claim/.new takeover file remains.
-    const leftovers = readdirSync(dir).filter((f) => f.includes("recovery"));
-    assert.deepEqual(leftovers, []);
-    release();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

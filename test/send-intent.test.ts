@@ -1,5 +1,9 @@
-import { settleStoredSend } from "../src/client/sendIntent";
-import { expect, it } from "vitest";
+import {
+  readSendReceipt,
+  settleStoredSend,
+  storeSendReceipt,
+} from "../src/client/sendReceiptStore";
+import { expect, it, vi } from "vitest";
 import {
   omitsReplyTarget,
   planSend,
@@ -89,30 +93,50 @@ it("lets a refused send change its choice, and a new message get a new key", () 
   ).toBe("key-2");
 });
 
-it("does not let a late response erase or replace a newer pending send", () => {
-  const store = new Map<string, string>();
-  const storage = {
-    getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      store.set(key, value);
+it("does not let a late response erase or replace a newer pending send", async () => {
+  vi.stubGlobal("navigator", {
+    locks: {
+      request: (_key: string, work: () => unknown) =>
+        Promise.resolve().then(work),
     },
-    removeItem: (key: string) => {
-      store.delete(key);
-    },
-  };
-  const newer = { signature: "new message", key: "new-key", pending: true };
-  storage.setItem("thread", JSON.stringify(newer));
-  settleStoredSend(storage, "thread", "old-key", null);
-  settleStoredSend(storage, "thread", "old-key", {
-    signature: "old message",
-    key: "old-key",
-    pending: true,
   });
-  expect(JSON.parse(storage.getItem("thread")!)).toEqual(newer);
-  settleStoredSend(storage, "thread", "new-key", null);
-  // A failed concurrent retry cannot resurrect an already acknowledged send.
-  settleStoredSend(storage, "thread", "new-key", newer);
-  expect(storage.getItem("thread")).toBeNull();
+  try {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+    };
+    const newer = { signature: "new message", key: "new-key", pending: true };
+    storeSendReceipt(storage, "thread", newer);
+    await settleStoredSend(
+      storage,
+      "thread",
+      { signature: "old message", key: "old-key" },
+      null,
+    );
+    await settleStoredSend(
+      storage,
+      "thread",
+      { signature: "old message", key: "old-key" },
+      {
+        signature: "old message",
+        key: "old-key",
+        pending: true,
+      },
+    );
+    expect(readSendReceipt(storage, "thread")).toEqual(newer);
+    await settleStoredSend(storage, "thread", newer, null);
+    // A failed concurrent retry cannot resurrect an already acknowledged send.
+    await settleStoredSend(storage, "thread", newer, newer);
+    expect(storage.getItem("thread")).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it("leaves out a reply target as the composer showed, and repeats that on retry", () => {

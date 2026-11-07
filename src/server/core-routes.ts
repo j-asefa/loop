@@ -538,20 +538,6 @@ routes.on(
       return;
     }
     const run = ownedRun(req.params.id, res.locals.owner);
-    if (
-      action === "pause" &&
-      ["running", "awaiting_approval"].includes(run.state) &&
-      (nativeDispatchQueries.exists(db, run.id) ||
-        connectionsQueries.nativeOwned(
-          db,
-          run.payload.connectionId ?? null,
-          run.owner_id,
-        ))
-    )
-      throw new Problem(
-        409,
-        "This harness cannot suspend an active native turn. Interrupt this run, then send a follow-up; other agents keep running.",
-      );
     if (action === "retry") {
       if (
         !["failed", "interrupted"].includes(run.state) ||

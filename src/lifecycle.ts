@@ -1,11 +1,12 @@
 import {
   linkSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   renameSync,
   unlinkSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { atomic } from "./state.js";
@@ -92,95 +93,152 @@ function dead(owner: Owner) {
 }
 const RECOVERING =
   "Another process is recovering the workspace lock. Retry shortly; workspace data is preserved.";
-/** Claim exactly this stale recovery record, so only one starter takes it over.
- * A leftover claim from a killed claimant is reclaimed; a live claimant's
- * claim refuses every later starter. */
-function claimStale(temp: string, claim: string): boolean {
-  for (;;) {
-    try {
-      linkSync(temp, claim);
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-    let owner: Owner;
-    try {
-      owner = JSON.parse(readFileSync(claim, "utf8"));
-    } catch {
-      return false;
-    }
-    if (!dead(owner)) return false;
-    // A dead claimant cannot finish its takeover; take over its claim. Two
-    // starters that both observe the same dead claim can each unlink the
-    // other's freshly re-linked claim; this residual needs a claimant killed
-    // within a microsecond plus concurrent starts, and the surviving
-    // claimant's verify-before-rename still holds, so it is at worst a
-    // transient "still recovering" refusal.
-    try {
-      unlinkSync(claim);
-    } catch {
-      return false;
-    }
-  }
-}
-/**
- * Hold the recovery lock. A recoverer that was killed mid-recovery leaves its
- * record behind; a later starter takes over that dead record exclusively (via
- * a claim), so simultaneously starting recoverers can never both pass. The
- * record is replaced atomically, so `recovery` is never absent while a third
- * starter could claim the empty fast path.
- */
-function takeRecovery(temp: string, recovery: string, nonce: string) {
+const UNREADABLE =
+  "Workspace ownership record is unreadable. Preserve the state directory and inspect the lock; do not uninstall to recover.";
+// randomUUID() nonces only: a nonce read from a file becomes part of a path.
+const NONCE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+type Mine = { temp: string; nonce: string };
+
+/** The complete owner record at `path`, or why there is none. */
+function ownerAt(path: string): Owner | "missing" | "invalid" {
+  let raw: string;
   try {
-    linkSync(temp, recovery);
-    return;
+    raw = readFileSync(path, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? "missing"
+      : "invalid";
   }
-  let stale: Owner;
   try {
-    stale = JSON.parse(readFileSync(recovery, "utf8"));
+    const owner = JSON.parse(raw) as Owner;
+    if (
+      Number.isSafeInteger(owner?.pid) &&
+      typeof owner.identity === "string" &&
+      owner.identity &&
+      typeof owner.nonce === "string" &&
+      NONCE.test(owner.nonce)
+    )
+      return owner;
   } catch {
-    throw new Error(RECOVERING);
+    /* Reported as invalid below. */
   }
-  if (!stale.identity || !stale.nonce || !dead(stale))
-    throw new Error(RECOVERING);
-  // Take over this specific stale record; never rename a record we do not own.
-  const claim = recovery + ".stale." + stale.nonce;
-  if (!claimStale(temp, claim)) throw new Error(RECOVERING);
-  let tookOver = false;
+  return "invalid";
+}
+
+/**
+ * Every dead record is replaced only while holding its nonce's exclusive
+ * claim. Claims share the root prefix, so repeated crashes grow neither paths
+ * nor the call stack. Unwind only after acquiring the deepest claim.
+ */
+function acquire(root: string, mine: Mine, busy: string): void {
+  const parents: { path: string; nonce: string }[] = [];
+  const visited = new Set<string>();
+  let path = root;
+  while (true) {
+    if (visited.has(path)) throw new Error(UNREADABLE);
+    visited.add(path);
+    let stale: Owner | undefined;
+    let acquired = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        linkSync(mine.temp, path);
+        acquired = true;
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      const current = ownerAt(path);
+      if (current === "missing") continue;
+      if (current === "invalid") throw new Error(UNREADABLE);
+      if (!dead(current)) throw new Error(path === root ? busy : RECOVERING);
+      stale = current;
+      break;
+    }
+    if (acquired) break;
+    if (!stale) throw new Error(RECOVERING);
+    parents.push({ path, nonce: stale.nonce });
+    path = root + ".stale." + stale.nonce;
+  }
+
+  // `path` is the claim we own. At each step transfer ownership to its
+  // parent before releasing it. A killed starter leaves a recoverable record.
   try {
-    // Re-check the record is still the stale one we claimed (a live recoverer
-    // may have replaced it; its nonce would differ and it is not dead).
-    const current = JSON.parse(readFileSync(recovery, "utf8")) as Owner;
-    if (current.nonce !== stale.nonce || !dead(current))
-      throw new Error(RECOVERING);
-    // Replace it atomically so `recovery` is never missing mid-takeover and a
-    // third starter cannot grab the empty fast path. `temp` stays a hardlink.
-    const mine = recovery + "." + nonce + ".new";
-    linkSync(temp, mine);
-    renameSync(mine, recovery);
-    tookOver = true;
-  } finally {
-    // Release only a claim that is still ours. If a process is killed after the
-    // rename but before this release, the orphan `.stale.<nonce>`/`.new` file is
-    // harmless: the next starter either reclaims it (dead owner) or ignores it.
-    // Release only a claim that is still ours.
+    while (parents.length) {
+      const parent = parents.pop()!;
+      const current = ownerAt(parent.path);
+      if (
+        current === "missing" ||
+        current === "invalid" ||
+        current.nonce !== parent.nonce
+      )
+        throw new Error(RECOVERING);
+      const next = root + "." + mine.nonce + ".new";
+      try {
+        linkSync(mine.temp, next);
+        renameSync(next, parent.path);
+      } finally {
+        try {
+          unlinkSync(next);
+        } catch {
+          /* Renamed into place, or never created. */
+        }
+      }
+      release(path, mine.nonce);
+      path = parent.path;
+    }
+  } catch (error) {
+    release(path, mine.nonce);
+    throw error;
+  }
+}
+
+/** Remove `path` only while it still holds our own record. */
+function release(path: string, nonce: string) {
+  const current = ownerAt(path);
+  if (current !== "missing" && current !== "invalid" && current.nonce === nonce)
     try {
-      if ((JSON.parse(readFileSync(claim, "utf8")) as Owner).nonce === nonce)
-        unlinkSync(claim);
+      unlinkSync(path);
     } catch {
-      /* Already released or unreadable. */
+      /* Already gone. */
+    }
+}
+
+/**
+ * Once we hold `path`, markers from killed starters are dead weight: claims
+ * named for records `path` no longer holds can never matter again, and temp
+ * or rename files whose owner is dead have no one to finish them.
+ */
+function removeLeftovers(path: string) {
+  const dir = dirname(path),
+    prefix = basename(path) + ".";
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((name) => name.startsWith(prefix));
+  } catch {
+    return;
+  }
+  for (const name of names.slice(0, 64)) {
+    const rest = name.slice(prefix.length);
+    const file = join(dir, name);
+    try {
+      if (rest.startsWith("stale.")) unlinkSync(file);
+      else if (NONCE.test(rest.replace(/\.new$/, ""))) {
+        const owner = ownerAt(file);
+        if (owner !== "missing" && owner !== "invalid" && dead(owner))
+          unlinkSync(file);
+      }
+    } catch {
+      /* Best effort; never affects the lock we hold. */
     }
   }
-  if (!tookOver) throw new Error(RECOVERING);
 }
+
 const WORKSPACE_LOCK = {
   name: "host.lock",
   owner:
     "Another Loop host is starting or running. Wait for it, then run loop again; no process was stopped.",
 };
-/** Complete records are installed atomically. A separate recovery lock serializes stale takeover. */
+/** Complete records are installed atomically; a dead owner's lock is replaced through an exclusive claim. */
 export function workspaceLock(
   dir: string,
   lock: { name: string; owner: string } = WORKSPACE_LOCK,
@@ -198,53 +256,10 @@ export function workspaceLock(
   const temp = path + "." + owner.nonce;
   atomic(temp, owner);
   try {
-    try {
-      linkSync(temp, path);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      let prior: Owner;
-      try {
-        prior = JSON.parse(readFileSync(path, "utf8"));
-      } catch {
-        throw new Error(
-          "Workspace ownership record is unreadable. Preserve the state directory and inspect the lock; do not uninstall to recover.",
-        );
-      }
-      if (!prior.identity || !prior.nonce || !dead(prior))
-        throw new Error(lock.owner);
-      const recovery = path + ".recovery";
-      takeRecovery(temp, recovery, owner.nonce);
-      try {
-        const current = JSON.parse(readFileSync(path, "utf8"));
-        if (current.nonce !== prior.nonce || !dead(current))
-          throw new Error(
-            "Workspace owner changed during recovery. Retry shortly.",
-          );
-        unlinkSync(path);
-        linkSync(temp, path);
-      } finally {
-        // Release only a recovery record that is still ours, never a newer
-        // recoverer's.
-        try {
-          if (
-            (JSON.parse(readFileSync(recovery, "utf8")) as Owner).nonce ===
-            owner.nonce
-          )
-            unlinkSync(recovery);
-        } catch {
-          /* Already gone. */
-        }
-      }
-    }
+    acquire(path, { temp, nonce: owner.nonce }, lock.owner);
   } finally {
     unlinkSync(temp);
   }
-  return () => {
-    try {
-      if (JSON.parse(readFileSync(path, "utf8")).nonce === owner.nonce)
-        unlinkSync(path);
-    } catch {
-      /* Never remove a replacement owner's lock. */
-    }
-  };
+  removeLeftovers(path);
+  return () => release(path, owner.nonce);
 }

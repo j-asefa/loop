@@ -1,6 +1,8 @@
 import * as approvalsQueries from "./sql/approvals.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as runsQueries from "./sql/runs.js";
+import * as connectionsQueries from "./sql/connections.js";
+import * as nativeDispatchQueries from "./sql/native-dispatch.js";
 import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
 
@@ -71,6 +73,21 @@ export function controlRun(
           throw new Problem(409, "Run has already changed");
         return { ok: true };
       }
+      // Checked on the current row: a worker may have claimed a queued native
+      // run since the request read it, and a native turn cannot be suspended.
+      if (
+        ["running", "awaiting_approval"].includes(run.state) &&
+        (nativeDispatchQueries.exists(db, run.id) ||
+          connectionsQueries.nativeOwned(
+            db,
+            run.payload.connectionId ?? null,
+            run.owner_id,
+          ))
+      )
+        throw new Problem(
+          409,
+          "This harness cannot suspend an active native turn. Interrupt this run, then send a follow-up; other agents keep running.",
+        );
       const next = run.state === "queued" ? "paused" : "pausing";
       if (!transition(run, next))
         throw new Problem(

@@ -9,6 +9,8 @@ export type SendReceipt = {
   /** The message: recipient, text, thread, reply target and files. */
   signature: string;
   key: string;
+  /** Increments when a proven refusal permits a new explicit attempt. */
+  attempt?: number;
   intent?: SendIntent;
   /** Sent, but not yet confirmed accepted or refused. */
   pending?: boolean;
@@ -44,7 +46,13 @@ export function planSend(
   const key =
     receipt.signature === signature && receipt.key ? receipt.key : newKey();
   return {
-    receipt: { signature, key, intent: requested, pending: true },
+    receipt: {
+      signature,
+      key,
+      attempt: (receipt.attempt ?? 0) + 1,
+      intent: requested,
+      pending: true,
+    },
     intent: requested,
     reconciled: false,
   };
@@ -82,26 +90,4 @@ export function settleFailure(
   return status !== undefined && status < 500
     ? { ...receipt, pending: false }
     : receipt;
-}
-
-/** A late reply must not overwrite a newer send from a reopened composer. */
-export function settleStoredSend(
-  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
-  storageKey: string,
-  sentKey: string,
-  next: SendReceipt | null,
-) {
-  let current: SendReceipt;
-  try {
-    current = JSON.parse(storage.getItem(storageKey) || "null");
-  } catch {
-    return;
-  }
-  if (!current || current.key !== sentKey) return;
-  try {
-    if (next) storage.setItem(storageKey, JSON.stringify(next));
-    else storage.removeItem(storageKey);
-  } catch {
-    // Storage restrictions must not turn an accepted send into an error.
-  }
 }

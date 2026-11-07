@@ -52,6 +52,15 @@ export class NativeDecisions {
     event: Extract<AdapterEvent, { type: "request" }>,
     allow: string | undefined,
   ) {
+    // Settled ids are ignored before applying bounds to new display content.
+    // Re-emissions neither add a request nor make an uncertain answer replayable.
+    const existing = nativeDecisionsQueries.byRequest(
+      db,
+      live.binding.conversation_id,
+      live.generation,
+      event.request.id,
+    );
+    if (existing && existing !== "pending") return false;
     if (
       Buffer.byteLength(JSON.stringify(event.request)) >
         MAX_NATIVE_REQUEST_BYTES ||

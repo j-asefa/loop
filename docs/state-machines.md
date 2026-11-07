@@ -157,9 +157,14 @@ command ID joins the in-flight promise or returns the stored outcome; a
 returned) → **completed**/**failed**/**interrupted**/**stopped** on the first
 terminal status event (sql: `unknown` or `accepted`). A later terminal status
 from the same turn only retires the session. A run with a dispatch row is
-never claimed or dispatched again. A turn that ends before the prompt is
-handed over (for example a provider change closing the session during start) is
-recorded as not started, not as a "Native outcome unknown".
+never claimed or dispatched again. A terminal event releases the waiting turn
+even if projection fails, but the run reports `interrupted` unless final output
+and terminal bookkeeping were recorded successfully. Decision cleanup still runs
+when output projection throws. The dispatch row still
+records the harness's terminal status; it does not certify saved output.
+A turn that ends before the prompt is handed over (for example a provider
+change closing the session during start) is recorded as not started, not as
+a "Native outcome unknown".
 
 ### `companion_sessions.state`
 
@@ -289,13 +294,22 @@ steering message proven unsent. Delegation results are keyed
 ### Composer send receipt
 
 [`sendIntent.ts`](../src/client/sendIntent.ts): `{signature, key, intent,
-pending}` per thread, stored in an owner/source/thread-scoped durable store
+pending}` per message (keyed by its signature; settled entries are pruned toward 20 per thread, uncertain entries are never evicted), stored in an owner/source/thread-scoped durable store
 ([`sendReceiptStore.ts`](../src/client/sendReceiptStore.ts), backed by
 `localStorage`), so a pending send survives a killed home-screen app, a new
 tab and auth expiry (Session clears `sessionStorage`, never these receipts).
 Empty → pending (new key) → cleared on 2xx, refused (key kept) on a Loop
 response below 500, unchanged on 5xx or no response. A pending receipt for
-the same message is resent with the same key and intent. Fleet sends also use
+the same message, found in the store even if another tab or an earlier session
+sent it, is resent with the same key and intent; settlement compares the key and attempt generation before touching the
+entry with the sent key. A Web Lock covers reading, selecting and storing the
+identity and each settlement, so concurrent tabs cannot overwrite one another's
+journal changes. Persistence failure refuses a new send before dispatch;
+settlement failure retains the pending identity. The composer checks its current
+view and starts dispatch synchronously in the preparation lock callback, then
+releases the lock before awaiting network IO or settlement. Earlier builds' receipt formats
+are outside the fresh-install support policy in [AGENTS.md](../AGENTS.md).
+Fleet sends also use
 the IndexedDB command journal in
 [`fleetCommand.ts`](../src/client/fleetCommand.ts) (reserved → dispatched →
 removed on a terminal answer), which turns a repeat into a receipt-only query.
@@ -311,10 +325,18 @@ ignored, and replays below the cursor are refused.
 
 [`lifecycle.ts`](../src/lifecycle.ts): absent → held (`link`). A held lock whose
 owner is proven dead (no such process, a zombie, or a different process
-identity, including a PID now owned by another user) is recovered under
-`host.lock.recovery`. A recovery record whose owner is dead is moved aside
-atomically and checked before it is replaced, so a live recoverer is never
-displaced. Release removes the lock only when the nonce still matches.
+identity, including a PID now owned by another user) is replaced only by the
+starter that links the claim named for that record's nonce
+(`host.lock.stale.<nonce>`). Holding the claim, it re-reads the lock and
+replaces it with one atomic rename, so the lock is never absent. A dead
+claimant's claim is taken over the same way, through its own claim. All
+claims use the root lock prefix and recovery traverses them iteratively, so
+repeated crashes impose no depth or growing-path limit. Thus no
+file is ever removed after a separate check and two starters cannot both
+succeed. Nonces must be UUIDs before they are used in a path. Once the lock is
+held, claims for records it no longer holds and dead starters' temp and
+rename files are removed. Release removes the lock only when the nonce still
+matches.
 
 ### Harness upgrade
 
@@ -342,10 +364,10 @@ test that fails on the earlier code.
 | N1 | Live session | A throw between attaching a turn and dispatch (for example `SQLITE_BUSY` on the dispatch record) left `live.run` set: every later turn answered "already running" and settings and provider changes were refused until restart. ([#351](https://github.com/j-asefa/loop/issues/351)) | `test/native-session-permission.test.ts` "releases the session when a turn fails before it is dispatched" |
 | N2 | Live session | `cancelling` stayed true after an interrupted turn, so setting changes were refused until the next turn. ([#351](https://github.com/j-asefa/loop/issues/351)) | same file, "accepts setting changes once an interrupted turn has ended" |
 | N3 | native_dispatch | A second terminal status (the harness failing as the turn wound down) overwrote `completed` with `failed`, set an error on a completed run and made fleet mail refuse the run's outgoing mail. ([#351](https://github.com/j-asefa/loop/issues/351)) | same file, "keeps the first terminal status of a native turn" |
-| H1 | workspace lock | A recoverer killed during recovery left `host.lock.recovery`; every later `loop start` failed with "Another process is recovering" until the file was deleted by hand. ([#352](https://github.com/j-asefa/loop/issues/352)) | `test/lifecycle.node.test.ts` "a recoverer killed mid-recovery" |
+| H1 | workspace lock | A recoverer killed during recovery left `host.lock.recovery`; every later `loop start` failed with "Another process is recovering" until the file was deleted by hand. Takeover now goes through exclusive claims named for the dead record's nonce (see Workspace lock). ([#352](https://github.com/j-asefa/loop/issues/352)) | `test/lifecycle.node.test.ts` "a dead claimant's claim is taken over through its own claim" |
 | H2 | workspace lock | A stale lock whose PID was reused by another user's process returned EPERM and was treated as a live owner without checking its identity. ([#352](https://github.com/j-asefa/loop/issues/352)) | same file, "PID now belongs to another user's process" |
 | W1 | pr_watches | Resume read `paused` and then wrote `watching` unguarded; a stop committed by the worker in between (pull request merged) was revived and polled again. ([#353](https://github.com/j-asefa/loop/issues/353)) | `test/sql-pr-watches.test.ts` "resumes only a paused watch" |
-| C1 | send receipt, retry, upgrade | Pending composer receipts lived in `sessionStorage`, which a killed home-screen app, a new tab or auth expiry (`sessionStorage.clear()`) discarded; the restored draft then sent with a new key and could run an accepted request twice. "Retry as a new run" kept its key only in a `useRef` map, and each harness-upgrade click minted a new command ID. They now live in owner/source/thread-scoped durable storage and are cleared on settlement and owner change. ([#354](https://github.com/j-asefa/loop/issues/354)) | `test/client-pending-identities.test.ts` |
+| C1 | send receipt, retry, upgrade | Pending composer receipts lived in `sessionStorage`, which a killed home-screen app, a new tab or auth expiry (`sessionStorage.clear()`) discarded; the restored draft then sent with a new key and could run an accepted request twice. "Retry as a new run" kept its key only in a `useRef` map, and each harness-upgrade click minted a new command ID. They now live in owner/source/thread-scoped durable storage (the local workspace's source ID is the empty string), one composer receipt per distinct message so another send or tab cannot replace an uncertain one, and are removed on settlement; another owner reads different keys. ([#354](https://github.com/j-asefa/loop/issues/354)) | `test/client-pending-identities.test.ts` |
 | S1 | approvals, tool_invocations | A crash during an MCP call left the approval and invocation `executing` forever; no sweep marked them `unknown`. A run reaching a terminal state now moves its `executing` approvals and tool invocations to `unknown` via a run-end trigger (migration 151), with a one-time `sweepLeftoverToolCalls` at worker startup for any leftover, so the stored state reflects the uncertain outcome. ([#355](https://github.com/j-asefa/loop/issues/355)) | `test/recover-stuck.test.ts` S1 sweep and the tick-driven crash-recovery case |
 | S2 | runs | An expired approval left its run `awaiting_approval`, holding the agent's queue, while the Feed hid the approval. `recoverStuckRuns` now fails a non-native run whose pending approvals all expired, releasing the queue and never running the call. ([#355](https://github.com/j-asefa/loop/issues/355)) | `test/recover-stuck.test.ts` "fails a non-native run whose approvals all expired" |
 | S3 | runs | A graceful worker stop interrupted non-native runs that were only `awaiting_approval` and rejected their approvals; a crash left the same runs approvable. `quiesce` now interrupts only running/pausing and native awaiting_approval runs, so non-native awaiting_approval runs survive shutdown just as they survive a crash. ([#355](https://github.com/j-asefa/loop/issues/355)) | `test/recover-stuck.test.ts` "a graceful shutdown does not interrupt non-native awaiting_approval runs" |
@@ -353,7 +375,7 @@ test that fails on the earlier code.
 | M2 | webhook_deliveries | A later attempt that failed before dispatch wrote `unattempted`/`blocked`, replacing an earlier `uncertain` and hiding from settings that the receiver may already hold the delivery ID. The outcome now keeps the earlier `uncertain` unless it was never dispatched. | `test/minor-state-defects.test.ts` "a later pre-dispatch failure keeps an earlier uncertain webhook outcome" |
 | M3 | push_subscriptions | A stale 404/410 deleted the subscription by id even when the browser had re-subscribed the same endpoint (upsert keeps the id), losing the new keys and queued pushes. It is now removed only when the stored subscription still matches the delivery's keys. | `test/minor-state-defects.test.ts` "a stale 404/410 does not delete a push subscription that was re-subscribed" |
 | M4 | native_dispatch | A provider change racing a session start closed the live and recorded a never-sent prompt as "Native outcome unknown". A turn that ends before the prompt is handed over is now recorded as not started, not as an uncertain outcome. | covered by native session suite and review |
-| M5 | native_decisions | A harness re-emitting an already-resolved request id in the same generation moved the run back to `awaiting_approval` with no decision to answer. The re-emitted id is now ignored unless its recorded decision is still `pending`. | covered by native decision suite and review |
+| M5 | native_decisions | A harness re-emitting an already-resolved request id in the same generation moved the run back to `awaiting_approval` with no decision to answer. The re-emitted id is now ignored before display bounds are checked unless its recorded decision is still `pending`. | covered by native decision suite and review |
 
 ### Open
 

@@ -45,13 +45,12 @@ import {
   clearAcceptedDraft,
   threadDraft as readThreadDraft,
 } from "../drafts";
+import { settleFailure, type SendReceipt } from "../sendIntent";
 import {
-  omitsReplyTarget,
-  planSend,
-  settleFailure,
+  prepareStoredSend,
   settleStoredSend,
-  type SendReceipt,
-} from "../sendIntent";
+  type PreparedSend,
+} from "../sendReceiptStore";
 import {
   dayLabel,
   laterChoices,
@@ -539,188 +538,185 @@ export function useComposerSend({
       ]);
       // The send's mode and exact time travel with its key: a retry after a
       // lost response repeats the same request rather than a changed one.
-      const previous = request.current;
-      const plan = planSend(
-        previous,
+      // Another tab, or this app before a restart, may hold this exact
+      // message's uncertain receipt; it wins over this composer's own.
+      const sendPrepared = async (plan: PreparedSend) => {
+        const quotedId = plan.receipt.unquoted ? undefined : reply?.messageId;
+        request.current = plan.receipt;
+        sentReceipt = plan.receipt;
+        const reconciled = plan.reconciled
+          ? plan.intent.mode === "schedule"
+            ? ` Your earlier request went through as first sent: scheduled for ${dayLabel(plan.intent.sendAt!).toLowerCase()} at ${timeLabel(plan.intent.sendAt!)}. Change it in Later → Scheduled.`
+            : " Your earlier request went through as first sent."
+          : "";
+        options =
+          plan.intent.mode === "schedule"
+            ? { sendAt: plan.intent.sendAt! }
+            : plan.intent.mode === "queue"
+              ? { queue: true }
+              : {};
+        const body = {
+          agentId: recipient.id,
+          conversationId,
+          replyToMessageId: quotedId,
+          replyExcerpt: quotedId && reply?.excerpt ? reply.content : undefined,
+          input: draft,
+          idempotencyKey: request.current.key,
+          attachmentIds: attachments.map((file) => file.id),
+          folderId:
+            folderChoice !== undefined
+              ? folderChoice || null
+              : conversationId
+                ? undefined
+                : recipient.folder_id || undefined,
+        };
+        const settleAccepted = async () => {
+          const pending = pendingDraftSave.current;
+          if (
+            pending?.key === draftKey &&
+            pending.owner === owner &&
+            pending.text === draft &&
+            JSON.stringify(pending.files.map((file) => file.id)) ===
+              JSON.stringify(attachments.map((file) => file.id))
+          ) {
+            clearTimeout(pending.timer);
+            pendingDraftSave.current = null;
+          }
+          clearAcceptedDraft(draftKey, draft, attachments, owner);
+          if (
+            request.current.key === sentReceipt!.key &&
+            request.current.attempt === sentReceipt!.attempt
+          )
+            request.current = { signature: "", key: "" };
+          await settleStoredSend(
+            localStorage,
+            receiptStorageKey,
+            sentReceipt!,
+            null,
+          );
+          window.dispatchEvent(new Event("loop-source-refresh"));
+          window.dispatchEvent(new Event("loop-later-change"));
+        };
+        if (options.sendAt) {
+          const row = await threadApi(workspaceApi.scheduledSendCreate, {
+            body: { ...body, sendAt: options.sendAt },
+          });
+          await settleAccepted();
+          if (owner !== ownerRef.current) return;
+          const when = `${dayLabel(options.sendAt).toLowerCase()} at ${timeLabel(options.sendAt)}`;
+          const text = draft;
+          // Undo cancels it while it is still waiting; once it has been sent,
+          // the server refuses and says so.
+          notify({
+            text: `Scheduled for @${recipient.name}, ${when}.${!sameComposer() ? " Your current draft has been kept." : ""}${reconciled}`,
+            link: {
+              label: "View",
+              onSelect: () =>
+                openSourceLater("scheduled", row.id, actionSource),
+            },
+            undo: async () => {
+              await threadApi(workspaceApi.scheduledSendCancel, {
+                params: { id: row.id },
+              });
+              window.dispatchEvent(new Event("loop-scheduled-change"));
+              if (currentView())
+                setDraft((current) => (current.trim() ? current : text));
+            },
+          });
+          window.dispatchEvent(new Event("loop-scheduled-change"));
+          if (!sameComposer()) return;
+          setDraft("");
+          setAttachments([]);
+          setReplyContext(
+            conversation && conversationTarget ? conversationTarget : null,
+          );
+          if (!conversation) collapseComposer();
+          return;
+        }
+        const accepted = await callRoute(
+          workspaceApi.submit,
+          {
+            body: {
+              ...body,
+              ...(options.queue ? { queue: true } : {}),
+            },
+          },
+          actionSource,
+        );
+        await settleAccepted();
+        if (owner !== ownerRef.current) return;
+        try {
+          localStorage.setItem(
+            `loop-last-recipient:${JSON.stringify([owner, actionSource || "laptop"])}`,
+            accepted.agent_id || recipient.id,
+          );
+        } catch {
+          // Storage restrictions must not turn an accepted send into an error.
+        }
+        const unchanged = sameComposer();
+        if (!unchanged)
+          notify({
+            text: `${options.queue ? "Queued for" : "Sent to"} @${recipient.name}. Your current draft has been kept.${reconciled}`,
+          });
+        // Publish the confirmed receipt before any background refresh. Discard
+        // older reads so a response started before this send cannot erase it.
+        ++runsGeneration.current;
+        if (
+          actionSource === executionSourceId() &&
+          accepted.agent_id &&
+          accepted.state
+        )
+          setRuns((old) => [
+            { ...old.find((run) => run.id === accepted.id), ...accepted },
+            ...old.filter((run) => run.id !== accepted.id),
+          ]);
+        if (!unchanged) return;
+        if (!conversation)
+          setSendNotice({
+            runId: accepted.id,
+            conversationId: accepted.conversation_id || conversationId || null,
+            agentId: recipient.id,
+            agentName: recipient.name,
+            steering: Boolean(accepted.steeringId),
+          });
+        setDraft("");
+        setAttachments([]);
+        if (conversationId) saveThreadDraft(conversationId, "", []);
+        // Stay in the thread after sending; its reply context returns to the
+        // conversation itself rather than the quoted message.
+        setReplyContext(
+          conversation && conversationTarget ? conversationTarget : null,
+        );
+        setContextArtifact(null);
+        if (options.queue && conversation)
+          notify({
+            text: "Queued after the current task." + reconciled,
+            // Undo takes it back to a draft, only while it has not started.
+            undo: async () => {
+              await withdrawToComposer(accepted.id);
+              void refresh();
+            },
+          });
+        else if (reconciled && conversation) setThreadNotice(reconciled.trim());
+        else if (reconciled) setDismissNotice(reconciled.trim());
+        if (!conversation) collapseComposer();
+        else document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
+        void refresh().catch((e) => setError(e.message));
+      };
+      const plan = await prepareStoredSend(
+        localStorage,
+        receiptStorageKey,
         signature,
+        request.current,
         {
           mode: options.sendAt ? "schedule" : options.queue ? "queue" : "send",
           sendAt: options.sendAt ?? null,
         },
-        () => crypto.randomUUID(),
-      );
-      // An undecided reply keeps its target.
-      const unquoted = omitsReplyTarget(
-        previous,
-        plan,
         !!reply?.messageId && !reply.excerpt && replyQuoted === false,
+        () => owner === ownerRef.current && currentView() && sameComposer(),
+        sendPrepared,
       );
-      const quotedId = unquoted ? undefined : reply?.messageId;
-      request.current =
-        plan.receipt === previous ? previous : { ...plan.receipt, unquoted };
-      sentReceipt = request.current;
-      try {
-        localStorage.setItem(
-          receiptStorageKey,
-          JSON.stringify(request.current),
-        );
-      } catch {
-        // Storage limits must not turn an accepted send into an error.
-      }
-      const reconciled = plan.reconciled
-        ? plan.intent.mode === "schedule"
-          ? ` Your earlier request went through as first sent: scheduled for ${dayLabel(plan.intent.sendAt!).toLowerCase()} at ${timeLabel(plan.intent.sendAt!)}. Change it in Later → Scheduled.`
-          : " Your earlier request went through as first sent."
-        : "";
-      options =
-        plan.intent.mode === "schedule"
-          ? { sendAt: plan.intent.sendAt! }
-          : plan.intent.mode === "queue"
-            ? { queue: true }
-            : {};
-      const body = {
-        agentId: recipient.id,
-        conversationId,
-        replyToMessageId: quotedId,
-        replyExcerpt: quotedId && reply?.excerpt ? reply.content : undefined,
-        input: draft,
-        idempotencyKey: request.current.key,
-        attachmentIds: attachments.map((file) => file.id),
-        folderId:
-          folderChoice !== undefined
-            ? folderChoice || null
-            : conversationId
-              ? undefined
-              : recipient.folder_id || undefined,
-      };
-      const settleAccepted = () => {
-        const pending = pendingDraftSave.current;
-        if (
-          pending?.key === draftKey &&
-          pending.owner === owner &&
-          pending.text === draft &&
-          JSON.stringify(pending.files.map((file) => file.id)) ===
-            JSON.stringify(attachments.map((file) => file.id))
-        ) {
-          clearTimeout(pending.timer);
-          pendingDraftSave.current = null;
-        }
-        clearAcceptedDraft(draftKey, draft, attachments, owner);
-        if (request.current.key === sentReceipt!.key)
-          request.current = { signature: "", key: "" };
-        settleStoredSend(
-          localStorage,
-          receiptStorageKey,
-          sentReceipt!.key,
-          null,
-        );
-        window.dispatchEvent(new Event("loop-source-refresh"));
-        window.dispatchEvent(new Event("loop-later-change"));
-      };
-      if (options.sendAt) {
-        const row = await threadApi(workspaceApi.scheduledSendCreate, {
-          body: { ...body, sendAt: options.sendAt },
-        });
-        settleAccepted();
-        if (owner !== ownerRef.current) return;
-        const when = `${dayLabel(options.sendAt).toLowerCase()} at ${timeLabel(options.sendAt)}`;
-        const text = draft;
-        // Undo cancels it while it is still waiting; once it has been sent,
-        // the server refuses and says so.
-        notify({
-          text: `Scheduled for @${recipient.name}, ${when}.${!sameComposer() ? " Your current draft has been kept." : ""}${reconciled}`,
-          link: {
-            label: "View",
-            onSelect: () => openSourceLater("scheduled", row.id, actionSource),
-          },
-          undo: async () => {
-            await threadApi(workspaceApi.scheduledSendCancel, {
-              params: { id: row.id },
-            });
-            window.dispatchEvent(new Event("loop-scheduled-change"));
-            if (currentView())
-              setDraft((current) => (current.trim() ? current : text));
-          },
-        });
-        window.dispatchEvent(new Event("loop-scheduled-change"));
-        if (!sameComposer()) return;
-        setDraft("");
-        setAttachments([]);
-        setReplyContext(
-          conversation && conversationTarget ? conversationTarget : null,
-        );
-        if (!conversation) collapseComposer();
-        return;
-      }
-      const accepted = await callRoute(
-        workspaceApi.submit,
-        {
-          body: {
-            ...body,
-            ...(options.queue ? { queue: true } : {}),
-          },
-        },
-        actionSource,
-      );
-      settleAccepted();
-      if (owner !== ownerRef.current) return;
-      try {
-        localStorage.setItem(
-          `loop-last-recipient:${JSON.stringify([owner, actionSource || "laptop"])}`,
-          accepted.agent_id || recipient.id,
-        );
-      } catch {
-        // Storage restrictions must not turn an accepted send into an error.
-      }
-      const unchanged = sameComposer();
-      if (!unchanged)
-        notify({
-          text: `${options.queue ? "Queued for" : "Sent to"} @${recipient.name}. Your current draft has been kept.${reconciled}`,
-        });
-      // Publish the confirmed receipt before any background refresh. Discard
-      // older reads so a response started before this send cannot erase it.
-      ++runsGeneration.current;
-      if (
-        actionSource === executionSourceId() &&
-        accepted.agent_id &&
-        accepted.state
-      )
-        setRuns((old) => [
-          { ...old.find((run) => run.id === accepted.id), ...accepted },
-          ...old.filter((run) => run.id !== accepted.id),
-        ]);
-      if (!unchanged) return;
-      if (!conversation)
-        setSendNotice({
-          runId: accepted.id,
-          conversationId: accepted.conversation_id || conversationId || null,
-          agentId: recipient.id,
-          agentName: recipient.name,
-          steering: Boolean(accepted.steeringId),
-        });
-      setDraft("");
-      setAttachments([]);
-      if (conversationId) saveThreadDraft(conversationId, "", []);
-      // Stay in the thread after sending; its reply context returns to the
-      // conversation itself rather than the quoted message.
-      setReplyContext(
-        conversation && conversationTarget ? conversationTarget : null,
-      );
-      setContextArtifact(null);
-      if (options.queue && conversation)
-        notify({
-          text: "Queued after the current task." + reconciled,
-          // Undo takes it back to a draft, only while it has not started.
-          undo: async () => {
-            await withdrawToComposer(accepted.id);
-            void refresh();
-          },
-        });
-      else if (reconciled && conversation) setThreadNotice(reconciled.trim());
-      else if (reconciled) setDismissNotice(reconciled.trim());
-      if (!conversation) collapseComposer();
-      else document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
-      void refresh().catch((e) => setError(e.message));
+      await plan?.completion;
     } catch (e) {
       // A refusal means nothing was accepted, so a different choice may be
       // sent next; anything else stays pending and is retried as first sent.
@@ -730,11 +726,15 @@ export function useComposerSend({
           (e as { status?: number }).status,
           (e as { executionOutcome?: string }).executionOutcome,
         );
-        if (request.current.key === sentReceipt.key) request.current = failed;
-        settleStoredSend(
+        if (
+          request.current.key === sentReceipt.key &&
+          request.current.attempt === sentReceipt.attempt
+        )
+          request.current = failed;
+        await settleStoredSend(
           localStorage,
           receiptStorageKey,
-          sentReceipt.key,
+          sentReceipt,
           failed,
         );
       }

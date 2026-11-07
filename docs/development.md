@@ -141,6 +141,14 @@ LOOP_BROWSER=webkit npm run smoke:fleet-commands
 
 `node scripts/harness-upgrades-browser-smoke.mjs` drives the production provider cards and typed transport against an isolated HTTP fixture in a mobile viewport. It checks read-only release lookup, upgrade progress, version refresh, self-updater guidance and a restart hold across reload. It does not install or authenticate a live harness.
 
+`node scripts/heavy-command.mjs scripts/send-receipts-browser-smoke.mjs` checks
+the production receipt preparation and settlement functions with real browser
+storage and Web Locks across two tabs. Its isolated HTTP fixture drops accepted
+responses and checks identity reuse after reload, independent settlement and
+storage refusal before dispatch. Set `LOOP_BROWSER=webkit` for WebKit; Chromium
+is the default. This exercises receipt persistence, not a rendered composer or
+live provider.
+
 `smoke:fleet-controls` drives the production native-question and sharing UI with source context against an isolated HTTP fixture. It checks read-only and mismatched-machine capabilities, source-bound command IDs, storage failure before dispatch, and source changes during a pending share preview. Reading a preview does not grant permission to send it. This is browser fixture evidence, not a native provider or live tunnel run.
 
 The same smoke renders the production agent-mail sheet and thread reader with

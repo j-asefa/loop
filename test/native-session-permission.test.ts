@@ -523,49 +523,137 @@ it("records a cancelled-before-dispatch turn as interrupted, not unknown outcome
   }
 });
 
-it("ignores a re-emitted request id this generation already resolved", async () => {
+it.each(["ordinary", "oversized", "full"])(
+  "ignores a resolved request re-emission even when %s",
+  async (bounds) => {
+    const sessions = new NativeSessions();
+    const task = claimed("re-emit-" + bounds);
+    const live = await sessions.session(task);
+    // A decision for this request id was already resolved in this generation.
+    const decisionId = randomUUID();
+    nativeDecisionsQueries.insertPending(
+      db,
+      decisionId,
+      task.id,
+      live.binding.conversation_id,
+      live.generation,
+      "req-1",
+      JSON.stringify({ id: "req-1", kind: "approval", title: "t", detail: "" }),
+      Date.now(),
+    );
+    nativeDecisionsQueries.finishById(db, "resolved", decisionId);
+    const prompt = vi
+      .spyOn(live.adapter, "prompt")
+      .mockImplementation(async () => {
+        // A resolved re-emission adds no display content, even at the limits.
+        if (bounds === "full") {
+          for (let i = 0; i < 25; i++)
+            live.requests.set("pending-" + i, {
+              id: "pending-" + i,
+              kind: "approval",
+              title: "t",
+              detail: "",
+            });
+        }
+        // The harness re-emits the already-resolved request in this generation.
+        sessions.event(live, {
+          type: "request",
+          request: {
+            id: "req-1",
+            kind: "approval",
+            title: "t",
+            detail: bounds === "oversized" ? "x".repeat(1024 * 1024) : "",
+          },
+        });
+        // It must not move the run to awaiting_approval or set it waiting.
+        expect(
+          (db.prepare("SELECT state FROM runs WHERE id=?").get(task.id) as any)
+            .state,
+        ).toBe("running");
+        expect(live.waiting).toBe(false);
+        sessions.event(live, { type: "status", status: "completed" });
+      });
+    try {
+      // The turn still completes: the ignored re-emit never moved the run back
+      // to awaiting_approval with nothing to answer.
+      await expect(sessions.execute(task)).resolves.toBe(true);
+      expect(
+        (db.prepare("SELECT state FROM runs WHERE id=?").get(task.id) as any)
+          .state,
+      ).not.toBe("awaiting_approval");
+    } finally {
+      prompt.mockRestore();
+      await sessions.dispose(live);
+    }
+  },
+);
+
+it("interrupts a settled native turn when its final output cannot be recorded", async () => {
   const sessions = new NativeSessions();
-  const task = claimed("re-emit");
+  const task = claimed("settle-throws");
   const live = await sessions.session(task);
-  // A decision for this request id was already resolved in this generation.
   const decisionId = randomUUID();
+  const pending = {
+    id: "leftover",
+    kind: "approval" as const,
+    title: "pending",
+    detail: "",
+  };
+  live.requests.set(pending.id, pending);
   nativeDecisionsQueries.insertPending(
     db,
     decisionId,
     task.id,
     live.binding.conversation_id,
     live.generation,
-    "req-1",
-    JSON.stringify({ id: "req-1", kind: "approval", title: "t", detail: "" }),
+    pending.id,
+    JSON.stringify(pending),
     Date.now(),
   );
-  nativeDecisionsQueries.finishById(db, "resolved", decisionId);
+  const project = vi.spyOn(sessions, "projectOutput");
   const prompt = vi
     .spyOn(live.adapter, "prompt")
     .mockImplementation(async () => {
-      // The harness re-emits the already-resolved request in this generation.
-      sessions.event(live, {
-        type: "request",
-        request: { id: "req-1", kind: "approval", title: "t", detail: "" },
+      queueMicrotask(() => {
+        project.mockImplementation(() => {
+          throw new Error("database is locked");
+        });
+        try {
+          sessions.event(live, { type: "status", status: "completed" });
+        } catch {
+          // The adapter's event callback surfaces the failure.
+        }
       });
-      // It must not move the run to awaiting_approval or set it waiting.
-      expect(
-        (db.prepare("SELECT state FROM runs WHERE id=?").get(task.id) as any)
-          .state,
-      ).toBe("running");
-      expect(live.waiting).toBe(false);
-      sessions.event(live, { type: "status", status: "completed" });
     });
   try {
-    // The turn still completes: the ignored re-emit never moved the run back
-    // to awaiting_approval with nothing to answer.
-    await expect(sessions.execute(task)).resolves.toBe(true);
+    // The harness completed, but Loop cannot certify its reply was saved.
+    // It must stop waiting without reporting success or submitting again.
+    await expect(sessions.execute(task)).resolves.toBe(false);
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(live.requests.size).toBe(0);
+    expect(live.waiting).toBe(false);
     expect(
-      (db.prepare("SELECT state FROM runs WHERE id=?").get(task.id) as any)
-        .state,
-    ).not.toBe("awaiting_approval");
+      db
+        .prepare("SELECT state FROM native_decisions WHERE id=?")
+        .get(decisionId),
+    ).toEqual({ state: "expired" });
+    expect(
+      db
+        .prepare("SELECT state FROM companion_sessions WHERE conversation_id=?")
+        .get(live.binding.conversation_id),
+    ).toEqual({ state: "idle" });
+    expect(live.run).toBeUndefined();
+    expect(
+      db.prepare("SELECT state FROM runs WHERE id=?").get(task.id),
+    ).toEqual({ state: "interrupted" });
+    expect(
+      db
+        .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+        .get(task.id),
+    ).toEqual({ state: "completed" });
   } finally {
     prompt.mockRestore();
+    project.mockRestore();
     await sessions.dispose(live);
   }
 });
