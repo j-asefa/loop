@@ -5,6 +5,7 @@ import {
   type RouteResponse,
 } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
+import { clearUpgradeCommandId, upgradeCommandId } from "./durableIdentities";
 import { useSourceId } from "./SourceContext";
 import { viewGeneration } from "./viewCache";
 type UpgradeView = RouteResponse<typeof workspaceApi.runtimeUpgrade>;
@@ -100,6 +101,10 @@ function HarnessUpgradeControls({
       setChecking((n) => n + 1);
       onComplete?.();
     }
+    // A settled upgrade has consumed its command id; a fresh start later must
+    // get a new one rather than dedupe onto the finished installer.
+    if (upgrade?.state === "complete" || upgrade?.state === "failed")
+      clearUpgradeCommandId(localStorage, sourceId, runtime);
     // Refresh once per confirmed operation, not on every parent's render.
   }, [upgrade?.commandId, upgrade?.state]);
   return (
@@ -158,7 +163,9 @@ function HarnessUpgradeControls({
           setSending(true);
           setError("");
           try {
-            const commandId = crypto.randomUUID();
+            // Reuse a pending command id until the upgrade settles, so the
+            // host's command-id dedupe recognizes a retried start.
+            const commandId = upgradeCommandId(localStorage, sourceId, runtime);
             const value = await callRoute(
               workspaceApi.runtimeUpgradeStart,
               { params: { name: runtime }, body: { commandId } },

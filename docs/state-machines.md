@@ -272,10 +272,14 @@ steering message proven unsent. Delegation results are keyed
 ### Composer send receipt
 
 [`sendIntent.ts`](../src/client/sendIntent.ts): `{signature, key, intent,
-pending}` per thread, stored in `sessionStorage`. Empty → pending (new key) →
-cleared on 2xx, refused (key kept) on a Loop response below 500, unchanged on
-5xx or no response. A pending receipt for the same message is resent with the
-same key and intent. Fleet sends also use the IndexedDB command journal in
+pending}` per thread, stored in an owner/source/thread-scoped durable store
+([`sendReceiptStore.ts`](../src/client/sendReceiptStore.ts), backed by
+`localStorage`), so a pending send survives a killed home-screen app, a new
+tab and auth expiry (Session clears `sessionStorage`, never these receipts).
+Empty → pending (new key) → cleared on 2xx, refused (key kept) on a Loop
+response below 500, unchanged on 5xx or no response. A pending receipt for
+the same message is resent with the same key and intent. Fleet sends also use
+the IndexedDB command journal in
 [`fleetCommand.ts`](../src/client/fleetCommand.ts) (reserved → dispatched →
 removed on a terminal answer), which turns a repeat into a receipt-only query.
 
@@ -301,7 +305,10 @@ displaced. Release removes the lock only when the nonce still matches.
 restart-required / failed / unconfirmed; unconfirmed after a host restart;
 restart-required → complete / unconfirmed on reconcile; unconfirmed → failed /
 restart-required by owner confirmation; finished → dismissed. One upgrade runs
-at a time; starts are deduplicated by command ID.
+at a time; starts are deduplicated by command ID. The client reuses a pending
+command id ([`durableIdentities.ts`](../src/client/durableIdentities.ts)) until
+the upgrade settles, so a retried start reaches the host's command-id dedupe
+rather than rerunning a finished installer.
 
 ## Reachable invalid states
 
@@ -321,12 +328,12 @@ test that fails on the earlier code.
 | H1 | workspace lock | A recoverer killed during recovery left `host.lock.recovery`; every later `loop start` failed with "Another process is recovering" until the file was deleted by hand. ([#352](https://github.com/j-asefa/loop/issues/352)) | `test/lifecycle.node.test.ts` "a recoverer killed mid-recovery" |
 | H2 | workspace lock | A stale lock whose PID was reused by another user's process returned EPERM and was treated as a live owner without checking its identity. ([#352](https://github.com/j-asefa/loop/issues/352)) | same file, "PID now belongs to another user's process" |
 | W1 | pr_watches | Resume read `paused` and then wrote `watching` unguarded; a stop committed by the worker in between (pull request merged) was revived and polled again. ([#353](https://github.com/j-asefa/loop/issues/353)) | `test/sql-pr-watches.test.ts` "resumes only a paused watch" |
+| C1 | send receipt, retry, upgrade | Pending composer receipts lived in `sessionStorage`, which a killed home-screen app, a new tab or auth expiry (`sessionStorage.clear()`) discarded; the restored draft then sent with a new key and could run an accepted request twice. "Retry as a new run" kept its key only in a `useRef` map, and each harness-upgrade click minted a new command ID. They now live in owner/source/thread-scoped durable storage and are cleared on settlement and owner change. ([#354](https://github.com/j-asefa/loop/issues/354)) | `test/client-pending-identities.test.ts` |
 
 ### Open
 
 | ID | Machine | Defect | Issue |
 | -- | ------- | ------ | ----- |
-| C1 | send receipt | Pending composer receipts live in `sessionStorage`, which a killed home-screen app, a new tab or auth expiry (`sessionStorage.clear()`) discards; the restored draft is then sent with a new idempotency key. "Retry as a new run" keeps its key only in memory, and each harness upgrade click mints a new command ID. | [#354](https://github.com/j-asefa/loop/issues/354) |
 | S1 | approvals, tool_invocations | A crash during an MCP call leaves the approval and invocation `executing` forever; no startup sweep marks them `unknown`. | [#355](https://github.com/j-asefa/loop/issues/355) |
 | S2 | runs | An expired approval leaves its run `awaiting_approval`, holding the agent's queue, while the Feed hides the approval. | [#355](https://github.com/j-asefa/loop/issues/355) |
 | S3 | runs | A graceful worker stop interrupts non-native runs that were only `awaiting_approval` and rejects their approvals; a crash leaves the same runs approvable. | [#355](https://github.com/j-asefa/loop/issues/355) |

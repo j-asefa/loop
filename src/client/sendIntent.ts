@@ -98,6 +98,10 @@ export function settleStoredSend(
     return;
   }
   if (!current || current.key !== sentKey) return;
-  if (next) storage.setItem(storageKey, JSON.stringify(next));
-  else storage.removeItem(storageKey);
+  try {
+    if (next) storage.setItem(storageKey, JSON.stringify(next));
+    else storage.removeItem(storageKey);
+  } catch {
+    // Storage restrictions must not turn an accepted send into an error.
+  }
 }

@@ -73,6 +73,7 @@ import {
   isExecutionRefused,
 } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
+import { clearRunRetryKey, runRetryKey } from "./durableIdentities";
 import {
   TranscriptHandoff,
   ProjectedMessage,
@@ -2043,10 +2044,22 @@ function ConversationView({
                             if (retryBusy.current) return;
                             retryBusy.current = true;
                             setRetrying(m.run_id);
-                            const key =
-                              retryKeys.current.get(m.run_id!) ||
-                              crypto.randomUUID();
-                            retryKeys.current.set(m.run_id!, key);
+                            // The retry key survives reloads so a lost retry
+                            // response is repeated with the same identity
+                            // instead of running the accepted run again.
+                            let key = retryKeys.current.get(m.run_id!);
+                            if (key === undefined) {
+                              key =
+                                owner && sourceId
+                                  ? runRetryKey(
+                                      localStorage,
+                                      owner,
+                                      sourceId,
+                                      m.run_id!,
+                                    )
+                                  : crypto.randomUUID();
+                              retryKeys.current.set(m.run_id!, key);
+                            }
                             try {
                               await call(workspaceApi.runAction, {
                                 params: { id: m.run_id!, action: "retry" },
@@ -2054,11 +2067,28 @@ function ConversationView({
                                   idempotencyKey: key,
                                 },
                               });
+                              // Settled: the run exists, so the key is spent.
+                              if (owner && sourceId)
+                                clearRunRetryKey(
+                                  localStorage,
+                                  owner,
+                                  sourceId,
+                                  m.run_id!,
+                                );
+                              retryKeys.current.delete(m.run_id!);
                               onSubmitted();
                               await load();
                             } catch (e) {
-                              if (isExecutionRefused(e))
+                              if (isExecutionRefused(e)) {
+                                if (owner && sourceId)
+                                  clearRunRetryKey(
+                                    localStorage,
+                                    owner,
+                                    sourceId,
+                                    m.run_id!,
+                                  );
                                 retryKeys.current.delete(m.run_id!);
+                              }
                               setError((e as Error).message);
                             } finally {
                               retryBusy.current = false;

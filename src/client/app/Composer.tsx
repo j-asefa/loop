@@ -559,10 +559,14 @@ export function useComposerSend({
       request.current =
         plan.receipt === previous ? previous : { ...plan.receipt, unquoted };
       sentReceipt = request.current;
-      sessionStorage.setItem(
-        receiptStorageKey,
-        JSON.stringify(request.current),
-      );
+      try {
+        localStorage.setItem(
+          receiptStorageKey,
+          JSON.stringify(request.current),
+        );
+      } catch {
+        // Storage limits must not turn an accepted send into an error.
+      }
       const reconciled = plan.reconciled
         ? plan.intent.mode === "schedule"
           ? ` Your earlier request went through as first sent: scheduled for ${dayLabel(plan.intent.sendAt!).toLowerCase()} at ${timeLabel(plan.intent.sendAt!)}. Change it in Later → Scheduled.`
@@ -605,7 +609,7 @@ export function useComposerSend({
         if (request.current.key === sentReceipt!.key)
           request.current = { signature: "", key: "" };
         settleStoredSend(
-          sessionStorage,
+          localStorage,
           receiptStorageKey,
           sentReceipt!.key,
           null,
@@ -728,7 +732,7 @@ export function useComposerSend({
         );
         if (request.current.key === sentReceipt.key) request.current = failed;
         settleStoredSend(
-          sessionStorage,
+          localStorage,
           receiptStorageKey,
           sentReceipt.key,
           failed,

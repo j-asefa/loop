@@ -31,6 +31,7 @@ import {
   type WorkspaceComposerDraft,
 } from "../workspace-drafts";
 import type { SendReceipt } from "../sendIntent";
+import { readSendReceipt, sendReceiptKey } from "../sendReceiptStore";
 import { useSwipeBack } from "../useSwipeBack";
 import { usePullToRefresh } from "../usePullToRefresh";
 import {
@@ -982,7 +983,13 @@ export function useAppController() {
   // The name shown for you: your profile's, else the account's.
   const accountName: string = session?.user?.name?.trim() || "You";
   const displayName = myProfile?.display_name || accountName;
-  const receiptStorageKey = `loop-send:${threadIdentity}`;
+  // A pending receipt survives restart, a new tab and auth expiry: it is kept
+  // in owner/source/thread-scoped durable storage, not sessionStorage (which
+  // Session clears on expiry), so a re-send repeats the same idempotency key.
+  const receiptStorageKey =
+    session?.user?.id != null
+      ? sendReceiptKey(session.user.id, actionSource, conversation)
+      : "";
   const receiptBox = useRef<{
     key: string;
     box: { current: SendReceipt };
@@ -991,12 +998,7 @@ export function useAppController() {
     receiptBox.current = {
       key: receiptStorageKey,
       box: {
-        current: parse<SendReceipt>(
-          session?.user?.id
-            ? sessionStorage.getItem(receiptStorageKey) || ""
-            : "",
-          { signature: "", key: "" },
-        ),
+        current: readSendReceipt(localStorage, receiptStorageKey),
       },
     };
   }
