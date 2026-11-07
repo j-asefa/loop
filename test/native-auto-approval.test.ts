@@ -1,6 +1,5 @@
 import type { Live } from "../src/server/native-sessions";
 import type { Request } from "../src/protocol";
-import { ServerFrame } from "../src/protocol";
 import { historicalEvent } from "../src/shared/workspace-events";
 import type { PermissionMode } from "../src/shared/permission-modes";
 import { Claude } from "../src/adapters/claude";
@@ -157,14 +156,6 @@ it.each([
     // These values are accepted by the existing protocol and fit ingress's
     // aggregate budget. Emission must not reject them after committing state.
     expect(Buffer.byteLength(JSON.stringify(request))).toBeLessThan(64000);
-    expect(() =>
-      ServerFrame.parse({
-        v: 1,
-        epoch: "fixture",
-        cursor: 1,
-        event: { type: "request", request },
-      }),
-    ).not.toThrow();
     const f = session("native-limits-" + name, "default");
     expect(() => f.request(request)).not.toThrow();
     expect(f.state()).toBe("awaiting_approval");

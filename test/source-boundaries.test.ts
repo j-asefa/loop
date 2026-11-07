@@ -185,3 +185,44 @@ it("keeps feed code from importing fleet modules", () => {
   // The allowance only shrinks: every entry must still need it.
   expect([...allowed].sort()).toEqual([...feedFleetAllowance].sort());
 }, 30_000);
+
+// Fleet implementation and the two process composition roots may install the
+// extension. Every core caller must use the database-free effect seam.
+function coreEffectImports(file: string, text: string) {
+  const path = relative(root, file).split(sep).join("/");
+  if (
+    path.startsWith("src/server/fleet-") ||
+    ["src/workspace-host.ts", "src/server/execution-worker.ts"].includes(path)
+  )
+    return [];
+  return specifiers(file, text).flatMap((specifier) => {
+    if (!specifier.startsWith(".")) return [];
+    const resolved = resolveModule(file, specifier);
+    return resolved === "src/server/fleet-effect-authorizations.ts"
+      ? [`${path} imports ${resolved}`]
+      : [];
+  });
+}
+
+it("requires core effect callers to use the neutral authority seam", () => {
+  const queue = join(root, "src/server/queue.ts");
+  expect(
+    coreEffectImports(
+      queue,
+      'import { assertFleetEffect } from "./fleet-effect-authorizations.js";',
+    ),
+  ).toEqual([
+    "src/server/queue.ts imports src/server/fleet-effect-authorizations.ts",
+  ]);
+  expect(
+    coreEffectImports(
+      queue,
+      'import { assertEffect } from "./effect-authority.js";',
+    ),
+  ).toEqual([]);
+  expect(
+    source(join(root, "src")).flatMap((file) =>
+      coreEffectImports(file, readFileSync(file, "utf8")),
+    ),
+  ).toEqual([]);
+}, 30_000);

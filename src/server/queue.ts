@@ -3,10 +3,7 @@ import * as mailQueries from "./sql/agent-mail.js";
 import * as runsQueries from "./sql/runs.js";
 import * as continuationQueries from "./sql/review-continuations.js";
 import { z } from "zod";
-import {
-  recordFleetEffect,
-  recordFleetEffectEdit,
-} from "./fleet-effect-authorizations.js";
+import { recordEffect, recordEffectEdit } from "./effect-authority.js";
 export const RunIdentity = z.object({
   id: z.string().min(1),
   owner_id: z.string().min(1),
@@ -67,7 +64,7 @@ export function enqueue(
           "This workspace has 100 pending runs. Finish or cancel some before adding more.",
         );
       const runId = id();
-      recordFleetEffect(owner, "run", runId);
+      recordEffect(owner, "run", runId);
       runsQueries.insertQueued(
         db,
         runId,
@@ -172,8 +169,7 @@ function transitionState(
         return false;
       // Resuming existing work introduces a new deferred effect even if a local
       // device created it. Preserve the resuming peer alongside its creator.
-      if (state === "queued")
-        recordFleetEffectEdit(run.owner_id, "run", run.id);
+      if (state === "queued") recordEffectEdit(run.owner_id, "run", run.id);
       const time = now();
       runsQueries.transitionState(
         db,

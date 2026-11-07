@@ -2,11 +2,7 @@ import * as runSteeringQueries from "./sql/run-steering.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
 import { MessageMetadata, parseRun } from "./row-schemas.js";
-import {
-  recordFleetEffect,
-  inheritFleetEffect,
-  withFleetEffect,
-} from "./fleet-effect-authorizations.js";
+import { recordEffect, inheritEffect, withEffect } from "./effect-authority.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 
 import { watchRun } from "./run-signal.js";
@@ -67,7 +63,7 @@ export function saveSteering(
       const steeringId = id(),
         messageId = id(),
         messageAt = now();
-      recordFleetEffect(run.owner_id, "steering", steeringId);
+      recordEffect(run.owner_id, "steering", steeringId);
       messagesQueries.insertUser(
         db,
         messageId,
@@ -90,7 +86,7 @@ export function saveSteering(
       );
       // Accepting peer input constrains the receiving run, including subsequent
       // tools after delivery. Keep the constraint even if delivery is uncertain.
-      inheritFleetEffect(run.owner_id, "steering", steeringId, run.id);
+      inheritEffect(run.owner_id, "steering", steeringId, run.id);
       emit(run.owner_id, run.id, "steering.pending", { messageId, steeringId });
       return { ...run, steeringId };
     })
@@ -146,7 +142,7 @@ export class SteeringInbox {
       this.busy = (async () => {
         try {
           const value = message(input, this.replyToolAvailable);
-          await withFleetEffect(this.run.owner_id, "steering", input.id, () =>
+          await withEffect(this.run.owner_id, "steering", input.id, () =>
             deliver(value, input.id),
           );
           db.transaction(() => {
@@ -193,7 +189,7 @@ export class SteeringInbox {
     let delivered = 0;
     for (const input of pending) {
       try {
-        withFleetEffect(this.run.owner_id, "steering", input.id, () => {
+        withEffect(this.run.owner_id, "steering", input.id, () => {
           history.push(message(input, this.replyToolAvailable));
           this.receipt(input, "delivered");
           delivered++;

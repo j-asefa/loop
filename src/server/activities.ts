@@ -2,12 +2,11 @@ import * as agentActivitiesQueries from "./sql/agent-activities.js";
 import * as conversationsQueries from "./sql/conversations.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
-import type { QueryRow } from "./query-records.js";
+import type { Run } from "./queue.js";
 
 import { z } from "zod";
 import { db, emit, now } from "./db.js";
 import { owned, Problem } from "./domain.js";
-import * as runTracesQueries from "./sql/run-traces.js";
 import {
   ACTIVITY_FEATURES,
   ACTIVITY_LIMITS,
@@ -152,6 +151,25 @@ export function applyActivity(
     .immediate();
 }
 
+// API-provider activities come from Loop's own broker and runtime, never from
+// model prose. Display records must not fail a run, so rejections are dropped.
+export function apiToolActivity(
+  run: Run,
+  callId: string,
+  patch: Extract<ActivityUpdate, { kind: "tool" }>["patch"],
+) {
+  applyActivity(
+    { owner: run.owner_id, conversation: run.conversation_id, run: run.id },
+    {
+      v: 1,
+      kind: "tool",
+      id: callId,
+      source: { transport: "api", origin: "broker" },
+      patch: { ...patch, links: { broker: callId, trace: "tool:" + callId } },
+    },
+  );
+}
+
 type NativeLive = {
   run?: {
     id: string;
@@ -290,80 +308,6 @@ export function setActivityCapabilities(
     .immediate();
 }
 
-// Old runs predate activities. Project only their public broker/native tool
-// traces as read-only records; internal envelopes stay hidden as in agentTraces.
-// Paged legacy history must not offer traces already represented by a durable
-// record, even when that record is on an older activity page.
-
-function legacyTools(
-  owner: string,
-  scope: string,
-  known: Set<string>,
-  before?: number,
-) {
-  const traces = runTracesQueries.legacyTools(db, owner, scope, before) as Pick<
-    QueryRow<"run_traces">,
-    | "run_id"
-    | "trace_key"
-    | "title"
-    | "content"
-    | "metadata"
-    | "artifact_id"
-    | "id"
-  >[];
-  const more = before !== undefined && traces.length > 100;
-  if (more) traces.pop();
-  const next = more ? (traces.at(-1)!.id as number) : null;
-  const items = traces
-    .filter((t) => !known.has(t.run_id + "\0" + t.trace_key))
-    .map((t) => {
-      const metadata = JSON.parse(t.metadata || "{}");
-      const state = String(metadata.state || metadata.status || "");
-      const status = ["running", "waiting", "completed", "failed"].includes(
-        state,
-      )
-        ? state
-        : metadata.isError
-          ? "failed"
-          : "unknown";
-      const record = {
-        v: ACTIVITY_VERSION,
-        kind: "tool",
-        id: t.trace_key,
-        source: {
-          transport: metadata.native ? "native" : "api",
-          origin: "trace",
-        },
-        revision: 1,
-        fieldSeq: {},
-        partial: false,
-        replayed: true,
-        data: {
-          title: t.title,
-          status,
-          content: [
-            ...(t.content
-              ? [{ type: "text", text: String(t.content).slice(0, 16000) }]
-              : []),
-            ...(t.artifact_id
-              ? [{ type: "artifact", artifactId: t.artifact_id }]
-              : []),
-          ],
-          links: { trace: t.trace_key },
-        },
-      };
-      return {
-        key: `tool:legacy:trace:${t.run_id}:${t.trace_key}`,
-        kind: "tool",
-        run: t.run_id as string,
-        sequence: 0,
-        legacy: true,
-        record,
-      };
-    });
-  return { items, next };
-}
-
 const activityItem = (r: Row) => ({
   key: r.activity_key,
   kind: r.kind,
@@ -379,14 +323,14 @@ export function listActivities(
     after?: number;
     run?: string;
     before?: number;
-    view?: "recent" | "updates" | "legacy" | "files";
+    view?: "recent" | "updates" | "files";
     tools?: "0" | "1";
     runs?: string[];
   } = {},
 ) {
   owned("conversations", conversation, owner);
   // Conversation chrome needs controls and file summaries, never tool history
-  // or legacy trace discovery. Tool activity has its own lazy snapshot/cursor.
+  // Tool activity has its own lazy snapshot/cursor.
   if (
     options.tools === "0" &&
     (options.view === "recent" || options.view === "updates")
@@ -425,21 +369,6 @@ export function listActivities(
       earlier: null,
     };
   }
-  if (options.view === "legacy") {
-    const page = legacyTools(
-      owner,
-      conversation,
-      new Set(),
-      options.before ?? Number.MAX_SAFE_INTEGER,
-    );
-    return {
-      version: ACTIVITY_VERSION,
-      items: page.items,
-      cursor: 0,
-      more: false,
-      earlier: page.next,
-    };
-  }
   if (options.view === "recent") {
     const rows = agentActivitiesQueries.before(
       db,
@@ -475,11 +404,6 @@ export function listActivities(
     const byKey = new Map(
       [...rows, ...controls].map((r) => [r.activity_key, r]),
     );
-    // Match legacyTools exactly: traces it hides as internal envelopes or as
-    // plan calls are not history the reader can load.
-    const legacyAvailable =
-      options.before === undefined &&
-      !!runTracesQueries.hasLegacyTools(db, owner, conversation);
     return {
       version: ACTIVITY_VERSION,
       items: [...byKey.values()]
@@ -488,7 +412,6 @@ export function listActivities(
       cursor: rows[0]?.sequence ?? 0,
       more: false,
       earlier,
-      legacyAvailable,
     };
   }
   if (options.view === "files") {
@@ -521,21 +444,9 @@ export function listActivities(
   const more = rows.length > 500;
   if (more) rows.pop();
   const items = rows.map(activityItem);
-  // Legacy records are only needed for a full (non-incremental) load.
-  const known = new Set<string>();
-  for (const item of items) {
-    const trace = item.record?.data?.links?.trace;
-    if (item.run && trace) known.add(item.run + "\0" + trace);
-  }
-  const legacy =
-    options.after !== undefined || options.view
-      ? []
-      : legacyTools(owner, conversation, known).items.filter(
-          (l) => !options.run || l.run === options.run,
-        );
   return {
     version: ACTIVITY_VERSION,
-    items: [...legacy, ...items],
+    items,
     cursor: items.at(-1)?.sequence ?? options.after ?? 0,
     more,
   };

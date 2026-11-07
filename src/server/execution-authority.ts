@@ -1,7 +1,7 @@
 import * as nativeDecisionsQueries from "./sql/native-decisions.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { withFleetAction } from "./fleet-action-context.js";
-import { authorizeFleetEffect } from "./fleet-effect-authorizations.js";
+import { authorizeEffect } from "./effect-authority.js";
 import {
   assertExecutionGeneration,
   executionGeneration,
@@ -333,7 +333,7 @@ export class ExecutionAuthority {
             commandId: request.commandId ?? "",
             grant: request.fleet,
           },
-          () => authorizeFleetEffect(request.owner, request.fleet!),
+          () => authorizeEffect(request.owner, request.fleet!),
           apply,
         );
       };

@@ -16,16 +16,13 @@ loop logs --follow
 loop stop
 ```
 
-Device trust survives restart and address changes. It renews on use for up to one year of inactivity, subject to a fixed two-year maximum lifetime. Older records without a maximum retain their existing expiry as that maximum. Revocation persists. Expired or revoked devices must pair again. The implementation is [src/host.ts](../src/host.ts).
+Device trust survives restart and address changes. It renews on use for up to one year of inactivity, subject to a fixed two-year maximum lifetime. Revocation persists. Expired or revoked devices must pair again. The implementation is [src/host.ts](../src/host.ts).
 
 Companion workspaces store device trust in their workspace database through
-[device pairing](../src/server/device-pairing.ts), which needs no fleet. On first
-startup, they import the existing `devices.json` once and replace it with a
-migration marker before opening the gateway. Restore the complete workspace
-directory, including the database, `devices.json` and `device-expiry-checks/`,
-together. Older binaries refuse this marker instead of using a stale
-device list that could undo a revocation. Isolated previews keep separate device
-state.
+[device pairing](../src/server/device-pairing.ts), which needs no fleet. Restore
+the complete workspace directory, including the database and
+`device-expiry-checks/`, together. Isolated previews use their own database and
+cookie namespace; their paired devices cannot access the everyday workspace.
 
 The gateway checks device expiry on access, at startup and on its heartbeat.
 Before reading the clock, it writes a durable check containing only the owner

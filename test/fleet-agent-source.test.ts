@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -155,26 +156,14 @@ const uploads = new FleetWorkspaceUploads(
   uploadFile,
   () => performance.now() + fileClockOffset,
 );
-const initial = {
-  harness: "codex" as const,
-  version: "fixture",
-  project: root,
-  billing: { mode: "existing" as const, description: "Isolated fixture" },
-  capabilities: {
-    approvals: true,
-    questions: true,
-    resume: true,
-    liveAttach: false,
-    terminal: false,
-  },
-};
+
 const destinationPairing = new FleetPairing(
   db,
   destination,
   OWNER,
   process.env.LOOP_DATA_DIR,
 );
-const host = new Host(process.env.LOOP_DATA_DIR, initial, destinationPairing);
+const host = createHost(process.env.LOOP_DATA_DIR, destinationPairing);
 host.workspace = {
   http: app,
   peerHttp: createFleetPeerHttp(
@@ -432,7 +421,7 @@ const sourcePairing = new FleetPairing(
   owner,
   join(root, "gateway"),
 );
-const gateway = new Host(join(root, "gateway"), initial, sourcePairing);
+const gateway = createHost(join(root, "gateway"), sourcePairing);
 let localCalls = 0;
 gateway.workspace = {
   fleetCommandsHttp: createFleetCommandsHttp(

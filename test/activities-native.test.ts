@@ -119,9 +119,7 @@ it("keys replayed history outside a turn so reloads de-duplicate", () => {
     });
   replay("gen-a");
   replay("gen-b");
-  const items = listActivities("owner", "c2").items.filter(
-    (i: any) => !i.legacy,
-  );
+  const items = listActivities("owner", "c2").items;
   expect(items).toHaveLength(1);
   expect(items[0].key).toBe("tool:native:codex:item:history:native-7");
   expect(items[0].record).toMatchObject({

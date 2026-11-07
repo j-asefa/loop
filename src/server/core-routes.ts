@@ -58,7 +58,7 @@ import { seal, unseal } from "./secrets.js";
 import { nextTurnConnection, submit } from "./agent-runtime.js";
 import { activeRun } from "./steering.js";
 import { transition } from "./queue.js";
-import { assertFleetEffect, inheritFleetEffect } from "./fleet-effect-authorizations.js";
+import { assertEffect, inheritEffect } from "./effect-authority.js";
 
 import { assertTeamRestoreCapacity, listTeams, teamFilter } from "./teams.js";
 import { decide } from "./approvals.js";
@@ -407,7 +407,7 @@ routes.on(workspaceApi.runAction, (req, res) => {
       .object({ idempotencyKey: z.string().min(8).max(150) })
       .parse(req.body);
     const replacement = db.transaction(() => {
-      assertFleetEffect(run.owner_id, "run", run.id);
+      assertEffect(run.owner_id, "run", run.id);
       const replacement = submit(res.locals.owner, {
         agentId,
         conversationId: run.conversation_id || undefined,
@@ -416,7 +416,7 @@ routes.on(workspaceApi.runAction, (req, res) => {
         attachmentIds: run.payload.attachmentIds || [],
         replyTo: run.payload.replyTo,
       });
-      inheritFleetEffect(run.owner_id, "run", run.id, replacement.id);
+      inheritEffect(run.owner_id, "run", run.id, replacement.id);
       return replacement;
     }).immediate();
     res.json(runResponse(replacement));

@@ -18,10 +18,8 @@ type ReadOperation = "refresh" | "files" | "earlier";
 export class ActivityHistory {
   private stopped = false;
   private initialized = false;
-  private supportsPaging = false;
   private cursor = 0;
   private before: number | null = null;
-  private legacyBefore: number | null = null;
   private queue: Promise<void> = Promise.resolve();
   private refreshing: Promise<void> | null = null;
   private again = false;
@@ -58,7 +56,7 @@ export class ActivityHistory {
     this.state = {
       ...this.state,
       ...patch,
-      hasEarlier: this.before !== null || this.legacyBefore !== null,
+      hasEarlier: this.before !== null,
     };
     if (!this.stopped) this.changed(this.state);
   }
@@ -141,28 +139,8 @@ export class ActivityHistory {
             manual,
           );
           if (!page) return;
-          this.supportsPaging = "earlier" in page;
           this.cursor = page.cursor;
           this.before = page.earlier ?? null;
-          this.legacyBefore = page.legacyAvailable
-            ? Number.MAX_SAFE_INTEGER
-            : null;
-          // Older desktops return the original forward-paged snapshot. Preserve
-          // that contract until the server also supports recent snapshots.
-          let current = page;
-          while (current.more && !this.stopped) {
-            const next = await this.page(
-              {
-                view: "updates",
-                ...(this.tools ? {} : { tools: "0" }),
-                after: String(this.cursor),
-              },
-              manual,
-            );
-            if (!next) return;
-            this.cursor = next.cursor;
-            current = next;
-          }
           this.initialized = true;
         } else {
           let page: ActivityPage | null;
@@ -207,7 +185,7 @@ export class ActivityHistory {
   }
 
   private async files(manual = false) {
-    if (!this.initialized || !this.supportsPaging) return;
+    if (!this.initialized) return;
     const missing = this.runs.filter((run) => !this.loadedRuns.has(run));
     for (let i = 0; i < missing.length && !this.stopped; i += 50) {
       const batch = missing.slice(i, i + 50);
@@ -244,15 +222,6 @@ export class ActivityHistory {
             manual,
           );
           if (page) this.before = page.earlier ?? null;
-        } else if (this.legacyBefore !== null) {
-          const page = await this.page(
-            {
-              view: "legacy",
-              before: String(this.legacyBefore),
-            },
-            manual,
-          );
-          if (page) this.legacyBefore = page.earlier ?? null;
         }
       },
       () => this.loadEarlier(true),

@@ -7,10 +7,7 @@ import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import { assertFleetAction } from "../fleet-action-context.js";
 import { enqueueStoppedWebhooks } from "../webhook-outbox.js";
-import {
-  assertFleetEffect,
-  recordFleetEffectEdit,
-} from "../fleet-effect-authorizations.js";
+import { assertEffect, recordEffectEdit } from "../effect-authority.js";
 import { agentPayload } from "../row-schemas.js";
 import { ExecutionRefused } from "../execution-refusal.js";
 import { providerChangeInProgress } from "../native-provider-locks.js";
@@ -324,8 +321,8 @@ export class NativeSessions {
           if (setting === "model") live.reportedModel = undefined;
           if (activeRun)
             db.transaction(() => {
-              assertFleetEffect(activeRun.owner_id, "run", activeRun.id);
-              recordFleetEffectEdit(activeRun.owner_id, "run", activeRun.id);
+              assertEffect(activeRun.owner_id, "run", activeRun.id);
+              recordEffectEdit(activeRun.owner_id, "run", activeRun.id);
             }).immediate();
         },
       );
@@ -382,7 +379,7 @@ export class NativeSessions {
     }
   }
   async session(run: Run): Promise<Live> {
-    assertFleetEffect(run.owner_id, "run", run.id);
+    assertEffect(run.owner_id, "run", run.id);
     if (!run.conversation_id)
       throw new Problem(400, "Native work requires a conversation.");
     const conversation = run.conversation_id;
@@ -424,7 +421,7 @@ export class NativeSessions {
         // Refresh only metadata from this same generation; the transaction still
         // refuses a different generation or a later change during disposal.
         binding = { ...binding, native_id: current.binding.native_id };
-        assertFleetEffect(run.owner_id, "run", run.id);
+        assertEffect(run.owner_id, "run", run.id);
         await this.dispose(current);
       }
       previousBinding = binding;
@@ -436,7 +433,7 @@ export class NativeSessions {
         previousProject ?? this.projects.project(snapshot, registration);
       if (!run.agent_id)
         throw new Problem(409, "Native work requires an agent identity.");
-      assertFleetEffect(run.owner_id, "run", run.id);
+      assertEffect(run.owner_id, "run", run.id);
       const workspace = prepareWorkspace(
         source,
         source,
@@ -604,7 +601,7 @@ export class NativeSessions {
     companionSessionsQueries.markStarting(db, generation, now(), conversation);
     live.ready = (async () => {
       try {
-        assertFleetEffect(run.owner_id, "run", run.id);
+        assertEffect(run.owner_id, "run", run.id);
         await live.adapter.start();
         if (this.stopped || live.closed)
           throw new Error("Workspace stopped during native startup.");
@@ -624,7 +621,7 @@ export class NativeSessions {
     return live;
   }
   async execute(run: Run) {
-    assertFleetEffect(run.owner_id, "run", run.id);
+    assertEffect(run.owner_id, "run", run.id);
     // The run is already claimed, so an upgrade that holds this harness
     // afterwards sees it as active; one that held it first is refused here.
     // A missing connection is reported by session() below.
@@ -648,7 +645,7 @@ export class NativeSessions {
         "This native turn was already dispatched or has an uncertain outcome. Review it and submit a new follow-up explicitly.",
       );
     const live = await this.session(run);
-    assertFleetEffect(run.owner_id, "run", run.id);
+    assertEffect(run.owner_id, "run", run.id);
     if (live.run)
       throw new Problem(409, "This native conversation is already running.");
     if (ownedRun(run.id, run.owner_id).state !== "running") return false;
@@ -751,7 +748,7 @@ export class NativeSessions {
         )
       )
         throw new NotDelivered("This native turn cannot accept input");
-      assertFleetEffect(run.owner_id, "run", run.id);
+      assertEffect(run.owner_id, "run", run.id);
     };
     try {
       beforeDispatch();

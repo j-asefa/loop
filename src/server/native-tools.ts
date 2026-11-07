@@ -6,10 +6,7 @@ import * as approvalsQueries from "./sql/approvals.js";
 import * as agentThreadsQueries from "./sql/agent-threads.js";
 import * as delegationsQueries from "./sql/delegations.js";
 import type { QueryRow } from "./query-records.js";
-import {
-  assertFleetEffect,
-  inheritFleetEffect,
-} from "./fleet-effect-authorizations.js";
+import { assertEffect, inheritEffect } from "./effect-authority.js";
 
 import { z } from "zod";
 import {
@@ -265,7 +262,7 @@ export async function invokeNative(
   // Only callers that advertised loop_plan (the API runtime) may invoke it.
   options: { plans?: boolean } = {},
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
-  assertFleetEffect(run.owner_id, "run", run.id);
+  assertEffect(run.owner_id, "run", run.id);
   if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
   const tool = binding.tool;
@@ -576,7 +573,7 @@ export async function invokeNative(
             folderId: parent.folderId,
             idempotencyKey: "delegate:" + run.id + ":" + callId + ":" + i,
           });
-          inheritFleetEffect(run.owner_id, "run", run.id, child.id);
+          inheritEffect(run.owner_id, "run", run.id, child.id);
           delegationsQueries.insert(
             db,
             run.id,

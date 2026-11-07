@@ -18,8 +18,6 @@ const { db } = await import("../src/server/db");
 const { enqueue, claim, transition } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
 const { activityRoutes } = await import("../src/server/activities");
-const { Host } = await import("../src/host");
-const { ServerFrame } = await import("../src/protocol");
 const { conversationUsage } = await import("../src/server/mobile-return");
 
 // The real activity route, authenticated as the conversation owner.
@@ -604,53 +602,6 @@ it("persists native activity events through restarts and serves them to reloads 
   ).toBe("gpt-d");
 });
 
-it("never sends activity variants on the v1 host wire used by older clients", async () => {
-  const host = new Host(join(dir, "host"), {
-    harness: "codex",
-    project: dir,
-    version: "test",
-    billing: { mode: "existing", description: "fixture" },
-    capabilities: {
-      approvals: true,
-      questions: true,
-      resume: true,
-      liveAttach: false,
-      terminal: false,
-    },
-  });
-  const cursor = host.state.snapshot.cursor;
-  const controls = new DirectControls("codex", host.emit);
-  controls.publish(
-    [option("model", "gpt-a")],
-    [
-      {
-        name: "review",
-        token: "/review",
-        kind: "prompt",
-        description: "Review",
-      },
-    ],
-  );
-  host.emit(planEvent("g", ["pending"]));
-  expect(host.state.snapshot.cursor).toBe(cursor);
-  expect(host.state.events).toEqual([]);
-  host.emit({ type: "status", status: "running" });
-  // Every frame the host retains for replay is valid for the v1 union, which
-  // no longer admits activity variants.
-  for (const frame of host.state.events)
-    expect(ServerFrame.safeParse(frame).success).toBe(true);
-  expect(
-    ServerFrame.safeParse({
-      v: 1,
-      epoch: "e",
-      cursor: 1,
-      event: planEvent("g", ["pending"]),
-    }).success,
-  ).toBe(false);
-  // Cancel the debounced state flush so it cannot write after afterAll removes dir.
-  await host.close();
-});
-
 it("drops activity an adapter files under another transport", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "spoof");
@@ -728,4 +679,108 @@ it("does not return old adapter controls or confirm a write after the binding ch
     settings: { options: [] },
     capabilities: { settings: { state: "undiscovered" } },
   });
+});
+
+it("persists native tool items and deltas as paged activities across reloads and turns", async () => {
+  const conversation = "tool-items";
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','Tools',0)",
+  ).run(conversation);
+  db.prepare(
+    "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at) VALUES(?,'codex',?,0)",
+  ).run(conversation, dir);
+  const queued = enqueue("owner", "test", "tool-item-run", { conversation });
+  const run = claim("tool-worker", (candidate) => candidate.id === queued.id)!;
+  const sessions = new NativeSessions();
+  let current = start(sessions, "tools-g1", run, conversation);
+  current.live.run = run;
+  const nativeId = "native:" + "same-prefix-".repeat(40);
+  const item = (id: string, text: string, status = "running") => ({
+    type: "item" as const,
+    item: { id, kind: "tool" as const, title: "Read", text, status },
+  });
+  try {
+    current.emit(item(nativeId + "a", "first"));
+    current.emit(item(nativeId + "b", "other"));
+    current.emit({ type: "delta", id: nativeId + "a", text: " continued" });
+    current.emit(item(nativeId + "a", "first continued", "completed"));
+    const before = (await snapshot(conversation)).body;
+    expect(before.items).toHaveLength(2);
+    const first = before.items.find(
+      (entry: any) => entry.record.data.links.trace === nativeId + "a",
+    );
+    expect(first).toMatchObject({
+      run: run.id,
+      record: {
+        generation: "tools-g1",
+        data: {
+          title: "Read",
+          status: "completed",
+          content: [{ type: "text", text: "first continued" }],
+          links: { trace: nativeId + "a" },
+        },
+      },
+    });
+    expect(new Set(before.items.map((entry: any) => entry.key)).size).toBe(2);
+    expect(first.record.id.length).toBeLessThanOrEqual(300);
+    expect((await snapshot(conversation, undefined, "foreign")).status).toBe(
+      404,
+    );
+    expect(
+      (await snapshot("other")).body.items.some(
+        (entry: any) => entry.run === run.id,
+      ),
+    ).toBe(false);
+
+    // An old process cannot replace a persisted record in a newer generation.
+    db.prepare(
+      "UPDATE companion_sessions SET generation='tools-g2' WHERE conversation_id=?",
+    ).run(conversation);
+    current.emit(item(nativeId + "a", "stale"));
+    expect((await snapshot(conversation)).body.items).toEqual(before.items);
+    await sessions.dispose(current.live);
+    current = start(sessions, "tools-g2", run, conversation);
+    current.live.run = run;
+    current.emit(item(nativeId + "a", "first continued", "completed"));
+    expect((await snapshot(conversation)).body.items).toHaveLength(2);
+    for (let i = 0; i < 105; i++)
+      current.emit(item("paged-" + i, "done", "completed"));
+    let cursor: number | null = null;
+    const keys = new Set<string>();
+    do {
+      const response: Response = await fetch(
+        `${base}/conversations/${conversation}/activities?view=recent${cursor === null ? "" : "&before=" + cursor}`,
+      );
+      expect(response.status).toBe(200);
+      const page: {
+        items: { key: string; run: string }[];
+        earlier: number | null;
+      } = await response.json();
+      expect(page.items.length).toBeLessThanOrEqual(100);
+      for (const entry of page.items) {
+        expect(entry.run).toBe(run.id);
+        keys.add(entry.key);
+      }
+      cursor = page.earlier;
+    } while (cursor !== null);
+    expect(keys.size).toBe(107);
+    transition(run, "completed");
+    const next = enqueue("owner", "test", "tool-item-next", { conversation });
+    const nextRun = claim(
+      "tool-worker",
+      (candidate) => candidate.id === next.id,
+    )!;
+    current.live.run = nextRun;
+    current.emit(item(nativeId + "a", "next turn", "completed"));
+    const reused = (await snapshot(conversation)).body.items.filter(
+      (entry: any) => entry.record.data.links.trace === nativeId + "a",
+    );
+    expect(reused).toHaveLength(2);
+    expect(new Set(reused.map((entry: any) => entry.run))).toEqual(
+      new Set([run.id, nextRun.id]),
+    );
+    transition(nextRun, "completed");
+  } finally {
+    await sessions.close();
+  }
 });

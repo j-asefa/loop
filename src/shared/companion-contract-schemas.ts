@@ -210,7 +210,7 @@ export const ActivityQuery = z.object({
     .nonnegative()
     .max(Number.MAX_SAFE_INTEGER)
     .optional(),
-  view: z.enum(["recent", "updates", "legacy", "files"]).optional(),
+  view: z.enum(["recent", "updates", "files"]).optional(),
   tools: z.enum(["0", "1"]).optional(),
   // Keep the wire shape a string in both the registry and OpenAPI parameters.
   runs: Text.max(7600)
@@ -224,7 +224,6 @@ export const PublicActivityItem = z.object({
   run: Text.nullable(),
   sequence: z.number(),
   // Only synthesized pre-activity traces carry this marker.
-  legacy: z.boolean().optional(),
   record: z.union([
     ActivityRecordSchema,
     z.object({
@@ -246,7 +245,6 @@ export const PublicActivityPage = z.object({
   more: z.boolean(),
   // Forward-paged sources before 853f9afc omit on-demand history metadata.
   earlier: z.number().nullable().optional(),
-  legacyAvailable: z.boolean().optional(),
 });
 export const SubscriptionActionParams = z.object({
   id: Text,

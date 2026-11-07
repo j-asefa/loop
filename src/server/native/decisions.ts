@@ -4,10 +4,10 @@ import * as runsQueries from "../sql/runs.js";
 import { assertFleetAction } from "../fleet-action-context.js";
 import { ExecutionRefused } from "../execution-refusal.js";
 import {
-  assertFleetEffect,
-  recordFleetEffectEdit,
-  discardFleetEffectEdit,
-} from "../fleet-effect-authorizations.js";
+  assertEffect,
+  recordEffectEdit,
+  discardEffectEdit,
+} from "../effect-authority.js";
 import type { QueryRow } from "../query-records.js";
 import { recordPersonalDecision } from "../personal-decisions.js";
 import { createHash } from "node:crypto";
@@ -144,8 +144,8 @@ export class NativeDecisions {
     const edit = db
       .transaction(() => {
         assertFleetAction(run.owner_id);
-        assertFleetEffect(run.owner_id, "run", run.id);
-        const edit = recordFleetEffectEdit(run.owner_id, "run", run.id);
+        assertEffect(run.owner_id, "run", run.id);
+        const edit = recordEffectEdit(run.owner_id, "run", run.id);
         const claimed = nativeDecisionsQueries.beginAnswer(
           db,
           commandId,
@@ -192,7 +192,7 @@ export class NativeDecisions {
           throw new NotDelivered("This native decision is no longer active.");
         try {
           assertFleetAction(run.owner_id);
-          assertFleetEffect(run.owner_id, "run", run.id);
+          assertEffect(run.owner_id, "run", run.id);
         } catch (error) {
           // This callback runs before answer IO, so a revoked admission is
           // definitive non-delivery and may use the normal recovery below.
@@ -235,7 +235,7 @@ export class NativeDecisions {
             // Definitive non-delivery is not an answer, even if the run ended.
             // Preserve only a response the harness already confirmed meanwhile.
             if (stored?.state !== "resolved") {
-              discardFleetEffectEdit(edit);
+              discardEffectEdit(edit);
               personalDecisionsQueries.removeNativeDecision(db, decisionId);
             }
             return { reopened, state: stored?.state };

@@ -1,5 +1,9 @@
+import { createHost } from "./helpers/gateway.js";
+import { DevicePairing } from "../src/server/device-pairing.js";
+import { applyMigrations } from "../src/server/migrations.js";
 import { probeProof } from "../src/connection.js";
 import test from "node:test";
+import Database from "better-sqlite3";
 import assert from "node:assert/strict";
 import {
   mkdtemp,
@@ -14,25 +18,8 @@ import { join, resolve } from "node:path";
 import { randomUUID, createHash, createHmac } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { WebSocket } from "ws";
-import { Host } from "../src/host.js";
-import { State, hash } from "../src/state.js";
-import { Codex } from "../src/adapters/codex.js";
 import { control } from "../src/host-control.js";
 import { Tunnel, tunnelUrl } from "../src/tunnel.js";
-import type { ServerMessage } from "../src/protocol.js";
-const initial = {
-  harness: "codex" as const,
-  version: "fixture",
-  project: "/fixture",
-  billing: { mode: "existing" as const, description: "fixture only" },
-  capabilities: {
-    approvals: true,
-    questions: true,
-    resume: true,
-    liveAttach: false,
-    terminal: false,
-  },
-};
 async function until(fn: () => boolean) {
   const end = Date.now() + 5000;
   while (!fn()) {
@@ -41,186 +28,9 @@ async function until(fn: () => boolean) {
   }
 }
 
-test("authenticated WS journey: atomic pairing, CSRF, native dedupe, replay, approval races, revoke", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-host-"));
-  const audit = join(dir, "audit");
-  process.env.LOOP_TEST_HARNESS = "codex";
-  process.env.LOOP_TEST_AUDIT = audit;
-  const host = new Host(dir, initial);
-  host.adapter = new Codex(
-    {
-      harness: "codex",
-      project: process.cwd(),
-      executable: resolve("test/harness.mjs"),
-      billing: "existing",
-      version: "fixture",
-    },
-    host.emit,
-  );
-  const sockets: WebSocket[] = [];
-  try {
-    await host.listen();
-    await host.adapter.start();
-    host.emit({ type: "status", status: "ready" });
-    const pair = host.pair();
-    const token = new URLSearchParams(new URL(pair.url).hash.slice(1)).get(
-      "pair",
-    );
-    const redeem = (secret = token, origin = host.origin) =>
-      fetch(host.origin + "/pair", {
-        method: "POST",
-        headers: { Origin: origin, "Content-Type": "application/json" },
-        body: JSON.stringify({ secret, name: "test phone" }),
-      });
-    assert.equal((await fetch(host.origin + "/session")).status, 401);
-    assert.equal((await redeem(token, "https://evil.example")).status, 403);
-    const pairResults = await Promise.all([redeem(), redeem()]);
-    assert.deepEqual(pairResults.map((r) => r.status).sort(), [200, 403]);
-    const cookie = pairResults
-      .find((r) => r.ok)!
-      .headers.get("set-cookie")!
-      .split(";")[0];
-    assert(
-      pairResults
-        .find((r) => r.ok)!
-        .headers.get("set-cookie")!
-        .includes("HttpOnly"),
-    );
-    const session = (await fetch(host.origin + "/session", {
-      headers: { cookie },
-    }).then((r) => r.json())) as { csrf: string; device: { id: string } };
-    const rejected = new WebSocket(host.origin.replace("http", "ws") + "/ws", {
-      headers: { Cookie: cookie, Origin: "https://evil.example" },
-    });
-    await new Promise<void>((r) => {
-      rejected.on("unexpected-response", (_q, s) => {
-        assert.equal(s.statusCode, 403);
-        s.resume();
-        rejected.terminate();
-        r();
-      });
-      rejected.on("error", () => {});
-    });
-    const frames: any[] = [];
-    const connect = async (query = "") => {
-      const ws = new WebSocket(
-        host.origin.replace("http", "ws") + "/ws" + query,
-        { headers: { Cookie: cookie, Origin: host.origin } },
-      );
-      sockets.push(ws);
-      ws.on("message", (b) => frames.push(JSON.parse(b.toString())));
-      await new Promise<void>((r) => ws.on("open", r));
-      return ws;
-    };
-    let ws = await connect();
-    await until(() => frames.some((m) => m.snapshot));
-    const c = {
-      v: 1,
-      id: randomUUID(),
-      session: host.state.snapshot.session,
-      type: "prompt",
-      text: "approve",
-    };
-    ws.send(JSON.stringify({ csrf: "wrong", command: c }));
-    await until(() => frames.some((m) => m.receipt?.status === "rejected"));
-    assert.equal(host.state.receipts.size, 0);
-    ws.send(JSON.stringify({ csrf: session.csrf, command: c }));
-    await until(() => host.state.snapshot.requests.length === 1);
-    ws.send(JSON.stringify({ csrf: session.csrf, command: c }));
-    await until(() => frames.some((m) => m.receipt?.status === "accepted"));
-    assert.equal(
-      (await readFile(audit, "utf8")).trim().split("\n").length,
-      1,
-      "duplicate prompt never reaches native runtime",
-    );
-    const cursor = host.state.snapshot.cursor;
-    const epoch = host.state.snapshot.epoch;
-    ws.close();
-    await new Promise<void>((r) => ws.once("close", () => r()));
-    host.emit({
-      type: "item",
-      item: {
-        id: "during-sleep",
-        kind: "notice",
-        text: "Desktop kept working",
-      },
-    });
-    frames.length = 0;
-    ws = await connect(`?epoch=${epoch}&cursor=${cursor}`);
-    await until(() => frames.some((m) => m.event?.item?.id === "during-sleep"));
-    assert(!frames.some((m) => m.snapshot), "retained cursor replays deltas");
-    const answer = {
-      v: 1,
-      id: randomUUID(),
-      session: c.session,
-      type: "answer",
-      request: "101",
-      answer: { choice: "decline" },
-    };
-    ws.send(JSON.stringify({ csrf: session.csrf, command: answer }));
-    ws.send(
-      JSON.stringify({
-        csrf: session.csrf,
-        command: { ...answer, id: randomUUID(), answer: { choice: "accept" } },
-      }),
-    );
-    await until(() => host.state.snapshot.status === "completed");
-    assert.equal(host.state.snapshot.requests.length, 0);
-    assert.equal(
-      host.state.snapshot.items.filter((i) => i.kind === "assistant").at(-1)
-        ?.text,
-      "Fixture done",
-    );
-    const failed = { ...c, id: randomUUID(), text: "fail" };
-    ws.send(JSON.stringify({ csrf: session.csrf, command: failed }));
-    await until(() => host.state.snapshot.status === "failed");
-    assert.equal(host.state.snapshot.recoverable, true);
-    const followUp = { ...c, id: randomUUID(), text: "follow-up" };
-    ws.send(JSON.stringify({ csrf: session.csrf, command: followUp }));
-    await until(() => frames.some((m) => m.receipt?.id === followUp.id));
-    assert.equal(
-      frames.find((m) => m.receipt?.id === followUp.id)?.receipt.status,
-      "accepted",
-    );
-    await until(() => host.state.snapshot.status === "completed");
-    for (let i = 0; i < 520; i++)
-      host.emit({ type: "delta", id: "large", text: "x" });
-    frames.length = 0;
-    await connect(`?epoch=${epoch}&cursor=0`);
-    await until(() => frames.some((m) => m.snapshot));
-    const closed = new Promise<number>((r) =>
-      ws.on("close", (code) => r(code)),
-    );
-    await control(dir, "revoke", { id: session.device.id });
-    assert.equal(await closed, 4003);
-    assert.equal(
-      (await fetch(host.origin + "/session", { headers: { cookie } })).status,
-      401,
-    );
-    for (let i = 0; i < 20; i++) await redeem("a".repeat(43));
-    assert.equal((await redeem("b".repeat(43))).status, 429);
-    const persisted = JSON.parse(
-      await readFile(join(dir, "session.json"), "utf8"),
-    );
-    assert(persisted.receipts.some((r: any) => r.id === c.id));
-    assert(
-      !(await readFile(join(dir, "devices.json"), "utf8")).includes(
-        cookie.split("=")[1],
-      ),
-    );
-  } finally {
-    for (const s of sockets) s.terminate();
-    await host.adapter.dispose();
-    await host.close();
-    await rm(dir, { recursive: true, force: true });
-    delete process.env.LOOP_TEST_AUDIT;
-    delete process.env.LOOP_TEST_HARNESS;
-  }
-});
-
 test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentication", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-cookie-"));
-  const host = new Host(dir, initial);
+  const host = createHost(dir);
   host.workspace = {
     http: (_req, res) => {
       res.writeHead(200);
@@ -256,7 +66,9 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
     const cookie = paired.headers.get("set-cookie")!.split(";")[0];
     const token = cookie.slice(cookie.indexOf("=") + 1);
     assert(
-      !(await readFile(join(dir, "devices.json"), "utf8")).includes(token),
+      !(await readFile(join(dir, "gateway-fixture.db"))).includes(
+        Buffer.from(token),
+      ),
     );
     const session = (await fetch(host.origin + "/session", {
       headers: { cookie },
@@ -349,7 +161,7 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
 
 test("malformed pairing requests count toward the pairing rate limit", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-pair-limit-"));
-  const host = new Host(dir, initial);
+  const host = createHost(dir);
   try {
     await host.listen();
     const post = (body: string) =>
@@ -369,29 +181,6 @@ test("malformed pairing requests count toward the pairing rate limit", async () 
   }
 });
 
-test("state retention and durable unknown command outcomes never imply a retry", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "loop-state-"));
-  try {
-    const state = new State(dir, initial);
-    const id = randomUUID();
-    assert.equal(state.begin(id, hash("prompt")), undefined);
-    assert.equal(state.begin(id, hash("prompt"))?.status, "unknown");
-    assert.throws(() => state.begin(id, hash("different")), /reused/);
-    for (let i = 0; i < 800; i++)
-      state.apply({
-        type: "item",
-        item: { id: String(i), kind: "tool", text: "x".repeat(70000) },
-      });
-    assert(state.snapshot.items.length < 200);
-    assert(state.events.length < 512);
-    assert.equal(state.replay("wrong epoch", 0), undefined);
-    assert.equal(state.replay(state.snapshot.epoch, 0), undefined);
-    const disk = JSON.parse(await readFile(join(dir, "session.json"), "utf8"));
-    assert.equal(disk.receipts[0].status, "unknown");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
 test("only complete Quick Tunnel hostnames are accepted", () => {
   assert.equal(
     tunnelUrl("| https://one-two-three.trycloudflare.com |"),
@@ -444,8 +233,18 @@ test("stopping during helper lookup cancels tunnel startup", async () => {
 
 test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-pair-"));
-  const host = new Host(dir, initial);
-  const now = Date.now;
+  const db = new Database(join(dir, "trust.db"));
+  applyMigrations(db);
+  let now = Date.now();
+  let elapsed = 0;
+  const trust = new DevicePairing(
+    db,
+    "fixture-owner",
+    dir,
+    () => now,
+    () => elapsed,
+  );
+  const host = createHost(dir, trust);
   try {
     await host.listen();
     const local = host.origin;
@@ -496,9 +295,9 @@ test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", asyn
       ).status,
       403,
     );
-    Date.now = () => now() + 121000;
+    now += 121000;
+    elapsed += 121000;
     assert.equal((await redeem(headers)).status, 403);
-    Date.now = now;
     const fresh = new URLSearchParams(
       new URL(host.pair().url).hash.slice(1),
     ).get("pair");
@@ -512,7 +311,7 @@ test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", asyn
     assert(cookie.startsWith("__Host-loop="));
     assert(cookie.includes("Secure;"));
     assert(cookie.includes("SameSite=Lax"));
-    Date.now = () => now() + 366 * 86400000;
+    now += 366 * 86400000;
     assert.equal(
       (
         await send("/session", {
@@ -523,15 +322,15 @@ test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", asyn
       401,
     );
   } finally {
-    Date.now = now;
     await host.close();
+    db.close();
     await rm(dir, { recursive: true, force: true });
   }
 });
 
 test("device trust survives restart; explicit revocation survives the next restart", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-device-restart-"));
-  let host = new Host(dir, initial);
+  let host = createHost(dir);
   try {
     await host.listen();
     const secret = new URL(host.pair().url).hash.slice(6);
@@ -546,7 +345,7 @@ test("device trust survives restart; explicit revocation survives the next resta
     assert.equal(paired.status, 200);
     const cookie = paired.headers.get("set-cookie")!.split(";")[0];
     await host.close();
-    host = new Host(dir, initial);
+    host = createHost(dir);
     await host.listen();
     assert.equal(
       (
@@ -559,7 +358,7 @@ test("device trust survives restart; explicit revocation survives the next resta
     const devices = await control(dir, "devices");
     await control(dir, "revoke", { id: devices[0].id });
     await host.close();
-    host = new Host(dir, initial);
+    host = createHost(dir);
     await host.listen();
     assert.equal(
       (
@@ -577,7 +376,7 @@ test("device trust survives restart; explicit revocation survives the next resta
 
 test("device renewal persists but cannot exceed its fixed maximum lifetime", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-device-cap-"));
-  let host = new Host(dir, initial);
+  let host = createHost(dir);
   try {
     await host.listen();
     const secret = new URL(host.pair().url).hash.slice(6);
@@ -589,12 +388,14 @@ test("device renewal persists but cannot exceed its fixed maximum lifetime", asy
     assert.equal(response.status, 200);
     const cookie = response.headers.get("set-cookie")!.split(";")[0];
     await host.close();
-    const file = join(dir, "devices.json");
-    const devices = JSON.parse(await readFile(file, "utf8"));
-    devices[0].expires = Date.now() + 60000;
-    const cap = (devices[0].maxExpires = Date.now() + 120000);
-    await writeFile(file, JSON.stringify(devices));
-    host = new Host(dir, initial);
+    const file = join(dir, "gateway-fixture.db");
+    let store = new Database(file);
+    const cap = Date.now() + 120000;
+    store
+      .prepare("UPDATE fleet_devices SET expires=?,max_expires=?")
+      .run(Date.now() + 60000, cap);
+    store.close();
+    host = createHost(dir);
     await host.listen();
     assert.equal(
       (
@@ -604,13 +405,18 @@ test("device renewal persists but cannot exceed its fixed maximum lifetime", asy
       ).status,
       200,
     );
-    const renewed = JSON.parse(await readFile(file, "utf8"))[0];
+    await host.close();
+    store = new Database(file);
+    const renewed = store
+      .prepare("SELECT expires,max_expires AS maxExpires FROM fleet_devices")
+      .get() as { expires: number; maxExpires: number };
     assert.equal(renewed.expires, cap);
     assert.equal(renewed.maxExpires, cap);
-    await host.close();
-    renewed.maxExpires = Date.now() - 1;
-    await writeFile(file, JSON.stringify([renewed]));
-    host = new Host(dir, initial);
+    store
+      .prepare("UPDATE fleet_devices SET expires=?,max_expires=?")
+      .run(Date.now() - 1, Date.now() - 1);
+    store.close();
+    host = createHost(dir);
     await host.listen();
     assert.equal(
       (
@@ -629,7 +435,7 @@ test("device renewal persists but cannot exceed its fixed maximum lifetime", asy
 test("the private host accepts an existing connection service's probe and signed domain", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-probe-upgrade-"));
   const socketPath = join(dir, "app.sock");
-  const host = new Host(dir, initial);
+  const host = createHost(dir);
   const nonce = "a".repeat(20);
   try {
     await host.listen({

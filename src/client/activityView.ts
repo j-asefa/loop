@@ -16,34 +16,23 @@ export type ActivityPage = RouteResponse<
 export type ActivityItem = ActivityPage["items"][number];
 
 export function mergeActivities<
-  T extends Pick<ActivityItem, "key" | "sequence" | "legacy">,
+  T extends Pick<ActivityItem, "key" | "sequence">,
 >(current: T[], page: { items: T[] }) {
   const byKey = new Map(current.map((item) => [item.key, item]));
   for (const item of page.items) {
     const old = byKey.get(item.key);
     // Pages can overlap after a reconnect; an older sequence never wins.
-    if (!old || old.legacy || item.sequence >= old.sequence)
-      byKey.set(item.key, item);
+    if (!old || item.sequence >= old.sequence) byKey.set(item.key, item);
   }
   return [...byKey.values()].sort(
     (a, b) => a.sequence - b.sequence || a.key.localeCompare(b.key),
   );
 }
 
-/** Suppress legacy traces once their durable broker record arrives, including across pages. */
 export function visibleActivities(items: ActivityItem[]) {
-  const traces = new Set(
-    items.flatMap((i) =>
-      !i.legacy && i.record.kind === "tool" && i.record.data.links?.trace
-        ? [`${i.run}\0${i.record.data.links.trace}`]
-        : [],
-    ),
-  );
   return items.filter(
     (i): i is ActivityItem & { record: ActivityRecord } =>
-      i.record.v === 1 &&
-      i.record.kind !== "capabilities" &&
-      (!i.legacy || !traces.has(`${i.run}\0${i.record.id}`)),
+      i.record.v === 1 && i.record.kind !== "capabilities",
   );
 }
 

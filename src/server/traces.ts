@@ -8,10 +8,6 @@ import { ownedAgent, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
 import { MAX_UPLOAD_BYTES } from "../shared/uploads.js";
 
-// Older runtimes saved Claude's internal JSON-envelope tool and its receipt.
-// Keep the records, but exclude them from public traces and Running previews.
-export { publicTraceFilter } from "./sql/run-traces.js";
-
 export function recordTrace(
   run: Run,
   key: string,

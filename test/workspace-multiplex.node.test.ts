@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -54,19 +55,7 @@ const event = (epoch: string, cursor: number) => ({
 });
 
 function fixtureHost(directory: string) {
-  return new Host(directory, {
-    harness: "codex",
-    version: "fixture",
-    project: directory,
-    billing: { mode: "existing", description: "Fixture" },
-    capabilities: {
-      approvals: true,
-      questions: true,
-      resume: true,
-      liveAttach: false,
-      terminal: false,
-    },
-  });
+  return createHost(directory);
 }
 async function pair(host: Host, name: string) {
   const link = new URL(host.pair().url);

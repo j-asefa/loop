@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -24,19 +25,7 @@ const { FleetWorkspaceHttpTransport } =
 const origin = "https://gateway.example";
 let fleet = true;
 const capacity = new FleetCapacity(() => fleet);
-const host = new Host(dir, {
-  harness: "codex",
-  project: dir,
-  version: "fixture",
-  billing: { mode: "existing", description: "Fixture" },
-  capabilities: {
-    approvals: true,
-    questions: true,
-    resume: true,
-    liveAttach: false,
-    terminal: false,
-  },
-});
+const host = createHost(dir);
 const held = new Set<ServerResponse>();
 const sockets = new Set<WebSocket>();
 const requests = new Set<ClientRequest>();

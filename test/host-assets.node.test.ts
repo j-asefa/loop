@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -48,19 +49,7 @@ test("companion assets compress, cache and revalidate without caching entrypoint
     const { Host } = (await import(
       pathToFileURL(join(dir, "host.mjs")).href
     )) as typeof import("../src/host.js");
-    host = new Host(join(dir, "state"), {
-      harness: "codex",
-      version: "fixture",
-      project: dir,
-      billing: { mode: "existing", description: "fixture only" },
-      capabilities: {
-        approvals: false,
-        questions: false,
-        resume: false,
-        liveAttach: false,
-        terminal: false,
-      },
-    });
+    host = createHost(join(dir, "state"), undefined, Host);
     host.workspace = {
       http: () => assert.fail("Asset requests must be handled by the host"),
       status: () => ({}),

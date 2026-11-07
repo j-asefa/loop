@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -120,23 +121,7 @@ const pairing = new FleetPairing(
   OWNER,
   process.env.LOOP_DATA_DIR,
 );
-const host = new Host(
-  process.env.LOOP_DATA_DIR,
-  {
-    harness: "codex",
-    version: "fixture",
-    project: root,
-    billing: { mode: "existing", description: "Isolated fixture" },
-    capabilities: {
-      approvals: true,
-      questions: true,
-      resume: true,
-      liveAttach: false,
-      terminal: false,
-    },
-  },
-  pairing,
-);
+const host = createHost(process.env.LOOP_DATA_DIR, pairing);
 const enrollment = new FleetEnrollmentDestination(
   db,
   destination,

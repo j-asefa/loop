@@ -143,24 +143,11 @@ export class WorkspaceHost {
         { reconcile: () => this.fleetReconcile!.any() },
       );
     }
+    // Preview processes use their own database and directory, so pairing stays
+    // isolated while every current gateway uses the same durable trust store.
     this.gateway = new Host(
       dir,
-      {
-        harness: options.harness,
-        project: options.project,
-        version: options.version,
-        billing: { mode: options.billing, description: "Workspace host" },
-        capabilities: {
-          approvals: true,
-          questions: true,
-          resume: true,
-          liveAttach: false,
-          terminal: false,
-        },
-      },
-      // Device pairing is core; fleet enrollment extends it with --fleet.
-      // Isolated previews keep their own file store.
-      this.pairing ?? (preview ? undefined : new DevicePairing(db, OWNER, dir)),
+      this.pairing ?? new DevicePairing(db, OWNER, dir),
     );
     if (this.fleet && this.pairing)
       this.enrollment = new FleetEnrollmentDestination(

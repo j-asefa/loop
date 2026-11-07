@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -157,23 +158,7 @@ const reads = new FleetWorkspaceRead(
   { files: true },
 );
 const pairing = new FleetPairing(db, destination, OWNER, root);
-const host = new Host(
-  root,
-  {
-    harness: "codex",
-    version: "fixture",
-    project: root,
-    billing: { mode: "existing", description: "Isolated fixture" },
-    capabilities: {
-      approvals: true,
-      questions: true,
-      resume: true,
-      liveAttach: false,
-      terminal: false,
-    },
-  },
-  pairing,
-);
+const host = createHost(root, pairing);
 let disconnected = false;
 const peerHttp = createFleetPeerHttp(
   new FleetEnrollmentDestination(
@@ -472,12 +457,6 @@ it("exports the owning run's public traces and rejects another owner's run and i
     title: "Update",
     content: "Public fixture",
   });
-  recordTrace(run, "private", {
-    kind: "tool",
-    title: "StructuredOutput",
-    content: "PRIVATE_ENVELOPE",
-    metadata: { native: 1 },
-  });
   const input = {
     ...admission(),
     selection: {
@@ -499,7 +478,6 @@ it("exports the owning run's public traces and rejects another owner's run and i
     run: { id: run.id },
   });
   expect(text).toContain("Public fixture");
-  expect(text).not.toContain("PRIVATE_ENVELOPE");
   const approvedScope = (
     db
       .prepare("SELECT scope FROM fleet_binding WHERE owner_id=?")

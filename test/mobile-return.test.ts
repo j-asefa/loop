@@ -2477,7 +2477,7 @@ it("refuses, without running, a scheduled send a peer authorized when the host r
   }
 });
 
-it("refuses to execute a queued run a peer authorized when the host runs without --fleet", async () => {
+it.each(["registered", "unregistered"])("refuses to execute a peer-authorized run with %s local authority", async (mode) => {
   const w = workspaceFor(),
     a = w.agent(),
     cid = conversation(w.owner, a.id);
@@ -2493,10 +2493,11 @@ it("refuses to execute a queued run a peer authorized when the host runs without
   db.prepare(
     "INSERT INTO fleet_effect_authorizations(owner_id,effect_kind,effect_id,command_id,grant_context) VALUES(?,'run',?,?,?)",
   ).run(w.owner, queued.id, id(), JSON.stringify(fixtureGrant));
-  effects.registerEffectAuthority(refuseRecordedEffects(db));
+  if (mode === "registered") effects.registerEffectAuthority(refuseRecordedEffects(db));
+  else effects.resetEffectAuthorityForTests();
   try {
     // The worker's execution path checks the run's fleet authorization
-    // directly; without --fleet that check refuses rather than validating.
+    // through the seam; the default store guard also refuses before registration.
     await expect(executeAgent(ownedRun(queued.id, w.owner))).rejects.toThrow(
       /Restart Loop with loop start --fleet/,
     );

@@ -4,7 +4,7 @@ import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
 import { QueryRecords, type QueryRow } from "../query-records.js";
 
 import { watchRun } from "../run-signal.js";
-import { assertFleetEffect } from "../fleet-effect-authorizations.js";
+import { assertEffect } from "../effect-authority.js";
 import { MCP_TOOL_TIMEOUT_MS } from "./timeouts.js";
 import {
   diagnosticText,
@@ -33,6 +33,7 @@ import { redactCredentials } from "./redaction.js";
 import { workspaceToolBindings, type ToolBinding } from "./tool-budget.js";
 import { mcpApprovalMode } from "./approval-policy.js";
 import { recordTrace } from "../traces.js";
+import { apiToolActivity } from "../activities.js";
 import {
   createdPullRequest,
   isGithubMcpUrl,
@@ -113,7 +114,7 @@ export async function invokeTool(
   callId: string,
   args: Record<string, unknown>,
 ): Promise<{ pending: string } | { result: any; artifactId: string }> {
-  assertFleetEffect(run.owner_id, "run", run.id);
+  assertEffect(run.owner_id, "run", run.id);
   if (run.payload.reviewId)
     throw new Problem(
       403,
@@ -228,6 +229,11 @@ export async function invokeTool(
           title: binding.tool,
           metadata: { state: "waiting" },
         });
+        apiToolActivity(run, callId, {
+          title: binding.tool,
+          status: "waiting",
+          input: JSON.stringify(args).slice(0, 16000),
+        });
         transition(run, "awaiting_approval", { approvalId: approval.id });
         return approval;
       }
@@ -256,6 +262,11 @@ export async function invokeTool(
     title: binding.tool,
     metadata: { state: "running" },
   });
+  apiToolActivity(run, callId, {
+    title: binding.tool,
+    status: "running",
+    input: JSON.stringify(args).slice(0, 16000),
+  });
   let client;
   let phase = "connecting";
   const watched = watchRun(run);
@@ -274,7 +285,7 @@ export async function invokeTool(
     const live = ownedRun(run.id, run.owner_id);
     if (live.state !== "running")
       throw new Problem(409, "Run is no longer executing");
-    assertFleetEffect(run.owner_id, "run", run.id);
+    assertEffect(run.owner_id, "run", run.id);
     phase = "calling";
     let result: any = await client.callTool(
       { name: binding.tool, arguments: args },
@@ -369,6 +380,11 @@ export async function invokeTool(
         isError: toolFailed,
       },
     });
+    apiToolActivity(run, callId, {
+      status: toolFailed ? "failed" : "completed",
+      ...(toolFailed && { error: toolErrorMessage(result).slice(0, 16000) }),
+      content: [{ type: "artifact", artifactId }],
+    });
     return { result, artifactId };
   } catch (error) {
     if (watched.signal.aborted) error = watched.signal.reason;
@@ -412,6 +428,10 @@ export async function invokeTool(
       title: binding.tool,
       content: message,
       metadata: { state: "failed", isError: true, failure },
+    });
+    apiToolActivity(run, callId, {
+      status: "unknown",
+      error: message.slice(0, 16000),
     });
     toolInvocationsQueries.unknownExecuting(
       db,

@@ -68,13 +68,6 @@ export type Chunk = {
    * again so the provider can resume.
    */
   pauseTurn?: boolean;
-  trace?: {
-    id: string;
-    kind: "message" | "tool";
-    title: string;
-    content: string;
-    state?: string;
-  };
 };
 /**
  * Tool search keeps deferred definitions out of the context window until the

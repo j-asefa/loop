@@ -1,3 +1,5 @@
+import { installLocalEffectAuthority } from "./effect-authority.js";
+import { refuseRecordedEffects } from "./recorded-effects.js";
 import { projectFeed } from "./feed-projector.js";
 import { installProjectionBoundary } from "./projected-database.js";
 import Database from "better-sqlite3";
@@ -46,6 +48,7 @@ db.transaction(() => {
   projectFeed(db, emit);
 }).immediate();
 installProjectionBoundary(db, () => projectFeed(db, emit));
+installLocalEffectAuthority(refuseRecordedEffects(db));
 db.pragma("busy_timeout = 5000");
 export function now() {
   return Date.now();

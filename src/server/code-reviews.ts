@@ -21,7 +21,7 @@ import {
 import { submit } from "./agent-runtime.js";
 import { captureSnapshot, snapshotFingerprint } from "./review-snapshot.js";
 import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
-import { inheritFleetEffect } from "./fleet-effect-authorizations.js";
+import { inheritEffect } from "./effect-authority.js";
 
 import type { Run } from "./queue.js";
 import { enqueue } from "./queue.js";
@@ -174,8 +174,7 @@ function ensureCodeReview(
         idempotencyKey: `review:${reviewId}:lead`,
         personal: !requester,
       });
-      if (requester)
-        inheritFleetEffect(owner, "run", requester.runId, manager.id);
+      if (requester) inheritEffect(owner, "run", requester.runId, manager.id);
       codeReviewsQueries.setRun(db, manager.id, reviewId);
       // Persist asynchronous review dependencies as background before returning.
       // Blocking requests retain a foreground dependency; both retain cancellation.
@@ -197,7 +196,7 @@ function ensureCodeReview(
           input: `Independently review snapshot ${reviewId} as the ${a.role} reviewer. Read the captured files as needed and report evidence-backed findings.`,
           idempotencyKey: `review:${reviewId}:${a.role}`,
         });
-        inheritFleetEffect(owner, "run", manager.id, child.id);
+        inheritEffect(owner, "run", manager.id, child.id);
         // Existing queue dependency and cancellation machinery owns this fan-out.
         delegationsQueries.insertForeground(
           db,
@@ -235,7 +234,7 @@ function ensureCodeReview(
           parent.id,
           continuation.id,
         );
-        inheritFleetEffect(owner, "run", parent.id, continuation.id);
+        inheritEffect(owner, "run", parent.id, continuation.id);
         messagesQueries.insert(
           db,
           id(),

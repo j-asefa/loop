@@ -26,6 +26,18 @@ export function refuseRecordedEffects(db: Database.Database): EffectAuthority {
       );
   };
   return {
+    authorize: () => {
+      throw new ExecutionRefused(
+        403,
+        "Delegated actions are unavailable on this machine.",
+      );
+    },
+    discardEdit: () => {
+      throw new ExecutionRefused(
+        403,
+        "Delegated edit recovery requires loop start --fleet.",
+      );
+    },
     record: () => local(),
     recordEdit: () => {
       local();

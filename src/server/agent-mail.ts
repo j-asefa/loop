@@ -54,11 +54,11 @@ import {
 } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import {
-  assertFleetEffect,
-  authorizeFleetEffect,
-  inheritFleetEffect,
-  recordFleetEffectEdit,
-} from "./fleet-effect-authorizations.js";
+  assertEffect,
+  authorizeEffect,
+  inheritEffect,
+  recordEffectEdit,
+} from "./effect-authority.js";
 import {
   authorizeMail,
   eligibleMailAgent,
@@ -358,7 +358,7 @@ function localAgentDirectory(
 
 function assertMailRun(run: Run) {
   const current = ownedRun(run.id, run.owner_id);
-  assertFleetEffect(current.owner_id, "run", current.id);
+  assertEffect(current.owner_id, "run", current.id);
   if (current.state !== "running")
     throw new Problem(409, "Run is no longer executing");
   if (
@@ -773,18 +773,18 @@ function dispatch(
     // The local mail ID namespaces the peer's identity within this owner.
     withFleetAction(
       { owner: mail.owner_id, commandId: mail.id, grant },
-      () => authorizeFleetEffect(mail.owner_id, grant),
+      () => authorizeEffect(mail.owner_id, grant),
       () => {
-        recordFleetEffectEdit(mail.owner_id, "run", run.id);
+        recordEffectEdit(mail.owner_id, "run", run.id);
         if (typeof steeringId === "string")
-          recordFleetEffectEdit(mail.owner_id, "steering", steeringId);
+          recordEffectEdit(mail.owner_id, "steering", steeringId);
       },
     );
   }
   if (mail.sender_run_id) {
-    inheritFleetEffect(mail.owner_id, "run", mail.sender_run_id, run.id);
+    inheritEffect(mail.owner_id, "run", mail.sender_run_id, run.id);
     if (typeof steeringId === "string")
-      inheritFleetEffect(
+      inheritEffect(
         mail.owner_id,
         "run",
         mail.sender_run_id,
@@ -1619,14 +1619,9 @@ function requeue(mail: Mail) {
           attachmentIds: JSON.parse(mail.file_ids),
           automation: JSON.parse(message.metadata).automation,
         });
-        inheritFleetEffect(
-          mail.owner_id,
-          "steering",
-          mail.steering_id!,
-          run.id,
-        );
+        inheritEffect(mail.owner_id, "steering", mail.steering_id!, run.id);
         if (mail.sender_run_id)
-          inheritFleetEffect(mail.owner_id, "run", mail.sender_run_id, run.id);
+          inheritEffect(mail.owner_id, "run", mail.sender_run_id, run.id);
         return run;
       })();
       note(REQUEUED);

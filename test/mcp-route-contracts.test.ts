@@ -596,6 +596,25 @@ it("keeps tool bindings, retired writes, iframe isolation and durable approval-g
     (candidate) => candidate.id === run.id,
   )!;
   expect(await executeMcp(active)).toBe(false);
+  const toolActivity = () =>
+    db
+      .prepare(
+        "SELECT owner_id,scope,run_id,record FROM agent_activities WHERE run_id=? AND kind='tool'",
+      )
+      .all(run.id) as {
+      owner_id: string;
+      scope: string;
+      run_id: string;
+      record: string;
+    }[];
+  expect(toolActivity()).toHaveLength(1);
+  expect(toolActivity()[0]).toMatchObject({ owner_id: owner, run_id: run.id });
+  expect(JSON.parse(toolActivity()[0].record).data).toMatchObject({
+    title: "inspect",
+    status: "waiting",
+    links: { broker: "manual-call", trace: "tool:manual-call" },
+  });
+
   expect(ownedRun(run.id, owner).state).toBe("awaiting_approval");
   expect(externalCalls).toBe(0);
   const approval = db
@@ -610,6 +629,11 @@ it("keeps tool bindings, retired writes, iframe isolation and durable approval-g
   expect(externalCalls).toBe(1);
   expect(await executeMcp(resumed)).toBe(true);
   expect(externalCalls).toBe(1);
+  expect(toolActivity()).toHaveLength(1);
+  expect(JSON.parse(toolActivity()[0].record).data).toMatchObject({
+    status: "completed",
+    content: [{ type: "artifact", artifactId: expect.any(String) }],
+  });
   expect(transition(resumed, "completed")).toBe(true);
   expect(transition(ownedRun(refresh.id, owner), "cancelled")).toBe(true);
   const foreign = saveArtifact("another-owner", {

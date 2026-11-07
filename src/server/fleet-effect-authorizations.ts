@@ -215,9 +215,12 @@ export function withFleetEffect<T>(
   );
 }
 
-/** The feed reaches these checks only through effect-authority.ts. A host
+/** Core code reaches these checks only through effect-authority.ts. A host
  * started with --fleet registers this implementation. */
 export const fleetEffectAuthority: EffectAuthority = {
+  authorize: (owner, input) =>
+    authorizeFleetEffect(owner, FleetGrantContext.parse(input)),
+  discardEdit: discardFleetEffectEdit,
   record: recordFleetEffect,
   recordEdit: recordFleetEffectEdit,
   assert: assertFleetEffect,

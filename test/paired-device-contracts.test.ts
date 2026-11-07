@@ -1,9 +1,11 @@
+import { createHost } from "./helpers/gateway.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, existsSync, rmSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Host } from "../src/host";
+import type { Host } from "../src/host";
+import Database from "better-sqlite3";
 import { workspaceApi } from "../src/shared/workspace-api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-device-contracts-"));
@@ -13,19 +15,7 @@ afterAll(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 async function start(name: string, isolated = false) {
-  const host = new Host(join(directory, name), {
-    harness: "codex",
-    version: "fixture",
-    project: directory,
-    billing: { mode: "existing", description: "Fixture" },
-    capabilities: {
-      approvals: true,
-      questions: true,
-      resume: true,
-      liveAttach: false,
-      terminal: false,
-    },
-  });
+  const host = createHost(join(directory, name));
   hosts.push(host);
   host.workspace = {
     isolated,
@@ -124,9 +114,23 @@ it("projects real paired devices and revokes only within their authorized host",
     "Second phone",
   ]);
   expect(result.data).toEqual(devices);
-  const stored = JSON.parse(
-    readFileSync(join(directory, "primary", "devices.json"), "utf8"),
-  );
+  const store = new Database(join(directory, "primary", "gateway-fixture.db"), {
+    readonly: true,
+  });
+  const stored = store
+    .prepare(
+      "SELECT id,name,expires,hash,csrf FROM fleet_devices ORDER BY rowid",
+    )
+    .all() as {
+    id: string;
+    name: string;
+    expires: number;
+    hash: string;
+    csrf: string;
+  }[];
+  store.close();
+  for (const file of ["session.json", "devices.json"])
+    expect(existsSync(join(directory, "primary", file))).toBe(false);
   expect(stored).toHaveLength(2);
   for (const device of stored) {
     expect(JSON.stringify(result.data)).not.toContain(device.hash);

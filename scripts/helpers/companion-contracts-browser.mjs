@@ -32,8 +32,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
   });
   let setupOmitted = 0,
     historyOmitted = 0,
-    earlierOmitted = 0,
-    legacyOmitted = 0;
+    activityReads = 0;
   await context.route(/\/api\/workspace\/runtimes(\?.*)?$/, async (route) => {
     const response = await route.fetch(),
       body = await response.json();
@@ -58,10 +57,12 @@ export async function companionContractsBrowser({ browser, host, db }) {
       const response = await route.fetch(),
         body = await response.json();
       assert(response.ok());
-      if ("earlier" in body) earlierOmitted++;
-      if ("legacyAvailable" in body) legacyOmitted++;
-      delete body.earlier;
-      delete body.legacyAvailable;
+      if (
+        new URL(route.request().url()).searchParams.get("view") === "recent"
+      ) {
+        assert("earlier" in body);
+        activityReads++;
+      }
       await route.fulfill({ response, json: body });
     },
   );
@@ -167,8 +168,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
     await expect(
       activity.getByText("Read compatibility projection", { exact: true }),
     ).toBeVisible();
-    await expect.poll(() => legacyOmitted).toBeGreaterThan(0);
-    assert(earlierOmitted > 0);
+    await expect.poll(() => activityReads).toBeGreaterThan(0);
     await expect(activity.getByRole("alert")).toHaveCount(0);
     await expect(
       activity.getByRole("button", {
@@ -184,8 +184,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
     console.log("Older-source companion contract omissions render:", {
       setupOmitted,
       historyOmitted,
-      earlierOmitted,
-      legacyOmitted,
+      activityReads,
     });
   } finally {
     await page.unrouteAll({ behavior: "wait" });

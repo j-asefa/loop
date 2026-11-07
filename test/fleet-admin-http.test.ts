@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import { afterAll, afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -130,23 +131,7 @@ async function machine(): Promise<Machine> {
   db.prepare("INSERT INTO deployment_profile VALUES(1,'companion')").run();
   const authority = new FleetAuthority(db, secrets),
     pairing = new FleetPairing(db, authority, owner, dir);
-  const host = new Host(
-    dir,
-    {
-      harness: "codex",
-      version: "fixture",
-      project: dir,
-      billing: { mode: "existing", description: "Fixture" },
-      capabilities: {
-        approvals: true,
-        questions: true,
-        resume: true,
-        liveAttach: false,
-        terminal: false,
-      },
-    },
-    pairing,
-  );
+  const host = createHost(dir, pairing);
   const destination = new FleetEnrollmentDestination(
     db,
     authority,

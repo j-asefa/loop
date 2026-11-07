@@ -3,12 +3,12 @@
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations.js";
 import { DevicePairing } from "../src/server/device-pairing.js";
-import { hash, secret } from "../src/state.js";
+import { hash } from "../src/state.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-device-pairing-"));
 process.env.LOOP_DATA_DIR = root;
@@ -78,26 +78,4 @@ it("keeps a device paired while fleets were on after a restart without them", ()
   expect(() => new DevicePairing(w.db, "someone-else", w.dir)).toThrow(
     "another owner",
   );
-});
-
-it("imports a legacy device file once without a fleet identity", () => {
-  const w = workspace(),
-    token = secret();
-  writeFileSync(
-    join(w.dir, "devices.json"),
-    JSON.stringify([
-      {
-        id: randomUUID(),
-        name: "Old phone",
-        hash: hash(token),
-        csrf: secret(),
-        expires: Date.now() + 60_000,
-      },
-    ]),
-  );
-  const pairing = new DevicePairing(w.db, w.owner, w.dir);
-  expect(pairing.authenticate(hash(token))).toMatchObject({
-    name: "Old phone",
-  });
-  expect(identities(w.db)).toEqual({ n: 0 });
 });

@@ -10,7 +10,7 @@ import * as toolInvocationsQueries from "./sql/tool-invocations.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import * as continuationQueries from "./sql/review-continuations.js";
-import { assertFleetEffect } from "./fleet-effect-authorizations.js";
+import { assertEffect } from "./effect-authority.js";
 import { MessageMetadata, readRunFolder, readRunReviewId, parseMessages, parseRuns, maybeRun, agentPayload } from "./row-schemas.js";
 import { QueryRecords, type QueryRow } from "./query-records.js";
 
@@ -39,8 +39,7 @@ import {
 import { saveArtifact } from "./artifacts.js";
 import { recordConversationUpdate } from "./conversation-updates.js";
 import { recordTrace } from "./traces.js";
-import { applyActivity, setActivityCapabilities } from "./activities.js";
-import type { ActivityUpdate } from "../agent-activities.js";
+import { apiToolActivity, applyActivity, setActivityCapabilities } from "./activities.js";
 import { attachedFiles, attachmentPrompt } from "./uploads.js";
 import { toolErrorMessage } from "./mcp/results.js";
 import { messageReplyContext } from "./message-replies.js";
@@ -311,24 +310,6 @@ export function submit(
     })
     .immediate();
 }
-// API-provider activities come from Loop's own broker and runtime, never from
-// model prose. Display records must not fail a run, so rejections are dropped.
-function apiToolActivity(
-  run: Run,
-  callId: string,
-  patch: Extract<ActivityUpdate, { kind: "tool" }>["patch"],
-) {
-  applyActivity(
-    { owner: run.owner_id, conversation: run.conversation_id, run: run.id },
-    {
-      v: 1,
-      kind: "tool",
-      id: callId,
-      source: { transport: "api", origin: "broker" },
-      patch: { ...patch, links: { broker: callId, trace: "tool:" + callId } },
-    },
-  );
-}
 function apiSessionActivities(run: Run, snapshot: Snapshot) {
   const scope = { owner: run.owner_id, conversation: run.conversation_id };
   const source = { transport: "api" as const, origin: "loop" };
@@ -391,7 +372,7 @@ function apiCapabilities(run: Run) {
   });
 }
 export async function executeAgent(run: Run): Promise<boolean> {
-  assertFleetEffect(run.owner_id, "run", run.id);
+  assertEffect(run.owner_id, "run", run.id);
   // Recheck after claim, before any checkpoint or native dispatch. A temporary
   // disconnection must not consume the durable review continuation.
   if (continuationQueries.shouldDefer(db, run.id, run.owner_id))
@@ -537,7 +518,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       if (cp.stage === "tools") {
         for (const invocation of pending) {
           if (invocation.done) continue;
-          assertFleetEffect(run.owner_id, "run", run.id);
+          assertEffect(run.owner_id, "run", run.id);
           const traceKey = "tool:" + invocation.call.id;
           const trace = {
             kind: "tool" as const,
@@ -754,7 +735,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           })
         : undefined;
       try {
-        assertFleetEffect(run.owner_id, "run", run.id);
+        assertEffect(run.owner_id, "run", run.id);
         for await (const chunk of streamConnection(currentConnection, {
           model: snapshot.model,
           effort: snapshot.effort || undefined,
@@ -777,17 +758,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
               }))
             : undefined,
         })) {
-          if (chunk.trace) {
-            const trace = chunk.trace;
-            const output = {
-              content: trace.content,
-              metadata: { native: true, state: trace.state },
-            };
-            const key = `runtime:${round}:${trace.id}`;
-            if (trace.kind === "message") recordConversationUpdate(run, key, output);
-            else recordTrace(run, key, { ...output, kind: "tool", title: trace.title });
-            emit(run.owner_id, run.id, "trace.updated", { round });
-          }
           if (chunk.text) {
             turnText += chunk.text;
             output += chunk.text;

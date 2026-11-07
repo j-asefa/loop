@@ -337,6 +337,18 @@ it("never replays a call with uncertain outcome", async () => {
     ),
   ).rejects.toThrow(/uncertain/);
   expect(externalCalls).toBe(2);
+  const activities = db
+    .prepare(
+      "SELECT owner_id,run_id,record FROM agent_activities WHERE run_id=? AND kind='tool'",
+    )
+    .all(run.id) as { owner_id: string; run_id: string; record: string }[];
+  expect(activities).toHaveLength(1);
+  expect(activities[0]).toMatchObject({ owner_id: "alice", run_id: run.id });
+  expect(JSON.parse(activities[0].record).data).toMatchObject({
+    status: "unknown",
+    error: expect.stringContaining("unknown"),
+    links: { broker: "manual-call", trace: "tool:manual-call" },
+  });
 });
 it("blocks private network URLs and preserves unrecognized results as readable fallback", () => {
   for (const url of [

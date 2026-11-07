@@ -3,13 +3,11 @@ import * as fleetPairingCeremoniesQueries from "./sql/fleet-pairing-ceremonies.j
 import * as fleetPairingClockQueries from "./sql/fleet-pairing-clock.js";
 import * as fleetDevicesQueries from "./sql/fleet-devices.js";
 import type Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { z } from "zod";
 import type { DeviceTrust, TrustedDevice } from "../device-trust.js";
-import { atomic, hash, privateDir, secret } from "../state.js";
+import { hash, privateDir, secret } from "../state.js";
 import { Problem } from "../shared/problem.js";
 import { PAIRING_LIFETIME_MS } from "../shared/pairing.js";
 import { DeviceExpiryChecks, type DeviceExpiryCheck } from "./device-expiry.js";
@@ -30,9 +28,6 @@ const Device = z.object({
   expires: z.number().finite(),
   maxExpires: z.number().finite(),
 });
-const LegacyDevices = z
-  .array(Device.extend({ maxExpires: z.number().finite().optional() }))
-  .max(10);
 export const Ceremony = z.object({
   id: Id,
   owner_id: z.string(),
@@ -75,43 +70,17 @@ export class DevicePairing implements DeviceTrust {
     z.string().min(1).max(256).parse(owner);
     privateDir(directory);
     this.checks = new DeviceExpiryChecks(directory, owner);
-    let importedCheck: DeviceExpiryCheck | undefined;
-    const path = join(directory, "devices.json");
     db.transaction(() => {
-      const imported = fleetDeviceStoreQueries.owner(db) as
+      const store = fleetDeviceStoreQueries.owner(db) as
         { owner_id: string } | undefined;
-      if (imported) {
-        if (imported.owner_id !== owner)
+      if (store) {
+        if (store.owner_id !== owner)
           throw new Problem(403, "Device trust belongs to another owner.");
         return;
       }
-      let devices: z.infer<typeof LegacyDevices> = [];
-      try {
-        devices = LegacyDevices.parse(JSON.parse(readFileSync(path, "utf8")));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT")
-          throw new Problem(
-            409,
-            "Device trust could not be imported. Restore the workspace database and devices.json together.",
-          );
-      }
-      if (devices.length)
-        importedCheck = this.checks.begin(devices.map((device) => device.id));
-      const now = this.now();
-      for (const old of devices) {
-        const maxExpires = old.maxExpires ?? old.expires;
-        const expires = Math.min(old.expires, maxExpires);
-        if (expires > now) this.insertDevice({ ...old, expires, maxExpires });
-      }
       fleetDeviceStoreQueries.initialize(db, owner);
     }).immediate();
-    if (importedCheck) this.checks.finish(importedCheck);
     this.checks.recover(db);
-    // Written before a gateway can listen. An older binary must fail closed
-    // instead of reading an obsolete pre-migration list after a SQL revocation.
-    // A crash between import and this marker cannot expose new SQL credentials;
-    // the next startup retries the marker using the already imported database.
-    atomic(path, { version: 2, store: "workspace-database" });
     // Preserve completed receipts and device trust, but never reconstruct an
     // unused code's elapsed lifetime from wall time after a restart.
     fleetPairingCeremoniesQueries.cancelPending(db, owner);

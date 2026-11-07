@@ -37,10 +37,9 @@ const page = (
 it("loads one recent page on open and keeps historical and live cursors independent", async () => {
   const requests: string[] = [];
   const pages = [
-    page(200, [item("recent", 200)], { earlier: 101, legacyAvailable: true }),
+    page(200, [item("recent", 200)], { earlier: 101 }),
     page(202, [item("recent", 202)]),
     page(100, [item("recent", 50), item("older", 100)], { earlier: null }),
-    page(0, [{ ...item("legacy", 0), legacy: true }], { earlier: null }),
     page(203, [item("new", 203)]),
   ];
   let items: ActivityItem[] = [];
@@ -72,11 +71,10 @@ it("loads one recent page on open and keeps historical and live cursors independ
     "/conversations/thread/activities?view=recent",
     "/conversations/thread/activities?view=updates&after=200",
     "/conversations/thread/activities?view=recent&before=101",
-    `/conversations/thread/activities?view=legacy&before=${Number.MAX_SAFE_INTEGER}`,
     "/conversations/thread/activities?view=updates&after=202",
   ]);
   expect(items.find((i) => i.key === "recent")!.sequence).toBe(202);
-  expect(items.map((i) => i.key)).toEqual(["legacy", "older", "recent", "new"]);
+  expect(items.map((i) => i.key)).toEqual(["older", "recent", "new"]);
   expect(state).toMatchObject({
     hasEarlier: false,
     loadingEarlier: false,
@@ -246,29 +244,6 @@ it("retains separate failed operations and coalesces repeated manual retries", a
   expect(state).toMatchObject({ loading: false, error: "" });
 });
 
-it("preserves snapshot paging with older desktops without refetching it for every displayed run", async () => {
-  const requests: string[] = [];
-  const pages = [page(500, [], { more: true }), page(750)];
-  const loader = new ActivityHistory(
-    async (query) => {
-      const url = routePath(workspaceApi.conversationActivities, {
-        params: { id: "old" },
-        query,
-      });
-      requests.push(url);
-      return pages.shift()!;
-    },
-    () => {},
-    () => {},
-  );
-  await loader.refresh();
-  await loader.setRuns(["r1", "r2"]);
-  expect(requests).toEqual([
-    "/conversations/old/activities?view=recent",
-    "/conversations/old/activities?view=updates&after=500",
-  ]);
-});
-
 it("follows a change signalled during a read with one more read", async () => {
   const requests: string[] = [];
   let release!: (page: ActivityPage) => void;
@@ -331,7 +306,7 @@ it("keeps exhausted errors visible while fallback reads run and ignores ticks du
   expect(state).toMatchObject({ error: "", loading: false });
 });
 
-it("loads conversation controls and displayed files without requesting tool or legacy history", async () => {
+it("loads conversation controls and displayed files without requesting tool history", async () => {
   const requests: string[] = [];
   const loader = new ActivityHistory(
     async (query) => {

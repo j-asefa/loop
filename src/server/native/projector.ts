@@ -196,17 +196,7 @@ export class NativeProjector {
     }
     if (event.type === "item") {
       if (!this.retainItem(live, event.item)) return;
-      if (event.item.kind === "tool")
-        recordTrace(run, event.item.id, {
-          kind: "tool",
-          title: event.item.title || "Native tool",
-          content: event.item.text,
-          metadata: {
-            native: true,
-            itemId: event.item.id,
-            status: event.item.status,
-          },
-        });
+      this.toolActivity(live, event.item);
     }
     if (event.type === "delta") {
       // An active stream can outlive its in-memory display window. Recover
@@ -226,6 +216,7 @@ export class NativeProjector {
         text: displayText((previous?.text || "") + event.text),
       };
       if (!this.retainItem(live, item)) return;
+      this.toolActivity(live, item);
     }
     if (event.type === "item" || event.type === "delta") {
       this.scheduleOutput(live);
@@ -337,6 +328,43 @@ export class NativeProjector {
       // Aggregate text is copied into several tables. Bound that write rate;
       // terminal statuses still flush immediately through projectOutput.
     }, 1000);
+  }
+  private toolActivity(live: Live, item: Item) {
+    if (item.kind !== "tool" || !live.run) return;
+    recordTrace(live.run, item.id, {
+      kind: "tool",
+      title: item.title || "Native tool",
+      content: item.text,
+      metadata: { native: true, itemId: item.id, status: item.status },
+    });
+    const status = item.status;
+    this.activity(live, {
+      type: "activity",
+      activity: {
+        v: 1,
+        kind: "tool",
+        id: createHash("sha256").update(item.id).digest("hex"),
+        source: {
+          transport: "native",
+          harness: live.binding.harness,
+          origin: "native:item",
+        },
+        patch: {
+          title: (item.title || "Native tool").slice(0, 500),
+          status:
+            status === "running" ||
+            status === "waiting" ||
+            status === "completed" ||
+            status === "failed"
+              ? status
+              : "unknown",
+          content: item.text
+            ? [{ type: "text", text: item.text.slice(0, 16000) }]
+            : [],
+          links: { trace: item.id },
+        },
+      },
+    });
   }
   // Trusted activity boundary. Adapters are untrusted display producers: the
   // server supplies owner, conversation, turn and generation, persists the

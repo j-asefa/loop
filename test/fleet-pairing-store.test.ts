@@ -413,39 +413,12 @@ it("does not revive an expired code after a failed redemption and clock rollback
   expect(() => pairing.pair(origin)).toThrow("clock");
 });
 
-it("imports live device trust once, preserves fixed expiry, fences downgrades and rejects another owner", () => {
-  let now = Date.now();
-  const m = machine("owner", () => now),
-    token = secret(),
-    id = randomUUID();
-  const path = join(m.dir, "devices.json");
-  writeFileSync(
-    path,
-    JSON.stringify([
-      {
-        id,
-        name: "Old phone",
-        hash: hash(token),
-        csrf: secret(),
-        expires: now + 10_000,
-      },
-    ]),
-  );
-  const pairing = m.open();
-  expect(pairing.authenticate(hash(token))?.maxExpires).toBe(now + 10_000);
-  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
-    version: 2,
-    store: "workspace-database",
-  });
+it("refuses a device store opened by another owner", () => {
+  const m = machine("owner");
+  m.open();
   expect(
-    () => new FleetPairing(m.db, m.authority, "other-owner", m.dir, () => now),
+    () => new FleetPairing(m.db, m.authority, "other-owner", m.dir),
   ).toThrow("another owner");
-  now += 10_001;
-  expect(m.open().authenticate(hash(token))).toBeUndefined();
-  expect(m.open().device(id)).toBeUndefined();
-  const missing = machine();
-  writeFileSync(join(missing.dir, "devices.json"), readFileSync(path));
-  expect(() => missing.open()).toThrow("Restore the workspace database");
 });
 
 it("supports local device-only links without silently creating fleet membership", () => {

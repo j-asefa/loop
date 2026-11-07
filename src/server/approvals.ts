@@ -8,10 +8,7 @@ import { db, id, now, emit } from "./db.js";
 import { ownedApproval, ownedRun, ownedRunControl, Problem } from "./domain.js";
 import { transition, type Run } from "./queue.js";
 import { recordPersonalDecision } from "./personal-decisions.js";
-import {
-  assertFleetEffect,
-  recordFleetEffectEdit,
-} from "./fleet-effect-authorizations.js";
+import { assertEffect, recordEffectEdit } from "./effect-authority.js";
 export function requestApproval(
   run: Run,
   request: unknown,
@@ -69,8 +66,8 @@ export function decide(
         run.id,
       );
       if (decision === "approve" || resumesNative) {
-        assertFleetEffect(owner, "run", run.id);
-        recordFleetEffectEdit(owner, "run", run.id);
+        assertEffect(owner, "run", run.id);
+        recordEffectEdit(owner, "run", run.id);
       }
       approvalsQueries.decide(
         db,

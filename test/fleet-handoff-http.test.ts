@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import { afterAll, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -87,23 +88,7 @@ function machine() {
 async function fixture(pendingEnrollment = false) {
   const a = machine(),
     b = machine(),
-    host = new Host(
-      b.dir,
-      {
-        harness: "codex",
-        version: "fixture",
-        project: b.dir,
-        billing: { mode: "existing", description: "Isolated fixture" },
-        capabilities: {
-          approvals: true,
-          questions: true,
-          resume: true,
-          liveAttach: false,
-          terminal: false,
-        },
-      },
-      b.pairing,
-    );
+    host = createHost(b.dir, b.pairing);
   hosts.push(host);
   let wall = Date.now(),
     mono = 100;

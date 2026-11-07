@@ -13,7 +13,6 @@ const { createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
-const { recordTrace } = await import("../src/server/traces");
 const { nativeBindings, invokeNative, runtimeInstructions, PLAN_GUIDANCE } =
   await import("../src/server/native-tools");
 const { applyActivity, listActivities, activityRoutes } =
@@ -154,7 +153,6 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
   // The plan tool is shown as a plan, not also as a tool card.
   const tools = byKind("tool");
   expect(tools).toHaveLength(1);
-  expect(tools[0].legacy).toBeUndefined();
   expect(tools[0].record.data).toMatchObject({
     title: "loop_diagram",
     status: "completed",
@@ -279,102 +277,6 @@ it("rejects stale generations and invalid updates and ignores duplicates", () =>
   ).toMatchObject({
     applied: false,
   });
-});
-
-it("projects legacy tool traces once and prefers activity records", () => {
-  const a = agent();
-  const run = submit("alice", {
-    agentId: a.id,
-    input: "old",
-    idempotencyKey: id(),
-  });
-  recordTrace(run as any, "tool:old-call", {
-    kind: "tool",
-    title: "legacy_tool",
-    content: "legacy output",
-    metadata: { state: "completed" },
-  });
-  recordTrace(run as any, "tool:new-call", {
-    kind: "tool",
-    title: "new_tool",
-    metadata: { state: "running" },
-  });
-  applyActivity(
-    { owner: "alice", conversation: run.conversation_id, run: run.id },
-    {
-      v: 1,
-      kind: "tool",
-      id: "new-call",
-      source: { transport: "api", origin: "broker" },
-      patch: {
-        title: "new_tool",
-        status: "running",
-        links: { trace: "tool:new-call" },
-      },
-    },
-  );
-  const items = listActivities("alice", run.conversation_id!).items.filter(
-    (i: any) => i.kind === "tool",
-  );
-  expect(items.map((i: any) => [i.record.data.title, !!i.legacy])).toEqual([
-    ["legacy_tool", true],
-    ["new_tool", false],
-  ]);
-  expect(items[0].record.data).toMatchObject({
-    status: "completed",
-    content: [{ type: "text", text: "legacy output" }],
-  });
-});
-
-it("keeps internal native envelopes and receipts out of legacy activities", async () => {
-  const a = agent();
-  const run = submit("alice", {
-    agentId: a.id,
-    input: "old native",
-    idempotencyKey: id(),
-  });
-  for (const [key, title, content, metadata] of [
-    [
-      "native:envelope",
-      "StructuredOutput",
-      "INTERNAL_ENVELOPE_SENTINEL",
-      { native: true },
-    ],
-    [
-      "native:envelope:result",
-      "Tool result",
-      "INTERNAL_RECEIPT_SENTINEL",
-      { native: true },
-    ],
-    // A public tool with the same name is not the native envelope.
-    [
-      "tool:public",
-      "StructuredOutput",
-      "Public tool result",
-      { state: "completed" },
-    ],
-    [
-      "tool:review",
-      "pull_request_review_write",
-      "Public review failure",
-      { state: "failed" },
-    ],
-  ] as const)
-    recordTrace(run as any, key, { kind: "tool", title, content, metadata });
-  const response = await get(
-    `/conversations/${run.conversation_id}/activities`,
-  );
-  expect(response.status).toBe(200);
-  expect(response.body.items.map((i: any) => i.record.id)).toEqual([
-    "tool:public",
-    "tool:review",
-  ]);
-  expect(JSON.stringify(response.body)).not.toMatch(
-    /INTERNAL_(ENVELOPE|RECEIPT)_SENTINEL/,
-  );
-  expect(
-    db.prepare("SELECT count(*) n FROM run_traces WHERE run_id=?").get(run.id),
-  ).toEqual({ n: 4 });
 });
 
 it("resumes a stored legacy native tool binding through the API checkpoint caller", async () => {

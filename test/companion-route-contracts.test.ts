@@ -455,43 +455,43 @@ it("the published runs query selects real file activities using its documented w
     bad,
   );
 });
-it("conversationActivities preserves legacy trace display fields beyond activity-update limits", async () => {
+it("conversationActivities preserves full current trace links while bounding display titles", async () => {
   const { enqueue } = await import("../src/server/queue");
-  const { recordTrace } = await import("../src/server/traces");
-  const run = enqueue(owner, "Legacy trace", randomUUID(), { conversation });
-  const trace = `acp:${randomUUID()}:${"t".repeat(300)}`,
-    title = "Provider trace ".repeat(40);
-  recordTrace(run, trace, {
-    kind: "tool",
-    title,
-    content: "Retained trace",
-    metadata: { native: true, state: "completed" },
-  });
+  const run = enqueue(owner, "Current tool", randomUUID(), { conversation });
+  const toolScope = { ...scope, run: run.id };
+  const trace = `native:${randomUUID()}:${"t".repeat(300)}`;
+  expect(
+    applyActivity(toolScope, {
+      v: 1,
+      kind: "tool",
+      id: "current-tool",
+      source,
+      generation: scope.generation,
+      patch: { title: "Current tool", status: "completed", links: { trace } },
+    }).applied,
+  ).toBe(true);
   const result = await request(
-    `/conversations/${conversation}/activities?view=legacy`,
+    `/conversations/${conversation}/activities?view=recent`,
   );
   valid(workspaceApi.conversationActivities, result);
   expect(result.data.items).toContainEqual(
     expect.objectContaining({
-      legacy: true,
-      run: run.id,
       record: expect.objectContaining({
-        id: trace,
-        data: expect.objectContaining({ title, links: { trace } }),
+        id: "current-tool",
+        data: expect.objectContaining({ links: { trace } }),
       }),
     }),
   );
-  for (const patch of [{ title }, { links: { trace } }])
-    expect(
-      applyActivity(scope, {
-        v: 1,
-        kind: "tool",
-        id: "bounded-update",
-        source,
-        generation: scope.generation,
-        patch,
-      }).applied,
-    ).toBe(false);
+  expect(
+    applyActivity(toolScope, {
+      v: 1,
+      kind: "tool",
+      id: "bounded-update",
+      source,
+      generation: scope.generation,
+      patch: { title: "x".repeat(501) },
+    }).applied,
+  ).toBe(false);
 });
 it("runtimeUpgrade returns interrupted status without installer internals", async () => {
   const result = await request("/workspace/runtimes/opencode/upgrade");

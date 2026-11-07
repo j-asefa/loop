@@ -8,8 +8,8 @@ export type TrustedDevice = {
   maxExpires: number;
 };
 
-/** The companion implementation uses the workspace transaction store. Isolated
- * previews keep an independent file store. */
+/** Every gateway uses its workspace transaction store. Preview processes have
+ * an independent database and cookie namespace. */
 export interface DeviceTrust {
   /** Stored administrative inventory, including credentials awaiting retirement.
    * Call device/authenticate to establish current authentication eligibility. */

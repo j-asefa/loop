@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import { afterAll, afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { createHash, randomBytes } from "node:crypto";
@@ -110,23 +111,7 @@ const enrollment = new FleetEnrollmentDestination(
   secrets,
   () => origin,
 );
-const host = new Host(
-  dir,
-  {
-    harness: "codex",
-    version: "fixture",
-    project: dir,
-    billing: { mode: "existing", description: "Isolated mail fixture" },
-    capabilities: {
-      approvals: true,
-      questions: true,
-      resume: true,
-      liveAttach: false,
-      terminal: false,
-    },
-  },
-  pairing,
-);
+const host = createHost(dir, pairing);
 host.workspace = {
   http: (_request, response) => {
     response.writeHead(404).end();

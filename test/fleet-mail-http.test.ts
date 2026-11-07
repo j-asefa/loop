@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -167,23 +168,7 @@ async function fixture(scopes: FleetOperation[] = ["read", "mail", "files"]) {
     secrets,
     () => origin,
   );
-  const host = new Host(
-    b.dir,
-    {
-      harness: "codex",
-      version: "fixture",
-      project: b.dir,
-      billing: { mode: "existing", description: "Isolated fixture" },
-      capabilities: {
-        approvals: true,
-        questions: true,
-        resume: true,
-        liveAttach: false,
-        terminal: false,
-      },
-    },
-    pairing,
-  );
+  const host = createHost(b.dir, pairing);
   let workspaceCalls = 0;
   const inboundCapacity = new FleetCapacity(() => true);
   host.workspace = {

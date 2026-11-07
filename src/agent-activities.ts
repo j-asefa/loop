@@ -11,11 +11,8 @@ import { z } from "zod";
 // `null` clears an optional value, and any other value replaces it.
 
 export const ACTIVITY_VERSION = 1;
-// Wire compatibility: records are served only by the additive
-// GET /api/conversations/:id/activities projection. Changes are announced as an
-// ordinary `activity.updated` row in the events table, which existing clients
-// (polling or the v2 workspace socket) treat as a generic refresh signal. No
-// new frame variant is sent to cached PWA clients that reject unknown types.
+// Activity changes publish content-free refresh signals; clients read the
+// current records through the conversation activities projection.
 
 export const ACTIVITY_LIMITS = {
   id: 300,
@@ -153,7 +150,9 @@ const ToolPatch = z
     links: z
       .object({
         broker: Id.optional(),
-        trace: Id.optional(),
+        // Native trace identities are bounded by the incoming event, not the
+        // activity ID cap. Preserve the exact link; never truncate identity.
+        trace: z.string().max(ACTIVITY_LIMITS.record).optional(),
         native: Id.optional(),
       })
       .strict()
@@ -367,8 +366,7 @@ export type ActivityUpdate = z.input<typeof ActivityUpdate>;
 // Adapter event carrying a shared update; a member of `AdapterEvent` in
 // protocol.ts. The server supplies conversation, run, owner and the current
 // process generation from the live session (NativeSessions.activity ->
-// ingestNativeActivity). It is server-side only and must never be forwarded
-// on the v1 host wire.
+// ingestNativeActivity). Browser events announce changes without the payload.
 export type ActivityEvent = { type: "activity"; activity: ActivityUpdate };
 type ParsedUpdate = z.output<typeof ActivityUpdate>;
 
@@ -429,9 +427,7 @@ export const ActivityRecordSchema = z.discriminatedUnion("kind", [
     ...recordBase,
     kind: z.literal("tool"),
     data: z.object({
-      // Legacy traces predate update limits; their display title and trace key
-      // are retained by recordTrace/legacyTools without those ingestion caps.
-      title: z.string().optional(),
+      title: retained(ToolPatch.shape.title),
       category: retained(ToolPatch.shape.category),
       status: ToolStatus,
       input: retained(ToolPatch.shape.input),
@@ -446,10 +442,7 @@ export const ActivityRecordSchema = z.discriminatedUnion("kind", [
       ),
       error: retained(ToolPatch.shape.error),
       locations: retained(ToolPatch.shape.locations),
-      links: ToolPatch.shape.links
-        .unwrap()
-        .strip()
-        .extend({ trace: z.string().optional() }),
+      links: ToolPatch.shape.links.unwrap().strip(),
     }),
   }),
   z.object({

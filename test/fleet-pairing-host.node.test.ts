@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -32,23 +33,11 @@ test("the HTTP gateway uses atomic companion pairing without exchanging an enrol
   const origin = "https://destination.example";
   let now = Date.now();
   t.mock.timers.enable({ apis: ["setInterval"] });
-  const initial = {
-    harness: "codex" as const,
-    version: "fixture",
-    project: dir,
-    billing: { mode: "existing" as const, description: "Fixture" },
-    capabilities: {
-      approvals: true,
-      questions: true,
-      resume: true,
-      liveAttach: false,
-      terminal: false,
-    },
-  };
+
   let host: Host | undefined;
   const launch = async () => {
     const pairing = new FleetPairing(db, authority, owner, dir, () => now);
-    host = new Host(dir, initial, pairing);
+    host = createHost(dir, pairing);
     await host.listen();
     host.setOrigin(origin);
     return pairing;
@@ -281,10 +270,6 @@ test("the HTTP gateway uses atomic companion pairing without exchanging an enrol
     } finally {
       socket.terminate();
     }
-    assert.throws(
-      () => new Host(dir, initial),
-      /Device trust store is unreadable/,
-    );
   } finally {
     await host?.close();
     t.mock.timers.reset();

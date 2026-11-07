@@ -1,3 +1,4 @@
+import { createHost } from "./helpers/gateway.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -40,6 +41,12 @@ process.env.LOOP_DATA_DIR = root;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { app } = await import("../src/server/index.js");
 const { db } = await import("../src/server/db.js");
+// Match WorkspaceHost composition: these fixtures explicitly enable fleet effects.
+const { registerEffectAuthority } =
+  await import("../src/server/effect-authority.js");
+const { fleetEffectAuthority } =
+  await import("../src/server/fleet-effect-authorizations.js");
+registerEffectAuthority(fleetEffectAuthority);
 const { OWNER, nativeSessions } =
   await import("../src/server/native-sessions.js");
 const { closeExecution } = await import("../src/server/execution-client.js");
@@ -168,23 +175,7 @@ const reads = new FleetWorkspaceRead(
   { files: true, uploads: true },
 );
 const pairing = new FleetPairing(db, destination, OWNER, root);
-const host = new Host(
-  root,
-  {
-    harness: "codex",
-    version: "fixture",
-    project: root,
-    billing: { mode: "existing", description: "Isolated fixture" },
-    capabilities: {
-      approvals: true,
-      questions: true,
-      resume: true,
-      liveAttach: false,
-      terminal: false,
-    },
-  },
-  pairing,
-);
+const host = createHost(root, pairing);
 const mount = () =>
   createFleetPeerHttp(
     new FleetEnrollmentDestination(

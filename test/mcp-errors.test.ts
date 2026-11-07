@@ -191,6 +191,24 @@ it.each(["ask", "allow"] as const)(
         .get(run.id) as any;
       expect(failed.state).toBe("failed");
       expect(JSON.parse(failed.result).isError).toBe(true);
+      const activities = db
+        .prepare(
+          "SELECT record FROM agent_activities WHERE run_id=? AND kind='tool'",
+        )
+        .all(run.id) as { record: string }[];
+      expect(activities).toHaveLength(3);
+      expect(
+        activities
+          .map((row) => JSON.parse(row.record))
+          .find((record) => record.id === "review-1").data,
+      ).toMatchObject({
+        status: "failed",
+        error: expect.stringContaining(rejection),
+        content: expect.arrayContaining([
+          { type: "artifact", artifactId: failed.artifact_id },
+        ]),
+      });
+
       const trace = db
         .prepare(
           "SELECT * FROM run_traces WHERE run_id=? AND trace_key='tool:review-1'",
@@ -208,6 +226,7 @@ it.each(["ask", "allow"] as const)(
       expect(artifact.content).toContain(rejection);
       for (const table of [
         "tool_invocations",
+        "agent_activities",
         "run_traces",
         "artifacts",
         "agent_checkpoints",

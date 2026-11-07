@@ -445,45 +445,6 @@ it("new producer generations replace settings and command revisions without stal
   ).toMatchObject({ revision: 1 });
 });
 
-it("incremental durable broker cards replace legacy cards without merging distinct runs", async () => {
-  const { visibleActivities, mergeActivities } =
-    await import("../src/client/activityView");
-  const legacy = {
-    key: "legacy",
-    kind: "tool" as const,
-    run: "r",
-    sequence: 0,
-    legacy: true,
-    record: reduceActivity(undefined, {
-      v: 1,
-      id: "tool:b",
-      kind: "tool",
-      source: { transport: "api", origin: "trace" },
-      patch: {},
-    }).record!,
-  };
-  const durable = {
-    key: "durable",
-    kind: "tool" as const,
-    run: "r",
-    sequence: 2,
-    legacy: false,
-    record: reduceActivity(undefined, {
-      v: 1,
-      id: "b",
-      kind: "tool",
-      source: { transport: "api", origin: "broker" },
-      patch: { links: { trace: "tool:b" } },
-    }).record!,
-  };
-  const other = { ...legacy, key: "other", run: "other" };
-  expect(
-    visibleActivities(
-      mergeActivities([legacy, other], { items: [durable] }),
-    ).map((i) => i.key),
-  ).toEqual(["other", "durable"]);
-});
-
 it("pairs persisted controls with capabilities from the same harness and generation", async () => {
   const { recordedSessionControls } =
     await import("../src/client/activityView");
