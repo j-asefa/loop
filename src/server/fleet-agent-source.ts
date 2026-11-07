@@ -398,9 +398,6 @@ export function fleetAgentSource(
                 ...capabilities,
                 pairedDevices: false,
                 cardTokens: false,
-                continuationStart:
-                  !!actions &&
-                  catalog.actions.includes("conversationContinueStart"),
                 fleet: {
                   version: 1,
                   machineId: peer,

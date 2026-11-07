@@ -90,14 +90,12 @@ export class FleetPeerActions {
     requestDigest: string,
     commandId: string,
     input: FleetActionReference,
-    legacyDigest?: string,
   ) {
     const parsed = SignedFleetActionResponse.safeParse(reply);
     if (
       !parsed.success ||
       parsed.data.response.requestId !== requestId ||
-      (parsed.data.response.requestDigest !== requestDigest &&
-        parsed.data.response.requestDigest !== legacyDigest) ||
+      parsed.data.response.requestDigest !== requestDigest ||
       parsed.data.response.machineId !== target.member.machineId ||
       parsed.data.response.peer !== this.authority.identity.machineId ||
       parsed.data.response.grantId !== target.member.grantId ||
@@ -127,8 +125,7 @@ export class FleetPeerActions {
     return {
       ...receipt,
       result:
-        receipt.result === null ||
-        parsed.data.response.requestDigest === legacyDigest
+        receipt.result === null
           ? null
           : fleetActionRoutes[input.route].response.parse(receipt.result),
     };
@@ -330,13 +327,6 @@ export class FleetPeerActions {
         requestDigest,
         commandId,
         value,
-        query
-          ? fleetPayloadDigest({
-              requestId: admission.requestId,
-              commandId,
-              payloadDigest: digest,
-            })
-          : undefined,
       );
       const saved = this.journal.save(commandId, receipt);
       live();

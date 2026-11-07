@@ -306,15 +306,7 @@ for (const engine of process.env.LOOP_BROWSER
           await expect(thread.locator(".workspace-connection")).toHaveText(
             "Connected to workspace",
           );
-          await thread.evaluate(() => {
-            const url = new URL(location.href);
-            url.search = "?conversation=thread";
-            navigator.serviceWorker.dispatchEvent(
-              new MessageEvent("message", {
-                data: { type: "loop-open", url: url.href },
-              }),
-            );
-          });
+          await thread.goto(fixture.origin + "/?conversation=thread");
           await expect(
             thread
               .locator(".conversation-sheet")

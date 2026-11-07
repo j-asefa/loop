@@ -4,7 +4,7 @@ import { readRoute, UnavailableResponse } from "./workspace-api";
 import { CollectionReadNotice } from "./CollectionRead";
 import { listenWorkspaceChanges, broadWorkspaceChange } from "./workspace-changes";
 import { CodeReviewStatus } from "./CodeReview";
-import { useSourceId, useSourceRoute, useProjectionRoute, useSourceCapabilities } from "./SourceContext";
+import { useSourceId, useSourceRoute, useProjectionRoute, useSourceOperation } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
 import { automationLabel } from "../shared/agent-mail";
 import {
@@ -152,13 +152,13 @@ type ContinuationInput = RouteInput<typeof workspaceApi.conversationContinueStar
 function storedContinuationAt(key: string): ContinuationInput | null {
   try {
     const parsed = workspaceApi.conversationContinueStart.body.safeParse(JSON.parse(localStorage.getItem(key) || "null"));
-    return parsed.success && parsed.data.start ? parsed.data : null;
+    return parsed.success ? parsed.data : null;
   } catch { return null; }
 }
 function storedContinuations(key: string): ContinuationInput[] {
   try {
     const requests = new Map<string, ContinuationInput>();
-    for (const slot of [key, ...Object.keys(localStorage).filter(k => k.startsWith(key + ":")).sort()]) {
+    for (const slot of Object.keys(localStorage).filter(k => k.startsWith(key + ":")).sort()) {
       const request = storedContinuationAt(slot);
       if (request) requests.set(request.start.idempotencyKey, request);
     }
@@ -178,11 +178,9 @@ function clearStoredContinuation(key: string, request: ContinuationInput) {
   // refuses cleanup. Any retained request can safely recover that same receipt.
   try {
     localStorage.removeItem(key + ":" + request.start.idempotencyKey);
-    if (storedContinuationAt(key)?.start.idempotencyKey === request.start.idempotencyKey)
-      localStorage.removeItem(key);
   } catch {}
   try {
-    if (sessionStorage.getItem(key) === request.start?.idempotencyKey)
+    if (sessionStorage.getItem(key) === request.start.idempotencyKey)
       sessionStorage.removeItem(key);
   } catch {}
 }
@@ -255,7 +253,7 @@ function ConversationView({
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
   const call = useSourceRoute();
-  const continuationSupported = useSourceCapabilities().continuationStart === true;
+  const continuationReason = useSourceOperation(workspaceApi.conversationContinueStart);
   const readUsage = useProjectionRoute();
   const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
@@ -483,15 +481,6 @@ function ConversationView({
       let fresh = await readSnapshot(initial ? anchor ? { message: anchor } : { resume: "1" } : recovery ? { message: recovery } : {});
       if (current !== generation.current || ticket !== loadRequest.current || owner !== viewOwner())
         return;
-      if (initial && !anchor && typeof fresh.resumed !== "boolean" &&
-          fresh.position_message_id && !fresh.messages.some(message => message.id === fresh.position_message_id)) {
-        // Older linked servers ignore resume=1. Only those responses lack the
-        // marker; keep their existing resume behavior until they are upgraded.
-        fresh = await readSnapshot(
-          { message: fresh.position_message_id },
-        );
-        if (current !== generation.current || ticket !== loadRequest.current || owner !== viewOwner()) return;
-      }
       const incomingMessages = fresh.messages;
       const replacedProjection = !!fresh.projection && !projection.ready;
       if (fresh.projection) {
@@ -1799,9 +1788,7 @@ function ConversationView({
                 </select>
               </label>
             )}
-            {!continuationSupported && (
-              <p className="note">Update this workspace to start continuations safely. Your saved requests remain available after updating.</p>
-            )}
+            {continuationReason && <p role="status" className="note">{continuationReason}</p>}
             <label>
               Continue with
               <select
@@ -1881,9 +1868,9 @@ function ConversationView({
             )}
             <button
               className="primary"
-              disabled={busy || !continuationSupported || continuationUnavailable || (!pendingContinuation && (!destination || !included.length || !continuationPrompt.trim()))}
+              disabled={busy || !!continuationReason || continuationUnavailable || (!pendingContinuation && (!destination || !included.length || !continuationPrompt.trim()))}
               onClick={async () => {
-                if (busy || !continuationSupported) return;
+                if (busy || continuationReason) return;
                 setBusy(true);
                 setError("");
                 const request = pendingContinuation || {
@@ -1891,7 +1878,7 @@ function ConversationView({
                   messageIds: included,
                   start: { input: continuationPrompt.trim(), idempotencyKey: crypto.randomUUID() },
                 };
-                const requestKey = continuationKey + ":" + request.start!.idempotencyKey;
+                const requestKey = continuationKey + ":" + request.start.idempotencyKey;
                 const clearPending = () => {
                   clearStoredContinuation(continuationKey, request);
                   setSavedContinuations(storedContinuations(continuationKey));
@@ -1901,7 +1888,7 @@ function ConversationView({
                   // Keep the exact owner/source/thread-bound request across a
                   // lost response, closing the sheet and reloading the app.
                   localStorage.setItem(requestKey, JSON.stringify(request));
-                  try { sessionStorage.setItem(continuationKey, request.start!.idempotencyKey); } catch {}
+                  try { sessionStorage.setItem(continuationKey, request.start.idempotencyKey); } catch {}
                   setPendingContinuation(request);
                   setSavedContinuations(storedContinuations(continuationKey));
                   const r = await call(workspaceApi.conversationContinueStart, { params: { id }, body: request });

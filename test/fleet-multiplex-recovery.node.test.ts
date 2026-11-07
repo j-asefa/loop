@@ -26,6 +26,8 @@ test("malformed source frames and a slow viewer preserve healthy streams and rel
     });
     socket.send(
       JSON.stringify({
+        serverNow: Date.now(),
+        nextDeadline: null,
         v: 3,
         type: "reset",
         epoch: source,
@@ -72,6 +74,8 @@ test("malformed source frames and a slow viewer preserve healthy streams and rel
   };
   const event = (source: string, cursor: number) =>
     JSON.stringify({
+      serverNow: Date.now(),
+      nextDeadline: null,
       v: 3,
       type: "events",
       epoch: source,

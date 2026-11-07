@@ -2,10 +2,7 @@ import { EventEmitter } from "node:events";
 import { WebSocket } from "ws";
 import type { z } from "zod";
 import type { EventSocket } from "../event-socket.js";
-import {
-  invalidate,
-  PARTIAL_WORKSPACE_CAPABILITIES,
-} from "../shared/workspace-events.js";
+import { invalidate } from "../shared/workspace-events.js";
 import {
   FLEET_EVENT_BYTES,
   FLEET_EVENT_BUFFER_BYTES,
@@ -36,7 +33,8 @@ type Entry = {
   source: string;
   listeners: Map<string, Listener>;
   socket?: LogicalSocket;
-  reset?: Frame;
+  reset?: Extract<Frame, { type: "reset" }>;
+  clockAt: number;
   epoch: string;
   cursor: number;
   floor: number;
@@ -127,8 +125,6 @@ export class WorkspaceMultiplex {
     };
     const query = new URLSearchParams({
       v: "3",
-      clock: "1",
-      projection: "1",
       epoch: entry.epoch,
       cursor: String(entry.cursor),
       conversations: JSON.stringify(selected.conversations),
@@ -156,7 +152,6 @@ export class WorkspaceMultiplex {
     if (frame.type === "events" && frame.cursor < entry.cursor)
       throw new Error();
     if (
-      frame.v === 3 &&
       frame.type === "events" &&
       frame.events.some(
         (item, index) =>
@@ -165,6 +160,7 @@ export class WorkspaceMultiplex {
       )
     )
       throw new Error();
+    entry.clockAt = performance.now();
     entry.epoch = frame.epoch;
     entry.cursor = frame.cursor;
     if (frame.type === "reset") {
@@ -176,21 +172,20 @@ export class WorkspaceMultiplex {
       // A newly demanded source can resume directly at its first viewer's
       // cursor. Retain enough source metadata to reset a later, older viewer
       // if this bounded replay ring no longer covers its cursor.
-      entry.reset ??=
-        frame.v === 3
-          ? {
-              v: 3,
-              type: "reset",
-              epoch: frame.epoch,
-              cursor: frame.cursor,
-              build: "",
-              buildIdentity: null,
-              capabilities:
-                frame.capabilities ?? PARTIAL_WORKSPACE_CAPABILITIES,
-            }
-          : { v: 2, type: "reset", epoch: frame.epoch, cursor: frame.cursor };
-      if (frame.v === 3 && frame.capabilities && entry.reset.v === 3)
-        entry.reset = { ...entry.reset, capabilities: frame.capabilities };
+      const capabilities = frame.capabilities ?? entry.reset?.capabilities;
+      if (!capabilities)
+        throw new Error("Source replay must announce capabilities");
+      entry.reset = {
+        v: 3,
+        type: "reset",
+        epoch: frame.epoch,
+        cursor: frame.cursor,
+        build: entry.reset?.build ?? "",
+        buildIdentity: entry.reset?.buildIdentity ?? null,
+        capabilities,
+        serverNow: frame.serverNow,
+        nextDeadline: frame.nextDeadline,
+      };
       const bytes = Buffer.byteLength(text);
       entry.cache.push({ frame, bytes });
       entry.bytes += bytes;
@@ -203,7 +198,12 @@ export class WorkspaceMultiplex {
     for (const listener of [...entry.listeners.values()])
       this.deliver(entry, listener, frame);
   }
-  private deliver(entry: Entry, listener: Listener, frame: Frame) {
+  private deliver(
+    entry: Entry,
+    listener: Listener,
+    frame: Frame,
+    replay = false,
+  ) {
     if (this.current(entry.source) !== entry.binding)
       throw new Error("Source authority changed");
     const request = listener.request;
@@ -216,8 +216,8 @@ export class WorkspaceMultiplex {
     }
     if (frame.type === "events" && frame.cursor < request.cursor) return;
     const capabilities = announced(frame);
-    let output = frame;
-    if (frame.v === 3 && frame.type === "events") {
+    let output = replay ? { ...frame, ...this.clock(entry) } : frame;
+    if (frame.type === "events") {
       const events = frame.events
         .filter((item) => item.id > request.cursor)
         .map((item) => ({
@@ -237,6 +237,7 @@ export class WorkspaceMultiplex {
         return;
       output = {
         ...frame,
+        ...(replay ? this.clock(entry) : {}),
         events: events.length
           ? events
           : [{ id: frame.cursor, event: invalidate() }],
@@ -248,22 +249,25 @@ export class WorkspaceMultiplex {
     if (capabilities !== undefined) listener.capabilities = capabilities;
     listener.send(output);
   }
+  private clock(entry: Entry) {
+    if (!entry.reset) throw new Error("Source clock unavailable");
+    // Advance a source-relative clock by monotonic elapsed time. Replaying an
+    // old timestamp unchanged would postpone a deadline for each new viewer.
+    return {
+      serverNow:
+        entry.reset.serverNow +
+        Math.max(0, Math.floor(performance.now() - entry.clockAt)),
+      nextDeadline: entry.reset.nextDeadline,
+    };
+  }
   private reset(entry: Entry, listener: Listener) {
     if (!entry.reset) {
       listener.close("Source snapshot unavailable. Reconnect.");
       return;
     }
-    // A fresh HTTP snapshot must reconcile every fact through this watermark.
-    // Omit an old relative clock; the snapshot owns the next deadline until the
-    // producing source publishes a fresh clock event.
-    const {
-      serverNow: _now,
-      nextDeadline: _deadline,
-      ...base
-    } = entry.reset as Frame & { serverNow?: number; nextDeadline?: number };
     const frame = WorkspaceSourceFrame.parse({
-      ...base,
-      type: "reset",
+      ...entry.reset,
+      ...this.clock(entry),
       epoch: entry.epoch,
       cursor: entry.cursor,
     });
@@ -292,6 +296,7 @@ export class WorkspaceMultiplex {
       entry = {
         source: listener.request.source,
         listeners: new Map(),
+        clockAt: 0,
         epoch: listener.request.epoch,
         cursor: listener.request.cursor,
         floor: listener.request.cursor,
@@ -336,12 +341,10 @@ export class WorkspaceMultiplex {
                 this.deliver(
                   entry,
                   listener,
-                  index === 0 &&
-                    item.frame.v === 3 &&
-                    entry.reset.v === 3 &&
-                    entry.reset.type === "reset"
+                  index === 0 && entry.reset.type === "reset"
                     ? { ...item.frame, capabilities: entry.reset.capabilities }
                     : item.frame,
+                  true,
                 );
             else this.reset(entry, listener);
           }

@@ -22,9 +22,7 @@ export function fleetActionCommandPaths(input: FleetActionInput): string[][] {
     return [["idempotencyKey"]];
   if (["nativeAnswer", "setting"].includes(input.route)) return [["commandId"]];
   if (
-    ["conversationContinue", "conversationContinueStart"].includes(
-      input.route,
-    ) &&
+    input.route === "conversationContinueStart" &&
     input.body &&
     typeof input.body === "object" &&
     !Array.isArray(input.body) &&

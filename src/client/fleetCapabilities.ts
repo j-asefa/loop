@@ -37,7 +37,6 @@ export function boundSourceCapabilities(source: string, value?: Capabilities) {
     ...workspaceCapabilities(),
     pairedDevices: false,
     cardTokens: false,
-    continuationStart: false,
     fleet: {
       version: 1 as const,
       machineId: source.slice(5),

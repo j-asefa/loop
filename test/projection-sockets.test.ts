@@ -39,7 +39,7 @@ it("replays bounded, whole append events after disconnect halfway through a larg
   const connect = (query: string, interrupt = false) => {
     const socket = new WebSocket(
       f.origin.replace("http:", "ws:") +
-        "/api/events/ws?v=3&clock=1&projection=1" +
+        "/api/events/ws?v=3" +
         query,
       { headers: f.browser },
     );

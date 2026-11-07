@@ -14,7 +14,7 @@ import { NativeRequestDetails } from "./NativeRequestDetails";
 import { watchWorkspaceEvents } from "./workspace-events";
 import { publishProjectionFrame, forgetProjectionSource, surfaceFallback } from "./workspace-projections";
 import { WorkspaceChangeQueue, listenWorkspaceChanges } from "./workspace-changes";
-import { PARTIAL_WORKSPACE_CAPABILITIES, type WorkspaceEvent } from "../shared/workspace-events";
+import { type WorkspaceEvent } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
 import { multiplexWorkspaceSocket } from "./workspace-multiplex";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
@@ -72,8 +72,7 @@ export function WorkspaceConnection({
         changed: (events) => changed(sourceId, events),
         frame: (m) => {
           publishProjectionFrame(sourceId, m);
-          if (m.v === 2 || m.capabilities)
-            pending.capabilities.set(sourceId, m.v === 3 ? m.capabilities! : PARTIAL_WORKSPACE_CAPABILITIES);
+          if (m.capabilities) pending.capabilities.set(sourceId, m.capabilities);
           if (m.type !== "reset") return;
           if (sourceId || typeof m.build !== "string") return;
           const identity = BuildIdentity.safeParse(m.buildIdentity);

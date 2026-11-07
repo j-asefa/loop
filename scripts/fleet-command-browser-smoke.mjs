@@ -358,15 +358,6 @@ try {
     error: error.message,
   }));
   await expect.poll(() => authorizationStarted).toBe(true);
-  // Keep a deliberately stale legacy cache: committed IndexedDB state must
-  // supersede it even when this tab observes the original removal late.
-  await first.evaluate(async () => {
-    const entries = await (await import("/client.mjs")).pendingFleetCommands();
-    localStorage.setItem(
-      "loop:fleet-commands:v1:fixture-owner",
-      JSON.stringify(entries),
-    );
-  });
   const recoveredSend = send(second, unsentDecision, unsentId).catch(
     (error) => ({ error: error.message }),
   );

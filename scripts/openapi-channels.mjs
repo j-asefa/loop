@@ -65,7 +65,7 @@ const document = {
       path: "/api" + channel.path,
       pairedPath: channel.pairedPath,
       description:
-        "Owner session on the server; paired device session on the host. Cards tokens are not accepted. v=3 negotiates these frames; other or absent versions retain legacy v2. epoch and cursor resume replay; clock=1 and projection=1 negotiate clock and capability additions. The first value of each query key is used.",
+        "Paired owner device session. Integration tokens are not accepted. v=3 is required; other or absent versions are refused. epoch and cursor resume replay. Every frame carries clock metadata; resets and the first replay frame advertise capabilities. The first value of each query key is used.",
       query: { $ref: "#/components/schemas/WorkspaceEventsQuery" },
       frames: { $ref: "#/components/schemas/WorkspaceFrameV3" },
       clock: { $ref: "#/components/schemas/WorkspaceClock" },

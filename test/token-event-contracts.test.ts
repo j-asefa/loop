@@ -145,7 +145,7 @@ async function refusedUpgrade(
 async function browserFrame(f: Fixture, epoch: string, cursor: number) {
   const socket = new WebSocket(
     f.transportOrigin.replace("http:", "ws:") +
-      `/api/events/ws?v=3&projection=1&epoch=${epoch}&cursor=${cursor}`,
+      `/api/events/ws?v=3&epoch=${epoch}&cursor=${cursor}`,
     { headers: f.browser },
   );
   onTestFinished(() => socket.terminate());
@@ -154,7 +154,20 @@ async function browserFrame(f: Fixture, epoch: string, cursor: number) {
   socket.on("message", (data) => frames.push(data.toString()));
   await expect.poll(() => frames.length, { timeout: 7000 }).toBeGreaterThan(0);
   socket.close();
-  return frames[0];
+  return WorkspaceFrameV3.parse(JSON.parse(frames[0]));
+}
+
+async function expectBrowserReplay(
+  f: Fixture,
+  offered: WorkspaceFrameV3,
+  cursor: number,
+) {
+  const browser = await browserFrame(f, offered.epoch, cursor);
+  // Delivery clocks advance independently; the committed replay and absolute
+  // deadline must be identical across token and browser connections.
+  expect(browser.serverNow).toBeGreaterThanOrEqual(offered.serverNow);
+  expect(browser.serverNow).toBeLessThanOrEqual(Date.now());
+  expect(browser).toEqual({ ...offered, serverNow: browser.serverNow });
 }
 
 {
@@ -294,7 +307,7 @@ async function browserFrame(f: Fixture, epoch: string, cursor: number) {
       replayed = await frame(replay);
     expect(replayed.frame.type).toBe("events");
     expect(replayed.frame.cursor).toBe(offered.cursor);
-    expect(replayed.raw).toBe(await browserFrame(f, reset.epoch, reset.cursor));
+    await expectBrowserReplay(f, replayed.frame, reset.cursor);
     expect(await ack(first, offered)).toBe(false);
     expect(await ack(replay, replayed.frame)).toBe(true);
 
@@ -422,7 +435,7 @@ async function browserFrame(f: Fixture, epoch: string, cursor: number) {
         },
       ]),
     });
-    expect(offered.raw).toBe(await browserFrame(f, offered.frame.epoch, after));
+    await expectBrowserReplay(f, offered.frame, after);
     stream.close();
   }, 20_000);
 }

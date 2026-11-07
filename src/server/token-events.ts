@@ -256,9 +256,7 @@ export function createTokenEventSockets(
             streams.get(tokenId)?.close();
             streams.set(tokenId, stream);
             stream.start();
-            const replay = new URL(
-              "http://loop/api/events/stream?v=3&projection=1",
-            );
+            const replay = new URL("http://loop/api/events/stream?v=3");
             replay.searchParams.set(
               "cursor",
               String(query.data.after ?? checkpoint.cursor),

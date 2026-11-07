@@ -15,22 +15,6 @@ import { MessageMetadata } from "./row-schemas.js";
 import { submit } from "./agent-runtime.js";
 
 type ContinuationInput = z.infer<typeof ContinueInput>;
-type ContinuationResult = {
-  id: string;
-  agentId: string;
-  runId?: string;
-  unavailable?: true;
-};
-export function continueConversation(
-  owner: string,
-  sourceId: string,
-  data: ContinuationInput & { start: NonNullable<ContinuationInput["start"]> },
-): ContinuationResult & { runId: string };
-export function continueConversation(
-  owner: string,
-  sourceId: string,
-  data: ContinuationInput,
-): ContinuationResult;
 export function continueConversation(
   owner: string,
   sourceId: string,
@@ -43,20 +27,18 @@ export function continueConversation(
         sourceId,
         agentId: data.agentId,
         messageIds,
-        input: data.start?.input,
+        input: data.start.input,
       });
       // The conversation, first send and immutable request commit together.
       // Queued prompts can be edited, so they cannot serve as request receipts.
-      const previous =
-        data.start &&
-        (continuationRequestsQueries.receipt(
-          db,
-          owner,
-          data.start.idempotencyKey,
-        ) as
-          | { request: string; conversation_id: string; run_id: string }
-          | undefined);
-      if (previous && data.start) {
+      const previous = continuationRequestsQueries.receipt(
+        db,
+        owner,
+        data.start.idempotencyKey,
+      ) as
+        | { request: string; conversation_id: string; run_id: string }
+        | undefined;
+      if (previous) {
         if (previous.request !== request)
           throw new Problem(
             409,
@@ -135,29 +117,26 @@ export function continueConversation(
           ),
           message.created_at,
         );
-      const run = data.start
-        ? submit(owner, {
-            agentId: agent.id,
-            conversationId,
-            input: data.start.input,
-            idempotencyKey: data.start.idempotencyKey,
-            personal: true,
-          })
-        : undefined;
-      if (run && data.start)
-        continuationRequestsQueries.insert(
-          db,
-          owner,
-          data.start.idempotencyKey,
-          request,
-          conversationId,
-          run.id,
-          now(),
-        );
+      const run = submit(owner, {
+        agentId: agent.id,
+        conversationId,
+        input: data.start.input,
+        idempotencyKey: data.start.idempotencyKey,
+        personal: true,
+      });
+      continuationRequestsQueries.insert(
+        db,
+        owner,
+        data.start.idempotencyKey,
+        request,
+        conversationId,
+        run.id,
+        now(),
+      );
       return {
         id: conversationId,
         agentId: agent.id,
-        ...(run ? { runId: run.id } : {}),
+        runId: run.id,
       };
     })
     .immediate();

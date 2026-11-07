@@ -30,8 +30,7 @@ export function routeSourceId(
   search = typeof location === "undefined" ? "" : location.search,
 ) {
   const params = new URLSearchParams(search);
-  // Existing paired links used `workspace=docker:<id>`.
-  const value = params.get("source") || params.get("workspace") || "";
+  const value = params.get("source") || "";
   return /^[a-z][a-z0-9-]{0,31}:[a-zA-Z0-9._~-]{1,128}$/.test(value)
     ? value
     : "";
@@ -54,8 +53,7 @@ export function sourceApiPathAt<const P extends string>(
   id: string,
 ): SourceApiPath<P>;
 export function sourceApiPathAt(path: string, id: string) {
-  // Social feeds belong to the paired app, so they remain available when an
-  // older linked Docker server has no Social routes.
+  // Social feeds belong to the paired app independently of the thread source.
   return id &&
     path.startsWith("/api/") &&
     !path.startsWith("/api/agent-sources/") &&

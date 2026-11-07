@@ -207,25 +207,12 @@ export async function sourceConversationBrowser(
     await expect(
       dialog().getByRole("button", { name: "Send reply", exact: true }),
     ).toBeEnabled();
-    // A batched away-and-back update retains the Conversation instance but
-    // must re-announce its already-loaded context for the new view generation.
-    const away = new URL(workspaceUrl),
-      back = new URL(workspaceUrl);
-    away.searchParams.set("source", sources[0].id);
-    away.searchParams.set("conversation", remote.thread.conversation_id);
-    back.searchParams.set("conversation", local.thread.conversation_id);
-    await page.evaluate(
-      ([away, back]) => {
-        for (const url of [away, back])
-          navigator.serviceWorker.dispatchEvent(
-            new MessageEvent("message", { data: { type: "loop-open", url } }),
-          );
-      },
-      [away.toString(), back.toString()],
-    );
-    await expect(dialog().locator(".thread-head")).toContainText(
-      "@" + local.agent.name,
-    );
+    // Reopening through the current Feed controls must re-announce loaded
+    // context and retain this document's source-scoped drafts.
+    await close();
+    await open(remote);
+    await close();
+    await open(local);
     await expect(
       dialog().getByRole("button", { name: "Send reply", exact: true }),
     ).toBeEnabled();
@@ -419,23 +406,12 @@ export async function sourceConversationBrowser(
       }
       await close();
     }
-    // A notification switches sources in the already open sheet, even when
+    // Switch sources through their current Feed controls, including when
     // both servers use the same conversation ID.
     await open(local);
     await expect(reply()).toHaveValue("Laptop draft");
-    const notification = new URL(workspaceUrl);
-    notification.searchParams.set("source", sources[0].id);
-    notification.searchParams.set(
-      "conversation",
-      remote.thread.conversation_id,
-    );
-    await page.evaluate(
-      (url) =>
-        navigator.serviceWorker.dispatchEvent(
-          new MessageEvent("message", { data: { type: "loop-open", url } }),
-        ),
-      notification.toString(),
-    );
+    await close();
+    await open(remote);
     await expect(dialog().locator(".thread-head")).toContainText(
       "@" + remote.agent.name,
     );
@@ -492,10 +468,10 @@ export async function sourceConversationBrowser(
       await page.evaluate(() => window.__sourceDocument),
       "retained",
     );
-    // Cold links and legacy links preserve the source even while it is offline.
-    for (const key of ["source", "workspace"]) {
+    // Current cold links preserve the source even while it is offline.
+    {
       const url = new URL(workspaceUrl);
-      url.searchParams.set(key, sources[0].id);
+      url.searchParams.set("source", sources[0].id);
       url.searchParams.set("conversation", remote.thread.conversation_id);
       offline = true;
       await page.goto(url.toString());
@@ -503,7 +479,10 @@ export async function sourceConversationBrowser(
         "Fixture connection interrupted",
         { timeout: 10_000 },
       );
-      assert.equal(new URL(page.url()).searchParams.get(key), sources[0].id);
+      assert.equal(
+        new URL(page.url()).searchParams.get("source"),
+        sources[0].id,
+      );
       offline = false;
       await dialog().getByRole("button", { name: "Retry connection" }).click();
       await expect(dialog().locator(".thread-head")).toContainText(

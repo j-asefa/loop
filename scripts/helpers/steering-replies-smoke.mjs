@@ -218,52 +218,31 @@ export async function steeringRepliesSmoke(page, fixture, _engine, capture) {
     null,
   );
   await capture("replies-retained");
-  await replyCompatibilitySmoke(page, fixture, capture);
+  await replySourceFailureSmoke(page, fixture, capture);
 }
 
-async function replyCompatibilitySmoke(page, fixture, capture) {
+async function replySourceFailureSmoke(page, fixture, capture) {
   const sources = [
-    { id: "cloud:old", name: "Older environment", kind: "cloud" },
-    { id: "cloud:updated", name: "Updated environment", kind: "cloud" },
+    { id: "cloud:fixture", name: "Fixture environment", kind: "cloud" },
   ];
   const replies = await fixture.api("/feed?filter=replies");
   const operational = await fixture.api("/feed?filter=needs");
   const bootstrap = await fixture.api("/bootstrap");
   const capabilities = await fixture.api("/capabilities");
-  const { replies_unread, ...legacySummary } = operational.summary;
-  const legacy = {
-    ...operational,
-    items: [],
-    next: null,
-    summary: legacySummary,
-  };
-  let updated = true,
-    denied = false;
-  const unsupported = (route) =>
-    route.fulfill({ status: 400, json: { error: "Invalid filter" } });
-  const localFeed = (route) =>
-    new URL(route.request().url()).searchParams.get("filter") === "replies"
-      ? unsupported(route)
-      : route.fulfill({ json: legacy });
+  let denied = false;
   const remote = async (route) => {
     const url = new URL(route.request().url());
     const match = /^\/api\/agent-sources\/([^/]+)\/(.*)$/.exec(url.pathname);
-    const current = decodeURIComponent(match[1]) === sources[1].id;
     if (match[2] === "feed") {
-      if (current && denied)
+      if (denied)
         return route.fulfill({
           status: 403,
           json: { error: "Fixture access denied" },
         });
       if (url.searchParams.get("filter") === "replies")
-        return current && updated
-          ? route.fulfill({ json: replies })
-          : unsupported(route);
+        return route.fulfill({ json: replies });
       return route.fulfill({
-        json:
-          current && updated
-            ? { ...operational, items: [], next: null }
-            : legacy,
+        json: { ...operational, items: [], next: null },
       });
     }
     if (match[2] === "bootstrap") return route.fulfill({ json: bootstrap });
@@ -287,55 +266,30 @@ async function replyCompatibilitySmoke(page, fixture, capture) {
         route.fulfill({ json: { ...capabilities, pairedDevices: true } }),
     ],
     ["**/session", (route) => route.fulfill({ json: { csrf: "fixture" } })],
-    ["**/api/feed?*", localFeed],
     ["**/api/agent-sources", (route) => route.fulfill({ json: sources })],
     ["**/api/agent-sources/**", remote],
   ];
   for (const [pattern, handler] of routes) await page.route(pattern, handler);
   try {
     const rows = page.locator(".inbox-results .inbox-card");
-    const notice = page
-      .getByRole("status")
-      .filter({ hasText: "Update Loop in" });
     const refresh = () =>
       page.evaluate(() =>
         window.dispatchEvent(new Event("loop-source-refresh")),
       );
     await page.goto(fixture.base + "/?filter=replies");
-    await expect(rows).toHaveCount(replies.items.length);
-    await expect(notice).toContainText("Older environment");
-    await expect(notice).not.toContainText("Updated environment");
+    await expect(rows).toHaveCount(replies.items.length * 2);
     await expect(page.getByRole("alert")).toHaveCount(0);
-    await capture("mixed-version-replies");
-
-    // An entirely older installation is an explicit empty view, not a failed Feed.
-    updated = false;
-    await page.reload();
-    await expect(notice).toContainText("Updated environment");
-    await expect(rows).toHaveCount(0);
-    await expect(
-      page.getByRole("status", { name: "Loading feed", exact: true }),
-    ).toHaveCount(0);
-    await expect(page.getByRole("alert")).toHaveCount(0);
-
-    // A source upgrade is recognized on refresh without reloading the app.
-    updated = true;
-    await refresh();
-    await expect(rows).toHaveCount(replies.items.length);
-    await expect(notice).not.toContainText("Updated environment");
     denied = true;
     await refresh();
     await expect(page.getByRole("alert")).toContainText(
       "Some environments could not refresh",
     );
-    await expect(rows).toHaveCount(replies.items.length);
+    await expect(rows).toHaveCount(replies.items.length * 2);
+    await capture("replies-source-unavailable");
     denied = false;
     await refresh();
     await expect(page.getByRole("alert")).toHaveCount(0);
-    updated = false;
-    await refresh();
-    await expect(notice).toContainText("Updated environment");
-    await expect(rows).toHaveCount(replies.items.length);
+    await expect(rows).toHaveCount(replies.items.length * 2);
   } finally {
     await page.goto("about:blank");
     for (const [pattern, handler] of routes)

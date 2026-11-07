@@ -27,14 +27,6 @@ it("downloads the original export from the source that ran the import", () => {
   );
 });
 
-it("opens old workspace links through the same source route", () => {
-  const id = "e".repeat(64);
-  vi.stubGlobal("location", { search: `?workspace=docker:${id}` });
-  expect(render()).toContain(
-    `href="/api/agent-sources/docker%3A${id}/objects/object-42"`,
-  );
-});
-
 it("keeps the plain object path on the local workspace", () => {
   expect(render()).toContain('href="/api/objects/object-42"');
 });

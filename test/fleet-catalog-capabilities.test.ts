@@ -283,6 +283,8 @@ it("subscribes with an events-only grant without acquiring read permission", asy
       grantId,
       directory: directoryDigest(directory.document),
       frame: {
+        serverNow: Date.now(),
+        nextDeadline: null,
         v: 3 as const,
         type: "reset" as const,
         epoch: "fixture",

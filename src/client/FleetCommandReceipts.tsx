@@ -57,7 +57,6 @@ const labels: Record<PendingFleetCommand["route"], string> = {
   runWithdraw: "Withdraw queued work",
   runMove: "Move queued work",
   conversationFork: "Fork conversation",
-  conversationContinue: "Continue conversation",
   conversationContinueStart: "Start continuation",
   folderCreate: "Create folder",
   folderUpdate: "Update folder",
@@ -237,15 +236,9 @@ function ReceiptPanel({
               <br />
               <code>{command.source.slice(5)}</code>
             </details>
-            {!command.payloadDigest && (
-              <p>
-                This older receipt requires checking the original action on its
-                owning machine. Keep the command ID.
-              </p>
-            )}
             <div className="fleet-receipt-actions">
               <button
-                disabled={busy || !command.payloadDigest}
+                disabled={busy}
                 onClick={() =>
                   void run(async (signal) => {
                     const receipt = await reconcileFleetCommand(
@@ -266,7 +259,7 @@ function ReceiptPanel({
                 Check outcome
               </button>
               <button
-                disabled={busy || !command.payloadDigest}
+                disabled={busy}
                 onClick={() =>
                   void run(async (signal) => {
                     const packet = await exportFleetCommand(command, signal);

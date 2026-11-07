@@ -571,25 +571,20 @@ export class Host {
   }
   private authenticate(req: IncomingMessage) {
     const cookies = req.headers.cookie?.split(";").map((x) => x.trim()) ?? [];
-    for (const name of [this.cookieName]) {
-      const value = cookies.find((x) => x.startsWith(name + "="));
-      const token = value?.slice(value.indexOf("=") + 1);
-      if (!token || token.length > 100) continue;
-      const device = this.trust
-        ? this.trust.authenticate(hash(token))
-        : [...this.devices.values()].find(
-            (d) => equal(d.hash, hash(token)) && d.expires > Date.now(),
-          );
-      if (!device) continue;
-      if (!this.trust && device.expires < Date.now() + 364 * 86400000) {
-        device.expires = Math.min(
-          device.maxExpires,
-          Date.now() + 365 * 86400000,
+    const value = cookies.find((x) => x.startsWith(this.cookieName + "="));
+    const token = value?.slice(value.indexOf("=") + 1);
+    if (!token || token.length > 100) return;
+    const device = this.trust
+      ? this.trust.authenticate(hash(token))
+      : [...this.devices.values()].find(
+          (d) => equal(d.hash, hash(token)) && d.expires > Date.now(),
         );
-        this.saveDevices();
-      }
-      return device;
+    if (!device) return;
+    if (!this.trust && device.expires < Date.now() + 364 * 86400000) {
+      device.expires = Math.min(device.maxExpires, Date.now() + 365 * 86400000);
+      this.saveDevices();
     }
+    return device;
   }
   private json(res: ServerResponse, status: number, value: unknown) {
     res.writeHead(status, {
@@ -957,11 +952,7 @@ export class Host {
       )
         return this.json(res, 404, { error: "Not found" });
       const root = webRoot;
-      // Older paired tabs still request the original avatar URLs after upgrades.
-      const assetPath = decodeURIComponent(path).replace(
-        /^\/avatars\/([a-z]+)\.webp$/,
-        "/avatars/robots/$1.webp",
-      );
+      const assetPath = decodeURIComponent(path);
       const asset = resolve(
         root,
         assetPath === "/" ? "index.html" : "." + assetPath,

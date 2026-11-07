@@ -133,7 +133,7 @@ async function firstFrame(
 }
 
 for (const path of ["/api/events/ws", "/ws"] as const) {
-  it(`companion ${path} preserves reset/replay bytes and legacy version negotiation`, async () => {
+  it(`companion ${path} serves canonical reset/replay frames and rejects retired versions`, async () => {
     const fixture = await cardsFixture(compiled.source);
     const reset = await firstFrame(fixture, path, "?v=3");
     expect(reset.frame.type).toBe("reset");
@@ -142,21 +142,18 @@ for (const path of ["/api/events/ws", "/ws"] as const) {
       validateFrame(reset.frame),
       JSON.stringify(validateFrame.errors),
     ).toBe(true);
-    const capabilities = {
-      ...COMPLETE_WORKSPACE_CAPABILITIES,
-      deadlines: false,
-    };
-    expect(reset.raw).toBe(
-      JSON.stringify({
-        v: 3,
-        type: "reset",
-        build: reset.frame.build,
-        buildIdentity: reset.frame.buildIdentity,
-        capabilities,
-        epoch: reset.frame.epoch,
-        cursor: reset.frame.cursor,
-      }),
-    );
+    const capabilities = COMPLETE_WORKSPACE_CAPABILITIES;
+    expect(reset.frame).toEqual({
+      v: 3,
+      type: "reset",
+      epoch: reset.frame.epoch,
+      cursor: reset.frame.cursor,
+      serverNow: expect.any(Number),
+      nextDeadline: null,
+      build: reset.frame.build,
+      buildIdentity: reset.frame.buildIdentity,
+      capabilities,
+    });
     const id = Number(
       fixture.db
         .prepare(
@@ -167,13 +164,15 @@ for (const path of ["/api/events/ws", "/ws"] as const) {
     const replay = await firstFrame(
       fixture,
       path,
-      `?v=3&projection=1&epoch=${reset.frame.epoch}&cursor=${reset.frame.cursor}`,
+      `?v=3&epoch=${reset.frame.epoch}&cursor=${reset.frame.cursor}`,
     );
     const expected = {
       v: 3,
       type: "events",
       epoch: reset.frame.epoch,
       cursor: id,
+      serverNow: replay.frame.serverNow,
+      nextDeadline: null,
       events: [
         {
           id,
@@ -194,9 +193,10 @@ for (const path of ["/api/events/ws", "/ws"] as const) {
     const tip = await firstFrame(
       fixture,
       path,
-      `?v=3&projection=1&epoch=${reset.frame.epoch}&cursor=${id}`,
+      `?v=3&epoch=${reset.frame.epoch}&cursor=${id}`,
     );
-    expect(tip.raw).toBe(replay.raw);
+    expect(tip.frame).toEqual({ ...expected, serverNow: tip.frame.serverNow });
+    expect(tip.frame.serverNow).toBeGreaterThanOrEqual(replay.frame.serverNow);
     const response = await fixture.request(
       `/api/events?after=${reset.frame.cursor}`,
       { headers: fixture.browser },
@@ -209,28 +209,31 @@ for (const path of ["/api/events/ws", "/ws"] as const) {
     );
     expect(validateFallback(fallback)).toBe(true);
 
-    for (const [query, version] of [
-      ["", 2],
-      ["?v=invalid", 2],
-      ["?v=3&v=2", 3],
-      ["?v=2&v=3", 2],
-    ] as const) {
-      const result = await firstFrame(fixture, path, query);
-      expect(result.frame.v).toBe(version);
-      expect(result.frame.type).toBe("reset");
-      if (version === 2)
-        expect(result.raw).toBe(
-          JSON.stringify({
-            v: 2,
-            type: "reset",
-            epoch: result.frame.epoch,
-            cursor: id,
-            events: [],
-            build: result.frame.build,
-            buildIdentity: result.frame.buildIdentity,
-          }),
-        );
-      else expect(validateFrame(result.frame)).toBe(true);
+    for (const query of ["", "?v=invalid", "?v=2", "?v=2&v=3"]) {
+      const socket = new WebSocket(
+        fixture.origin.replace("http:", "ws:") + path + query,
+        {
+          headers: fixture.browser,
+        },
+      );
+      sockets.push(socket);
+      const frames: unknown[] = [];
+      socket.on("message", (data) => frames.push(data));
+      const closed = await new Promise<{ code: number; reason: string }>(
+        (resolve, reject) => {
+          socket.once("error", reject);
+          socket.once("close", (code, reason) =>
+            resolve({ code, reason: reason.toString() }),
+          );
+        },
+      );
+      expect(closed).toEqual({
+        code: 1008,
+        reason: "Workspace events require v=3",
+      });
+      expect(frames).toEqual([]);
     }
+    const current = await firstFrame(fixture, path, "?v=3&v=2");
+    expect(validateFrame(current.frame)).toBe(true);
   }, 30_000);
 }

@@ -55,11 +55,7 @@ for (const engine of selectedEngines()) {
       mode: "paired",
     });
 
-    for (const field of [
-      "cardTokens",
-      "personalDecisions",
-      "continuationStart",
-    ]) {
+    for (const field of ["cardTokens", "personalDecisions"]) {
       let omitted = false;
       const capability = async (route) => {
         const response = await route.fetch();

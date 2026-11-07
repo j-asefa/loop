@@ -24,8 +24,7 @@ export function projectionCapabilities(source: string) {
 }
 export function publishProjectionFrame(source: string, frame: WorkspaceFrame) {
   current();
-  const capabilities =
-    frame.v === 2 ? PARTIAL_WORKSPACE_CAPABILITIES : frame.capabilities;
+  const capabilities = frame.capabilities;
   if (capabilities) {
     const changed =
       JSON.stringify(sources.get(source)) !== JSON.stringify(capabilities);

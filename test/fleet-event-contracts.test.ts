@@ -246,15 +246,15 @@ describe("fleet event projection", () => {
     ).toBe(true);
   });
 
-  it("reduces older untyped event frames to their invalidation cursor", () => {
+  it("refuses retired untyped source frames", () => {
     expect(
-      WorkspaceSourceFrame.parse({
+      WorkspaceSourceFrame.safeParse({
         v: 2,
         type: "events",
         epoch: "legacy-source",
         cursor: 9,
         events: [{ payload: "Unselected legacy transcript" }],
-      }),
-    ).toEqual({ v: 2, type: "events", epoch: "legacy-source", cursor: 9 });
+      }).success,
+    ).toBe(false);
   });
 });

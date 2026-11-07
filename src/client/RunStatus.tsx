@@ -1,5 +1,3 @@
-import { runErrorText } from "../shared/run-errors";
-
 export function RunStatus({
   state,
   error,
@@ -34,7 +32,7 @@ export function RunStatus({
       role="status"
     >
       <strong>{labels[state] || state}</strong>
-      {error && <span>{runErrorText(error)}</span>}
+      {error && <span>{error}</span>}
       {empty && stopped && !error && (
         <span>
           No final answer was saved. Check Traces for any saved progress.

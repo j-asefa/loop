@@ -6,7 +6,7 @@ import { registrar, mountRoutes, mountedRoute } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { relative, sep } from "node:path";
 import { assetCacheControl, compressResponse } from "../http-transfer.js";
 import { workspaceCapabilities } from "../shared/capabilities.js";
 import { companion } from "./companion-routes.js";
@@ -62,7 +62,7 @@ app.use("/api", (req, res, next) => {
     const json = res.json.bind(res);
     res.json = (body) => {
       // Do not attach owner-wide clock metadata to every bearer projection,
-      // including legacy Cards and write-only grants, even with an owner cookie.
+      // including write-only grants, even with an owner cookie.
       // The read grant separately admits unchanged event payloads, including
       // committed deadline events; that permission belongs to the event routes.
       if (res.locals.owner && res.locals.bearer === undefined && res.statusCode < 400) {
@@ -211,15 +211,12 @@ const compiledClient = fileURLToPath(new URL("../client/", import.meta.url));
 const clientRoot = existsSync(compiledClient + "index.html")
   ? compiledClient
   : fileURLToPath(new URL("../../dist/client/", import.meta.url));
-// Tabs opened before an upgrade still request the original avatar URLs.
-// Serve the new robot artwork there without retaining the retired images.
 const staticOptions = {
   setHeaders(res: ServerResponse, path: string) {
     const publicPath = "/" + relative(clientRoot, path).split(sep).join("/");
     res.setHeader("Cache-Control", assetCacheControl(publicPath));
   },
 };
-app.use("/avatars", express.static(join(clientRoot, "avatars/robots"), staticOptions));
 app.use(express.static(clientRoot, staticOptions));
 app.get("/{*splat}", (_req, res) =>
   res.sendFile("index.html", { root: clientRoot, headers: { "Cache-Control": "no-store" } }),

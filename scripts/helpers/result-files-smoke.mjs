@@ -350,12 +350,6 @@ export async function resultFilesSmoke(page, fixture, capture) {
     await dialog().getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator("dialog[open]")).toHaveCount(1);
     const replyDraft = "Keep my reply while I preview the mockups";
-    await page.evaluate(
-      ({ id, draft }) => {
-        sessionStorage.setItem("loop-result-reply-" + id, draft);
-      },
-      { id: original.id, draft: replyDraft },
-    );
     await dialog().getByRole("button", { name: "Reply", exact: true }).click();
     // Replying from a result opens its thread with the result quoted.
     const thread = () => page.locator("dialog.conversation-sheet[open]");
@@ -367,7 +361,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
         .click();
     await expect(page.locator("dialog[open]")).toHaveCount(1);
     await expect(thread()).toBeVisible();
-    await expect(composer.getByLabel("Reply to agent")).toHaveValue(replyDraft);
+    await composer.getByLabel("Reply to agent").fill(replyDraft);
     await composer.locator(".composer-quote-toggle > summary").click();
     await composer.getByRole("link", { name: "Preview the mockups" }).click();
     await expect(page.locator("dialog[open]")).toHaveCount(2);
@@ -412,10 +406,6 @@ export async function resultFilesSmoke(page, fixture, capture) {
     await expect(composer.locator(".composer-reply-chip")).toHaveCount(0);
     await closeThread();
     await expect(page.locator("dialog[open]")).toHaveCount(0);
-    await page.evaluate(
-      (id) => sessionStorage.removeItem("loop-result-reply-" + id),
-      original.id,
-    );
     // Real result entry points (here a project's activity) start below the
     // fold. Closing the sheet must not restore that old offset after
     // navigating to the author's profile.

@@ -188,6 +188,27 @@ try {
     connectionId: "native-codex",
     model: "native-default",
   });
+  const frames = [];
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error("Packed WS reset timed out")),
+      10000,
+    );
+    ws = new WebSocket(url.origin.replace("http:", "ws:") + "/ws?v=3", {
+      headers: { Origin: url.origin, Cookie: cookie },
+    });
+    ws.on("error", reject);
+    ws.on("message", (b) => frames.push(JSON.parse(b.toString())));
+    ws.once("message", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+  assert.equal(frames[0].v, 3);
+  assert.equal(frames[0].type, "reset");
+  assert.equal(typeof frames[0].serverNow, "number");
+  assert(Object.hasOwn(frames[0], "nextDeadline"));
+  // Subscribe before dispatch so even an immediate completion is observed.
   const run = await api("/runs", {
     agentId: agent.id,
     input: "packaged workspace task",
@@ -198,20 +219,26 @@ try {
       () => reject(new Error("Packed WS journey timed out")),
       10000,
     );
-    ws = new WebSocket(url.origin.replace("http:", "ws:") + "/ws", {
-      headers: { Origin: url.origin, Cookie: cookie },
-    });
-    ws.on("error", reject);
-    ws.on("message", async (b) => {
-      const m = JSON.parse(b.toString());
+    const completed = () => {
       if (
-        m.type === "events" &&
-        m.events.some((e) => e.run_id === run.id && e.type === "completed")
+        frames.some(
+          (frame) =>
+            frame.type === "events" &&
+            frame.events.some(
+              ({ event }) =>
+                event.type === "completed" &&
+                event.scope.kind === "run" &&
+                event.scope.id === run.id,
+            ),
+        )
       ) {
         clearTimeout(timeout);
+        ws.off("message", completed);
         resolve();
       }
-    });
+    };
+    ws.on("message", completed);
+    completed();
   });
   const status = JSON.parse(
     (await exec(bin, ["status", "--json"], { env })).stdout,

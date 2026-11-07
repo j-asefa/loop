@@ -144,8 +144,6 @@ export class FleetWorkspaceEvents {
               epoch: selection.epoch,
               cursor: String(selection.cursor),
               v: "3",
-              clock: "1",
-              projection: "1",
             }))
               url.searchParams.set(name, value);
             // The existing stream owns SQL replay and subscribes before reading.

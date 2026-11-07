@@ -107,7 +107,6 @@ import { notify } from "./toast";
 import { feedItemOrder, refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
 import { FeedProjectionReader } from "./feed-projection";
 import { FeedReadRecovery } from "./feed-read-recovery";
-import { readReplyFeedPage } from "./feed-replies";
 import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges, workspaceChangeAffects, type WorkspaceChangeDetail } from "./workspace-changes";
 
@@ -1108,7 +1107,6 @@ export function Feed({
     next: string | null;
     summary: Summary;
     sourceSummaries?: Record<string, Summary>;
-    unsupportedReplySources?: string[];
   };
   const generation = viewGeneration();
   const selectionScope = JSON.stringify([
@@ -1211,7 +1209,6 @@ export function Feed({
   const loading = loadedKey !== shownKey() && !shown;
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [unsupportedReplySources, setUnsupportedReplySources] = useState(shown?.unsupportedReplySources || []);
   const [menu, setMenu] = useState<FeedItem | null>(null);
   const dragSession = useRef<CardDragSession | null>(null);
   const grouping = useDoneThreads(activeSources.map(source => source.id), filter === "done" || filter === "threads", {
@@ -1530,20 +1527,6 @@ export function Feed({
         before?: string,
       ) => {
         const appending = pages.get(source)!.append;
-        if (filter === "replies") {
-          const readSource = read;
-          read = async cursor => {
-            const { page, supported } = await readReplyFeedPage(readSource,
-              () => readSnapshot(source, query(undefined, "needs"), "reply-support:", manual), cursor);
-            return supported ? page : {
-              ...page,
-              // Keep already-loaded replies if a source loses support.
-              items: cached?.items.filter(item => (item.sourceId ?? scopedSource) === source) ?? [],
-              next: null,
-              unsupportedReplySources: [source],
-            };
-          };
-        }
         const cardKey = "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
         let priorItems = cached?.items.filter(item => (item.sourceId ?? scopedSource) === source) ?? [];
         const order = (item: FeedItem): [number, string] => item.cardOrder ?? [item.last_activity_at, item.conversation_id + "\u001f" + (item.done_card_key ?? "")];
@@ -1673,7 +1656,6 @@ export function Feed({
             items: cached.items.filter((item) => (item.sourceId ?? scopedSource) === source.id),
             next: JSON.parse(cached.next || "{}")[source.id] ?? null,
             summary,
-            unsupportedReplySources: cached.unsupportedReplySources?.includes(source.id) ? [source.id] : [],
           });
         }
         const activeIds = new Set(activeSources.map(source => source.id));
@@ -1699,7 +1681,6 @@ export function Feed({
           sourceSummaries: Object.fromEntries(
             activePages.map(([id, page]) => [id, page.summary]),
           ),
-          unsupportedReplySources: activePages.flatMap(([, page]) => page.unsupportedReplySources ?? []),
           summary: combineSummaries(activePages.map(([, page]) => page.summary)),
         };
         };
@@ -1740,7 +1721,6 @@ export function Feed({
               }
               setItems(partial.items);
               setPartialReadPending(hadVisibleItems && !partial.items.length);
-              setUnsupportedReplySources(partial.unsupportedReplySources ?? []);
             }
             return { source, page };
         };
@@ -1875,14 +1855,12 @@ export function Feed({
             next: result.next,
             summary: result.summary,
             sourceSummaries: result.sourceSummaries,
-            unsupportedReplySources: result.unsupportedReplySources,
           },
           owner,
         );
         return merged;
       });
       setNext(result.next);
-      setUnsupportedReplySources(result.unsupportedReplySources ?? []);
       setReadError(partialError);
     } catch (e) {
       if (isCurrent() && (e as Error).name !== "AbortError") {
@@ -1919,7 +1897,6 @@ export function Feed({
     if (!firstLoad.current) {
       setItems(cached?.items || retainedItems());
       setNext(cached?.next || null);
-      setUnsupportedReplySources(cached?.unsupportedReplySources || []);
       setNeeds(cachedView<FeedItem[]>(needsKey()) || []);
     }
     firstLoad.current = false;
@@ -2684,13 +2661,6 @@ export function Feed({
       {notice && (
         <p role="status" className="field-hint">
           {notice}
-        </p>
-      )}
-      {filter === "replies" && unsupportedReplySources.length > 0 && (
-        <p role="status" className="field-hint">
-          Update Loop in {unsupportedReplySources.map(id =>
-            activeSources.find(source => source.id === id)?.name || (id ? "the selected environment" : "this workspace")
-          ).join(", ")} to show replies from there.
         </p>
       )}
       {grouping.error && <p className="error" role="alert">{grouping.error}<button onClick={grouping.refresh}>Retry</button></p>}

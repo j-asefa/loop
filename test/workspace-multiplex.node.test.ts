@@ -39,6 +39,8 @@ const reset = (epoch: string, cursor = 0) => ({
   nextDeadline: null,
 });
 const event = (epoch: string, cursor: number) => ({
+  serverNow: Date.now(),
+  nextDeadline: null,
   v: 3,
   type: "events",
   epoch,
@@ -357,7 +359,13 @@ test("paired gateway multiplexes sources, shares upstreams, bounds replay and fe
       "Each browser opens one socket for all its sources",
     );
     let upstream = [...open.get("one")!][0];
-    upstream.send(JSON.stringify(event("one:one", 1)));
+    upstream.send(
+      JSON.stringify({
+        ...event("one:one", 1),
+        serverNow: 1000,
+        nextDeadline: 3000,
+      }),
+    );
     await until(
       () =>
         a.frames.some(
@@ -369,12 +377,22 @@ test("paired gateway multiplexes sources, shares upstreams, bounds replay and fe
     );
     // Another viewer holds the unchanged detail union open. A returning viewer
     // replays an ordinary cached frame, which has no upstream announcement.
+    await new Promise((resolve) => setTimeout(resolve, 30));
     const replay = subscribe(b.ws, "fixture:one", { epoch: "one:one" });
     await until(() => b.frames.some((frame) => frame.id === replay));
     const replayed = b.frames.find((frame) => frame.id === replay)!;
     assert.equal(replayed.type, "frame");
     if (replayed.type !== "frame") throw new Error("Expected replay frame");
     assert.equal(replayed.frame.type, "events");
+    assert(
+      replayed.frame.serverNow > 1000,
+      "Cached replay advances the source clock",
+    );
+    assert.equal(
+      replayed.frame.nextDeadline,
+      3000,
+      "Replay retains the absolute source deadline",
+    );
     assert.equal(replayed.frame.v, 3);
     if (replayed.frame.v !== 3) throw new Error("Expected source capabilities");
     assert.deepEqual(
@@ -402,7 +420,13 @@ test("paired gateway multiplexes sources, shares upstreams, bounds replay and fe
     const localCount = a.frames.filter((f) => f.id === local).length;
     upstream.send(JSON.stringify(reset("replacement", 0)));
     for (let cursor = 1; cursor <= 40; cursor++)
-      upstream.send(JSON.stringify(event("replacement", cursor)));
+      upstream.send(
+        JSON.stringify({
+          ...event("replacement", cursor),
+          serverNow: 1000,
+          nextDeadline: 3000,
+        }),
+      );
     await until(() =>
       a.frames.some(
         (f) => f.type === "frame" && f.id === one && f.frame.cursor === 40,
@@ -413,6 +437,7 @@ test("paired gateway multiplexes sources, shares upstreams, bounds replay and fe
       localCount,
       "An independent source keeps its own epoch and cursor",
     );
+    await new Promise((resolve) => setTimeout(resolve, 30));
     const lagging = subscribe(b.ws, "fixture:one", { epoch: "replacement" });
     await until(() => b.frames.some((f) => f.id === lagging));
     assert(
@@ -425,6 +450,13 @@ test("paired gateway multiplexes sources, shares upstreams, bounds replay and fe
       ),
       "An evicted replay requests a snapshot at the source watermark",
     );
+    const cachedReset = b.frames.find((f) => f.id === lagging);
+    assert(cachedReset?.type === "frame");
+    assert(
+      cachedReset.frame.serverNow > 1000,
+      "Cached reset advances the source clock",
+    );
+    assert.equal(cachedReset.frame.nextDeadline, 3000);
     generation = "two";
     upstream.send(JSON.stringify(event("replacement", 41)));
     await until(() =>

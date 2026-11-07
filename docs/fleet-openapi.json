@@ -10536,7 +10536,6 @@
                   "runWithdraw",
                   "runMove",
                   "conversationFork",
-                  "conversationContinue",
                   "conversationContinueStart",
                   "folderCreate",
                   "folderUpdate",
@@ -10782,7 +10781,6 @@
               "runWithdraw",
               "runMove",
               "conversationFork",
-              "conversationContinue",
               "conversationContinueStart",
               "folderCreate",
               "folderUpdate",
@@ -10800,7 +10798,8 @@
           "requestId",
           "commandId",
           "credential",
-          "payloadDigest"
+          "payloadDigest",
+          "route"
         ],
         "additionalProperties": false
       },

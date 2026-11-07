@@ -133,11 +133,11 @@ try {
   );
   const unpaired = await browser.newContext();
   assert.equal((await unpaired.request.get(callback.url())).status(), 401);
-  const oldDockerLink = await unpaired.newPage();
-  await oldDockerLink.goto(
-    host.gateway.origin + "/?workspace=docker:" + "a".repeat(64),
+  const sourceLink = await unpaired.newPage();
+  await sourceLink.goto(
+    host.gateway.origin + "/?source=docker:" + "a".repeat(64),
   );
-  await oldDockerLink
+  await sourceLink
     .getByRole("heading", { name: "Pair this device" })
     .waitFor();
   await unpaired.close();

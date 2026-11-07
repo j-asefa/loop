@@ -27,18 +27,7 @@ export const WorkspaceMuxRequest = z.discriminatedUnion("type", [
     id: z.string().uuid(),
   }),
 ]);
-// v2 sources support invalidation only; never forward their untyped payloads.
-export const WorkspaceSourceFrame = z.union([
-  WorkspaceFrameV3,
-  z.object({
-    v: z.literal(2),
-    type: z.enum(["reset", "events"]),
-    epoch: z.string().min(1).max(200),
-    cursor: z.number().int().nonnegative().safe(),
-    build: z.string().max(1000).optional(),
-    buildIdentity: z.unknown().optional(),
-  }),
-]);
+export const WorkspaceSourceFrame = WorkspaceFrameV3;
 export type WorkspaceSourceFrame = z.infer<typeof WorkspaceSourceFrame>;
 export const WorkspaceMuxResponse = z.discriminatedUnion("type", [
   z.strictObject({

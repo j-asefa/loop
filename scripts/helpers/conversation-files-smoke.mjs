@@ -37,8 +37,7 @@ export async function conversationFilesSmoke(page, fixture, conversation) {
     releaseReload = resolve;
   });
   const transcriptPath = (url) =>
-    url.pathname === `/api/conversations/${conversation}` &&
-    url.searchParams.get("message") === latest.id;
+    url.pathname === `/api/conversations/${conversation}`;
   const holdReload = async (route) => {
     reloads++;
     await reloadGate;
@@ -139,28 +138,22 @@ export async function conversationFilesSmoke(page, fixture, conversation) {
       "File names and sizes must render without downloading image previews",
     );
 
-    // A link within this thread reloads the transcript. Retain file summaries
-    // throughout that read, without issuing another request for each run.
+    // A current background refresh keeps the transcript usable. Retain file
+    // summaries throughout the held read without another file-list request.
     const beforeReload = listReads.get(latest.run_id);
     await page.route(transcriptPath, holdReload);
-    await page.evaluate(
-      ({ conversation, message }) => {
-        const url = new URL(location.href);
-        url.search = new URLSearchParams({ conversation, message }).toString();
-        navigator.serviceWorker.dispatchEvent(
-          new MessageEvent("message", {
-            data: { type: "loop-open", url: url.href },
-          }),
-        );
-      },
-      { conversation, message: latest.id },
+    const refreshed = page.waitForResponse((response) =>
+      transcriptPath(new URL(response.url())),
     );
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
     await expect.poll(() => reloads).toBe(1);
-    await expect(transcript).toHaveAttribute("aria-busy", "true");
+    await expect(transcript).toHaveAttribute("aria-busy", "false");
     await expect(
       answer.getByRole("button", { name: /^Preview design-/ }),
     ).toHaveCount(12);
+    assert.equal(listReads.get(latest.run_id), beforeReload);
     releaseReload();
+    await (await refreshed).finished();
     await expect(transcript).toHaveAttribute("aria-busy", "false");
     await expect(
       answer.getByRole("button", { name: /^Preview design-/ }),

@@ -160,7 +160,7 @@ try {
     session.user.name = sessionName;
     await route.fulfill({ response, json: session });
   });
-  await namePage.goto(fixture.base + "/?page=personal");
+  await namePage.goto(fixture.base + "/?page=profile");
   await expect(namePage.locator(".personal-profile-head h1")).toHaveText(
     "🌟 Ada",
   );

@@ -58,7 +58,6 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         cardTokens: true,
         personalDecisions: true,
         personalApprovalDetails: true,
-        continuationStart: true,
       },
     );
     assert.equal((await fetch(host.origin + "/api/bootstrap")).status, 401);
@@ -279,7 +278,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         }),
       );
     const frames: any[] = [];
-    const ws = new WebSocket(host.origin.replace("http", "ws") + "/ws", {
+    const ws = new WebSocket(host.origin.replace("http", "ws") + "/ws?v=3", {
       headers: { Cookie: cookie, Origin: host.origin },
     });
     sockets.push(ws);
@@ -503,7 +502,8 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
       const last = frames.at(-1);
       const replay: any[] = [];
       const reconnected = new WebSocket(
-        host.origin.replace("http", "ws") + `/ws?epoch=${last.epoch}&cursor=0`,
+        host.origin.replace("http", "ws") +
+          `/ws?v=3&epoch=${last.epoch}&cursor=0`,
         { headers: { Cookie: cookie, Origin: host.origin } },
       );
       sockets.push(reconnected);

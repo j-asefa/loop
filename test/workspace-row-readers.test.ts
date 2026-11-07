@@ -347,14 +347,26 @@ it("validates continuation messages before creating a conversation and preserves
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES(?,?,?,'assistant','Body',?,?)",
   ).run(message, f.owner, conversation, '{"historicalLabel":"kept"}', now());
-  const body = { agentId: f.member.id, messageIds: [message] };
+  const body = {
+    agentId: f.member.id,
+    messageIds: [message],
+    start: {
+      input: "Continue with the selected metadata",
+      idempotencyKey: id(),
+    },
+  };
   expect(
-    (await request("foreign", `/conversations/${conversation}/continue`, body))
-      .status,
+    (
+      await request(
+        "foreign",
+        `/conversations/${conversation}/continue/start`,
+        body,
+      )
+    ).status,
   ).toBe(404);
   const copied = await request(
     f.owner,
-    `/conversations/${conversation}/continue`,
+    `/conversations/${conversation}/continue/start`,
     body,
   );
   expect(copied.status).toBe(200);
@@ -366,12 +378,17 @@ it("validates continuation messages before creating a conversation and preserves
     original: { historicalLabel: "kept" },
   });
   const before = db.prepare("SELECT count(*) n FROM conversations").get();
+  body.start.idempotencyKey = id();
   db.prepare("UPDATE messages SET metadata=? WHERE id=?").run(
     '{"reviewId":null}',
     message,
   );
   expect(
-    await request(f.owner, `/conversations/${conversation}/continue`, body),
+    await request(
+      f.owner,
+      `/conversations/${conversation}/continue/start`,
+      body,
+    ),
   ).toMatchObject({
     status: 409,
     data: { error: expect.stringContaining(message) },
@@ -402,7 +419,7 @@ it("starts a continuation atomically, checks ownership and reconciles its origin
     time,
   );
   insert.run(last, f.owner, source, "user", "What can we do about it?", time);
-  const path = `/conversations/${source}/continue`;
+  const path = `/conversations/${source}/continue/start`;
   const body = {
     agentId: f.member.id,
     messageIds: [last, first, last],
@@ -425,7 +442,7 @@ it("starts a continuation atomically, checks ownership and reconciles its origin
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Other',?)",
   ).run(unrelated, f.owner, f.manager.id, now());
   expect(
-    (await request(f.owner, `/conversations/${unrelated}/continue`, body))
+    (await request(f.owner, `/conversations/${unrelated}/continue/start`, body))
       .status,
   ).toBe(400);
   const withUnrelated = before();
@@ -470,7 +487,7 @@ it("starts a continuation atomically, checks ownership and reconciles its origin
   ])
     expect((await request(f.owner, path, changed)).status).toBe(409);
   expect(
-    (await request(f.owner, `/conversations/${unrelated}/continue`, body))
+    (await request(f.owner, `/conversations/${unrelated}/continue/start`, body))
       .status,
   ).toBe(409);
   // Receipt reads remain available when the target later disconnects/retires.
@@ -503,7 +520,7 @@ it.each(["source", "destination", "run"])(
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Pick this up',?)",
     ).run(message, f.owner, source, now());
-    const path = `/conversations/${source}/continue`;
+    const path = `/conversations/${source}/continue/start`;
     const body = {
       agentId: f.member.id,
       messageIds: [message],

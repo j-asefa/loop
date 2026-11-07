@@ -383,10 +383,6 @@ routes.on(workspaceApi.importCancel, (req, res) => {
   importsQueries.cancel(db, jobId);
   res.json({ ok: true });
 });
-routes.on(workspaceApi.conversationContinue, (req, res) => {
-  res.json(continueConversation(res.locals.owner, req.params.id, req.body));
-});
-// A distinct path cannot fall back to an older server's non-idempotent copy.
 routes.on(workspaceApi.conversationContinueStart, (req, res) => {
   res.json(continueConversation(res.locals.owner, req.params.id, req.body));
 });

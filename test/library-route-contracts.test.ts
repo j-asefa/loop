@@ -530,70 +530,23 @@ it("importCancel cancels only the owned job and its queued run", async () => {
     db.prepare("SELECT status FROM imports WHERE id=?").get(staged.id),
   ).toEqual({ status: "cancelled" });
 });
-it("conversationContinue copies selected production messages and returns the new identity", async () => {
-  const target = (
-    await request("/agents", {
-      name: "copy-only-target",
-      connectionId: connection.id,
-      model: "fixture",
-    })
-  ).data;
-  const path = `/conversations/${run.conversation_id}/continue`;
-  expect(
-    await request(path, { agentId: agent.id, messageIds: [] }),
-  ).toMatchObject(bad);
-  const result = await request(path, {
-    agentId: target.id,
-    messageIds: [message.id],
-  });
-  valid(workspaceApi.conversationContinue, result);
-  const original = db
-    .prepare("SELECT content FROM messages WHERE id=?")
-    .get(message.id);
-  expect(
-    db
-      .prepare("SELECT content FROM messages WHERE conversation_id=?")
-      .get(result.data.id),
-  ).toEqual(original);
-  expect(
-    db
-      .prepare("SELECT id FROM runs WHERE conversation_id=?")
-      .all(result.data.id),
-  ).toEqual([]);
-  expect(
-    db
-      .prepare("SELECT execution_connection_id FROM conversations WHERE id=?")
-      .get(result.data.id),
-  ).toEqual({ execution_connection_id: null });
-  const nextConnection = (
-    await request("/connections", {
-      provider: "openai",
-      label: "Later connection",
-      secret: "fixture-only",
-    })
-  ).data;
-  db.prepare("UPDATE agents SET connection_id=? WHERE id=?").run(
-    nextConnection.id,
-    target.id,
-  );
-  const first = submit(owner, {
-    agentId: target.id,
-    conversationId: result.data.id,
-    input: "First prompt after switching connection",
-    idempotencyKey: id(),
-  });
-  expect(
+it("refuses the retired copy-only continuation route without creating work", async () => {
+  const counts = () =>
     db
       .prepare(
-        "SELECT json_extract(payload,'$.connectionId') connection_id FROM runs WHERE id=?",
+        "SELECT (SELECT count(*) FROM conversations) conversations, (SELECT count(*) FROM runs) runs",
       )
-      .get(first.id),
-  ).toEqual({ connection_id: nextConnection.id });
-  expect(
-    db
-      .prepare("SELECT execution_connection_id FROM conversations WHERE id=?")
-      .get(result.data.id),
-  ).toEqual({ execution_connection_id: nextConnection.id });
+      .get();
+  const before = counts();
+  const result = await request(
+    `/conversations/${run.conversation_id}/continue`,
+    {
+      agentId: agent.id,
+      messageIds: [message.id],
+    },
+  );
+  expect(result.status).toBe(404);
+  expect(counts()).toEqual(before);
 });
 it("conversationContinueStart dispatches the first prompt with selected context and returns a reply", async () => {
   const target = (

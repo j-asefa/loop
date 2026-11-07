@@ -108,7 +108,7 @@ it("processes overdue durable rows after a full companion restart and preserves 
     });
     expect(paired.status).toBe(200);
     socket = new WebSocket(
-      restarted.origin.replace("http:", "ws:") + "/api/events/ws?v=3&clock=1",
+      restarted.origin.replace("http:", "ws:") + "/api/events/ws?v=3",
       {
         headers: {
           origin: restarted.origin,

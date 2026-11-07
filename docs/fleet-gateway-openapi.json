@@ -274,7 +274,6 @@
               "runWithdraw",
               "runMove",
               "conversationFork",
-              "conversationContinue",
               "conversationContinueStart",
               "folderCreate",
               "folderUpdate",

@@ -8,7 +8,6 @@ import {
   type WorkspaceEvent,
 } from "../src/shared/workspace-events";
 import { integrationTokenRequest } from "../src/shared/card-access";
-import { z } from "zod";
 
 let compiled: Awaited<ReturnType<typeof compiledServerFixture>>;
 const sockets: WebSocket[] = [];
@@ -27,7 +26,7 @@ function fixture() {
 }
 function watch(f: Awaited<ReturnType<typeof fixture>>, query = "") {
   const socket = new WebSocket(
-    f.origin.replace("http:", "ws:") + "/api/events/ws?v=3&clock=1" + query,
+    f.origin.replace("http:", "ws:") + "/api/events/ws?v=3" + query,
     { headers: f.browser },
   );
   sockets.push(socket);
@@ -251,37 +250,29 @@ it("signals Social digest routes and worker status without leaking another owner
   expect((await call("")).digests).toEqual([]);
 }, 10_000);
 
-it("preserves the strict pre-deadline v3 reset envelope for already-loaded clients", async () => {
+it("includes the current clock and projection capabilities without negotiation", async () => {
   const f = await fixture();
   seed(f);
-  // Frozen reset decoder from 1d3ece4, before clock fields were added to v3.
-  const legacyReset = z.strictObject({
-    v: z.literal(3),
-    type: z.literal("reset"),
-    epoch: z.string().min(1).max(200),
-    cursor: z.number().int().nonnegative(),
-    build: z.string().max(1000),
-    buildIdentity: z.unknown(),
-    capabilities: z.strictObject({
-      invalidations: z.enum(["partial", "complete"]),
-      deadlines: z.boolean(),
-      transcript: z.enum(["snapshot", "delta"]),
-      feed: z.enum(["snapshot", "delta"]),
-      results: z.enum(["snapshot", "delta"]),
-    }),
+  const expiry = Date.now() + 60_000;
+  pendingApproval(f, "future", expiry);
+  const before = Date.now();
+  const stream = watch(f);
+  await expect.poll(() => stream.frames.length).toBeGreaterThan(0);
+  const reset = stream.frames[0];
+  expect(reset.type).toBe("reset");
+  if (reset.type !== "reset") throw new Error("Expected initial reset");
+  expect(reset.build).toBeTruthy();
+  expect(reset.serverNow).toBeGreaterThanOrEqual(before);
+  expect(reset.serverNow).toBeLessThanOrEqual(Date.now());
+  expect(reset.nextDeadline).toBe(expiry);
+  expect(reset.capabilities).toEqual({
+    invalidations: "complete",
+    deadlines: true,
+    transcript: "delta",
+    feed: "delta",
+    results: "delta",
   });
-  const socket = new WebSocket(
-    f.origin.replace("http:", "ws:") + "/api/events/ws?v=3",
-    { headers: f.browser },
-  );
-  sockets.push(socket);
-  const frames: unknown[] = [];
-  socket.on("message", (raw) => frames.push(JSON.parse(String(raw))));
-  await expect.poll(() => frames.length).toBeGreaterThan(0);
-  const reset = legacyReset.parse(frames[0]);
-  expect(reset.build).toBeTruthy(); // The old client's reload handler can run.
-  expect(reset.capabilities.deadlines).toBe(false);
-  expect(socket.readyState).toBe(WebSocket.OPEN);
+  expect(stream.socket.readyState).toBe(WebSocket.OPEN);
 });
 
 it("delivers ordinary changes while another writer holds the database lock", async () => {
@@ -349,7 +340,7 @@ it("connects existing owners without a writer lock and releases failed socket re
   try {
     for (let attempt = 0; attempt < 12; attempt++) {
       const socket = new WebSocket(
-        f.origin.replace("http:", "ws:") + "/api/events/ws?v=3&clock=1",
+        f.origin.replace("http:", "ws:") + "/api/events/ws?v=3",
         { headers: f.browser },
       );
       sockets.push(socket);

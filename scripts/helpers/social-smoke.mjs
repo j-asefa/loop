@@ -87,7 +87,7 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(
     page.getByRole("tab", { name: "Reminders", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
-  await page.goto(fixture.base + "/?filter=social");
+  await page.goto(fixture.base + "/?page=profile&profileTab=social");
   const social = page.getByRole("list", { name: "Social" });
   await page.waitForSelector(".news-card");
   const cards = social.locator(".news-card");

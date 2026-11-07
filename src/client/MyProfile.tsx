@@ -103,7 +103,7 @@ export function MyProfile({
   const [tab, setTabState] = useState<ProfileTab>(() => {
     const params = new URLSearchParams(location.search);
     const value =
-      params.has("social") || params.get("filter") === "social"
+      params.has("social")
         ? "social"
         : params.get("profileTab") || cachedView<string>("later-section");
     return profileTabs.some(([id]) => id === value)
@@ -124,12 +124,9 @@ export function MyProfile({
       const { section } = (event as CustomEvent<ShowLater>).detail;
       if (section !== "all") setTab(section);
     };
-    const social = () => setTabState("social");
-    window.addEventListener("loop-social-open", social);
     window.addEventListener(SHOW_LATER, shown);
     return () => {
       window.removeEventListener(SHOW_LATER, shown);
-      window.removeEventListener("loop-social-open", social);
     };
   }, []);
   const [editing, setEditing] = useState(false);

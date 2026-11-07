@@ -140,22 +140,7 @@ it("keeps Social on the paired app while an agent source owns its conversations"
     `/api/agent-sources/docker%3A${id}/teams`,
   ]);
 });
-it("opens old workspace links through the source route", async () => {
-  const id = "b".repeat(64);
-  vi.stubGlobal("location", { search: `?workspace=docker:${id}` });
-  const fetcher = vi
-    .fn()
-    .mockResolvedValue(Response.json({ memoryIncluded: true }));
-  vi.stubGlobal("fetch", fetcher);
-  await callRoute(
-    workspaceApi.conversationMemory,
-    { params: { id: "old-thread" } },
-    executionSourceId(),
-  );
-  expect(fetcher.mock.calls[0][0]).toBe(
-    `/api/agent-sources/docker%3A${id}/conversations/old-thread/memory`,
-  );
-});
+
 it("keeps the paired session when one source refuses authentication", async () => {
   const dispatchEvent = vi.fn();
   vi.stubGlobal("window", { dispatchEvent });

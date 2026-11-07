@@ -243,7 +243,7 @@ let mode:
   | "unsigned403"
   | "wrongProbe"
   | "offlineProbe"
-  | "legacyReceipt"
+  | "receipt400"
   | "revokeDevice"
   | "lateDevice"
   | "stopReply" = "normal";
@@ -288,9 +288,8 @@ const fetcher: typeof undiciFetch = async (input, init) => {
       throw new TypeError("Fixture destination offline before forwarding");
   }
   if (
-    mode === "legacyReceipt" &&
-    url.pathname === "/api" + fleetWorkspaceActionApi.receipt.path &&
-    Object.hasOwn(JSON.parse(String(init?.body)), "route")
+    mode === "receipt400" &&
+    url.pathname === "/api" + fleetWorkspaceActionApi.receipt.path
   )
     return new Response(null, { status: 400 });
   const response = await call(
@@ -897,44 +896,64 @@ it.each(["offlineProbe", "unsupported", "capacity"] as const)(
   },
 );
 
-it("recovers outcome-only receipts from a legacy strict v1 peer without resending the action", async () => {
+it("keeps a failed receipt lookup uncertain without a fallback or action resend", async () => {
   const id = randomUUID(),
     input = createInput(),
     before = actionCalls;
   await loseResponse(id, input);
   const queries = receiptCalls;
-  mode = "legacyReceipt";
+  mode = "receipt400";
   try {
     expect(await lookupReceipt(id, input)).toEqual({
       commandId: id,
-      state: "completed",
+      state: "unknown",
       result: null,
     });
   } finally {
     mode = "normal";
   }
-  expect(receiptCalls - queries).toBe(2);
+  expect(receiptCalls - queries).toBe(1);
   expect(actionCalls - before).toBe(1);
   expect(destinationReceipt(id)).toEqual({ state: "completed" });
-  expect(journal(id)).toMatchObject({ state: "completed", result: null });
+  expect(journal(id)).toMatchObject({ state: "unknown", result: null });
+  expect(await lookupReceipt(id, input)).toMatchObject({
+    commandId: id,
+    state: "completed",
+  });
+  expect(actionCalls - before).toBe(1);
 });
 
-it("accepts legacy v1 receipt requests without a route and preserves their signed digest", async () => {
+it("requires the route in receipt requests and binds it into the signed digest", async () => {
   const id = randomUUID(),
     input = createInput();
   const completed = await act(id, input);
   const requestId = randomUUID(),
     payloadDigest = fleetPayloadDigest(fleetActionInput(input, id));
   const { token } = await leases.get(peer, "act");
+  const body = {
+    version: 1,
+    requestId,
+    commandId: id,
+    credential: token,
+    payloadDigest,
+  };
+  expect(
+    (await call(body, "/api" + fleetWorkspaceActionApi.receipt.path)).status,
+  ).toBe(400);
   const response = await call(
-    { version: 1, requestId, commandId: id, credential: token, payloadDigest },
+    { ...body, route: input.route },
     "/api" + fleetWorkspaceActionApi.receipt.path,
   );
   expect(response.status).toBe(200);
   const signed = SignedFleetActionResponse.parse(response.body);
   expect(signed.response.receipt).toEqual(completed);
   expect(signed.response.requestDigest).toBe(
-    fleetPayloadDigest({ requestId, commandId: id, payloadDigest }),
+    fleetPayloadDigest({
+      requestId,
+      commandId: id,
+      payloadDigest,
+      route: input.route,
+    }),
   );
   expect(
     verifyFleetProof(

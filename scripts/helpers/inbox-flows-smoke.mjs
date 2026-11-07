@@ -248,20 +248,9 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
       )
       .toBe(false);
 
-    // A tapped notification hands its link to the open app (via the service
-    // worker), which opens the thread at that message in place.
-    await nav("Your profile").click();
-    await page.evaluate(
-      ({ conversation, message }) =>
-        navigator.serviceWorker.dispatchEvent(
-          new MessageEvent("message", {
-            data: {
-              type: "loop-open",
-              url: `${location.origin}/?conversation=${conversation}&message=${message}`,
-            },
-          }),
-        ),
-      { conversation: target.id, message: answers[0] },
+    // Current deep links open the thread at the selected message.
+    await page.goto(
+      `${fixture.base}/?conversation=${target.id}&message=${answers[0]}`,
     );
     await expect(thread()).toHaveAttribute("aria-label", target.title);
     await expect
@@ -273,7 +262,7 @@ export async function inboxFlowsSmoke(page, fixture, capture) {
     // A reminder appears in Later while the completed result stays in Done.
     await nav("Feed").click();
     await expect(
-      page.getByRole("tab", { name: "Done", exact: true }),
+      page.getByRole("tab", { name: /^Done(?: \d+)?$/ }),
     ).toHaveAttribute("aria-selected", "true");
     await row(snoozed.title).focus();
     await page.keyboard.press("Shift+F10");

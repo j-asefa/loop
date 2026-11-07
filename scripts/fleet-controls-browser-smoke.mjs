@@ -128,6 +128,7 @@ try {
     import React from ${JSON.stringify(resolve("node_modules/react/index.js"))};
     import { createRoot } from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};
     import { SourceProvider } from ${JSON.stringify(resolve("src/client/SourceContext.tsx"))};
+    import { Conversation } from ${JSON.stringify(resolve("src/client/Conversation.tsx"))};
     import { NativeDecisions } from ${JSON.stringify(resolve("src/client/NativeControls.tsx"))};
     import { ShareSheet } from ${JSON.stringify(resolve("src/client/Sharing.tsx"))};
     import { AttachmentList, UploadButton } from ${JSON.stringify(resolve("src/client/Attachments.tsx"))};
@@ -149,6 +150,19 @@ try {
         reads:["nativeDecisions"], actions:mode === "read-only" ? [] : ["nativeAnswer"],files:false,events:false},
     }},React.createElement(NativeDecisions,{conversation:${JSON.stringify(conversation)}})));
     window.fixture("read-only");
+    window.closeContinuation = () => root.render(React.createElement("p",null,"Continuation closed"));
+    window.continuation = (mode, source=peer) => {
+      setViewOwner("fixture-owner");
+      root.render(React.createElement(SourceProvider, {sourceId:source, capabilities:{
+        pairedDevices:false,fleet:{version:1,machineId:mode === "wrong-machine" ? "m_"+"2".repeat(64) : peer.slice(5),
+          reads:["conversation"], actions:mode === "enabled" ? ["conversationContinueStart"] : [],files:false,events:false},
+      }},React.createElement(Conversation, {
+        id:${JSON.stringify(conversation)},revision:0,
+        agents:[{id:"continuation-target",name:"continuation-target",provider:"openai",model:"fixture",connection_id:"fixture",retired_at:null}],
+        connections:[],teams:[],composer:null,onClose:()=>{},onContinue:()=>{},onReady:()=>{},onReply:()=>{},onUsePrompt:()=>{},
+        onRestoreDraft:()=>{},onWithdraw:async()=>{},onSubmitted:()=>{},onProfile:()=>{},onNewConversation:()=>{},
+      })));
+    };
     let sharedDraft = {url:"",title:"",excerpt:"fixture-private-share",question:"@share-agent inspect",folderId:""};
     window.share = (mode, source=peer) => root.render(React.createElement(SourceProvider, {sourceId:source, capabilities:{
       pairedDevices:false,fleet:{version:1,machineId:source.slice(5),reads:["sharePreview"],actions:mode === "read-only" ? [] : ["shareSend","agentCreate"],files:false,events:false}
@@ -423,6 +437,44 @@ try {
       return;
     }
     const sourcePrefix = `/api/agent-sources/${encodeURIComponent(peer)}`;
+    if (
+      req.method === "GET" &&
+      req.url.split("?")[0] === sourcePrefix + `/conversations/${conversation}`
+    ) {
+      reply(200, {
+        conversation: {
+          id: conversation,
+          owner_id: "fixture-owner",
+          agent_id: null,
+          title: "Continuation permissions",
+          origin: "loop",
+          external_id: null,
+          created_at: 1,
+          team_id: null,
+          execution_backend: "native",
+          execution_connection_id: null,
+          project_id: null,
+        },
+        messages: [
+          {
+            id: "continuation-message",
+            owner_id: "fixture-owner",
+            conversation_id: conversation,
+            role: "user",
+            content: "Continue this work",
+            metadata: "{}",
+            created_at: 1,
+            run_id: null,
+            cursor: [1, 1, 1],
+          },
+        ],
+        next: null,
+        position_message_id: null,
+        saved: [],
+        resumed: false,
+      });
+      return;
+    }
     if (
       req.method === "GET" &&
       req.url === sourcePrefix + "/agents/suggest-name"
@@ -933,9 +985,100 @@ try {
     id: mailConversation,
     source: peer,
   });
+  // Mount the production conversation under a restricted current fleet catalog.
+  // Denial happens before retaining a continuation intent or attempting IO.
+  const continuationRequests = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/continue/start"))
+      continuationRequests.push(request.url());
+  });
+  const continuationStorage = () =>
+    page.evaluate(() =>
+      Object.keys(localStorage).filter((key) =>
+        key.startsWith("loop-continuation:"),
+      ),
+    );
+  const beforeContinuations = await continuationStorage();
+  await page.evaluate(() => window.continuation("read-only"));
+  await page.getByLabel("Conversation options", { exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Continue with another agent", exact: true })
+    .click();
+  const continuationSheet = page.getByRole("dialog", {
+    name: "Continue with another agent",
+    exact: true,
+  });
+  await continuationSheet
+    .getByRole("combobox", { name: "Continue with", exact: true })
+    .selectOption("continuation-target");
+  const startContinuation = continuationSheet.getByRole("button", {
+    name: "Start continuation",
+    exact: true,
+  });
+  await expect(startContinuation).toBeDisabled();
+  await expect(continuationSheet.getByRole("status")).toContainText(
+    "does not allow this operation",
+  );
+  await page.evaluate(() => window.continuation("wrong-machine"));
+  await expect(startContinuation).toBeDisabled();
+  await expect(continuationSheet.getByRole("status")).toContainText(
+    "does not allow this operation",
+  );
+  await page.evaluate(() => window.continuation("enabled"));
+  await expect(startContinuation).toBeEnabled();
+  await page.evaluate(() => window.continuation("read-only"));
+  await expect(startContinuation).toBeDisabled();
+  // Attempting a DOM click must not retain an intent or dispatch an action.
+  await startContinuation.evaluate((button) => {
+    button.disabled = false;
+    button.click();
+  });
+  assert.deepEqual(await continuationStorage(), beforeContinuations);
+  assert.deepEqual(continuationRequests, []);
+  // A current uncertain request stays intact if its peer later loses permission.
+  await page.evaluate(() => window.closeContinuation());
+  await expect(continuationSheet).toHaveCount(0);
+  const retained = {
+    agentId: "continuation-target",
+    messageIds: ["continuation-message"],
+    start: {
+      input: "Previously submitted continuation",
+      idempotencyKey: randomUUID(),
+    },
+  };
+  const retainedKey =
+    "loop-continuation:" +
+    JSON.stringify(["fixture-owner", peer, conversation]) +
+    ":" +
+    retained.start.idempotencyKey;
+  await page.evaluate(
+    ({ key, value }) => localStorage.setItem(key, JSON.stringify(value)),
+    { key: retainedKey, value: retained },
+  );
+  await page.evaluate(() => window.continuation("read-only"));
+  await page.getByLabel("Conversation options", { exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Continue with another agent", exact: true })
+    .click();
+  const retryContinuation = continuationSheet.getByRole("button", {
+    name: "Retry continuation",
+    exact: true,
+  });
+  await expect(retryContinuation).toBeDisabled();
+  assert.deepEqual(
+    await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key)),
+      retainedKey,
+    ),
+    retained,
+  );
+  await page.evaluate(() => window.continuation("enabled"));
+  await expect(retryContinuation).toBeEnabled();
+  assert.deepEqual(continuationRequests, []);
+
   assert.deepEqual(failures, []);
   console.log(
-    `PASS (${engine.name()}): question and upload controls respect capabilities; questions and shared sends renew confirmed refusals and retain uncertain identities; question reconciliation produces no second effect; sharing and uploads reconcile uncertain commands without resubmission; upload reconciliation omits file bytes; held requests and previews are fenced by owner/source changes; mail identity labels and conversation navigation retain the owning machine, block stale directory navigation and preserve legacy source-local targets. Deterministic HTTP fixture.`,
+    `PASS (${engine.name()}): continuation, question and upload controls respect capabilities; denied continuations retain uncertain requests without new storage or dispatch; questions and shared sends renew confirmed refusals and retain uncertain identities; question reconciliation produces no second effect; sharing and uploads reconcile uncertain commands without resubmission; upload reconciliation omits file bytes; held requests and previews are fenced by owner/source changes; mail identity labels and conversation navigation retain the owning machine, block stale directory navigation and preserve legacy source-local targets. Deterministic HTTP fixture.`,
   );
 } finally {
   releasePreview?.();

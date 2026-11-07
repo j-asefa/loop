@@ -37,6 +37,8 @@ class Socket {
         id,
         source,
         frame: {
+          serverNow: Date.now(),
+          nextDeadline: null,
           v: 3,
           type: "reset",
           epoch,

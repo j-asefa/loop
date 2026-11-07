@@ -50,7 +50,6 @@ export const fleetActionRoutes = {
   runWithdraw: workspaceApi.runWithdraw,
   runMove: workspaceApi.runMove,
   conversationFork: workspaceApi.conversationFork,
-  conversationContinue: workspaceApi.conversationContinue,
   conversationContinueStart: workspaceApi.conversationContinueStart,
   folderCreate: workspaceApi.folderCreate,
   folderUpdate: workspaceApi.folderUpdate,
@@ -130,7 +129,7 @@ export const fleetWorkspaceActionApi = {
     path: "/fleet/peer/v1/workspace/receipt",
     body: Admission.extend({
       payloadDigest: FleetDigest,
-      route: FleetActionRoute.optional(),
+      route: FleetActionRoute,
     }),
   },
 } as const satisfies Record<string, FleetRouteContract>;

@@ -26,7 +26,7 @@ function fixture(projectedWrites = false) {
 }
 function connect(
   f: Awaited<ReturnType<typeof fixture>>,
-  query = "",
+  query = "?v=3",
   headers = f.browser,
   path = "/api/events/ws",
 ) {
@@ -139,7 +139,7 @@ it("keeps the listener available when rejected upgrade clients reset their socke
     seed(f);
     const { socket, frames } = connect(f);
     await expect.poll(() => frames.length, { timeout: 7000 }).toBe(1);
-    expect(frames[0]).toMatchObject({ v: 2, type: "reset" });
+    expect(frames[0]).toMatchObject({ v: 3, type: "reset" });
     expect(frames[0].cursor).toBeGreaterThan(0);
     const { epoch } = frames[0];
     f.db
@@ -191,14 +191,14 @@ it("keeps the listener available when rejected upgrade clients reset their socke
     socket.close();
     await expect.poll(() => socket.readyState).toBe(WebSocket.CLOSED);
     const second = emit(f, "while-disconnected");
-    const replay = connect(f, `?epoch=${epoch}&cursor=${first}`);
+    const replay = connect(f, `?v=3&epoch=${epoch}&cursor=${first}`);
     await expect.poll(() => replay.frames.length).toBeGreaterThan(0);
     expect(replay.frames[0]).toMatchObject({
       type: "events",
       cursor: Number(second),
-      events: [{ type: "while-disconnected" }],
+      events: [{ id: Number(second), event: { type: "invalidate" } }],
     });
-    const reset = connect(f, "?epoch=previous-process&cursor=999999");
+    const reset = connect(f, "?v=3&epoch=previous-process&cursor=999999");
     await expect.poll(() => reset.frames.length).toBeGreaterThan(0);
     expect(reset.frames[0]).toMatchObject({
       type: "reset",
@@ -223,11 +223,11 @@ it("keeps the listener available when rejected upgrade clients reset their socke
     f.db.transaction(() => {
       for (let n = 0; n < 100; n++) insert.run(f.owner, payload);
     })();
-    const replay = connect(f, `?epoch=${epoch}&cursor=${baseline}`);
+    const replay = connect(f, `?v=3&epoch=${epoch}&cursor=${baseline}`);
     await expect.poll(() => replay.frames.length).toBeGreaterThan(0);
-    expect(replay.frames[0].type).toBe("reset");
-    expect(replay.frames[0].cursor).toBe(baseline + 100);
-    expect(replay.frames[0].events).toEqual([]);
+    await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(baseline + 100);
+    expect(replay.frames.flatMap((frame) => frame.events)).toHaveLength(100);
+    expect(replay.frames.flatMap((frame) => frame.events).every((entry) => entry.event.type === "invalidate")).toBe(true);
     expect(Buffer.byteLength(JSON.stringify(replay.frames[0]))).toBeLessThan(
       1024 * 1024,
     );
@@ -240,7 +240,7 @@ it("keeps the listener available when rejected upgrade clients reset their socke
     await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(Number(next));
     expect(replay.frames.at(-1)).toMatchObject({
       type: "events",
-      events: [{ type: "after-large-replay" }],
+      events: [{ id: Number(next), event: { type: "invalidate" } }],
     });
     // Many individually small payloads must also respect the total budget.
     f.db.transaction(() => {
@@ -248,8 +248,9 @@ it("keeps the listener available when rejected upgrade clients reset their socke
         insert.run(f.owner, JSON.stringify({ text: "x".repeat(48 * 1024) }));
     })();
     await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(baseline + 141);
-    expect(replay.frames.at(-1).type).toBe("reset");
-    expect(replay.frames.at(-1).events).toEqual([]);
+    expect(replay.frames.at(-1).type).toBe("events");
+    for (const frame of replay.frames)
+      expect(Buffer.byteLength(JSON.stringify(frame))).toBeLessThanOrEqual(512 * 1024);
     expect(replay.socket.readyState).toBe(WebSocket.OPEN);
   }, 30_000);
 }
@@ -274,15 +275,15 @@ it("enforces paired sessions, Origin, Cards credential restrictions and owner is
     );
     expect([401, 403]).toContain(status);
   }
-  const { socket, frames } = connect(f, "?owner=someone-else");
+  const { socket, frames } = connect(f, "?v=3&owner=someone-else");
   await expect.poll(() => frames.length).toBe(1);
   emit(f, "private-other-owner", "someone-else", "other-run");
   f.db.prepare("UPDATE runs SET state='completed' WHERE id='other-run'").run();
-  emit(f, "visible-own-event");
+  const own = Number(emit(f, "visible-own-event"));
   await expect.poll(() => frames.length).toBeGreaterThan(1);
   expect(
-    frames.flatMap((frame) => frame.events || []).map((event) => event.type),
-  ).toEqual(["visible-own-event"]);
+    frames.flatMap((frame) => frame.events || []).map((event) => event.id),
+  ).toEqual([own]);
   // The event channel is read-only: a client command never reaches the run.
   socket.send(JSON.stringify({ type: "cancel", run: "run" }));
   await new Promise((resolve) => setTimeout(resolve, 500));
@@ -326,8 +327,8 @@ it("broadcasts to both owner sockets, isolates another owner, and releases subsc
     expect(
       connected.frames
         .flatMap((frame) => frame.events || [])
-        .map((event: any) => event.type),
-    ).toEqual(["both-owner-sockets"]);
+        .map((entry: any) => entry.id),
+    ).toEqual([Number(event)]);
   await expect.poll(() => f.eventSubscriberCount()).toBe(3);
   for (let n = 0; n < 24; n++) {
     const transient = connect(f);
@@ -358,7 +359,7 @@ it("catches up every replay page without a later write even after the process cu
   // backlog. The reconnect below must still replay from its own cursor.
   const live = connect(f);
   await expect.poll(() => live.frames.at(-1)?.cursor).toBe(ids.at(-1));
-  const replay = connect(f, `?epoch=${epoch}&cursor=${baseline}`);
+  const replay = connect(f, `?v=3&epoch=${epoch}&cursor=${baseline}`);
   await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(ids.at(-1));
   expect(replay.frames.length).toBeGreaterThan(1);
   expect(
@@ -367,18 +368,15 @@ it("catches up every replay page without a later write even after the process cu
 }, 15_000);
 
 {
-  it(`companion serves typed v3, preserves v2, bounds replay and makes revision-only changes actionable`, async () => {
+  it(`companion serves typed v3, bounds replay and makes revision-only changes actionable`, async () => {
     const f = await fixture();
     seed(f);
-    const live = connect(f, "?v=3&clock=1"),
-      legacy = connect(f);
+    const live = connect(f, "?v=3");
     await expect.poll(() => live.frames.length).toBe(1);
-    await expect.poll(() => legacy.frames.length).toBe(1);
     expect(WorkspaceFrameV3.parse(live.frames[0])).toMatchObject({
       type: "reset",
       capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
     });
-    expect(legacy.frames[0]).toMatchObject({ v: 2, type: "reset" });
     const insert = f.db.prepare(
       "INSERT INTO events(owner_id,run_id,type,payload,created_at) VALUES(?,'run',?,?,1)",
     );
@@ -399,8 +397,6 @@ it("catches up every replay page without a later write even after the process cu
         payload: { messageId: "message" },
       },
     });
-    await expect.poll(() => legacy.frames.at(-1)?.cursor).toBe(valid);
-    expect(Object.keys(legacy.frames.at(-1).events[0]).sort()).toEqual(["id", "payload", "run_id", "type"]);
     const historical = Number(
       insert.run(f.owner, "historical.unknown", "not json").lastInsertRowid,
     );
@@ -408,11 +404,6 @@ it("catches up every replay page without a later write even after the process cu
     expect(live.frames.at(-1).events[0].event).toEqual({
       type: "invalidate",
       scope: { kind: "collection", id: "all" },
-    });
-    await expect.poll(() => legacy.frames.at(-1)?.cursor).toBe(historical);
-    expect(legacy.frames.at(-1).events[0]).toMatchObject({
-      type: "historical.unknown",
-      payload: "not json",
     });
     const oversized = JSON.stringify({
       messageId: "message",
@@ -445,7 +436,7 @@ it("catches up every replay page without a later write even after the process cu
     })();
     const replay = connect(
       f,
-      `?v=3&clock=1&epoch=${live.frames[0].epoch}&cursor=${large}`,
+      `?v=3&epoch=${live.frames[0].epoch}&cursor=${large}`,
     );
     await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(last);
     expect(replay.frames.length).toBeGreaterThan(1);
@@ -492,11 +483,11 @@ it("negotiates v3 through paired source routing into another compiled companion"
   expect(sources).toHaveLength(1);
   const linked = connect(
     paired,
-    "?v=3&clock=1&owner=untrusted",
+    "?v=3&owner=untrusted",
     paired.browser,
     `/api/agent-sources/${encodeURIComponent(sources[0].id)}/events/ws`,
   );
-  const direct = connect(remote, "?v=3&clock=1");
+  const direct = connect(remote, "?v=3");
   await expect.poll(() => linked.frames.length).toBe(1);
   await expect.poll(() => direct.frames.length).toBe(1);
   const { serverNow: _linkedNow, ...linkedReset } = linked.frames[0];
@@ -538,7 +529,7 @@ it("negotiates v3 through paired source routing into another compiled companion"
   });
   expect(JSON.stringify(linked.frames)).not.toContain("Local only");
   const resumed = connect(paired,
-    `?v=3&clock=1&projection=1&epoch=${frame.epoch}&cursor=${id}`,
+    `?v=3&epoch=${frame.epoch}&cursor=${id}`,
     paired.browser,
     `/api/agent-sources/${encodeURIComponent(sources[0].id)}/events/ws`);
   await expect.poll(() => resumed.frames.length).toBeGreaterThan(0);
@@ -549,7 +540,7 @@ it("negotiates v3 through paired source routing into another compiled companion"
 // Keep their fixture budget consistent; event polling retains its own bound.
 it.each(["secret", "routing"] as const)("revokes a connection with invalid %s through the compiled v3 endpoint", async (invalid) => {
   const f = await fixture();
-  const socket = connect(f, "?v=3&clock=1");
+  const socket = connect(f, "?v=3");
   await expect.poll(() => socket.frames.length).toBe(1);
   const metadata = invalid === "routing" ? '{"loopHarness":false}' : '{}';
   f.db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('status-connection',?,'openai','Fixture',?,'connected',?,1)").run(f.owner, invalid === "secret" ? "must stay secret" : f.fixtureSecret, metadata);

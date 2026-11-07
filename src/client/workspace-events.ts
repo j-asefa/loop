@@ -24,15 +24,7 @@ export type WorkspaceFrame =
     > & {
       build?: undefined;
       buildIdentity?: undefined;
-    })
-  | {
-      v: 2;
-      type: "reset" | "events";
-      epoch: string;
-      cursor: number;
-      build?: string;
-      buildIdentity?: unknown;
-    };
+    });
 
 /** One source and owner per subscription. Only reads may be retried. */
 export function watchWorkspaceEvents(options: {
@@ -53,7 +45,6 @@ export function watchWorkspaceEvents(options: {
     cursor = 0,
     pollCursor = 0,
     attempt = 0;
-  let lastRefresh = 0;
   let pollAfter = 0;
   let socket: WorkspaceSocket | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -174,9 +165,6 @@ export function watchWorkspaceEvents(options: {
       "v",
       workspaceApi.channels.events.query.parse({ v: "3" }).v,
     );
-    url.searchParams.set("clock", "1");
-    url.searchParams.set("projection", "1");
-    let firstFrame = true;
     const current = (socket = options.socket
       ? options.socket(url)
       : new WebSocket(url));
@@ -184,19 +172,11 @@ export function watchWorkspaceEvents(options: {
       if (stopped || current !== socket || viewGeneration() !== ownerGeneration)
         return;
       try {
-        const value = JSON.parse(event.data);
-        const m: WorkspaceFrame =
-          value?.v === 3
-            ? workspaceApi.channels.events.frames.parse(value)
-            : value;
-        // A resumed connection may not reset its cursor. Older servers do
-        // not announce capabilities on replay, so conservatively restore
-        // fallback instead of retaining a previous deployment's promises.
-        if (firstFrame && m?.v === 3 && m.type === "events" && !m.capabilities)
-          m.capabilities = PARTIAL_WORKSPACE_CAPABILITIES;
+        const m = workspaceApi.channels.events.frames.parse(
+          JSON.parse(event.data),
+        );
         if (
           !m ||
-          (m.v !== 2 && m.v !== 3) ||
           !["reset", "events"].includes(m.type) ||
           typeof m.epoch !== "string" ||
           !m.epoch ||
@@ -207,7 +187,6 @@ export function watchWorkspaceEvents(options: {
         )
           throw new Error("Invalid workspace event");
         if (
-          m.v === 3 &&
           m.type === "events" &&
           m.events.some(
             (entry, index) =>
@@ -224,27 +203,16 @@ export function watchWorkspaceEvents(options: {
           m.type === "reset" || m.epoch !== epoch
             ? m.cursor
             : Math.max(pollCursor, m.cursor);
-        if (
-          m.v === 3 &&
-          m.type === "reset" &&
-          m.serverNow !== undefined &&
-          m.nextDeadline !== undefined
-        )
-          armDeadline(
-            {
-              epoch: m.epoch,
-              cursor: m.cursor,
-              serverNow: m.serverNow,
-              nextDeadline: m.nextDeadline,
-            },
-            true,
-          );
-        else if (m.type === "reset" || m.epoch !== epoch) {
-          clearTimeout(deadlineTimer);
-          deadlineGeneration++;
-          deadlineClock = undefined;
-        }
-        if (m.v === 3 && m.type === "events")
+        armDeadline(
+          {
+            epoch: m.epoch,
+            cursor: m.cursor,
+            serverNow: m.serverNow,
+            nextDeadline: m.nextDeadline,
+          },
+          m.type === "reset" || m.epoch !== epoch,
+        );
+        if (m.type === "events")
           for (const entry of m.events)
             if (entry.event.type === "deadline")
               armDeadline({ ...entry.event, epoch: m.epoch, cursor: entry.id });
@@ -257,11 +225,10 @@ export function watchWorkspaceEvents(options: {
         // Polling stops while push is healthy. Its last success cannot prove
         // connectivity after this socket subsequently disconnects.
         pollHealthy = false;
-        firstFrame = false;
         request?.abort();
         options.frame?.(m);
         const notifications =
-          m.v === 3 && m.type === "events"
+          m.type === "events"
             ? m.events
                 .map((entry) => entry.event)
                 .filter((event) => event.type !== "deadline")
@@ -322,12 +289,7 @@ export function watchWorkspaceEvents(options: {
       options.connected?.(true);
       if (events.length && epoch === requestEpoch)
         pollCursor = events.at(-1)!.id;
-      // Older servers do not publish Cards revisions. Keep their edits and
-      // removals current even when no new run event accompanies the mutation.
-      if (events.length || Date.now() - lastRefresh >= 15_000) {
-        lastRefresh = Date.now();
-        options.changed();
-      }
+      if (events.length) options.changed();
     } catch (error) {
       if (!stopped && !controller.signal.aborted)
         pollAfter = Math.max(pollAfter, Date.now() + retryAfter(error));

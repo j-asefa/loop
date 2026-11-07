@@ -420,7 +420,7 @@ it("a background push displays a notification and opens its link on the same ori
   const navigate = vi.fn(async () => ({ focus }));
   windows = [
     { url: "https://unrelated.example/", navigate },
-    { url: "https://loop.example/?page=later", navigate },
+    { url: "https://loop.example/?page=profile", navigate },
   ];
   const click = async (url = "/?artifact=one") => {
     handlers.notificationclick({

@@ -326,15 +326,14 @@ export const EmittedWorkspaceEvent = z.discriminatedUnion("type", [
   variant("native.event"),
 ]);
 type EmittedWorkspaceEvent = z.infer<typeof EmittedWorkspaceEvent>;
-// A discriminated tuple keeps existing durable v2 payloads unchanged while
-// correlating each emitted type with exactly its own payload at compile time.
-type LegacyEmission = {
+// A discriminated tuple correlates each durable event type with its payload.
+type DurableEmission = {
   [K in Exclude<EmittedWorkspaceEvent["type"], "connection.status">]: [
     type: K,
     payload: Extract<EmittedWorkspaceEvent, { type: K }>["payload"],
   ];
 }[Exclude<EmittedWorkspaceEvent["type"], "connection.status">];
-export type WorkspaceEmission = LegacyEmission
+export type WorkspaceEmission = DurableEmission
   | [type: "invalidate", payload: z.infer<typeof Invalidation>]
   | [type: "tombstone", payload: z.infer<typeof Tombstone>]
   | [type: "deadline", payload: z.infer<typeof Deadline>];
@@ -447,13 +446,14 @@ export const WorkspaceFrameV3 = z.discriminatedUnion("type", [
     build: z.string().max(1000),
     buildIdentity: z.unknown(),
     capabilities: WorkspaceCapabilities,
-    // Optional while talking to older v3 sources with partial coverage.
-    serverNow: Count.optional(),
-    nextDeadline: Count.nullable().optional(),
+    serverNow: Count,
+    nextDeadline: Count.nullable(),
   }),
   z.strictObject({
     v: z.literal(3),
     type: z.literal("events"),
+    serverNow: Count,
+    nextDeadline: Count.nullable(),
     capabilities: WorkspaceCapabilities.optional(),
     epoch: z.string().min(1).max(200),
     cursor: Count,

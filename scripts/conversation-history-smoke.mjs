@@ -1,4 +1,4 @@
-import { openChatOptions } from "./helpers/browser-ui.mjs";
+import { openChatOptions, openTab, closeSheets } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { chromium, expect } from "@playwright/test";
@@ -356,22 +356,31 @@ for (const engine of selectedEngines()) {
     await page.reload();
     await expect(transcript.getByText("History answer 239", { exact: true })).toBeVisible();
     await expect(page.locator(".conversation-sheet button.changes-chip")).toHaveCount(0);
-    // Reopening uses the production notification navigation handler, preserving
-    // this document's owner-scoped view cache (a reload would erase it).
+    // Reopen through current Feed controls, preserving this document's
+    // owner-scoped view cache while transcript reads are held.
     const closeThread = async () => {
-      await page.locator("dialog.conversation-sheet[open] > .sheet-inner > .sheet-head")
-        .getByRole("button", { name: "Close", exact: true }).click();
+      await closeSheets(page);
       await expect(page.locator("dialog.conversation-sheet[open]")).toHaveCount(0);
-      await page.waitForFunction(() => history.state?.loopSheet !== true);
+    };
+    const feedTitle = async id => {
+      const feed = await fixture.api("/feed?filter=all");
+      const item = feed.items.find(item => item.conversation_id === id);
+      assert.ok(item, "The current Feed must expose the fixture conversation");
+      return item.title;
     };
     const openThread = async (id, source = "") => {
-      await page.evaluate(({ id, source }) => {
-        const url = new URL(location.href);
-        url.search = new URLSearchParams({ conversation: id, ...(source ? { source } : {}) }).toString();
-        navigator.serviceWorker.dispatchEvent(new MessageEvent("message", {
-          data: { type: "loop-open", url: url.href },
-        }));
-      }, { id, source });
+      await closeSheets(page);
+      await openTab(page, "Feed");
+      await page.getByRole("tab", { name: "Threads", exact: true }).click();
+      const title = await feedTitle(id);
+      const cards = page.locator(".inbox-card").filter({ has: page.locator(".inbox-row").filter({ hasText: title }) });
+      const remoteEnvironment = page.locator(".card-environment").getByText("Connected environment", { exact: true });
+      const card = cards.filter(source ? { has: remoteEnvironment } : { hasNot: remoteEnvironment }).first();
+      await card.locator(".inbox-row").click();
+      await expect.poll(() => page.locator("dialog.conversation-sheet[open], dialog.feed-reading-sheet[open]").count()).toBeGreaterThan(0);
+      const reader = page.locator("dialog.feed-reading-sheet[open]");
+      if (await reader.count()) await reader.getByRole("button", { name: /^(Reply|Continue draft)$/ }).click();
+      await expect.poll(() => new URL(page.url()).searchParams.get("source") || "").toBe(source);
     };
     await closeThread();
     const path = `/api/conversations/${conversation.id}`;
@@ -462,8 +471,8 @@ for (const engine of selectedEngines()) {
       agentId: agent, conversationId: conversation.id, input: "Scheduled recovery sentinel",
       sendAt: Date.now() + 3_600_000, idempotencyKey: randomUUID(),
     });
-    let legacySource = true, legacyMetadataReads = 0;
-    const legacyReads = [];
+    let linkedMetadataReads = 0;
+    const linkedReads = [];
     let linkedHold = false, linkedLimited = false, linkedMetadataFailure = false, linkedReplies = 0;
     let releaseLinked;
     let linkedGate = Promise.resolve();
@@ -487,25 +496,29 @@ for (const engine of selectedEngines()) {
         } });
         return;
       }
-      if (legacySource && upstream.pathname === path) {
-        legacyReads.push(new URL(upstream));
-        upstream.searchParams.delete("resume"); // captured-base server behavior
-      }
+      if (upstream.pathname === path) linkedReads.push(new URL(upstream));
       const response = await route.fetch({ url: upstream.href });
-      if (legacySource && upstream.pathname === "/api/bootstrap" && response.ok()) {
-        legacyMetadataReads++;
-        const body = await response.json();
-        for (const key of ["teams", "environmentName", "capabilities"]) delete body[key];
-        await route.fulfill({ response, json: body });
+      if (upstream.pathname === "/api/bootstrap" && response.ok()) {
+        linkedMetadataReads++;
+        await route.fulfill({ response });
       } else if (upstream.pathname === path && response.ok()) {
         const body = await response.json();
-        if (legacySource) delete body.resumed;
         body.messages.forEach(message => { message.content = "Linked " + message.content; });
         linkedReplies++;
         await route.fulfill({ response, json: body });
       } else await route.fulfill({ response });
     });
     db.prepare("UPDATE conversation_positions SET position_message_id=? WHERE owner_id=? AND conversation_id=?").run(saved, owner, conversation.id);
+    // Discover the linked fixture in the unified Feed while retaining the
+    // local shell. Linked thread metadata must still use its own read/retry path.
+    await page.route("**/api/agent-sources", route => route.fulfill({ json: [
+      { id: source, name: "Connected environment", kind: "fixture" },
+    ] }));
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-source-refresh")));
+    await expect.poll(() => linkedMetadataReads).toBeGreaterThan(0);
+    await page.waitForTimeout(2500);
+    await page.getByRole("tab", { name: "Threads", exact: true }).click();
+    await expect(page.locator(".inbox-row").filter({ hasText: await feedTitle(conversation.id) }).first()).toBeVisible();
     linkedHold = true;
     linkedGate = new Promise(resolve => { releaseLinked = resolve; });
     await openThread(conversation.id, source);
@@ -514,13 +527,13 @@ for (const engine of selectedEngines()) {
     releaseLinked();
     linkedHold = false;
     await expect(transcript.getByText("Linked History answer 20", { exact: true })).toBeVisible();
-    assert.equal(legacyReads.filter(url => url.searchParams.has("message")).length, 1,
-      "Only an older source without the resume marker needs the compatibility anchor read");
+    assert.equal(linkedReads.length, 1, "Current sources resume the saved position in one request: " + linkedReads.map(url => url.search).join(", "));
+    assert.equal(linkedReads[0].searchParams.get("resume"), "1");
+    assert.equal(linkedReads[0].searchParams.has("message"), false);
     await expect(transcript.getByText("Scheduled recovery sentinel", { exact: true })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Snapshot review status" })).toBeVisible();
     await expect(composer).toHaveCount(1);
-    assert.ok(legacyMetadataReads > 0, "Linked thread metadata without optional bootstrap additions still hydrates its composer");
-    legacySource = false;
+    assert.ok(linkedMetadataReads > 0, "Current linked thread metadata hydrates its composer");
     await closeThread();
     linkedHold = true;
     linkedLimited = true;
@@ -550,6 +563,7 @@ for (const engine of selectedEngines()) {
     db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)")
       .run(recoveryConversation, owner, recoveryAgent.id, "Metadata recovery conversation", recoveryTime);
     addRun.run(recoveryRun, owner, recoveryAgent.id, recoveryConversation, recoveryRun, recoveryTime, recoveryTime);
+    db.prepare("UPDATE runs SET input='Metadata recovery conversation' WHERE id=?").run(recoveryRun);
     addMessage.run(randomUUID(), owner, recoveryConversation, recoveryRun, "assistant", "Metadata recovery transcript", recoveryTime);
     linkedMetadataFailure = true;
     await openThread(recoveryConversation, source);
@@ -679,6 +693,7 @@ async function anchoredLiveTail(engine) {
       for (let i=0;i<120;i++) message.run(i===20?saved:randomUUID(),owner,conversation,null,"user",`Anchor history ${i}`,i+1);
       db.prepare("INSERT INTO conversation_positions(owner_id,conversation_id,position_message_id,updated_at) VALUES(?,?,?,1)").run(owner,conversation,saved);
     })();
+    await fixture.api(`/messages/${saved}/saved`, {});
     browser = await engine.launch({headless:true,executablePath:engine===chromium?process.env.CHROMIUM_PATH||undefined:undefined});
     const context = await browser.newContext({viewport:{width:390,height:844},serviceWorkers:"block"});
     await fixture.pair(context);
@@ -709,12 +724,15 @@ async function anchoredLiveTail(engine) {
     await page.goto(fixture.base);
     await expect(page.getByRole("status").filter({hasText:"Connected to workspace"})).toBeVisible();
     await page.waitForTimeout(2500);
-    const open = async anchor => page.evaluate(({conversation,anchor}) => {
-      const url = new URL(location.href);
-      url.search = new URLSearchParams({conversation,...(anchor?{message:anchor}:{})}).toString();
-      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop-open",url:url.href}}));
-    },{conversation,anchor});
-    await open();
+    const openSaved = async target => {
+      await openTab(target, "Your profile");
+      await target.getByRole("tab", { name: "Saved", exact: true }).click();
+      await target.locator(".saved-item").filter({ hasText: "Anchor history 20" })
+        .getByRole("link", { name: "Open conversation", exact: true }).click();
+    };
+    await openTab(page, "Feed");
+    await page.getByRole("tab", { name: "Threads", exact: true }).click();
+    await page.locator(".inbox-row").filter({ hasText: "Anchored live tail" }).first().click();
     await expect(page.locator(`[data-message-id="${saved}"]`)).toBeInViewport();
     assert.equal(reads.length,1,"A cold saved-position open must use one conversation request");
     const liveRun = randomUUID(), liveUser = randomUUID(), liveAnswer = randomUUID(), at = Date.now();
@@ -732,7 +750,7 @@ async function anchoredLiveTail(engine) {
     assert.equal(reads.length,before,"Tail appends must apply without snapshot reads");
     await page.locator("dialog.conversation-sheet[open] > .sheet-inner > .sheet-head").getByRole("button",{name:"Close",exact:true}).click();
     await page.waitForFunction(() => history.state?.loopSheet !== true);
-    await open(saved);
+    await openSaved(page);
     await expect(page.locator(`[data-message-id="${saved}"]`)).toBeInViewport();
     await expect(page.locator(`[data-message-id="${liveAnswer}"]`)).toHaveCount(0);
     await page.getByRole("button",{name:"Jump to latest messages",exact:true}).click();
@@ -746,16 +764,13 @@ async function anchoredLiveTail(engine) {
     await opening.route(url => url.pathname === `/api/conversations/${conversation}` && url.searchParams.get("message") === saved, async route => {
       if (++anchoredReads !== 1) return route.continue();
       const response = await route.fetch();
+      await expect(opening.locator(".workspace-connection")).toHaveText("Connected to workspace");
       const before = await opening.evaluate(() => window.__tailDeltas);
       db.prepare("UPDATE messages SET content=content||' during snapshot' WHERE id=?").run(liveAnswer);
       await expect.poll(() => opening.evaluate(() => window.__tailDeltas)).toBeGreaterThan(before);
       await route.fulfill({response});
     });
-    await opening.evaluate(({conversation,saved}) => {
-      const url = new URL(location.href);
-      url.search = new URLSearchParams({conversation,message:saved}).toString();
-      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop-open",url:url.href}}));
-    },{conversation,saved});
+    await openSaved(opening);
     await expect(opening.locator(`[data-message-id="${saved}"]`)).toBeInViewport();
     assert.equal(anchoredReads,1,"An unloaded streaming delta must not restart the anchored snapshot");
     await expect(opening.locator(`[data-message-id="${liveAnswer}"]`)).toContainText("during snapshot");
@@ -880,6 +895,14 @@ async function snapshotRecovery(engine) {
     await page.goto(fixture.base);
     await expect(page.getByRole("status").filter({hasText:"Connected to workspace"})).toBeVisible();
     await page.waitForTimeout(2500);
+    const openConversation = async () => {
+      await openTab(page, "Feed");
+      await page.getByRole("tab", { name: "Threads", exact: true }).click();
+      await page.locator(".inbox-row").filter({ hasText: conversation.title }).first().click();
+      await expect.poll(() => page.locator("dialog.conversation-sheet[open], dialog.feed-reading-sheet[open]").count()).toBeGreaterThan(0);
+      const reader = page.locator("dialog.feed-reading-sheet[open]");
+      if (await reader.count()) await reader.getByRole("button", { name: /^(Reply|Continue draft)$/ }).click();
+    };
     let reads = 0, malformed = true;
     await page.route(url => url.pathname === `/api/conversations/${conversation.id}`, async route => {
       reads++;
@@ -889,10 +912,7 @@ async function snapshotRecovery(engine) {
       if (malformed) body.messages[0].revision = "invalid";
       await route.fulfill({response,json:body});
     });
-    await page.evaluate(id => {
-      const url = new URL(location.href); url.search = new URLSearchParams({conversation:id}).toString();
-      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop-open",url:url.href}}));
-    },conversation.id);
+    await openConversation();
     const alert = page.locator(".conversation-sheet [role=alert]");
     await expect(alert).toContainText("Couldn’t load these messages");
     await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
@@ -912,10 +932,7 @@ async function snapshotRecovery(engine) {
     await page.goto(fixture.base);
     await expect(page.getByRole("status").filter({hasText:"Connected to workspace"})).toBeVisible();
     await page.waitForTimeout(2500);
-    await page.evaluate(id => {
-      const url = new URL(location.href); url.search = new URLSearchParams({conversation:id}).toString();
-      navigator.serviceWorker.dispatchEvent(new MessageEvent("message",{data:{type:"loop-open",url:url.href}}));
-    },conversation.id);
+    await openConversation();
     await expect(page.locator(`[data-message-id="${row.id}"]`)).toHaveCount(1,{timeout:9000});
     assert.equal(failures,3,"A quiet cold transcript must recover both HTML and empty 5xx responses");
     await page.unrouteAll({behavior:"wait"});

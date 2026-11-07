@@ -39,7 +39,7 @@ export function assetCacheControl(publicPath: string) {
     return "public, max-age=31536000, immutable";
   // Avatar URLs are stable across releases, so retain the bytes but validate
   // before reuse. A deployment can replace the artwork at the same URL.
-  if (/^\/avatars\/(?:robots\/)?[a-z]+\.webp$/.test(publicPath))
+  if (/^\/avatars\/robots\/[a-z]+\.webp$/.test(publicPath))
     return "public, max-age=0, must-revalidate";
   return "no-store";
 }

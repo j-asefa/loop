@@ -16,8 +16,6 @@ export const Capabilities = z.object({
   personalDecisions: z.boolean().optional(),
   /** Absent on sources without full recorded approval details. */
   personalApprovalDetails: z.boolean().optional(),
-  /** Absent on sources without the idempotent continuation-start endpoint. */
-  continuationStart: z.boolean().optional(),
   /** Gateway projection of this enrolled machine's verified catalog. */
   fleet: FleetSourceCapabilities.optional(),
 });
@@ -28,6 +26,5 @@ export function workspaceCapabilities(): Capabilities {
     cardTokens: true,
     personalDecisions: true,
     personalApprovalDetails: true,
-    continuationStart: true,
   };
 }

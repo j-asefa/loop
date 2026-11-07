@@ -75,16 +75,16 @@ test("companion assets compress, cache and revalidate without caching entrypoint
     assert.equal(names.length, 100);
     for (const name of names) {
       const expected = await readFile(join(artwork, name));
-      for (const prefix of ["/avatars/", "/avatars/robots/"]) {
-        const response: Response = await fetch(host.origin + prefix + name);
-        assert.equal(response.status, 200, prefix + name);
-        assert.equal(response.headers.get("content-type"), "image/webp");
-        assert.equal(
-          response.headers.get("cache-control"),
-          "public, max-age=0, must-revalidate",
-        );
-        assert.deepEqual(Buffer.from(await response.arrayBuffer()), expected);
-      }
+      const response: Response = await fetch(
+        host.origin + "/avatars/robots/" + name,
+      );
+      assert.equal(response.status, 200, "/avatars/robots/" + name);
+      assert.equal(response.headers.get("content-type"), "image/webp");
+      assert.equal(
+        response.headers.get("cache-control"),
+        "public, max-age=0, must-revalidate",
+      );
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), expected);
     }
     const scriptPath = "/assets/index-Abcd_123.js";
     const plain = await rawGet(host.origin + scriptPath);
@@ -108,7 +108,11 @@ test("companion assets compress, cache and revalidate without caching entrypoint
     assert.equal(cached.status, 304);
     assert.equal(cached.body.length, 0);
     assert.match(String(cached.headers.vary), /Accept-Encoding/i);
-    const avatarPath = "/avatars/atlas.webp";
+    assert.equal(
+      (await rawGet(host.origin + "/avatars/atlas.webp")).status,
+      400,
+    );
+    const avatarPath = "/avatars/robots/atlas.webp";
     const avatar = await rawGet(host.origin + avatarPath);
     const cachedAvatar = await rawGet(host.origin + avatarPath, {
       "if-none-match": `"unrelated", ${String(avatar.headers.etag).slice(2)}`,
@@ -143,7 +147,7 @@ test("companion assets compress, cache and revalidate without caching entrypoint
       (await fetch(host.origin + "/avatars/%2e%2e%2f%2e%2e%2fprivate.webp"))
         .status,
       404,
-      "The compatibility mapping must preserve the public-root boundary",
+      "Asset requests must preserve the public-root boundary",
     );
     const denied = await rawGet(host.origin + "/api/agents");
     assert.equal(denied.status, 401);

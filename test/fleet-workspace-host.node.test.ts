@@ -815,6 +815,8 @@ test("WorkspaceHost mounts owner-bound sources, reads, actions, files and device
             ...initial,
             sequence: initial.sequence + 1,
             frame: {
+              serverNow: Date.now(),
+              nextDeadline: null,
               v: 3,
               type: "events",
               epoch: initial.frame.epoch,

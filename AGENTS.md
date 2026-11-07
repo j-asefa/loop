@@ -17,6 +17,8 @@ Preserve owner/profile isolation, durable dispatch identities and generation-bou
 
 Loop has no installed base to preserve: every installation starts fresh, with a new data directory and newly paired devices. Don't keep or add code for earlier Loop versions, their stored data, file layouts, service units, environment variables, names or wire formats. Compatibility with external systems (providers, harness CLIs, the OS, browsers) stays.
 
+This fresh-install policy includes browser receipt journals, saved URLs and installed service workers from earlier Loop builds. Fleet peers are reinstalled from the same build; mixed-version operation is outside the supported scope. Review removals against the current build's producers and consumers. Current pending command identities must survive reloads and uncertain responses, but migrating earlier receipt shapes or storage backends is not required.
+
 Loop ships only the companion workspace (`loop start`), including its Docker companion. There is no hosted server profile or separate server sign-in.
 
 ## Evidence for review

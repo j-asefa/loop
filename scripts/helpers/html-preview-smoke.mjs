@@ -91,7 +91,7 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
       .run(id);
     for (const width of [390, 1024]) {
       await page.setViewportSize({ width, height: 844 });
-      await page.goto(fixture.base + "/?page=later");
+      await page.goto(fixture.base + "/?page=profile");
       await page.getByRole("tab", { name: "Files", exact: true }).click();
       const library = page.getByRole("region", {
         name: "Your files",

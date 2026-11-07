@@ -80,30 +80,19 @@ export const tabs = [
   { id: "search", label: "Search", icon: Search },
   { id: "profile", label: "Your profile", icon: UserRound },
 ];
-// Links and bookmarks from earlier layouts keep working. Later (Saved,
-// Reminders, Scheduled) now lives on your profile.
-const legacyPages: Record<string, { tab: string; filter?: FeedFilter }> = {
-  running: { tab: "feed", filter: "working" },
-  saved: { tab: "profile" },
-  later: { tab: "profile" },
-  personal: { tab: "profile" },
-};
 function initialPage() {
   const params = new URLSearchParams(location.search);
-  if (params.has("social") || params.get("filter") === "social")
-    return { tab: "profile" };
+  if (params.has("social")) return { tab: "profile" };
   const page = params.get("page") || "";
   if (tabs.some((t) => t.id === page)) return { tab: page };
-  if (legacyPages[page]) return legacyPages[page];
   return { tab: params.has("folder") ? "profile" : "feed" };
 }
 function initialFilter(): FeedFilter {
   const params = new URLSearchParams(location.search);
   const value = params.get("filter");
-  // Older "needs" links land on Done, under the Needs you stack.
   return feedFilters.some((f) => f.id === value)
     ? (value as FeedFilter)
-    : initialPage().filter || "done";
+    : "done";
 }
 export function useAppController() {
   useEffect(() => {
@@ -138,11 +127,7 @@ export function useAppController() {
     [tab, setTab] = useState(() => initialPage().tab),
     [feedFilter, setFeedFilter] = useState<FeedFilter>(initialFilter),
     [feedHomeKey, setFeedHomeKey] = useState(0),
-    [searchScope, setSearchScope] = useState<"all" | "mine">(
-      new URLSearchParams(location.search).get("page") === "personal"
-        ? "mine"
-        : "all",
-    ),
+    [searchScope, setSearchScope] = useState<"all" | "mine">("all"),
     [sheet, setSheet] = useState(
       new URLSearchParams(location.search).has("memory")
         ? "memory"
@@ -430,7 +415,6 @@ export function useAppController() {
       url.searchParams.set("conversation", id);
       if (source) url.searchParams.set("source", source);
       else url.searchParams.delete("source");
-      url.searchParams.delete("workspace");
       if (message) url.searchParams.set("message", message);
       else url.searchParams.delete("message");
       history.replaceState(history.state, "", url.pathname + url.search);
@@ -456,7 +440,6 @@ export function useAppController() {
       if (executionSourceId())
         url.searchParams.set("source", executionSourceId());
       else url.searchParams.delete("source");
-      url.searchParams.delete("workspace");
       url.searchParams.delete("message");
       history.replaceState(history.state, "", url.pathname + url.search);
     }
@@ -533,58 +516,6 @@ export function useAppController() {
     setComposerExpanded(false);
     setComposerOptions(false);
   }
-  // A tapped notification opens its link in this window: a thread at its
-  // message, or a result. Any other link loads normally.
-  const openLink = useRef((_url: URL) => {});
-  openLink.current = (url: URL) => {
-    if (
-      !session?.user ||
-      url.searchParams.has("checkout") ||
-      url.searchParams.has("verification")
-    ) {
-      location.assign(url.href);
-      return;
-    }
-    const target = url.searchParams.get("conversation");
-    const artifact = url.searchParams.get("artifact");
-    const story = url.searchParams.get("social");
-    if (story) {
-      setProfile(null);
-      setConversation(null);
-      setTab("profile");
-      // Social reads the story from the address, as it does on a cold open.
-      history.replaceState(null, "", url.pathname + url.search);
-      window.dispatchEvent(new Event("loop-social-open"));
-      window.dispatchEvent(new Event("loop-refresh"));
-    } else if (target) {
-      setProfile(null);
-      setConversation(
-        target,
-        url.searchParams.get("message") || undefined,
-        routeSourceId(url.search),
-      );
-    } else if (artifact)
-      void callRoute(
-        workspaceApi.artifactDetail,
-        { params: { id: artifact } },
-        executionSourceId(),
-      )
-        .then((item) => void open(item))
-        .catch((e) => setError(e.message));
-    else location.assign(url.href);
-  };
-  useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
-    const received = (event: MessageEvent) => {
-      if (event.data?.type !== "loop-open") return;
-      const url = new URL(String(event.data.url), location.origin);
-      if (url.origin === location.origin) openLink.current(url);
-    };
-    navigator.serviceWorker.addEventListener("message", received);
-    navigator.serviceWorker.startMessages?.();
-    return () =>
-      navigator.serviceWorker.removeEventListener("message", received);
-  }, []);
   /** Later at a section (Scheduled, Reminders), highlighting one item. */
   function openLater(section: "scheduled" | "reminders", focusId?: string) {
     showLater(section, focusId);
@@ -765,24 +696,12 @@ export function useAppController() {
     const url = new URL(location.href);
     url.searchParams.delete("artifact");
     history.replaceState(history.state, "", url.pathname + url.search);
-    const previous =
-      text ??
-      ((context.messageId &&
-        sessionStorage.getItem(
-          "loop-message-reply-" + draftId(context.messageId, source),
-        )) ||
-        (context.artifactId &&
-          sessionStorage.getItem(
-            "loop-result-reply-" + draftId(context.artifactId, source),
-          )) ||
-        undefined);
     // Opening another thread loads that thread's own draft; seed it first.
     if (switching) {
       const key = draftId(context.conversationId, source);
-      if (previous !== undefined && !readThreadDraft(key).text)
-        writeThreadDraft(key, previous, [], session?.user?.id);
+      if (text !== undefined && !readThreadDraft(key).text)
+        writeThreadDraft(key, text, [], session?.user?.id);
     } else if (text !== undefined) setDraft(text);
-    else if (!draft.trim() && previous) setDraft(previous);
     setComposerExpanded(true);
     if (switching) focusThreadComposer(context.conversationId);
     else if (context.conversationId) focusComposer();
@@ -988,8 +907,6 @@ export function useAppController() {
   }
   useEffect(() => {
     const url = new URL(location.href);
-    if (url.searchParams.get("filter") === "social")
-      url.searchParams.set("profileTab", "social");
     for (const [key, value] of Object.entries({
       page: tab === "feed" ? "" : tab,
       filter: tab === "feed" && feedFilter !== "done" ? feedFilter : "",
@@ -1380,7 +1297,7 @@ export function useAppController() {
         if (card.type !== "result") throw new Error("Expected a result card");
         item = cardArtifact(card, source, owner);
       } catch (error) {
-        // Files and retained legacy entrypoints can open artifacts outside the
+        // Files and search can open artifacts outside the
         // public selections. A card itself must always use its typed detail.
         if (item.card || (error as { status?: number }).status !== 404)
           throw error;

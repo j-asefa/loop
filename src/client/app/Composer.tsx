@@ -24,7 +24,6 @@ import {
 } from "../../shared/workspace-api";
 import type { Agent, Artifact, RunView as Run } from "../../shared/types";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
-import { parse } from "../api";
 import { callRoute } from "../workspace-api";
 import type { useSourceRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
@@ -537,28 +536,6 @@ export function useComposerSend({
         reply?.excerpt ? reply.content : null,
         attachments.map((file) => file.id),
       ]);
-      // A conversation draft from the previous composer may be retrying a
-      // response that was saved by the server but never acknowledged.
-      const carriedKey = () => {
-        const previous =
-          conversationId && !reply?.messageId
-            ? parse<{ signature?: string; key?: string }>(
-                sessionStorage.getItem(
-                  "loop-receipt-" + draftId(conversationId),
-                ) || "",
-                {},
-              )
-            : {};
-        const previousSignature = JSON.stringify([
-          conversationId,
-          recipient.id,
-          draft,
-          attachments.map((file) => file.id),
-        ]);
-        return previous.signature === previousSignature && previous.key
-          ? previous.key
-          : crypto.randomUUID();
-      };
       // The send's mode and exact time travel with its key: a retry after a
       // lost response repeats the same request rather than a changed one.
       const previous = request.current;
@@ -569,7 +546,7 @@ export function useComposerSend({
           mode: options.sendAt ? "schedule" : options.queue ? "queue" : "send",
           sendAt: options.sendAt ?? null,
         },
-        carriedKey,
+        () => crypto.randomUUID(),
       );
       // An undecided reply keeps its target.
       const unquoted = omitsReplyTarget(
@@ -718,18 +695,7 @@ export function useComposerSend({
         });
       setDraft("");
       setAttachments([]);
-      if (conversationId) {
-        saveThreadDraft(conversationId, "", []);
-        sessionStorage.removeItem("loop-receipt-" + draftId(conversationId));
-      }
-      if (reply?.messageId)
-        sessionStorage.removeItem(
-          "loop-message-reply-" + draftId(reply.messageId),
-        );
-      if (reply?.artifactId)
-        sessionStorage.removeItem(
-          "loop-result-reply-" + draftId(reply.artifactId),
-        );
+      if (conversationId) saveThreadDraft(conversationId, "", []);
       // Stay in the thread after sending; its reply context returns to the
       // conversation itself rather than the quoted message.
       setReplyContext(

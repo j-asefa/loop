@@ -24,16 +24,13 @@ const Record = z.strictObject({
   id: z.string().uuid(),
   signature: z.string().regex(/^[a-f0-9]{64}$/),
   source: z.string().regex(/^peer:m_[a-f0-9]{64}$/),
-  payloadDigest: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/)
-    .optional(),
+  payloadDigest: z.string().regex(/^[a-f0-9]{64}$/),
   route: FleetCommandRoute,
 });
 const Journal = z.array(Record).max(256);
 const Transfer = z.strictObject({
   version: z.literal(1),
-  command: Record.extend({ payloadDigest: z.string().regex(/^[a-f0-9]{64}$/) }),
+  command: Record,
 });
 export type PendingFleetCommand = z.infer<typeof Record>;
 export const fleetCommandsChanged = "loop-fleet-commands";
@@ -394,12 +391,10 @@ function journalScope(signal?: AbortSignal, requireLock = true) {
     throw unavailable(
       "This browser cannot safely retain remote commands. Use an updated browser over HTTPS.",
     );
-  // Keep cross-version tabs on the same journal and lock; never lose an uncertain effect.
+  // Tabs share the same journal and lock; never lose an uncertain effect.
   const key = `loop:fleet-commands:v1:${encodeURIComponent(owner!)}`;
   const read = async () => {
-    // Retain older browser receipts on first use; committed IndexedDB state,
-    // including an empty journal, always supersedes this legacy fallback.
-    const raw = (await readFleetJournal(key)) ?? localStorage.getItem(key);
+    const raw = await readFleetJournal(key);
     if (raw && raw.length > 160_000)
       throw new Error("Oversized command journal");
     return Journal.parse(JSON.parse(raw ?? "[]"));
@@ -496,10 +491,6 @@ export async function reconcileFleetCommand(
       "This command belongs to another workspace session. Reopen its original receipt.",
     );
   const payloadDigest = command.payloadDigest;
-  if (!payloadDigest)
-    throw unavailable(
-      "This older receipt requires the original action to check its outcome. Keep its command ID and inspect the owning machine.",
-    );
   return commandTurn(key, command.id, signal).run(async () => {
     const { callRoute } = await import("./api");
     current();

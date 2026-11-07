@@ -11,11 +11,7 @@ import { Avatar } from "./Avatar";
 import { Sheet } from "./components";
 import { ApprovalRequestDetails } from "./ApprovalRequest";
 import { NativeRequestDetails } from "./NativeRequestDetails";
-import {
-  useSourceRoute,
-  useSourceCapabilities,
-  useSourceId,
-} from "./SourceContext";
+import { useSourceRoute, useSourceId } from "./SourceContext";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { viewGeneration } from "./viewCache";
 import type {
@@ -41,7 +37,6 @@ function PersonalApprovalSheet({
   onConversation: (id: string) => void;
 }) {
   const call = useSourceRoute();
-  const supported = useSourceCapabilities().personalApprovalDetails === true;
   const generation = viewGeneration();
   const [approval, setApproval] = useState<PersonalApproval | null>(null);
   const [error, setError] = useState("");
@@ -49,7 +44,6 @@ function PersonalApprovalSheet({
   useEffect(() => {
     setApproval(null);
     setError("");
-    if (!supported) return;
     const controller = new AbortController();
     void call(
       workspaceApi.personalApproval,
@@ -65,7 +59,7 @@ function PersonalApprovalSheet({
           setError((e as Error).message);
       });
     return () => controller.abort();
-  }, [call, item.id, generation, retry, supported]);
+  }, [call, item.id, generation, retry]);
   return (
     <Sheet title="Original approval" onClose={onClose}>
       <div className="approval-detail">
@@ -89,18 +83,7 @@ function PersonalApprovalSheet({
             <NativeRequestDetails request={approval.request} />
           </>
         )}
-        {!supported && (
-          <div role="status" aria-label="Original approval unavailable">
-            <h3>{item.title}</h3>
-            <p>
-              Full approval details are not available on this workspace yet.
-              Update Loop on that workspace to reopen the full request here.
-            </p>
-          </div>
-        )}
-        {supported && !approval && !error && (
-          <p role="status">Loading approval…</p>
-        )}
+        {!approval && !error && <p role="status">Loading approval…</p>}
         {error && (
           <div role="alert">
             <p>{error}</p>
@@ -169,7 +152,6 @@ export function PersonalDecisions({
 }) {
   const call = useSourceRoute(),
     source = useSourceId(),
-    supported = useSourceCapabilities().personalDecisions === true,
     generation = viewGeneration();
   const [page, setPage] = useState(empty);
   const [loading, setLoading] = useState(true);
@@ -183,7 +165,6 @@ export function PersonalDecisions({
     setSelected({ item, source, generation });
   const actions = useRef({ more: () => {}, retry: () => {} });
   useEffect(() => {
-    if (!supported) return;
     const controller = new AbortController();
     const stale = () =>
       controller.signal.aborted || generation !== viewGeneration();
@@ -320,19 +301,7 @@ export function PersonalDecisions({
       stopMetadata();
       window.removeEventListener("loop-refresh", refresh);
     };
-  }, [call, source, supported, kind, generation]);
-  if (!supported)
-    return (
-      <section
-        className="feed personal-decisions"
-        aria-label="Decision history unavailable"
-      >
-        <p>
-          Approval and answer history is not available on this workspace yet.
-          Update Loop on that workspace to view it.
-        </p>
-      </section>
-    );
+  }, [call, source, kind, generation]);
   return (
     <section
       className="feed personal-decisions"

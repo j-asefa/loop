@@ -130,7 +130,6 @@ export class FleetWorkspaceActions {
         "conversationPosition",
         "feedUnread",
         "conversationFork",
-        "conversationContinue",
         "conversationContinueStart",
       ].includes(input.route)
     )
@@ -142,7 +141,6 @@ export class FleetWorkspaceActions {
         "scheduledSendCreate",
         "runMove",
         "conversationFork",
-        "conversationContinue",
         "conversationContinueStart",
       ].includes(input.route)
     )
@@ -216,18 +214,12 @@ export class FleetWorkspaceActions {
   receipt(input: unknown) {
     const request = fleetWorkspaceActionApi.receipt.body.parse(input);
     const context = this.authorize(request.credential);
-    const receipt = request.route
-      ? this.commands.reconcile(
-          context,
-          request.commandId,
-          request.payloadDigest,
-          request.route,
-        )
-      : this.commands.receipt(
-          context,
-          request.commandId,
-          request.payloadDigest,
-        );
+    const receipt = this.commands.reconcile(
+      context,
+      request.commandId,
+      request.payloadDigest,
+      request.route,
+    );
     return this.signed(
       request,
       receipt,
@@ -235,7 +227,7 @@ export class FleetWorkspaceActions {
         requestId: request.requestId,
         commandId: request.commandId,
         payloadDigest: request.payloadDigest,
-        ...(request.route ? { route: request.route } : {}),
+        route: request.route,
       }),
     );
   }

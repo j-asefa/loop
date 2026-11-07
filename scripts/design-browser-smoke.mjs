@@ -35,7 +35,6 @@ const names = [
   "continuity-390",
   "continuation",
   "continuation-tabs",
-  "continuation-legacy",
   "continuation-recovery",
   "reply-keyboard",
   "dialog-keyboard",
