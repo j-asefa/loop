@@ -45,27 +45,46 @@ export function connectWorkspaceEvents(
   let stopped = false;
   let scheduled: ReturnType<typeof setImmediate> | undefined;
   const read = db.transaction(() => {
-    const bounds = changeWatermarkQueries.bounds(db, owner, owner) as { first: number | null; last: number; epoch: string };
+    const bounds = changeWatermarkQueries.bounds(db, owner, owner) as {
+      first: number | null;
+      last: number;
+      epoch: string;
+    };
     let reset =
       (!initial && bounds.epoch !== epoch) ||
       (initial &&
         (url.searchParams.get("epoch") !== bounds.epoch ||
           cursor < (bounds.first || 1) - 1)) ||
-      !Number.isSafeInteger(cursor) || cursor < 0 || cursor > bounds.last;
+      !Number.isSafeInteger(cursor) ||
+      cursor < 0 ||
+      cursor > bounds.last;
     epoch = bounds.epoch;
     if (reset) cursor = bounds.last;
-    const events = reset ? [] : eventsQueries.boundedReplay(db, MAX_EVENT_BYTES, owner, cursor) as {
-      id: number; run_id: string | null; subject_kind: string;
-      subject_id: string; type: string; payload: string | null;
-    }[];
+    const events = reset
+      ? []
+      : (eventsQueries.boundedReplay(db, MAX_EVENT_BYTES, owner, cursor) as {
+          id: number;
+          run_id: string | null;
+          subject_kind: string;
+          subject_id: string;
+          type: string;
+          payload: string | null;
+        }[]);
     const typed: { id: number; event: WorkspaceEvent }[] = [];
     // Reserve the envelope budget; full pages yield without skipping unread rows.
     let bytes = 4096;
     for (const row of events) {
       let entry = { id: row.id, event: project(historicalEvent(row)) };
       if (Buffer.byteLength(JSON.stringify(entry)) > MAX_EVENT_BYTES)
-        entry = { id: row.id, event: invalidate(entry.event.scope,
-          entry.event.subject?.kind === "message" ? entry.event.subject : undefined) };
+        entry = {
+          id: row.id,
+          event: invalidate(
+            entry.event.scope,
+            entry.event.subject?.kind === "message"
+              ? entry.event.subject
+              : undefined,
+          ),
+        };
       const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
       if (bytes + size > MAX_REPLAY_BYTES) break;
       typed.push(entry);
@@ -75,7 +94,12 @@ export function connectWorkspaceEvents(
     if (!reset && initial && !typed.length)
       typed.push({ id: cursor, event: invalidate() });
     // Cascades can remove rows but never the durable watermark.
-    if (!reset && events.length < 100 && typed.length >= events.length && cursor < bounds.last) {
+    if (
+      !reset &&
+      events.length < 100 &&
+      typed.length >= events.length &&
+      cursor < bounds.last
+    ) {
       cursor = bounds.last;
       if (!events.length) reset = true;
     }
@@ -83,17 +107,29 @@ export function connectWorkspaceEvents(
     const announce = initial;
     initial = false;
     const clock = changed ? workspaceClock(owner) : undefined;
-    const frame = !clock ? null : reset ? {
-      v: 3, type: "reset", ...clock,
-      build: build || observedBuild().id,
-      buildIdentity: publicBuild(observedBuild()),
-      capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
-    } : {
-      v: 3, type: "events", epoch, cursor,
-      serverNow: clock.serverNow, nextDeadline: clock.nextDeadline,
-      events: typed,
-      ...(announce ? { capabilities: COMPLETE_WORKSPACE_CAPABILITIES } : {}),
-    };
+    const frame = !clock
+      ? null
+      : reset
+        ? {
+            v: 3,
+            type: "reset",
+            ...clock,
+            build: build || observedBuild().id,
+            buildIdentity: publicBuild(observedBuild()),
+            capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
+          }
+        : {
+            v: 3,
+            type: "events",
+            epoch,
+            cursor,
+            serverNow: clock.serverNow,
+            nextDeadline: clock.nextDeadline,
+            events: typed,
+            ...(announce
+              ? { capabilities: COMPLETE_WORKSPACE_CAPABILITIES }
+              : {}),
+          };
     return { frame, more: !reset && cursor < bounds.last };
   });
   const pump = () => {

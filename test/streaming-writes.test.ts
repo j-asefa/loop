@@ -32,7 +32,12 @@ db.prepare = ((sql: string) => {
 }) as typeof db.prepare;
 
 const chunks = ["Streaming ", "one ", "answer ", "in ", "pieces."];
-const observed: { statements: number; preview: string; artifact: string; projected: string | null }[] = [];
+const observed: {
+  statements: number;
+  preview: string;
+  artifact: string;
+  projected: string | null;
+}[] = [];
 let indexed: unknown;
 let runId = "";
 const restore = withTestAdapter("openai", {
@@ -65,7 +70,8 @@ const restore = withTestAdapter("openai", {
         statements: after - before,
         preview: String(artifact?.content ?? ""),
         artifact: stored.content,
-        projected: feed("alice", { filter: "working" }).items[0].live_preview ?? null,
+        projected:
+          feed("alice", { filter: "working" }).items[0].live_preview ?? null,
       });
     }
   },
@@ -102,8 +108,11 @@ it("keeps the result live while deferring its indexes until completion", async (
   runId = run.id;
   // As the worker does: a finished execution completes the run, which publishes.
   vi.useFakeTimers();
-  try { expect(await executeAgent(run)).toBe(true); }
-  finally { vi.useRealTimers(); }
+  try {
+    expect(await executeAgent(run)).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
   transition(run, "completed");
 
   // Each elapsed batch advances both projections; terminal flush saves the tail.
@@ -152,19 +161,42 @@ it("keeps the result live while deferring its indexes until completion", async (
 
 it("releases run subscriptions when the terminal projection flush fails", async () => {
   const connection = id();
-  prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)")
-    .run(connection, "alice", seal("fake-key", "alice"), JSON.stringify([{id:"fixture-model"}]), now());
-  const agent = createAgent("alice", {name:"flush-failure", connectionId:connection, model:"fixture-model"});
-  submit("alice", {agentId:agent.id,input:"Stream a tail",idempotencyKey:"flush-failure"});
+  prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
+  ).run(
+    connection,
+    "alice",
+    seal("fake-key", "alice"),
+    JSON.stringify([{ id: "fixture-model" }]),
+    now(),
+  );
+  const agent = createAgent("alice", {
+    name: "flush-failure",
+    connectionId: connection,
+    model: "fixture-model",
+  });
+  submit("alice", {
+    agentId: agent.id,
+    input: "Stream a tail",
+    idempotencyKey: "flush-failure",
+  });
   const run = claim("worker")!;
   const before = changes.subscriberCount;
   const restoreFailure = withTestAdapter("openai", {
-    async models() { return []; },
-    async *stream() { yield {text:"Unflushed tail"}; },
+    async models() {
+      return [];
+    },
+    async *stream() {
+      yield { text: "Unflushed tail" };
+    },
   });
-  db.exec("CREATE TEMP TRIGGER reject_terminal_flush BEFORE UPDATE OF content ON messages WHEN NEW.content='Unflushed tail' BEGIN SELECT RAISE(ABORT,'fixture terminal flush failure'); END");
+  db.exec(
+    "CREATE TEMP TRIGGER reject_terminal_flush BEFORE UPDATE OF content ON messages WHEN NEW.content='Unflushed tail' BEGIN SELECT RAISE(ABORT,'fixture terminal flush failure'); END",
+  );
   try {
-    await expect(executeAgent(run)).rejects.toThrow("fixture terminal flush failure");
+    await expect(executeAgent(run)).rejects.toThrow(
+      "fixture terminal flush failure",
+    );
     expect(changes.subscriberCount).toBe(before);
   } finally {
     db.exec("DROP TRIGGER reject_terminal_flush");

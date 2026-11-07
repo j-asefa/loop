@@ -21,7 +21,15 @@ test("paired provider authentication protects credentials, checks project owners
   const bin = join(dir, "bin");
   await mkdir(bin);
   const originalPath = process.env.PATH;
-  for (const name of ["codex", "claude", "pi", "opencode", "gemini", "muse", "grok"]) {
+  for (const name of [
+    "codex",
+    "claude",
+    "pi",
+    "opencode",
+    "gemini",
+    "muse",
+    "grok",
+  ]) {
     await writeFile(
       join(bin, name),
       `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
@@ -166,7 +174,10 @@ test("paired provider authentication protects credentials, checks project owners
       await rm(join(dir, "refuse-auth-providers"));
     }
     const piStart = await api(pi + "/start", piCommand);
-    await until(async () => !!(await api("/workspace/runtimes/pi/auth/status")).attempt?.prompt);
+    await until(
+      async () =>
+        !!(await api("/workspace/runtimes/pi/auth/status")).attempt?.prompt,
+    );
     const keyPrompt = (await api(pi + "/status")).attempt.prompt;
     const key = "fixture-super-private-provider-key";
     await api(pi + "/input", {
@@ -174,7 +185,11 @@ test("paired provider authentication protects credentials, checks project owners
       promptId: keyPrompt.id,
       value: key,
     });
-    await until(async () => (await api("/workspace/runtimes/pi/auth/status")).attempt?.state === "complete");
+    await until(
+      async () =>
+        (await api("/workspace/runtimes/pi/auth/status")).attempt?.state ===
+        "complete",
+    );
     assert.doesNotMatch(
       JSON.stringify(await api(pi + "/status")),
       /fixture-super-private|fixture-private/,
@@ -223,15 +238,30 @@ test("paired provider authentication protects credentials, checks project owners
     await writeFile(join(dir, "gemini-auth-failure"), "retired");
     try {
       await api(gemini + "/start", {
-        projectId, provider: "google", method: "oauth", commandId: randomUUID(),
+        projectId,
+        provider: "google",
+        method: "oauth",
+        commandId: randomUUID(),
       });
-      await until(async () => (await api(gemini + "/status")).attempt?.state === "failed", 25000);
+      await until(
+        async () => (await api(gemini + "/status")).attempt?.state === "failed",
+        25000,
+      );
       const rejected = await api(gemini + "/status");
-      assert.equal(rejected.attempt.failureCode, "gemini_google_sign_in_retired");
+      assert.equal(
+        rejected.attempt.failureCode,
+        "gemini_google_sign_in_retired",
+      );
       assert.equal(rejected.attempt.url, undefined);
       assert.equal(rejected.attempt.prompt, undefined);
-      assert.doesNotMatch(JSON.stringify(rejected), /fixture-private|fixture-token|fixture-code/);
-      assert.equal((await request(gemini + "/status", undefined, false)).status, 401);
+      assert.doesNotMatch(
+        JSON.stringify(rejected),
+        /fixture-private|fixture-token|fixture-code/,
+      );
+      assert.equal(
+        (await request(gemini + "/status", undefined, false)).status,
+        401,
+      );
     } finally {
       await rm(join(dir, "gemini-auth-failure"));
     }
@@ -248,7 +278,9 @@ test("paired provider authentication protects credentials, checks project owners
       "auth.meta.com",
     );
     await writeFile(join(dir, "authorize-muse"), "yes");
-    await until(async () => (await api(muse + "/status")).attempt?.state === "complete");
+    await until(
+      async () => (await api(muse + "/status")).attempt?.state === "complete",
+    );
     // Grok's device code reaches the phone only from its own sign-in host.
     const grok = "/workspace/runtimes/grok/auth";
     await api(grok + "/start", {
@@ -262,7 +294,9 @@ test("paired provider authentication protects credentials, checks project owners
     assert.equal(new URL(grokAttempt.url).hostname, "accounts.x.ai");
     assert.equal(grokAttempt.code, "KSXH-JR4E");
     await writeFile(join(dir, "authorize-grok"), "yes");
-    await until(async () => (await api(grok + "/status")).attempt?.state === "complete");
+    await until(
+      async () => (await api(grok + "/status")).attempt?.state === "complete",
+    );
     assert.match(await readFile(join(dir, "auth-audit"), "utf8"), /grok:login/);
     await api("/workspace/runtimes/codex/auth/start", {
       projectId,
@@ -270,7 +304,10 @@ test("paired provider authentication protects credentials, checks project owners
       method: "oauth",
       commandId: randomUUID(),
     });
-    await until(async () => !!(await api("/workspace/runtimes/codex/auth/status")).attempt?.url);
+    await until(
+      async () =>
+        !!(await api("/workspace/runtimes/codex/auth/status")).attempt?.url,
+    );
     const pending = (await api("/workspace/runtimes/codex/auth/status"))
       .attempt;
     await api("/workspace/runtimes/codex/auth/cancel", {

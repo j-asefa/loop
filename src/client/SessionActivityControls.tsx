@@ -3,7 +3,12 @@ import { isExecutionRefused } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import type { SessionControls } from "../shared/session-controls";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceOperation, useSourceId, useSourceRoute, useSourceRouteRead } from "./SourceContext";
+import {
+  useSourceOperation,
+  useSourceId,
+  useSourceRoute,
+  useSourceRouteRead,
+} from "./SourceContext";
 import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -12,7 +17,10 @@ import type {
   ActivityRecord,
 } from "../agent-activities";
 import { Sheet } from "./components";
-type Controls = Pick<SessionControls, "state" | "settings" | "capabilities"> & { generation?: string | null; readOnly?: boolean };
+type Controls = Pick<SessionControls, "state" | "settings" | "capabilities"> & {
+  generation?: string | null;
+  readOnly?: boolean;
+};
 export function SessionActivityControls({
   conversationId,
   recorded,
@@ -34,7 +42,11 @@ export function SessionActivityControls({
   const [pending, setPending] = useState<{ id: string; value: SettingValue }>();
   const [error, setError] = useState("");
   const [readError, setReadError] = useState("");
-  const [failedChange, setFailedChange] = useState<{ id: string; value: SettingValue; inspected?: boolean }>();
+  const [failedChange, setFailedChange] = useState<{
+    id: string;
+    value: SettingValue;
+    inspected?: boolean;
+  }>();
   const [inspecting, setInspecting] = useState(false);
   const epoch = useRef(0),
     ticket = useRef(0),
@@ -72,7 +84,11 @@ export function SessionActivityControls({
     const own = epoch.current,
       request = ++ticket.current;
     try {
-      const response = await read(workspaceApi.session, { params: { id: conversationId } }, controller.signal);
+      const response = await read(
+        workspaceApi.session,
+        { params: { id: conversationId } },
+        controller.signal,
+      );
       const next: Controls =
         response.state !== "disconnected" &&
         response.capabilities.settings.state === "supported"
@@ -119,7 +135,12 @@ export function SessionActivityControls({
     void refresh();
     const update = () => void refresh();
     const stopFallback = surfaceFallback([sourceId], "workspace", 3000, update);
-    const stopChanges = listenWorkspaceChanges("activities", update, sourceId, conversationId);
+    const stopChanges = listenWorkspaceChanges(
+      "activities",
+      update,
+      sourceId,
+      conversationId,
+    );
     return () => {
       epoch.current++;
       controller.abort();
@@ -129,36 +150,57 @@ export function SessionActivityControls({
     };
   }, [open, conversationId, sourceId, read]);
   async function inspect() {
-    const failure = failedChange, own = epoch.current;
+    const failure = failedChange,
+      own = epoch.current;
     setInspecting(true);
     try {
       const next = await refresh();
       if (next && own === epoch.current)
-        setFailedChange(current => current === failure && current ? { ...current, inspected: true } : current);
+        setFailedChange((current) =>
+          current === failure && current
+            ? { ...current, inspected: true }
+            : current,
+        );
     } finally {
       if (own === epoch.current) setInspecting(false);
     }
   }
   async function change(id: string, value: SettingValue, newAttempt = false) {
-    if (unavailable || !data || data.readOnly || !data.generation || writing.current) return;
+    if (
+      unavailable ||
+      !data ||
+      data.readOnly ||
+      !data.generation ||
+      writing.current
+    )
+      return;
     const own = epoch.current;
     writing.current = true;
     ticket.current++;
     setPending({ id, value });
     setError("");
     setFailedChange(undefined);
-    const commandKey = JSON.stringify([sourceId, conversationId, data.generation, data.settings.revision, id, value]);
+    const commandKey = JSON.stringify([
+      sourceId,
+      conversationId,
+      data.generation,
+      data.settings.revision,
+      id,
+      value,
+    ]);
     if (newAttempt) commands.current.delete(commandKey);
     const commandId = commands.current.get(commandKey) || crypto.randomUUID();
     commands.current.set(commandKey, commandId);
     try {
-      const next = await call(workspaceApi.setting, { params: { id: conversationId, setting: id }, body: {
+      const next = await call(workspaceApi.setting, {
+        params: { id: conversationId, setting: id },
+        body: {
           value,
           revision: data.settings.revision,
           generation: data.generation,
           commandId,
-        } },
-      );
+        },
+      });
       if (own === epoch.current) {
         commands.current.delete(commandKey);
         setData(next);
@@ -201,17 +243,38 @@ export function SessionActivityControls({
           )}
           {failedChange && (
             <p className="note">
-              {failedChange.inspected ? "Session status is up to date. Apply the setting again if needed." : "Refresh session status before applying the setting again."}
+              {failedChange.inspected
+                ? "Session status is up to date. Apply the setting again if needed."
+                : "Refresh session status before applying the setting again."}
               {failedChange.inspected && (
                 <button
                   type="button"
-                  disabled={!!unavailable || !!pending || inspecting || !data || data.readOnly || !data.generation || data.capabilities.settings.state !== "supported" || !data.settings.options.find(option => option.id === failedChange.id)?.mutable}
-                  onClick={() => void change(failedChange.id, failedChange.value, true)}
-                >Apply setting again</button>
+                  disabled={
+                    !!unavailable ||
+                    !!pending ||
+                    inspecting ||
+                    !data ||
+                    data.readOnly ||
+                    !data.generation ||
+                    data.capabilities.settings.state !== "supported" ||
+                    !data.settings.options.find(
+                      (option) => option.id === failedChange.id,
+                    )?.mutable
+                  }
+                  onClick={() =>
+                    void change(failedChange.id, failedChange.value, true)
+                  }
+                >
+                  Apply setting again
+                </button>
               )}
             </p>
           )}
-          {unavailable && <p className="field-hint" role="status">{unavailable}</p>}
+          {unavailable && (
+            <p className="field-hint" role="status">
+              {unavailable}
+            </p>
+          )}
           {!data && !error && !readError && (
             <p role="status">Discovering session controls…</p>
           )}

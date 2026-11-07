@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
 import { ZodError } from "zod";
-import { PERSONAL_DECISION_RESPONSE_LIMIT, PERSONAL_DECISIONS_PAGE_LIMIT } from "../src/shared/personal-decisions";
+import {
+  PERSONAL_DECISION_RESPONSE_LIMIT,
+  PERSONAL_DECISIONS_PAGE_LIMIT,
+} from "../src/shared/personal-decisions";
 const dir = mkdtempSync(join(tmpdir(), "loop-mobile-return-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
@@ -24,8 +27,10 @@ db.prepare = ((sql: string) => {
   }
   return statement;
 }) as typeof db.prepare;
-const { ownedRun, ownedConversation,  createAgent, owned, Problem } = await import("../src/server/domain");
-const { recordConversationUpdate } = await import("../src/server/conversation-updates");
+const { ownedRun, ownedConversation, createAgent, owned, Problem } =
+  await import("../src/server/domain");
+const { recordConversationUpdate } =
+  await import("../src/server/conversation-updates");
 const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
@@ -34,18 +39,21 @@ const { sharing } = await import("../src/server/sharing");
 const { transition } = await import("../src/server/queue");
 const { requestApproval } = await import("../src/server/approvals");
 const { seal } = await import("../src/server/secrets");
-const { ensureWorkspaceProject } = await import("../src/server/workspace-project");
+const { ensureWorkspaceProject } =
+  await import("../src/server/workspace-project");
 const { deliverNotifications } = await import("../src/server/notifications");
 const effects = await import("../src/server/effect-authority");
-const { fleetEffectAuthority } = await import("../src/server/fleet-effect-authorizations");
+const { fleetEffectAuthority } =
+  await import("../src/server/fleet-effect-authorizations");
 const { withFleetAction } = await import("../src/server/fleet-action-context");
-const { editQueuedRun } = await import("../src/server/mobile-return/queued-runs");
+const { editQueuedRun } =
+  await import("../src/server/mobile-return/queued-runs");
 const { ExecutionRefused } = await import("../src/server/execution-refusal");
-const { refuseRecordedEffects } = await import("../src/server/recorded-effects");
+const { refuseRecordedEffects } =
+  await import("../src/server/recorded-effects");
 const { executeAgent } = await import("../src/server/agent-runtime");
-const { surfaceLater, deliverScheduledSends } = await import(
-  "../src/server/mobile-return"
-);
+const { surfaceLater, deliverScheduledSends } =
+  await import("../src/server/mobile-return");
 
 // Production routers, mounted in production order (mobile before core).
 const app = express();
@@ -141,7 +149,8 @@ function message(
 }
 function subscribe(owner: string) {
   const subscription = {
-    endpoint: "https://fcm.googleapis.com/fcm/send/" + randomBytes(8).toString("hex"),
+    endpoint:
+      "https://fcm.googleapis.com/fcm/send/" + randomBytes(8).toString("hex"),
     keys: {
       p256dh: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString(
         "base64url",
@@ -161,16 +170,21 @@ function subscribe(owner: string) {
 }
 
 it("persists team result and thread visibility without hiding attention, explicit history or unrelated agent work", async () => {
-  const w = workspaceFor(), manager = w.agent(), worker = w.agent();
+  const w = workspaceFor(),
+    manager = w.agent(),
+    worker = w.agent();
   const create = async (name: string) => {
     const response = await api(w.owner, "/teams", "POST", {
-      name, managerId: manager.id, members: [worker.id],
+      name,
+      managerId: manager.id,
+      members: [worker.id],
     });
     expect(response.status).toBe(201);
     expect(response.data.hide_results_from_feed).toBe(0);
     return response.data;
   };
-  const review = await create("PR review"), council = await create("LLM council");
+  const review = await create("PR review"),
+    council = await create("LLM council");
   const completed = (cid: string, agentId = manager.id) => {
     const rid = run(w.owner, agentId, cid);
     return message(w.owner, cid, "assistant", "Team result", rid);
@@ -178,36 +192,93 @@ it("persists team result and thread visibility without hiding attention, explici
   const reviewMessage = completed(review.conversation_id);
   completed(council.conversation_id);
   const delegated = conversation(w.owner, worker.id);
-  db.prepare("UPDATE conversations SET team_id=? WHERE id=?").run(review.id, delegated);
+  db.prepare("UPDATE conversations SET team_id=? WHERE id=?").run(
+    review.id,
+    delegated,
+  );
   completed(delegated, worker.id);
   const solo = conversation(w.owner, worker.id);
   completed(solo, worker.id);
-  const folder = (await api(w.owner, "/folders", "POST", { name: "Project", kind: "project" })).data.id;
-  db.prepare("UPDATE conversations SET project_id=? WHERE owner_id=?").run(folder, w.owner);
+  const folder = (
+    await api(w.owner, "/folders", "POST", { name: "Project", kind: "project" })
+  ).data.id;
+  db.prepare("UPDATE conversations SET project_id=? WHERE owner_id=?").run(
+    folder,
+    w.owner,
+  );
   await api(w.owner, `/messages/${reviewMessage}/saved`, "POST");
-  const cards = async (query = "filter=done&expand=results") => (await api(w.owner, `/feed?${query}`)).data;
-  const ids = (page: any) => page.items.map((item: any) => item.conversation_id);
+  const cards = async (query = "filter=done&expand=results") =>
+    (await api(w.owner, `/feed?${query}`)).data;
+  const ids = (page: any) =>
+    page.items.map((item: any) => item.conversation_id);
   const setHidden = (team: string, hidden: boolean, owner: string = w.owner) =>
-    api(owner, `/teams/${team}/feed-visibility`, "PATCH", { hideResultsFromFeed: hidden });
-  expect(ids(await cards())).toEqual(expect.arrayContaining([review.conversation_id, council.conversation_id, delegated, solo]));
+    api(owner, `/teams/${team}/feed-visibility`, "PATCH", {
+      hideResultsFromFeed: hidden,
+    });
+  expect(ids(await cards())).toEqual(
+    expect.arrayContaining([
+      review.conversation_id,
+      council.conversation_id,
+      delegated,
+      solo,
+    ]),
+  );
 
   expect((await setHidden(review.id, true, "intruder")).status).toBe(404);
-  expect((await api(w.owner, `/teams/${review.id}/feed-visibility`, "PATCH", { hideResultsFromFeed: "true" })).status).toBe(400);
-  expect((await api(w.owner, `/teams/${review.id}/feed-visibility`, "PATCH", {})).status).toBe(400);
-  expect((await setHidden(review.id, true)).data.hide_results_from_feed).toBe(1);
-  expect((await api(w.owner, "/teams")).data.find((t: any) => t.id === review.id).hide_results_from_feed).toBe(1);
-  expect(ids(await cards()).sort()).toEqual([council.conversation_id, solo].sort());
-  expect(ids(await cards(`filter=done&expand=results&folder=${folder}`)).sort()).toEqual([council.conversation_id, solo].sort());
-  expect(ids(await cards(`filter=done&expand=results&teams=${review.id}`)).sort()).toEqual([review.conversation_id, delegated].sort());
-  expect(ids(await cards(`filter=done&expand=results&agent=${worker.id}`)).sort()).toEqual([delegated, solo].sort());
-  expect(ids(await cards("filter=all")).sort()).toEqual([council.conversation_id, solo].sort());
-  expect(ids(await cards(`filter=all&folder=${folder}`)).sort()).toEqual([council.conversation_id, solo].sort());
-  expect(ids(await cards(`filter=all&teams=${review.id}`)).sort()).toEqual([review.conversation_id, delegated].sort());
-  expect(ids(await cards(`filter=all&agent=${worker.id}`)).sort()).toEqual([delegated, solo].sort());
-  expect((await api("intruder", `/feed?filter=all&teams=${review.id}`)).status).toBe(404);
+  expect(
+    (
+      await api(w.owner, `/teams/${review.id}/feed-visibility`, "PATCH", {
+        hideResultsFromFeed: "true",
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (await api(w.owner, `/teams/${review.id}/feed-visibility`, "PATCH", {}))
+      .status,
+  ).toBe(400);
+  expect((await setHidden(review.id, true)).data.hide_results_from_feed).toBe(
+    1,
+  );
+  expect(
+    (await api(w.owner, "/teams")).data.find((t: any) => t.id === review.id)
+      .hide_results_from_feed,
+  ).toBe(1);
+  expect(ids(await cards()).sort()).toEqual(
+    [council.conversation_id, solo].sort(),
+  );
+  expect(
+    ids(await cards(`filter=done&expand=results&folder=${folder}`)).sort(),
+  ).toEqual([council.conversation_id, solo].sort());
+  expect(
+    ids(await cards(`filter=done&expand=results&teams=${review.id}`)).sort(),
+  ).toEqual([review.conversation_id, delegated].sort());
+  expect(
+    ids(await cards(`filter=done&expand=results&agent=${worker.id}`)).sort(),
+  ).toEqual([delegated, solo].sort());
+  expect(ids(await cards("filter=all")).sort()).toEqual(
+    [council.conversation_id, solo].sort(),
+  );
+  expect(ids(await cards(`filter=all&folder=${folder}`)).sort()).toEqual(
+    [council.conversation_id, solo].sort(),
+  );
+  expect(ids(await cards(`filter=all&teams=${review.id}`)).sort()).toEqual(
+    [review.conversation_id, delegated].sort(),
+  );
+  expect(ids(await cards(`filter=all&agent=${worker.id}`)).sort()).toEqual(
+    [delegated, solo].sort(),
+  );
+  expect(
+    (await api("intruder", `/feed?filter=all&teams=${review.id}`)).status,
+  ).toBe(404);
   expect(ids((await api("intruder", "/feed?filter=all")).data)).toEqual([]);
-  expect((await api(w.owner, "/saved")).data.items.some((item: any) => item.message?.message_id === reviewMessage)).toBe(true);
-  expect((await api(w.owner, `/conversations/${review.conversation_id}`)).status).toBe(200);
+  expect(
+    (await api(w.owner, "/saved")).data.items.some(
+      (item: any) => item.message?.message_id === reviewMessage,
+    ),
+  ).toBe(true);
+  expect(
+    (await api(w.owner, `/conversations/${review.conversation_id}`)).status,
+  ).toBe(200);
 
   // Both teams can be hidden independently, including new results.
   await setHidden(council.id, true);
@@ -218,7 +289,12 @@ it("persists team result and thread visibility without hiding attention, explici
   run(w.owner, worker.id, delegated, "running");
   run(w.owner, manager.id, council.conversation_id, "queued");
   const before = (await cards()).summary;
-  expect(before).toMatchObject({ needs: 1, working: 1, queued: 1, done_unread: 1 });
+  expect(before).toMatchObject({
+    needs: 1,
+    working: 1,
+    queued: 1,
+    done_unread: 1,
+  });
   expect(ids(await cards("filter=all"))).toEqual([solo]);
   expect((await cards("filter=all")).summary).toEqual(before);
   expect(ids(await cards("filter=needs"))).toEqual([review.conversation_id]);
@@ -227,8 +303,12 @@ it("persists team result and thread visibility without hiding attention, explici
   await setHidden(review.id, false);
   // Only the Done count follows the team's results back into view.
   expect((await cards()).summary).toEqual({ ...before, done_unread: 4 });
-  expect(ids(await cards()).sort()).toEqual([review.conversation_id, review.conversation_id, delegated, solo].sort());
-  expect(ids(await cards("filter=all")).sort()).toEqual([review.conversation_id, delegated, solo].sort());
+  expect(ids(await cards()).sort()).toEqual(
+    [review.conversation_id, review.conversation_id, delegated, solo].sort(),
+  );
+  expect(ids(await cards("filter=all")).sort()).toEqual(
+    [review.conversation_id, delegated, solo].sort(),
+  );
 
   await api(w.owner, `/teams/${council.id}`, "DELETE");
   expect((await setHidden(council.id, false)).status).toBe(404);
@@ -236,27 +316,51 @@ it("persists team result and thread visibility without hiding attention, explici
   expect(ids(await cards("filter=all"))).toContain(council.conversation_id);
 });
 
-it.each(["filter=done&expand=results", "filter=all"])("filters hidden teams before paging through %s", async (query) => {
-  const w = workspaceFor(), manager = w.agent(), worker = w.agent();
-  const team = (await api(w.owner, "/teams", "POST", {
-    name: "Review", managerId: manager.id, members: [worker.id],
-  })).data;
-  await api(w.owner, `/teams/${team.id}/feed-visibility`, "PATCH", { hideResultsFromFeed: true });
-  const visible: string[] = [];
-  for (let i = 0; i < 90; i++) {
-    const cid = conversation(w.owner, worker.id);
-    const rid = run(w.owner, worker.id, cid);
-    message(w.owner, cid, "assistant", "Finished", rid);
-    if (i < 45) visible.unshift(cid);
-    else db.prepare("UPDATE conversations SET team_id=? WHERE id=?").run(team.id, cid);
-  }
-  const first = (await api(w.owner, `/feed?${query}`)).data;
-  expect(first.items.map((item: any) => item.conversation_id)).toEqual(visible.slice(0, 40));
-  expect(first.next).toBeTruthy();
-  const second = (await api(w.owner, `/feed?${query}&before=${encodeURIComponent(first.next)}`)).data;
-  expect(second.items.map((item: any) => item.conversation_id)).toEqual(visible.slice(40));
-  expect(second.next).toBeNull();
-});
+it.each(["filter=done&expand=results", "filter=all"])(
+  "filters hidden teams before paging through %s",
+  async (query) => {
+    const w = workspaceFor(),
+      manager = w.agent(),
+      worker = w.agent();
+    const team = (
+      await api(w.owner, "/teams", "POST", {
+        name: "Review",
+        managerId: manager.id,
+        members: [worker.id],
+      })
+    ).data;
+    await api(w.owner, `/teams/${team.id}/feed-visibility`, "PATCH", {
+      hideResultsFromFeed: true,
+    });
+    const visible: string[] = [];
+    for (let i = 0; i < 90; i++) {
+      const cid = conversation(w.owner, worker.id);
+      const rid = run(w.owner, worker.id, cid);
+      message(w.owner, cid, "assistant", "Finished", rid);
+      if (i < 45) visible.unshift(cid);
+      else
+        db.prepare("UPDATE conversations SET team_id=? WHERE id=?").run(
+          team.id,
+          cid,
+        );
+    }
+    const first = (await api(w.owner, `/feed?${query}`)).data;
+    expect(first.items.map((item: any) => item.conversation_id)).toEqual(
+      visible.slice(0, 40),
+    );
+    expect(first.next).toBeTruthy();
+    const second = (
+      await api(
+        w.owner,
+        `/feed?${query}&before=${encodeURIComponent(first.next)}`,
+      )
+    ).data;
+    expect(second.items.map((item: any) => item.conversation_id)).toEqual(
+      visible.slice(40),
+    );
+    expect(second.next).toBeNull();
+  },
+);
 
 it("remembers where you stopped reading a thread, per owner", async () => {
   const w = workspaceFor(),
@@ -340,7 +444,9 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   const child = conversation(w.owner, a.id, "Child");
   const cr = run(w.owner, a.id, child, "completed");
   message(w.owner, child, "assistant", "Delegated result", cr);
-  db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')").run(nr, "call", cr);
+  db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')",
+  ).run(nr, "call", cr);
   expect(
     (
       await api(w.owner, "/later", "POST", {
@@ -368,7 +474,11 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
     // Named by its run's prompt, not the thread title.
     title: "prompt",
     agent_name: a.name,
-    last_message: { role: "assistant", preview: "Hi there", content: "  Hi\n\n there  " },
+    last_message: {
+      role: "assistant",
+      preview: "Hi there",
+      content: "  Hi\n\n there  ",
+    },
     run: { id: dr, state: "completed", queue_position: null },
     later: null,
   });
@@ -378,9 +488,12 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   );
   expect(workingItem.run).toMatchObject({ id: wr, state: "running" });
   const filter = async (name: string) =>
-    (await api(w.owner, "/feed?filter=" + name + (name === "done" ? "&expand=results" : ""))).data.items.map(
-      (i: any) => i.conversation_id,
-    );
+    (
+      await api(
+        w.owner,
+        "/feed?filter=" + name + (name === "done" ? "&expand=results" : ""),
+      )
+    ).data.items.map((i: any) => i.conversation_id);
   expect(await filter("needs")).toEqual([needs]);
   expect(await filter("working")).toEqual([working]);
   expect(await filter("queued")).toEqual([working]);
@@ -395,13 +508,22 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   message(w.owner, followUp, "assistant", "First answer", first);
   const second = run(w.owner, a.id, followUp, "queued");
   message(w.owner, followUp, "user", "Second", second);
-  expect(await filter("done")).toEqual(expect.arrayContaining([done, followUp]));
+  expect(await filter("done")).toEqual(
+    expect.arrayContaining([done, followUp]),
+  );
   expect(await filter("queued")).toContain(followUp);
   // ...and while it works: Done keeps the finished answer, Working shows
   // only what the new run has produced.
-  db.prepare("UPDATE runs SET state='running',worker_id='w' WHERE id=?").run(second);
+  db.prepare("UPDATE runs SET state='running',worker_id='w' WHERE id=?").run(
+    second,
+  );
   const items = async (name: string) =>
-    (await api(w.owner, "/feed?filter=" + name + (name === "done" ? "&expand=results" : ""))).data.items;
+    (
+      await api(
+        w.owner,
+        "/feed?filter=" + name + (name === "done" ? "&expand=results" : ""),
+      )
+    ).data.items;
   const doneCard = (await items("done")).find(
     (i: any) => i.conversation_id === followUp,
   );
@@ -422,7 +544,7 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   });
   // A GitHub update is still input, not an agent preview.
   db.prepare(
-    "UPDATE messages SET metadata=json_set(metadata,'$.automation',json('{\"kind\":\"github_watch\",\"watchId\":\"w\"}')) WHERE run_id=? AND role='user'",
+    'UPDATE messages SET metadata=json_set(metadata,\'$.automation\',json(\'{"kind":"github_watch","watchId":"w"}\')) WHERE run_id=? AND role=\'user\'',
   ).run(second);
   const triggered = (await items("working")).find(
     (i: any) => i.conversation_id === followUp,
@@ -431,7 +553,13 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   // The hidden prompt still says who started the work.
   expect(triggered.run).toMatchObject({ automation: "github_watch" });
   // A saved progress row is not the agent's output.
-  const progress = message(w.owner, followUp, "assistant", "Status ping", second);
+  const progress = message(
+    w.owner,
+    followUp,
+    "assistant",
+    "Status ping",
+    second,
+  );
   db.prepare(
     "UPDATE messages SET metadata=json_set(metadata,'$.progress',1) WHERE id=?",
   ).run(progress);
@@ -439,13 +567,24 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
     (await items("working")).find((i: any) => i.conversation_id === followUp)
       .last_message,
   ).toBeNull();
-  message(w.owner, followUp, "assistant", "Checking the follow-up now.", second);
+  message(
+    w.owner,
+    followUp,
+    "assistant",
+    "Checking the follow-up now.",
+    second,
+  );
   expect(
     (await items("working")).find((i: any) => i.conversation_id === followUp)
       .last_message,
-  ).toMatchObject({ role: "assistant", content: "Checking the follow-up now." });
+  ).toMatchObject({
+    role: "assistant",
+    content: "Checking the follow-up now.",
+  });
   // A failed follow-up needs you, and the earlier answer is still done.
-  db.prepare("UPDATE runs SET state='failed',worker_id=NULL WHERE id=?").run(second);
+  db.prepare("UPDATE runs SET state='failed',worker_id=NULL WHERE id=?").run(
+    second,
+  );
   expect(await filter("needs")).toContain(followUp);
   expect(await filter("done")).toContain(followUp);
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(second);
@@ -466,7 +605,9 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
     );
   expect(await byAgent(b.id)).toEqual([other]);
   expect(await byAgent(a.id)).not.toContain(other);
-  expect((await api(workspaceFor().owner, "/feed?agent=" + a.id)).status).toBe(404);
+  expect((await api(workspaceFor().owner, "/feed?agent=" + a.id)).status).toBe(
+    404,
+  );
   // Dismissing the failure removes it from needs.
   db.prepare("UPDATE runs SET attention_dismissed_at=1 WHERE id=?").run(nr);
   expect(await filter("needs")).toEqual([]);
@@ -490,7 +631,11 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
   expect(rest.data.items).toHaveLength(5);
   expect(rest.data.next).toBeNull();
   expect(
-    new Set([...page.data.items, ...rest.data.items].map((i: any) => i.conversation_id)).size,
+    new Set(
+      [...page.data.items, ...rest.data.items].map(
+        (i: any) => i.conversation_id,
+      ),
+    ).size,
   ).toBe(45);
   // Done pages by when each output finished.
   const donePage = await api(p.owner, "/feed?filter=done&expand=results");
@@ -515,137 +660,270 @@ it("filters the feed, hides snoozed conversations from all, and isolates owners"
 });
 
 it("surfaces a native run interrupted while awaiting approval, without replay or a stale approval action", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id, "Merge after review");
   const rid = run(w.owner, a.id, cid, "awaiting_approval");
   message(w.owner, cid, "user", "Merge the PR after approval", rid);
   const pending = requestApproval(ownedRun(rid, w.owner), {
-    type: "mcp_tool", tool: "merge_pull_request", arguments: { expectedHeadSha: "a".repeat(40) },
+    type: "mcp_tool",
+    tool: "merge_pull_request",
+    arguments: { expectedHeadSha: "a".repeat(40) },
   });
-  db.prepare("INSERT INTO native_dispatch(run_id,generation,digest,state,created_at) VALUES(?,'stopped-host','digest','accepted',?)").run(rid, now());
+  db.prepare(
+    "INSERT INTO native_dispatch(run_id,generation,digest,state,created_at) VALUES(?,'stopped-host','digest','accepted',?)",
+  ).run(rid, now());
   const page = async () => (await api(w.owner, "/feed?filter=needs")).data;
   expect((await page()).items[0]).toMatchObject({
-    pending_approvals: 1, next_action: { kind: "approve", run_id: rid },
+    pending_approvals: 1,
+    next_action: { kind: "approve", run_id: rid },
   });
   expect((await api(w.owner, "/approvals")).data).toHaveLength(1);
 
   const { NativeSessions } = await import("../src/server/native-sessions");
   new NativeSessions().recover();
-  expect((await page()).items).toMatchObject([{
-    conversation_id: cid, pending_approvals: 0, next_action: null,
-    run: { id: rid, state: "interrupted", error: expect.stringContaining("Host stopped") },
-  }]);
+  expect((await page()).items).toMatchObject([
+    {
+      conversation_id: cid,
+      pending_approvals: 0,
+      next_action: null,
+      run: {
+        id: rid,
+        state: "interrupted",
+        error: expect.stringContaining("Host stopped"),
+      },
+    },
+  ]);
   expect((await page()).summary.needs).toBe(1);
   expect((await api(w.owner, "/approvals")).data).toEqual([]);
-  expect(db.prepare("SELECT state FROM approvals WHERE id=?").get(pending.id)).toEqual({ state: "rejected" });
-  expect((await api(w.owner, `/approvals/${pending.id}`, "POST", { decision: "approve" })).status).toBe(409);
-  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(rid)).toEqual({ state: "interrupted" });
-  expect(db.prepare("SELECT count(*) n FROM runs WHERE conversation_id=?").get(cid)).toEqual({ n: 1 });
+  expect(
+    db.prepare("SELECT state FROM approvals WHERE id=?").get(pending.id),
+  ).toEqual({ state: "rejected" });
+  expect(
+    (
+      await api(w.owner, `/approvals/${pending.id}`, "POST", {
+        decision: "approve",
+      })
+    ).status,
+  ).toBe(409);
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(rid)).toEqual({
+    state: "interrupted",
+  });
+  expect(
+    db.prepare("SELECT count(*) n FROM runs WHERE conversation_id=?").get(cid),
+  ).toEqual({ n: 1 });
   expect((await api("intruder", "/feed?filter=needs")).data.items).toEqual([]);
   await api(w.owner, `/runs/${rid}/dismiss`, "POST", {});
   expect((await page()).items).toEqual([]);
   expect((await page()).summary.needs).toBe(0);
 });
 
-it.each(["failed", "interrupted"])("ignores legacy pending approvals and native decisions on a %s run", async (state) => {
-  const w = workspaceFor(), a = w.agent();
-  const cid = conversation(w.owner, a.id);
-  const rid = run(w.owner, a.id, cid, state);
-  // Reproduce an older source's stale records, after terminal-state cleanup.
-  requestApproval(ownedRun(rid, w.owner), { type: "mcp_tool", tool: "merge_pull_request" });
-  db.prepare("INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,created_at) VALUES(?,?,?,'old','decision','{}','pending',?)")
-    .run(id(), rid, cid, now());
-  const page = (await api(w.owner, "/feed?filter=needs")).data;
-  expect(page.items).toMatchObject([{
-    conversation_id: cid, run: { id: rid, state }, pending_approvals: 0, next_action: null,
-  }]);
-  expect((await api(w.owner, "/approvals")).data).toEqual([]);
-});
+it.each(["failed", "interrupted"])(
+  "ignores legacy pending approvals and native decisions on a %s run",
+  async (state) => {
+    const w = workspaceFor(),
+      a = w.agent();
+    const cid = conversation(w.owner, a.id);
+    const rid = run(w.owner, a.id, cid, state);
+    // Reproduce an older source's stale records, after terminal-state cleanup.
+    requestApproval(ownedRun(rid, w.owner), {
+      type: "mcp_tool",
+      tool: "merge_pull_request",
+    });
+    db.prepare(
+      "INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,created_at) VALUES(?,?,?,'old','decision','{}','pending',?)",
+    ).run(id(), rid, cid, now());
+    const page = (await api(w.owner, "/feed?filter=needs")).data;
+    expect(page.items).toMatchObject([
+      {
+        conversation_id: cid,
+        run: { id: rid, state },
+        pending_approvals: 0,
+        next_action: null,
+      },
+    ]);
+    expect((await api(w.owner, "/approvals")).data).toEqual([]);
+  },
+);
 
 it("shows delegation work through its Feed lifecycle", async () => {
-  const w = workspaceFor(), manager = w.agent(), worker = w.agent();
-  const parent = run(w.owner, manager.id, conversation(w.owner, manager.id), "running");
+  const w = workspaceFor(),
+    manager = w.agent(),
+    worker = w.agent();
+  const parent = run(
+    w.owner,
+    manager.id,
+    conversation(w.owner, manager.id),
+    "running",
+  );
   const cid = conversation(w.owner, worker.id);
-  const child = run(w.owner, worker.id, cid, "queued", { input: "Investigate the failure" });
-  db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')").run(parent, "delegate", child);
+  const child = run(w.owner, worker.id, cid, "queued", {
+    input: "Investigate the failure",
+  });
+  db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')",
+  ).run(parent, "delegate", child);
   message(w.owner, cid, "user", "Investigate the failure", child);
   const cards = async (filter: string, owner: string = w.owner) =>
-    (await api(owner, `/feed?filter=${filter}${filter === "done" ? "&expand=results" : ""}`)).data.items.filter((item: any) => item.conversation_id === cid);
-  expect(await cards("queued")).toMatchObject([{ agent_id: worker.id, run: { id: child, state: "queued" } }]);
+    (
+      await api(
+        owner,
+        `/feed?filter=${filter}${filter === "done" ? "&expand=results" : ""}`,
+      )
+    ).data.items.filter((item: any) => item.conversation_id === cid);
+  expect(await cards("queued")).toMatchObject([
+    { agent_id: worker.id, run: { id: child, state: "queued" } },
+  ]);
   expect(await cards("done")).toEqual([]);
 
-  db.prepare("UPDATE runs SET state='running',worker_id='worker' WHERE id=?").run(child);
-  expect(await cards("working")).toMatchObject([{
-    title: "Investigate the failure", agent_id: worker.id, last_message: null,
-    run: { id: child, state: "running" },
-  }]);
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='worker' WHERE id=?",
+  ).run(child);
+  expect(await cards("working")).toMatchObject([
+    {
+      title: "Investigate the failure",
+      agent_id: worker.id,
+      last_message: null,
+      run: { id: child, state: "running" },
+    },
+  ]);
   expect(await cards("queued")).toEqual([]);
   expect(await cards("working", "intruder")).toEqual([]);
 
   db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(child);
-  expect(await cards("needs")).toMatchObject([{ run: { id: child, state: "awaiting_approval" } }]);
+  expect(await cards("needs")).toMatchObject([
+    { run: { id: child, state: "awaiting_approval" } },
+  ]);
   expect(await cards("working")).toEqual([]);
 
-  db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(clock++, child);
+  db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(
+    clock++,
+    child,
+  );
   message(w.owner, cid, "assistant", "Found the cause", child);
-  expect(await cards("done")).toMatchObject([{
-    done_card_key: `run:${child}`, last_message: { content: "Found the cause" },
-    run: { id: child, state: "completed" },
-  }]);
+  expect(await cards("done")).toMatchObject([
+    {
+      done_card_key: `run:${child}`,
+      last_message: { content: "Found the cause" },
+      run: { id: child, state: "completed" },
+    },
+  ]);
   expect(await cards("needs")).toEqual([]);
   expect(await cards("done", "intruder")).toEqual([]);
-  expect((await api(w.owner, "/feed/away?since=0")).data.completed.map((item: any) => item.run_id)).toContain(child);
+  expect(
+    (await api(w.owner, "/feed/away?since=0")).data.completed.map(
+      (item: any) => item.run_id,
+    ),
+  ).toContain(child);
 });
 
 it("keeps every completed result in Done through later work until that result is dismissed", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id, "Ongoing thread");
   const first = run(w.owner, a.id, cid, "completed", { input: "First task" });
   const firstAnswer = message(w.owner, cid, "assistant", "First result", first);
-  const page = async (filter = "done") => (await api(w.owner, `/feed?filter=${filter}${filter === "done" ? "&expand=results" : ""}`)).data;
+  const page = async (filter = "done") =>
+    (
+      await api(
+        w.owner,
+        `/feed?filter=${filter}${filter === "done" ? "&expand=results" : ""}`,
+      )
+    ).data;
   const original = (await page()).items[0];
   const second = run(w.owner, a.id, cid, "queued", { input: "Second task" });
   message(w.owner, cid, "user", "Second task", second);
-  for (const state of ["queued", "running", "awaiting_approval", "failed", "interrupted"]) {
-    db.prepare("UPDATE runs SET state=?,worker_id='worker',updated_at=? WHERE id=?").run(state, clock++, second);
+  for (const state of [
+    "queued",
+    "running",
+    "awaiting_approval",
+    "failed",
+    "interrupted",
+  ]) {
+    db.prepare(
+      "UPDATE runs SET state=?,worker_id='worker',updated_at=? WHERE id=?",
+    ).run(state, clock++, second);
     expect((await page()).items).toEqual([original]);
   }
-  const secondAnswer = message(w.owner, cid, "assistant", "Second result", second);
-  db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(clock++, second);
+  const secondAnswer = message(
+    w.owner,
+    cid,
+    "assistant",
+    "Second result",
+    second,
+  );
+  db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(
+    clock++,
+    second,
+  );
   const completed = await page();
   expect(completed.items).toMatchObject([
-    { done_card_key: `run:${second}`, title: "Second task", last_message: { id: secondAnswer, content: "Second result" } },
+    {
+      done_card_key: `run:${second}`,
+      title: "Second task",
+      last_message: { id: secondAnswer, content: "Second result" },
+    },
     original,
   ]);
   expect(completed.items).toHaveLength(2);
-  expect(completed.items[1].next_action).toMatchObject({ run_id: first, message_id: firstAnswer });
+  expect(completed.items[1].next_action).toMatchObject({
+    run_id: first,
+    message_id: firstAnswer,
+  });
   // A new run changes activity counts once, even with several Done cards.
   const third = run(w.owner, a.id, cid, "running");
   db.prepare("UPDATE runs SET worker_id='worker' WHERE id=?").run(third);
   message(w.owner, cid, "assistant", "Working on the third task", third);
   expect((await page()).items).toEqual(completed.items);
-  expect((await page()).summary).toMatchObject({ working: 1, queued: 0, needs: 0 });
+  expect((await page()).summary).toMatchObject({
+    working: 1,
+    queued: 0,
+    needs: 0,
+  });
   expect((await page("working")).items).toMatchObject([{ run: { id: third } }]);
   // Reminding yourself about the conversation does not remove its results.
-  await api(w.owner, "/later", "POST", { kind: "conversation", targetId: cid, condition: "time", dueAt: now() + 3600000 });
-  expect((await page()).items.map((item: any) => item.done_card_key)).toEqual([`run:${second}`, `run:${first}`]);
-  const dismiss = (hidden: boolean) => api(w.owner, `/feed/${cid}`, "PATCH", { hidden, cardKey: `run:${first}` });
+  await api(w.owner, "/later", "POST", {
+    kind: "conversation",
+    targetId: cid,
+    condition: "time",
+    dueAt: now() + 3600000,
+  });
+  expect((await page()).items.map((item: any) => item.done_card_key)).toEqual([
+    `run:${second}`,
+    `run:${first}`,
+  ]);
+  const dismiss = (hidden: boolean) =>
+    api(w.owner, `/feed/${cid}`, "PATCH", { hidden, cardKey: `run:${first}` });
   expect((await dismiss(true)).status).toBe(200);
-  expect((await page()).items.map((item: any) => item.done_card_key)).toEqual([`run:${second}`]);
+  expect((await page()).items.map((item: any) => item.done_card_key)).toEqual([
+    `run:${second}`,
+  ]);
   expect((await dismiss(false)).status).toBe(200);
-  expect((await page()).items.map((item: any) => item.done_card_key)).toEqual([`run:${second}`, `run:${first}`]);
-  expect((await api(w.owner, `/messages/${firstAnswer}`)).data.content).toBe("First result");
+  expect((await page()).items.map((item: any) => item.done_card_key)).toEqual([
+    `run:${second}`,
+    `run:${first}`,
+  ]);
+  expect((await api(w.owner, `/messages/${firstAnswer}`)).data.content).toBe(
+    "First result",
+  );
   expect((await page("all")).items).toEqual([]); // The reminder still snoozes the thread view.
-  expect((await api("intruder", "/feed?filter=done&expand=results")).data.items).toEqual([]);
+  expect(
+    (await api("intruder", "/feed?filter=done&expand=results")).data.items,
+  ).toEqual([]);
 });
 
 it("expands only completed runs with final answers, excluding historical prompts, commentary and empty output", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id);
   const promptOnly = run(w.owner, a.id, cid);
   message(w.owner, cid, "user", "Do this work", promptOnly);
   const commentaryOnly = run(w.owner, a.id, cid);
-  recordConversationUpdate({ id: commentaryOnly, owner_id: w.owner }, "commentary", { content: "Still investigating" });
+  recordConversationUpdate(
+    { id: commentaryOnly, owner_id: w.owner },
+    "commentary",
+    { content: "Still investigating" },
+  );
   for (const content of ["   ", "\n", "\t", " \r\n\t ", "\u00a0\u2003\ufeff"]) {
     const empty = run(w.owner, a.id, cid);
     message(w.owner, cid, "assistant", content, empty);
@@ -653,34 +931,62 @@ it("expands only completed runs with final answers, excluding historical prompts
   }
   run(w.owner, a.id, cid); // A completed turn with no recorded message.
   const finished = run(w.owner, a.id, cid);
-  const answer = message(w.owner, cid, "assistant", "The final answer", finished);
+  const answer = message(
+    w.owner,
+    cid,
+    "assistant",
+    "The final answer",
+    finished,
+  );
   message(w.owner, cid, "assistant", "\n\t ", finished);
   const page = (await api(w.owner, "/feed?filter=done&expand=results")).data;
   expect(page.items).toHaveLength(1);
-  expect(page.items[0]).toMatchObject({ done_card_key: `run:${finished}`, last_message: { id: answer } });
-  expect((await api(w.owner, `/messages/${answer}/saved`, "POST")).status).toBe(200);
+  expect(page.items[0]).toMatchObject({
+    done_card_key: `run:${finished}`,
+    last_message: { id: answer },
+  });
+  expect((await api(w.owner, `/messages/${answer}/saved`, "POST")).status).toBe(
+    200,
+  );
 });
 
-it.each(["prompt", "commentary", "whitespace", "empty"])("keeps an idle %s-only thread without a result preview", async (kind) => {
-  const w = workspaceFor(), a = w.agent();
-  const cid = conversation(w.owner, a.id);
-  const rid = run(w.owner, a.id, cid);
-  if (kind !== "empty") message(w.owner, cid, "user", "Do this work", rid);
-  if (kind === "commentary")
-    recordConversationUpdate({ id: rid, owner_id: w.owner }, "commentary", { content: "Still investigating" });
-  if (kind === "whitespace") message(w.owner, cid, "assistant", "\n\t ", rid);
-  const page = async () => (await api(w.owner, "/feed?filter=done&expand=results")).data.items;
-  const items = await page();
-  expect(items).toHaveLength(1);
-  expect(items[0]).toMatchObject({ done_card_key: `run:${rid}`, last_message: null });
-  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: `run:${rid}` });
-  expect(await page()).toEqual([]);
-  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: false, cardKey: `run:${rid}` });
-  expect(await page()).toEqual(items);
-});
+it.each(["prompt", "commentary", "whitespace", "empty"])(
+  "keeps an idle %s-only thread without a result preview",
+  async (kind) => {
+    const w = workspaceFor(),
+      a = w.agent();
+    const cid = conversation(w.owner, a.id);
+    const rid = run(w.owner, a.id, cid);
+    if (kind !== "empty") message(w.owner, cid, "user", "Do this work", rid);
+    if (kind === "commentary")
+      recordConversationUpdate({ id: rid, owner_id: w.owner }, "commentary", {
+        content: "Still investigating",
+      });
+    if (kind === "whitespace") message(w.owner, cid, "assistant", "\n\t ", rid);
+    const page = async () =>
+      (await api(w.owner, "/feed?filter=done&expand=results")).data.items;
+    const items = await page();
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      done_card_key: `run:${rid}`,
+      last_message: null,
+    });
+    await api(w.owner, `/feed/${cid}`, "PATCH", {
+      hidden: true,
+      cardKey: `run:${rid}`,
+    });
+    expect(await page()).toEqual([]);
+    await api(w.owner, `/feed/${cid}`, "PATCH", {
+      hidden: false,
+      cardKey: `run:${rid}`,
+    });
+    expect(await page()).toEqual(items);
+  },
+);
 
 it("reads the production Done page and summary in one indexed projection query", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id);
   message(w.owner, cid, "assistant", "Run answer", run(w.owner, a.id, cid));
   message(w.owner, cid, "assistant", "Imported answer");
@@ -688,7 +994,9 @@ it("reads the production Done page and summary in one indexed projection query",
   let selections = 0;
   observeDoneQuery = (sql, args) => {
     selections++;
-    plan = prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as { detail: string }[];
+    plan = prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as {
+      detail: string;
+    }[];
   };
   try {
     // Exercise the cached path even when this test runs alone.
@@ -702,75 +1010,153 @@ it("reads the production Done page and summary in one indexed projection query",
   } finally {
     observeDoneQuery = undefined;
   }
-  expect(plan.some(row => /SEARCH p USING INDEX feed_cards_results/.test(row.detail))).toBe(true);
-  expect(plan.some(row => /SEARCH t USING COVERING INDEX feed_cards_summary/.test(row.detail))).toBe(true);
+  expect(
+    plan.some((row) =>
+      /SEARCH p USING INDEX feed_cards_results/.test(row.detail),
+    ),
+  ).toBe(true);
+  expect(
+    plan.some((row) =>
+      /SEARCH t USING COVERING INDEX feed_cards_summary/.test(row.detail),
+    ),
+  ).toBe(true);
   // The Done count reads only unread visible results, not every result.
-  expect(plan.some(row => /SEARCH u USING (?:COVERING )?INDEX feed_cards_unread/.test(row.detail))).toBe(true);
-  expect(plan.some(row => /(?:runs|messages)/.test(row.detail))).toBe(false);
+  expect(
+    plan.some((row) =>
+      /SEARCH u USING (?:COVERING )?INDEX feed_cards_unread/.test(row.detail),
+    ),
+  ).toBe(true);
+  expect(plan.some((row) => /(?:runs|messages)/.test(row.detail))).toBe(false);
 });
 
-it.each(["run", "imported"])("updates indexed %s answer eligibility when message content or progress changes", async (kind) => {
-  const w = workspaceFor(), a = w.agent();
-  const cid = conversation(w.owner, a.id);
-  message(w.owner, cid, "assistant", "Existing answer", run(w.owner, a.id, cid));
-  const rid = kind === "run" ? run(w.owner, a.id, cid) : undefined;
-  const mid = message(w.owner, cid, "assistant", "\n\t", rid);
-  const page = async () => (await api(w.owner, "/feed?filter=done&expand=results")).data.items;
-  expect(await page()).toHaveLength(1);
-  db.prepare("UPDATE messages SET content='New answer' WHERE id=?").run(mid);
-  expect(await page()).toHaveLength(2);
-  db.prepare("UPDATE messages SET metadata=? WHERE id=?").run('{"progress":true}', mid);
-  expect(await page()).toHaveLength(1);
-  db.prepare("UPDATE messages SET metadata='{}' WHERE id=?").run(mid);
-  expect(await page()).toHaveLength(2);
-  db.prepare("UPDATE messages SET content=? WHERE id=?").run("\n\t", mid);
-  expect(await page()).toHaveLength(1);
-});
+it.each(["run", "imported"])(
+  "updates indexed %s answer eligibility when message content or progress changes",
+  async (kind) => {
+    const w = workspaceFor(),
+      a = w.agent();
+    const cid = conversation(w.owner, a.id);
+    message(
+      w.owner,
+      cid,
+      "assistant",
+      "Existing answer",
+      run(w.owner, a.id, cid),
+    );
+    const rid = kind === "run" ? run(w.owner, a.id, cid) : undefined;
+    const mid = message(w.owner, cid, "assistant", "\n\t", rid);
+    const page = async () =>
+      (await api(w.owner, "/feed?filter=done&expand=results")).data.items;
+    expect(await page()).toHaveLength(1);
+    db.prepare("UPDATE messages SET content='New answer' WHERE id=?").run(mid);
+    expect(await page()).toHaveLength(2);
+    db.prepare("UPDATE messages SET metadata=? WHERE id=?").run(
+      '{"progress":true}',
+      mid,
+    );
+    expect(await page()).toHaveLength(1);
+    db.prepare("UPDATE messages SET metadata='{}' WHERE id=?").run(mid);
+    expect(await page()).toHaveLength(2);
+    db.prepare("UPDATE messages SET content=? WHERE id=?").run("\n\t", mid);
+    expect(await page()).toHaveLength(1);
+  },
+);
 
 it("filters and labels each completed result by its run's project", async () => {
-  const w = workspaceFor(), a = w.agent();
-  const project = async (name: string) => (await api(w.owner, "/folders", "POST", { name, kind: "project" })).data.id;
-  const firstProject = await project("First project"), secondProject = await project("Second project");
+  const w = workspaceFor(),
+    a = w.agent();
+  const project = async (name: string) =>
+    (await api(w.owner, "/folders", "POST", { name, kind: "project" })).data.id;
+  const firstProject = await project("First project"),
+    secondProject = await project("Second project");
   const cid = conversation(w.owner, a.id);
-  db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(firstProject, cid);
+  db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(
+    firstProject,
+    cid,
+  );
   const completed: string[] = [];
   for (const folderId of [firstProject, secondProject, firstProject]) {
     const rid = run(w.owner, a.id, cid, "completed", { payload: { folderId } });
     message(w.owner, cid, "assistant", "Result for " + folderId, rid);
     completed.push(rid);
   }
-  const cards = async (folder?: string) => (await api(w.owner,
-    "/feed?filter=done&expand=results" + (folder ? "&folder=" + folder : ""))).data.items;
-  expect((await cards()).map((item: any) => [item.run.id, item.project_id, item.project_name])).toEqual([
+  const cards = async (folder?: string) =>
+    (
+      await api(
+        w.owner,
+        "/feed?filter=done&expand=results" +
+          (folder ? "&folder=" + folder : ""),
+      )
+    ).data.items;
+  expect(
+    (await cards()).map((item: any) => [
+      item.run.id,
+      item.project_id,
+      item.project_name,
+    ]),
+  ).toEqual([
     [completed[2], firstProject, "First project"],
     [completed[1], secondProject, "Second project"],
     [completed[0], firstProject, "First project"],
   ]);
-  expect((await cards(firstProject)).map((item: any) => item.run.id)).toEqual([completed[2], completed[0]]);
-  expect((await cards(secondProject)).map((item: any) => item.run.id)).toEqual([completed[1]]);
+  expect((await cards(firstProject)).map((item: any) => item.run.id)).toEqual([
+    completed[2],
+    completed[0],
+  ]);
+  expect((await cards(secondProject)).map((item: any) => item.run.id)).toEqual([
+    completed[1],
+  ]);
 });
 
-it.each(["before", "after"])("keeps explicit Workspace results when the conversation project is assigned %s completion", async (assignment) => {
-  const w = workspaceFor(), a = w.agent();
-  const folder = (await api(w.owner, "/folders", "POST", { name: "Named project", kind: "project" })).data.id;
-  const defaultWorkspace = ensureWorkspaceProject(w.owner);
-  const cid = conversation(w.owner, a.id);
-  const assign = () => db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(folder, cid);
-  if (assignment === "before") assign();
-  const unfiled = run(w.owner, a.id, cid, "completed", { payload: { folderId: null } });
-  message(w.owner, cid, "assistant", "Workspace result", unfiled);
-  if (assignment === "after") assign();
-  const filed = run(w.owner, a.id, cid, "completed", { payload: { folderId: folder } });
-  message(w.owner, cid, "assistant", "Named project result", filed);
-  const cards = async (project?: string) => (await api(w.owner,
-    "/feed?filter=done&expand=results" + (project ? "&folder=" + project : ""))).data.items;
-  expect((await cards()).find((item: any) => item.run.id === unfiled)).toMatchObject({ project_id: null, project_name: null });
-  expect((await cards(folder)).map((item: any) => item.run.id)).toEqual([filed]);
-  expect((await cards(defaultWorkspace)).map((item: any) => item.run.id)).toEqual([unfiled]);
-});
+it.each(["before", "after"])(
+  "keeps explicit Workspace results when the conversation project is assigned %s completion",
+  async (assignment) => {
+    const w = workspaceFor(),
+      a = w.agent();
+    const folder = (
+      await api(w.owner, "/folders", "POST", {
+        name: "Named project",
+        kind: "project",
+      })
+    ).data.id;
+    const defaultWorkspace = ensureWorkspaceProject(w.owner);
+    const cid = conversation(w.owner, a.id);
+    const assign = () =>
+      db
+        .prepare("UPDATE conversations SET project_id=? WHERE id=?")
+        .run(folder, cid);
+    if (assignment === "before") assign();
+    const unfiled = run(w.owner, a.id, cid, "completed", {
+      payload: { folderId: null },
+    });
+    message(w.owner, cid, "assistant", "Workspace result", unfiled);
+    if (assignment === "after") assign();
+    const filed = run(w.owner, a.id, cid, "completed", {
+      payload: { folderId: folder },
+    });
+    message(w.owner, cid, "assistant", "Named project result", filed);
+    const cards = async (project?: string) =>
+      (
+        await api(
+          w.owner,
+          "/feed?filter=done&expand=results" +
+            (project ? "&folder=" + project : ""),
+        )
+      ).data.items;
+    expect(
+      (await cards()).find((item: any) => item.run.id === unfiled),
+    ).toMatchObject({ project_id: null, project_name: null });
+    expect((await cards(folder)).map((item: any) => item.run.id)).toEqual([
+      filed,
+    ]);
+    expect(
+      (await cards(defaultWorkspace)).map((item: any) => item.run.id),
+    ).toEqual([unfiled]);
+  },
+);
 
 it("keeps unexpanded Done compatible with clients that identify rows by conversation", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const latest = new Set<string>();
   for (let i = 0; i < 45; i++) {
     const cid = conversation(w.owner, a.id);
@@ -782,8 +1168,11 @@ it("keeps unexpanded Done compatible with clients that identify rows by conversa
   }
   const first = (await api(w.owner, "/feed?filter=done")).data;
   expect(first.items).toHaveLength(40);
-  expect(JSON.parse(Buffer.from(first.next, "base64url").toString())).toHaveLength(2);
-  const second = (await api(w.owner, `/feed?filter=done&before=${first.next}`)).data;
+  expect(
+    JSON.parse(Buffer.from(first.next, "base64url").toString()),
+  ).toHaveLength(2);
+  const second = (await api(w.owner, `/feed?filter=done&before=${first.next}`))
+    .data;
   expect(second.items).toHaveLength(5);
   const rows = [...first.items, ...second.items];
   expect(new Set(rows.map((row: any) => row.conversation_id)).size).toBe(45);
@@ -791,61 +1180,106 @@ it("keeps unexpanded Done compatible with clients that identify rows by conversa
   expect(second.next).toBeNull();
 });
 
-it.each(["current", "legacy"])("pages every completed result with a %s cursor, including equal completion times and dismissed cards", async (cursorKind) => {
-  const w = workspaceFor(), a = w.agent();
-  const cid = conversation(w.owner, a.id);
-  const results: string[] = [];
-  for (let i = 0; i < 85; i++) {
-    const rid = run(w.owner, a.id, cid);
-    message(w.owner, cid, "assistant", `Result ${i}`, rid);
-    results.push(`run:${rid}`);
-  }
-  const completedAt = clock++;
-  db.prepare("UPDATE runs SET updated_at=? WHERE conversation_id=?").run(completedAt, cid);
-  results.sort().reverse();
-  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: results[12] });
-  results.splice(12, 1);
-  const received: string[] = [];
-  // Legacy cursors identify only a timestamp and conversation. Revisit that
-  // boundary to recover every tied result, then continue with exact-card cursors.
-  let cursor = cursorKind === "legacy"
-    ? Buffer.from(JSON.stringify([completedAt, cid])).toString("base64url")
-    : "";
-  for (const size of [40, 40, 4]) {
-    const response = await api(w.owner, `/feed?filter=done&expand=results${cursor ? `&before=${encodeURIComponent(cursor)}` : ""}`);
-    expect(response.status).toBe(200);
-    expect(response.data.items).toHaveLength(size);
-    received.push(...response.data.items.map((item: any) => item.done_card_key));
-    cursor = response.data.next;
-  }
-  expect(cursor).toBeNull();
-  expect(received).toEqual(results);
-});
+it.each(["current", "legacy"])(
+  "pages every completed result with a %s cursor, including equal completion times and dismissed cards",
+  async (cursorKind) => {
+    const w = workspaceFor(),
+      a = w.agent();
+    const cid = conversation(w.owner, a.id);
+    const results: string[] = [];
+    for (let i = 0; i < 85; i++) {
+      const rid = run(w.owner, a.id, cid);
+      message(w.owner, cid, "assistant", `Result ${i}`, rid);
+      results.push(`run:${rid}`);
+    }
+    const completedAt = clock++;
+    db.prepare("UPDATE runs SET updated_at=? WHERE conversation_id=?").run(
+      completedAt,
+      cid,
+    );
+    results.sort().reverse();
+    await api(w.owner, `/feed/${cid}`, "PATCH", {
+      hidden: true,
+      cardKey: results[12],
+    });
+    results.splice(12, 1);
+    const received: string[] = [];
+    // Legacy cursors identify only a timestamp and conversation. Revisit that
+    // boundary to recover every tied result, then continue with exact-card cursors.
+    let cursor =
+      cursorKind === "legacy"
+        ? Buffer.from(JSON.stringify([completedAt, cid])).toString("base64url")
+        : "";
+    for (const size of [40, 40, 4]) {
+      const response = await api(
+        w.owner,
+        `/feed?filter=done&expand=results${cursor ? `&before=${encodeURIComponent(cursor)}` : ""}`,
+      );
+      expect(response.status).toBe(200);
+      expect(response.data.items).toHaveLength(size);
+      received.push(
+        ...response.data.items.map((item: any) => item.done_card_key),
+      );
+      cursor = response.data.next;
+    }
+    expect(cursor).toBeNull();
+    expect(received).toEqual(results);
+  },
+);
 
 it("dismisses only the selected Done card, with exact-card retry and Undo", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id, "Several results");
   const first = run(w.owner, a.id, cid, "completed");
   const answer = message(w.owner, cid, "assistant", "First result", first);
   await api(w.owner, `/messages/${answer}/saved`, "POST");
-  const page = async (filter: string) => (await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data;
+  const page = async (filter: string) =>
+    (
+      await api(
+        w.owner,
+        "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""),
+      )
+    ).data;
   const card = (await page("done")).items[0];
   expect(card.done_card_key).toBe("run:" + first);
-  const dismiss = (hidden: boolean, cardKey = card.done_card_key, owner: string = w.owner, conversationId = cid) =>
-    api(owner, `/feed/${conversationId}`, "PATCH", { hidden, cardKey });
+  const dismiss = (
+    hidden: boolean,
+    cardKey = card.done_card_key,
+    owner: string = w.owner,
+    conversationId = cid,
+  ) => api(owner, `/feed/${conversationId}`, "PATCH", { hidden, cardKey });
 
-  expect((await dismiss(true, card.done_card_key, "intruder")).status).toBe(404);
+  expect((await dismiss(true, card.done_card_key, "intruder")).status).toBe(
+    404,
+  );
   const other = conversation(w.owner, a.id);
-  expect((await dismiss(true, card.done_card_key, w.owner, other)).status).toBe(404);
-  expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true })).status).toBe(400);
+  expect((await dismiss(true, card.done_card_key, w.owner, other)).status).toBe(
+    404,
+  );
+  expect(
+    (await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true })).status,
+  ).toBe(400);
   expect((await dismiss(true)).status).toBe(200);
   expect((await dismiss(true)).status).toBe(200);
   expect((await page("done")).items).toEqual([]);
-  expect((await page("all")).items.map((i: any) => i.conversation_id)).toEqual([cid]);
-  expect((await page("outcomes")).items.map((i: any) => i.conversation_id)).toEqual([cid]);
+  expect((await page("all")).items.map((i: any) => i.conversation_id)).toEqual([
+    cid,
+  ]);
+  expect(
+    (await page("outcomes")).items.map((i: any) => i.conversation_id),
+  ).toEqual([cid]);
   expect((await api(w.owner, `/conversations/${cid}`)).status).toBe(200);
-  expect(db.prepare("SELECT content FROM messages WHERE id=?").get(answer)).toEqual({ content: "First result" });
-  expect(db.prepare("SELECT count(*) n FROM message_bookmarks WHERE owner_id=? AND message_id=?").get(w.owner, answer)).toEqual({ n: 1 });
+  expect(
+    db.prepare("SELECT content FROM messages WHERE id=?").get(answer),
+  ).toEqual({ content: "First result" });
+  expect(
+    db
+      .prepare(
+        "SELECT count(*) n FROM message_bookmarks WHERE owner_id=? AND message_id=?",
+      )
+      .get(w.owner, answer),
+  ).toEqual({ n: 1 });
   expect((await dismiss(false)).status).toBe(200);
   expect((await page("done")).items[0].done_card_key).toBe(card.done_card_key);
 
@@ -858,30 +1292,51 @@ it("dismisses only the selected Done card, with exact-card retry and Undo", asyn
   expect(nextCard.last_message.content).toBe("Second result");
   expect((await dismiss(true, nextCard.done_card_key)).status).toBe(200);
   expect((await dismiss(false)).status).toBe(200);
-  expect((await page("done")).items.map((item: any) => item.done_card_key)).toEqual([card.done_card_key]);
+  expect(
+    (await page("done")).items.map((item: any) => item.done_card_key),
+  ).toEqual([card.done_card_key]);
   expect((await dismiss(false, nextCard.done_card_key)).status).toBe(200);
-  expect((await page("done")).items.map((item: any) => item.done_card_key)).toEqual([nextCard.done_card_key, card.done_card_key]);
-  expect(db.prepare("SELECT feed_hidden FROM conversations WHERE id=?").get(cid)).toEqual({ feed_hidden: 0 });
+  expect(
+    (await page("done")).items.map((item: any) => item.done_card_key),
+  ).toEqual([nextCard.done_card_key, card.done_card_key]);
+  expect(
+    db.prepare("SELECT feed_hidden FROM conversations WHERE id=?").get(cid),
+  ).toEqual({ feed_hidden: 0 });
 });
 
 it("counts unread Done results and marks only the opened result read", async () => {
   const { doneCards } = await import("../src/server/done-cards");
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id, "Unread results");
   const first = run(w.owner, a.id, cid, "completed");
   message(w.owner, cid, "assistant", "First result", first);
   const second = run(w.owner, a.id, cid, "completed");
   message(w.owner, cid, "assistant", "Second result", second);
-  const unread = async (owner: string = w.owner) => (await api(owner, "/feed?filter=done&expand=results")).data.summary.done_unread;
-  const readAt = () => Object.fromEntries(doneCards(w.owner, { folders: null, teamIds: [], limit: 10 })
-    .map(({ card }) => [card.type === "done" && card.display.done_card_key, card.type === "done" && card.display.read_at]));
+  const unread = async (owner: string = w.owner) =>
+    (await api(owner, "/feed?filter=done&expand=results")).data.summary
+      .done_unread;
+  const readAt = () =>
+    Object.fromEntries(
+      doneCards(w.owner, { folders: null, teamIds: [], limit: 10 }).map(
+        ({ card }) => [
+          card.type === "done" && card.display.done_card_key,
+          card.type === "done" && card.display.read_at,
+        ],
+      ),
+    );
   expect(await unread()).toBe(2);
   expect(readAt()).toEqual({ [`run:${first}`]: null, [`run:${second}`]: null });
-  const read = (cardKey: string, owner: string = w.owner, conversationId = cid) =>
-    api(owner, `/feed/${conversationId}/read`, "PUT", { cardKey });
+  const read = (
+    cardKey: string,
+    owner: string = w.owner,
+    conversationId = cid,
+  ) => api(owner, `/feed/${conversationId}/read`, "PUT", { cardKey });
 
   expect((await read(`run:${first}`, "intruder")).status).toBe(404);
-  expect((await read(`run:${first}`, w.owner, conversation(w.owner, a.id))).status).toBe(404);
+  expect(
+    (await read(`run:${first}`, w.owner, conversation(w.owner, a.id))).status,
+  ).toBe(404);
   expect((await read(`run:${id()}`)).status).toBe(404);
   expect(await unread()).toBe(2);
   expect((await read(`run:${first}`)).status).toBe(200);
@@ -893,72 +1348,183 @@ it("counts unread Done results and marks only the opened result read", async () 
   expect((await read(`run:${first}`)).status).toBe(200);
   expect(readAt()[`run:${first}`]).toBe(firstRead);
   // A dismissed result is not counted; Undo brings its unread state back.
-  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: `run:${second}` });
+  await api(w.owner, `/feed/${cid}`, "PATCH", {
+    hidden: true,
+    cardKey: `run:${second}`,
+  });
   expect(await unread()).toBe(0);
-  await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: false, cardKey: `run:${second}` });
+  await api(w.owner, `/feed/${cid}`, "PATCH", {
+    hidden: false,
+    cardKey: `run:${second}`,
+  });
   expect(await unread()).toBe(1);
   expect(await unread("intruder")).toBe(0);
 });
 
-it.each(["running", "pausing", "waiting_children", "queued", "paused", "awaiting_approval", "failed", "interrupted"])(
+it.each([
+  "running",
+  "pausing",
+  "waiting_children",
+  "queued",
+  "paused",
+  "awaiting_approval",
+  "failed",
+  "interrupted",
+])(
   "Done dismissal has no effect on %s work, other lists or counts",
   async (state) => {
-    const w = workspaceFor(), a = w.agent();
+    const w = workspaceFor(),
+      a = w.agent();
     const cid = conversation(w.owner, a.id);
     const first = run(w.owner, a.id, cid, "completed");
     message(w.owner, cid, "assistant", "Prior result", first);
-    const active = run(w.owner, a.id, cid, state === "waiting_children" ? "running" : state);
-    db.prepare("UPDATE runs SET worker_id=? WHERE id=?").run(state === "waiting_children" ? null : "worker", active);
+    const active = run(
+      w.owner,
+      a.id,
+      cid,
+      state === "waiting_children" ? "running" : state,
+    );
+    db.prepare("UPDATE runs SET worker_id=? WHERE id=?").run(
+      state === "waiting_children" ? null : "worker",
+      active,
+    );
     // Even a legacy client writing this obsolete flag cannot hide a thread.
     db.prepare("UPDATE conversations SET feed_hidden=1 WHERE id=?").run(cid);
-    const filters = ["all", "needs", "working", "queued", "later", "outcomes", "unfinished"];
+    const filters = [
+      "all",
+      "needs",
+      "working",
+      "queued",
+      "later",
+      "outcomes",
+      "unfinished",
+    ];
     // Dismissing the unread result changes only the Done count, checked below.
-    const display = ({ projection, projectionRows, summary: { done_unread, ...summary }, ...page }: any) => ({ ...page, summary });
-    const before = await Promise.all(filters.map(async (filter) =>
-      display((await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data)));
+    const display = ({
+      projection,
+      projectionRows,
+      summary: { done_unread, ...summary },
+      ...page
+    }: any) => ({ ...page, summary });
+    const before = await Promise.all(
+      filters.map(async (filter) =>
+        display(
+          (
+            await api(
+              w.owner,
+              "/feed?filter=" +
+                filter +
+                (filter === "done" ? "&expand=results" : ""),
+            )
+          ).data,
+        ),
+      ),
+    );
     const done = (await api(w.owner, "/feed?filter=done&expand=results")).data;
     expect(done.items[0].done_card_key).toBe("run:" + first);
     const working = ["running", "pausing", "waiting_children"].includes(state);
     expect(done.summary).toMatchObject({
       working: working ? 1 : 0,
       queued: state === "queued" ? 1 : 0,
-      needs: ["paused", "awaiting_approval", "failed", "interrupted"].includes(state) ? 1 : 0,
+      needs: ["paused", "awaiting_approval", "failed", "interrupted"].includes(
+        state,
+      )
+        ? 1
+        : 0,
       done_unread: 1,
     });
-    expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: done.items[0].done_card_key })).status).toBe(200);
-    expect((await api(w.owner, "/feed?filter=done&expand=results")).data).toMatchObject({ items: [], summary: { ...done.summary, done_unread: 0 } });
+    expect(
+      (
+        await api(w.owner, `/feed/${cid}`, "PATCH", {
+          hidden: true,
+          cardKey: done.items[0].done_card_key,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await api(w.owner, "/feed?filter=done&expand=results")).data,
+    ).toMatchObject({
+      items: [],
+      summary: { ...done.summary, done_unread: 0 },
+    });
     for (const [index, filter] of filters.entries()) {
-      expect(display((await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data)).toEqual(before[index]);
+      expect(
+        display(
+          (
+            await api(
+              w.owner,
+              "/feed?filter=" +
+                filter +
+                (filter === "done" ? "&expand=results" : ""),
+            )
+          ).data,
+        ),
+      ).toEqual(before[index]);
     }
-    expect((await api("intruder", "/feed?filter=working")).data.items).toEqual([]);
-    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(active)).toEqual({ state: state === "waiting_children" ? "running" : state });
+    expect((await api("intruder", "/feed?filter=working")).data.items).toEqual(
+      [],
+    );
+    expect(db.prepare("SELECT state FROM runs WHERE id=?").get(active)).toEqual(
+      { state: state === "waiting_children" ? "running" : state },
+    );
     db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(active);
     message(w.owner, cid, "assistant", "New result", active);
-    expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items[0].done_card_key).toBe("run:" + active);
+    expect(
+      (await api(w.owner, "/feed?filter=done&expand=results")).data.items[0]
+        .done_card_key,
+    ).toBe("run:" + active);
   },
 );
 
 it("dismisses a message-only Done card without suppressing later imported messages", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id, "Imported history");
   const first = message(w.owner, cid, "assistant", "Imported answer");
-  const key = (await api(w.owner, "/feed?filter=done&expand=results")).data.items[0].done_card_key;
+  const key = (await api(w.owner, "/feed?filter=done&expand=results")).data
+    .items[0].done_card_key;
   expect(key).toBe("message:" + first);
-  expect((await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: true, cardKey: key })).status).toBe(200);
-  expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items).toEqual([]);
-  expect((await api(w.owner, "/feed")).data.items[0].last_message.id).toBe(first);
+  expect(
+    (
+      await api(w.owner, `/feed/${cid}`, "PATCH", {
+        hidden: true,
+        cardKey: key,
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (await api(w.owner, "/feed?filter=done&expand=results")).data.items,
+  ).toEqual([]);
+  expect((await api(w.owner, "/feed")).data.items[0].last_message.id).toBe(
+    first,
+  );
   const second = message(w.owner, cid, "assistant", "Next imported answer");
-  expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items[0].done_card_key).toBe("message:" + second);
+  expect(
+    (await api(w.owner, "/feed?filter=done&expand=results")).data.items[0]
+      .done_card_key,
+  ).toBe("message:" + second);
   await api(w.owner, `/feed/${cid}`, "PATCH", { hidden: false, cardKey: key });
-  const imported = (await api(w.owner, "/feed?filter=done&expand=results")).data.items;
-  expect(imported.map((item: any) => item.last_message.id)).toEqual([second, first]);
+  const imported = (await api(w.owner, "/feed?filter=done&expand=results")).data
+    .items;
+  expect(imported.map((item: any) => item.last_message.id)).toEqual([
+    second,
+    first,
+  ]);
   const followUp = run(w.owner, a.id, cid, "running");
   message(w.owner, cid, "user", "Continue this imported thread", followUp);
-  expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items).toEqual(imported);
+  expect(
+    (await api(w.owner, "/feed?filter=done&expand=results")).data.items,
+  ).toEqual(imported);
   message(w.owner, cid, "assistant", "The new result", followUp);
-  db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(clock++, followUp);
-  expect((await api(w.owner, "/feed?filter=done&expand=results")).data.items.map((item: any) => item.done_card_key))
-    .toEqual([`run:${followUp}`, `message:${second}`, `message:${first}`]);
+  db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(
+    clock++,
+    followUp,
+  );
+  expect(
+    (await api(w.owner, "/feed?filter=done&expand=results")).data.items.map(
+      (item: any) => item.done_card_key,
+    ),
+  ).toEqual([`run:${followUp}`, `message:${second}`, `message:${first}`]);
 });
 
 it("heads Working cards with the active task's prompt instead of the thread's first prompt or newer queued input", async () => {
@@ -968,21 +1534,36 @@ it("heads Working cards with the active task's prompt instead of the thread's fi
     cid = conversation(w.owner, a.id, title);
   const first = run(w.owner, a.id, cid, "completed", { input: title });
   message(w.owner, cid, "user", title, first);
-  message(w.owner, cid, "assistant", "The test inherits companion mode.", first);
+  message(
+    w.owner,
+    cid,
+    "assistant",
+    "The test inherits companion mode.",
+    first,
+  );
   const active = run(w.owner, a.id, cid, "running", {
     input: " Open a PR\nfor this ",
   });
   db.prepare("UPDATE runs SET worker_id='w' WHERE id=?").run(active);
   message(w.owner, cid, "user", " Open a PR\nfor this ", active);
-  message(w.owner, cid, "assistant", "I’ll verify the fix and open the PR.", active);
+  message(
+    w.owner,
+    cid,
+    "assistant",
+    "I’ll verify the fix and open the PR.",
+    active,
+  );
   const queued = run(w.owner, a.id, cid, "queued", { input: "Deploy it next" });
   message(w.owner, cid, "user", "Deploy it next", queued);
   // Steering belongs to this run, but did not start it.
   message(w.owner, cid, "user", "Mention the reproduction in the PR", active);
   const card = async (filter: string) =>
-    (await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data.items.find(
-      (i: any) => i.conversation_id === cid,
-    );
+    (
+      await api(
+        w.owner,
+        "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""),
+      )
+    ).data.items.find((i: any) => i.conversation_id === cid);
   for (const state of ["running", "pausing", "waiting_children"]) {
     db.prepare("UPDATE runs SET state=?,worker_id=? WHERE id=?").run(
       state === "waiting_children" ? "running" : state,
@@ -1004,7 +1585,10 @@ it("heads Working cards with the active task's prompt instead of the thread's fi
   }
   // Only the card heading changes; the stored thread title stays available.
   expect(ownedConversation(cid, w.owner).title).toBe(title);
-  db.prepare("UPDATE runs SET input=? WHERE id=?").run("word ".repeat(100), active);
+  db.prepare("UPDATE runs SET input=? WHERE id=?").run(
+    "word ".repeat(100),
+    active,
+  );
   expect((await card("working")).title).toHaveLength(200);
   db.prepare("UPDATE runs SET input='  ' WHERE id=?").run(active);
   expect((await card("working")).title).toBe(title);
@@ -1024,9 +1608,12 @@ it("heads a Done card with the prompt its answer replies to, not the thread's fi
   message(w.owner, cid, "user", " Yes, push\nto main ", latest);
   message(w.owner, cid, "assistant", "Pushed.", latest);
   const card = async (filter: string) =>
-    (await api(w.owner, "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""))).data.items.find(
-      (i: any) => i.conversation_id === cid,
-    );
+    (
+      await api(
+        w.owner,
+        "/feed?filter=" + filter + (filter === "done" ? "&expand=results" : ""),
+      )
+    ).data.items.find((i: any) => i.conversation_id === cid);
   for (const filter of ["done", "all"])
     expect(await card(filter)).toMatchObject({
       title: "Yes, push to main",
@@ -1086,14 +1673,35 @@ it("keeps saved messages and results in one list, newest save first, per owner",
   const result = id();
   // A result may be published after its source reply has already been saved.
   await api(w.owner, `/messages/${answer}/saved`, "POST");
-  expect(db.prepare("SELECT 1 FROM message_bookmarks WHERE message_id=?").get(answer)).toBeDefined();
+  expect(
+    db
+      .prepare("SELECT 1 FROM message_bookmarks WHERE message_id=?")
+      .get(answer),
+  ).toBeDefined();
   db.prepare(
     "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Report','markdown','Final answer',?,?,?)",
-  ).run(result, w.owner, a.id, cid, r, JSON.stringify({ messageId: answer }), now(), now());
+  ).run(
+    result,
+    w.owner,
+    a.id,
+    cid,
+    r,
+    JSON.stringify({ messageId: answer }),
+    now(),
+    now(),
+  );
   const savedAt = (key: string, at: number) =>
     key === result
-      ? db.prepare("UPDATE artifact_bookmarks SET saved_at=? WHERE artifact_id=?").run(at, key)
-      : db.prepare("UPDATE message_bookmarks SET created_at=? WHERE message_id=?").run(at, key);
+      ? db
+          .prepare(
+            "UPDATE artifact_bookmarks SET saved_at=? WHERE artifact_id=?",
+          )
+          .run(at, key)
+      : db
+          .prepare(
+            "UPDATE message_bookmarks SET created_at=? WHERE message_id=?",
+          )
+          .run(at, key);
   expect((await api(w.owner, `/messages/${one}/saved`, "POST")).data).toEqual({
     ok: true,
     saved: true,
@@ -1108,15 +1716,20 @@ it("keeps saved messages and results in one list, newest save first, per owner",
   await api(w.owner, `/messages/${answer}/saved`, "POST");
   savedAt(result, 200);
   expect(
-    (db.prepare("SELECT pinned FROM artifacts WHERE id=?").get(result) as any).pinned,
+    (db.prepare("SELECT pinned FROM artifacts WHERE id=?").get(result) as any)
+      .pinned,
   ).toBe(1);
   expect(
-    db.prepare("SELECT 1 FROM message_bookmarks WHERE message_id=?").get(answer),
+    db
+      .prepare("SELECT 1 FROM message_bookmarks WHERE message_id=?")
+      .get(answer),
   ).toBeUndefined();
   const list = await api(w.owner, "/saved");
   expect(
     list.data.items.map((i: any) =>
-      i.kind === "result" ? ["result", i.result.id] : ["message", i.message.message_id],
+      i.kind === "result"
+        ? ["result", i.result.id]
+        : ["message", i.message.message_id],
     ),
   ).toEqual([
     ["message", two],
@@ -1143,16 +1756,23 @@ it("keeps saved messages and results in one list, newest save first, per owner",
   expect(
     [...(await api(w.owner, `/conversations/${cid}`)).data.saved].sort(),
   ).toEqual([one, two, answer].sort());
-  expect((await api("intruder", `/messages/${one}/saved`, "POST")).status).toBe(404);
-  expect((await api("intruder", `/messages/${one}/saved`, "DELETE")).status).toBe(404);
+  expect((await api("intruder", `/messages/${one}/saved`, "POST")).status).toBe(
+    404,
+  );
+  expect(
+    (await api("intruder", `/messages/${one}/saved`, "DELETE")).status,
+  ).toBe(404);
   expect((await api("intruder", "/saved")).data.items).toEqual([]);
   // Removing the reply from Saved unpins its result.
-  expect((await api(w.owner, `/messages/${answer}/saved`, "DELETE")).data).toEqual({
+  expect(
+    (await api(w.owner, `/messages/${answer}/saved`, "DELETE")).data,
+  ).toEqual({
     ok: true,
     saved: false,
   });
   expect(
-    (db.prepare("SELECT pinned FROM artifacts WHERE id=?").get(result) as any).pinned,
+    (db.prepare("SELECT pinned FROM artifacts WHERE id=?").get(result) as any)
+      .pinned,
   ).toBe(0);
   await api(w.owner, `/messages/${one}/saved`, "DELETE");
   expect(
@@ -1183,7 +1803,16 @@ it("says on a feed card whether its latest message is saved", async () => {
   const result = id();
   db.prepare(
     "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Report','markdown','Here are the options',?,?,?)",
-  ).run(result, w.owner, a.id, cid, r, JSON.stringify({ messageId: answer }), now(), now());
+  ).run(
+    result,
+    w.owner,
+    a.id,
+    cid,
+    r,
+    JSON.stringify({ messageId: answer }),
+    now(),
+    now(),
+  );
   await api(w.owner, `/messages/${answer}/saved`, "POST");
   expect((await card()).last_message.saved).toBe(true);
   // Another owner's save is not this owner's.
@@ -1214,7 +1843,10 @@ it("scopes the Saved list to a project and to teams like the results feed", asyn
     inProject,
   );
   const elsewhere = conversation(w.owner, a.id, "Elsewhere");
-  db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(other, elsewhere);
+  db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(
+    other,
+    elsewhere,
+  );
   const r1 = run(w.owner, a.id, inProject),
     r2 = run(w.owner, a.id, elsewhere);
   const m1 = message(w.owner, inProject, "assistant", "Kept here", r1);
@@ -1226,10 +1858,16 @@ it("scopes the Saved list to a project and to teams like the results feed", asyn
   await api(w.owner, `/messages/${m1}/saved`, "POST");
   await api(w.owner, `/messages/${m2}/saved`, "POST");
   const keys = async (query: string) =>
-    (await api(w.owner, "/saved" + query)).data.items.map((i: any) => i.key).sort();
+    (await api(w.owner, "/saved" + query)).data.items
+      .map((i: any) => i.key)
+      .sort();
   expect(await keys("")).toEqual(["a:" + result, "m:" + m1, "m:" + m2].sort());
-  expect(await keys("?folder=" + project)).toEqual(["a:" + result, "m:" + m1].sort());
-  expect(await keys("?teams=" + team)).toEqual(["a:" + result, "m:" + m1].sort());
+  expect(await keys("?folder=" + project)).toEqual(
+    ["a:" + result, "m:" + m1].sort(),
+  );
+  expect(await keys("?teams=" + team)).toEqual(
+    ["a:" + result, "m:" + m1].sort(),
+  );
   expect(await keys("?folder=" + other)).toEqual(["m:" + m2]);
   expect((await api("intruder", "/saved?folder=" + project)).status).toBe(404);
 });
@@ -1246,7 +1884,9 @@ it("pages the Saved list without gaps or repeats across equal save times", async
     saved.push(m);
   }
   // Every save at the same instant: the cursor must still be exact.
-  db.prepare("UPDATE message_bookmarks SET created_at=500 WHERE owner_id=?").run(w.owner);
+  db.prepare(
+    "UPDATE message_bookmarks SET created_at=500 WHERE owner_id=?",
+  ).run(w.owner);
   const first = await api(w.owner, "/saved");
   expect(first.data.items).toHaveLength(30);
   const second = await api(
@@ -1272,11 +1912,13 @@ it("builds an outline of prompts, results, failures, approvals and saved message
   const answer = message(w.owner, cid, "assistant", "Built", ok);
   const bad = run(w.owner, a.id, cid, "running");
   const p2 = message(w.owner, cid, "user", "Deploy", bad);
-  requestApproval(
-    { id: bad, owner_id: w.owner } as any,
-    { tool: "deploy", arguments: { token: "hidden-arg" } },
-  );
-  db.prepare("UPDATE runs SET state='failed',error='Deploy broke' WHERE id=?").run(bad);
+  requestApproval({ id: bad, owner_id: w.owner } as any, {
+    tool: "deploy",
+    arguments: { token: "hidden-arg" },
+  });
+  db.prepare(
+    "UPDATE runs SET state='failed',error='Deploy broke' WHERE id=?",
+  ).run(bad);
   await api(w.owner, `/messages/${answer}/saved`, "POST");
   const outline = await api(w.owner, `/conversations/${cid}/outline`);
   expect(
@@ -1290,25 +1932,52 @@ it("builds an outline of prompts, results, failures, approvals and saved message
     ["failure", p2, "Deploy broke"],
   ]);
   expect(JSON.stringify(outline.data)).not.toContain("hidden-arg");
-  expect((await api("intruder", `/conversations/${cid}/outline`)).status).toBe(404);
+  expect((await api("intruder", `/conversations/${cid}/outline`)).status).toBe(
+    404,
+  );
 });
 
 it("keeps reminders on individual card messages when the conversation moves on", async () => {
-  const w = workspaceFor(), a = w.agent(), sid = subscribe(w.owner);
+  const w = workspaceFor(),
+    a = w.agent(),
+    sid = subscribe(w.owner);
   const cid = conversation(w.owner, a.id, "Original conversation title");
-  const firstRun = run(w.owner, a.id, cid, "completed", { input: "First  task\nplan" });
-  const firstMessage = message(w.owner, cid, "assistant", "The first result", firstRun);
-  const dueAt = now() + 60000;
-  const remind = (targetId: string) => api(w.owner, "/later", "POST", {
-    kind: "message", targetId, condition: "time", dueAt,
+  const firstRun = run(w.owner, a.id, cid, "completed", {
+    input: "First  task\nplan",
   });
+  const firstMessage = message(
+    w.owner,
+    cid,
+    "assistant",
+    "The first result",
+    firstRun,
+  );
+  const dueAt = now() + 60000;
+  const remind = (targetId: string) =>
+    api(w.owner, "/later", "POST", {
+      kind: "message",
+      targetId,
+      condition: "time",
+      dueAt,
+    });
   const first = await remind(firstMessage);
   expect(first.status).toBe(201);
-  const secondRun = run(w.owner, a.id, cid, "completed", { input: "Second task" });
-  const secondMessage = message(w.owner, cid, "assistant", "The second result", secondRun);
+  const secondRun = run(w.owner, a.id, cid, "completed", {
+    input: "Second task",
+  });
+  const secondMessage = message(
+    w.owner,
+    cid,
+    "assistant",
+    "The second result",
+    secondRun,
+  );
   const second = await remind(secondMessage);
   expect(second.data.replaced).toBeNull();
-  db.prepare("UPDATE conversations SET title=? WHERE id=?").run("A newer conversation title", cid);
+  db.prepare("UPDATE conversations SET title=? WHERE id=?").run(
+    "A newer conversation title",
+    cid,
+  );
   message(w.owner, cid, "assistant", "An unrelated latest update", secondRun);
 
   const replacement = await remind(firstMessage);
@@ -1319,46 +1988,99 @@ it("keeps reminders on individual card messages when the conversation moves on",
     [firstMessage, "First task plan", "The first result"],
     [secondMessage, "Second task", "The second result"],
   ]) {
-    expect(upcoming.find((item: any) => item.target_id === target)).toMatchObject({
-      kind: "message", title, content, conversation_id: cid, message_id: target,
+    expect(
+      upcoming.find((item: any) => item.target_id === target),
+    ).toMatchObject({
+      kind: "message",
+      title,
+      content,
+      conversation_id: cid,
+      message_id: target,
     });
   }
-  expect((await api("intruder", "/later", "POST", {
-    kind: "message", targetId: firstMessage, condition: "time", dueAt,
-  })).status).toBe(404);
-  expect((await api("intruder", "/later")).data).toEqual({ due: [], upcoming: [] });
+  expect(
+    (
+      await api("intruder", "/later", "POST", {
+        kind: "message",
+        targetId: firstMessage,
+        condition: "time",
+        dueAt,
+      })
+    ).status,
+  ).toBe(404);
+  expect((await api("intruder", "/later")).data).toEqual({
+    due: [],
+    upcoming: [],
+  });
 
   expect(surfaceLater(dueAt)).toBe(2);
   expect(surfaceLater(dueAt)).toBe(0);
-  expect(db.prepare("SELECT body,url FROM push_messages WHERE subscription_id=? ORDER BY body").all(sid)).toEqual([
-    { body: "First task plan", url: `/?conversation=${cid}&message=${firstMessage}` },
-    { body: "Second task", url: `/?conversation=${cid}&message=${secondMessage}` },
+  expect(
+    db
+      .prepare(
+        "SELECT body,url FROM push_messages WHERE subscription_id=? ORDER BY body",
+      )
+      .all(sid),
+  ).toEqual([
+    {
+      body: "First task plan",
+      url: `/?conversation=${cid}&message=${firstMessage}`,
+    },
+    {
+      body: "Second task",
+      url: `/?conversation=${cid}&message=${secondMessage}`,
+    },
   ]);
   await api(w.owner, `/later/${replacement.data.id}`, "DELETE");
-  expect((await api(w.owner, "/later")).data.due.map((item: any) => item.id)).toEqual([second.data.id]);
+  expect(
+    (await api(w.owner, "/later")).data.due.map((item: any) => item.id),
+  ).toEqual([second.data.id]);
   db.prepare("DELETE FROM push_messages WHERE subscription_id=?").run(sid);
   db.prepare("DELETE FROM push_subscriptions WHERE id=?").run(sid);
 });
 
 it("uses a published reply's own question for its reminder and keeps legacy fallbacks isolated", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id, "Imported thread");
-  const rid = run(w.owner, a.id, cid, "completed", { input: "The overall task" });
+  const rid = run(w.owner, a.id, cid, "completed", {
+    input: "The overall task",
+  });
   const question = message(w.owner, cid, "user", "A specific  question?", rid);
   const reply = message(w.owner, cid, "assistant", "A specific answer", rid);
-  const setReply = (to: string) => db.prepare("UPDATE messages SET metadata=? WHERE id=?")
-    .run(JSON.stringify({ reply: { to, published: true } }), reply);
+  const setReply = (to: string) =>
+    db
+      .prepare("UPDATE messages SET metadata=? WHERE id=?")
+      .run(JSON.stringify({ reply: { to, published: true } }), reply);
   setReply(question);
   const imported = message(w.owner, cid, "assistant", "Imported result");
   for (const targetId of [reply, imported]) {
-    await api(w.owner, "/later", "POST", { kind: "message", targetId, condition: "time", dueAt: now() + 60000 });
+    await api(w.owner, "/later", "POST", {
+      kind: "message",
+      targetId,
+      condition: "time",
+      dueAt: now() + 60000,
+    });
   }
-  const titles = async () => Object.fromEntries((await api(w.owner, "/later")).data.upcoming.map((item: any) => [item.target_id, item.title]));
-  expect(await titles()).toEqual({ [reply]: "A specific question?", [imported]: "Imported thread" });
-  const other = workspaceFor(), otherAgent = other.agent();
+  const titles = async () =>
+    Object.fromEntries(
+      (await api(w.owner, "/later")).data.upcoming.map((item: any) => [
+        item.target_id,
+        item.title,
+      ]),
+    );
+  expect(await titles()).toEqual({
+    [reply]: "A specific question?",
+    [imported]: "Imported thread",
+  });
+  const other = workspaceFor(),
+    otherAgent = other.agent();
   const privateThread = conversation(other.owner, otherAgent.id);
   setReply(message(other.owner, privateThread, "user", "Private question"));
-  expect(await titles()).toEqual({ [reply]: "The overall task", [imported]: "Imported thread" });
+  expect(await titles()).toEqual({
+    [reply]: "The overall task",
+    [imported]: "Imported thread",
+  });
   for (const item of (await api(w.owner, "/later")).data.upcoming)
     await api(w.owner, `/later/${item.id}`, "DELETE");
 });
@@ -1376,23 +2098,81 @@ it("surfaces Later items by time, finished run and project open, with a push", a
     "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Garden',1)",
   ).run(project, w.owner);
   const artifact = (
-    await api(w.owner, "/artifacts", "POST", { title: "Plan", content: "Do it" })
+    await api(w.owner, "/artifacts", "POST", {
+      title: "Plan",
+      content: "Do it",
+    })
   ).data.id;
   const due = now() + 60000;
   const post = (body: object) => api(w.owner, "/later", "POST", body);
-  expect((await post({ kind: "conversation", targetId: timed, condition: "time" })).status).toBe(400);
-  expect((await post({ kind: "conversation", targetId: timed, condition: "time", dueAt: now() - 1 })).status).toBe(400);
-  expect((await post({ kind: "conversation", targetId: timed, condition: "time", dueAt: now() + 400 * 86400000 })).status).toBe(400);
-  expect((await api("intruder", "/later", "POST", { kind: "conversation", targetId: timed, condition: "time", dueAt: due })).status).toBe(404);
-  const first = (await post({ kind: "conversation", targetId: timed, condition: "time", dueAt: due + 1 })).data;
+  expect(
+    (await post({ kind: "conversation", targetId: timed, condition: "time" }))
+      .status,
+  ).toBe(400);
+  expect(
+    (
+      await post({
+        kind: "conversation",
+        targetId: timed,
+        condition: "time",
+        dueAt: now() - 1,
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await post({
+        kind: "conversation",
+        targetId: timed,
+        condition: "time",
+        dueAt: now() + 400 * 86400000,
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await api("intruder", "/later", "POST", {
+        kind: "conversation",
+        targetId: timed,
+        condition: "time",
+        dueAt: due,
+      })
+    ).status,
+  ).toBe(404);
+  const first = (
+    await post({
+      kind: "conversation",
+      targetId: timed,
+      condition: "time",
+      dueAt: due + 1,
+    })
+  ).data;
   // Replacing keeps one open item per target.
-  const t = (await post({ kind: "conversation", targetId: timed, condition: "time", dueAt: due })).data;
+  const t = (
+    await post({
+      kind: "conversation",
+      targetId: timed,
+      condition: "time",
+      dueAt: due,
+    })
+  ).data;
   expect(t.id).not.toBe(first.id);
-  const m = (await post({ kind: "message", targetId: msg, condition: "run_finished" })).data;
-  const p = (await post({ kind: "artifact", targetId: artifact, condition: "project_open", projectId: project })).data;
+  const m = (
+    await post({ kind: "message", targetId: msg, condition: "run_finished" })
+  ).data;
+  const p = (
+    await post({
+      kind: "artifact",
+      targetId: artifact,
+      condition: "project_open",
+      projectId: project,
+    })
+  ).data;
   let later = (await api(w.owner, "/later")).data;
   expect(later.due).toEqual([]);
-  expect(later.upcoming.map((i: any) => i.id).sort()).toEqual([t.id, m.id, p.id].sort());
+  expect(later.upcoming.map((i: any) => i.id).sort()).toEqual(
+    [t.id, m.id, p.id].sort(),
+  );
   expect(later.upcoming.find((i: any) => i.id === m.id)).toMatchObject({
     title: "Busy",
     preview: "Result text",
@@ -1412,23 +2192,46 @@ it("surfaces Later items by time, finished run and project open, with a push", a
   transition({ id: busyRun, owner_id: w.owner } as any, "completed");
   expect(surfaceLater(due)).toBe(1);
   expect(surfaceLater(due + 1)).toBe(0);
-  expect((await api("intruder", `/projects/${project}/opened`, "POST")).status).toBe(404);
-  expect((await api(w.owner, `/projects/${project}/opened`, "POST")).data).toEqual({ surfaced: 1 });
+  expect(
+    (await api("intruder", `/projects/${project}/opened`, "POST")).status,
+  ).toBe(404);
+  expect(
+    (await api(w.owner, `/projects/${project}/opened`, "POST")).data,
+  ).toEqual({ surfaced: 1 });
   later = (await api(w.owner, "/later")).data;
   expect(later.upcoming).toEqual([]);
-  expect(later.due.map((i: any) => i.id).sort()).toEqual([t.id, m.id, p.id].sort());
+  expect(later.due.map((i: any) => i.id).sort()).toEqual(
+    [t.id, m.id, p.id].sort(),
+  );
   const pushes = db
-    .prepare("SELECT message_key,title,body,url FROM push_messages WHERE subscription_id=? ORDER BY message_key")
+    .prepare(
+      "SELECT message_key,title,body,url FROM push_messages WHERE subscription_id=? ORDER BY message_key",
+    )
     .all(sid) as any[];
   expect(pushes).toEqual(
     [
-      { message_key: "later-" + t.id, title: "Back from Later", body: "Timed", url: "/?conversation=" + timed },
-      { message_key: "later-" + m.id, title: "Back from Later", body: "Busy", url: `/?conversation=${busy}&message=${msg}` },
+      {
+        message_key: "later-" + t.id,
+        title: "Back from Later",
+        body: "Timed",
+        url: "/?conversation=" + timed,
+      },
+      {
+        message_key: "later-" + m.id,
+        title: "Back from Later",
+        body: "Busy",
+        url: `/?conversation=${busy}&message=${msg}`,
+      },
     ].sort((x, y) => x.message_key.localeCompare(y.message_key)),
   );
   expect((await api("intruder", `/later/${t.id}`, "DELETE")).status).toBe(404);
-  expect((await api("intruder", "/later")).data).toEqual({ due: [], upcoming: [] });
-  expect((await api(w.owner, `/later/${t.id}`, "DELETE")).data).toEqual({ ok: true });
+  expect((await api("intruder", "/later")).data).toEqual({
+    due: [],
+    upcoming: [],
+  });
+  expect((await api(w.owner, `/later/${t.id}`, "DELETE")).data).toEqual({
+    ok: true,
+  });
   expect((await api(w.owner, "/later")).data.due).toHaveLength(2);
 });
 
@@ -1445,35 +2248,92 @@ it("submits a scheduled send exactly once, even when the job repeats", async () 
     idempotencyKey: key,
     sendAt: now() + 60000,
   };
-  expect((await api(w.owner, "/scheduled-sends", "POST", { ...body, sendAt: now() - 1 })).status).toBe(400);
-  expect((await api("intruder", "/scheduled-sends", "POST", body)).status).toBe(404);
+  expect(
+    (
+      await api(w.owner, "/scheduled-sends", "POST", {
+        ...body,
+        sendAt: now() - 1,
+      })
+    ).status,
+  ).toBe(400);
+  expect((await api("intruder", "/scheduled-sends", "POST", body)).status).toBe(
+    404,
+  );
   const created = await api(w.owner, "/scheduled-sends", "POST", body);
   expect(created.status).toBe(201);
-  expect(created.data).toMatchObject({ state: "scheduled", input: "Morning check" });
-  expect((await api(w.owner, "/scheduled-sends", "POST", body)).data.id).toBe(created.data.id);
-  expect((await api(w.owner, "/scheduled-sends", "POST", { ...body, input: "Other" })).status).toBe(409);
-  expect((await api(w.owner, `/scheduled-sends?conversation=${cid}`)).data.items).toHaveLength(1);
+  expect(created.data).toMatchObject({
+    state: "scheduled",
+    input: "Morning check",
+  });
+  expect((await api(w.owner, "/scheduled-sends", "POST", body)).data.id).toBe(
+    created.data.id,
+  );
+  expect(
+    (
+      await api(w.owner, "/scheduled-sends", "POST", {
+        ...body,
+        input: "Other",
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (await api(w.owner, `/scheduled-sends?conversation=${cid}`)).data.items,
+  ).toHaveLength(1);
   expect((await api("intruder", "/scheduled-sends")).data.items).toEqual([]);
-  expect((await api("intruder", `/scheduled-sends/${created.data.id}`, "DELETE")).status).toBe(404);
+  expect(
+    (await api("intruder", `/scheduled-sends/${created.data.id}`, "DELETE"))
+      .status,
+  ).toBe(404);
   expect(deliverScheduledSends(now())).toBe(0);
   expect(deliverScheduledSends(now() + 120000)).toBe(1);
   expect(deliverScheduledSends(now() + 120000)).toBe(0);
-  const row = db.prepare("SELECT * FROM scheduled_sends WHERE id=?").get(created.data.id) as any;
+  const row = db
+    .prepare("SELECT * FROM scheduled_sends WHERE id=?")
+    .get(created.data.id) as any;
   expect(row.state).toBe("submitted");
   // Even if the row were replayed, the stored key finds the same run.
-  db.prepare("UPDATE scheduled_sends SET state='scheduled' WHERE id=?").run(row.id);
+  db.prepare("UPDATE scheduled_sends SET state='scheduled' WHERE id=?").run(
+    row.id,
+  );
   expect(deliverScheduledSends(now() + 120000)).toBe(1);
-  const runs = db.prepare("SELECT id,state,conversation_id FROM runs WHERE owner_id=? AND idempotency_key=?").all(w.owner, key) as any[];
-  expect(runs).toEqual([{ id: row.run_id, state: "queued", conversation_id: cid }]);
-  expect(db.prepare("SELECT count(*) n FROM messages WHERE run_id=?").get(row.run_id)).toEqual({ n: 1 });
-  expect((await api(w.owner, `/scheduled-sends/${row.id}`, "DELETE")).status).toBe(409);
+  const runs = db
+    .prepare(
+      "SELECT id,state,conversation_id FROM runs WHERE owner_id=? AND idempotency_key=?",
+    )
+    .all(w.owner, key) as any[];
+  expect(runs).toEqual([
+    { id: row.run_id, state: "queued", conversation_id: cid },
+  ]);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM messages WHERE run_id=?")
+      .get(row.run_id),
+  ).toEqual({ n: 1 });
+  expect(
+    (await api(w.owner, `/scheduled-sends/${row.id}`, "DELETE")).status,
+  ).toBe(409);
   // A send whose agent was retired fails visibly instead of retrying.
-  const retired = await api(w.owner, "/scheduled-sends", "POST", { ...body, idempotencyKey: key + "-2" });
+  const retired = await api(w.owner, "/scheduled-sends", "POST", {
+    ...body,
+    idempotencyKey: key + "-2",
+  });
   db.prepare("UPDATE agents SET retired_at=1 WHERE id=?").run(a.id);
   deliverScheduledSends(now() + 120000);
-  expect(db.prepare("SELECT state,error FROM scheduled_sends WHERE id=?").get(retired.data.id)).toMatchObject({ state: "failed" });
-  const cancelled = await api(w.owner, "/scheduled-sends", "POST", { ...body, agentId: w.agent().id, conversationId: undefined, idempotencyKey: key + "-3" });
-  expect((await api(w.owner, `/scheduled-sends/${cancelled.data.id}`, "DELETE")).data).toEqual({ ok: true });
+  expect(
+    db
+      .prepare("SELECT state,error FROM scheduled_sends WHERE id=?")
+      .get(retired.data.id),
+  ).toMatchObject({ state: "failed" });
+  const cancelled = await api(w.owner, "/scheduled-sends", "POST", {
+    ...body,
+    agentId: w.agent().id,
+    conversationId: undefined,
+    idempotencyKey: key + "-3",
+  });
+  expect(
+    (await api(w.owner, `/scheduled-sends/${cancelled.data.id}`, "DELETE"))
+      .data,
+  ).toEqual({ ok: true });
   expect(deliverScheduledSends(now() + 120000)).toBe(0);
 });
 
@@ -1492,7 +2352,10 @@ it("keeps scheduled messages that could not be sent visible until you retry or d
   };
   const created = (await api(w.owner, "/scheduled-sends", "POST", body)).data;
   const other = (
-    await api(w.owner, "/scheduled-sends", "POST", { ...body, idempotencyKey: key + "-b" })
+    await api(w.owner, "/scheduled-sends", "POST", {
+      ...body,
+      idempotencyKey: key + "-b",
+    })
   ).data;
   // The agent is retired before the messages are due: Loop refuses them.
   db.prepare("UPDATE agents SET retired_at=1 WHERE id=?").run(a.id);
@@ -1506,23 +2369,53 @@ it("keeps scheduled messages that could not be sent visible until you retry or d
     conversation_title: "Deploys",
   });
   // Nothing was sent, and the worker never retries it on its own.
-  expect(db.prepare("SELECT count(*) n FROM runs WHERE idempotency_key=?").get(key)).toEqual({ n: 0 });
+  expect(
+    db.prepare("SELECT count(*) n FROM runs WHERE idempotency_key=?").get(key),
+  ).toEqual({ n: 0 });
   // Retrying while still refused keeps it failed, with the reason.
-  const refused = await api(w.owner, `/scheduled-sends/${created.id}/retry`, "POST", {});
+  const refused = await api(
+    w.owner,
+    `/scheduled-sends/${created.id}/retry`,
+    "POST",
+    {},
+  );
   expect(refused.data).toMatchObject({ run: null, row: { state: "failed" } });
   // After restoring the agent, a deliberate retry sends it exactly once.
   db.prepare("UPDATE agents SET retired_at=NULL WHERE id=?").run(a.id);
-  const sent = await api(w.owner, `/scheduled-sends/${created.id}/retry`, "POST", {});
-  expect(sent.data.row).toMatchObject({ state: "submitted", run_id: sent.data.run.id });
+  const sent = await api(
+    w.owner,
+    `/scheduled-sends/${created.id}/retry`,
+    "POST",
+    {},
+  );
+  expect(sent.data.row).toMatchObject({
+    state: "submitted",
+    run_id: sent.data.run.id,
+  });
   expect(typeof sent.data.run.payload).toBe("string");
   expect(JSON.parse(sent.data.run.payload)).toMatchObject({ agentId: a.id });
-  expect((await api(w.owner, `/scheduled-sends/${created.id}/retry`, "POST", {})).status).toBe(409);
-  expect(db.prepare("SELECT count(*) n FROM runs WHERE idempotency_key=?").get(key)).toEqual({ n: 1 });
+  expect(
+    (await api(w.owner, `/scheduled-sends/${created.id}/retry`, "POST", {}))
+      .status,
+  ).toBe(409);
+  expect(
+    db.prepare("SELECT count(*) n FROM runs WHERE idempotency_key=?").get(key),
+  ).toEqual({ n: 1 });
   // Dismissing removes a failed message without sending it.
-  expect((await api("intruder", `/scheduled-sends/${other.id}`, "DELETE")).status).toBe(404);
-  expect((await api(w.owner, `/scheduled-sends/${other.id}`, "DELETE")).data).toEqual({ ok: true });
-  expect((await api(w.owner, "/scheduled-sends")).data.items.map((i: any) => i.id)).not.toContain(other.id);
-  expect(db.prepare("SELECT count(*) n FROM runs WHERE idempotency_key=?").get(key + "-b")).toEqual({ n: 0 });
+  expect(
+    (await api("intruder", `/scheduled-sends/${other.id}`, "DELETE")).status,
+  ).toBe(404);
+  expect(
+    (await api(w.owner, `/scheduled-sends/${other.id}`, "DELETE")).data,
+  ).toEqual({ ok: true });
+  expect(
+    (await api(w.owner, "/scheduled-sends")).data.items.map((i: any) => i.id),
+  ).not.toContain(other.id);
+  expect(
+    db
+      .prepare("SELECT count(*) n FROM runs WHERE idempotency_key=?")
+      .get(key + "-b"),
+  ).toEqual({ n: 0 });
 });
 
 it("lists, edits and cancels scheduled messages for new threads from anywhere", async () => {
@@ -1549,16 +2442,33 @@ it("lists, edits and cancels scheduled messages for new threads from anywhere", 
     input: "Start the monthly report",
     sendAt: later,
   });
-  expect(edited.data).toMatchObject({ input: "Start the monthly report", send_at: later });
+  expect(edited.data).toMatchObject({
+    input: "Start the monthly report",
+    send_at: later,
+  });
   expect(
-    (await api(w.owner, `/scheduled-sends/${created.id}`, "PATCH", { sendAt: now() - 1 })).status,
+    (
+      await api(w.owner, `/scheduled-sends/${created.id}`, "PATCH", {
+        sendAt: now() - 1,
+      })
+    ).status,
   ).toBe(400);
   expect(
-    (await api("intruder", `/scheduled-sends/${created.id}`, "PATCH", { input: "x" })).status,
+    (
+      await api("intruder", `/scheduled-sends/${created.id}`, "PATCH", {
+        input: "x",
+      })
+    ).status,
   ).toBe(404);
-  expect((await api(w.owner, `/scheduled-sends/${created.id}`, "DELETE")).data).toEqual({ ok: true });
   expect(
-    (await api(w.owner, `/scheduled-sends/${created.id}`, "PATCH", { input: "late" })).status,
+    (await api(w.owner, `/scheduled-sends/${created.id}`, "DELETE")).data,
+  ).toEqual({ ok: true });
+  expect(
+    (
+      await api(w.owner, `/scheduled-sends/${created.id}`, "PATCH", {
+        input: "late",
+      })
+    ).status,
   ).toBe(409);
   expect((await api(w.owner, "/scheduled-sends")).data.items).toEqual([]);
 });
@@ -1578,8 +2488,14 @@ it("returns the receipt for a matching retry of a scheduled send, even after it 
   // The response was lost and the retry arrives after the send time. One
   // fixed timestamp: the retry repeats the exact request.
   const due = now() - 1000;
-  db.prepare("UPDATE scheduled_sends SET send_at=? WHERE id=?").run(due, created.data.id);
-  const retried = await api(w.owner, "/scheduled-sends", "POST", { ...body, sendAt: due });
+  db.prepare("UPDATE scheduled_sends SET send_at=? WHERE id=?").run(
+    due,
+    created.data.id,
+  );
+  const retried = await api(w.owner, "/scheduled-sends", "POST", {
+    ...body,
+    sendAt: due,
+  });
   expect(retried.status).toBe(200);
   expect(retried.data.id).toBe(created.data.id);
   // A changed intent never silently reuses the uncertain work.
@@ -1589,10 +2505,18 @@ it("returns the receipt for a matching retry of a scheduled send, even after it 
     { replyToMessageId: "other" },
   ])
     expect(
-      (await api(w.owner, "/scheduled-sends", "POST", { ...body, sendAt: due, ...changed })).status,
+      (
+        await api(w.owner, "/scheduled-sends", "POST", {
+          ...body,
+          sendAt: due,
+          ...changed,
+        })
+      ).status,
     ).toBe(409);
   expect(
-    db.prepare("SELECT count(*) n FROM scheduled_sends WHERE idempotency_key=?").get(body.idempotencyKey),
+    db
+      .prepare("SELECT count(*) n FROM scheduled_sends WHERE idempotency_key=?")
+      .get(body.idempotencyKey),
   ).toEqual({ n: 1 });
 });
 
@@ -1615,23 +2539,45 @@ it("keeps a highlighted excerpt with a scheduled reply", async () => {
     sendAt: now() + 60000,
   };
   expect(
-    (await api(w.owner, "/scheduled-sends", "POST", { ...body, replyExcerpt: "Third" })).status,
+    (
+      await api(w.owner, "/scheduled-sends", "POST", {
+        ...body,
+        replyExcerpt: "Third",
+      })
+    ).status,
   ).toBe(400);
   const created = await api(w.owner, "/scheduled-sends", "POST", body);
   expect(created.status).toBe(201);
-  expect((await api(w.owner, "/scheduled-sends", "POST", body)).data.id).toBe(created.data.id);
+  expect((await api(w.owner, "/scheduled-sends", "POST", body)).data.id).toBe(
+    created.data.id,
+  );
   expect(
-    (await api(w.owner, "/scheduled-sends", "POST", { ...body, replyExcerpt: "First finding." })).status,
+    (
+      await api(w.owner, "/scheduled-sends", "POST", {
+        ...body,
+        replyExcerpt: "First finding.",
+      })
+    ).status,
   ).toBe(409);
   // Other tests' scheduled messages may also be due.
   deliverScheduledSends(now() + 120000);
   const runId = (
-    db.prepare("SELECT run_id FROM scheduled_sends WHERE id=?").get(created.data.id) as { run_id: string }
+    db
+      .prepare("SELECT run_id FROM scheduled_sends WHERE id=?")
+      .get(created.data.id) as { run_id: string }
   ).run_id;
   const payload = JSON.parse(
-    (db.prepare("SELECT payload FROM runs WHERE id=?").get(runId) as { payload: string }).payload,
+    (
+      db.prepare("SELECT payload FROM runs WHERE id=?").get(runId) as {
+        payload: string;
+      }
+    ).payload,
   );
-  expect(payload.replyTo).toMatchObject({ id: answer, content: "Second finding.", excerpt: true });
+  expect(payload.replyTo).toMatchObject({
+    id: answer,
+    content: "Second finding.",
+    excerpt: true,
+  });
   transition(ownedRun(runId, w.owner), "cancelled");
 });
 
@@ -1690,17 +2636,32 @@ it("never lets failed scheduled messages hide the ones still waiting", async () 
   // One fixed base time, so "Old 0" is exactly the newest failure.
   const base = now() - 1000;
   for (let i = 0; i < 201; i++)
-    insert.run(id(), w.owner, a.id, "Old " + i, "old-" + i + "-" + id(), base - i, base - i);
+    insert.run(
+      id(),
+      w.owner,
+      a.id,
+      "Old " + i,
+      "old-" + i + "-" + id(),
+      base - i,
+      base - i,
+    );
   const first = (await api(w.owner, "/scheduled-sends")).data;
-  expect(first.items.find((i: any) => i.id === pending)).toMatchObject({ state: "scheduled" });
-  expect(first.items.filter((i: any) => i.state === "failed")).toHaveLength(100);
+  expect(first.items.find((i: any) => i.id === pending)).toMatchObject({
+    state: "scheduled",
+  });
+  expect(first.items.filter((i: any) => i.state === "failed")).toHaveLength(
+    100,
+  );
   expect(first.items[0]).toMatchObject({ state: "failed", input: "Old 0" });
   // Every failure stays reachable: page newest first to the oldest.
   const failed: any[] = first.items.filter((i: any) => i.state === "failed");
   let next = first.failed_next;
   while (next) {
     const page = (
-      await api(w.owner, "/scheduled-sends?failedBefore=" + encodeURIComponent(next))
+      await api(
+        w.owner,
+        "/scheduled-sends?failedBefore=" + encodeURIComponent(next),
+      )
     ).data;
     // Later pages hold failures only; pending sends are on the first page.
     expect(page.items.every((i: any) => i.state === "failed")).toBe(true);
@@ -1712,8 +2673,12 @@ it("never lets failed scheduled messages hide the ones still waiting", async () 
   // The oldest failure can still be recovered: dismiss it.
   const oldest = failed.at(-1);
   expect(oldest.input).toBe("Old 200");
-  expect((await api(w.owner, `/scheduled-sends/${oldest.id}`, "DELETE")).data).toEqual({ ok: true });
-  expect((await api(w.owner, "/scheduled-sends?failedBefore=bogus")).status).toBe(400);
+  expect(
+    (await api(w.owner, `/scheduled-sends/${oldest.id}`, "DELETE")).data,
+  ).toEqual({ ok: true });
+  expect(
+    (await api(w.owner, "/scheduled-sends?failedBefore=bogus")).status,
+  ).toBe(400);
 });
 
 it("queues a follow-up instead of steering when POST /runs asks to queue", async () => {
@@ -1740,7 +2705,10 @@ it("queues a follow-up instead of steering when POST /runs asks to queue", async
     input: "Steer",
     idempotencyKey: "steer-" + randomBytes(6).toString("hex"),
   });
-  expect(steered.data).toMatchObject({ id: active, steeringId: expect.any(String) });
+  expect(steered.data).toMatchObject({
+    id: active,
+    steeringId: expect.any(String),
+  });
 });
 
 it("edits, reorders and moves only queued runs of the owner", async () => {
@@ -1761,11 +2729,31 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
   const first = await submitRun("first");
   const second = await submitRun("second");
   const third = await submitRun("third");
-  expect((await api(w.owner, `/runs/${third.id}`, "PATCH", { input: "third, edited" })).data).toEqual({ ok: true });
-  expect((db.prepare("SELECT input FROM runs WHERE id=?").get(third.id) as any).input).toBe("third, edited");
-  expect((db.prepare("SELECT content FROM messages WHERE run_id=?").get(third.id) as any).content).toBe("third, edited");
-  expect((await api("intruder", `/runs/${third.id}`, "PATCH", { input: "x" })).status).toBe(404);
-  expect((await api(w.owner, `/runs/${third.id}`, "PATCH", { input: "" })).status).toBe(400);
+  expect(
+    (
+      await api(w.owner, `/runs/${third.id}`, "PATCH", {
+        input: "third, edited",
+      })
+    ).data,
+  ).toEqual({ ok: true });
+  expect(
+    (db.prepare("SELECT input FROM runs WHERE id=?").get(third.id) as any)
+      .input,
+  ).toBe("third, edited");
+  expect(
+    (
+      db
+        .prepare("SELECT content FROM messages WHERE run_id=?")
+        .get(third.id) as any
+    ).content,
+  ).toBe("third, edited");
+  expect(
+    (await api("intruder", `/runs/${third.id}`, "PATCH", { input: "x" }))
+      .status,
+  ).toBe(404);
+  expect(
+    (await api(w.owner, `/runs/${third.id}`, "PATCH", { input: "" })).status,
+  ).toBe(400);
   // The Feed offers only the moves a reorder can make.
   const moves = async (conversationId: string) => {
     const item = (await api(w.owner, "/feed?filter=queued")).data.items.find(
@@ -1791,7 +2779,10 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
     .queued_runs.find((r: any) => r.id === second.id).input;
   expect(shown).toHaveLength(719);
   await api(w.owner, `/runs/${second.id}`, "PATCH", { input: shown });
-  expect((db.prepare("SELECT input FROM runs WHERE id=?").get(second.id) as any).input).toBe(long);
+  expect(
+    (db.prepare("SELECT input FROM runs WHERE id=?").get(second.id) as any)
+      .input,
+  ).toBe(long);
   await api(w.owner, `/runs/${second.id}`, "PATCH", { input: "second" });
   const elsewhere = conversation(w.owner, a.id);
   const other = (
@@ -1810,18 +2801,42 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
     lone = conversation(w.owner, c.id);
   run(w.owner, c.id, conversation(w.owner, c.id), "paused");
   const loneRun = run(w.owner, c.id, lone, "queued");
-  db.prepare("UPDATE runs SET created_at=created_at+10 WHERE id=?").run(loneRun);
+  db.prepare("UPDATE runs SET created_at=created_at+10 WHERE id=?").run(
+    loneRun,
+  );
   expect(await moves(lone)).toEqual({ up: false, down: false });
-  expect((await api(w.owner, `/runs/${first.id}/reorder`, "POST", { direction: "up" })).status).toBe(409);
-  expect((await api("intruder", `/runs/${third.id}/reorder`, "POST", { direction: "up" })).status).toBe(404);
-  const sameThread = await api(w.owner, `/runs/${third.id}/reorder`, "POST", { direction: "up" });
+  expect(
+    (
+      await api(w.owner, `/runs/${first.id}/reorder`, "POST", {
+        direction: "up",
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await api("intruder", `/runs/${third.id}/reorder`, "POST", {
+        direction: "up",
+      })
+    ).status,
+  ).toBe(404);
+  const sameThread = await api(w.owner, `/runs/${third.id}/reorder`, "POST", {
+    direction: "up",
+  });
   expect(sameThread.status).toBe(409);
   expect(sameThread.data.error).toMatch(/order they were sent/);
-  expect((await api(w.owner, `/runs/${other.id}/reorder`, "POST", { direction: "up" })).data).toEqual({ ok: true });
+  expect(
+    (
+      await api(w.owner, `/runs/${other.id}/reorder`, "POST", {
+        direction: "up",
+      })
+    ).data,
+  ).toEqual({ ok: true });
   const order = () =>
     (
       db
-        .prepare("SELECT id FROM runs WHERE agent_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid")
+        .prepare(
+          "SELECT id FROM runs WHERE agent_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid",
+        )
         .all(a.id) as { id: string }[]
     ).map((r) => r.id);
   expect(order()).toEqual([first.id, second.id, other.id, third.id]);
@@ -1832,40 +2847,110 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
   expect(positions).toMatchObject({ id: third.id, queue_position: 4 });
   // Moving to another agent cancels the queued run and returns the new run.
   const key = "move-" + randomBytes(6).toString("hex");
-  const moved = await api(w.owner, `/runs/${second.id}/move`, "POST", { agentId: b.id, idempotencyKey: key });
+  const moved = await api(w.owner, `/runs/${second.id}/move`, "POST", {
+    agentId: b.id,
+    idempotencyKey: key,
+  });
   expect(moved.status).toBe(202);
-  expect(moved.data).toMatchObject({ agent_id: b.id, state: "queued", input: "second", conversation_id: expect.any(String) });
+  expect(moved.data).toMatchObject({
+    agent_id: b.id,
+    state: "queued",
+    input: "second",
+    conversation_id: expect.any(String),
+  });
   expect(moved.data.conversation_id).not.toBe(cid);
-  expect((db.prepare("SELECT state FROM runs WHERE id=?").get(second.id) as any).state).toBe("cancelled");
-  const again = await api(w.owner, `/runs/${second.id}/move`, "POST", { agentId: b.id, idempotencyKey: key });
+  expect(
+    (db.prepare("SELECT state FROM runs WHERE id=?").get(second.id) as any)
+      .state,
+  ).toBe("cancelled");
+  const again = await api(w.owner, `/runs/${second.id}/move`, "POST", {
+    agentId: b.id,
+    idempotencyKey: key,
+  });
   expect(again.data.id).toBe(moved.data.id);
-  expect((await api(w.owner, `/runs/${second.id}/move`, "POST", { agentId: b.id, idempotencyKey: key + "x" })).status).toBe(409);
-  expect((await api("intruder", `/runs/${third.id}/move`, "POST", { agentId: b.id, idempotencyKey: key + "y" })).status).toBe(404);
+  expect(
+    (
+      await api(w.owner, `/runs/${second.id}/move`, "POST", {
+        agentId: b.id,
+        idempotencyKey: key + "x",
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await api("intruder", `/runs/${third.id}/move`, "POST", {
+        agentId: b.id,
+        idempotencyKey: key + "y",
+      })
+    ).status,
+  ).toBe(404);
   // Once claimed, a run cannot be edited, reordered or moved.
-  db.prepare("UPDATE runs SET state='running',worker_id='w' WHERE id=?").run(first.id);
-  expect((await api(w.owner, `/runs/${first.id}`, "PATCH", { input: "late" })).status).toBe(409);
-  expect((await api(w.owner, `/runs/${first.id}/move`, "POST", { agentId: b.id, idempotencyKey: key + "z" })).status).toBe(409);
-  expect((await api(w.owner, `/runs/${first.id}/reorder`, "POST", { direction: "down" })).status).toBe(409);
+  db.prepare("UPDATE runs SET state='running',worker_id='w' WHERE id=?").run(
+    first.id,
+  );
+  expect(
+    (await api(w.owner, `/runs/${first.id}`, "PATCH", { input: "late" }))
+      .status,
+  ).toBe(409);
+  expect(
+    (
+      await api(w.owner, `/runs/${first.id}/move`, "POST", {
+        agentId: b.id,
+        idempotencyKey: key + "z",
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await api(w.owner, `/runs/${first.id}/reorder`, "POST", {
+        direction: "down",
+      })
+    ).status,
+  ).toBe(409);
   // A paused-then-resumed run is queued again but has already started: its
   // checkpointed history would still run the original instruction.
-  db.prepare("UPDATE runs SET state='queued',worker_id=NULL,active_since=? WHERE id=?").run(now(), first.id);
-  expect((await api(w.owner, `/runs/${first.id}`, "PATCH", { input: "late" })).status).toBe(409);
-  expect((await api(w.owner, `/runs/${first.id}/move`, "POST", { agentId: b.id, idempotencyKey: key + "r" })).status).toBe(409);
+  db.prepare(
+    "UPDATE runs SET state='queued',worker_id=NULL,active_since=? WHERE id=?",
+  ).run(now(), first.id);
+  expect(
+    (await api(w.owner, `/runs/${first.id}`, "PATCH", { input: "late" }))
+      .status,
+  ).toBe(409);
+  expect(
+    (
+      await api(w.owner, `/runs/${first.id}/move`, "POST", {
+        agentId: b.id,
+        idempotencyKey: key + "r",
+      })
+    ).status,
+  ).toBe(409);
   db.prepare("UPDATE runs SET active_since=NULL WHERE id=?").run(first.id);
-  const checkpointMessage = (db.prepare("SELECT id FROM messages WHERE run_id=? AND role='assistant'").get(first.id) as any)?.id
-    ?? message(w.owner, cid, "assistant", "", first.id);
+  const checkpointMessage =
+    (
+      db
+        .prepare("SELECT id FROM messages WHERE run_id=? AND role='assistant'")
+        .get(first.id) as any
+    )?.id ?? message(w.owner, cid, "assistant", "", first.id);
   const checkpointArtifact = id();
   db.prepare(
     "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,?,?,'Draft','markdown','',?,?)",
   ).run(checkpointArtifact, w.owner, a.id, cid, first.id, now(), now());
-  db.prepare("INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,'[]')").run(first.id, checkpointMessage, checkpointArtifact);
-  expect((await api(w.owner, `/runs/${first.id}`, "PATCH", { input: "late" })).status).toBe(409);
+  db.prepare(
+    "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,'[]')",
+  ).run(first.id, checkpointMessage, checkpointArtifact);
+  expect(
+    (await api(w.owner, `/runs/${first.id}`, "PATCH", { input: "late" }))
+      .status,
+  ).toBe(409);
   expect(
     (await api(w.owner, "/feed?filter=queued")).data.items
       .find((i: any) => i.conversation_id === cid)
       .queued_runs.find((r: any) => r.id === first.id).can_edit,
   ).toBe(false);
-  expect((db.prepare("SELECT input FROM runs WHERE id=?").get(first.id) as any).input).toBe("first");
+  expect(
+    (db.prepare("SELECT input FROM runs WHERE id=?").get(first.id) as any)
+      .input,
+  ).toBe("first");
 });
 
 it("binds a fork to a native agent's backend and carries the copied turns", async () => {
@@ -1879,7 +2964,7 @@ it("binds a fork to a native agent's backend and carries the copied turns", asyn
     nativeConnection,
     w.owner,
     JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify({loopHarness:"codex",authMode:"subscription"}),
+    JSON.stringify({ loopHarness: "codex", authMode: "subscription" }),
     now(),
   );
   const native = createAgent(w.owner, {
@@ -1891,9 +2976,18 @@ it("binds a fork to a native agent's backend and carries the copied turns", asyn
   const r = run(w.owner, source.id, cid);
   message(w.owner, cid, "user", "Plan the release", r);
   const answer = message(w.owner, cid, "assistant", "Ship on Friday", r);
-  const fork = await api(w.owner, `/conversations/${cid}/fork`, "POST", { messageId: answer, agentId: native.id });
+  const fork = await api(w.owner, `/conversations/${cid}/fork`, "POST", {
+    messageId: answer,
+    agentId: native.id,
+  });
   expect(fork.status).toBe(200);
-  expect(db.prepare("SELECT execution_backend,execution_connection_id FROM conversations WHERE id=?").get(fork.data.id)).toEqual({
+  expect(
+    db
+      .prepare(
+        "SELECT execution_backend,execution_connection_id FROM conversations WHERE id=?",
+      )
+      .get(fork.data.id),
+  ).toEqual({
     execution_backend: "legacy",
     execution_connection_id: nativeConnection,
   });
@@ -1909,8 +3003,16 @@ it("binds a fork to a native agent's backend and carries the copied turns", asyn
   });
   expect(sent.status).toBe(202);
   // A fork to an API agent stays on the managed backend.
-  const apiFork = await api(w.owner, `/conversations/${cid}/fork`, "POST", { messageId: answer });
-  expect((db.prepare("SELECT execution_backend FROM conversations WHERE id=?").get(apiFork.data.id) as any).execution_backend).toBe("legacy");
+  const apiFork = await api(w.owner, `/conversations/${cid}/fork`, "POST", {
+    messageId: answer,
+  });
+  expect(
+    (
+      db
+        .prepare("SELECT execution_backend FROM conversations WHERE id=?")
+        .get(apiFork.data.id) as any
+    ).execution_backend,
+  ).toBe("legacy");
 });
 
 it("forks a conversation through the chosen message", async () => {
@@ -1923,21 +3025,50 @@ it("forks a conversation through the chosen message", async () => {
   message(w.owner, cid, "assistant", "   ", r);
   const m2 = message(w.owner, cid, "assistant", "Two", r);
   message(w.owner, cid, "user", "Three", r);
-  const fork = await api(w.owner, `/conversations/${cid}/fork`, "POST", { messageId: m2 });
+  const fork = await api(w.owner, `/conversations/${cid}/fork`, "POST", {
+    messageId: m2,
+  });
   expect(fork.data.agentId).toBe(a.id);
-  const created = db.prepare("SELECT * FROM conversations WHERE id=?").get(fork.data.id) as any;
-  expect(created).toMatchObject({ title: "Fork: Origin", origin: "loop-fork", owner_id: w.owner });
+  const created = db
+    .prepare("SELECT * FROM conversations WHERE id=?")
+    .get(fork.data.id) as any;
+  expect(created).toMatchObject({
+    title: "Fork: Origin",
+    origin: "loop-fork",
+    owner_id: w.owner,
+  });
   const copied = db
-    .prepare("SELECT content,json_extract(metadata,'$.sourceMessage') source FROM messages WHERE conversation_id=? ORDER BY created_at,rowid")
+    .prepare(
+      "SELECT content,json_extract(metadata,'$.sourceMessage') source FROM messages WHERE conversation_id=? ORDER BY created_at,rowid",
+    )
     .all(fork.data.id);
   expect(copied).toEqual([
     { content: "One", source: m1 },
     { content: "Two", source: m2 },
   ]);
-  expect((await api(w.owner, `/conversations/${cid}/fork`, "POST", { messageId: m2, agentId: b.id })).data.agentId).toBe(b.id);
+  expect(
+    (
+      await api(w.owner, `/conversations/${cid}/fork`, "POST", {
+        messageId: m2,
+        agentId: b.id,
+      })
+    ).data.agentId,
+  ).toBe(b.id);
   const other = conversation(w.owner, a.id);
-  expect((await api(w.owner, `/conversations/${other}/fork`, "POST", { messageId: m2 })).status).toBe(404);
-  expect((await api("intruder", `/conversations/${cid}/fork`, "POST", { messageId: m2 })).status).toBe(404);
+  expect(
+    (
+      await api(w.owner, `/conversations/${other}/fork`, "POST", {
+        messageId: m2,
+      })
+    ).status,
+  ).toBe(404);
+  expect(
+    (
+      await api("intruder", `/conversations/${cid}/fork`, "POST", {
+        messageId: m2,
+      })
+    ).status,
+  ).toBe(404);
 });
 
 it("sums provider receipts per run without double counting cumulative deltas", async () => {
@@ -1948,11 +3079,24 @@ it("sums provider receipts per run without double counting cumulative deltas", a
     anthropic = run(w.owner, a.id, cid),
     chat = run(w.owner, a.id, cid),
     none = run(w.owner, a.id, cid);
-  emit(w.owner, openai, "provider.receipt", { externalId: "resp_1", usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } });
-  emit(w.owner, openai, "provider.receipt", { externalId: "resp_2", usage: { input_tokens: 150, output_tokens: 30 } });
-  emit(w.owner, anthropic, "provider.receipt", { externalId: "msg_1", usage: { input_tokens: 50, output_tokens: 1 } });
-  emit(w.owner, anthropic, "provider.receipt", { usage: { output_tokens: 40 } });
-  emit(w.owner, chat, "provider.receipt", { usage: { prompt_tokens: 7, completion_tokens: 3 } });
+  emit(w.owner, openai, "provider.receipt", {
+    externalId: "resp_1",
+    usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+  });
+  emit(w.owner, openai, "provider.receipt", {
+    externalId: "resp_2",
+    usage: { input_tokens: 150, output_tokens: 30 },
+  });
+  emit(w.owner, anthropic, "provider.receipt", {
+    externalId: "msg_1",
+    usage: { input_tokens: 50, output_tokens: 1 },
+  });
+  emit(w.owner, anthropic, "provider.receipt", {
+    usage: { output_tokens: 40 },
+  });
+  emit(w.owner, chat, "provider.receipt", {
+    usage: { prompt_tokens: 7, completion_tokens: 3 },
+  });
   emit(w.owner, none, "progress", { message: "fixture" });
   // Only runs with a memory receipt are listed, so "Memory used" is not shown
   // on every reply.
@@ -1973,7 +3117,9 @@ it("sums provider receipts per run without double counting cumulative deltas", a
     total: { input_tokens: 307, output_tokens: 93 },
     memory: [chat],
   });
-  expect((await api("intruder", `/conversations/${cid}/usage`)).status).toBe(404);
+  expect((await api("intruder", `/conversations/${cid}/usage`)).status).toBe(
+    404,
+  );
 });
 
 it("pushes approval requests without their arguments and delivers app messages", async () => {
@@ -1984,11 +3130,13 @@ it("pushes approval requests without their arguments and delivers app messages",
   const other = workspaceFor();
   subscribe(other.owner);
   const r = run(w.owner, a.id, cid, "running");
-  const approval = requestApproval(
-    { id: r, owner_id: w.owner } as any,
-    { tool: "shell", arguments: { command: "cat secret-token-123" } },
-  );
-  const rows = db.prepare("SELECT * FROM push_messages WHERE message_key=?").all("approval-" + approval.id) as any[];
+  const approval = requestApproval({ id: r, owner_id: w.owner } as any, {
+    tool: "shell",
+    arguments: { command: "cat secret-token-123" },
+  });
+  const rows = db
+    .prepare("SELECT * FROM push_messages WHERE message_key=?")
+    .all("approval-" + approval.id) as any[];
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({
     subscription_id: sid,
@@ -1999,19 +3147,32 @@ it("pushes approval requests without their arguments and delivers app messages",
   expect(JSON.stringify(rows)).not.toContain("secret-token");
   // Auto-approved requests do not notify.
   requestApproval({ id: r, owner_id: w.owner } as any, { tool: "read" }, true);
-  expect(db.prepare("SELECT count(*) n FROM push_messages WHERE subscription_id=? AND message_key LIKE 'approval-%'").get(sid)).toEqual({ n: 1 });
+  expect(
+    db
+      .prepare(
+        "SELECT count(*) n FROM push_messages WHERE subscription_id=? AND message_key LIKE 'approval-%'",
+      )
+      .get(sid),
+  ).toEqual({ n: 1 });
   db.prepare("UPDATE push_messages SET available_at=0").run();
   const failure = vi.fn(async () => {
     throw { statusCode: 503 };
   });
   await deliverNotifications(failure as any);
-  const retried = db.prepare("SELECT attempts,available_at,delivered_at FROM push_messages WHERE subscription_id=? AND message_key=?").get(sid, "approval-" + approval.id) as any;
+  const retried = db
+    .prepare(
+      "SELECT attempts,available_at,delivered_at FROM push_messages WHERE subscription_id=? AND message_key=?",
+    )
+    .get(sid, "approval-" + approval.id) as any;
   expect(retried.attempts).toBe(1);
   expect(retried.available_at).toBeGreaterThan(now());
   expect(retried.delivered_at).toBeNull();
   db.prepare("UPDATE push_messages SET available_at=0").run();
   const send = vi.fn(async () => ({ statusCode: 201, body: "", headers: {} }));
-  await Promise.all([deliverNotifications(send as any), deliverNotifications(send as any)]);
+  await Promise.all([
+    deliverNotifications(send as any),
+    deliverNotifications(send as any),
+  ]);
   const payloads = send.mock.calls.map((call: any) => JSON.parse(call[1]));
   const mine = payloads.filter((p) => p.tag === "approval-" + approval.id);
   expect(mine).toEqual([
@@ -2037,9 +3198,23 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
     metadata: { snippet: true },
   });
   expect(snippet.status).toBe(201);
-  await api(w.owner, "/artifacts", "POST", { title: "Saved prompt: Deploy", content: "Ship it" });
-  await api(w.owner, "/artifacts", "POST", { title: "Report", content: "Not a snippet" });
-  expect((await api(w.owner, "/artifacts", "POST", { title: "X", content: "y", metadata: { tool: "exec" } })).status).toBe(400);
+  await api(w.owner, "/artifacts", "POST", {
+    title: "Saved prompt: Deploy",
+    content: "Ship it",
+  });
+  await api(w.owner, "/artifacts", "POST", {
+    title: "Report",
+    content: "Not a snippet",
+  });
+  expect(
+    (
+      await api(w.owner, "/artifacts", "POST", {
+        title: "X",
+        content: "y",
+        metadata: { tool: "exec" },
+      })
+    ).status,
+  ).toBe(400);
   // The same text saved again is offered once.
   await api(w.owner, "/artifacts", "POST", {
     title: "Standup again",
@@ -2047,14 +3222,24 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
     metadata: { snippet: true },
   });
   const snippets = (await api(w.owner, "/snippets")).data.items;
-  expect(snippets.map((s: any) => s.title).sort()).toEqual(["Saved prompt: Deploy", "Standup again"]);
+  expect(snippets.map((s: any) => s.title).sort()).toEqual([
+    "Saved prompt: Deploy",
+    "Standup again",
+  ]);
   // More repeated saves than the list holds don't hide older snippets.
   const repeats = db.prepare(
     "INSERT INTO artifacts(id,owner_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,'markdown',?,'{\"snippet\":true}',?,?)",
   );
   const later = now() + 1000;
   for (let i = 0; i < 250; i++)
-    repeats.run(id(), w.owner, "Snippet: Check CI", "Check CI", later + i, later + i);
+    repeats.run(
+      id(),
+      w.owner,
+      "Snippet: Check CI",
+      "Check CI",
+      later + i,
+      later + i,
+    );
   const crowded = (await api(w.owner, "/snippets")).data.items;
   expect(crowded.map((s: any) => s.content).sort()).toEqual([
     "Check CI",
@@ -2064,9 +3249,13 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
   expect((await api("intruder", "/snippets")).data.items).toEqual([]);
 
   const project = id();
-  db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Alpha',1)").run(project, w.owner);
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Alpha',1)",
+  ).run(project, w.owner);
   const empty = id();
-  db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Beta',1)").run(empty, w.owner);
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Beta',1)",
+  ).run(empty, w.owner);
   db.prepare("UPDATE agents SET folder_id=? WHERE id=?").run(project, a.id);
   const cid = conversation(w.owner, a.id);
   for (const input of ["Deploy the Garden", "write tests"])
@@ -2079,20 +3268,46 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
       folderId: project,
     });
   const found = await api(w.owner, "/me/prompts?q=GARDEN");
-  expect(found.data.items.map((i: any) => i.content)).toEqual(["Deploy the Garden"]);
+  expect(found.data.items.map((i: any) => i.content)).toEqual([
+    "Deploy the Garden",
+  ]);
   expect((await api(w.owner, "/me/prompts")).data.items).toHaveLength(2);
-  expect((await api(w.owner, "/me/prompts?q=" + "x".repeat(201))).status).toBe(400);
-  const r = db.prepare("SELECT id FROM runs WHERE conversation_id=? ORDER BY rowid LIMIT 1").get(cid) as any;
+  expect((await api(w.owner, "/me/prompts?q=" + "x".repeat(201))).status).toBe(
+    400,
+  );
+  const r = db
+    .prepare(
+      "SELECT id FROM runs WHERE conversation_id=? ORDER BY rowid LIMIT 1",
+    )
+    .get(cid) as any;
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(r.id);
   const summary = (await api(w.owner, "/projects/summary")).data.items;
-  expect(summary.map((s: any) => s.name).sort()).toEqual(["Alpha", "Beta", "Workspace"]);
+  expect(summary.map((s: any) => s.name).sort()).toEqual([
+    "Alpha",
+    "Beta",
+    "Workspace",
+  ]);
   const alpha = summary.find((s: any) => s.id === project);
-  expect(alpha).toMatchObject({ agents: 1, working: 1, needs: 0, latest_result: null });
+  expect(alpha).toMatchObject({
+    agents: 1,
+    working: 1,
+    needs: 0,
+    latest_result: null,
+  });
   expect(alpha.last_activity_at).toBeGreaterThan(0);
-  expect(summary.find((s: any) => s.id === empty)).toMatchObject({ agents: 0, last_activity_at: null });
+  expect(summary.find((s: any) => s.id === empty)).toMatchObject({
+    agents: 0,
+    last_activity_at: null,
+  });
   const foreign = (await api("intruder", "/projects/summary")).data.items;
   expect(foreign).toHaveLength(1);
-  expect(foreign[0]).toMatchObject({ name: "Workspace", agents: 0, working: 0, needs: 0, last_activity_at: null });
+  expect(foreign[0]).toMatchObject({
+    name: "Workspace",
+    agents: 0,
+    working: 0,
+    needs: 0,
+    last_activity_at: null,
+  });
 });
 
 it("keeps your profile per owner, with counts matching your prompt history", async () => {
@@ -2104,8 +3319,12 @@ it("keeps your profile per owner, with counts matching your prompt history", asy
   expect(blank.counts).toEqual({ messages: 0, agents: 2, projects: 0 });
 
   const project = id();
-  db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Alpha',1)").run(project, w.owner);
-  db.prepare("INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,?,'folder','Inner',1)").run(id(), w.owner, project);
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Alpha',1)",
+  ).run(project, w.owner);
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,?,'folder','Inner',1)",
+  ).run(id(), w.owner, project);
   db.prepare("UPDATE agents SET retired_at=1 WHERE id=?").run(a.id);
   const live = w.agent();
   const cid = conversation(w.owner, live.id);
@@ -2131,103 +3350,246 @@ it("keeps your profile per owner, with counts matching your prompt history", asy
     bio: "Building with agents.",
   });
   expect(saved.status).toBe(200);
-  expect(saved.data).toMatchObject({ display_name: "Jamie A", handle: "jamie_a", bio: "Building with agents." });
+  expect(saved.data).toMatchObject({
+    display_name: "Jamie A",
+    handle: "jamie_a",
+    bio: "Building with agents.",
+  });
   // Empty text clears a field.
-  expect((await api(w.owner, "/me/profile", "PUT", { display_name: "", handle: "jamie_a", bio: "" })).data)
-    .toMatchObject({ display_name: null, handle: "jamie_a", bio: null });
-  expect((await api(w.owner, "/me/profile", "PUT", { display_name: null, handle: "bad handle!", bio: null })).status).toBe(400);
-  expect((await api(w.owner, "/me/profile", "PUT", { display_name: null, handle: null, bio: "x".repeat(201) })).status).toBe(400);
+  expect(
+    (
+      await api(w.owner, "/me/profile", "PUT", {
+        display_name: "",
+        handle: "jamie_a",
+        bio: "",
+      })
+    ).data,
+  ).toMatchObject({ display_name: null, handle: "jamie_a", bio: null });
+  expect(
+    (
+      await api(w.owner, "/me/profile", "PUT", {
+        display_name: null,
+        handle: "bad handle!",
+        bio: null,
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await api(w.owner, "/me/profile", "PUT", {
+        display_name: null,
+        handle: null,
+        bio: "x".repeat(201),
+      })
+    ).status,
+  ).toBe(400);
 
   // Handles are unique across owners, ignoring case; others' profiles stay private.
   const other = workspaceFor();
-  expect((await api(other.owner, "/me/profile", "PUT", { display_name: null, handle: "JAMIE_A", bio: null })).status).toBe(409);
-  expect((await api(other.owner, "/me/profile")).data).toMatchObject({ handle: null, counts: { messages: 0, agents: 0, projects: 0 } });
+  expect(
+    (
+      await api(other.owner, "/me/profile", "PUT", {
+        display_name: null,
+        handle: "JAMIE_A",
+        bio: null,
+      })
+    ).status,
+  ).toBe(409);
+  expect((await api(other.owner, "/me/profile")).data).toMatchObject({
+    handle: null,
+    counts: { messages: 0, agents: 0, projects: 0 },
+  });
 });
 
 it("pages your explicit approvals through the profile API without mixing owners or automatic decisions", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id, "Release review");
   const rid = run(w.owner, a.id, cid, "awaiting_approval");
   const approvals = [];
   for (let i = 0; i < 53; i++) {
     db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(rid);
     const approval = requestApproval(ownedRun(rid, w.owner), {
-      type: "mcp_tool", tool: "merge_pull_request", arguments: { pullNumber: i },
+      type: "mcp_tool",
+      tool: "merge_pull_request",
+      arguments: { pullNumber: i },
     });
-    expect((await api(w.owner, `/approvals/${approval.id}`, "POST", { decision: i === 0 ? "reject" : "approve" })).status).toBe(200);
+    expect(
+      (
+        await api(w.owner, `/approvals/${approval.id}`, "POST", {
+          decision: i === 0 ? "reject" : "approve",
+        })
+      ).status,
+    ).toBe(200);
     approvals.push(approval.id);
   }
   // Equal timestamps still page each decision exactly once.
-  db.prepare("UPDATE personal_decisions SET created_at=100 WHERE owner_id=?").run(w.owner);
-  expect((await api(w.owner, `/approvals/${approvals[1]}`, "POST", { decision: "approve" })).status).toBe(409);
-  const auto = requestApproval(ownedRun(rid, w.owner), { type: "mcp_tool", tool: "automatic" }, true);
-  const expired = requestApproval(ownedRun(rid, w.owner), { type: "mcp_tool", tool: "expired" });
+  db.prepare(
+    "UPDATE personal_decisions SET created_at=100 WHERE owner_id=?",
+  ).run(w.owner);
+  expect(
+    (
+      await api(w.owner, `/approvals/${approvals[1]}`, "POST", {
+        decision: "approve",
+      })
+    ).status,
+  ).toBe(409);
+  const auto = requestApproval(
+    ownedRun(rid, w.owner),
+    { type: "mcp_tool", tool: "automatic" },
+    true,
+  );
+  const expired = requestApproval(ownedRun(rid, w.owner), {
+    type: "mcp_tool",
+    tool: "expired",
+  });
   db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(rid);
   db.prepare("UPDATE approvals SET expires_at=0 WHERE id=?").run(expired.id);
-  expect((await api(w.owner, `/approvals/${expired.id}`, "POST", { decision: "approve" })).status).toBe(409);
+  expect(
+    (
+      await api(w.owner, `/approvals/${expired.id}`, "POST", {
+        decision: "approve",
+      })
+    ).status,
+  ).toBe(409);
 
-  const first = (await api(w.owner, "/me/decisions?kind=approval&owner=someone-else")).data;
+  const first = (
+    await api(w.owner, "/me/decisions?kind=approval&owner=someone-else")
+  ).data;
   expect(first.items).toHaveLength(50);
   expect(first.next).toBeTruthy();
-  const second = (await api(w.owner, "/me/decisions?kind=approval&before=" + first.next)).data;
+  const second = (
+    await api(w.owner, "/me/decisions?kind=approval&before=" + first.next)
+  ).data;
   expect(second.items).toHaveLength(3);
   expect(second.next).toBeNull();
   const items = [...first.items, ...second.items];
   expect(new Set(items.map((item: any) => item.id)).size).toBe(53);
-  expect(items.map((item: any) => item.choice).filter((choice: string) => choice === "reject")).toHaveLength(1);
-  expect(items.every((item: any) => item.agent_name === a.name && item.conversation_id === cid && item.conversation_title === "Release review")).toBe(true);
-  expect(items.some((item: any) => [auto.id, expired.id].some((id) => item.id.endsWith(id)))).toBe(false);
+  expect(
+    items
+      .map((item: any) => item.choice)
+      .filter((choice: string) => choice === "reject"),
+  ).toHaveLength(1);
+  expect(
+    items.every(
+      (item: any) =>
+        item.agent_name === a.name &&
+        item.conversation_id === cid &&
+        item.conversation_title === "Release review",
+    ),
+  ).toBe(true);
+  expect(
+    items.some((item: any) =>
+      [auto.id, expired.id].some((id) => item.id.endsWith(id)),
+    ),
+  ).toBe(false);
   const detailPath = `/me/approvals/approval:${approvals[0]}`;
   expect((await api(w.owner, detailPath)).data).toEqual({
     source: "approval",
-    request: { type: "mcp_tool", tool: "merge_pull_request", arguments: { pullNumber: 0 } },
+    request: {
+      type: "mcp_tool",
+      tool: "merge_pull_request",
+      arguments: { pullNumber: 0 },
+    },
   });
   expect((await api("other-owner", detailPath)).status).toBe(404);
   for (const approvalId of [auto.id, expired.id])
-    expect((await api(w.owner, `/me/approvals/approval:${approvalId}`)).status).toBe(404);
-  expect((await api("other-owner", `/me/decisions?kind=approval&owner=${w.owner}`)).data.items).toEqual([]);
-  expect((await api(w.owner, "/me/decisions?kind=answer")).data.items).toEqual([]);
-  for (const query of ["kind=invalid", "kind=answer&before=not-a-cursor", "kind=answer&before=" + Buffer.from('[null,"id"]').toString("base64url")])
+    expect(
+      (await api(w.owner, `/me/approvals/approval:${approvalId}`)).status,
+    ).toBe(404);
+  expect(
+    (await api("other-owner", `/me/decisions?kind=approval&owner=${w.owner}`))
+      .data.items,
+  ).toEqual([]);
+  expect((await api(w.owner, "/me/decisions?kind=answer")).data.items).toEqual(
+    [],
+  );
+  for (const query of [
+    "kind=invalid",
+    "kind=answer&before=not-a-cursor",
+    "kind=answer&before=" + Buffer.from('[null,"id"]').toString("base64url"),
+  ])
     expect((await api(w.owner, "/me/decisions?" + query)).status).toBe(400);
   // A malformed legacy cross-owner reference must not expose its history.
-  db.prepare("UPDATE conversations SET owner_id='other-owner' WHERE id=?").run(cid);
-  expect((await api(w.owner, "/me/decisions?kind=approval")).data.items).toEqual([]);
+  db.prepare("UPDATE conversations SET owner_id='other-owner' WHERE id=?").run(
+    cid,
+  );
+  expect(
+    (await api(w.owner, "/me/decisions?kind=approval")).data.items,
+  ).toEqual([]);
   expect((await api(w.owner, detailPath)).status).toBe(404);
 });
 
 it("reopens full recorded approval requests without exposing installation config or native session context", async () => {
-  const w = workspaceFor(), agent = w.agent();
+  const w = workspaceFor(),
+    agent = w.agent();
   const cid = conversation(w.owner, agent.id);
   const rid = run(w.owner, agent.id, cid, "awaiting_approval");
-  const content = "Original request " + "detail ".repeat(2000) + "request ending";
+  const content =
+    "Original request " + "detail ".repeat(2000) + "request ending";
   const approval = requestApproval(ownedRun(rid, w.owner), {
-    type: "mcp_install", message: "Install workspace tools", content,
+    type: "mcp_install",
+    message: "Install workspace tools",
+    content,
     config: { token: "private-install-token" },
   });
-  expect((await api(w.owner, `/approvals/${approval.id}`, "POST", { decision: "reject" })).status).toBe(200);
-  expect((await api(w.owner, `/me/approvals/approval:${approval.id}`)).data).toEqual({
-    source: "approval", request: { type: "mcp_install", message: "Install workspace tools", content },
+  expect(
+    (
+      await api(w.owner, `/approvals/${approval.id}`, "POST", {
+        decision: "reject",
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (await api(w.owner, `/me/approvals/approval:${approval.id}`)).data,
+  ).toEqual({
+    source: "approval",
+    request: {
+      type: "mcp_install",
+      message: "Install workspace tools",
+      content,
+    },
   });
   const native = id();
-  db.prepare(`INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,command_id,created_at)
-    VALUES(?,?,?,'private-generation','private-native-id',?,'resolved','private-command-id',?)`).run(native, rid, cid,
-      JSON.stringify({ kind: "approval", title: "Publish release", detail: content, choices: ["allow", "deny"], nativeContext: "private-context" }), now());
-  db.prepare(`INSERT INTO personal_decisions(id,owner_id,run_id,native_decision_id,kind,response,created_at)
-    VALUES(?,?,?,?,'approval','{"choice":"deny"}',?)`).run("native:" + native, w.owner, rid, native, now());
+  db.prepare(
+    `INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,command_id,created_at)
+    VALUES(?,?,?,'private-generation','private-native-id',?,'resolved','private-command-id',?)`,
+  ).run(
+    native,
+    rid,
+    cid,
+    JSON.stringify({
+      kind: "approval",
+      title: "Publish release",
+      detail: content,
+      choices: ["allow", "deny"],
+      nativeContext: "private-context",
+    }),
+    now(),
+  );
+  db.prepare(
+    `INSERT INTO personal_decisions(id,owner_id,run_id,native_decision_id,kind,response,created_at)
+    VALUES(?,?,?,?,'approval','{"choice":"deny"}',?)`,
+  ).run("native:" + native, w.owner, rid, native, now());
   const nativePath = `/me/approvals/native:${native}`;
   expect((await api(w.owner, nativePath)).data).toEqual({
-    source: "native", request: { title: "Publish release", detail: content },
+    source: "native",
+    request: { title: "Publish release", detail: content },
   });
   expect((await api("other-owner", nativePath)).status).toBe(404);
-  db.prepare("UPDATE personal_decisions SET kind='answer' WHERE id=?").run("native:" + native);
+  db.prepare("UPDATE personal_decisions SET kind='answer' WHERE id=?").run(
+    "native:" + native,
+  );
   expect((await api(w.owner, nativePath)).status).toBe(404);
 });
 
 it("bounds large tool request previews and resumes from any visible decision", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id, "Large request previews");
   const rid = run(w.owner, a.id, cid, "awaiting_approval");
-  const huge = "Request prefix " + "x".repeat(4 * 1024 * 1024) + "TAIL_SHOULD_NOT_BE_SENT";
+  const huge =
+    "Request prefix " + "x".repeat(4 * 1024 * 1024) + "TAIL_SHOULD_NOT_BE_SENT";
   for (const request of [
     { type: "mcp_install", message: huge },
     { type: "mcp_tool", tool: "large_tool", arguments: { input: huge } },
@@ -2235,7 +3597,13 @@ it("bounds large tool request previews and resumes from any visible decision", a
   ]) {
     db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(rid);
     const approval = requestApproval(ownedRun(rid, w.owner), request);
-    expect((await api(w.owner, `/approvals/${approval.id}`, "POST", { decision: "approve" })).status).toBe(200);
+    expect(
+      (
+        await api(w.owner, `/approvals/${approval.id}`, "POST", {
+          decision: "approve",
+        })
+      ).status,
+    ).toBe(200);
   }
   const page = (await api(w.owner, "/me/decisions?kind=approval")).data;
   expect(page.items).toHaveLength(3);
@@ -2246,53 +3614,104 @@ it("bounds large tool request previews and resumes from any visible decision", a
   }
   expect(JSON.stringify(page).length).toBeLessThan(30_000);
   expect(JSON.stringify(page)).not.toContain("TAIL_SHOULD_NOT_BE_SENT");
-  const older = (await api(w.owner, "/me/decisions?kind=approval&before=" + page.items[0].cursor)).data;
-  expect(older.items.map((item: any) => item.id)).toEqual(page.items.slice(1).map((item: any) => item.id));
+  const older = (
+    await api(
+      w.owner,
+      "/me/decisions?kind=approval&before=" + page.items[0].cursor,
+    )
+  ).data;
+  expect(older.items.map((item: any) => item.id)).toEqual(
+    page.items.slice(1).map((item: any) => item.id),
+  );
 });
 
 it("bounds a full answer-history page including oversized pre-preview records", async () => {
-  const w = workspaceFor(), a = w.agent();
+  const w = workspaceFor(),
+    a = w.agent();
   const cid = conversation(w.owner, a.id, "Large answer previews");
   const rid = run(w.owner, a.id, cid, "completed");
-  const questions = Array.from({ length: 50 }, (_, i) => ({ id: "q" + i, title: "Question " + i + "🙂\u0001".repeat(40) }));
-  const request = JSON.stringify({ kind: "question", title: "Long responses", detail: "\u0001".repeat(6000), questions });
-  const legacy = JSON.stringify(Object.fromEntries(questions.map((q) => [q.id, Array(30).fill("x".repeat(8000))])));
-  const insertRequest = db.prepare(`INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,command_id,created_at)
+  const questions = Array.from({ length: 50 }, (_, i) => ({
+    id: "q" + i,
+    title: "Question " + i + "🙂\u0001".repeat(40),
+  }));
+  const request = JSON.stringify({
+    kind: "question",
+    title: "Long responses",
+    detail: "\u0001".repeat(6000),
+    questions,
+  });
+  const legacy = JSON.stringify(
+    Object.fromEntries(
+      questions.map((q) => [q.id, Array(30).fill("x".repeat(8000))]),
+    ),
+  );
+  const insertRequest =
+    db.prepare(`INSERT INTO native_decisions(id,run_id,conversation_id,generation,native_id,request,state,command_id,created_at)
     VALUES(?,?,?,'fixture',?,?,'resolved',?,?)`);
-  const insertHistory = db.prepare(`INSERT INTO personal_decisions(id,owner_id,run_id,native_decision_id,kind,response,response_truncated,created_at)
+  const insertHistory =
+    db.prepare(`INSERT INTO personal_decisions(id,owner_id,run_id,native_decision_id,kind,response,response_truncated,created_at)
     VALUES(?,?,?,?,'answer',?,?,?)`);
   db.transaction(() => {
     for (let i = 0; i < 50; i++) {
       const decision = id();
       insertRequest.run(decision, rid, cid, decision, request, id(), i);
-      insertHistory.run("native:" + decision, w.owner, rid, decision,
-        i === 0 ? legacy : JSON.stringify({ q0: ["Recorded answer " + "x".repeat(7000)] }), Number(i !== 0), i);
+      insertHistory.run(
+        "native:" + decision,
+        w.owner,
+        rid,
+        decision,
+        i === 0
+          ? legacy
+          : JSON.stringify({ q0: ["Recorded answer " + "x".repeat(7000)] }),
+        Number(i !== 0),
+        i,
+      );
     }
   }).immediate();
-  const { status, data: page } = await api(w.owner, "/me/decisions?kind=answer");
+  const { status, data: page } = await api(
+    w.owner,
+    "/me/decisions?kind=answer",
+  );
   expect(status).toBe(200);
   expect(page.items).toHaveLength(50);
   expect(page.next).toBeNull();
-  expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(PERSONAL_DECISIONS_PAGE_LIMIT);
+  expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(
+    PERSONAL_DECISIONS_PAGE_LIMIT,
+  );
   for (const item of page.items) {
     expect(item.response_recorded).toBe(true);
     expect(item.response_truncated).toBe(true);
-    expect(Buffer.byteLength(JSON.stringify(item.answers))).toBeLessThanOrEqual(PERSONAL_DECISION_RESPONSE_LIMIT);
+    expect(Buffer.byteLength(JSON.stringify(item.answers))).toBeLessThanOrEqual(
+      PERSONAL_DECISION_RESPONSE_LIMIT,
+    );
   }
   expect(page.items[0].answers[0].values[0]).toContain("Recorded answer");
   expect(page.items.at(-1).answers[0].values).toBeNull();
 });
 
-
 it("keeps shared-source runs serialized and owner-scoped over HTTP", async () => {
-  const w = workspaceFor(), a = w.agent();
-  const source = { url: "https://example.com/shared", title: "Shared source", excerpt: "Fixture" };
-  const body = { question: "@" + a.name + " Read this", source, idempotencyKey: id() };
+  const w = workspaceFor(),
+    a = w.agent();
+  const source = {
+    url: "https://example.com/shared",
+    title: "Shared source",
+    excerpt: "Fixture",
+  };
+  const body = {
+    question: "@" + a.name + " Read this",
+    source,
+    idempotencyKey: id(),
+  };
   const sent = await api(w.owner, "/share/send", "POST", body);
   expect(sent.status).toBe(200);
   expect(typeof sent.data.payload).toBe("string");
-  expect(JSON.parse(sent.data.payload)).toMatchObject({ agentId: a.id, source });
-  expect((await api(w.owner, "/share/send", "POST", body)).data).toEqual(sent.data);
+  expect(JSON.parse(sent.data.payload)).toMatchObject({
+    agentId: a.id,
+    source,
+  });
+  expect((await api(w.owner, "/share/send", "POST", body)).data).toEqual(
+    sent.data,
+  );
   expect((await api("intruder", "/share/send", "POST", body)).status).toBe(404);
 });
 
@@ -2331,8 +3750,14 @@ it("queues, edits, moves and cancels runs and schedules sends with no effect aut
       })
     ).data;
     expect(queued.state).toBe("queued");
-    expect((await api(w.owner, `/runs/${queued.id}`, "PATCH", { input: "edited" })).data).toEqual({ ok: true });
-    expect((db.prepare("SELECT input FROM runs WHERE id=?").get(queued.id) as any).input).toBe("edited");
+    expect(
+      (await api(w.owner, `/runs/${queued.id}`, "PATCH", { input: "edited" }))
+        .data,
+    ).toEqual({ ok: true });
+    expect(
+      (db.prepare("SELECT input FROM runs WHERE id=?").get(queued.id) as any)
+        .input,
+    ).toBe("edited");
     const moved = await api(w.owner, `/runs/${queued.id}/move`, "POST", {
       agentId: b.id,
       idempotencyKey: "move-" + randomBytes(6).toString("hex"),
@@ -2340,7 +3765,9 @@ it("queues, edits, moves and cancels runs and schedules sends with no effect aut
     expect(moved.status).toBeLessThan(300);
     expect(ownedRun(queued.id, w.owner).state).toBe("cancelled");
     expect(moved.data).toMatchObject({ agent_id: b.id, state: "queued" });
-    expect((await api(w.owner, `/runs/${moved.data.id}/cancel`, "POST", {})).status).toBeLessThan(300);
+    expect(
+      (await api(w.owner, `/runs/${moved.data.id}/cancel`, "POST", {})).status,
+    ).toBeLessThan(300);
     expect(ownedRun(moved.data.id, w.owner).state).toBe("cancelled");
 
     const key = "seam-" + randomBytes(6).toString("hex");
@@ -2354,12 +3781,21 @@ it("queues, edits, moves and cancels runs and schedules sends with no effect aut
     });
     expect(created.status).toBe(201);
     expect(
-      (await api(w.owner, `/scheduled-sends/${created.data.id}`, "PATCH", { input: "Evening check" })).data,
+      (
+        await api(w.owner, `/scheduled-sends/${created.data.id}`, "PATCH", {
+          input: "Evening check",
+        })
+      ).data,
     ).toMatchObject({ input: "Evening check" });
     expect(deliverScheduledSends(now() + 120000)).toBeGreaterThanOrEqual(1);
-    const sent = db.prepare("SELECT state,run_id FROM scheduled_sends WHERE id=?").get(created.data.id) as any;
+    const sent = db
+      .prepare("SELECT state,run_id FROM scheduled_sends WHERE id=?")
+      .get(created.data.id) as any;
     expect(sent.state).toBe("submitted");
-    expect(ownedRun(sent.run_id, w.owner)).toMatchObject({ state: "queued", input: "Evening check" });
+    expect(ownedRun(sent.run_id, w.owner)).toMatchObject({
+      state: "queued",
+      input: "Evening check",
+    });
     expect(effectRows(w.owner)).toEqual({ n: 0 });
   } finally {
     effects.resetEffectAuthorityForTests();
@@ -2381,14 +3817,16 @@ it("refuses a delegated fleet action when no effect authority is registered", as
   ).data;
   effects.resetEffectAuthorityForTests();
   try {
-    const delegated = <T,>(apply: () => T) =>
+    const delegated = <T>(apply: () => T) =>
       withFleetAction(
         { owner: w.owner, commandId: id(), grant: fixtureGrant },
         () => {},
         apply,
       );
     expect(() =>
-      delegated(() => editQueuedRun(w.owner, queued.id, { input: "from a peer" })),
+      delegated(() =>
+        editQueuedRun(w.owner, queued.id, { input: "from a peer" }),
+      ),
     ).toThrow(ExecutionRefused);
     expect(() =>
       delegated(() =>
@@ -2405,27 +3843,33 @@ it("refuses a delegated fleet action when no effect authority is registered", as
 it("keeps one owner's recorded effect authority out of another owner's checks", () => {
   effects.registerEffectAuthority(fleetEffectAuthority);
   try {
-  const owner = id(),
-    other = id(),
-    effect = id(),
-    target = id();
-  db.prepare(
-    "INSERT INTO fleet_effect_authorizations(owner_id,effect_kind,effect_id,command_id,grant_context) VALUES(?,'run',?,?,?)",
-  ).run(owner, effect, id(), JSON.stringify(fixtureGrant));
-  // The grant names no accepted fleet membership, so it refuses its owner.
-  expect(() => effects.assertEffect(owner, "run", effect)).toThrow(ExecutionRefused);
-  // Another owner's assert and inherit never see that authorization.
-  expect(() => effects.assertEffect(other, "run", effect)).not.toThrow();
-  db.transaction(() => effects.inheritEffect(other, "run", effect, target))();
-  expect(effectRows(other)).toEqual({ n: 0 });
-  expect(() =>
-    db.transaction(() => effects.inheritEffect(owner, "run", effect, target))(),
-  ).toThrow(ExecutionRefused);
-  expect(
-    db
-      .prepare("SELECT count(*) n FROM fleet_effect_edit_authorizations WHERE effect_id=?")
-      .get(target),
-  ).toEqual({ n: 0 });
+    const owner = id(),
+      other = id(),
+      effect = id(),
+      target = id();
+    db.prepare(
+      "INSERT INTO fleet_effect_authorizations(owner_id,effect_kind,effect_id,command_id,grant_context) VALUES(?,'run',?,?,?)",
+    ).run(owner, effect, id(), JSON.stringify(fixtureGrant));
+    // The grant names no accepted fleet membership, so it refuses its owner.
+    expect(() => effects.assertEffect(owner, "run", effect)).toThrow(
+      ExecutionRefused,
+    );
+    // Another owner's assert and inherit never see that authorization.
+    expect(() => effects.assertEffect(other, "run", effect)).not.toThrow();
+    db.transaction(() => effects.inheritEffect(other, "run", effect, target))();
+    expect(effectRows(other)).toEqual({ n: 0 });
+    expect(() =>
+      db.transaction(() =>
+        effects.inheritEffect(owner, "run", effect, target),
+      )(),
+    ).toThrow(ExecutionRefused);
+    expect(
+      db
+        .prepare(
+          "SELECT count(*) n FROM fleet_effect_edit_authorizations WHERE effect_id=?",
+        )
+        .get(target),
+    ).toEqual({ n: 0 });
   } finally {
     effects.resetEffectAuthorityForTests();
   }
@@ -2459,52 +3903,62 @@ it("refuses, without running, a scheduled send a peer authorized when the host r
   try {
     deliverScheduledSends(now() + 120000);
     const row = (sendId: string) =>
-      db.prepare("SELECT state,run_id FROM scheduled_sends WHERE id=?").get(sendId) as any;
+      db
+        .prepare("SELECT state,run_id FROM scheduled_sends WHERE id=?")
+        .get(sendId) as any;
     expect(row(local.data.id).state).toBe("submitted");
     expect(row(delegated.data.id).state).not.toBe("submitted");
     expect(row(delegated.data.id).run_id).toBeNull();
     expect(
       db
-        .prepare("SELECT count(*) n FROM runs WHERE owner_id=? AND input='Peer send'")
+        .prepare(
+          "SELECT count(*) n FROM runs WHERE owner_id=? AND input='Peer send'",
+        )
         .get(w.owner),
     ).toEqual({ n: 0 });
     // The refusal also guards an assert or inherit of that recorded effect.
-    expect(() => effects.assertEffect(w.owner, "scheduled", delegated.data.id)).toThrow(
-      /Restart Loop with loop start --fleet/,
-    );
+    expect(() =>
+      effects.assertEffect(w.owner, "scheduled", delegated.data.id),
+    ).toThrow(/Restart Loop with loop start --fleet/);
   } finally {
     effects.resetEffectAuthorityForTests();
   }
 });
 
-it.each(["registered", "unregistered"])("refuses to execute a peer-authorized run with %s local authority", async (mode) => {
-  const w = workspaceFor(),
-    a = w.agent(),
-    cid = conversation(w.owner, a.id);
-  const queued = (
-    await api(w.owner, "/runs", "POST", {
-      agentId: a.id,
-      conversationId: cid,
-      input: "Queued by a peer",
-      idempotencyKey: "q-" + randomBytes(6).toString("hex"),
-      queue: true,
-    })
-  ).data;
-  db.prepare(
-    "INSERT INTO fleet_effect_authorizations(owner_id,effect_kind,effect_id,command_id,grant_context) VALUES(?,'run',?,?,?)",
-  ).run(w.owner, queued.id, id(), JSON.stringify(fixtureGrant));
-  if (mode === "registered") effects.registerEffectAuthority(refuseRecordedEffects(db));
-  else effects.resetEffectAuthorityForTests();
-  try {
-    // The worker's execution path checks the run's fleet authorization
-    // through the seam; the default store guard also refuses before registration.
-    await expect(executeAgent(ownedRun(queued.id, w.owner))).rejects.toThrow(
-      /Restart Loop with loop start --fleet/,
-    );
-    expect(
-      db.prepare("SELECT count(*) n FROM agent_checkpoints WHERE run_id=?").get(queued.id),
-    ).toEqual({ n: 0 });
-  } finally {
-    effects.resetEffectAuthorityForTests();
-  }
-});
+it.each(["registered", "unregistered"])(
+  "refuses to execute a peer-authorized run with %s local authority",
+  async (mode) => {
+    const w = workspaceFor(),
+      a = w.agent(),
+      cid = conversation(w.owner, a.id);
+    const queued = (
+      await api(w.owner, "/runs", "POST", {
+        agentId: a.id,
+        conversationId: cid,
+        input: "Queued by a peer",
+        idempotencyKey: "q-" + randomBytes(6).toString("hex"),
+        queue: true,
+      })
+    ).data;
+    db.prepare(
+      "INSERT INTO fleet_effect_authorizations(owner_id,effect_kind,effect_id,command_id,grant_context) VALUES(?,'run',?,?,?)",
+    ).run(w.owner, queued.id, id(), JSON.stringify(fixtureGrant));
+    if (mode === "registered")
+      effects.registerEffectAuthority(refuseRecordedEffects(db));
+    else effects.resetEffectAuthorityForTests();
+    try {
+      // The worker's execution path checks the run's fleet authorization
+      // through the seam; the default store guard also refuses before registration.
+      await expect(executeAgent(ownedRun(queued.id, w.owner))).rejects.toThrow(
+        /Restart Loop with loop start --fleet/,
+      );
+      expect(
+        db
+          .prepare("SELECT count(*) n FROM agent_checkpoints WHERE run_id=?")
+          .get(queued.id),
+      ).toEqual({ n: 0 });
+    } finally {
+      effects.resetEffectAuthorityForTests();
+    }
+  },
+);

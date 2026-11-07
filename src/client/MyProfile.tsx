@@ -77,7 +77,8 @@ export function MyProfile({
       const current = ++ticket;
       try {
         const result = await readRoute(
-          workspaceApi.socialUnread, {},
+          workspaceApi.socialUnread,
+          {},
           "",
           controller.signal,
         );
@@ -102,10 +103,9 @@ export function MyProfile({
   }, []);
   const [tab, setTabState] = useState<ProfileTab>(() => {
     const params = new URLSearchParams(location.search);
-    const value =
-      params.has("social")
-        ? "social"
-        : params.get("profileTab") || cachedView<string>("later-section");
+    const value = params.has("social")
+      ? "social"
+      : params.get("profileTab") || cachedView<string>("later-section");
     return profileTabs.some(([id]) => id === value)
       ? (value as ProfileTab)
       : "messages";
@@ -251,9 +251,13 @@ function EditProfile({
     setBusy(true);
     try {
       onSaved(
-        await callRoute(workspaceApi.personalProfileUpdate, {
-          body: { display_name: displayName, handle, bio },
-        }, executionSourceId()),
+        await callRoute(
+          workspaceApi.personalProfileUpdate,
+          {
+            body: { display_name: displayName, handle, bio },
+          },
+          executionSourceId(),
+        ),
       );
     } catch (e) {
       setError((e as Error).message);

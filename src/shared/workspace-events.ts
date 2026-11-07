@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { ProjectedMessage, MessageAppend, MessageRemoval } from "./transcript-projection.js";
+import {
+  ProjectedMessage,
+  MessageAppend,
+  MessageRemoval,
+} from "./transcript-projection.js";
 
 export const WORKSPACE_COLLECTIONS = [
   "feed",
@@ -33,21 +37,46 @@ export const WorkspaceScope = z.discriminatedUnion("kind", [
 export type WorkspaceScope = z.infer<typeof WorkspaceScope>;
 
 export const WORKSPACE_SUBJECTS = [
-  "run", "conversation", "message", "artifact", "approval", "decision",
-  "later", "scheduled_send", "mail_thread", "connection", "agent", "folder",
-  "team", "social", "collection",
+  "run",
+  "conversation",
+  "message",
+  "artifact",
+  "approval",
+  "decision",
+  "later",
+  "scheduled_send",
+  "mail_thread",
+  "connection",
+  "agent",
+  "folder",
+  "team",
+  "social",
+  "collection",
 ] as const;
-export const WorkspaceSubject = z.strictObject({ kind: z.enum(WORKSPACE_SUBJECTS), id: Id });
+export const WorkspaceSubject = z.strictObject({
+  kind: z.enum(WORKSPACE_SUBJECTS),
+  id: Id,
+});
 export type WorkspaceSubject = z.infer<typeof WorkspaceSubject>;
 const Scopes = z.array(WorkspaceScope).min(1).max(32);
-const Invalidation = z.strictObject({ scope: WorkspaceScope, scopes: Scopes.optional() });
-const Tombstone = Invalidation.extend({ removed: WorkspaceSubject });
-const Deadline = z.strictObject({ serverNow: Count, nextDeadline: Count.nullable() });
-const Decision = z.strictObject({
-  decisionId: Id, conversationId: Id, runId: Id, generation: Id,
-  nativeId: z.string().max(256000), state: z.string(), request: z.unknown(),
+const Invalidation = z.strictObject({
+  scope: WorkspaceScope,
+  scopes: Scopes.optional(),
 });
-
+const Tombstone = Invalidation.extend({ removed: WorkspaceSubject });
+const Deadline = z.strictObject({
+  serverNow: Count,
+  nextDeadline: Count.nullable(),
+});
+const Decision = z.strictObject({
+  decisionId: Id,
+  conversationId: Id,
+  runId: Id,
+  generation: Id,
+  nativeId: z.string().max(256000),
+  state: z.string(),
+  request: z.unknown(),
+});
 
 // Provider receipts and execution snapshots have provider-specific JSON fields.
 // Bound their serialized size and depth without treating them as projection data.
@@ -97,79 +126,85 @@ export type RunEventPayload = z.infer<typeof RunEventPayload>;
 export const MAX_NATIVE_REQUEST_BYTES = 64000;
 export const MAX_NATIVE_EVENT_BYTES = 256000;
 const NativeId = z.string().max(MAX_NATIVE_EVENT_BYTES);
-const NativeRequest = z.strictObject({
-  id: NativeId,
-  kind: z.enum(["approval", "question"]),
-  title: Text,
-  detail: Text,
-  choices: z.array(Text).max(MAX_NATIVE_REQUEST_BYTES).optional(),
-  completionUrl: z.string().url().startsWith("https://").optional(),
-  allow: Text.optional(),
-  questions: z
-    .array(
-      z.strictObject({
-        id: NativeId,
-        title: Text,
-        options: z.array(Text).max(MAX_NATIVE_REQUEST_BYTES).optional(),
-        multiple: z.boolean().optional(),
-        secret: z.boolean().optional(),
-      }),
-    )
-    .max(MAX_NATIVE_REQUEST_BYTES)
-    .optional(),
-}).refine(
-  (request) =>
-    new TextEncoder().encode(JSON.stringify(request)).length <= MAX_NATIVE_REQUEST_BYTES,
-  "Native request exceeds its ingress byte budget",
-);
-const NativeEvent = z.discriminatedUnion("type", [
-  z.strictObject({
-    type: z.literal("status"),
-    status: z.enum([
-      "starting",
-      "ready",
-      "running",
-      "awaiting-input",
-      "completed",
-      "interrupted",
-      "failed",
-      "stopped",
-    ]),
-    detail: Text.optional(),
-    recoverable: z.boolean().optional(),
-  }),
-  z.strictObject({
-    type: z.literal("metadata"),
-    nativeSession: NativeId,
-    billing: z
-      .strictObject({
-        mode: z.enum(["subscription", "existing"]),
-        description: Text,
-        provider: Text.optional(),
-        model: Text.optional(),
-      })
+const NativeRequest = z
+  .strictObject({
+    id: NativeId,
+    kind: z.enum(["approval", "question"]),
+    title: Text,
+    detail: Text,
+    choices: z.array(Text).max(MAX_NATIVE_REQUEST_BYTES).optional(),
+    completionUrl: z.string().url().startsWith("https://").optional(),
+    allow: Text.optional(),
+    questions: z
+      .array(
+        z.strictObject({
+          id: NativeId,
+          title: Text,
+          options: z.array(Text).max(MAX_NATIVE_REQUEST_BYTES).optional(),
+          multiple: z.boolean().optional(),
+          secret: z.boolean().optional(),
+        }),
+      )
+      .max(MAX_NATIVE_REQUEST_BYTES)
       .optional(),
-  }),
-  z.strictObject({
-    type: z.literal("item"),
-    item: z.strictObject({
-      id: NativeId,
-      kind: z.enum(["user", "assistant", "tool", "notice"]),
-      text: Text,
-      title: Text.optional(),
-      status: Text.optional(),
-      phase: z.enum(["commentary", "final_answer"]).optional(),
+  })
+  .refine(
+    (request) =>
+      new TextEncoder().encode(JSON.stringify(request)).length <=
+      MAX_NATIVE_REQUEST_BYTES,
+    "Native request exceeds its ingress byte budget",
+  );
+const NativeEvent = z
+  .discriminatedUnion("type", [
+    z.strictObject({
+      type: z.literal("status"),
+      status: z.enum([
+        "starting",
+        "ready",
+        "running",
+        "awaiting-input",
+        "completed",
+        "interrupted",
+        "failed",
+        "stopped",
+      ]),
+      detail: Text.optional(),
+      recoverable: z.boolean().optional(),
     }),
-  }),
-  z.strictObject({ type: z.literal("delta"), id: NativeId, text: Text }),
-  z.strictObject({ type: z.literal("request"), request: NativeRequest }),
-  z.strictObject({ type: z.literal("resolved"), id: NativeId }),
-  z.strictObject({ type: z.literal("error"), message: Text }),
-]).refine(
-  (event) =>
-    new TextEncoder().encode(JSON.stringify(event)).length <= MAX_NATIVE_EVENT_BYTES,
-  "Native event exceeds its ingress byte budget",
-);
+    z.strictObject({
+      type: z.literal("metadata"),
+      nativeSession: NativeId,
+      billing: z
+        .strictObject({
+          mode: z.enum(["subscription", "existing"]),
+          description: Text,
+          provider: Text.optional(),
+          model: Text.optional(),
+        })
+        .optional(),
+    }),
+    z.strictObject({
+      type: z.literal("item"),
+      item: z.strictObject({
+        id: NativeId,
+        kind: z.enum(["user", "assistant", "tool", "notice"]),
+        text: Text,
+        title: Text.optional(),
+        status: Text.optional(),
+        phase: z.enum(["commentary", "final_answer"]).optional(),
+      }),
+    }),
+    z.strictObject({ type: z.literal("delta"), id: NativeId, text: Text }),
+    z.strictObject({ type: z.literal("request"), request: NativeRequest }),
+    z.strictObject({ type: z.literal("resolved"), id: NativeId }),
+    z.strictObject({ type: z.literal("error"), message: Text }),
+  ])
+  .refine(
+    (event) =>
+      new TextEncoder().encode(JSON.stringify(event)).length <=
+      MAX_NATIVE_EVENT_BYTES,
+    "Native event exceeds its ingress byte budget",
+  );
 const Empty = z.strictObject({});
 const Approval = z.union([
   z.strictObject({ approvalId: Id, request: Json.optional() }),
@@ -177,7 +212,10 @@ const Approval = z.union([
 ]);
 const Message = z.strictObject({ messageId: Id });
 // Native tools use an empty string when the completed call has no artifact.
-const Tool = z.strictObject({ tool: Id, artifactId: z.union([Id, z.literal("")]) });
+const Tool = z.strictObject({
+  tool: Id,
+  artifactId: z.union([Id, z.literal("")]),
+});
 const Payloads = {
   "connection.status": z.strictObject({ status: z.string().min(1).max(100) }),
   "reverse.settled": z.strictObject({ callId: Id }),
@@ -201,8 +239,11 @@ const Payloads = {
   "agent_mail.held": z.strictObject({ mailId: Id, threadId: Id }),
   "import.progress": z.strictObject({ completed: Count, total: Count }),
   "feed.card": z.strictObject({
-    conversationId: Id, cardKey: z.string().max(200),
-    kind: z.enum(["thread", "result", "idle"]), removed: z.boolean(), card: Json.nullable(),
+    conversationId: Id,
+    cardKey: z.string().max(200),
+    kind: z.enum(["thread", "result", "idle"]),
+    removed: z.boolean(),
+    card: Json.nullable(),
   }),
   "feed.changed": z.strictObject({ artifactId: Id, hidden: z.boolean() }),
   "approval.auto_approved": Approval,
@@ -333,15 +374,32 @@ type DurableEmission = {
     payload: Extract<EmittedWorkspaceEvent, { type: K }>["payload"],
   ];
 }[Exclude<EmittedWorkspaceEvent["type"], "connection.status">];
-export type WorkspaceEmission = DurableEmission
+export type WorkspaceEmission =
+  | DurableEmission
   | [type: "invalidate", payload: z.infer<typeof Invalidation>]
   | [type: "tombstone", payload: z.infer<typeof Tombstone>]
   | [type: "deadline", payload: z.infer<typeof Deadline>];
 export const WorkspaceEvent = z.discriminatedUnion("type", [
   ...EmittedWorkspaceEvent.options,
-  z.strictObject({ type: z.literal("invalidate"), scope: WorkspaceScope, subject: WorkspaceSubject.optional(), scopes: Scopes.optional() }),
-  z.strictObject({ type: z.literal("tombstone"), scope: WorkspaceScope, subject: WorkspaceSubject, scopes: Scopes.optional(), removed: WorkspaceSubject }),
-  z.strictObject({ type: z.literal("deadline"), scope: WorkspaceScope, subject: WorkspaceSubject, ...Deadline.shape }),
+  z.strictObject({
+    type: z.literal("invalidate"),
+    scope: WorkspaceScope,
+    subject: WorkspaceSubject.optional(),
+    scopes: Scopes.optional(),
+  }),
+  z.strictObject({
+    type: z.literal("tombstone"),
+    scope: WorkspaceScope,
+    subject: WorkspaceSubject,
+    scopes: Scopes.optional(),
+    removed: WorkspaceSubject,
+  }),
+  z.strictObject({
+    type: z.literal("deadline"),
+    scope: WorkspaceScope,
+    subject: WorkspaceSubject,
+    ...Deadline.shape,
+  }),
 ]);
 export type WorkspaceEvent = z.infer<typeof WorkspaceEvent>;
 export function invalidate(
@@ -351,12 +409,19 @@ export function invalidate(
   return { type: "invalidate", scope, ...(subject ? { subject } : {}) };
 }
 export function eventScopes(event: WorkspaceEvent): WorkspaceScope[] {
-  return [event.scope, ...("scopes" in event ? event.scopes ?? [] : [])];
+  return [event.scope, ...("scopes" in event ? (event.scopes ?? []) : [])];
 }
-export function eventScope(type: string, run: string | null, subject?: string | WorkspaceSubject): WorkspaceScope {
+export function eventScope(
+  type: string,
+  run: string | null,
+  subject?: string | WorkspaceSubject,
+): WorkspaceScope {
   if (typeof subject === "object") {
     if (["run", "conversation", "connection"].includes(subject.kind))
-      return { kind: subject.kind as "run" | "conversation" | "connection", id: subject.id };
+      return {
+        kind: subject.kind as "run" | "conversation" | "connection",
+        id: subject.id,
+      };
     if (subject.kind === "collection") {
       const parsed = WorkspaceScope.safeParse(subject);
       if (parsed.success) return parsed.data;
@@ -364,18 +429,55 @@ export function eventScope(type: string, run: string | null, subject?: string | 
   }
   return type === "connection.status" && typeof subject === "string"
     ? { kind: "connection", id: subject }
-    : run ? { kind: "run", id: run } : { kind: "collection", id: "all" };
+    : run
+      ? { kind: "run", id: run }
+      : { kind: "collection", id: "all" };
 }
-export function parseEmission(run: string | null, type: string, payload: unknown, input?: string | WorkspaceSubject): WorkspaceEvent {
-  const subject = typeof input === "object" ? WorkspaceSubject.parse(input)
-    : { kind: type === "connection.status" ? "connection" as const : "run" as const, id: input ?? run ?? "" };
-  if (type === "connection.status" && (run !== null || subject.kind !== "connection" || !subject.id))
-    throw new Error("Connection status requires a connection subject without a run");
-  if (type === "invalidate") return { type, subject, ...Invalidation.parse(payload) };
-  if (type === "tombstone") return { type, subject, ...Tombstone.parse(payload) };
-  if (type === "deadline") return { type, subject, scope: { kind: "collection", id: "all" }, ...Deadline.parse(payload) };
-  const event = EmittedWorkspaceEvent.parse({ type, payload, subject, scope: eventScope(type, run, input) });
-  if (event.type === "message.upsert") event.scope = { kind: "conversation", id: event.payload.message.conversation_id };
+export function parseEmission(
+  run: string | null,
+  type: string,
+  payload: unknown,
+  input?: string | WorkspaceSubject,
+): WorkspaceEvent {
+  const subject =
+    typeof input === "object"
+      ? WorkspaceSubject.parse(input)
+      : {
+          kind:
+            type === "connection.status"
+              ? ("connection" as const)
+              : ("run" as const),
+          id: input ?? run ?? "",
+        };
+  if (
+    type === "connection.status" &&
+    (run !== null || subject.kind !== "connection" || !subject.id)
+  )
+    throw new Error(
+      "Connection status requires a connection subject without a run",
+    );
+  if (type === "invalidate")
+    return { type, subject, ...Invalidation.parse(payload) };
+  if (type === "tombstone")
+    return { type, subject, ...Tombstone.parse(payload) };
+  if (type === "deadline")
+    return {
+      type,
+      subject,
+      scope: { kind: "collection", id: "all" },
+      ...Deadline.parse(payload),
+    };
+  const event = EmittedWorkspaceEvent.parse({
+    type,
+    payload,
+    subject,
+    scope: eventScope(type, run, input),
+  });
+  if (event.type === "message.upsert")
+    event.scope = {
+      kind: "conversation",
+      id: event.payload.message.conversation_id,
+    };
   else if (event.type === "message.remove")
     event.scope = { kind: "conversation", id: event.payload.conversationId };
   else if (event.type === "message.delta" && "conversationId" in event.payload)
@@ -393,15 +495,31 @@ export function historicalEvent(row: {
   type: string;
   payload: string | null;
 }): WorkspaceEvent {
-  const parsed = WorkspaceSubject.safeParse({ kind: row.subject_kind ?? (row.type === "connection.status" ? "connection" : "run"), id: row.subject_id ?? row.run_id });
+  const parsed = WorkspaceSubject.safeParse({
+    kind:
+      row.subject_kind ??
+      (row.type === "connection.status" ? "connection" : "run"),
+    id: row.subject_id ?? row.run_id,
+  });
   const subject = parsed.success ? parsed.data : undefined;
   if (row.payload === null) {
-    const scope = WorkspaceScope.safeParse(eventScope(row.type, row.run_id, subject));
+    const scope = WorkspaceScope.safeParse(
+      eventScope(row.type, row.run_id, subject),
+    );
     return Object.hasOwn(Payloads, row.type) && scope.success
-      ? invalidate(scope.data, subject?.kind === "message" ? subject : undefined) : invalidate();
+      ? invalidate(
+          scope.data,
+          subject?.kind === "message" ? subject : undefined,
+        )
+      : invalidate();
   }
   try {
-    return parseEmission(row.run_id, row.type, JSON.parse(row.payload), subject);
+    return parseEmission(
+      row.run_id,
+      row.type,
+      JSON.parse(row.payload),
+      subject,
+    );
   } catch {
     return invalidate();
   }
@@ -426,13 +544,18 @@ export const PARTIAL_WORKSPACE_CAPABILITIES: WorkspaceCapabilities = {
   results: "snapshot",
 };
 export const COMPLETE_WORKSPACE_CAPABILITIES: WorkspaceCapabilities = {
-  ...PARTIAL_WORKSPACE_CAPABILITIES, invalidations: "complete", deadlines: true,
+  ...PARTIAL_WORKSPACE_CAPABILITIES,
+  invalidations: "complete",
+  deadlines: true,
   transcript: "delta",
-  feed: "delta", results: "delta",
+  feed: "delta",
+  results: "delta",
 };
 export const WorkspaceClock = z.strictObject({
   epoch: z.string().min(1).max(200),
-  serverNow: Count, nextDeadline: Count.nullable(), cursor: Count,
+  serverNow: Count,
+  nextDeadline: Count.nullable(),
+  cursor: Count,
 });
 export type WorkspaceClock = z.infer<typeof WorkspaceClock>;
 // The tolerant decoder has the same canonical output union as stored events.

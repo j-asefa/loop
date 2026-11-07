@@ -43,14 +43,14 @@ async function equivalent() {
         expect(response.status).toBe(200);
         // PR 7 adds transport handoff metadata around the unchanged Feed
         // selection. Keep comparing every item, cursor and summary field.
-        const { projection, projectionRows, ...expected } = await response.json();
+        const { projection, projectionRows, ...expected } =
+          await response.json();
         expect(expected).toEqual(oracle.feed(OWNER, options));
         expect(projection).toBeDefined();
         expect(projectionRows.delta).toBe(false);
-        expect(
-          readers.feed(OWNER, options),
-          JSON.stringify(options),
-        ).toEqual(expected);
+        expect(readers.feed(OWNER, options), JSON.stringify(options)).toEqual(
+          expected,
+        );
       }
     }
   for (const folders of [null, ["proj", "nested", "deep"], [null]]) {
@@ -431,91 +431,201 @@ it("keeps oversized queued displays as bounded reconciliation events", async () 
 
 it("bounds dirty work for unrelated folders, queued payloads and connection scope changes", async () => {
   const { db } = fixture;
-  const marked = (write: () => unknown) => db.transaction(() => {
-    write();
-    return db.prepare("SELECT DISTINCT conversation_id FROM feed_card_dirty ORDER BY conversation_id")
-      .all() as { conversation_id: string }[];
-  }).immediate();
-  expect(marked(() => db.prepare("INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('projection-unrelated',?,'folder','Unrelated',1)").run(OWNER))).toEqual([]);
-  expect(marked(() => db.prepare("UPDATE folders SET name='Still unrelated' WHERE id='projection-unrelated'").run())).toEqual([]);
-  expect(marked(() => db.prepare("UPDATE runs SET payload=json_set(payload,'$.model','changed-model') WHERE id='r-queue-1'").run()))
-    .toEqual([{ conversation_id: "c-queue" }]);
-  expect(marked(() => db.prepare("UPDATE connections SET metadata=json_set(metadata,'$.displayLabel','Renamed') WHERE id='conn-native'").run()))
-    .toEqual([]);
+  const marked = (write: () => unknown) =>
+    db
+      .transaction(() => {
+        write();
+        return db
+          .prepare(
+            "SELECT DISTINCT conversation_id FROM feed_card_dirty ORDER BY conversation_id",
+          )
+          .all() as { conversation_id: string }[];
+      })
+      .immediate();
+  expect(
+    marked(() =>
+      db
+        .prepare(
+          "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('projection-unrelated',?,'folder','Unrelated',1)",
+        )
+        .run(OWNER),
+    ),
+  ).toEqual([]);
+  expect(
+    marked(() =>
+      db
+        .prepare(
+          "UPDATE folders SET name='Still unrelated' WHERE id='projection-unrelated'",
+        )
+        .run(),
+    ),
+  ).toEqual([]);
+  expect(
+    marked(() =>
+      db
+        .prepare(
+          "UPDATE runs SET payload=json_set(payload,'$.model','changed-model') WHERE id='r-queue-1'",
+        )
+        .run(),
+    ),
+  ).toEqual([{ conversation_id: "c-queue" }]);
+  expect(
+    marked(() =>
+      db
+        .prepare(
+          "UPDATE connections SET metadata=json_set(metadata,'$.displayLabel','Renamed') WHERE id='conn-native'",
+        )
+        .run(),
+    ),
+  ).toEqual([]);
   db.transaction(() => {
-    db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('projection-peer',?,'agent-native','Peer',1)").run(OWNER);
-    db.prepare("INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES('projection-peer',?,'agent-native','projection-peer','Peer','queued','projection-peer',?, ?,?)")
-      .run(OWNER, JSON.stringify({connectionId:"conn-native"}), NOW + 100_000, NOW + 100_000);
+    db.prepare(
+      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('projection-peer',?,'agent-native','Peer',1)",
+    ).run(OWNER);
+    db.prepare(
+      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES('projection-peer',?,'agent-native','projection-peer','Peer','queued','projection-peer',?, ?,?)",
+    ).run(
+      OWNER,
+      JSON.stringify({ connectionId: "conn-native" }),
+      NOW + 100_000,
+      NOW + 100_000,
+    );
   }).immediate();
-  const queue = () => readers.feed(OWNER, {filter:"queued"}).items.find(row => row.conversation_id === "c-queue")!;
+  const queue = () =>
+    readers
+      .feed(OWNER, { filter: "queued" })
+      .items.find((row) => row.conversation_id === "c-queue")!;
   expect(queue().queued_runs?.at(-1)?.can_move_down).toBe(false);
-  expect(marked(() => db.prepare("UPDATE connections SET metadata=json_remove(metadata,'$.loopHarness') WHERE id='conn-native'").run()))
-    .toEqual([{conversation_id:"c-queue"}, {conversation_id:"projection-peer"}]);
+  expect(
+    marked(() =>
+      db
+        .prepare(
+          "UPDATE connections SET metadata=json_remove(metadata,'$.loopHarness') WHERE id='conn-native'",
+        )
+        .run(),
+    ),
+  ).toEqual([
+    { conversation_id: "c-queue" },
+    { conversation_id: "projection-peer" },
+  ]);
   expect(queue().queued_runs?.at(-1)?.can_move_down).toBe(true);
   await equivalent();
-  db.prepare("UPDATE connections SET metadata=json_set(metadata,'$.loopHarness','codex') WHERE id='conn-native'").run();
+  db.prepare(
+    "UPDATE connections SET metadata=json_set(metadata,'$.loopHarness','codex') WHERE id='conn-native'",
+  ).run();
   await equivalent();
 }, 30_000);
 
 it("recreates an idle fallback when the last result becomes ineligible without consulting retired columns", async () => {
   const { db } = fixture;
   db.transaction(() => {
-    db.prepare("INSERT INTO conversations(id,owner_id,title,created_at) VALUES('projection-idle',?,'Imported',1)").run(OWNER);
-    db.prepare("INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('projection-idle',?,'projection-idle','assistant','Answer',2)").run(OWNER);
+    db.prepare(
+      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('projection-idle',?,'Imported',1)",
+    ).run(OWNER);
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('projection-idle',?,'projection-idle','assistant','Answer',2)",
+    ).run(OWNER);
   }).immediate();
-  const kinds = () => db.prepare("SELECT kind FROM feed_cards WHERE conversation_id='projection-idle' ORDER BY kind").all();
-  expect(kinds()).toEqual([{kind:"result"},{kind:"thread"}]);
-  db.prepare("UPDATE messages SET metadata=json_object('progress',1) WHERE id='projection-idle'").run();
-  expect(kinds()).toEqual([{kind:"idle"},{kind:"thread"}]);
+  const kinds = () =>
+    db
+      .prepare(
+        "SELECT kind FROM feed_cards WHERE conversation_id='projection-idle' ORDER BY kind",
+      )
+      .all();
+  expect(kinds()).toEqual([{ kind: "result" }, { kind: "thread" }]);
+  db.prepare(
+    "UPDATE messages SET metadata=json_object('progress',1) WHERE id='projection-idle'",
+  ).run();
+  expect(kinds()).toEqual([{ kind: "idle" }, { kind: "thread" }]);
   // Historical columns remain only so upgrades do not rebuild conversations.
   // Neither the production reader nor its independent oracle can depend on them.
-  db.prepare("UPDATE conversations SET feed_run_state='running',feed_visible=0,feed_approval_until=? WHERE id='projection-idle'").run(NOW + 100_000);
+  db.prepare(
+    "UPDATE conversations SET feed_run_state='running',feed_visible=0,feed_approval_until=? WHERE id='projection-idle'",
+  ).run(NOW + 100_000);
   await equivalent();
-  const done = readers.doneCardRows(OWNER, {folders:null,teamIds:[],ids:["d:message:projection-idle"],limit:1})[0]?.display;
-  expect(done).toMatchObject({done_card_key:"message:projection-idle",last_message:null});
-  db.prepare("INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,worker_id,created_at,updated_at) VALUES('projection-idle-work',?,'projection-idle','Working','running','projection-idle-work','fixture',3,3)").run(OWNER);
-  expect(kinds()).toEqual([{kind:"thread"}]);
+  const done = readers.doneCardRows(OWNER, {
+    folders: null,
+    teamIds: [],
+    ids: ["d:message:projection-idle"],
+    limit: 1,
+  })[0]?.display;
+  expect(done).toMatchObject({
+    done_card_key: "message:projection-idle",
+    last_message: null,
+  });
+  db.prepare(
+    "INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,worker_id,created_at,updated_at) VALUES('projection-idle-work',?,'projection-idle','Working','running','projection-idle-work','fixture',3,3)",
+  ).run(OWNER);
+  expect(kinds()).toEqual([{ kind: "thread" }]);
   await equivalent();
-  db.prepare("UPDATE runs SET state='cancelled' WHERE id='projection-idle-work'").run();
-  expect(kinds()).toEqual([{kind:"idle"},{kind:"thread"}]);
+  db.prepare(
+    "UPDATE runs SET state='cancelled' WHERE id='projection-idle-work'",
+  ).run();
+  expect(kinds()).toEqual([{ kind: "idle" }, { kind: "thread" }]);
   await equivalent();
-  db.prepare("UPDATE messages SET metadata='{}' WHERE id='projection-idle'").run();
-  expect(kinds()).toEqual([{kind:"result"},{kind:"thread"}]);
+  db.prepare(
+    "UPDATE messages SET metadata='{}' WHERE id='projection-idle'",
+  ).run();
+  expect(kinds()).toEqual([{ kind: "result" }, { kind: "thread" }]);
   await equivalent();
 }, 30_000);
-
 
 it("bounds streamed thread display storage while preserving complete results and prompt titles", async () => {
   const { db } = fixture;
   const key = "projection-long-stream";
-  const input = " ".repeat(32_000) + "Preserve the full normalized task title " + "detail ".repeat(6000);
+  const input =
+    " ".repeat(32_000) +
+    "Preserve the full normalized task title " +
+    "detail ".repeat(6000);
   let content = "🧪".repeat(16_000);
   const metadata = JSON.stringify({ fixturePadding: "m".repeat(32_000) });
   db.transaction(() => {
-    db.prepare("INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,'agent-api','Long stream',?)")
-      .run(key, OWNER, NOW + 300_000);
-    db.prepare("INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,'agent-api',?,'Previous task','completed',?,?,?)")
-      .run(key + "-previous", OWNER, key, key + "-previous", NOW + 299_000, NOW + 299_000);
-    db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Previous result',?)")
-      .run(key + "-previous", OWNER, key, key + "-previous", NOW + 299_000);
-    db.prepare("INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,'agent-api',?,?,'running',?,'{}',?,?)")
-      .run(key, OWNER, key, input, key, NOW + 300_000, NOW + 300_000);
-    db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,?,?)")
-      .run(key, OWNER, key, key, content, metadata, NOW + 300_000);
+    db.prepare(
+      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,'agent-api','Long stream',?)",
+    ).run(key, OWNER, NOW + 300_000);
+    db.prepare(
+      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,'agent-api',?,'Previous task','completed',?,?,?)",
+    ).run(
+      key + "-previous",
+      OWNER,
+      key,
+      key + "-previous",
+      NOW + 299_000,
+      NOW + 299_000,
+    );
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Previous result',?)",
+    ).run(key + "-previous", OWNER, key, key + "-previous", NOW + 299_000);
+    db.prepare(
+      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,'agent-api',?,?,'running',?,'{}',?,?)",
+    ).run(key, OWNER, key, input, key, NOW + 300_000, NOW + 300_000);
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,?,?)",
+    ).run(key, OWNER, key, key, content, metadata, NOW + 300_000);
   }).immediate();
-  const storedBytes = () => (db.prepare("SELECT length(CAST(payload AS BLOB)) bytes FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='thread'")
-    .get(OWNER, key) as { bytes: number }).bytes;
+  const storedBytes = () =>
+    (
+      db
+        .prepare(
+          "SELECT length(CAST(payload AS BLOB)) bytes FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='thread'",
+        )
+        .get(OWNER, key) as { bytes: number }
+    ).bytes;
   const size = storedBytes();
   // Include the public 4000-UTF-16 live preview, Unicode message prefixes and
   // row context, while excluding the unbounded source text and metadata.
   expect(size).toBeLessThan(32_000);
   const check = async () => {
     const options = { filter: "working" as const, agent: "agent-api" };
-    const response = await app.fetch("/api/feed?filter=working&agent=agent-api");
+    const response = await app.fetch(
+      "/api/feed?filter=working&agent=agent-api",
+    );
     expect(response.status).toBe(200);
     const { projection, projectionRows, ...page } = await response.json();
     expect(page).toEqual(oracle.feed(OWNER, options));
-    const card = page.items.find((item: { conversation_id: string }) => item.conversation_id === key);
+    const card = page.items.find(
+      (item: { conversation_id: string }) => item.conversation_id === key,
+    );
     expect(card.title).toBe(input.replace(/\s+/g, " ").trim().slice(0, 200));
     expect(card.run.input).toBe(input.slice(0, 1000));
     expect(card.last_message.content).toBe("🧪".repeat(1000));
@@ -523,7 +633,9 @@ it("bounds streamed thread display storage while preserving complete results and
     const legacyOptions = { filter: "done" as const, agent: "agent-api" };
     const legacyPage = readers.feed(OWNER, legacyOptions);
     expect(legacyPage).toEqual(oracle.feed(OWNER, legacyOptions));
-    expect(legacyPage.items.find(item => item.conversation_id === key)?.title).toBe("Previous task");
+    expect(
+      legacyPage.items.find((item) => item.conversation_id === key)?.title,
+    ).toBe("Previous task");
   };
   await check();
   content += " tail".repeat(20_000);
@@ -533,17 +645,37 @@ it("bounds streamed thread display storage while preserving complete results and
   }).immediate();
   expect(storedBytes()).toBeLessThanOrEqual(size + 16);
   await check();
-  const signal = db.prepare("SELECT payload FROM events WHERE type='feed.card' AND json_extract(payload,'$.conversationId')=? AND json_extract(payload,'$.kind')='thread' ORDER BY id DESC LIMIT 1")
+  const signal = db
+    .prepare(
+      "SELECT payload FROM events WHERE type='feed.card' AND json_extract(payload,'$.conversationId')=? AND json_extract(payload,'$.kind')='thread' ORDER BY id DESC LIMIT 1",
+    )
     .get(key) as { payload: string };
   expect(Buffer.byteLength(signal.payload)).toBeLessThan(4096);
-  expect(JSON.parse(signal.payload)).toMatchObject({ conversationId: key, kind: "thread", removed: false, card: null });
-  expect(db.prepare("SELECT content,metadata FROM messages WHERE id=?").get(key)).toEqual({ content, metadata });
-  db.prepare("UPDATE runs SET state='completed',updated_at=updated_at+1 WHERE id=?").run(key);
-  const options = { folders: null, teamIds: [], ids: ["d:run:" + key], limit: 1, detail: true };
+  expect(JSON.parse(signal.payload)).toMatchObject({
+    conversationId: key,
+    kind: "thread",
+    removed: false,
+    card: null,
+  });
+  expect(
+    db.prepare("SELECT content,metadata FROM messages WHERE id=?").get(key),
+  ).toEqual({ content, metadata });
+  db.prepare(
+    "UPDATE runs SET state='completed',updated_at=updated_at+1 WHERE id=?",
+  ).run(key);
+  const options = {
+    folders: null,
+    teamIds: [],
+    ids: ["d:run:" + key],
+    limit: 1,
+    detail: true,
+  };
   const complete = readers.doneCardRows(OWNER, options);
   expect(complete).toHaveLength(1);
   expect(complete[0].row.message_content).toBe(content);
   expect(complete[0].row.message_metadata).toBe(metadata);
-  expect(complete.map(item => item.display)).toEqual(oracle.doneCardRows(OWNER, options).map(item => item.display));
+  expect(complete.map((item) => item.display)).toEqual(
+    oracle.doneCardRows(OWNER, options).map((item) => item.display),
+  );
   await equivalent();
 }, 30_000);

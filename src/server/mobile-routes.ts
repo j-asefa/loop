@@ -1,4 +1,8 @@
-import { reorderTokenWrite, withdrawTokenWrite, moveTokenWrite } from "./token-write-policies.js";
+import {
+  reorderTokenWrite,
+  withdrawTokenWrite,
+  moveTokenWrite,
+} from "./token-write-policies.js";
 import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 
@@ -8,7 +12,16 @@ import { feedProjection } from "./feed-projection.js";
 import { setReplyState } from "./steering-replies.js";
 import type { z } from "zod";
 import { teamFilter } from "./teams.js";
-import { listDoneThreads, readDoneThread, createDoneThread, moveDoneThreadCards, removeDoneThread, setDoneThreadRead, listDoneThreadPage, readDoneThreadPage } from "./done-threads.js";
+import {
+  listDoneThreads,
+  readDoneThread,
+  createDoneThread,
+  moveDoneThreadCards,
+  removeDoneThread,
+  setDoneThreadRead,
+  listDoneThreadPage,
+  readDoneThreadPage,
+} from "./done-threads.js";
 import { listAgentThreads, readAgentThread } from "./agent-thread-feed.js";
 import {
   awaySummary,
@@ -46,27 +59,73 @@ import {
 // core's generic /runs/:id/:action handler.
 const routes = registrar("mobile");
 export const mobile = routes.mount;
-routes.on(workspaceApi.doneThreadList, (req, res) => res.json(listDoneThreads(res.locals.owner, req.query)));
-routes.on(workspaceApi.doneThreadListPage, (req, res) => res.json(listDoneThreadPage(res.locals.owner, req.query)));
-routes.on(workspaceApi.agentThreadFeed, (req, res) => res.json(listAgentThreads(res.locals.owner, req.query)));
-routes.on(workspaceApi.agentThreadDetail, (req, res) => res.json(readAgentThread(res.locals.owner, req.params.id, req.query)));
-routes.on(workspaceApi.doneThreadDetail, (req, res) => res.json(readDoneThread(res.locals.owner, req.params.id)));
-routes.on(workspaceApi.doneThreadDetailPage, (req, res) => res.json(readDoneThreadPage(res.locals.owner, req.params.id, req.query.cursor)));
-routes.on(workspaceApi.doneThreadCreate, (req, res) => res.json(createDoneThread(res.locals.owner, req.body)));
-routes.on(workspaceApi.doneThreadMove, (req, res) => res.json(moveDoneThreadCards(res.locals.owner, req.params.id, req.body.cardIds)));
-routes.on(workspaceApi.doneThreadRead, (req, res) => res.json(setDoneThreadRead(res.locals.owner, req.params.id, true, req.body.unreadVersions)));
-routes.on(workspaceApi.doneThreadUnread, (req, res) => res.json(setDoneThreadRead(res.locals.owner, req.params.id, false)));
-routes.on(workspaceApi.doneThreadRemove, (req, res) => res.json(removeDoneThread(res.locals.owner, req.params.id)));
-routes.on(workspaceApi.doneThreadRemoveCard, (req, res) => res.json(removeDoneThread(res.locals.owner, req.params.id, req.params.card)));
+routes.on(workspaceApi.doneThreadList, (req, res) =>
+  res.json(listDoneThreads(res.locals.owner, req.query)),
+);
+routes.on(workspaceApi.doneThreadListPage, (req, res) =>
+  res.json(listDoneThreadPage(res.locals.owner, req.query)),
+);
+routes.on(workspaceApi.agentThreadFeed, (req, res) =>
+  res.json(listAgentThreads(res.locals.owner, req.query)),
+);
+routes.on(workspaceApi.agentThreadDetail, (req, res) =>
+  res.json(readAgentThread(res.locals.owner, req.params.id, req.query)),
+);
+routes.on(workspaceApi.doneThreadDetail, (req, res) =>
+  res.json(readDoneThread(res.locals.owner, req.params.id)),
+);
+routes.on(workspaceApi.doneThreadDetailPage, (req, res) =>
+  res.json(
+    readDoneThreadPage(res.locals.owner, req.params.id, req.query.cursor),
+  ),
+);
+routes.on(workspaceApi.doneThreadCreate, (req, res) =>
+  res.json(createDoneThread(res.locals.owner, req.body)),
+);
+routes.on(workspaceApi.doneThreadMove, (req, res) =>
+  res.json(
+    moveDoneThreadCards(res.locals.owner, req.params.id, req.body.cardIds),
+  ),
+);
+routes.on(workspaceApi.doneThreadRead, (req, res) =>
+  res.json(
+    setDoneThreadRead(
+      res.locals.owner,
+      req.params.id,
+      true,
+      req.body.unreadVersions,
+    ),
+  ),
+);
+routes.on(workspaceApi.doneThreadUnread, (req, res) =>
+  res.json(setDoneThreadRead(res.locals.owner, req.params.id, false)),
+);
+routes.on(workspaceApi.doneThreadRemove, (req, res) =>
+  res.json(removeDoneThread(res.locals.owner, req.params.id)),
+);
+routes.on(workspaceApi.doneThreadRemoveCard, (req, res) =>
+  res.json(removeDoneThread(res.locals.owner, req.params.id, req.params.card)),
+);
 routes.on(workspaceApi.conversationPosition, (req, res) =>
   res.json(savePosition(res.locals.owner, req.params.id, req.body)),
 );
-routes.on(workspaceApi.feed, (req, res) => {
-  const { known, ...query } = req.query;
-  const selection = { ...query, teams: teamFilter(query.teams, res.locals.owner) };
-  const page = feed(res.locals.owner, selection);
-  res.json(res.locals.bearer ? page : feedProjection(res.locals.owner, selection, page, known));
-}, { wrap: projectionSnapshot });
+routes.on(
+  workspaceApi.feed,
+  (req, res) => {
+    const { known, ...query } = req.query;
+    const selection = {
+      ...query,
+      teams: teamFilter(query.teams, res.locals.owner),
+    };
+    const page = feed(res.locals.owner, selection);
+    res.json(
+      res.locals.bearer
+        ? page
+        : feedProjection(res.locals.owner, selection, page, known),
+    );
+  },
+  { wrap: projectionSnapshot },
+);
 routes.on(workspaceApi.feedUpdate, (req, res) =>
   res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),
 );
@@ -80,9 +139,7 @@ routes.on(workspaceApi.replyState, (req, res) =>
   res.json(setReplyState(res.locals.owner, req.params.id, req.body)),
 );
 routes.on(workspaceApi.feedAway, (req, res) =>
-  res.json(
-    awaySummary(res.locals.owner, req.query.since),
-  ),
+  res.json(awaySummary(res.locals.owner, req.query.since)),
 );
 routes.on(workspaceApi.messageSave, (req, res) =>
   res.json(setSaved(res.locals.owner, req.params.id, true)),
@@ -104,18 +161,14 @@ routes.on(workspaceApi.savedLabel, (req, res) =>
   res.json(setSavedLabel(res.locals.owner, req.body)),
 );
 routes.on(workspaceApi.conversationOutline, (req, res) =>
-  res.json(
-    conversationOutline(
-      res.locals.owner,
-      req.params.id,
-      req.query.q,
-    ),
-  ),
+  res.json(conversationOutline(res.locals.owner, req.params.id, req.query.q)),
 );
 routes.on(workspaceApi.laterCreate, (req, res) =>
   res.status(201).json(createLater(res.locals.owner, req.body)),
 );
-routes.on(workspaceApi.laterList, (_req, res) => res.json(listLater(res.locals.owner)));
+routes.on(workspaceApi.laterList, (_req, res) =>
+  res.json(listLater(res.locals.owner)),
+);
 routes.on(workspaceApi.laterFinish, (req, res) =>
   res.json(finishLater(res.locals.owner, req.params.id)),
 );
@@ -154,19 +207,28 @@ routes.on(workspaceApi.scheduledSendRetry, (req, res) => {
   const result = retryScheduledSend(res.locals.owner, req.params.id);
   res.json({ ...result, run: result.run ? runResponse(result.run) : null });
 });
-routes.on(workspaceApi.runReorder, (req, res) =>
-  res.json(reorderRun(res.locals.owner, req.params.id, req.body)),
+routes.on(
+  workspaceApi.runReorder,
+  (req, res) => res.json(reorderRun(res.locals.owner, req.params.id, req.body)),
   { tokenWrite: reorderTokenWrite },
 );
 routes.on(workspaceApi.runUpdate, (req, res) =>
   res.json(editQueuedRun(res.locals.owner, req.params.id, req.body)),
 );
-routes.on(workspaceApi.runWithdraw, (req, res) =>
-  res.json(withdrawQueuedRun(res.locals.owner, req.params.id, req.body)),
+routes.on(
+  workspaceApi.runWithdraw,
+  (req, res) =>
+    res.json(withdrawQueuedRun(res.locals.owner, req.params.id, req.body)),
   { tokenWrite: withdrawTokenWrite },
 );
-routes.on(workspaceApi.runMove, (req, res) =>
-  res.status(202).json(runResponse(moveQueuedRun(res.locals.owner, req.params.id, req.body))),
+routes.on(
+  workspaceApi.runMove,
+  (req, res) =>
+    res
+      .status(202)
+      .json(
+        runResponse(moveQueuedRun(res.locals.owner, req.params.id, req.body)),
+      ),
   { tokenWrite: moveTokenWrite },
 );
 routes.on(workspaceApi.conversationFork, (req, res) =>
@@ -175,4 +237,10 @@ routes.on(workspaceApi.conversationFork, (req, res) =>
 routes.on(workspaceApi.conversationUsage, (req, res) =>
   res.json(conversationUsage(res.locals.owner, req.params.id)),
 );
-routes.on(workspaceApi.snippetList, (_req, res) => res.json(listSnippets(res.locals.owner) as z.input<typeof workspaceApi.snippetList.response>));
+routes.on(workspaceApi.snippetList, (_req, res) =>
+  res.json(
+    listSnippets(res.locals.owner) as z.input<
+      typeof workspaceApi.snippetList.response
+    >,
+  ),
+);

@@ -8,6 +8,10 @@ export default function App() {
   const app = useAppController();
   const owner = app.session?.user.id;
   return owner ? (
-    <FleetProvider key={owner} owner={owner}>{renderApp(app)}</FleetProvider>
-  ) : renderApp(app);
+    <FleetProvider key={owner} owner={owner}>
+      {renderApp(app)}
+    </FleetProvider>
+  ) : (
+    renderApp(app)
+  );
 }

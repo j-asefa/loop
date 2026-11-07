@@ -11,7 +11,14 @@ import {
   type WorkspaceEmission,
 } from "../src/shared/workspace-events";
 
-const decision = { decisionId: "decision", conversationId: "thread", runId: "run", generation: "generation", nativeId: "adapter-request", request: {} };
+const decision = {
+  decisionId: "decision",
+  conversationId: "thread",
+  runId: "run",
+  generation: "generation",
+  nativeId: "adapter-request",
+  request: {},
+};
 const examples = [
   ["reverse.settled", { callId: "call" }],
   ["queued", {}],
@@ -33,7 +40,16 @@ const examples = [
   ["agent_mail.held", { mailId: "mail", threadId: "thread" }],
   ["import.progress", { completed: 1, total: 2 }],
   ["feed.changed", { artifactId: "artifact", hidden: true }],
-  ["feed.card", { conversationId: "thread", cardKey: "run:run", kind: "thread", removed: false, card: { title: "Live work" } }],
+  [
+    "feed.card",
+    {
+      conversationId: "thread",
+      cardKey: "run:run",
+      kind: "thread",
+      removed: false,
+      card: { title: "Live work" },
+    },
+  ],
   ["approval.auto_approved", { approvalId: "approval" }],
   [
     "approval.requested",
@@ -56,15 +72,45 @@ const examples = [
   ],
   ["message.delta", { messageId: "message", text: "Hello" }],
   ["message.completed", { messageId: "message" }],
-  ["message.upsert", { message: {id:"message",owner_id:"owner",conversation_id:"thread",run_id:"run",role:"assistant",content:"Hello",metadata:"{}",created_at:1,revision:1,cursor:[1,1,1]} }],
-  ["message.delta", { messageId:"message",conversationId:"thread",baseRevision:1,revision:2,offset:5,chunkIndex:0,text:" world" }],
-  ["message.remove", { messageId:"message",conversationId:"thread",revision:3 }],
-  ["decision.pending", { ...decision, state:"pending" }],
-  ["decision.deciding", { ...decision, state:"deciding" }],
-  ["decision.resolved", { ...decision, state:"resolved" }],
-  ["decision.expired", { ...decision, state:"expired" }],
-  ["decision.unknown", { ...decision, state:"unknown" }],
-  ["decision.remove", { ...decision, state:"unknown" }],
+  [
+    "message.upsert",
+    {
+      message: {
+        id: "message",
+        owner_id: "owner",
+        conversation_id: "thread",
+        run_id: "run",
+        role: "assistant",
+        content: "Hello",
+        metadata: "{}",
+        created_at: 1,
+        revision: 1,
+        cursor: [1, 1, 1],
+      },
+    },
+  ],
+  [
+    "message.delta",
+    {
+      messageId: "message",
+      conversationId: "thread",
+      baseRevision: 1,
+      revision: 2,
+      offset: 5,
+      chunkIndex: 0,
+      text: " world",
+    },
+  ],
+  [
+    "message.remove",
+    { messageId: "message", conversationId: "thread", revision: 3 },
+  ],
+  ["decision.pending", { ...decision, state: "pending" }],
+  ["decision.deciding", { ...decision, state: "deciding" }],
+  ["decision.resolved", { ...decision, state: "resolved" }],
+  ["decision.expired", { ...decision, state: "expired" }],
+  ["decision.unknown", { ...decision, state: "unknown" }],
+  ["decision.remove", { ...decision, state: "unknown" }],
   ["trace.updated", { round: 0 }],
   ["provider.receipt", { externalId: "provider", usage: { input_tokens: 1 } }],
   ["attention.dismissed", {}],
@@ -124,8 +170,12 @@ it("round-trips every declared producer type through emit, durable v2 rows and t
       expect(event).toEqual({
         type: emission[0],
         payload: emission[1],
-        scope: emission[0].startsWith("decision.") ? {kind:"collection",id:"decisions"} :
-          ["message.upsert", "message.remove"].includes(emission[0]) || (emission[0] === "message.delta" && "revision" in emission[1]) ? {kind:"conversation",id:"thread"} : { kind: "run", id: "run" },
+        scope: emission[0].startsWith("decision.")
+          ? { kind: "collection", id: "decisions" }
+          : ["message.upsert", "message.remove"].includes(emission[0]) ||
+              (emission[0] === "message.delta" && "revision" in emission[1])
+            ? { kind: "conversation", id: "thread" }
+            : { kind: "run", id: "run" },
         subject: { kind: "run", id: "run" },
       });
       expect(WorkspaceEvent.parse(JSON.parse(JSON.stringify(event)))).toEqual(
@@ -152,17 +202,28 @@ it("round-trips every declared producer type through emit, durable v2 rows and t
     ).toThrow();
     expect(() =>
       emit("owner", "run", "native.event", {
-        conversationId: "thread", generation: "generation",
+        conversationId: "thread",
+        generation: "generation",
         event: {
           type: "request",
-          request: { id: "request", kind: "question", title: "Choose", detail: "é".repeat(32000) },
+          request: {
+            id: "request",
+            kind: "question",
+            title: "Choose",
+            detail: "é".repeat(32000),
+          },
         },
       }),
     ).toThrow("Native request exceeds its ingress byte budget");
     expect(() =>
       emit("owner", "run", "native.event", {
-        conversationId: "thread", generation: "generation",
-        event: { type: "status", status: "running", detail: "é".repeat(128000) },
+        conversationId: "thread",
+        generation: "generation",
+        event: {
+          type: "status",
+          status: "running",
+          detail: "é".repeat(128000),
+        },
       }),
     ).toThrow("Native event exceeds its ingress byte budget");
     expect(db.prepare("SELECT count(*) n FROM events").get()).toEqual(before);
@@ -204,29 +265,66 @@ it("reconciles malformed historical rows and unknown future events without inven
 
 it("checks producer ownership and accepts deletion evidence only for its original owner", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-event-ownership-"));
-  vi.resetModules(); vi.stubEnv("LOOP_DATA_DIR", dir);
-  const { db, changes, deadlines, emit, ownedEventSubject } = await import("../src/server/db");
+  vi.resetModules();
+  vi.stubEnv("LOOP_DATA_DIR", dir);
+  const { db, changes, deadlines, emit, ownedEventSubject } =
+    await import("../src/server/db");
   try {
-    db.exec("INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES('artifact','alice','A','markdown','Body',1,1)");
+    db.exec(
+      "INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES('artifact','alice','A','markdown','Body',1,1)",
+    );
     const count = () => db.prepare("SELECT count(*) n FROM events").get();
     const before = count();
-    expect(() => emit("bob", { kind: "artifact", id: "artifact" }, "invalidate", { scope: { kind: "collection", id: "saved" } })).toThrow(/not owned/);
+    expect(() =>
+      emit("bob", { kind: "artifact", id: "artifact" }, "invalidate", {
+        scope: { kind: "collection", id: "saved" },
+      }),
+    ).toThrow(/not owned/);
     expect(count()).toEqual(before);
-    const proof = ownedEventSubject("alice", { kind: "artifact", id: "artifact" });
+    const proof = ownedEventSubject("alice", {
+      kind: "artifact",
+      id: "artifact",
+    });
     db.transaction(() => {
       db.exec("DELETE FROM artifacts WHERE id='artifact'");
-      emit("alice", { kind: "collection", id: "saved" }, "tombstone", { scope: { kind: "collection", id: "saved" }, removed: proof });
+      emit("alice", { kind: "collection", id: "saved" }, "tombstone", {
+        scope: { kind: "collection", id: "saved" },
+        removed: proof,
+      });
     }).immediate();
-    expect(() => emit("bob", { kind: "collection", id: "saved" }, "tombstone", { scope: { kind: "collection", id: "saved" }, removed: proof })).toThrow(/another owner/);
-    expect(() => emit("alice", { kind: "collection", id: "saved" }, "tombstone", { scope: { kind: "collection", id: "saved" }, removed: { ...proof } })).toThrow(/not owned/);
-    expect(db.prepare("SELECT run_id FROM events WHERE type='tombstone'").all()).toEqual([{ run_id: null }, { run_id: null }]);
-  } finally { deadlines.close(); changes.close(); db.close(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); }
+    expect(() =>
+      emit("bob", { kind: "collection", id: "saved" }, "tombstone", {
+        scope: { kind: "collection", id: "saved" },
+        removed: proof,
+      }),
+    ).toThrow(/another owner/);
+    expect(() =>
+      emit("alice", { kind: "collection", id: "saved" }, "tombstone", {
+        scope: { kind: "collection", id: "saved" },
+        removed: { ...proof },
+      }),
+    ).toThrow(/not owned/);
+    expect(
+      db.prepare("SELECT run_id FROM events WHERE type='tombstone'").all(),
+    ).toEqual([{ run_id: null }, { run_id: null }]);
+  } finally {
+    deadlines.close();
+    changes.close();
+    db.close();
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
-
 
 it("replays stored approval decisions without losing their payload", () => {
   for (const origin of ["loop"]) {
     const payload = { approvalId: "approval", decision: "approve", origin };
-    expect(historicalEvent({run_id: "run", type: "approval.decided", payload: JSON.stringify(payload)})).toMatchObject({type: "approval.decided", payload});
+    expect(
+      historicalEvent({
+        run_id: "run",
+        type: "approval.decided",
+        payload: JSON.stringify(payload),
+      }),
+    ).toMatchObject({ type: "approval.decided", payload });
   }
 });

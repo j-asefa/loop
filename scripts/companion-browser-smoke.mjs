@@ -1,4 +1,7 @@
-import { chooseAgentModel, openAgentModelOptions } from "./helpers/agent-model-options.mjs";
+import {
+  chooseAgentModel,
+  openAgentModelOptions,
+} from "./helpers/agent-model-options.mjs";
 import { chromium, webkit, expect } from "@playwright/test";
 import { mkdtemp, rm, mkdir, chmod, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,7 +9,10 @@ import { resolve, join, basename } from "node:path";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
-import { nativeAuthBrowser, prepareNativeAuthBrowser } from "./helpers/native-auth-browser.mjs";
+import {
+  nativeAuthBrowser,
+  prepareNativeAuthBrowser,
+} from "./helpers/native-auth-browser.mjs";
 import { companionContractsBrowser } from "./helpers/companion-contracts-browser.mjs";
 import { nativeSettingsBrowser } from "./helpers/native-settings-browser.mjs";
 import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
@@ -102,7 +108,9 @@ try {
   ).toHaveCount(0);
   await page.getByRole("button", { name: /Runtime machines/ }).click();
   await page.getByRole("heading", { name: "Runtime machines" }).waitFor();
-  await expect(page.getByRole("button", { name: "Add machine" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add machine" })).toHaveCount(
+    0,
+  );
   await page.goto(workspaceUrl);
   await agentSourcesBrowser(page, workspaceUrl);
   await settingsReliabilityBrowser(page, workspaceUrl, undefined, {
@@ -137,9 +145,7 @@ try {
   await sourceLink.goto(
     host.gateway.origin + "/?source=docker:" + "a".repeat(64),
   );
-  await sourceLink
-    .getByRole("heading", { name: "Pair this device" })
-    .waitFor();
+  await sourceLink.getByRole("heading", { name: "Pair this device" }).waitFor();
   await unpaired.close();
   await page.goto(workspaceUrl);
   const otherProject = join(dir, "second-project");
@@ -219,19 +225,31 @@ try {
   );
   await creation.getByLabel("Unique name").fill("native-model-picker");
   await openAgentModelOptions(creation);
-  await creation.getByRole("button", { name: "Refresh models", exact: true }).click();
-  await expect(creation.getByRole("alert")).toContainText("Couldn’t refresh models");
+  await creation
+    .getByRole("button", { name: "Refresh models", exact: true })
+    .click();
+  await expect(creation.getByRole("alert")).toContainText(
+    "Couldn’t refresh models",
+  );
   await expect(
     creation.getByRole("button", { name: "Start chatting", exact: true }),
   ).toBeDisabled();
   await creation
     .getByRole("button", { name: "Try again", exact: true })
     .click();
-  await expect(creation.getByRole("radiogroup", { name: "Model", exact: true }).locator('input[value="default"]')).toBeEnabled();
-  await expect(creation.getByRole("radiogroup", { name: "Model", exact: true })).toContainText(
-    "Claude Opus 5 (1M)",
-  );
-  await expect(creation.getByRole("radiogroup", { name: "Model", exact: true }).locator('input[value="default"]')).toBeChecked();
+  await expect(
+    creation
+      .getByRole("radiogroup", { name: "Model", exact: true })
+      .locator('input[value="default"]'),
+  ).toBeEnabled();
+  await expect(
+    creation.getByRole("radiogroup", { name: "Model", exact: true }),
+  ).toContainText("Claude Opus 5 (1M)");
+  await expect(
+    creation
+      .getByRole("radiogroup", { name: "Model", exact: true })
+      .locator('input[value="default"]'),
+  ).toBeChecked();
   await chooseAgentModel(creation, "opus");
   await expect(creation.getByLabel("Effort", { exact: true })).toBeEnabled();
   await chooseAgentModel(creation, "default");
@@ -258,7 +276,9 @@ try {
     .toBe(false);
   assert.deepEqual(
     db
-      .prepare("SELECT model,effort FROM agents WHERE name='native-model-picker'")
+      .prepare(
+        "SELECT model,effort FROM agents WHERE name='native-model-picker'",
+      )
       .get(),
     { model: "opus", effort: "max" },
   );

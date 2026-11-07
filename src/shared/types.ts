@@ -1,5 +1,14 @@
 export type Provider =
-  "openai" | "anthropic" | "codex" | "pi" | "opencode" | "antigravity" | "gemini" | "muse" | "grok" | "acp";
+  | "openai"
+  | "anthropic"
+  | "codex"
+  | "pi"
+  | "opencode"
+  | "antigravity"
+  | "gemini"
+  | "muse"
+  | "grok"
+  | "acp";
 export type Agent = {
   id: string;
   owner_id: string;
@@ -17,7 +26,9 @@ export type Agent = {
 export type CreatedAgent = Agent & {
   initialRun?: { id: string; conversation_id: string | null };
 };
-export type Connection = import("zod").infer<typeof import("./workspace-api.js").PublicConnection>;
+export type Connection = import("zod").infer<
+  typeof import("./workspace-api.js").PublicConnection
+>;
 export type Message = {
   id: string;
   owner_id: string;

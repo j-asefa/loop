@@ -1,10 +1,23 @@
 import { proseEntry } from "./textEntry";
-import { workspaceApi, type ConversationPage, type RouteInput, type RouteResponse } from "../shared/workspace-api";
+import {
+  workspaceApi,
+  type ConversationPage,
+  type RouteInput,
+  type RouteResponse,
+} from "../shared/workspace-api";
 import { readRoute, UnavailableResponse } from "./workspace-api";
 import { CollectionReadNotice } from "./CollectionRead";
-import { listenWorkspaceChanges, broadWorkspaceChange } from "./workspace-changes";
+import {
+  listenWorkspaceChanges,
+  broadWorkspaceChange,
+} from "./workspace-changes";
 import { CodeReviewStatus } from "./CodeReview";
-import { useSourceId, useSourceRoute, useProjectionRoute, useSourceOperation } from "./SourceContext";
+import {
+  useSourceId,
+  useSourceRoute,
+  useProjectionRoute,
+  useSourceOperation,
+} from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
 import { automationLabel } from "../shared/agent-mail";
 import {
@@ -52,11 +65,25 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { parse, retryAfter, isRateLimited, RATE_LIMITED, isExecutionRefused } from "./api";
+import {
+  parse,
+  retryAfter,
+  isRateLimited,
+  RATE_LIMITED,
+  isExecutionRefused,
+} from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
-import { TranscriptHandoff, ProjectedMessage, type TranscriptEvent } from "../shared/transcript-projection";
+import {
+  TranscriptHandoff,
+  ProjectedMessage,
+  type TranscriptEvent,
+} from "../shared/transcript-projection";
 import { eventScopes } from "../shared/workspace-events";
-import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./workspace-projections";
+import {
+  listenProjectionFrames,
+  reactiveSource,
+  surfaceFallback,
+} from "./workspace-projections";
 import { watchWorkspaceDetail } from "./workspace-multiplex";
 import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
@@ -148,30 +175,46 @@ function MessageShell({
 }
 
 type Transcript = ConversationPage;
-type ContinuationInput = RouteInput<typeof workspaceApi.conversationContinueStart>["body"];
+type ContinuationInput = RouteInput<
+  typeof workspaceApi.conversationContinueStart
+>["body"];
 function storedContinuationAt(key: string): ContinuationInput | null {
   try {
-    const parsed = workspaceApi.conversationContinueStart.body.safeParse(JSON.parse(localStorage.getItem(key) || "null"));
+    const parsed = workspaceApi.conversationContinueStart.body.safeParse(
+      JSON.parse(localStorage.getItem(key) || "null"),
+    );
     return parsed.success ? parsed.data : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 function storedContinuations(key: string): ContinuationInput[] {
   try {
     const requests = new Map<string, ContinuationInput>();
-    for (const slot of Object.keys(localStorage).filter(k => k.startsWith(key + ":")).sort()) {
+    for (const slot of Object.keys(localStorage)
+      .filter((k) => k.startsWith(key + ":"))
+      .sort()) {
       const request = storedContinuationAt(slot);
       if (request) requests.set(request.start.idempotencyKey, request);
     }
     return [...requests.values()];
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 function storedContinuation(key: string): ContinuationInput | null {
   // Keep each tab's choice, while allowing a new tab to recover saved requests.
   let preferred: string | null = null;
-  try { preferred = sessionStorage.getItem(key); } catch {}
+  try {
+    preferred = sessionStorage.getItem(key);
+  } catch {}
   if (preferred === "new") return null;
   const requests = storedContinuations(key);
-  return requests.find(request => request.start.idempotencyKey === preferred) || requests[0] || null;
+  return (
+    requests.find((request) => request.start.idempotencyKey === preferred) ||
+    requests[0] ||
+    null
+  );
 }
 function clearStoredContinuation(key: string, request: ContinuationInput) {
   // An accepted response must still open its conversation if device storage
@@ -188,7 +231,12 @@ function clearStoredContinuation(key: string, request: ContinuationInput) {
 export function Conversation(props: Parameters<typeof ConversationView>[0]) {
   const source = useSourceId();
   // Remount before rendering a different identity, not in a later effect.
-  return <ConversationView key={JSON.stringify([viewOwner(), source, props.id])} {...props} />;
+  return (
+    <ConversationView
+      key={JSON.stringify([viewOwner(), source, props.id])}
+      {...props}
+    />
+  );
 }
 
 function ConversationView({
@@ -253,22 +301,32 @@ function ConversationView({
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
   const call = useSourceRoute();
-  const continuationReason = useSourceOperation(workspaceApi.conversationContinueStart);
+  const continuationReason = useSourceOperation(
+    workspaceApi.conversationContinueStart,
+  );
   const readUsage = useProjectionRoute();
   const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
   const owner = viewOwner();
   const cacheKey = "thread:" + JSON.stringify([sourceId, id]);
-  const continuationKey = "loop-continuation:" + JSON.stringify([owner, sourceId, id]);
-  const [pendingContinuation, setPendingContinuation] = useState(() => storedContinuation(continuationKey));
+  const continuationKey =
+    "loop-continuation:" + JSON.stringify([owner, sourceId, id]);
+  const [pendingContinuation, setPendingContinuation] = useState(() =>
+    storedContinuation(continuationKey),
+  );
   const [continuationUnavailable, setContinuationUnavailable] = useState(false);
-  const [savedContinuations, setSavedContinuations] = useState(() => storedContinuations(continuationKey));
+  const [savedContinuations, setSavedContinuations] = useState(() =>
+    storedContinuations(continuationKey),
+  );
   useEffect(() => {
-    const refresh = () => setSavedContinuations(storedContinuations(continuationKey));
+    const refresh = () =>
+      setSavedContinuations(storedContinuations(continuationKey));
     window.addEventListener("storage", refresh);
     return () => window.removeEventListener("storage", refresh);
   }, [continuationKey]);
-  const [data, setData] = useState<Transcript | null>(() => cachedView<Transcript>(cacheKey) ?? null),
+  const [data, setData] = useState<Transcript | null>(
+      () => cachedView<Transcript>(cacheKey) ?? null,
+    ),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [loadError, setLoadError] = useState(""),
@@ -276,9 +334,16 @@ function ConversationView({
     [notice, setNotice] = useState(""),
     [loading, setLoading] = useState(true),
     [transfer, setTransfer] = useState(false),
-    [destination, setDestination] = useState(pendingContinuation?.agentId || ""),
-    [included, setIncluded] = useState<string[]>(pendingContinuation?.messageIds || []),
-    [continuationPrompt, setContinuationPrompt] = useState(pendingContinuation?.start?.input || "Continue from the selected messages and answer the latest user message."),
+    [destination, setDestination] = useState(
+      pendingContinuation?.agentId || "",
+    ),
+    [included, setIncluded] = useState<string[]>(
+      pendingContinuation?.messageIds || [],
+    ),
+    [continuationPrompt, setContinuationPrompt] = useState(
+      pendingContinuation?.start?.input ||
+        "Continue from the selected messages and answer the latest user message.",
+    ),
     [editingModel, setEditingModel] = useState(false),
     [showToolActivity, setShowToolActivity] = useState(false),
     [options, setOptions] = useState(false),
@@ -295,11 +360,16 @@ function ConversationView({
     [quoteFrom, setQuoteFrom] = useState<ConversationMessage | null>(null),
     [checkout, setCheckout] = useState<string | null>(null),
     [verification, setVerification] = useState<string | null>(null),
-    [savedIds, setSavedIds] = useState<Set<string>>(() => new Set(cachedView<Transcript>(cacheKey)?.saved)),
-    [usageData, setUsage] = useState<{
-      conversationId: string;
-      sourceId: string;
-    } & RouteResponse<typeof workspaceApi.conversationUsage> | null>(null),
+    [savedIds, setSavedIds] = useState<Set<string>>(
+      () => new Set(cachedView<Transcript>(cacheKey)?.saved),
+    ),
+    [usageData, setUsage] = useState<
+      | ({
+          conversationId: string;
+          sourceId: string;
+        } & RouteResponse<typeof workspaceApi.conversationUsage>)
+      | null
+    >(null),
     [jump, setJump] = useState<string | null>(null),
     // How the current jump started: reopening at the reading position, or
     // going to a specific message (which is highlighted).
@@ -313,21 +383,32 @@ function ConversationView({
   useEffect(() => {
     const url = new URL(location.href);
     if (url.searchParams.get("conversation") !== id) return;
-    if (!url.searchParams.has("checkout") && !url.searchParams.has("verification")) return;
+    if (
+      !url.searchParams.has("checkout") &&
+      !url.searchParams.has("verification")
+    )
+      return;
     // Open nested details after the conversation has mounted its modal;
     // otherwise the parent opens last and covers the saved detail link.
     setCheckout(url.searchParams.get("checkout"));
     setVerification(url.searchParams.get("verification"));
     url.searchParams.delete("checkout");
     url.searchParams.delete("verification");
-    history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+    history.replaceState(
+      history.state,
+      "",
+      url.pathname + url.search + url.hash,
+    );
   }, [id]);
   const usage =
     usageData?.conversationId === id && usageData.sourceId === sourceId
       ? usageData
       : null;
   const activityHistory = useConversationActivities(
-    id, (data?.messages || []).flatMap(message => message.run_id ? [message.run_id] : []),
+    id,
+    (data?.messages || []).flatMap((message) =>
+      message.run_id ? [message.run_id] : [],
+    ),
     showToolActivity,
   );
   const activityItems = activityHistory.items;
@@ -339,8 +420,10 @@ function ConversationView({
     const recorded = (data?.messages || []).flatMap((message) => {
       const meta = parse<any>(message.metadata, {});
       return (
-        (meta.activities || (meta.activity ? [meta.activity] : [])) as ActivityRecord[]
-      ).filter((record) => kinds.includes(record?.kind))
+        (meta.activities ||
+          (meta.activity ? [meta.activity] : [])) as ActivityRecord[]
+      )
+        .filter((record) => kinds.includes(record?.kind))
         .map((record) => ({ run: message.run_id ?? null, record }));
     });
     const live = allActivities
@@ -380,7 +463,9 @@ function ConversationView({
   const missingMessages = useRef(new Map<string, number>());
   const initialRequest = useRef(true);
   const hydrated = useRef(false);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const retryAt = useRef(0);
   const snapshotFailures = useRef(0);
   useEffect(() => {
@@ -437,7 +522,13 @@ function ConversationView({
   /** Remember where you stopped reading, to reopen this thread there. */
   function saveReadingPosition() {
     const current = dataRef.current;
-    if (!hydrated.current || owner !== viewOwner() || !current?.messages.length || current.conversation.id !== id) return;
+    if (
+      !hydrated.current ||
+      owner !== viewOwner() ||
+      !current?.messages.length ||
+      current.conversation.id !== id
+    )
+      return;
     // Inspecting a linked or searched-for message is not where you stopped
     // reading: the saved position stays until you go back or reach the end.
     if (originRef.current) return;
@@ -451,12 +542,21 @@ function ConversationView({
     const signature = JSON.stringify(body);
     if (positionSent.current === signature) return;
     positionSent.current = signature;
-    void call(workspaceApi.conversationPosition, { params: { id }, body }).catch(() => {
+    void call(workspaceApi.conversationPosition, {
+      params: { id },
+      body,
+    }).catch(() => {
       positionSent.current = "";
     });
   }
   async function load(initial = false) {
-    if (owner !== viewOwner() || paging.current || Date.now() < retryAt.current || snapshotFailures.current >= 3) return;
+    if (
+      owner !== viewOwner() ||
+      paging.current ||
+      Date.now() < retryAt.current ||
+      snapshotFailures.current >= 3
+    )
+      return;
     initial ||= initialRequest.current;
     const current = generation.current;
     if (refreshRequest.current?.generation === current) {
@@ -468,18 +568,47 @@ function ConversationView({
     const ticket = ++loadRequest.current;
     const projection = transcriptHandoff.current;
     const snapshot = projection.begin();
-    const recovery = initial ? undefined : missingMessages.current.keys().next().value;
-    const recoveryCursor = recovery ? missingMessages.current.get(recovery) : undefined;
-    const readSnapshot = (query: RouteInput<typeof workspaceApi.conversation>["query"]) => readRoute(workspaceApi.conversation, { params: { id }, query }, sourceId, readController.current!.signal, error => {
-      if (current === generation.current && owner === viewOwner() && isRateLimited(error)) {
-        setLoadError("");
-        setRateLimited(true);
-      }
-    });
+    const recovery = initial
+      ? undefined
+      : missingMessages.current.keys().next().value;
+    const recoveryCursor = recovery
+      ? missingMessages.current.get(recovery)
+      : undefined;
+    const readSnapshot = (
+      query: RouteInput<typeof workspaceApi.conversation>["query"],
+    ) =>
+      readRoute(
+        workspaceApi.conversation,
+        { params: { id }, query },
+        sourceId,
+        readController.current!.signal,
+        (error) => {
+          if (
+            current === generation.current &&
+            owner === viewOwner() &&
+            isRateLimited(error)
+          ) {
+            setLoadError("");
+            setRateLimited(true);
+          }
+        },
+      );
     if (initial) setLoading(true);
     try {
-      let fresh = await readSnapshot(initial ? anchor ? { message: anchor } : { resume: "1" } : recovery ? { message: recovery } : {});
-      if (current !== generation.current || ticket !== loadRequest.current || owner !== viewOwner())
+      let fresh = await readSnapshot(
+        initial
+          ? anchor
+            ? { message: anchor }
+            : { resume: "1" }
+          : recovery
+            ? { message: recovery }
+            : {},
+      );
+      if (
+        current !== generation.current ||
+        ticket !== loadRequest.current ||
+        owner !== viewOwner()
+      )
         return;
       const incomingMessages = fresh.messages;
       const replacedProjection = !!fresh.projection && !projection.ready;
@@ -489,14 +618,23 @@ function ConversationView({
           snapshotFailures.current = 3;
           throw new Error("Couldn’t load these messages. Try again.");
         }
-        if (!projection.install(snapshot, fresh.projection, rows.data, fresh.range, !recovery)) {
+        if (
+          !projection.install(
+            snapshot,
+            fresh.projection,
+            rows.data,
+            fresh.range,
+            !recovery,
+          )
+        ) {
           if (++snapshotFailures.current >= 3)
             throw new Error("Messages kept changing while loading. Try again.");
           const delay = 1000 * snapshotFailures.current;
           retryAt.current = Date.now() + delay;
           clearTimeout(retryTimer.current);
           retryTimer.current = setTimeout(() => {
-            if (current === generation.current && owner === viewOwner()) void load(initial);
+            if (current === generation.current && owner === viewOwner())
+              void load(initial);
           }, delay);
           return;
         }
@@ -505,7 +643,7 @@ function ConversationView({
       if (initial && !anchor) {
         // The initial route chooses the saved-position page in one request.
         const target = fresh.position_message_id;
-        if (target && fresh.messages.some(message => message.id === target)) {
+        if (target && fresh.messages.some((message) => message.id === target)) {
           followLatest.current = false;
           setJumpKind("resume");
           setResumed(true);
@@ -516,7 +654,11 @@ function ConversationView({
         // The requested anchor is covered even when it became hidden. Such
         // rows have a transcript position but are absent from the response.
         // A newer invalidation still needs a newer consistent snapshot.
-        if (recovery && (missingMessages.current.get(recovery) ?? Infinity) <= fresh.projection.cursor)
+        if (
+          recovery &&
+          (missingMessages.current.get(recovery) ?? Infinity) <=
+            fresh.projection.cursor
+        )
           missingMessages.current.delete(recovery);
         // A page can repair several missing rows, but cannot acknowledge an
         // invalidation that arrived after its consistent snapshot watermark.
@@ -525,9 +667,13 @@ function ConversationView({
           if (cursor !== undefined && cursor <= fresh.projection.cursor)
             missingMessages.current.delete(message.id);
         }
-      } else if (recovery && missingMessages.current.get(recovery) === recoveryCursor)
+      } else if (
+        recovery &&
+        missingMessages.current.get(recovery) === recoveryCursor
+      )
         missingMessages.current.delete(recovery);
-      request.queued ||= missingMessages.current.size > 0 || projection.projection.needsLatest();
+      request.queued ||=
+        missingMessages.current.size > 0 || projection.projection.needsLatest();
       initialRequest.current = false;
       hydrated.current = true;
       snapshotFailures.current = 0;
@@ -544,13 +690,19 @@ function ConversationView({
         !initial && old
           ? {
               ...fresh,
-              messages: fresh.projection ? fresh.messages : mergeConversationMessages(old.messages, fresh.messages),
-              next: replacedProjection ? fresh.next : recovery ? old.next : conversationRefreshCursor(
-                old.messages,
-                incomingMessages,
-                old.next,
-                fresh.next,
-              ),
+              messages: fresh.projection
+                ? fresh.messages
+                : mergeConversationMessages(old.messages, fresh.messages),
+              next: replacedProjection
+                ? fresh.next
+                : recovery
+                  ? old.next
+                  : conversationRefreshCursor(
+                      old.messages,
+                      incomingMessages,
+                      old.next,
+                      fresh.next,
+                    ),
             }
           : fresh,
       );
@@ -567,8 +719,12 @@ function ConversationView({
             .map((m: Message) => m.id),
         );
     } catch (e) {
-      if (current === generation.current && ticket === loadRequest.current && owner === viewOwner()) {
-        if (recovery && (e as {status?: number}).status === 404) {
+      if (
+        current === generation.current &&
+        ticket === loadRequest.current &&
+        owner === viewOwner()
+      ) {
+        if (recovery && (e as { status?: number }).status === 404) {
           missingMessages.current.clear();
           projection.reset(projection.epoch);
           initialRequest.current = true;
@@ -584,11 +740,18 @@ function ConversationView({
           retryAt.current = Date.now() + retryAfter(e);
           const retry = () => {
             clearTimeout(retryTimer.current);
-            retryTimer.current = setTimeout(() => {
-              if (current !== generation.current || owner !== viewOwner()) return;
-              if (Date.now() < retryAt.current) retry();
-              else void load(initial);
-            }, Math.min(2_147_483_647, Math.max(0, retryAt.current - Date.now())));
+            retryTimer.current = setTimeout(
+              () => {
+                if (current !== generation.current || owner !== viewOwner())
+                  return;
+                if (Date.now() < retryAt.current) retry();
+                else void load(initial);
+              },
+              Math.min(
+                2_147_483_647,
+                Math.max(0, retryAt.current - Date.now()),
+              ),
+            );
           };
           retry();
         } else {
@@ -628,7 +791,9 @@ function ConversationView({
     snapshotFailures.current = 0;
     setRateLimited(false);
     const context = JSON.stringify([owner, sourceId, id]);
-    const localJump = jump && projectionContext.current === context &&
+    const localJump =
+      jump &&
+      projectionContext.current === context &&
       dataRef.current?.messages.some((message) => message.id === jump) &&
       (transcriptHandoff.current.ready || !dataRef.current.projection);
     // Resuming or jumping to an already loaded row changes the scroll anchor,
@@ -640,66 +805,149 @@ function ConversationView({
     projectionContext.current = context;
     const update = () => void load();
     const markMissing = (message: string, cursor: number) =>
-      missingMessages.current.set(message, Math.max(cursor, missingMessages.current.get(message) ?? 0));
+      missingMessages.current.set(
+        message,
+        Math.max(cursor, missingMessages.current.get(message) ?? 0),
+      );
     const stopDetail = watchWorkspaceDetail(sourceId, { conversation: id });
     const stopFrames = listenProjectionFrames(sourceId, (frame) => {
       if (frame.type === "reset") {
         missingMessages.current.clear();
-        if (transcriptHandoff.current.connect(frame.epoch, frame.cursor)) update();
+        if (transcriptHandoff.current.connect(frame.epoch, frame.cursor))
+          update();
         return;
       }
       if (frame.v !== 3 || !reactiveSource(sourceId, "transcript")) return;
-      let changed = false, refresh = false;
+      let changed = false,
+        refresh = false;
       for (const entry of frame.events) {
         const event = entry.event;
-        if (event.scope.kind === "conversation" && event.scope.id === id &&
-            (event.type === "message.upsert" || event.type === "message.remove" ||
-             (event.type === "message.delta" && "revision" in event.payload))) {
-          const outcome = transcriptHandoff.current.receive(entry.id, event as TranscriptEvent);
+        if (
+          event.scope.kind === "conversation" &&
+          event.scope.id === id &&
+          (event.type === "message.upsert" ||
+            event.type === "message.remove" ||
+            (event.type === "message.delta" && "revision" in event.payload))
+        ) {
+          const outcome = transcriptHandoff.current.receive(
+            entry.id,
+            event as TranscriptEvent,
+          );
           changed ||= outcome === "applied";
-          if (event.type === "message.remove" && outcome !== "gap" &&
-              entry.id >= (missingMessages.current.get(event.payload.messageId) ?? Infinity))
+          if (
+            event.type === "message.remove" &&
+            outcome !== "gap" &&
+            entry.id >=
+              (missingMessages.current.get(event.payload.messageId) ?? Infinity)
+          )
             missingMessages.current.delete(event.payload.messageId);
           refresh ||= outcome === "gap";
           // The reported latest agent message is gone: ask which is latest now.
-          refresh ||= event.type === "message.remove" && outcome === "applied" &&
-            event.payload.messageId === dataRef.current?.latest_agent_message?.id;
-          if (outcome === "gap") markMissing(event.type === "message.upsert" ? event.payload.message.id : event.payload.messageId, entry.id);
+          refresh ||=
+            event.type === "message.remove" &&
+            outcome === "applied" &&
+            event.payload.messageId ===
+              dataRef.current?.latest_agent_message?.id;
+          if (outcome === "gap")
+            markMissing(
+              event.type === "message.upsert"
+                ? event.payload.message.id
+                : event.payload.messageId,
+              entry.id,
+            );
         } else if (event.type === "invalidate" || event.type === "tombstone") {
           // A full replacement may exceed the socket budget. Its bounded
           // subject still identifies a retained older page to recover.
-          if (event.subject?.kind === "message" &&
-              (event.scope.kind === "conversation" && event.scope.id === id || event.scope.kind === "collection" && event.scope.id === "all") &&
-              dataRef.current?.messages.some(message => message.id === event.subject?.id)) {
+          if (
+            event.subject?.kind === "message" &&
+            ((event.scope.kind === "conversation" && event.scope.id === id) ||
+              (event.scope.kind === "collection" &&
+                event.scope.id === "all")) &&
+            dataRef.current?.messages.some(
+              (message) => message.id === event.subject?.id,
+            )
+          ) {
             markMissing(event.subject.id, entry.id);
             refresh = true;
           }
           // SQL message writes have complete typed deltas. A primary saved
           // notification covers bookmark state, not streamed content.
-          refresh ||= event.scope.kind === "collection" && ["all", "saved"].includes(event.scope.id);
-          refresh ||= event.scope.kind === "conversation" && event.scope.id === id;
-          refresh ||= event.subject?.kind === "conversation" && event.subject.id === id &&
-            eventScopes(event).some(scope => scope.kind === "collection" && scope.id === "metadata");
-          refresh ||= event.scope.kind === "collection" && event.scope.id === "runs" &&
-            event.subject?.kind === "run" && dataRef.current?.messages.some(message => message.run_id === event.subject?.id) === true;
-        } else if (["queued", "running", "pausing", "paused", "awaiting_approval", "completed", "failed", "cancelled", "interrupted"].includes(event.type)) {
-          refresh ||= event.scope.kind === "run" && dataRef.current?.messages.some(message => message.run_id === event.scope.id) === true;
+          refresh ||=
+            event.scope.kind === "collection" &&
+            ["all", "saved"].includes(event.scope.id);
+          refresh ||=
+            event.scope.kind === "conversation" && event.scope.id === id;
+          refresh ||=
+            event.subject?.kind === "conversation" &&
+            event.subject.id === id &&
+            eventScopes(event).some(
+              (scope) => scope.kind === "collection" && scope.id === "metadata",
+            );
+          refresh ||=
+            event.scope.kind === "collection" &&
+            event.scope.id === "runs" &&
+            event.subject?.kind === "run" &&
+            dataRef.current?.messages.some(
+              (message) => message.run_id === event.subject?.id,
+            ) === true;
+        } else if (
+          [
+            "queued",
+            "running",
+            "pausing",
+            "paused",
+            "awaiting_approval",
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted",
+          ].includes(event.type)
+        ) {
+          refresh ||=
+            event.scope.kind === "run" &&
+            dataRef.current?.messages.some(
+              (message) => message.run_id === event.scope.id,
+            ) === true;
         }
       }
-      if (changed && transcriptHandoff.current.ready) setData(old => old ? { ...old, messages: transcriptHandoff.current.projection.rows() } : old);
-      if (refresh || transcriptHandoff.current.projection.needsLatest()) update();
+      if (changed && transcriptHandoff.current.ready)
+        setData((old) =>
+          old
+            ? { ...old, messages: transcriptHandoff.current.projection.rows() }
+            : old,
+        );
+      if (refresh || transcriptHandoff.current.projection.needsLatest())
+        update();
     });
     // A jump inside a loaded thread only needs the anchor effect below.
     if (!localJump) {
       initialRequest.current = true;
       hydrated.current = false;
       void load(true);
-    } else if (missingMessages.current.size || transcriptHandoff.current.projection.needsLatest()) void load();
+    } else if (
+      missingMessages.current.size ||
+      transcriptHandoff.current.projection.needsLatest()
+    )
+      void load();
     window.addEventListener("loop-refresh", update);
-    const stopFallback = surfaceFallback([sourceId], "transcript", 5000, update);
-    const stopChanges = listenWorkspaceChanges("thread", (event) => {
-      if (!reactiveSource(sourceId, "transcript") || broadWorkspaceChange(event)) update();
-    }, sourceId, id);
+    const stopFallback = surfaceFallback(
+      [sourceId],
+      "transcript",
+      5000,
+      update,
+    );
+    const stopChanges = listenWorkspaceChanges(
+      "thread",
+      (event) => {
+        if (
+          !reactiveSource(sourceId, "transcript") ||
+          broadWorkspaceChange(event)
+        )
+          update();
+      },
+      sourceId,
+      id,
+    );
     return () => {
       generation.current++;
       readController.current?.abort();
@@ -729,8 +977,18 @@ function ConversationView({
         .catch(() => {});
     };
     window.addEventListener("loop-refresh", refresh);
-    const stopChanges = listenWorkspaceChanges("usage", () => void refresh(), sourceId, id);
-    const stopFallback = surfaceFallback([sourceId], "workspace", 5000, () => void refresh());
+    const stopChanges = listenWorkspaceChanges(
+      "usage",
+      () => void refresh(),
+      sourceId,
+      id,
+    );
+    const stopFallback = surfaceFallback(
+      [sourceId],
+      "workspace",
+      5000,
+      () => void refresh(),
+    );
     void refresh();
     return () => {
       active = false;
@@ -747,7 +1005,14 @@ function ConversationView({
         title: data.conversation.title,
         projectName: project?.name,
       });
-  }, [id, readyKey, agent?.id, data?.conversation.title, imported, project?.name]);
+  }, [
+    id,
+    readyKey,
+    agent?.id,
+    data?.conversation.title,
+    imported,
+    project?.name,
+  ]);
   useLayoutEffect(() => {
     if (data?.conversation.id !== id) return;
     const messages = messagesRef.current;
@@ -804,10 +1069,12 @@ function ConversationView({
         if (!anchoring.current) return;
         scrollToMessage(message, block);
         setAwayFromLatest(
-          messages.scrollHeight - messages.clientHeight - messages.scrollTop >= 48,
+          messages.scrollHeight - messages.clientHeight - messages.scrollTop >=
+            48,
         );
         // Only a link or a jump focuses (and outlines) its message.
-        if (!focused && highlight && document.activeElement?.id !== "composer") message.focus({ preventScroll: true });
+        if (!focused && highlight && document.activeElement?.id !== "composer")
+          message.focus({ preventScroll: true });
         focused = true;
       });
     };
@@ -869,7 +1136,8 @@ function ConversationView({
   }
   async function setSavedOnServer(messageId: string, saved: boolean) {
     await call(saved ? workspaceApi.messageSave : workspaceApi.messageUnsave, {
-      params: { id: messageId }, body: saved ? {} : undefined,
+      params: { id: messageId },
+      body: saved ? {} : undefined,
     });
     window.dispatchEvent(new Event("loop-later-change"));
   }
@@ -917,7 +1185,13 @@ function ConversationView({
       .reverse()
       .find((m) => m.run_id && states.includes(m.run_state || ""));
   const currentRun =
-    runOf(["running", "pausing", "paused", "awaiting_approval", "waiting_children"]) ||
+    runOf([
+      "running",
+      "pausing",
+      "paused",
+      "awaiting_approval",
+      "waiting_children",
+    ]) ||
     runOf(["queued"]) ||
     latestRun;
   const status = runStatus(currentRun?.run_state);
@@ -987,7 +1261,11 @@ function ConversationView({
       >
         <h2>{title}</h2>
         <small>
-          {agent ? `@${agent.name}` : loading ? "Loading…" : "Agent unavailable"}
+          {agent
+            ? `@${agent.name}`
+            : loading
+              ? "Loading…"
+              : "Agent unavailable"}
           {status.label && <Chip tone={status.tone}>{status.label}</Chip>}
         </small>
       </button>
@@ -1019,15 +1297,27 @@ function ConversationView({
       onClose={onClose}
     >
       {sourceStatus && (
-        <div role={sourceStatus.rateLimited ? "status" : "alert"} className={"thread-details " + (sourceStatus.rateLimited ? "muted" : "error")}>
+        <div
+          role={sourceStatus.rateLimited ? "status" : "alert"}
+          className={
+            "thread-details " + (sourceStatus.rateLimited ? "muted" : "error")
+          }
+        >
           Workspace details: {sourceStatus.message}
           <button className="text-button" onClick={sourceStatus.retry}>
             Retry connection
           </button>
         </div>
       )}
-      <ConversationPulls conversationId={id} refreshKey={`${data?.messages.at(-1)?.id}:${data?.messages.at(-1)?.run_state}`} />
-      <CodeReviewStatus key={`${sourceId}:${id}`} conversationId={id} revision={revision} />
+      <ConversationPulls
+        conversationId={id}
+        refreshKey={`${data?.messages.at(-1)?.id}:${data?.messages.at(-1)?.run_state}`}
+      />
+      <CodeReviewStatus
+        key={`${sourceId}:${id}`}
+        conversationId={id}
+        revision={revision}
+      />
       {titleOpen && agent && (
         <p className="thread-details">
           {title}
@@ -1053,8 +1343,7 @@ function ConversationView({
               id: "later",
               label: "Remind me",
               icon: <AlarmClock size={20} />,
-              onSelect: () =>
-                setLaterFor({ kind: "conversation", id, title }),
+              onSelect: () => setLaterFor({ kind: "conversation", id, title }),
             },
             ...(latestCheckout
               ? [
@@ -1101,9 +1390,10 @@ function ConversationView({
               label: "Share link",
               icon: <Share2 size={20} />,
               onSelect: () =>
-                void shareLink(sourceUrl(sourceId, { conversation: id }), title).then(
-                  (text) => text && setNotice(text),
-                ),
+                void shareLink(
+                  sourceUrl(sourceId, { conversation: id }),
+                  title,
+                ).then((text) => text && setNotice(text)),
             },
             {
               id: "handoff",
@@ -1143,9 +1433,12 @@ function ConversationView({
           kind={laterFor.kind}
           targetId={laterFor.id}
           title={laterFor.title}
-          running={["queued", "running", "pausing", "waiting_children"].includes(
-            currentRun?.run_state || "",
-          )}
+          running={[
+            "queued",
+            "running",
+            "pausing",
+            "waiting_children",
+          ].includes(currentRun?.run_state || "")}
           project={project ? { id: project.id, name: project.name } : undefined}
           onClose={() => setLaterFor(null)}
           onDone={(label, created) => {
@@ -1161,8 +1454,9 @@ function ConversationView({
           }}
         />
       )}
-      {menuFor && (() => {
-        const menu = messageActions({
+      {menuFor &&
+        (() => {
+          const menu = messageActions({
             saved: savedIds.has(menuFor.id),
             canReply: Boolean(
               agent && !imported && menuFor.content.trim() !== "",
@@ -1183,7 +1477,9 @@ function ConversationView({
                 await navigator.clipboard.writeText(menuFor.content);
                 setNotice("Message copied.");
               } catch {
-                setError("Could not copy. Select the message text and copy it.");
+                setError(
+                  "Could not copy. Select the message text and copy it.",
+                );
               }
             },
             onSave: () => void toggleSaved(menuFor),
@@ -1197,12 +1493,14 @@ function ConversationView({
             onReuse: () => onUsePrompt(menuFor.content),
             onSnippet: async () => {
               try {
-                await call(workspaceApi.artifactCreate, { body: {
-                  title: "Snippet: " + preview(menuFor.content, 60),
-                  content: menuFor.content,
-                  kind: "markdown",
-                  metadata: { snippet: true },
-                } });
+                await call(workspaceApi.artifactCreate, {
+                  body: {
+                    title: "Snippet: " + preview(menuFor.content, 60),
+                    content: menuFor.content,
+                    kind: "markdown",
+                    metadata: { snippet: true },
+                  },
+                });
                 onSubmitted();
                 notify({
                   text: "Saved as a snippet. Type / in any composer to insert it.",
@@ -1217,20 +1515,20 @@ function ConversationView({
                 title,
               ).then((text) => text && setNotice(text)),
           });
-        return (
-          <ActionSheet
-            title={menuFor.role === "user" ? "Your message" : "Message"}
-            onClose={() => setMenuFor(null)}
-            primary={menu.primary}
-            actions={menu.more}
-            moreLabel="More"
-          >
-            <div className="action-preview">
-              {preview(menuFor.content, 160) || "(no text)"}
-            </div>
-          </ActionSheet>
-        );
-      })()}
+          return (
+            <ActionSheet
+              title={menuFor.role === "user" ? "Your message" : "Message"}
+              onClose={() => setMenuFor(null)}
+              primary={menu.primary}
+              actions={menu.more}
+              moreLabel="More"
+            >
+              <div className="action-preview">
+                {preview(menuFor.content, 160) || "(no text)"}
+              </div>
+            </ActionSheet>
+          );
+        })()}
       {quoteFrom && agent && (
         <QuotePartSheet
           content={quoteFrom.content}
@@ -1278,14 +1576,18 @@ function ConversationView({
       {verification && (
         <VerificationSheet
           runId={verification}
-          load={(runId) => call(workspaceApi.runVerifications, { params: { id: runId } })}
+          load={(runId) =>
+            call(workspaceApi.runVerifications, { params: { id: runId } })
+          }
           onClose={() => setVerification(null)}
         />
       )}
       {checkout && (
         <CheckoutSheet
           runId={checkout}
-          load={(runId) => call(workspaceApi.runCheckout, { params: { id: runId } })}
+          load={(runId) =>
+            call(workspaceApi.runCheckout, { params: { id: runId } })
+          }
           agentName={agent?.name}
           projectName={project?.name}
           onAsk={agent && !imported ? onUsePrompt : undefined}
@@ -1296,19 +1598,41 @@ function ConversationView({
         <Sheet title="Tool activity" onClose={() => setShowToolActivity(false)}>
           {toolRecords().map(({ run, record }) => (
             <ActivityView
-              key={[run, record.source.transport, record.source.origin, record.kind, record.id].join(":")}
+              key={[
+                run,
+                record.source.transport,
+                record.source.origin,
+                record.kind,
+                record.id,
+              ].join(":")}
               record={record}
             />
           ))}
-          {activityHistory.loading && <p role="status">Loading tool activity…</p>}
-          {!activityHistory.loading && !activityHistory.error && !toolRecords().length && !activityHistory.hasEarlier && (
-            <p className="field-hint">No tool activity yet.</p>
+          {activityHistory.loading && (
+            <p role="status">Loading tool activity…</p>
           )}
-          <CollectionReadNotice error={activityHistory.error} busy={activityHistory.loading || activityHistory.loadingEarlier} retry={() => void activityHistory.retry()} />
+          {!activityHistory.loading &&
+            !activityHistory.error &&
+            !toolRecords().length &&
+            !activityHistory.hasEarlier && (
+              <p className="field-hint">No tool activity yet.</p>
+            )}
+          <CollectionReadNotice
+            error={activityHistory.error}
+            busy={activityHistory.loading || activityHistory.loadingEarlier}
+            retry={() => void activityHistory.retry()}
+          />
           {activityHistory.hasEarlier && (
-            <button type="button" disabled={activityHistory.loadingEarlier}
-              onClick={() => { void activityHistory.loadEarlier(); }}>
-              {activityHistory.loadingEarlier ? "Loading…" : "Load earlier activity"}
+            <button
+              type="button"
+              disabled={activityHistory.loadingEarlier}
+              onClick={() => {
+                void activityHistory.loadEarlier();
+              }}
+            >
+              {activityHistory.loadingEarlier
+                ? "Loading…"
+                : "Load earlier activity"}
             </button>
           )}
         </Sheet>
@@ -1359,7 +1683,10 @@ function ConversationView({
             }
             if (following) setResumed(false);
             if (scrollSave.current) clearTimeout(scrollSave.current);
-            scrollSave.current = setTimeout(saveReadingPosition, following ? 0 : 800);
+            scrollSave.current = setTimeout(
+              saveReadingPosition,
+              following ? 0 : 800,
+            );
           }}
         >
           {loading && !data && !rateLimited && (
@@ -1367,11 +1694,21 @@ function ConversationView({
               Loading conversation…
             </p>
           )}
-          {rateLimited && <p role="status" className="muted">{RATE_LIMITED}</p>}
+          {rateLimited && (
+            <p role="status" className="muted">
+              {RATE_LIMITED}
+            </p>
+          )}
           {loadError && (
             <div role="alert" className="error">
               {loadError}
-              <button className="text-button" onClick={() => { snapshotFailures.current = 0; void load(!data); }}>
+              <button
+                className="text-button"
+                onClick={() => {
+                  snapshotFailures.current = 0;
+                  void load(!data);
+                }}
+              >
                 Try again
               </button>
             </div>
@@ -1379,9 +1716,17 @@ function ConversationView({
           {data?.next && (
             <button
               className="text-button load-earlier"
-              disabled={loadingEarlier || loading || rateLimited || !hydrated.current}
+              disabled={
+                loadingEarlier || loading || rateLimited || !hydrated.current
+              }
               onClick={async () => {
-                if (paging.current || loading || rateLimited || !hydrated.current) return;
+                if (
+                  paging.current ||
+                  loading ||
+                  rateLimited ||
+                  !hydrated.current
+                )
+                  return;
                 paging.current = true;
                 loadRequest.current++;
                 setLoadingEarlier(true);
@@ -1389,13 +1734,26 @@ function ConversationView({
                 const projection = transcriptHandoff.current;
                 const snapshot = projection.begin();
                 try {
-                  const older = await readRoute(workspaceApi.conversation, { params: { id }, query: { before: data.next! } },
-                    sourceId, readController.current!.signal);
+                  const older = await readRoute(
+                    workspaceApi.conversation,
+                    { params: { id }, query: { before: data.next! } },
+                    sourceId,
+                    readController.current!.signal,
+                  );
                   if (current !== generation.current) return;
                   if (older.projection) {
                     const rows = ProjectedMessage.array().parse(older.messages);
-                    if (!projection.install(snapshot, older.projection, rows, older.range)) {
-                      setError("Messages changed while loading history. Try Load earlier messages again.");
+                    if (
+                      !projection.install(
+                        snapshot,
+                        older.projection,
+                        rows,
+                        older.range,
+                      )
+                    ) {
+                      setError(
+                        "Messages changed while loading history. Try Load earlier messages again.",
+                      );
                       return;
                     }
                     older.messages = projection.projection.rows();
@@ -1404,18 +1762,18 @@ function ConversationView({
                     previous
                       ? {
                           ...previous,
-                          messages: older.projection ? older.messages : mergeConversationMessages(
-                            previous.messages,
-                            older.messages,
-                          ),
+                          messages: older.projection
+                            ? older.messages
+                            : mergeConversationMessages(
+                                previous.messages,
+                                older.messages,
+                              ),
                           next: older.next,
                         }
                       : previous,
                   );
                   if (older.saved)
-                    setSavedIds(
-                      (old) => new Set([...old, ...older.saved!]),
-                    );
+                    setSavedIds((old) => new Set([...old, ...older.saved!]));
                   setError("");
                 } catch (e) {
                   if (current === generation.current)
@@ -1517,7 +1875,9 @@ function ConversationView({
                             )
                           : `@${agent?.name || "agent"}`}
                         {meta.progress ? " · Update" : ""}
-                        {meta.activeBranch === false ? " · alternate branch" : ""}
+                        {meta.activeBranch === false
+                          ? " · alternate branch"
+                          : ""}
                       </span>
                       <span className="message-meta-end">
                         {savedIds.has(m.id) && (
@@ -1568,63 +1928,74 @@ function ConversationView({
                     </details>
                   )}
                   {showContent && <RichText content={m.content} />}
-                  {m.role === "user" && m.run_id && m.run_state === "queued" && (
-                    <div className="queued-controls" role="group" aria-label="Queued message">
-                      <span className="status-chip queued">Queued</span>
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() =>
-                          setEditQueued({
-                            id: m.run_id!,
-                            input: m.content,
-                            agentId: agent?.id,
-                          })
-                        }
+                  {m.role === "user" &&
+                    m.run_id &&
+                    m.run_state === "queued" && (
+                      <div
+                        className="queued-controls"
+                        role="group"
+                        aria-label="Queued message"
                       >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={async () => {
-                          try {
-                            // Only a message that has never started is taken back.
-                            await onWithdraw(m.run_id!);
-                            onSubmitted();
-                            notify({ text: "Moved back to your draft. Nothing was sent." });
-                            await load();
-                          } catch (e) {
-                            setError((e as Error).message);
+                        <span className="status-chip queued">Queued</span>
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() =>
+                            setEditQueued({
+                              id: m.run_id!,
+                              input: m.content,
+                              agentId: agent?.id,
+                            })
                           }
-                        }}
-                      >
-                        Move to draft
-                      </button>
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={async () => {
-                          try {
-                            await call(workspaceApi.runAction, { params: { id: m.run_id!, action: "cancel" }, body: {} });
-                            onSubmitted();
-                            setNotice("Queued message cancelled.");
-                            await load();
-                          } catch (e) {
-                            setError((e as Error).message);
-                          }
-                        }}
-                      >
-                        Cancel
-                      </button>
-                      <p className="field-hint queued-hint">
-                        Starts after @{agent?.name || "the agent"}’s earlier
-                        work. If that work pauses or waits for approval, this
-                        stays held; if it fails or is cancelled, this starts
-                        next. You can change it until it starts.
-                      </p>
-                    </div>
-                  )}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={async () => {
+                            try {
+                              // Only a message that has never started is taken back.
+                              await onWithdraw(m.run_id!);
+                              onSubmitted();
+                              notify({
+                                text: "Moved back to your draft. Nothing was sent.",
+                              });
+                              await load();
+                            } catch (e) {
+                              setError((e as Error).message);
+                            }
+                          }}
+                        >
+                          Move to draft
+                        </button>
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={async () => {
+                            try {
+                              await call(workspaceApi.runAction, {
+                                params: { id: m.run_id!, action: "cancel" },
+                                body: {},
+                              });
+                              onSubmitted();
+                              setNotice("Queued message cancelled.");
+                              await load();
+                            } catch (e) {
+                              setError((e as Error).message);
+                            }
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <p className="field-hint queued-hint">
+                          Starts after @{agent?.name || "the agent"}’s earlier
+                          work. If that work pauses or waits for approval, this
+                          stays held; if it fails or is cancelled, this starts
+                          next. You can change it until it starts.
+                        </p>
+                      </div>
+                    )}
                   <AttachmentList files={meta.attachments || []} />
                   {meta.steeringId && (
                     <p
@@ -1677,13 +2048,17 @@ function ConversationView({
                               crypto.randomUUID();
                             retryKeys.current.set(m.run_id!, key);
                             try {
-                              await call(workspaceApi.runAction, { params: { id: m.run_id!, action: "retry" }, body: {
-                                idempotencyKey: key,
-                              } });
+                              await call(workspaceApi.runAction, {
+                                params: { id: m.run_id!, action: "retry" },
+                                body: {
+                                  idempotencyKey: key,
+                                },
+                              });
                               onSubmitted();
                               await load();
                             } catch (e) {
-                              if (isExecutionRefused(e)) retryKeys.current.delete(m.run_id!);
+                              if (isExecutionRefused(e))
+                                retryKeys.current.delete(m.run_id!);
                               setError((e as Error).message);
                             } finally {
                               retryBusy.current = false;
@@ -1733,7 +2108,11 @@ function ConversationView({
           />
         </div>
         {(origin || resumed || awayFromLatest) && (
-          <div className="thread-return" role="group" aria-label="Thread position">
+          <div
+            className="thread-return"
+            role="group"
+            aria-label="Thread position"
+          >
             {resumed && !origin && (
               <span className="thread-return-note" role="status">
                 Resumed where you left off
@@ -1767,10 +2146,17 @@ function ConversationView({
                 <select
                   disabled={busy}
                   value={pendingContinuation?.start.idempotencyKey || ""}
-                  onChange={e => {
-                    const request = savedContinuations.find(r => r.start.idempotencyKey === e.target.value);
+                  onChange={(e) => {
+                    const request = savedContinuations.find(
+                      (r) => r.start.idempotencyKey === e.target.value,
+                    );
                     if (!request) return;
-                    try { sessionStorage.setItem(continuationKey, request.start.idempotencyKey); } catch {}
+                    try {
+                      sessionStorage.setItem(
+                        continuationKey,
+                        request.start.idempotencyKey,
+                      );
+                    } catch {}
                     setPendingContinuation(request);
                     setContinuationUnavailable(false);
                     setDestination(request.agentId);
@@ -1779,16 +2165,28 @@ function ConversationView({
                     setError("");
                   }}
                 >
-                  <option value="" disabled>Choose a saved request</option>
-                  {savedContinuations.map(request => (
-                    <option key={request.start.idempotencyKey} value={request.start.idempotencyKey}>
-                      @{agents.find(a => a.id === request.agentId)?.name || request.agentId}: {request.start.input.slice(0, 100)}
+                  <option value="" disabled>
+                    Choose a saved request
+                  </option>
+                  {savedContinuations.map((request) => (
+                    <option
+                      key={request.start.idempotencyKey}
+                      value={request.start.idempotencyKey}
+                    >
+                      @
+                      {agents.find((a) => a.id === request.agentId)?.name ||
+                        request.agentId}
+                      : {request.start.input.slice(0, 100)}
                     </option>
                   ))}
                 </select>
               </label>
             )}
-            {continuationReason && <p role="status" className="note">{continuationReason}</p>}
+            {continuationReason && (
+              <p role="status" className="note">
+                {continuationReason}
+              </p>
+            )}
             <label>
               Continue with
               <select
@@ -1797,11 +2195,18 @@ function ConversationView({
                 onChange={(e) => setDestination(e.target.value)}
               >
                 <option value="">Choose a connected agent</option>
-                {pendingContinuation && !agents.some(a => a.id === pendingContinuation.agentId) && (
-                  <option value={pendingContinuation.agentId}>Previously selected agent</option>
-                )}
+                {pendingContinuation &&
+                  !agents.some((a) => a.id === pendingContinuation.agentId) && (
+                    <option value={pendingContinuation.agentId}>
+                      Previously selected agent
+                    </option>
+                  )}
                 {agents
-                  .filter((a) => a.id === pendingContinuation?.agentId || (a.connection_id && !a.retired_at))
+                  .filter(
+                    (a) =>
+                      a.id === pendingContinuation?.agentId ||
+                      (a.connection_id && !a.retired_at),
+                  )
                   .map((a) => (
                     <option key={a.id} value={a.id}>
                       @{a.name} · {a.provider} · {a.model}
@@ -1824,7 +2229,10 @@ function ConversationView({
               Tip: “Fork from here” in any message’s menu copies everything up
               to that point.
             </p>
-            <fieldset className="transfer-messages" disabled={busy || !!pendingContinuation}>
+            <fieldset
+              className="transfer-messages"
+              disabled={busy || !!pendingContinuation}
+            >
               <legend>Messages to include</legend>
               {data?.messages
                 .filter(
@@ -1851,8 +2259,9 @@ function ConversationView({
                 ))}
             </fieldset>
             <p className="note">
-              The new agent will receive your message and the {continuationSelection.length}{" "}
-              selected messages in a new conversation, and start replying.
+              The new agent will receive your message and the{" "}
+              {continuationSelection.length} selected messages in a new
+              conversation, and start replying.
             </p>
             {pendingContinuation && !busy && (
               <p role="status" className="note">
@@ -1868,7 +2277,15 @@ function ConversationView({
             )}
             <button
               className="primary"
-              disabled={busy || !!continuationReason || continuationUnavailable || (!pendingContinuation && (!destination || !included.length || !continuationPrompt.trim()))}
+              disabled={
+                busy ||
+                !!continuationReason ||
+                continuationUnavailable ||
+                (!pendingContinuation &&
+                  (!destination ||
+                    !included.length ||
+                    !continuationPrompt.trim()))
+              }
               onClick={async () => {
                 if (busy || continuationReason) return;
                 setBusy(true);
@@ -1876,9 +2293,13 @@ function ConversationView({
                 const request = pendingContinuation || {
                   agentId: destination,
                   messageIds: included,
-                  start: { input: continuationPrompt.trim(), idempotencyKey: crypto.randomUUID() },
+                  start: {
+                    input: continuationPrompt.trim(),
+                    idempotencyKey: crypto.randomUUID(),
+                  },
                 };
-                const requestKey = continuationKey + ":" + request.start.idempotencyKey;
+                const requestKey =
+                  continuationKey + ":" + request.start.idempotencyKey;
                 const clearPending = () => {
                   clearStoredContinuation(continuationKey, request);
                   setSavedContinuations(storedContinuations(continuationKey));
@@ -1888,10 +2309,18 @@ function ConversationView({
                   // Keep the exact owner/source/thread-bound request across a
                   // lost response, closing the sheet and reloading the app.
                   localStorage.setItem(requestKey, JSON.stringify(request));
-                  try { sessionStorage.setItem(continuationKey, request.start.idempotencyKey); } catch {}
+                  try {
+                    sessionStorage.setItem(
+                      continuationKey,
+                      request.start.idempotencyKey,
+                    );
+                  } catch {}
                   setPendingContinuation(request);
                   setSavedContinuations(storedContinuations(continuationKey));
-                  const r = await call(workspaceApi.conversationContinueStart, { params: { id }, body: request });
+                  const r = await call(workspaceApi.conversationContinueStart, {
+                    params: { id },
+                    body: request,
+                  });
                   if (r.unavailable) {
                     setContinuationUnavailable(true);
                     return;
@@ -1904,32 +2333,65 @@ function ConversationView({
                   const status = (e as { status?: number }).status;
                   // A refused retry says nothing about an earlier send whose
                   // response was lost. Keep its identity until reconciled.
-                  if (isExecutionRefused(e) || (!(e as { executionOutcome?: string }).executionOutcome && !pendingContinuation && status !== undefined && status < 500)) clearPending();
+                  if (
+                    isExecutionRefused(e) ||
+                    (!(e as { executionOutcome?: string }).executionOutcome &&
+                      !pendingContinuation &&
+                      status !== undefined &&
+                      status < 500)
+                  )
+                    clearPending();
                   setError((e as Error).message);
                 } finally {
                   setBusy(false);
                 }
               }}
             >
-              {busy ? "Starting…" : continuationUnavailable ? "Continuation unavailable" : pendingContinuation ? "Retry continuation" : "Start continuation"}
+              {busy
+                ? "Starting…"
+                : continuationUnavailable
+                  ? "Continuation unavailable"
+                  : pendingContinuation
+                    ? "Retry continuation"
+                    : "Start continuation"}
             </button>
             {pendingContinuation && (
-              <button disabled={busy} onClick={() => {
-                try {
-                  // An uncertain request stays recoverable from the selector.
-                  // Only an explicitly resolved, unavailable outcome is removed.
-                  if (continuationUnavailable) clearStoredContinuation(continuationKey, pendingContinuation);
-                  try { sessionStorage.setItem(continuationKey, "new"); } catch {}
-                  setSavedContinuations(storedContinuations(continuationKey));
-                  setPendingContinuation(null);
-                  setContinuationUnavailable(false);
-                  setDestination("");
-                  setIncluded((data?.messages || [])
-                    .filter(m => m.content && parse<any>(m.metadata, {}).activeBranch !== false && !parse<any>(m.metadata, {}).progress)
-                    .map(m => m.id));
-                  setError("");
-                } catch (e) { setError((e as Error).message); }
-              }}>New continuation</button>
+              <button
+                disabled={busy}
+                onClick={() => {
+                  try {
+                    // An uncertain request stays recoverable from the selector.
+                    // Only an explicitly resolved, unavailable outcome is removed.
+                    if (continuationUnavailable)
+                      clearStoredContinuation(
+                        continuationKey,
+                        pendingContinuation,
+                      );
+                    try {
+                      sessionStorage.setItem(continuationKey, "new");
+                    } catch {}
+                    setSavedContinuations(storedContinuations(continuationKey));
+                    setPendingContinuation(null);
+                    setContinuationUnavailable(false);
+                    setDestination("");
+                    setIncluded(
+                      (data?.messages || [])
+                        .filter(
+                          (m) =>
+                            m.content &&
+                            parse<any>(m.metadata, {}).activeBranch !== false &&
+                            !parse<any>(m.metadata, {}).progress,
+                        )
+                        .map((m) => m.id),
+                    );
+                    setError("");
+                  } catch (e) {
+                    setError((e as Error).message);
+                  }
+                }}
+              >
+                New continuation
+              </button>
             )}
           </div>
         </Sheet>

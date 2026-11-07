@@ -1,5 +1,5 @@
 import * as steeringRepliesQueries from "./sql/steering-replies.js";
-import type {ReplyScope} from "./sql/steering-replies.js";
+import type { ReplyScope } from "./sql/steering-replies.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as laterItemsQueries from "./sql/later-items.js";
 import * as scheduledSendsQueries from "./sql/scheduled-sends.js";
@@ -13,26 +13,73 @@ import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as foldersQueries from "./sql/folders.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
-import { DoneReadInput, FeedUpdateInput, SavedLabelInput } from "../shared/mobile-contract-schemas.js";
-import { assertFeedApplied, projectionFeed, projectionDoneRows } from "./feed-card-read.js";
+import {
+  DoneReadInput,
+  FeedUpdateInput,
+  SavedLabelInput,
+} from "../shared/mobile-contract-schemas.js";
+import {
+  assertFeedApplied,
+  projectionFeed,
+  projectionDoneRows,
+} from "./feed-card-read.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
 import { z } from "zod";
 import { db, now, emit } from "./db.js";
-import { doneUnreadVersion, advanceDoneUnreadVersion } from "./done-read-state.js";
-import { ownedAgent, ownedFolder, ownedConversation, ownedMessage, owned, Problem } from "./domain.js";
+import {
+  doneUnreadVersion,
+  advanceDoneUnreadVersion,
+} from "./done-read-state.js";
+import {
+  ownedAgent,
+  ownedFolder,
+  ownedConversation,
+  ownedMessage,
+  owned,
+  Problem,
+} from "./domain.js";
 import { projectFolders, resultUrl } from "./results.js";
 import { unreadCount } from "./news.js";
 import { FEED_FILTERS, type FeedPage } from "../shared/workspace-api.js";
-import { collapse, encode, decode, projectFor, contains } from "./mobile-return/shared.js";
+import {
+  collapse,
+  encode,
+  decode,
+  projectFor,
+  contains,
+} from "./mobile-return/shared.js";
 
 // Keep the existing route and worker import surface stable.
-export { conversationReturnState, savePosition } from "./mobile-return/reading-position.js";
+export {
+  conversationReturnState,
+  savePosition,
+} from "./mobile-return/reading-position.js";
 export { conversationOutline } from "./mobile-return/outlines.js";
-export { createLater, snoozeLater, reopenLater, listLater, finishLater, projectOpened, enqueuePush, surfaceLater } from "./mobile-return/later.js";
-export { createScheduledSend, listScheduledSends, cancelScheduledSend, editScheduledSend, retryScheduledSend, deliverScheduledSends } from "./mobile-return/scheduled-sends.js";
-export { reorderRun, editQueuedRun, withdrawQueuedRun, moveQueuedRun } from "./mobile-return/queued-runs.js";
+export {
+  createLater,
+  snoozeLater,
+  reopenLater,
+  listLater,
+  finishLater,
+  projectOpened,
+  enqueuePush,
+  surfaceLater,
+} from "./mobile-return/later.js";
+export {
+  createScheduledSend,
+  listScheduledSends,
+  cancelScheduledSend,
+  editScheduledSend,
+  retryScheduledSend,
+  deliverScheduledSends,
+} from "./mobile-return/scheduled-sends.js";
+export {
+  reorderRun,
+  editQueuedRun,
+  withdrawQueuedRun,
+  moveQueuedRun,
+} from "./mobile-return/queued-runs.js";
 export { forkConversation } from "./mobile-return/forking.js";
-
 
 // ---------------------------------------------------------------------------
 // 2. Feed
@@ -89,15 +136,19 @@ function readFeed(
   const { page, summary } = projectionFeed(db, params, filter, results);
   const more = page.length > 40;
   if (more) page.pop();
-  const rows = page.map(item => item.row);
+  const rows = page.map((item) => item.row);
   const laterDue = laterItemsQueries.dueCount(db, owner) as { n: number };
   // Scheduled messages, owner-wide: not sent (needs you) apart from waiting.
-  const scheduled = scheduledSendsQueries.summary(db, owner) as { failed: number; pending: number };
+  const scheduled = scheduledSendsQueries.summary(db, owner) as {
+    failed: number;
+    pending: number;
+  };
   const last = rows.at(-1);
   return {
-    items: replyPage ? replyPage.items : page.map(item => item.display),
-    next: replyPage ? replyPage.next :
-      more && last
+    items: replyPage ? replyPage.items : page.map((item) => item.display),
+    next: replyPage
+      ? replyPage.next
+      : more && last
         ? encode(
             results
               ? [last.sort_at, last.conversation_id, last.done_card_key]
@@ -118,62 +169,142 @@ function readFeed(
   };
 }
 
-
 function replyUnread(scope: ReplyScope) {
-  return (steeringRepliesQueries.unread(db,scope) as { n: number }).n;
+  return (steeringRepliesQueries.unread(db, scope) as { n: number }).n;
 }
 
-function readReplyFeed(scope: ReplyScope & { at: number | null; after: string | null; afterCard: string | null }) {
-  const rows = steeringRepliesQueries.page(db,scope) as {
-      message_id: string; created_at: number; read_at: number | null; question_id: string; question: string; content: string;
-      conversation_id: string; title: string; origin: string; team_id: string | null; agent_id: string | null;
-      folder_id: string | null; run_id: string; state: string; error: string | null; input: string;
-      run_created_at: number; updated_at: number; connection_id: string | null; model: string | null;
-      resolved_model: string | null; provider: string | null; agent_name: string | null; saved: number;
-    }[];
+function readReplyFeed(
+  scope: ReplyScope & {
+    at: number | null;
+    after: string | null;
+    afterCard: string | null;
+  },
+) {
+  const rows = steeringRepliesQueries.page(db, scope) as {
+    message_id: string;
+    created_at: number;
+    read_at: number | null;
+    question_id: string;
+    question: string;
+    content: string;
+    conversation_id: string;
+    title: string;
+    origin: string;
+    team_id: string | null;
+    agent_id: string | null;
+    folder_id: string | null;
+    run_id: string;
+    state: string;
+    error: string | null;
+    input: string;
+    run_created_at: number;
+    updated_at: number;
+    connection_id: string | null;
+    model: string | null;
+    resolved_model: string | null;
+    provider: string | null;
+    agent_name: string | null;
+    saved: number;
+  }[];
   const more = rows.length > 40;
   if (more) rows.pop();
   const last = rows.at(-1);
   return {
-    items: rows.map(row => {
+    items: rows.map((row) => {
       const project = projectFor(scope.owner, row.folder_id);
       return {
-        conversation_id: row.conversation_id, reply_card_key: `reply:${row.message_id}`,
-        reply: { message_id: row.question_id, content: row.question, read_at: row.read_at },
+        conversation_id: row.conversation_id,
+        reply_card_key: `reply:${row.message_id}`,
+        reply: {
+          message_id: row.question_id,
+          content: row.question,
+          read_at: row.read_at,
+        },
         title: collapse(row.question, 200) || row.title,
-        agent_id: row.agent_id, agent_name: row.agent_name, provider: row.provider,
-        connection_id: row.connection_id, project_id: project?.id ?? null, project_name: project?.name ?? null,
-        team_id: row.team_id, origin: row.origin, last_activity_at: row.created_at,
-        last_message: { id: row.message_id, role: "assistant", preview: row.content, created_at: row.created_at, saved: !!row.saved },
-        run: { id: row.run_id, state: row.state, error: row.error, input: row.input,
-          connection_id: row.connection_id, model: row.model, resolved_model: row.resolved_model,
-          created_at: row.run_created_at, updated_at: row.updated_at, queue_position: null },
-        pending_approvals: 0, position_message_id: null, later: null, next_action: null,
+        agent_id: row.agent_id,
+        agent_name: row.agent_name,
+        provider: row.provider,
+        connection_id: row.connection_id,
+        project_id: project?.id ?? null,
+        project_name: project?.name ?? null,
+        team_id: row.team_id,
+        origin: row.origin,
+        last_activity_at: row.created_at,
+        last_message: {
+          id: row.message_id,
+          role: "assistant",
+          preview: row.content,
+          created_at: row.created_at,
+          saved: !!row.saved,
+        },
+        run: {
+          id: row.run_id,
+          state: row.state,
+          error: row.error,
+          input: row.input,
+          connection_id: row.connection_id,
+          model: row.model,
+          resolved_model: row.resolved_model,
+          created_at: row.run_created_at,
+          updated_at: row.updated_at,
+          queue_position: null,
+        },
+        pending_approvals: 0,
+        position_message_id: null,
+        later: null,
+        next_action: null,
       };
     }),
-    next: more && last ? encode([last.created_at, last.conversation_id, `reply:${last.message_id}`]) : null,
+    next:
+      more && last
+        ? encode([
+            last.created_at,
+            last.conversation_id,
+            `reply:${last.message_id}`,
+          ])
+        : null,
   };
 }
 
 /** Read selection and its summary at the same applied-through snapshot. */
 export function feed(owner: string, options: Parameters<typeof readFeed>[1]) {
-  return db.transaction(() => { assertFeedApplied(db); return readFeed(owner, options); })();
+  return db.transaction(() => {
+    assertFeedApplied(db);
+    return readFeed(owner, options);
+  })();
 }
-export function doneCardRows(owner: string, options: {
-  folders: (string | null)[] | null; teamIds: string[]; agent?: string;
-  before?: [number, string] | null; ids?: string[]; limit: number; detail?: boolean; atTime?: number;
-  includeDismissed?: boolean;
-  read?: "read" | "unread";
-}) {
+export function doneCardRows(
+  owner: string,
+  options: {
+    folders: (string | null)[] | null;
+    teamIds: string[];
+    agent?: string;
+    before?: [number, string] | null;
+    ids?: string[];
+    limit: number;
+    detail?: boolean;
+    atTime?: number;
+    includeDismissed?: boolean;
+    read?: "read" | "unread";
+  },
+) {
   if (options.ids && !options.ids.length) return [];
   return db.transaction(() => {
     assertFeedApplied(db);
-    return projectionDoneRows(db, { owner, now: options.atTime ?? now(), read: options.read,
+    return projectionDoneRows(db, {
+      owner,
+      now: options.atTime ?? now(),
+      read: options.read,
       teams: options.teamIds.length ? JSON.stringify(options.teamIds) : null,
-      folders: options.folders ? JSON.stringify(options.folders) : null, agent: options.agent ?? null,
-      ids: options.ids ? JSON.stringify(options.ids) : null, at: options.before?.[0] ?? null,
-      key: options.before?.[1] ?? null, limit: options.limit, detail: !!options.detail,
-      includeDismissed: !!options.ids && !!options.includeDismissed });
+      folders: options.folders ? JSON.stringify(options.folders) : null,
+      agent: options.agent ?? null,
+      ids: options.ids ? JSON.stringify(options.ids) : null,
+      at: options.before?.[0] ?? null,
+      key: options.before?.[1] ?? null,
+      limit: options.limit,
+      detail: !!options.detail,
+      includeDismissed: !!options.ids && !!options.includeDismissed,
+    });
   })();
 }
 
@@ -188,10 +319,18 @@ export function setDoneCardHidden(
       ownedConversation(conversation, owner);
       const isRun = cardKey.startsWith("run:");
       const target = cardKey.slice(cardKey.indexOf(":") + 1);
-      const record = (isRun ? runsQueries.doneInConversation(db, target, owner, conversation) : messagesQueries.existsInConversation(db, target, owner, conversation));
+      const record = isRun
+        ? runsQueries.doneInConversation(db, target, owner, conversation)
+        : messagesQueries.existsInConversation(db, target, owner, conversation);
       if (!record) throw new Problem(404, "Done card not found");
       if (hidden) {
-        doneCardDismissalsQueries.insert(db, owner, conversation, cardKey, now());
+        doneCardDismissalsQueries.insert(
+          db,
+          owner,
+          conversation,
+          cardKey,
+          now(),
+        );
       } else {
         doneCardDismissalsQueries.remove(db, owner, conversation, cardKey);
       }
@@ -219,7 +358,9 @@ export function setDoneCardRead(
       } else {
         doneCardReadsQueries.remove(db, owner, conversation, cardKey);
         const version = advanceDoneUnreadVersion(owner, conversation, cardKey);
-        emit(owner, { kind: "collection", id: "feed" }, "invalidate", { scope: { kind: "collection", id: "feed" } });
+        emit(owner, { kind: "collection", id: "feed" }, "invalidate", {
+          scope: { kind: "collection", id: "feed" },
+        });
         return { ok: true, unreadVersions: { ["d:" + cardKey]: version } };
       }
       return { ok: true };
@@ -244,7 +385,8 @@ export function awaySummary(owner: string, since: number) {
 // has a result card is saved by pinning that result, so saving either one
 // saves both and the list shows it once.
 function resultFor(owner: string, messageId: string) {
-  return artifactsQueries.messageResult(db, messageId, owner) as { id: string; pinned: number } | undefined;
+  return artifactsQueries.messageResult(db, messageId, owner) as
+    { id: string; pinned: number } | undefined;
 }
 
 export function setSaved(owner: string, messageId: string, on: boolean) {
@@ -256,11 +398,18 @@ export function setSaved(owner: string, messageId: string, on: boolean) {
       const result = resultFor(owner, messageId),
         savedAt = now();
       if (result && result.pinned !== Number(on)) {
-        artifactsQueries.bookmark(db, Number(on), savedAt, result.id, owner, Number(on));
+        artifactsQueries.bookmark(
+          db,
+          Number(on),
+          savedAt,
+          result.id,
+          owner,
+          Number(on),
+        );
       }
-        on && !result
-          ? messageBookmarksQueries.insert(db, owner, messageId, savedAt).changes
-          : messageBookmarksQueries.remove(db, owner, messageId).changes;
+      on && !result
+        ? messageBookmarksQueries.insert(db, owner, messageId, savedAt).changes
+        : messageBookmarksQueries.remove(db, owner, messageId).changes;
       return { ok: true as const, saved: on };
     })
     .immediate();
@@ -294,13 +443,19 @@ export function listSaved(
     teams: options.teams?.length ? JSON.stringify(options.teams) : null,
     q: options.q?.trim() ? contains(options.q.trim()) : null,
   };
-  const messages = messageBookmarksQueries.page(db,params) as (Record<string, unknown> & {
+  const messages = messageBookmarksQueries.page(db, params) as (Record<
+    string,
+    unknown
+  > & {
     key: string;
     saved_at: number;
     content: string;
   })[];
   // The same columns as a saved card in the results feed.
-  const results = artifactsQueries.savedPage(db,params) as (Record<string, unknown> & {
+  const results = artifactsQueries.savedPage(db, params) as (Record<
+    string,
+    unknown
+  > & {
     key: string;
     saved_at: number;
   })[];
@@ -347,10 +502,8 @@ export function setSavedLabel(owner: string, body: unknown) {
         ? messageBookmarksQueries.exists(db, owner, target)
         : artifactsQueries.isBookmarked(db, target, owner);
       if (!saved) throw new Problem(404, "Saved item not found");
-      if (d.label)
-        savedLabelsQueries.save(db, owner, d.key, d.label, now());
-      else
-        savedLabelsQueries.remove(db, owner, d.key);
+      if (d.label) savedLabelsQueries.save(db, owner, d.key, d.label, now());
+      else savedLabelsQueries.remove(db, owner, d.key);
       return { key: d.key, label: d.label || null };
     })
     .immediate();
@@ -363,7 +516,11 @@ const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 export function conversationUsage(owner: string, conversation: string) {
   ownedConversation(conversation, owner);
-  const events = runsQueries.conversationUsageEvents(db, owner, conversation) as {
+  const events = runsQueries.conversationUsageEvents(
+    db,
+    owner,
+    conversation,
+  ) as {
     run_id: string;
     type: string;
     payload: string;
@@ -435,7 +592,9 @@ export function conversationUsage(owner: string, conversation: string) {
   // Only runtimes that recall memory record a receipt, so the thread offers
   // "Memory used" on these runs alone.
   const memory = (
-    memoryReceiptsQueries.conversationRuns(db, owner, conversation) as { run_id: string }[]
+    memoryReceiptsQueries.conversationRuns(db, owner, conversation) as {
+      run_id: string;
+    }[]
   ).map((row) => row.run_id);
   return { runs, total, memory };
 }
@@ -455,12 +614,18 @@ export function listSnippets(owner: string) {
 // 12. Project summaries
 export function projectSummaries(owner: string) {
   ensureWorkspaceProject(owner);
-  const projects = foldersQueries.rootProjects(db, owner) as { id: string; name: string }[];
-  const byProject = <T extends {project_id:string}>(rows:T[]) => new Map(rows.map(row=>[row.project_id,row]));
-  const agents = byProject(agentsQueries.projectCounts(db,owner));
-  const runs = new Map(runsQueries.projectSummaries(db, owner).map(row => [row.project_id, row]));
-  const artifacts = byProject(artifactsQueries.projectActivity(db,owner));
-  const latest = byProject(artifactsQueries.latestProjectResults(db,owner));
+  const projects = foldersQueries.rootProjects(db, owner) as {
+    id: string;
+    name: string;
+  }[];
+  const byProject = <T extends { project_id: string }>(rows: T[]) =>
+    new Map(rows.map((row) => [row.project_id, row]));
+  const agents = byProject(agentsQueries.projectCounts(db, owner));
+  const runs = new Map(
+    runsQueries.projectSummaries(db, owner).map((row) => [row.project_id, row]),
+  );
+  const artifacts = byProject(artifactsQueries.projectActivity(db, owner));
+  const latest = byProject(artifactsQueries.latestProjectResults(db, owner));
   const items = projects.map((project) => {
     const run = runs.get(project.id),
       artifact = artifacts.get(project.id),

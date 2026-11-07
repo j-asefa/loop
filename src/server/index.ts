@@ -38,7 +38,10 @@ import { cardTokens } from "./card-token-routes.js";
 import { webhooks } from "./webhook-routes.js";
 import { eventPage, requireTokenEventUpgrade } from "./token-events.js";
 import { authenticateCardToken, type CardRequest } from "./card-tokens.js";
-import { cardAuthorization, type CardAuthorization } from "../shared/card-access.js";
+import {
+  cardAuthorization,
+  type CardAuthorization,
+} from "../shared/card-access.js";
 import { admitsToken, TokenAdmissions } from "../shared/token-scopes.js";
 import { prWatches } from "./pr-watches.js";
 import { agentMail } from "./agent-mail.js";
@@ -65,8 +68,13 @@ app.use("/api", (req, res, next) => {
       // including write-only grants, even with an owner cookie.
       // The read grant separately admits unchanged event payloads, including
       // committed deadline events; that permission belongs to the event routes.
-      if (res.locals.owner && res.locals.bearer === undefined && res.statusCode < 400) {
-        const clock = res.locals.workspaceClock ?? workspaceClock(res.locals.owner);
+      if (
+        res.locals.owner &&
+        res.locals.bearer === undefined &&
+        res.statusCode < 400
+      ) {
+        const clock =
+          res.locals.workspaceClock ?? workspaceClock(res.locals.owner);
         res.setHeader("X-Loop-Change-Epoch", clock.epoch);
         res.setHeader("X-Loop-Change-Cursor", String(clock.cursor));
         res.setHeader("X-Loop-Server-Now", String(clock.serverNow));
@@ -100,14 +108,28 @@ app.use((req, _res, next) => {
 });
 function integrationRoute(req: IncomingMessage) {
   const contract = mountedRoute(app, req.method, req.url);
-  if (!contract || typeof contract.access !== "object" ||
-      req.headers["x-http-method-override"] !== undefined || req.headers["x-method-override"] !== undefined)
-    throw new Problem(403, "Integration credentials permit declared token routes only");
+  if (
+    !contract ||
+    typeof contract.access !== "object" ||
+    req.headers["x-http-method-override"] !== undefined ||
+    req.headers["x-method-override"] !== undefined
+  )
+    throw new Problem(
+      403,
+      "Integration credentials permit declared token routes only",
+    );
   return contract;
 }
-function authorizeAdmission(req: IncomingMessage, context: CardAuthorization | undefined) {
+function authorizeAdmission(
+  req: IncomingMessage,
+  context: CardAuthorization | undefined,
+) {
   const contract = integrationRoute(req);
-  if (!context || !TokenAdmissions.safeParse(context.admission).success || context.owner !== OWNER)
+  if (
+    !context ||
+    !TokenAdmissions.safeParse(context.admission).success ||
+    context.owner !== OWNER
+  )
     throw new Problem(401, "Invalid integration credential");
   if (!admitsToken(contract, context.admission))
     throw new Problem(403, "This token does not permit this route");
@@ -115,7 +137,9 @@ function authorizeAdmission(req: IncomingMessage, context: CardAuthorization | u
 }
 /** The paired host checks the very same mounted contracts before forwarding.
  * Authentication is performed once there; its capability stays on the request. */
-export function authorizeIntegrationToken(req: IncomingMessage): CardAuthorization {
+export function authorizeIntegrationToken(
+  req: IncomingMessage,
+): CardAuthorization {
   integrationRoute(req);
   return authorizeAdmission(req, authenticateCardToken(req));
 }
@@ -123,21 +147,40 @@ export function authorizeIntegrationToken(req: IncomingMessage): CardAuthorizati
 app.use("/api", (req, res, next) => {
   if (req.headers.authorization === undefined) return next();
   // The /api mount trims req.url. Match the raw target the host also receives.
-  const target = { method: req.method, url: req.originalUrl, headers: req.headers } as IncomingMessage;
+  const target = {
+    method: req.method,
+    url: req.originalUrl,
+    headers: req.headers,
+  } as IncomingMessage;
   integrationRoute(target);
   try {
-    const context = authorizeAdmission(target, (req as CardRequest)[cardAuthorization]);
+    const context = authorizeAdmission(
+      target,
+      (req as CardRequest)[cardAuthorization],
+    );
     res.locals.owner = context.owner;
-    res.locals.bearer = { tokenId: context.tokenId, admission: context.admission };
+    res.locals.bearer = {
+      tokenId: context.tokenId,
+      admission: context.admission,
+    };
     next();
   } catch (error) {
-    if (error instanceof Problem && error.status === 429) res.setHeader("Retry-After", "60");
+    if (error instanceof Problem && error.status === 429)
+      res.setHeader("Retry-After", "60");
     next(error);
   }
 });
-const appCapabilities = registrar("app", { prefix: "/api", automaticOptions: false });
+const appCapabilities = registrar("app", {
+  prefix: "/api",
+  automaticOptions: false,
+});
 mountRoutes(app, appCapabilities.mount);
-appCapabilities.on(workspaceApi.capabilities, (_req, res) => res.json({ ...workspaceCapabilities(), cardTokens: !designPreview }), { middleware: [express.json({ limit: "12mb" })] });
+appCapabilities.on(
+  workspaceApi.capabilities,
+  (_req, res) =>
+    res.json({ ...workspaceCapabilities(), cardTokens: !designPreview }),
+  { middleware: [express.json({ limit: "12mb" })] },
+);
 const appAuth = registrar("app", { prefix: "/api", automaticOptions: false });
 // Host authorizes devices, origins and CSRF before forwarding to this app.
 app.use((_req, res, next) => {
@@ -145,8 +188,10 @@ app.use((_req, res, next) => {
   next();
 });
 mountRoutes(app, appAuth.mount);
-appAuth.on(workspaceApi.authSession, (_req, res) =>
-  res.json({ user: { id: OWNER, name: "Your workspace" }, mode: "paired" }),
+appAuth.on(
+  workspaceApi.authSession,
+  (_req, res) =>
+    res.json({ user: { id: OWNER, name: "Your workspace" }, mode: "paired" }),
   { middleware: [express.json({ limit: "12mb" })] },
 );
 app.use(express.json({ limit: "12mb" }));
@@ -162,26 +207,51 @@ appHealth.on(workspaceApi.health, (_req, res) => {
   });
 });
 if (designPreview) app.use("/api", designPreviewBoundary);
-const appSession = registrar("app", { prefix: "/api", automaticOptions: false });
+const appSession = registrar("app", {
+  prefix: "/api",
+  automaticOptions: false,
+});
 mountRoutes(app, appSession.mount);
-appSession.on(workspaceApi.build, (_req, res) => res.json({ serving: publicBuild(observedBuild()), processes: currentBuilds(), eventLoop: eventLoopHealth() }));
+appSession.on(workspaceApi.build, (_req, res) =>
+  res.json({
+    serving: publicBuild(observedBuild()),
+    processes: currentBuilds(),
+    eventLoop: eventLoopHealth(),
+  }),
+);
 appSession.on(workspaceApi.diagnostic, (req, res) =>
   res.json(
-    runResponse(enqueue(
-      res.locals.owner,
-      "Foundation record",
-      String(req.body.key || crypto.randomUUID()),
-      { kind: "diagnostic" },
-    )),
+    runResponse(
+      enqueue(
+        res.locals.owner,
+        "Foundation record",
+        String(req.body.key || crypto.randomUUID()),
+        { kind: "diagnostic" },
+      ),
+    ),
   ),
 );
 appSession.on(workspaceApi.events, (req, res) =>
-  res.json(eventPage(res.locals.owner, Number(req.query.after) || 0, !!res.locals.bearer)),
+  res.json(
+    eventPage(
+      res.locals.owner,
+      Number(req.query.after) || 0,
+      !!res.locals.bearer,
+    ),
+  ),
 );
-appSession.on(workspaceApi.tokenEvents, (_req, res) => requireTokenEventUpgrade(res));
+appSession.on(workspaceApi.tokenEvents, (_req, res) =>
+  requireTokenEventUpgrade(res),
+);
 appSession.on(workspaceApi.runs, (req, res) => {
   const selectedTeams = teamFilter(req.query.teams, res.locals.owner);
-  res.json(listRuns(res.locals.owner, selectedTeams, req.query.active === "1") as z.input<typeof workspaceApi.runs.response>);
+  res.json(
+    listRuns(
+      res.locals.owner,
+      selectedTeams,
+      req.query.active === "1",
+    ) as z.input<typeof workspaceApi.runs.response>,
+  );
 });
 mountRoutes(app, companion, "/api");
 mountRoutes(app, teams, "/api");
@@ -219,6 +289,9 @@ const staticOptions = {
 };
 app.use(express.static(clientRoot, staticOptions));
 app.get("/{*splat}", (_req, res) =>
-  res.sendFile("index.html", { root: clientRoot, headers: { "Cache-Control": "no-store" } }),
+  res.sendFile("index.html", {
+    root: clientRoot,
+    headers: { "Cache-Control": "no-store" },
+  }),
 );
 app.use(errorHandler);

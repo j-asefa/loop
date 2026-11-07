@@ -1,9 +1,19 @@
-import { workspaceApi, type RouteContract, type RouteInput, type RouteResponse } from "../shared/workspace-api";
+import {
+  workspaceApi,
+  type RouteContract,
+  type RouteInput,
+  type RouteResponse,
+} from "../shared/workspace-api";
 import { readRoute } from "./workspace-api";
 import { reactiveSource } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState } from "react";
-import type { Agent, Connection, Folder, RunView as Run } from "../shared/types";
+import type {
+  Agent,
+  Connection,
+  Folder,
+  RunView as Run,
+} from "../shared/types";
 import { retryAfter, parse } from "./api";
 import { capabilities } from "./capabilities";
 import type { Capabilities } from "../shared/capabilities";
@@ -11,7 +21,10 @@ import { executionSourceId } from "./sourceRouting";
 import { connectionLocation } from "./modelChoices";
 
 // Local and not-yet-discovered view entries have no transport kind. Wire discovery requires it.
-export type AgentSource = Omit<RouteResponse<typeof workspaceApi.agentSources>[number], "kind"> & { kind?: string; capabilities?: Capabilities };
+export type AgentSource = Omit<
+  RouteResponse<typeof workspaceApi.agentSources>[number],
+  "kind"
+> & { kind?: string; capabilities?: Capabilities };
 export type EnvironmentAgent = Agent & {
   sourceId?: string;
   executionEnvironment?: string;
@@ -129,7 +142,9 @@ export function useAgentSources(
     error: "",
   });
   const [discovered, setDiscovered] = useState<
-    Pick<SourceState, "owner" | "currentSourceId" | "sources"> & { ready: boolean }
+    Pick<SourceState, "owner" | "currentSourceId" | "sources"> & {
+      ready: boolean;
+    }
   >({ currentSourceId, sources: initialSources, ready: false });
 
   useEffect(() => {
@@ -142,11 +157,14 @@ export function useAgentSources(
     let passGeneration = 0;
     let refreshKnown: ((changes: Map<string, Set<string>>) => void) | undefined;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    const previousDiscovery = discovered.owner === owner &&
-      discovered.currentSourceId === currentSourceId ? discovered : null;
+    const previousDiscovery =
+      discovered.owner === owner &&
+      discovered.currentSourceId === currentSourceId
+        ? discovered
+        : null;
     let confirmed = previousDiscovery?.ready ?? false;
     let known: AgentSource[] = confirmed
-      ? previousDiscovery!.sources.filter(source => source.id)
+      ? previousDiscovery!.sources.filter((source) => source.id)
       : [];
     let knownLocal = { ...laptop, name: localName };
     const snapshots = new Map<string, Projection>();
@@ -168,18 +186,32 @@ export function useAgentSources(
       }
       requests.clear();
     };
-    const readProjection = async <C extends RouteContract & { method: "GET" },>(contract: C, input: RouteInput<C>, source: string, cancellation?: AbortSignal): Promise<RouteResponse<C>> => {
+    const readProjection = async <C extends RouteContract & { method: "GET" }>(
+      contract: C,
+      input: RouteInput<C>,
+      source: string,
+      cancellation?: AbortSignal,
+    ): Promise<RouteResponse<C>> => {
       const controller = new AbortController();
       const abort = () => controller.abort();
       cancellation?.addEventListener("abort", abort, { once: true });
       if (cancellation?.aborted) abort();
       const arm = (delay = 20_000) => {
         clearTimeout(requests.get(controller));
-        requests.set(controller, setTimeout(() => controller.abort(), Math.min(2_147_483_647, delay)));
+        requests.set(
+          controller,
+          setTimeout(() => controller.abort(), Math.min(2_147_483_647, delay)),
+        );
       };
       arm();
       try {
-        return await readRoute(contract, input, source, controller.signal, error => arm(retryAfter(error) + 20_000));
+        return await readRoute(
+          contract,
+          input,
+          source,
+          controller.signal,
+          (error) => arm(retryAfter(error) + 20_000),
+        );
       } finally {
         clearTimeout(requests.get(controller));
         requests.delete(controller);
@@ -191,7 +223,12 @@ export function useAgentSources(
     const queuedChanges = new Map<string, Set<string>>();
     const load = async (options: Refresh = {}) => {
       if (!active) return;
-      if (busy && document.visibilityState !== "hidden" && options.changes && refreshKnown) {
+      if (
+        busy &&
+        document.visibilityState !== "hidden" &&
+        options.changes &&
+        refreshKnown
+      ) {
         refreshKnown(options.changes);
         return;
       }
@@ -224,8 +261,14 @@ export function useAgentSources(
       let linked = known;
       let error = "";
       try {
-        linked = options.changes ? known : await readProjection(workspaceApi.agentSources, {}, "");
-        linked = linked.map(source => ({...source, capabilities: known.find(item => item.id === source.id)?.capabilities}));
+        linked = options.changes
+          ? known
+          : await readProjection(workspaceApi.agentSources, {}, "");
+        linked = linked.map((source) => ({
+          ...source,
+          capabilities: known.find((item) => item.id === source.id)
+            ?.capabilities,
+        }));
         known = linked;
         confirmed = true;
       } catch (failure) {
@@ -241,7 +284,13 @@ export function useAgentSources(
             : "Couldn’t connect to your execution environments. Check your connection and retry.";
       }
       const sources: AgentSource[] = [
-        { ...knownLocal, capabilities: currentSourceId === "" ? capabilities : state.sources.find(source => source.id === "")?.capabilities },
+        {
+          ...knownLocal,
+          capabilities:
+            currentSourceId === ""
+              ? capabilities
+              : state.sources.find((source) => source.id === "")?.capabilities,
+        },
         ...linked.filter((item) =>
           /^[a-z][a-z0-9-]{0,31}:[a-zA-Z0-9._~-]{1,128}$/.test(item.id),
         ),
@@ -252,14 +301,27 @@ export function useAgentSources(
       )
         sources.push({ id: currentSourceId, name: "Connected environment" });
       for (const source of sources) {
-        source.capabilities ??= known.find(item => item.id === source.id)?.capabilities;
+        source.capabilities ??= known.find(
+          (item) => item.id === source.id,
+        )?.capabilities;
         if (source.id === currentSourceId) source.capabilities = capabilities;
       }
       const unavailable = () => {
-        const failed = sources.filter(source => source.id !== currentSourceId && failedSources.has(source.id));
-        return error || (failed.length
-          ? `${failed.slice(0, 3).map(source => source.name).join(", ")}${failed.length > 3 ? ` and ${failed.length - 3} more` : ""} temporarily unavailable. Last loaded agents are still shown.`
-          : "");
+        const failed = sources.filter(
+          (source) =>
+            source.id !== currentSourceId && failedSources.has(source.id),
+        );
+        return (
+          error ||
+          (failed.length
+            ? `${failed
+                .slice(0, 3)
+                .map((source) => source.name)
+                .join(
+                  ", ",
+                )}${failed.length > 3 ? ` and ${failed.length - 3} more` : ""} temporarily unavailable. Last loaded agents are still shown.`
+            : "")
+        );
       };
       const publish = () => {
         if (!currentPass()) return;
@@ -268,14 +330,23 @@ export function useAgentSources(
           .flatMap((source) =>
             snapshots.has(source.id) ? [snapshots.get(source.id)!] : [],
           );
-        setDiscovered({owner, currentSourceId, sources: sources.map(source => ({...source})), ready: confirmed});
+        setDiscovered({
+          owner,
+          currentSourceId,
+          sources: sources.map((source) => ({ ...source })),
+          ready: confirmed,
+        });
         setState({
           owner,
           currentSourceId,
           // Discovery can start Feed reads, but cannot advertise a provider
           // setup destination before its own bootstrap has been observed.
-          sources: sources.filter(source => source.id === currentSourceId || snapshots.has(source.id))
-            .map(source => ({ ...source })),
+          sources: sources
+            .filter(
+              (source) =>
+                source.id === currentSourceId || snapshots.has(source.id),
+            )
+            .map((source) => ({ ...source })),
           agents: loaded.flatMap((item) => item.agents),
           connections: loaded.flatMap((item) => item.connections),
           folders: loaded.flatMap((item) => item.folders),
@@ -290,14 +361,25 @@ export function useAgentSources(
       // Publish the known source list and retained projections immediately.
       // Four workers bound initial bootstrap fan-out; each source publishes as
       // soon as it settles, without waiting for another source's timeout.
-      const pendingSources = sources.filter(source => source.id !== currentSourceId &&
-        (!options.changes || options.changes.has(source.id)) &&
-        (!options.discovery || !reactiveSource(source.id, "workspace") || !snapshots.has(source.id) || failedSources.has(source.id)));
+      const pendingSources = sources.filter(
+        (source) =>
+          source.id !== currentSourceId &&
+          (!options.changes || options.changes.has(source.id)) &&
+          (!options.discovery ||
+            !reactiveSource(source.id, "workspace") ||
+            !snapshots.has(source.id) ||
+            failedSources.has(source.id)),
+      );
       publish();
-      const jobs = new Map<string, { source: AgentSource; changes?: Set<string> }>();
+      const jobs = new Map<
+        string,
+        { source: AgentSource; changes?: Set<string> }
+      >();
       const running = new Set<string>();
       let finish!: () => void;
-      const drained = new Promise<void>(resolve => { finish = resolve; });
+      const drained = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
       const readSource = async (source: AgentSource, changes?: Set<string>) => {
         const retryMetadata = failedSources.has(source.id);
         const prior = snapshots.get(source.id);
@@ -305,14 +387,49 @@ export function useAgentSources(
         try {
           // A run signal cannot certify metadata after a failed bootstrap.
           let data: Projection;
-          if (prior && !retryMetadata && changes?.size === 1 && changes.has("runs")) {
-            const runs = await readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id, sourceRequest.signal);
-            data = { ...prior, runs: project(source, { agents: [], connections: [], folders: [], runs }).runs };
+          if (
+            prior &&
+            !retryMetadata &&
+            changes?.size === 1 &&
+            changes.has("runs")
+          ) {
+            const runs = await readProjection(
+              workspaceApi.runs,
+              { query: { active: "1" } },
+              source.id,
+              sourceRequest.signal,
+            );
+            data = {
+              ...prior,
+              runs: project(source, {
+                agents: [],
+                connections: [],
+                folders: [],
+                runs,
+              }).runs,
+            };
           } else {
             const [bootstrap, runs, sourceCapabilities] = await Promise.all([
-              readProjection(workspaceApi.bootstrap, {}, source.id, sourceRequest.signal),
-              readProjection(workspaceApi.runs, { query: { active: "1" } }, source.id, sourceRequest.signal),
-              source.id.startsWith("peer:") ? readProjection(workspaceApi.capabilities, {}, source.id, sourceRequest.signal) : Promise.resolve(undefined),
+              readProjection(
+                workspaceApi.bootstrap,
+                {},
+                source.id,
+                sourceRequest.signal,
+              ),
+              readProjection(
+                workspaceApi.runs,
+                { query: { active: "1" } },
+                source.id,
+                sourceRequest.signal,
+              ),
+              source.id.startsWith("peer:")
+                ? readProjection(
+                    workspaceApi.capabilities,
+                    {},
+                    source.id,
+                    sourceRequest.signal,
+                  )
+                : Promise.resolve(undefined),
             ]);
             if (!currentPass()) return;
             source.capabilities = sourceCapabilities;
@@ -353,15 +470,20 @@ export function useAgentSources(
         jobs.set(source.id, {
           source,
           changes: prior
-            ? prior.changes && changes ? new Set([...prior.changes, ...changes]) : undefined
-            : changes ? new Set(changes) : undefined,
+            ? prior.changes && changes
+              ? new Set([...prior.changes, ...changes])
+              : undefined
+            : changes
+              ? new Set(changes)
+              : undefined,
         });
       };
-      for (const source of pendingSources) enqueue(source, options.changes?.get(source.id));
+      for (const source of pendingSources)
+        enqueue(source, options.changes?.get(source.id));
       // A slow source occupies only its own worker. Known healthy sources can
       // consume invalidations while an initial/bootstrap read remains pending.
       // Repeated notifications for one running source coalesce into one job.
-      refreshKnown = changes => {
+      refreshKnown = (changes) => {
         if (!currentPass()) return;
         for (const source of sources)
           if (source.id !== currentSourceId && changes.has(source.id))
@@ -390,27 +512,40 @@ export function useAgentSources(
         refreshTimer = undefined;
         const changes = new Map(queuedChanges);
         queuedChanges.clear();
-        const options = queuedFull || (queuedDiscovery && changes.size)
-          ? {} : queuedDiscovery ? { discovery: true } : changes.size ? { changes } : {};
+        const options =
+          queuedFull || (queuedDiscovery && changes.size)
+            ? {}
+            : queuedDiscovery
+              ? { discovery: true }
+              : changes.size
+                ? { changes }
+                : {};
         queuedFull = queuedDiscovery = false;
         void load(options);
       }, 250);
     };
     const changed = (kind: "runs" | "metadata") => (event: Event) => {
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail?.sources;
+      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
+        ?.sources;
       for (const source of sources ?? snapshots.keys()) {
         if (source === currentSourceId) continue;
         const kinds = queuedChanges.get(source) ?? new Set<string>();
-        kinds.add(kind); queuedChanges.set(source,kinds);
+        kinds.add(kind);
+        queuedChanges.set(source, kinds);
       }
       if (queuedChanges.size) schedule();
     };
-    const visible = () => { if (document.visibilityState === "visible") schedule(); };
+    const visible = () => {
+      if (document.visibilityState === "visible") schedule();
+    };
     document.addEventListener("visibilitychange", visible);
     window.addEventListener("loop-source-refresh", retry);
     // This projection includes active runs as well as source metadata.
     const stopChanges = listenWorkspaceChanges("runs", changed("runs"));
-    const stopMetadata = listenWorkspaceChanges("metadata", changed("metadata"));
+    const stopMetadata = listenWorkspaceChanges(
+      "metadata",
+      changed("metadata"),
+    );
     return () => {
       active = false;
       clearRequests();

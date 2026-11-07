@@ -1,19 +1,44 @@
 import { proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
 import { operationBlockReason } from "./sourceAvailability";
-import { doneReadVersion, doneThreadReadVersions, writeDoneReadState, writeDoneUnreadState } from "./doneReadState";
+import {
+  doneReadVersion,
+  doneThreadReadVersions,
+  writeDoneReadState,
+  writeDoneUnreadState,
+} from "./doneReadState";
 import type { CardReadTransport } from "../shared/card-client";
-import { workspaceApi, type RouteInput, type RouteResponse } from "../shared/workspace-api";
+import {
+  workspaceApi,
+  type RouteInput,
+  type RouteResponse,
+} from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
 import { CollectionReadNotice } from "./CollectionRead";
 import { sourceReadQueue } from "./source-read-queue";
 import { DoneCardsReader } from "./feed-cards";
-import { DoneFeedFilters, doneAgentKey, type DoneReadFilter } from "./DoneFeedFilters";
-import { useDoneThreads, OrganizeCards, DoneThreadReader, type SourcedDoneThread, type ThreadSelection } from "./DoneThreads";
+import {
+  DoneFeedFilters,
+  doneAgentKey,
+  type DoneReadFilter,
+} from "./DoneFeedFilters";
+import {
+  useDoneThreads,
+  OrganizeCards,
+  DoneThreadReader,
+  type SourcedDoneThread,
+  type ThreadSelection,
+} from "./DoneThreads";
 import { DoneCardMenu, DoneCardPicker } from "./DoneCardMenu";
-import { useAgentThreadFeed, type SourcedAgentThread } from "./useAgentThreadFeed";
+import {
+  useAgentThreadFeed,
+  type SourcedAgentThread,
+} from "./useAgentThreadFeed";
 import { AgentThreadCard, AgentThreadReader } from "./AgentThreadCard";
-import { useDoneCardGestures, type CardDragSession } from "./useDoneCardGestures";
+import {
+  useDoneCardGestures,
+  type CardDragSession,
+} from "./useDoneCardGestures";
 import type { CardWindow } from "./card-pager";
 import { compareCardOrder, type Card, type CardEntry } from "../shared/cards";
 import { CardBody } from "./ContentCard";
@@ -104,11 +129,23 @@ import {
   type FeedNextAction,
 } from "./threadView";
 import { notify } from "./toast";
-import { feedItemOrder, refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
+import {
+  feedItemOrder,
+  refreshDonePage,
+  type DoneRefresh,
+} from "./feed-done-refresh";
 import { FeedProjectionReader } from "./feed-projection";
 import { FeedReadRecovery } from "./feed-read-recovery";
-import { listenProjectionFrames, reactiveSource, surfaceFallback } from "./workspace-projections";
-import { listenWorkspaceChanges, workspaceChangeAffects, type WorkspaceChangeDetail } from "./workspace-changes";
+import {
+  listenProjectionFrames,
+  reactiveSource,
+  surfaceFallback,
+} from "./workspace-projections";
+import {
+  listenWorkspaceChanges,
+  workspaceChangeAffects,
+  type WorkspaceChangeDetail,
+} from "./workspace-changes";
 
 import { feedCategories, type FeedCategory } from "../shared/feed-categories";
 
@@ -211,19 +248,30 @@ type Summary = {
   replies_unread?: number;
   done_unread?: number;
 };
-const combineSummaries = (summaries: Summary[]) => summaries.reduce((sum, summary) => ({
-  needs: sum.needs + summary.needs,
-  working: sum.working + summary.working,
-  queued: sum.queued + summary.queued,
-  replies_unread: (sum.replies_unread || 0) + (summary.replies_unread || 0),
-  done_unread: (sum.done_unread || 0) + (summary.done_unread || 0),
-  later_due: sum.later_due + summary.later_due,
-  scheduled_failed: (sum.scheduled_failed || 0) + (summary.scheduled_failed || 0),
-  scheduled_pending: (sum.scheduled_pending || 0) + (summary.scheduled_pending || 0),
-  // Social belongs to the paired app, not each linked workspace.
-  social_unread: Math.max(sum.social_unread || 0, summary.social_unread || 0),
-}), { needs: 0, working: 0, queued: 0, later_due: 0 } as Summary);
-type AwayItem = RouteResponse<typeof workspaceApi.feedAway>["completed"][number] & { sourceId?: string };
+const combineSummaries = (summaries: Summary[]) =>
+  summaries.reduce(
+    (sum, summary) => ({
+      needs: sum.needs + summary.needs,
+      working: sum.working + summary.working,
+      queued: sum.queued + summary.queued,
+      replies_unread: (sum.replies_unread || 0) + (summary.replies_unread || 0),
+      done_unread: (sum.done_unread || 0) + (summary.done_unread || 0),
+      later_due: sum.later_due + summary.later_due,
+      scheduled_failed:
+        (sum.scheduled_failed || 0) + (summary.scheduled_failed || 0),
+      scheduled_pending:
+        (sum.scheduled_pending || 0) + (summary.scheduled_pending || 0),
+      // Social belongs to the paired app, not each linked workspace.
+      social_unread: Math.max(
+        sum.social_unread || 0,
+        summary.social_unread || 0,
+      ),
+    }),
+    { needs: 0, working: 0, queued: 0, later_due: 0 } as Summary,
+  );
+type AwayItem = RouteResponse<
+  typeof workspaceApi.feedAway
+>["completed"][number] & { sourceId?: string };
 
 // What needs you has no chip: it stacks above the row (NeedsStack).
 export const feedFilters = feedCategories;
@@ -231,7 +279,11 @@ export const feedFilters = feedCategories;
 // A thread can have several Done cards; source and result identity must both
 // survive pagination, refreshes and React reconciliation.
 const feedItemKey = (item: FeedItem, source = item.sourceId || "") =>
-  JSON.stringify([source, item.conversation_id, item.reply_card_key ?? item.done_card_key ?? null]);
+  JSON.stringify([
+    source,
+    item.conversation_id,
+    item.reply_card_key ?? item.done_card_key ?? null,
+  ]);
 
 const LAST_VISIT = "loop-last-visit";
 const AWAY_AFTER = 30 * 60_000;
@@ -301,7 +353,13 @@ function FeedCard({
     content: string;
   } | null>(null);
   const [readError, setReadError] = useState("");
-  const swipe = useDoneCardGestures({ id: aggregationId, session: dragSession, onMenu, onAggregate, onDismiss });
+  const swipe = useDoneCardGestures({
+    id: aggregationId,
+    session: dragSession,
+    onMenu,
+    onAggregate,
+    onDismiss,
+  });
   const taskStatus = runStatus(item.run?.state, item.pending_approvals);
   const status = item.reply ? { label: "Reply", tone: "done" } : taskStatus;
   const draft = threadDraft(
@@ -312,12 +370,12 @@ function FeedCard({
     item.reply && item.run
       ? `Task: ${taskStatus.label}`
       : status.tone === "working" && item.run
-      ? runTiming(item.run)
-      : status.tone === "queued" && item.run
-        ? `${item.run.queue_position ? `#${item.run.queue_position} in queue · ` : ""}${runTiming(item.run)}`
-        : status.tone === "failed" && item.run?.error
-          ? item.run.error
-          : "";
+        ? runTiming(item.run)
+        : status.tone === "queued" && item.run
+          ? `${item.run.queue_position ? `#${item.run.queue_position} in queue · ` : ""}${runTiming(item.run)}`
+          : status.tone === "failed" && item.run?.error
+            ? item.run.error
+            : "";
   const name = item.agent_name || agent?.name;
   const awaitingUpdate =
     item.run &&
@@ -325,11 +383,22 @@ function FeedCard({
     item.last_message?.role !== "assistant";
   const messageId = item.last_message?.id;
   useEffect(() => {
-    if (!reading || !messageId || item.card || item.live_preview || awaitingUpdate) return;
+    if (
+      !reading ||
+      !messageId ||
+      item.card ||
+      item.live_preview ||
+      awaitingUpdate
+    )
+      return;
     const controller = new AbortController();
     setReadError("");
-    void callRoute(workspaceApi.messageDetail, { params: { id: messageId } },
-      item.sourceId ?? scopedSource, controller.signal)
+    void callRoute(
+      workspaceApi.messageDetail,
+      { params: { id: messageId } },
+      item.sourceId ?? scopedSource,
+      controller.signal,
+    )
       .then((value) => {
         if (!controller.signal.aborted) setMessage(value);
       })
@@ -357,7 +426,10 @@ function FeedCard({
         ? (message?.content ?? "")
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
   const openReading = () => {
-    if (onSelect) { onSelect(); return; }
+    if (onSelect) {
+      onSelect();
+      return;
+    }
     if (readAsCard) onReadingChange?.(true);
     onRead?.();
     if (readAsCard) setReading(true);
@@ -385,7 +457,12 @@ function FeedCard({
         </span>
       )}
       <article
-        className={"feed-card feed-item-card" + (aggregationId ? " done-card-interactive" : "") + (selected ? " card-selected" : "") + (swipe.lifted || swipe.dragging ? " card-dragging" : "")}
+        className={
+          "feed-card feed-item-card" +
+          (aggregationId ? " done-card-interactive" : "") +
+          (selected ? " card-selected" : "") +
+          (swipe.lifted || swipe.dragging ? " card-dragging" : "")
+        }
         style={
           swipe.offset
             ? { transform: `translateX(${swipe.offset}px)` }
@@ -394,7 +471,14 @@ function FeedCard({
         {...swipe.handlers}
       >
         <div className="card-byline">
-          {onSelect && <input type="checkbox" aria-label={`Select ${item.title}`} checked={!!selected} onChange={onSelect} />}
+          {onSelect && (
+            <input
+              type="checkbox"
+              aria-label={`Select ${item.title}`}
+              checked={!!selected}
+              onChange={onSelect}
+            />
+          )}
           <button className="identity" disabled={!onAgent} onClick={onAgent}>
             <span className="feed-avatar">
               <Avatar
@@ -460,12 +544,24 @@ function FeedCard({
           }}
         >
           <span className="eyebrow feed-eyebrow">
-            {groupCount ? <><Layers size={14} /> Thread · {groupCount} cards{item.read_at === null && <Chip tone="working">Unread</Chip>}</> : item.reply ? (
-              <>Reply{item.reply.read_at === null && <Chip tone="working">Unread</Chip>}</>
+            {groupCount ? (
+              <>
+                <Layers size={14} /> Thread · {groupCount} cards
+                {item.read_at === null && <Chip tone="working">Unread</Chip>}
+              </>
+            ) : item.reply ? (
+              <>
+                Reply
+                {item.reply.read_at === null && (
+                  <Chip tone="working">Unread</Chip>
+                )}
+              </>
             ) : status.label && status.tone !== "done" ? (
               <Chip tone={status.tone}>{status.label}</Chip>
             ) : item.read_at === null ? (
-              <>Thread<Chip tone="working">Unread</Chip></>
+              <>
+                Thread<Chip tone="working">Unread</Chip>
+              </>
             ) : (
               "Thread"
             )}
@@ -512,18 +608,31 @@ function FeedCard({
                     )}
                   </span>
                 )}
-                {item.card ? <SourceProvider sourceId={item.sourceId ?? scopedSource} capabilities={capabilities}>
-                  <CardBody card={item.card} compact />
-                </SourceProvider> : <RichText
-                  content={item.last_message!.content ?? item.last_message!.preview}
-                  compact
-                />}
+                {item.card ? (
+                  <SourceProvider
+                    sourceId={item.sourceId ?? scopedSource}
+                    capabilities={capabilities}
+                  >
+                    <CardBody card={item.card} compact />
+                  </SourceProvider>
+                ) : (
+                  <RichText
+                    content={
+                      item.last_message!.content ?? item.last_message!.preview
+                    }
+                    compact
+                  />
+                )}
               </div>
             )
           )}
           {!!(item.last_message || item.run) && !onSelect && (
             <button className="text-button preview-open" onClick={openReading}>
-              {readAsCard ? item.reply ? "Read reply" : "Read update" : "Open thread"}{" "}
+              {readAsCard
+                ? item.reply
+                  ? "Read reply"
+                  : "Read update"
+                : "Open thread"}{" "}
               <ArrowUpRight size={14} />
             </button>
           )}
@@ -534,39 +643,51 @@ function FeedCard({
           )}
         </div>
         <div className="card-actions">
-          {onSelect ? <button onClick={onSelect}>{selected ? "Deselect card" : "Select card"}</button> : <>
-          {next && (
-            <button
-              className="next-action"
-              data-kind={next.kind}
-              onClick={() =>
-                next.kind === "result" && readAsCard
-                  ? openReading()
-                  : onNext(next)
-              }
-            >
-              {nextIcon[next.kind]}
-              {next.label}
+          {onSelect ? (
+            <button onClick={onSelect}>
+              {selected ? "Deselect card" : "Select card"}
             </button>
+          ) : (
+            <>
+              {next && (
+                <button
+                  className="next-action"
+                  data-kind={next.kind}
+                  onClick={() =>
+                    next.kind === "result" && readAsCard
+                      ? openReading()
+                      : onNext(next)
+                  }
+                >
+                  {nextIcon[next.kind]}
+                  {next.label}
+                </button>
+              )}
+              {next?.kind !== "draft" && (
+                <button onClick={onReply}>
+                  <MessageSquare size={16} />
+                  {groupCount ? "Reply to latest" : "Reply"}
+                </button>
+              )}
+              {!groupCount && (
+                <button onClick={onLater}>
+                  <AlarmClock size={16} />
+                  Remind me
+                </button>
+              )}
+            </>
           )}
-          {next?.kind !== "draft" && (
-            <button onClick={onReply}>
-              <MessageSquare size={16} />
-              {groupCount ? "Reply to latest" : "Reply"}
-            </button>
-          )}
-          {!groupCount && <button onClick={onLater}>
-            <AlarmClock size={16} />
-            Remind me
-          </button>}
-          </>}
         </div>
       </article>
-      {swipe.lifted && createPortal(
-        <div className="card-drag-hint" role="status">
-          {swipe.dragging ? "Drop onto another Done card to combine" : "Release for options · Drag onto another card to combine"}
-        </div>, document.body,
-      )}
+      {swipe.lifted &&
+        createPortal(
+          <div className="card-drag-hint" role="status">
+            {swipe.dragging
+              ? "Drop onto another Done card to combine"
+              : "Release for options · Drag onto another card to combine"}
+          </div>,
+          document.body,
+        )}
       {/* Keep sheet gestures outside the feed card's swipe-to-dismiss region. */}
       {reading &&
         createPortal(
@@ -603,21 +724,43 @@ function FeedCard({
               }
             >
               <div className="result-content">
-                {!item.reply && <h3 className="result-title">
-                  <InlineMarkdown content={item.title} />
-                </h3>}
+                {!item.reply && (
+                  <h3 className="result-title">
+                    <InlineMarkdown content={item.title} />
+                  </h3>
+                )}
                 {item.reply && (
-                  <section className="reply-question" aria-label="Your original message">
+                  <section
+                    className="reply-question"
+                    aria-label="Your original message"
+                  >
                     <div className="reply-question-header">
-                      <span><MessageSquare size={15} aria-hidden="true" /> Replying to you</span>
-                      {onQuestion && <button className="text-button" onClick={() => leaveReading(onQuestion)}>
-                        View message <ArrowUpRight size={14} aria-hidden="true" />
-                      </button>}
+                      <span>
+                        <MessageSquare size={15} aria-hidden="true" /> Replying
+                        to you
+                      </span>
+                      {onQuestion && (
+                        <button
+                          className="text-button"
+                          onClick={() => leaveReading(onQuestion)}
+                        >
+                          View message{" "}
+                          <ArrowUpRight size={14} aria-hidden="true" />
+                        </button>
+                      )}
                     </div>
-                    <blockquote><RichText content={item.reply.content} /></blockquote>
+                    <blockquote>
+                      <RichText content={item.reply.content} />
+                    </blockquote>
                   </section>
                 )}
-                {item.reply && <h3 className="reply-answer-label">{name ? `Reply from @${name.replace(/^@/, "")}` : "Agent reply"}</h3>}
+                {item.reply && (
+                  <h3 className="reply-answer-label">
+                    {name
+                      ? `Reply from @${name.replace(/^@/, "")}`
+                      : "Agent reply"}
+                  </h3>
+                )}
                 {status.tone !== "done" && (
                   <p className="field-hint">
                     {status.label}
@@ -626,7 +769,11 @@ function FeedCard({
                 )}
                 <div className="artifact-body">
                   {content ? (
-                    item.card ? <CardBody card={item.card} /> : <RichText content={content} />
+                    item.card ? (
+                      <CardBody card={item.card} />
+                    ) : (
+                      <RichText content={content} />
+                    )
                   ) : (
                     <p className="field-hint">
                       {status.tone === "working"
@@ -667,7 +814,11 @@ function FeedCard({
                   className="primary"
                   onClick={() => leaveReading(onReply)}
                 >
-                  {draft ? <PencilLine size={18} /> : <MessageSquare size={18} />}
+                  {draft ? (
+                    <PencilLine size={18} />
+                  ) : (
+                    <MessageSquare size={18} />
+                  )}
                   {draft ? "Continue draft" : "Reply"}
                 </button>
               </div>
@@ -729,7 +880,11 @@ function AwaySummary({
       void Promise.allSettled(
         sources.map(async (source) => ({
           source,
-          result: await callRoute(workspaceApi.feedAway, { query: { since: String(since) } }, source.id),
+          result: await callRoute(
+            workspaceApi.feedAway,
+            { query: { since: String(since) } },
+            source.id,
+          ),
         })),
       ).then((settled) => {
         const loaded = settled.flatMap((entry) =>
@@ -873,9 +1028,14 @@ export function EditQueued({
           setBusy(true);
           setError("");
           try {
-            await callRoute(workspaceApi.runUpdate, {
-              params: { id: message.id }, body: { input: text },
-            }, message.sourceId ?? scopedSource);
+            await callRoute(
+              workspaceApi.runUpdate,
+              {
+                params: { id: message.id },
+                body: { input: text },
+              },
+              message.sourceId ?? scopedSource,
+            );
             onSaved();
             onClose();
           } catch (e) {
@@ -941,9 +1101,14 @@ function MoveQueued({
         onClick={async () => {
           setError("");
           try {
-            const result = await callRoute(workspaceApi.runMove, {
-              params: { id: message.id }, body: { agentId, idempotencyKey: key.current },
-            }, message.sourceId ?? scopedSource);
+            const result = await callRoute(
+              workspaceApi.runMove,
+              {
+                params: { id: message.id },
+                body: { agentId, idempotencyKey: key.current },
+              },
+              message.sourceId ?? scopedSource,
+            );
             onMoved(result.conversation_id ?? undefined);
             onClose();
           } catch (e) {
@@ -1110,54 +1275,105 @@ export function Feed({
   };
   const generation = viewGeneration();
   const selectionScope = JSON.stringify([
-    generation, scopedSource, project, teams, scopedAgent,
+    generation,
+    scopedSource,
+    project,
+    teams,
+    scopedAgent,
   ]);
   const [doneSelection, setDoneSelection] = useState({
-    scope: selectionScope, read: "all" as DoneReadFilter, agent: "",
+    scope: selectionScope,
+    read: "all" as DoneReadFilter,
+    agent: "",
   });
-  const selection = doneSelection.scope === selectionScope
-    ? doneSelection
-    : { scope: selectionScope, read: "all" as const, agent: "" };
-  const clearDoneFilters = () => setDoneSelection({
-    scope: selectionScope, read: "all", agent: "",
-  });
+  const selection =
+    doneSelection.scope === selectionScope
+      ? doneSelection
+      : { scope: selectionScope, read: "all" as const, agent: "" };
+  const clearDoneFilters = () =>
+    setDoneSelection({
+      scope: selectionScope,
+      read: "all",
+      agent: "",
+    });
   const combined = !!sources && !project && !teams && !scopedAgent;
-  const allSources: AgentSource[] = combined ? sources : [{ id: scopedSource, name: "", capabilities: scopedCapabilities }];
-  const needsSourceKey = JSON.stringify(allSources.map(source => source.id).sort());
-  const doneAgents = agents.filter(item =>
-    allSources.some(source => source.id === (item.sourceId ?? scopedSource)) &&
-    (!scopedAgent || item.id === scopedAgent));
-  const selectedAgent = doneAgents.find(item => doneAgentKey(item, scopedSource) === selection.agent);
+  const allSources: AgentSource[] = combined
+    ? sources
+    : [{ id: scopedSource, name: "", capabilities: scopedCapabilities }];
+  const needsSourceKey = JSON.stringify(
+    allSources.map((source) => source.id).sort(),
+  );
+  const doneAgents = agents.filter(
+    (item) =>
+      allSources.some(
+        (source) => source.id === (item.sourceId ?? scopedSource),
+      ) &&
+      (!scopedAgent || item.id === scopedAgent),
+  );
+  const selectedAgent = doneAgents.find(
+    (item) => doneAgentKey(item, scopedSource) === selection.agent,
+  );
   const doneAgent = filter === "done" ? selectedAgent : undefined;
   const agent = doneAgent?.id ?? scopedAgent;
   const doneRead = filter === "done" ? selection.read : "all";
   const doneFiltered = filter === "done" && (doneRead !== "all" || !!doneAgent);
-  const readRecovery = useRef(new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>());
+  const readRecovery = useRef(
+    new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>(),
+  );
   const recoverSource = useRef<(source: string) => void>(() => {});
-  const readSnapshot = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>, purpose = "", manual = false) => {
+  const readSnapshot = (
+    source: string,
+    query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>,
+    purpose = "",
+    manual = false,
+  ) => {
     const { known: _known, ...page } = query;
     const context = activeView.current;
-    return readRecovery.current.read(source, purpose + JSON.stringify(page),
-      (signal, onRetry) => readRoute(workspaceApi.feed, { query }, source, signal, onRetry, manual ? "manual" : "automatic"),
+    return readRecovery.current.read(
+      source,
+      purpose + JSON.stringify(page),
+      (signal, onRetry) =>
+        readRoute(
+          workspaceApi.feed,
+          { query },
+          source,
+          signal,
+          onRetry,
+          manual ? "manual" : "automatic",
+        ),
       () => {
         if (generation === viewGeneration() && context === activeView.current)
           recoverSource.current(source);
-      });
+      },
+    );
   };
   const projectionPages = useRef(new FeedProjectionReader<FeedItem, Shown>());
-  const readProjectionPage = (source: string, query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>, manual = false) => {
-    const read = (known?: string) => readSnapshot(source, { ...query, known }, "", manual);
-    return reactiveSource(source, "feed") ? projectionPages.current.read(source, JSON.stringify(query), read) : read();
+  const readProjectionPage = (
+    source: string,
+    query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>,
+    manual = false,
+  ) => {
+    const read = (known?: string) =>
+      readSnapshot(source, { ...query, known }, "", manual);
+    return reactiveSource(source, "feed")
+      ? projectionPages.current.read(source, JSON.stringify(query), read)
+      : read();
   };
-  const activeSources: AgentSource[] = doneAgent ? allSources.filter(source => source.id === (doneAgent.sourceId ?? scopedSource)) : allSources;
+  const activeSources: AgentSource[] = doneAgent
+    ? allSources.filter(
+        (source) => source.id === (doneAgent.sourceId ?? scopedSource),
+      )
+    : allSources;
   const sourceKey = JSON.stringify(
     activeSources.map((source) => source.id).sort(),
   );
   const shownKey = () =>
-    "feed:" + JSON.stringify([filter, project, agent, teams, sourceKey, doneRead]);
+    "feed:" +
+    JSON.stringify([filter, project, agent, teams, sourceKey, doneRead]);
   // Discovery can add sources after the first cards arrive. Retain those
   // sources' pages only within the same owner and selection.
-  const pagesKey = () => JSON.stringify([viewOwner(), filter, project, agent, teams, doneRead]);
+  const pagesKey = () =>
+    JSON.stringify([viewOwner(), filter, project, agent, teams, doneRead]);
   const activeView = useRef<string | null>(null);
   activeView.current = JSON.stringify([viewOwner(), shownKey()]);
   // Going back shows the list as you left it while it refreshes.
@@ -1187,22 +1403,33 @@ export function Feed({
   };
   const [items, setItems] = useState<FeedItem[]>(shown?.items || []);
   const itemsSelection = useRef(shownKey());
-  const sourcePages = useRef<{ key: string; pages: Map<string, Shown>; failures: Set<string> }>({
+  const sourcePages = useRef<{
+    key: string;
+    pages: Map<string, Shown>;
+    failures: Set<string>;
+  }>({
     key: "",
     pages: new Map(),
     failures: new Set(),
   });
   // Render and the selection effect must retain the same pages so discovery
   // cannot unmount existing cards before the effect adopts its new view key.
-  const retainedItems = () => sourcePages.current.key === pagesKey()
-    ? activeSources.flatMap(source =>
-        (sourcePages.current.pages.get(source.id)?.items || []).map(item => ({
-          ...item, sourceId: source.id,
-          executionEnvironment: source.id ? source.name : undefined,
-        })))
-    : [];
+  const retainedItems = () =>
+    sourcePages.current.key === pagesKey()
+      ? activeSources.flatMap((source) =>
+          (sourcePages.current.pages.get(source.id)?.items || []).map(
+            (item) => ({
+              ...item,
+              sourceId: source.id,
+              executionEnvironment: source.id ? source.name : undefined,
+            }),
+          ),
+        )
+      : [];
   const [next, setNext] = useState<string | null>(shown?.next || null);
-  const [loadedKey, setLoadedKey] = useState<string | null>(shown ? shownKey() : null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(
+    shown ? shownKey() : null,
+  );
   const markLoaded = (key: string) => setLoadedKey(key);
   // Derive this during render so discovery cannot briefly show an empty feed
   // before the effect starts reading newly discovered sources.
@@ -1211,126 +1438,268 @@ export function Feed({
   const [notice, setNotice] = useState("");
   const [menu, setMenu] = useState<FeedItem | null>(null);
   const dragSession = useRef<CardDragSession | null>(null);
-  const grouping = useDoneThreads(activeSources.map(source => source.id), filter === "done" || filter === "threads", {
-    project: project || undefined, agent: agent || undefined, teams: teams || undefined,
-  });
-  const mailThreads = useAgentThreadFeed(activeSources.map(source => source.id), (filter === "done" && doneRead === "all") || filter === "threads", {
-    view: filter === "done" ? "done" : "threads",
-    project: project || undefined, agent: agent || undefined, teams: teams || undefined,
-  });
-  const [readingMail, setReadingMail] = useState<(SourcedAgentThread & { generation: number }) | null>(null);
+  const grouping = useDoneThreads(
+    activeSources.map((source) => source.id),
+    filter === "done" || filter === "threads",
+    {
+      project: project || undefined,
+      agent: agent || undefined,
+      teams: teams || undefined,
+    },
+  );
+  const mailThreads = useAgentThreadFeed(
+    activeSources.map((source) => source.id),
+    (filter === "done" && doneRead === "all") || filter === "threads",
+    {
+      view: filter === "done" ? "done" : "threads",
+      project: project || undefined,
+      agent: agent || undefined,
+      teams: teams || undefined,
+    },
+  );
+  const [readingMail, setReadingMail] = useState<
+    (SourcedAgentThread & { generation: number }) | null
+  >(null);
   const [menuThread, setMenuThread] = useState<SourcedDoneThread | null>(null);
-  const [readingThread, setReadingThread] = useState<(SourcedDoneThread & { generation: number }) | null>(null);
+  const [readingThread, setReadingThread] = useState<
+    (SourcedDoneThread & { generation: number }) | null
+  >(null);
   const [aggregate, setAggregate] = useState<ThreadSelection | null>(null);
   const [combineFrom, setCombineFrom] = useState<string | null>(null);
   const [selectedCards, setSelectedCards] = useState<string[] | null>(null);
   const [bulkReadBusy, setBulkReadBusy] = useState(false);
-  const [readingCard, setReadingCard] = useState<{ item: FeedItem; view: string } | null>(null);
-  const aggregatable = (item: FeedItem) => filter === "done" && grouping.supported.includes(item.sourceId ?? scopedSource) && !!item.done_card_key && item.last_message?.role === "assistant";
+  const [readingCard, setReadingCard] = useState<{
+    item: FeedItem;
+    view: string;
+  } | null>(null);
+  const aggregatable = (item: FeedItem) =>
+    filter === "done" &&
+    grouping.supported.includes(item.sourceId ?? scopedSource) &&
+    !!item.done_card_key &&
+    item.last_message?.role === "assistant";
   const doneId = (item: FeedItem) => item.card?.id ?? "d:" + item.done_card_key;
-  type VisibleCard = { item: FeedItem; thread?: SourcedDoneThread; key: string };
+  type VisibleCard = {
+    item: FeedItem;
+    thread?: SourcedDoneThread;
+    key: string;
+  };
   // Reading marks a result read immediately. Keep its mounted reader until it
   // closes even after the server removes that card from the Unread selection.
-  const heldCard = readingCard?.view === shownKey() ? readingCard.item : undefined;
-  const shownItems = itemsSelection.current === shownKey() ? items : shown?.items ?? retainedItems();
-  const readerItems = heldCard && !shownItems.some(item => feedItemKey(item) === feedItemKey(heldCard)) ? [...shownItems, heldCard] : shownItems;
-  const visibleCards: VisibleCard[] = readerItems.flatMap(item => {
+  const heldCard =
+    readingCard?.view === shownKey() ? readingCard.item : undefined;
+  const shownItems =
+    itemsSelection.current === shownKey()
+      ? items
+      : (shown?.items ?? retainedItems());
+  const readerItems =
+    heldCard &&
+    !shownItems.some((item) => feedItemKey(item) === feedItemKey(heldCard))
+      ? [...shownItems, heldCard]
+      : shownItems;
+  const visibleCards: VisibleCard[] = readerItems.flatMap((item) => {
     const source = item.sourceId ?? scopedSource;
-    const thread = filter === "done" ? grouping.threads.find(thread => thread.source === source && thread.cardIds.includes(doneId(item))) : undefined;
-    const matchesRead = doneRead === "all" || (doneRead === "unread" ? item.read_at === null : typeof item.read_at === "number") || (heldCard && feedItemKey(item) === feedItemKey(heldCard));
-    return thread || !matchesRead ? [] : [{ item, key: feedItemKey(item, source) }];
+    const thread =
+      filter === "done"
+        ? grouping.threads.find(
+            (thread) =>
+              thread.source === source && thread.cardIds.includes(doneId(item)),
+          )
+        : undefined;
+    const matchesRead =
+      doneRead === "all" ||
+      (doneRead === "unread"
+        ? item.read_at === null
+        : typeof item.read_at === "number") ||
+      (heldCard && feedItemKey(item) === feedItemKey(heldCard));
+    return thread || !matchesRead
+      ? []
+      : [{ item, key: feedItemKey(item, source) }];
   });
   if (filter === "threads" || filter === "done") {
     // Card threads have their own identity and preview. They remain visible even
     // when members are dismissed, have newer work or are beyond the loaded page.
     for (const thread of grouping.threads) {
       if (!thread.preview) continue;
-      if (doneRead !== "all" && (thread.unread === undefined || (doneRead === "unread" ? thread.unread === 0 : thread.unread > 0))) continue;
+      if (
+        doneRead !== "all" &&
+        (thread.unread === undefined ||
+          (doneRead === "unread" ? thread.unread === 0 : thread.unread > 0))
+      )
+        continue;
       const card = thread.preview;
       visibleCards.push({
-        thread, key: JSON.stringify([thread.source, "thread", thread.id]),
-        item: { ...card.display, done_card_key: card.display.done_card_key ?? undefined,
+        thread,
+        key: JSON.stringify([thread.source, "thread", thread.id]),
+        item: {
+          ...card.display,
+          done_card_key: card.display.done_card_key ?? undefined,
           // The thread is unread while any member is; its preview alone is not.
           read_at: thread.unread ? null : undefined,
-          sourceId: thread.source, pending_approvals: 0, position_message_id: null, card },
+          sourceId: thread.source,
+          pending_approvals: 0,
+          position_message_id: null,
+          card,
+        },
       });
     }
-    visibleCards.sort((a, b) => feedItemOrder(a.item, b.item) || a.key.localeCompare(b.key));
+    visibleCards.sort(
+      (a, b) => feedItemOrder(a.item, b.item) || a.key.localeCompare(b.key),
+    );
   }
-  const feedRows: ({ kind: "card"; card: VisibleCard; key: string; time: number } | { kind: "mail"; thread: SourcedAgentThread; key: string; time: number })[] = [
-    ...visibleCards.map(row => ({ kind: "card" as const, card: row, key: row.key, time: row.item.last_activity_at })),
-    ...mailThreads.items.map(thread => ({ kind: "mail" as const, thread, key: JSON.stringify([thread.source, "mail", thread.id]), time: thread.updated_at })),
+  const feedRows: (
+    | { kind: "card"; card: VisibleCard; key: string; time: number }
+    | { kind: "mail"; thread: SourcedAgentThread; key: string; time: number }
+  )[] = [
+    ...visibleCards.map((row) => ({
+      kind: "card" as const,
+      card: row,
+      key: row.key,
+      time: row.item.last_activity_at,
+    })),
+    ...mailThreads.items.map((thread) => ({
+      kind: "mail" as const,
+      thread,
+      key: JSON.stringify([thread.source, "mail", thread.id]),
+      time: thread.updated_at,
+    })),
   ];
-  if (mailThreads.items.length) feedRows.sort((a, b) => b.time - a.time ||
-    (a.kind === "card" && b.kind === "card" ? feedItemOrder(a.card.item, b.card.item) : a.key.localeCompare(b.key)));
+  if (mailThreads.items.length)
+    feedRows.sort(
+      (a, b) =>
+        b.time - a.time ||
+        (a.kind === "card" && b.kind === "card"
+          ? feedItemOrder(a.card.item, b.card.item)
+          : a.key.localeCompare(b.key)),
+    );
   const selectionFor = (rows: VisibleCard[]): ThreadSelection | null => {
     if (!rows.length) return null;
     const source = rows[0].item.sourceId ?? scopedSource;
-    if (rows.some(row => (row.item.sourceId ?? scopedSource) !== source)) {
-      setError("Choose cards from the same workspace to make a thread."); return null;
+    if (rows.some((row) => (row.item.sourceId ?? scopedSource) !== source)) {
+      setError("Choose cards from the same workspace to make a thread.");
+      return null;
     }
-    const latest = [...rows].sort((a,b) => b.item.last_activity_at - a.item.last_activity_at)[0];
-    return { source, cardIds: [...new Set(rows.flatMap(row => row.thread?.cardIds ?? [doneId(row.item)]))], title: latest.thread?.title ?? latest.item.title,
-      previews: rows.map(row => ({ title: row.thread?.title ?? row.item.title, author: row.item.agent_name ?? undefined })) };
+    const latest = [...rows].sort(
+      (a, b) => b.item.last_activity_at - a.item.last_activity_at,
+    )[0];
+    return {
+      source,
+      cardIds: [
+        ...new Set(
+          rows.flatMap((row) => row.thread?.cardIds ?? [doneId(row.item)]),
+        ),
+      ],
+      title: latest.thread?.title ?? latest.item.title,
+      previews: rows.map((row) => ({
+        title: row.thread?.title ?? row.item.title,
+        author: row.item.agent_name ?? undefined,
+      })),
+    };
   };
   const combineCards = (source: string, target: string) => {
-    const from = visibleCards.find(row => row.key === source), to = visibleCards.find(row => row.key === target);
-    if (!from || !to || from === to || !aggregatable(from.item) || !aggregatable(to.item)) return;
+    const from = visibleCards.find((row) => row.key === source),
+      to = visibleCards.find((row) => row.key === target);
+    if (
+      !from ||
+      !to ||
+      from === to ||
+      !aggregatable(from.item) ||
+      !aggregatable(to.item)
+    )
+      return;
     const selection = selectionFor([from, to]);
-    if (selection) { setCombineFrom(null); setAggregate({ ...selection, target: to.thread?.id }); }
+    if (selection) {
+      setCombineFrom(null);
+      setAggregate({ ...selection, target: to.thread?.id });
+    }
   };
-  const toggleSelection = (key: string) => setSelectedCards(previous => previous?.includes(key) ? previous.filter(id => id !== key) : [...previous ?? [], key]);
+  const toggleSelection = (key: string) =>
+    setSelectedCards((previous) =>
+      previous?.includes(key)
+        ? previous.filter((id) => id !== key)
+        : [...(previous ?? []), key],
+    );
   const organizeSelection = (keys: string[]) => {
-    const selection = selectionFor(visibleCards.filter(row => keys.includes(row.key)));
+    const selection = selectionFor(
+      visibleCards.filter((row) => keys.includes(row.key)),
+    );
     if (selection) setAggregate(selection);
   };
   const ungroup = async (thread: SourcedDoneThread) => {
     try {
-      await callRoute(workspaceApi.doneThreadRemove, { params: { id: thread.id } }, thread.source);
+      await callRoute(
+        workspaceApi.doneThreadRemove,
+        { params: { id: thread.id } },
+        thread.source,
+      );
       if (generation !== viewGeneration()) return;
       grouping.refresh();
       notify({ text: "Cards ungrouped." });
-    } catch (error) { if (generation === viewGeneration()) setError((error as Error).message); }
+    } catch (error) {
+      if (generation === viewGeneration()) setError((error as Error).message);
+    }
   };
   useEffect(() => {
-    setMenu(null); setMenuThread(null); setReadingThread(null);
+    setMenu(null);
+    setMenuThread(null);
+    setReadingThread(null);
     setReadingMail(null);
     setReadingCard(null);
-    setAggregate(null); setCombineFrom(null); setSelectedCards(null);
+    setAggregate(null);
+    setCombineFrom(null);
+    setSelectedCards(null);
   }, [filter, project, agent, teams, sourceKey, doneRead, generation]);
   const [later, setLater] = useState<FeedItem | null>(null);
   // Finished cards have their own message; work in progress keeps thread reminders.
-  const reminderMessage = later && (
-    later.done_card_key || later.reply_card_key || !later.run || later.run.state === "completed"
-  ) ? later.last_message : null;
+  const reminderMessage =
+    later &&
+    (later.done_card_key ||
+      later.reply_card_key ||
+      !later.run ||
+      later.run.state === "completed")
+      ? later.last_message
+      : null;
   const [editing, setEditing] = useState<QueuedMessage | null>(null);
   const [moving, setMoving] = useState<QueuedMessage | null>(null);
   // Threads waiting on you, whichever filter is shown, for the stack above
   // the filters.
   const needsKey = () =>
-    "feed-needs:" + JSON.stringify([project, scopedAgent, teams, needsSourceKey]);
+    "feed-needs:" +
+    JSON.stringify([project, scopedAgent, teams, needsSourceKey]);
   // Tab badges and scheduled failures share Needs you's scope, independently
   // of the selected Done agent, read state and paginated result windows.
   const summaryKey = "feed-summary:" + JSON.stringify([generation, needsKey()]);
   const [operational, setOperational] = useState(() => ({
-    key: summaryKey, sources: cachedView<Record<string, Summary>>(summaryKey) ?? {},
+    key: summaryKey,
+    sources: cachedView<Record<string, Summary>>(summaryKey) ?? {},
   }));
-  const summaries = operational.key === summaryKey
-    ? operational.sources : cachedView<Record<string, Summary>>(summaryKey) ?? {};
-  const summary = combineSummaries(allSources.flatMap(source => summaries[source.id] ? [summaries[source.id]] : []));
+  const summaries =
+    operational.key === summaryKey
+      ? operational.sources
+      : (cachedView<Record<string, Summary>>(summaryKey) ?? {});
+  const summary = combineSummaries(
+    allSources.flatMap((source) =>
+      summaries[source.id] ? [summaries[source.id]] : [],
+    ),
+  );
   const [needs, setNeeds] = useState<FeedItem[]>(
     () => cachedView<FeedItem[]>(needsKey()) || [],
   );
   const [needsOpen, setNeedsOpen] = useState(false);
   const needsRequest = useRef(0);
   const needsSourceRequests = useRef(new Map<string, number>());
-  const needsReads = useRef<{
-    key: string;
-    enqueue: (sources: string[], manual: boolean) => boolean;
-    settled: Promise<unknown>;
-  } | undefined>(undefined);
+  const needsReads = useRef<
+    | {
+        key: string;
+        enqueue: (sources: string[], manual: boolean) => boolean;
+        settled: Promise<unknown>;
+      }
+    | undefined
+  >(undefined);
   const request = useRef(0);
-  const query = (before?: string, which: FeedFilter | "needs" = filter): NonNullable<RouteInput<typeof workspaceApi.feed>["query"]> => {
+  const query = (
+    before?: string,
+    which: FeedFilter | "needs" = filter,
+  ): NonNullable<RouteInput<typeof workspaceApi.feed>["query"]> => {
     const selectedAgent = which === "needs" ? scopedAgent : agent;
     return {
       // The existing thread query also works with older connected workspaces.
@@ -1343,80 +1712,146 @@ export function Feed({
     };
   };
   const inFlight = useRef(false);
-  const refreshReadingSources = useRef<((sources: string[]) => void) | undefined>(undefined);
+  const refreshReadingSources = useRef<
+    ((sources: string[]) => void) | undefined
+  >(undefined);
   const deferredUnsaves = useRef(new Map<string, object>());
   const savedKey = (source: string, message: string) =>
     JSON.stringify([viewOwner(), source, message]);
   const pendingUnsaves = (rows: FeedItem[], source = scopedSource) => {
     if (!deferredUnsaves.current.size) return rows;
-    return rows.map(item => {
+    return rows.map((item) => {
       const message = item.last_message;
-      if (!message || !deferredUnsaves.current.has(savedKey(item.sourceId ?? source, message.id))) return item;
+      if (
+        !message ||
+        !deferredUnsaves.current.has(
+          savedKey(item.sourceId ?? source, message.id),
+        )
+      )
+        return item;
       const last_message = { ...message, saved: false };
-      return { ...item, last_message,
-        ...(item.card?.type === "done" ? { card: { ...item.card, saved: false,
-          display: { ...item.card.display, last_message: item.card.display.last_message
-            ? { ...item.card.display.last_message, saved: false } : null } } } : {}),
+      return {
+        ...item,
+        last_message,
+        ...(item.card?.type === "done"
+          ? {
+              card: {
+                ...item.card,
+                saved: false,
+                display: {
+                  ...item.card.display,
+                  last_message: item.card.display.last_message
+                    ? { ...item.card.display.last_message, saved: false }
+                    : null,
+                },
+              },
+            }
+          : {}),
       };
     });
   };
-  const doneCatchup = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => { activeView.current = null; clearTimeout(doneCatchup.current); ++request.current; }, []);
+  const doneCatchup = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(
+    () => () => {
+      activeView.current = null;
+      clearTimeout(doneCatchup.current);
+      ++request.current;
+    },
+    [],
+  );
   const doneCards = useRef(new Map<string, DoneCardsReader>());
-  const doneRefresh = useRef<{ key: string; sources: Map<string, DoneRefresh> }>({
-    key: "", sources: new Map(),
+  const doneRefresh = useRef<{
+    key: string;
+    sources: Map<string, DoneRefresh>;
+  }>({
+    key: "",
+    sources: new Map(),
   });
   async function loadNeeds(onlySources?: string[], manual = false) {
     if (hideFilters || generation !== viewGeneration()) return;
     const ticketGeneration = needsRequest.current;
     const owner = viewOwner();
     const key = needsKey();
-    const requested = allSources.filter(source => !onlySources || onlySources.includes(source.id));
-    const ids = requested.map(source => source.id);
+    const requested = allSources.filter(
+      (source) => !onlySources || onlySources.includes(source.id),
+    );
+    const ids = requested.map((source) => source.id);
     if (!ids.length) return;
     const queueKey = JSON.stringify([owner, generation, ticketGeneration, key]);
     const existing = needsReads.current;
-    if (existing?.key === queueKey && existing.enqueue(ids, manual)) return existing.settled;
-    const current = () => ticketGeneration === needsRequest.current &&
-      generation === viewGeneration() && owner === viewOwner();
+    if (existing?.key === queueKey && existing.enqueue(ids, manual))
+      return existing.settled;
+    const current = () =>
+      ticketGeneration === needsRequest.current &&
+      generation === viewGeneration() &&
+      owner === viewOwner();
     const options = new Map<string, boolean>();
     const retain = (sources: string[], manually: boolean) => {
       for (const source of sources) {
-        needsSourceRequests.current.set(source, (needsSourceRequests.current.get(source) ?? 0) + 1);
+        needsSourceRequests.current.set(
+          source,
+          (needsSourceRequests.current.get(source) ?? 0) + 1,
+        );
         options.set(source, manually || options.get(source) === true);
       }
     };
     retain(ids, manual);
     // Needs and operational counts publish one source at a time. Overlapping
     // invalidations share the same four readers and one trailing read per source.
-    const queue = sourceReadQueue(ids, async id => {
-      const source = allSources.find(source => source.id === id);
-      if (!source || !current()) return;
-      const ticket = needsSourceRequests.current.get(id);
-      const manually = options.get(id) ?? false;
-      options.delete(id);
-      const page = await readSnapshot(combined ? id : scopedSource, query(undefined, "needs"), "", manually);
-      if (!current() || ticket !== needsSourceRequests.current.get(id)) return;
-      const items: FeedItem[] = combined ? page.items.map(item => ({
-        ...item, sourceId: id, executionEnvironment: id ? source.name : undefined,
-      })) : page.items;
-      const selected = new Set(allSources.map(source => source.id));
-      // A failed source keeps its cached page. A successful source replaces only
-      // its own rows, including an empty page, without waiting for another peer.
-      const retained = (cachedView<FeedItem[]>(key) ?? []).filter(item =>
-        selected.has(item.sourceId ?? scopedSource) && (item.sourceId ?? scopedSource) !== id);
-      const loaded = [...retained, ...items].sort((a, b) =>
-        b.last_activity_at - a.last_activity_at ||
-        (a.sourceId ?? scopedSource).localeCompare(b.sourceId ?? scopedSource) || feedItemOrder(a, b));
-      cacheView(key, loaded, owner);
-      setNeeds(loaded);
-      const summaries = Object.fromEntries(Object.entries(
-        cachedView<Record<string, Summary>>(summaryKey) ?? {},
-      ).filter(([source]) => selected.has(source)));
-      summaries[id] = page.summary;
-      cacheView(summaryKey, summaries, owner);
-      setOperational({ key: summaryKey, sources: summaries });
-    }, current);
+    const queue = sourceReadQueue(
+      ids,
+      async (id) => {
+        const source = allSources.find((source) => source.id === id);
+        if (!source || !current()) return;
+        const ticket = needsSourceRequests.current.get(id);
+        const manually = options.get(id) ?? false;
+        options.delete(id);
+        const page = await readSnapshot(
+          combined ? id : scopedSource,
+          query(undefined, "needs"),
+          "",
+          manually,
+        );
+        if (!current() || ticket !== needsSourceRequests.current.get(id))
+          return;
+        const items: FeedItem[] = combined
+          ? page.items.map((item) => ({
+              ...item,
+              sourceId: id,
+              executionEnvironment: id ? source.name : undefined,
+            }))
+          : page.items;
+        const selected = new Set(allSources.map((source) => source.id));
+        // A failed source keeps its cached page. A successful source replaces only
+        // its own rows, including an empty page, without waiting for another peer.
+        const retained = (cachedView<FeedItem[]>(key) ?? []).filter(
+          (item) =>
+            selected.has(item.sourceId ?? scopedSource) &&
+            (item.sourceId ?? scopedSource) !== id,
+        );
+        const loaded = [...retained, ...items].sort(
+          (a, b) =>
+            b.last_activity_at - a.last_activity_at ||
+            (a.sourceId ?? scopedSource).localeCompare(
+              b.sourceId ?? scopedSource,
+            ) ||
+            feedItemOrder(a, b),
+        );
+        cacheView(key, loaded, owner);
+        setNeeds(loaded);
+        const summaries = Object.fromEntries(
+          Object.entries(
+            cachedView<Record<string, Summary>>(summaryKey) ?? {},
+          ).filter(([source]) => selected.has(source)),
+        );
+        summaries[id] = page.summary;
+        cacheView(summaryKey, summaries, owner);
+        setOperational({ key: summaryKey, sources: summaries });
+      },
+      current,
+    );
     const reading = {
       key: queueKey,
       settled: queue.settled,
@@ -1438,31 +1873,57 @@ export function Feed({
   function schedulePendingRefresh() {
     clearTimeout(doneCatchup.current);
     doneCatchup.current = undefined;
-    const owner = viewOwner(), context = JSON.stringify([owner, shownKey()]);
-    if (pendingRefresh.current.key !== context || !pendingRefresh.current.sources.size) return;
+    const owner = viewOwner(),
+      context = JSON.stringify([owner, shownKey()]);
+    if (
+      pendingRefresh.current.key !== context ||
+      !pendingRefresh.current.sources.size
+    )
+      return;
     const ticket = request.current;
     doneCatchup.current = setTimeout(() => {
-      if (ticket === request.current && owner === viewOwner() && activeView.current === context)
+      if (
+        ticket === request.current &&
+        owner === viewOwner() &&
+        activeView.current === context
+      )
         void load(false, true, [...pendingRefresh.current.sources]);
     }, 100);
   }
   const [readError, setReadError] = useState("");
   const [readBusy, setReadBusy] = useState(false);
   const [partialReadPending, setPartialReadPending] = useState(false);
-  type ReadAttempt = { append: boolean; before?: string; doneSummary?: boolean };
+  type ReadAttempt = {
+    append: boolean;
+    before?: string;
+    doneSummary?: boolean;
+  };
   const retryPages = useRef(new Map<string, ReadAttempt>());
   const retryRead = () => {
     if (inFlight.current) return;
     const failed = [...retryPages.current];
     for (const [source] of failed) readRecovery.current.reset(source);
-    void load(failed.length > 0 && failed.every(([, page]) => page.append), false,
-      failed.length ? failed.map(([source]) => source) : undefined, true);
+    void load(
+      failed.length > 0 && failed.every(([, page]) => page.append),
+      false,
+      failed.length ? failed.map(([source]) => source) : undefined,
+      true,
+    );
   };
-  async function load(append = false, background = false, onlySources?: string[], manual = false) {
+  async function load(
+    append = false,
+    background = false,
+    onlySources?: string[],
+    manual = false,
+  ) {
     const refreshContext = JSON.stringify([viewOwner(), shownKey()]);
     // A completed action may still hold the load function for an old view.
     // Reject it before it can supersede the current view's request ticket.
-    if (generation !== viewGeneration() || activeView.current !== refreshContext) return;
+    if (
+      generation !== viewGeneration() ||
+      activeView.current !== refreshContext
+    )
+      return;
     // Background refreshes never overlap; filter changes and actions always load.
     // Remember the final notification during a read, even if no later event
     // follows it (for example Working -> Done while Load more is pending).
@@ -1471,16 +1932,26 @@ export function Feed({
       headSources.current.clear();
     }
     const requestedSources = activeSources
-      .filter(source => !onlySources || onlySources.includes(source.id))
-      .map(source => source.id);
+      .filter((source) => !onlySources || onlySources.includes(source.id))
+      .map((source) => source.id);
     // Capture each failed operation before any source succeeds and clears it.
     // A partial retry must neither advance a healthy source nor borrow a later
     // cursor from another read. Head and append failures can coexist.
-    const cursors: Record<string, string> = combined && append && next ? JSON.parse(next) : {};
-    const pages = new Map<string, ReadAttempt>(activeSources.map(source => [source.id,
-      (manual && retryPages.current.get(source.id)) || {
-        append, before: append ? (combined ? cursors[source.id] : next || undefined) : undefined,
-      }]));
+    const cursors: Record<string, string> =
+      combined && append && next ? JSON.parse(next) : {};
+    const pages = new Map<string, ReadAttempt>(
+      activeSources.map((source) => [
+        source.id,
+        (manual && retryPages.current.get(source.id)) || {
+          append,
+          before: append
+            ? combined
+              ? cursors[source.id]
+              : next || undefined
+            : undefined,
+        },
+      ]),
+    );
     const pending = pendingRefresh.current.sources;
     if (background && inFlight.current) {
       for (const source of requestedSources) pending.add(source);
@@ -1489,8 +1960,11 @@ export function Feed({
     }
     // A superseded head read has not reconciled its sources. Appending cannot
     // consume any head notification; a scoped head consumes only its sources.
-    if (inFlight.current) for (const source of headSources.current) pending.add(source);
-    headSources.current = new Set(requestedSources.filter(source => !pages.get(source)!.append));
+    if (inFlight.current)
+      for (const source of headSources.current) pending.add(source);
+    headSources.current = new Set(
+      requestedSources.filter((source) => !pages.get(source)!.append),
+    );
     if (headSources.current.size) {
       for (const source of headSources.current) pending.delete(source);
       void loadNeeds(background ? [...headSources.current] : undefined, manual);
@@ -1505,7 +1979,11 @@ export function Feed({
     refreshReadingSources.current = undefined;
     // The account this request is for; a late answer for another is dropped.
     const owner = viewOwner();
-    const isCurrent = () => ticket === request.current && generation === viewGeneration() && owner === viewOwner() && activeView.current === refreshContext;
+    const isCurrent = () =>
+      ticket === request.current &&
+      generation === viewGeneration() &&
+      owner === viewOwner() &&
+      activeView.current === refreshContext;
     // Loading placeholders belong to the first read of a filter. An empty
     // result is loaded content too; polling must keep its empty state visible.
     try {
@@ -1517,7 +1995,9 @@ export function Feed({
       const hadVisibleItems = !!cached?.items.length;
       // A cold roster can reveal individual results before every first page
       // arrives, but it has no complete paging window to replace yet.
-      const hasPagingWindow = activeSources.every(source => cached?.sourceSummaries?.[source.id]);
+      const hasPagingWindow = activeSources.every(
+        (source) => cached?.sourceSummaries?.[source.id],
+      );
       const refreshKey = JSON.stringify([owner, shownKey()]);
       if (doneRefresh.current.key !== refreshKey)
         doneRefresh.current = { key: refreshKey, sources: new Map() };
@@ -1527,21 +2007,44 @@ export function Feed({
         before?: string,
       ) => {
         const appending = pages.get(source)!.append;
-        const cardKey = "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
-        let priorItems = cached?.items.filter(item => (item.sourceId ?? scopedSource) === source) ?? [];
-        const order = (item: FeedItem): [number, string] => item.cardOrder ?? [item.last_activity_at, item.conversation_id + "\u001f" + (item.done_card_key ?? "")];
+        const cardKey =
+          "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
+        let priorItems =
+          cached?.items.filter(
+            (item) => (item.sourceId ?? scopedSource) === source,
+          ) ?? [];
+        const order = (item: FeedItem): [number, string] =>
+          item.cardOrder ?? [
+            item.last_activity_at,
+            item.conversation_id + "\u001f" + (item.done_card_key ?? ""),
+          ];
         let fallbackTransition = false;
         if (filter === "done") {
           let reader = doneCards.current.get(cardKey);
           if (!reader) {
-            reader = new DoneCardsReader(cardKey, cachedView<CardWindow>(cardKey));
-            reader.discardPrior = cachedView<boolean>(cardKey + ":reset") ?? false;
+            reader = new DoneCardsReader(
+              cardKey,
+              cachedView<CardWindow>(cardKey),
+            );
+            reader.discardPrior =
+              cachedView<boolean>(cardKey + ":reset") ?? false;
             doneCards.current.set(cardKey, reader);
-            if (doneCards.current.size > 40) doneCards.current.delete(doneCards.current.keys().next().value!);
+            if (doneCards.current.size > 40)
+              doneCards.current.delete(doneCards.current.keys().next().value!);
           }
-          const transport: CardReadTransport = (contract, input, signal) => callRoute(contract, input, combined ? source : scopedSource, signal);
+          const transport: CardReadTransport = (contract, input, signal) =>
+            callRoute(
+              contract,
+              input,
+              combined ? source : scopedSource,
+              signal,
+            );
           const boundary = reader.pager.snapshot()?.boundary;
-          const catchUp = boundary && priorItems.some(item => compareCardOrder(order(item), boundary) < 0);
+          const catchUp =
+            boundary &&
+            priorItems.some(
+              (item) => compareCardOrder(order(item), boundary) < 0,
+            );
           const resetVersion = reader.resetVersion;
           let window: CardWindow | null;
           try {
@@ -1550,42 +2053,79 @@ export function Feed({
             // asking for another page. Actions may have edited that window.
             const summaryOnly = pages.get(source)!.doneSummary;
             window = summaryOnly ? reader.pager.snapshot() : null;
-            if (!window) window = await reader.load(transport, {
-              view: "done", project: project || undefined, agent: agent || undefined, teams: teams || undefined,
-              ...(doneRead !== "all" ? { read: doneRead } : {}),
-            }, !summaryOnly && (appending || !!catchUp));
+            if (!window)
+              window = await reader.load(
+                transport,
+                {
+                  view: "done",
+                  project: project || undefined,
+                  agent: agent || undefined,
+                  teams: teams || undefined,
+                  ...(doneRead !== "all" ? { read: doneRead } : {}),
+                },
+                !summaryOnly && (appending || !!catchUp),
+              );
           } finally {
-            if (reader.discardPrior && ticket === request.current && owner === viewOwner()) {
-              if (reader.resetVersion !== resetVersion) cacheView(cardKey, undefined, owner);
+            if (
+              reader.discardPrior &&
+              ticket === request.current &&
+              owner === viewOwner()
+            ) {
+              if (reader.resetVersion !== resetVersion)
+                cacheView(cardKey, undefined, owner);
               cacheView(cardKey + ":reset", true, owner);
               priorItems = [];
               // A revision-domain replacement invalidates every retained row
               // from this source, even if the fresh list/summary then fails.
-              const keep = (item: FeedItem) => (item.sourceId ?? scopedSource) !== source;
+              const keep = (item: FeedItem) =>
+                (item.sourceId ?? scopedSource) !== source;
               const saved = cachedView<Shown>(shownKey());
               if (saved) {
                 const cursors = combined ? JSON.parse(saved.next || "{}") : {};
                 delete cursors[source];
-                cached = {...saved, items: saved.items.filter(keep),
-                  next: combined && Object.keys(cursors).length ? JSON.stringify(cursors) : null};
+                cached = {
+                  ...saved,
+                  items: saved.items.filter(keep),
+                  next:
+                    combined && Object.keys(cursors).length
+                      ? JSON.stringify(cursors)
+                      : null,
+                };
                 previous = cached;
                 cacheView(shownKey(), cached, owner);
                 setNext(cached.next);
               }
               if (sourcePages.current.key === pagesKey()) {
                 const page = sourcePages.current.pages.get(source);
-                if (page) sourcePages.current.pages.set(source, {...page, items: [], next: null});
+                if (page)
+                  sourcePages.current.pages.set(source, {
+                    ...page,
+                    items: [],
+                    next: null,
+                  });
               }
-              setItems(items => items.filter(keep));
+              setItems((items) => items.filter(keep));
             }
           }
           if (window) {
             if (reader.discardPrior) priorItems = [];
-            if (reader.hasMore || (window.boundary && priorItems.some(item => compareCardOrder(order(item), window.boundary!) < 0))) followup.add(source);
-            if (ticket === request.current && owner === viewOwner()) cacheView(cardKey, window, owner);
+            if (
+              reader.hasMore ||
+              (window.boundary &&
+                priorItems.some(
+                  (item) => compareCardOrder(order(item), window.boundary!) < 0,
+                ))
+            )
+              followup.add(source);
+            if (ticket === request.current && owner === viewOwner())
+              cacheView(cardKey, window, owner);
             // Counters remain conversation-based operational Feed state.
             pages.set(source, { ...pages.get(source)!, doneSummary: true });
-            const operational = await callRoute(workspaceApi.feed, { query: query(undefined, "needs") }, source);
+            const operational = await callRoute(
+              workspaceApi.feed,
+              { query: query(undefined, "needs") },
+              source,
+            );
             // Only a failed operational read needs a summary-only retry. A
             // trailing notification in this queue must read newer card changes.
             pages.set(source, { ...pages.get(source)!, doneSummary: false });
@@ -1593,55 +2133,105 @@ export function Feed({
               reader.discardPrior = false;
               cacheView(cardKey + ":reset", undefined, owner);
             }
-            const typedItems = window.page.items.flatMap(({card, order: cardOrder}) => card.type === "done" ? [{
-              ...card.display, done_card_key: card.display.done_card_key ?? undefined,
-              pending_approvals: 0, position_message_id: null, card, cardOrder,
-            }] : []);
-            const known = new Set(typedItems.map(item => feedItemKey(item, source)));
+            const typedItems = window.page.items.flatMap(
+              ({ card, order: cardOrder }) =>
+                card.type === "done"
+                  ? [
+                      {
+                        ...card.display,
+                        done_card_key: card.display.done_card_key ?? undefined,
+                        pending_approvals: 0,
+                        position_message_id: null,
+                        card,
+                        cardOrder,
+                      },
+                    ]
+                  : [],
+            );
+            const known = new Set(
+              typedItems.map((item) => feedItemKey(item, source)),
+            );
             return {
               items: [
-                ...priorItems.filter(item => !known.has(feedItemKey(item, source)) && window.boundary && compareCardOrder(order(item), window.boundary) < 0),
+                ...priorItems.filter(
+                  (item) =>
+                    !known.has(feedItemKey(item, source)) &&
+                    window.boundary &&
+                    compareCardOrder(order(item), window.boundary) < 0,
+                ),
                 ...typedItems,
               ].sort(feedItemOrder),
-              next: window.page.next, summary: operational.summary,
+              next: window.page.next,
+              summary: operational.summary,
             };
           }
-          if (doneRead !== "all") throw new Error(`Read status filtering is unavailable in ${activeSources.find(item => item.id === source)?.name || "this workspace"}. Reconnect that source and try again.`);
+          if (doneRead !== "all")
+            throw new Error(
+              `Read status filtering is unavailable in ${activeSources.find((item) => item.id === source)?.name || "this workspace"}. Reconnect that source and try again.`,
+            );
           fallbackTransition = !!cachedView<CardWindow>(cardKey);
           if (fallbackTransition) doneRefresh.current.sources.delete(source);
         }
         if (appending || !previous) {
           const page = await read(fallbackTransition ? undefined : before);
-          if (fallbackTransition && ticket === request.current) cacheView(cardKey, undefined, owner);
+          if (fallbackTransition && ticket === request.current)
+            cacheView(cardKey, undefined, owner);
           if (appending && retainHistory && cached) {
-            const earlier = cached.items.filter(item => (item.sourceId ?? scopedSource) === source);
-            const incoming = new Set(page.items.map(item => feedItemKey(item, source)));
-            return {...page, items: [...earlier.filter(item => !incoming.has(feedItemKey(item, source))), ...page.items].sort(feedItemOrder)};
+            const earlier = cached.items.filter(
+              (item) => (item.sourceId ?? scopedSource) === source,
+            );
+            const incoming = new Set(
+              page.items.map((item) => feedItemKey(item, source)),
+            );
+            return {
+              ...page,
+              items: [
+                ...earlier.filter(
+                  (item) => !incoming.has(feedItemKey(item, source)),
+                ),
+                ...page.items,
+              ].sort(feedItemOrder),
+            };
           }
           return page;
         }
-        const current = () => ticket === request.current && owner === viewOwner();
+        const current = () =>
+          ticket === request.current && owner === viewOwner();
         let firstNext: string | null = null;
-        const result = await refreshDonePage<FeedItem, Page>(async cursor => {
-          const page = await read(cursor);
-          if (cursor === undefined) firstNext = page.next;
-          return page;
-        }, {
-          items: previous.items.filter((item) => (item.sourceId ?? scopedSource) === source),
-          next: fallbackTransition ? null : combined ? (JSON.parse(previous.next || "{}")[source] ?? null) : previous.next,
-        }, doneRefresh.current.sources.get(source), current);
+        const result = await refreshDonePage<FeedItem, Page>(
+          async (cursor) => {
+            const page = await read(cursor);
+            if (cursor === undefined) firstNext = page.next;
+            return page;
+          },
+          {
+            items: previous.items.filter(
+              (item) => (item.sourceId ?? scopedSource) === source,
+            ),
+            next: fallbackTransition
+              ? null
+              : combined
+                ? (JSON.parse(previous.next || "{}")[source] ?? null)
+                : previous.next,
+          },
+          doneRefresh.current.sources.get(source),
+          current,
+        );
         if (fallbackTransition && result.progress) result.page.next = firstNext;
         if (current()) {
           if (fallbackTransition) cacheView(cardKey, undefined, owner);
-          if (result.progress) doneRefresh.current.sources.set(source, result.progress);
+          if (result.progress)
+            doneRefresh.current.sources.set(source, result.progress);
           else doneRefresh.current.sources.delete(source);
         }
         return result.page;
       };
       if (combined) {
-        const pending = activeSources.filter(source =>
-          (!pages.get(source.id)!.append || pages.get(source.id)!.before) &&
-          (!onlySources || onlySources.includes(source.id)));
+        const pending = activeSources.filter(
+          (source) =>
+            (!pages.get(source.id)!.append || pages.get(source.id)!.before) &&
+            (!onlySources || onlySources.includes(source.id)),
+        );
         const key = pagesKey();
         if (sourcePages.current.key !== key) {
           sourcePages.current = { key, pages: new Map(), failures: new Set() };
@@ -1653,102 +2243,158 @@ export function Feed({
           const summary = cached?.sourceSummaries?.[source.id];
           if (!cached || !summary) continue;
           sourcePages.current.pages.set(source.id, {
-            items: cached.items.filter((item) => (item.sourceId ?? scopedSource) === source.id),
+            items: cached.items.filter(
+              (item) => (item.sourceId ?? scopedSource) === source.id,
+            ),
             next: JSON.parse(cached.next || "{}")[source.id] ?? null,
             summary,
           });
         }
-        const activeIds = new Set(activeSources.map(source => source.id));
+        const activeIds = new Set(activeSources.map((source) => source.id));
         for (const id of sourcePages.current.failures)
           if (!activeIds.has(id)) sourcePages.current.failures.delete(id);
         // Initial pages may be visible before a combined view can be cached.
         // Keep a bounded fallback when discovery temporarily removes a source.
-        const inactive = [...sourcePages.current.pages.keys()].filter(id => !activeIds.has(id));
-        for (const id of inactive.slice(0, -40)) sourcePages.current.pages.delete(id);
-        const assemble = (loaded: { source: (typeof activeSources)[number]; page: Page }[], nextCursors: Record<string, string>): Page => {
-        const activePages = [...sourcePages.current.pages].filter(([id]) => activeIds.has(id));
-        return {
-          items: loaded.flatMap(({ source, page }) =>
-            page.items.map((item) => ({
-              ...item,
-              sourceId: source.id,
-              executionEnvironment: source.id ? source.name : undefined,
-            })),
-          ),
-          next: Object.keys(nextCursors).length
-            ? JSON.stringify(nextCursors)
-            : null,
-          sourceSummaries: Object.fromEntries(
-            activePages.map(([id, page]) => [id, page.summary]),
-          ),
-          summary: combineSummaries(activePages.map(([, page]) => page.summary)),
-        };
+        const inactive = [...sourcePages.current.pages.keys()].filter(
+          (id) => !activeIds.has(id),
+        );
+        for (const id of inactive.slice(0, -40))
+          sourcePages.current.pages.delete(id);
+        const assemble = (
+          loaded: { source: (typeof activeSources)[number]; page: Page }[],
+          nextCursors: Record<string, string>,
+        ): Page => {
+          const activePages = [...sourcePages.current.pages].filter(([id]) =>
+            activeIds.has(id),
+          );
+          return {
+            items: loaded.flatMap(({ source, page }) =>
+              page.items.map((item) => ({
+                ...item,
+                sourceId: source.id,
+                executionEnvironment: source.id ? source.name : undefined,
+              })),
+            ),
+            next: Object.keys(nextCursors).length
+              ? JSON.stringify(nextCursors)
+              : null,
+            sourceSummaries: Object.fromEntries(
+              activePages.map(([id, page]) => [id, page.summary]),
+            ),
+            summary: combineSummaries(
+              activePages.map(([, page]) => page.summary),
+            ),
+          };
         };
         const readSource = async (source: (typeof activeSources)[number]) => {
-            if (!isCurrent()) throw new DOMException("Feed read superseded", "AbortError");
-            const incoming = await readPage(
-              (before) => readProjectionPage(source.id, query(before), manual),
-              source.id,
-              pages.get(source.id)!.before,
+          if (!isCurrent())
+            throw new DOMException("Feed read superseded", "AbortError");
+          const incoming = await readPage(
+            (before) => readProjectionPage(source.id, query(before), manual),
+            source.id,
+            pages.get(source.id)!.before,
+          );
+          if (!isCurrent()) return { source, page: incoming };
+          const page = {
+            ...incoming,
+            items: pendingUnsaves(incoming.items, source.id),
+          };
+          if (!pages.get(source.id)!.append) {
+            const earlier = sourcePages.current.pages.get(source.id);
+            const known = new Set(
+              page.items.map((item) => feedItemKey(item, source.id)),
             );
-            if (!isCurrent()) return { source, page: incoming };
-            const page = { ...incoming, items: pendingUnsaves(incoming.items, source.id) };
-            if (!pages.get(source.id)!.append) {
-              const earlier = sourcePages.current.pages.get(source.id);
-              const known = new Set(page.items.map(item => feedItemKey(item, source.id)));
-              // An incomplete Working/Queued head keeps its loaded history
-              // and cursor together. An exhaustive head is authoritative for
-              // that source now, including an empty result; a slow peer cannot
-              // retain rows that this source has already removed.
-              const visible = earlier && !retainHistory && page.next ? {
-                ...page, next: earlier.next,
-                items: [...page.items, ...earlier.items.filter(item => !known.has(feedItemKey(item, source.id)))],
-              } : page;
-              sourcePages.current.pages.set(source.id, visible);
-              const loaded = activeSources.flatMap(source => {
-                const page = sourcePages.current.pages.get(source.id);
-                return page ? [{ source, page }] : [];
-              });
-              const cursors = Object.fromEntries(loaded.flatMap(({source, page}) => page.next ? [[source.id, page.next]] : []));
-              const partial = assemble(loaded, cursors);
-              partial.items.sort((a, b) => b.last_activity_at - a.last_activity_at ||
-                (a.sourceId || "").localeCompare(b.sourceId || "") || feedItemOrder(a, b));
-              if (hasPagingWindow) {
-                cached = partial;
-                previous = retainHistory ? partial : undefined;
-                cacheView(shownKey(), partial, owner);
-                setNext(partial.next);
-              }
-              setItems(partial.items);
-              setPartialReadPending(hadVisibleItems && !partial.items.length);
+            // An incomplete Working/Queued head keeps its loaded history
+            // and cursor together. An exhaustive head is authoritative for
+            // that source now, including an empty result; a slow peer cannot
+            // retain rows that this source has already removed.
+            const visible =
+              earlier && !retainHistory && page.next
+                ? {
+                    ...page,
+                    next: earlier.next,
+                    items: [
+                      ...page.items,
+                      ...earlier.items.filter(
+                        (item) => !known.has(feedItemKey(item, source.id)),
+                      ),
+                    ],
+                  }
+                : page;
+            sourcePages.current.pages.set(source.id, visible);
+            const loaded = activeSources.flatMap((source) => {
+              const page = sourcePages.current.pages.get(source.id);
+              return page ? [{ source, page }] : [];
+            });
+            const cursors = Object.fromEntries(
+              loaded.flatMap(({ source, page }) =>
+                page.next ? [[source.id, page.next]] : [],
+              ),
+            );
+            const partial = assemble(loaded, cursors);
+            partial.items.sort(
+              (a, b) =>
+                b.last_activity_at - a.last_activity_at ||
+                (a.sourceId || "").localeCompare(b.sourceId || "") ||
+                feedItemOrder(a, b),
+            );
+            if (hasPagingWindow) {
+              cached = partial;
+              previous = retainHistory ? partial : undefined;
+              cacheView(shownKey(), partial, owner);
+              setNext(partial.next);
             }
-            return { source, page };
+            setItems(partial.items);
+            setPartialReadPending(hadVisibleItems && !partial.items.length);
+          }
+          return { source, page };
         };
-        let settled: PromiseSettledResult<Awaited<ReturnType<typeof readSource>>>[];
-        if (pages.size && [...pages.values()].every(page => !page.append)) {
-          const queue = sourceReadQueue(pending.map(source => source.id), async id => {
-            if (!isCurrent()) throw new DOMException("Feed read superseded", "AbortError");
-            const source = activeSources.find(source => source.id === id)!;
-            pendingRefresh.current.sources.delete(id);
-            headSources.current.add(id);
-            return readSource(source);
-          }, isCurrent);
+        let settled: PromiseSettledResult<
+          Awaited<ReturnType<typeof readSource>>
+        >[];
+        if (pages.size && [...pages.values()].every((page) => !page.append)) {
+          const queue = sourceReadQueue(
+            pending.map((source) => source.id),
+            async (id) => {
+              if (!isCurrent())
+                throw new DOMException("Feed read superseded", "AbortError");
+              const source = activeSources.find((source) => source.id === id)!;
+              pendingRefresh.current.sources.delete(id);
+              headSources.current.add(id);
+              return readSource(source);
+            },
+            isCurrent,
+          );
           const enqueue = (ids: string[]) => {
             if (!isCurrent()) return;
-            const selected = activeSources.filter(source => ids.includes(source.id));
+            const selected = activeSources.filter((source) =>
+              ids.includes(source.id),
+            );
             for (const source of selected)
-              if (!pending.some(item => item.id === source.id)) pending.push(source);
-            void loadNeeds(selected.map(source => source.id), manual);
-            queue.enqueue(selected.map(source => source.id));
+              if (!pending.some((item) => item.id === source.id))
+                pending.push(source);
+            void loadNeeds(
+              selected.map((source) => source.id),
+              manual,
+            );
+            queue.enqueue(selected.map((source) => source.id));
           };
           refreshReadingSources.current = enqueue;
           try {
             const results = await queue.settled;
-            settled = pending.map(source => results.get(source.id) ?? {
-              status: "rejected", reason: new DOMException("Feed read superseded", "AbortError"),
-            });
+            settled = pending.map(
+              (source) =>
+                results.get(source.id) ?? {
+                  status: "rejected",
+                  reason: new DOMException(
+                    "Feed read superseded",
+                    "AbortError",
+                  ),
+                },
+            );
           } finally {
-            if (refreshReadingSources.current === enqueue) refreshReadingSources.current = undefined;
+            if (refreshReadingSources.current === enqueue)
+              refreshReadingSources.current = undefined;
           }
         } else settled = await Promise.allSettled(pending.map(readSource));
         if (!isCurrent()) return;
@@ -1759,40 +2405,72 @@ export function Feed({
               sourcePages.current.failures.add(id);
               retryPages.current.set(id, pages.get(id)!);
             }
-          }
-          else {
+          } else {
             sourcePages.current.failures.delete(id);
             retryPages.current.delete(id);
           }
         });
         const loaded = settled.flatMap((entry) =>
-          entry.status === "fulfilled" ? [{ ...entry.value, page: {
-            ...entry.value.page,
-            items: pendingUnsaves(entry.value.page.items, entry.value.source.id),
-          } }] : [],
+          entry.status === "fulfilled"
+            ? [
+                {
+                  ...entry.value,
+                  page: {
+                    ...entry.value.page,
+                    items: pendingUnsaves(
+                      entry.value.page.items,
+                      entry.value.source.id,
+                    ),
+                  },
+                },
+              ]
+            : [],
         );
-        if(onlySources) for(const source of activeSources) {
-          if(pending.some(item => item.id === source.id))continue;
-          const page=sourcePages.current.pages.get(source.id);
-          if(page)loaded.push({source,page});
-        }
+        if (onlySources)
+          for (const source of activeSources) {
+            if (pending.some((item) => item.id === source.id)) continue;
+            const page = sourcePages.current.pages.get(source.id);
+            if (page) loaded.push({ source, page });
+          }
         for (const entry of loaded) {
           const { source, page } = entry;
           // The outage fallback must include pages appended by Load more.
-          const earlier = pages.get(source.id)!.append && !retainHistory ? sourcePages.current.pages.get(source.id)?.items : undefined;
-          const known = new Set(earlier?.map((item) => feedItemKey(item, source.id)));
+          const earlier =
+            pages.get(source.id)!.append && !retainHistory
+              ? sourcePages.current.pages.get(source.id)?.items
+              : undefined;
+          const known = new Set(
+            earlier?.map((item) => feedItemKey(item, source.id)),
+          );
           entry.page = {
             ...page,
             items: earlier
-              ? [...earlier, ...page.items.filter((item) => !known.has(feedItemKey(item, source.id)))]
+              ? [
+                  ...earlier,
+                  ...page.items.filter(
+                    (item) => !known.has(feedItemKey(item, source.id)),
+                  ),
+                ]
               : page.items,
           };
           sourcePages.current.pages.set(source.id, entry.page);
         }
-        if (!loaded.length && settled.length && settled.every(entry => entry.status === "rejected" && entry.reason?.name === "AbortError"))
+        if (
+          !loaded.length &&
+          settled.length &&
+          settled.every(
+            (entry) =>
+              entry.status === "rejected" &&
+              entry.reason?.name === "AbortError",
+          )
+        )
           throw new DOMException("Feed read superseded", "AbortError");
         if (!loaded.length && settled.length)
-          throw new Error(settled.length === 1 && settled[0].status === "rejected" ? settled[0].reason.message : "Couldn’t load the Feed from any environment.");
+          throw new Error(
+            settled.length === 1 && settled[0].status === "rejected"
+              ? settled[0].reason.message
+              : "Couldn’t load the Feed from any environment.",
+          );
         partialError = sourcePages.current.failures.size
           ? "Some environments could not refresh. Showing their last loaded threads."
           : "";
@@ -1806,9 +2484,9 @@ export function Feed({
         }
         if (append && retainHistory) {
           for (const source of activeSources) {
-            if (loaded.some(item => item.source.id === source.id)) continue;
+            if (loaded.some((item) => item.source.id === source.id)) continue;
             const page = sourcePages.current.pages.get(source.id);
-            if (page) loaded.push({source, page});
+            if (page) loaded.push({ source, page });
           }
         }
         const nextCursors: Record<string, string> = append
@@ -1830,17 +2508,17 @@ export function Feed({
       if (!isCurrent()) return;
       const key = shownKey();
       setItems((old) => {
-        const merged = pendingUnsaves(append && !retainHistory
-          ? [
-              ...old,
-              ...result.items.filter(
-                (item) =>
-                  !old.some(
-                    (o) => feedItemKey(o) === feedItemKey(item),
-                  ),
-              ),
-            ]
-          : result.items);
+        const merged = pendingUnsaves(
+          append && !retainHistory
+            ? [
+                ...old,
+                ...result.items.filter(
+                  (item) =>
+                    !old.some((o) => feedItemKey(o) === feedItemKey(item)),
+                ),
+              ]
+            : result.items,
+        );
         if (sources)
           merged.sort(
             (a, b) =>
@@ -1864,7 +2542,8 @@ export function Feed({
       setReadError(partialError);
     } catch (e) {
       if (isCurrent() && (e as Error).name !== "AbortError") {
-        if (!combined) retryPages.current.set(scopedSource, pages.get(scopedSource)!);
+        if (!combined)
+          retryPages.current.set(scopedSource, pages.get(scopedSource)!);
         setReadError((e as Error).message);
       }
     } finally {
@@ -1881,9 +2560,11 @@ export function Feed({
       }
     }
   }
-  recoverSource.current = source => {
-    if (activeSources.some(item => item.id === source)) void load(false, true, [source]);
-    else if (allSources.some(item => item.id === source)) void loadNeeds([source]);
+  recoverSource.current = (source) => {
+    if (activeSources.some((item) => item.id === source))
+      void load(false, true, [source]);
+    else if (allSources.some((item) => item.id === source))
+      void loadNeeds([source]);
   };
   const firstLoad = useRef(true);
   useEffect(() => {
@@ -1902,16 +2583,18 @@ export function Feed({
     firstLoad.current = false;
     // Subscribe before the first snapshot. Invalidations during a request are
     // a bounded trailing read; each retained page owns its own delta cursor.
-    const stopFrames = activeSources.map(source => listenProjectionFrames(source.id, frame => {
-      if(frame.type !== "reset") return;
-      projectionPages.current.reset(source.id);
-      readRecovery.current.reset(source.id);
-      retryPages.current.delete(source.id);
-      if (inFlight.current) pendingRefresh.current.sources.add(source.id);
-    }));
+    const stopFrames = activeSources.map((source) =>
+      listenProjectionFrames(source.id, (frame) => {
+        if (frame.type !== "reset") return;
+        projectionPages.current.reset(source.id);
+        readRecovery.current.reset(source.id);
+        retryPages.current.delete(source.id);
+        if (inFlight.current) pendingRefresh.current.sources.add(source.id);
+      }),
+    );
     void load();
     return () => {
-      stopFrames.forEach(stop=>stop());
+      stopFrames.forEach((stop) => stop());
       readRecovery.current.reset();
       ++request.current;
       ++needsRequest.current;
@@ -1922,10 +2605,21 @@ export function Feed({
       refreshReadingSources.current = undefined;
       setReadBusy(false);
     };
-  }, [filter, project, teams, agent, sourceKey, needsSourceKey, doneRead, generation]);
+  }, [
+    filter,
+    project,
+    teams,
+    agent,
+    sourceKey,
+    needsSourceKey,
+    doneRead,
+    generation,
+  ]);
   useEffect(() => {
-    const legacy=activeSources.filter(source=>!reactiveSource(source.id,"feed")).map(source=>source.id);
-    if(legacy.length)void load(false, true, legacy);
+    const legacy = activeSources
+      .filter((source) => !reactiveSource(source.id, "feed"))
+      .map((source) => source.id);
+    if (legacy.length) void load(false, true, legacy);
   }, [revision]);
   useEffect(() => {
     // Explicit refreshes supersede an older read: dropping one while polling
@@ -1938,23 +2632,48 @@ export function Feed({
     // Source discovery and completed actions refresh the head with its normal
     // retry budget. Only this view's notice retries the failed operation once.
     window.addEventListener("loop-source-refresh", update);
-    const stopChanges = listenWorkspaceChanges("feed", event => {
-      const detail=(event as CustomEvent<WorkspaceChangeDetail>).detail;
-      const affected=activeSources.filter(source=>workspaceChangeAffects(event,"feed",source.id) &&
-        (reactiveSource(source.id,"feed") || !detail?.changes)).map(source=>source.id);
+    const stopChanges = listenWorkspaceChanges("feed", (event) => {
+      const detail = (event as CustomEvent<WorkspaceChangeDetail>).detail;
+      const affected = activeSources
+        .filter(
+          (source) =>
+            workspaceChangeAffects(event, "feed", source.id) &&
+            (reactiveSource(source.id, "feed") || !detail?.changes),
+        )
+        .map((source) => source.id);
       if (affected.length) {
-        if ([...retryPages.current.keys()].every(source => affected.includes(source))) setReadError("");
-        void load(false,true,affected);
+        if (
+          [...retryPages.current.keys()].every((source) =>
+            affected.includes(source),
+          )
+        )
+          setReadError("");
+        void load(false, true, affected);
       }
-      const needsOnly = allSources.filter(source => !activeSources.some(active => active.id === source.id) && workspaceChangeAffects(event, "feed", source.id)).map(source => source.id);
+      const needsOnly = allSources
+        .filter(
+          (source) =>
+            !activeSources.some((active) => active.id === source.id) &&
+            workspaceChangeAffects(event, "feed", source.id),
+        )
+        .map((source) => source.id);
       if (needsOnly.length) void loadNeeds(needsOnly);
     });
-    const stopFallback = surfaceFallback(allSources.map(source=>source.id),"feed",30_000, missing => {
-      const selected = missing.filter(source => activeSources.some(item => item.id === source));
-      const needsOnly = missing.filter(source => !selected.includes(source));
-      if (selected.length) void load(false, true, selected);
-      if (needsOnly.length) void loadNeeds(needsOnly);
-    });
+    const stopFallback = surfaceFallback(
+      allSources.map((source) => source.id),
+      "feed",
+      30_000,
+      (missing) => {
+        const selected = missing.filter((source) =>
+          activeSources.some((item) => item.id === source),
+        );
+        const needsOnly = missing.filter(
+          (source) => !selected.includes(source),
+        );
+        if (selected.length) void load(false, true, selected);
+        if (needsOnly.length) void loadNeeds(needsOnly);
+      },
+    );
     return () => {
       window.removeEventListener("loop-later-change", update);
       window.removeEventListener("loop-social-read", update);
@@ -1965,19 +2684,41 @@ export function Feed({
     };
     // Re-arm with every input `load` reads, so the fallback refresh never
     // replaces the Feed using a stale filter or source list.
-  }, [filter, project, teams, agent, sourceKey, needsSourceKey, doneRead, generation]);
+  }, [
+    filter,
+    project,
+    teams,
+    agent,
+    sourceKey,
+    needsSourceKey,
+    doneRead,
+    generation,
+  ]);
   async function runAction(
     runId: string,
-    ...command: [action: "reorder", sourceId: string, body: RouteInput<typeof workspaceApi.runReorder>["body"]]
+    ...command:
+      | [
+          action: "reorder",
+          sourceId: string,
+          body: RouteInput<typeof workspaceApi.runReorder>["body"],
+        ]
       | [action: "cancel" | "pause" | "resume" | "dismiss", sourceId: string]
   ) {
     const [action, sourceId, body] = command;
     const owner = viewOwner();
     try {
       if (action === "reorder")
-        await callRoute(workspaceApi.runReorder, { params: { id: runId }, body }, sourceId);
+        await callRoute(
+          workspaceApi.runReorder,
+          { params: { id: runId }, body },
+          sourceId,
+        );
       else
-        await callRoute(workspaceApi.runAction, { params: { id: runId, action }, body: {} }, sourceId);
+        await callRoute(
+          workspaceApi.runAction,
+          { params: { id: runId, action }, body: {} },
+          sourceId,
+        );
       if (owner !== viewOwner()) return;
       if (action === "dismiss") {
         // Discard an older Needs read and remove exactly the acknowledged
@@ -2003,23 +2744,47 @@ export function Feed({
   async function dismissFeedCard(item: FeedItem) {
     const cardKey = item.reply_card_key ?? item.done_card_key;
     if (!cardKey || !["done", "replies"].includes(filter)) return;
-    const owner = viewOwner(), key = shownKey();
+    const owner = viewOwner(),
+      key = shownKey();
     const source = item.sourceId ?? scopedSource;
-    const current = () => owner === viewOwner() &&
+    const current = () =>
+      owner === viewOwner() &&
       doneRefresh.current.key === JSON.stringify([owner, key]);
-    const setHidden = (hidden: boolean) => item.reply
-      ? callRoute(workspaceApi.replyState, { params: { id: item.last_message!.id }, body: { archived: hidden } }, source)
-      : callRoute(workspaceApi.feedUpdate, { params: { id: item.conversation_id }, body: { hidden, cardKey } }, source);
+    const setHidden = (hidden: boolean) =>
+      item.reply
+        ? callRoute(
+            workspaceApi.replyState,
+            {
+              params: { id: item.last_message!.id },
+              body: { archived: hidden },
+            },
+            source,
+          )
+        : callRoute(
+            workspaceApi.feedUpdate,
+            { params: { id: item.conversation_id }, body: { hidden, cardKey } },
+            source,
+          );
     const updateCard = (hidden: boolean) => {
       if (!item.card) return;
       const cardKey = "feed-cards:" + JSON.stringify([owner, key, source]);
       const reader = doneCards.current.get(cardKey);
-      const window = reader?.pager.snapshot() ?? cachedView<CardWindow>(cardKey);
+      const window =
+        reader?.pager.snapshot() ?? cachedView<CardWindow>(cardKey);
       if (!window) return;
-      const items = window.page.items.filter(entry => entry.card.id !== item.card!.id);
-      if (!hidden) items.push({card: item.card,
-        order: item.cardOrder ?? [item.last_activity_at, item.conversation_id + "\u001f" + (item.done_card_key ?? "")], saved: null});
-      const changed = {...window, page: {...window.page, items}};
+      const items = window.page.items.filter(
+        (entry) => entry.card.id !== item.card!.id,
+      );
+      if (!hidden)
+        items.push({
+          card: item.card,
+          order: item.cardOrder ?? [
+            item.last_activity_at,
+            item.conversation_id + "\u001f" + (item.done_card_key ?? ""),
+          ],
+          saved: null,
+        });
+      const changed = { ...window, page: { ...window.page, items } };
       reader?.invalidateForAction();
       reader?.pager.restore(cardKey, changed);
       cacheView(cardKey, changed, owner);
@@ -2027,12 +2792,19 @@ export function Feed({
     const update = (change: (items: FeedItem[]) => FeedItem[]) => {
       if (owner !== viewOwner()) return;
       const cached = cachedView<Shown>(key);
-      if (cached) cacheView(key, { ...cached, items: change(cached.items) }, owner);
-      const page = sourcePages.current.key === pagesKey()
-        ? sourcePages.current.pages.get(source) : undefined;
-      if (page) sourcePages.current.pages.set(source, {
-        ...page, items: change(page.items.map((row) => ({ ...row, sourceId: source }))),
-      });
+      if (cached)
+        cacheView(key, { ...cached, items: change(cached.items) }, owner);
+      const page =
+        sourcePages.current.key === pagesKey()
+          ? sourcePages.current.pages.get(source)
+          : undefined;
+      if (page)
+        sourcePages.current.pages.set(source, {
+          ...page,
+          items: change(
+            page.items.map((row) => ({ ...row, sourceId: source })),
+          ),
+        });
       if (current()) {
         ++request.current; // A read started before the action cannot restore it.
         setItems(change);
@@ -2045,7 +2817,8 @@ export function Feed({
       update((old) =>
         old.filter(
           (row) =>
-            feedItemKey(row, row.sourceId ?? scopedSource) !== feedItemKey(item, source),
+            feedItemKey(row, row.sourceId ?? scopedSource) !==
+            feedItemKey(item, source),
         ),
       );
       notify({
@@ -2054,7 +2827,12 @@ export function Feed({
           if (owner !== viewOwner()) return;
           await setHidden(false);
           updateCard(false);
-          update((old) => [...old.filter((row) => feedItemKey(row) !== feedItemKey(item)), item].sort(feedItemOrder));
+          update((old) =>
+            [
+              ...old.filter((row) => feedItemKey(row) !== feedItemKey(item)),
+              item,
+            ].sort(feedItemOrder),
+          );
           if (current()) await load();
         },
       });
@@ -2064,10 +2842,16 @@ export function Feed({
     }
   }
   async function markReplyRead(item: FeedItem) {
-    if (!item.reply || item.reply.read_at !== null || !item.last_message) return;
-    const owner = viewOwner(), source = item.sourceId ?? scopedSource;
+    if (!item.reply || item.reply.read_at !== null || !item.last_message)
+      return;
+    const owner = viewOwner(),
+      source = item.sourceId ?? scopedSource;
     try {
-      await callRoute(workspaceApi.replyState, { params: { id: item.last_message.id }, body: { read: true } }, source);
+      await callRoute(
+        workspaceApi.replyState,
+        { params: { id: item.last_message.id }, body: { read: true } },
+        source,
+      );
       if (owner === viewOwner()) await load();
     } catch (error) {
       if (owner === viewOwner()) setError((error as Error).message);
@@ -2077,29 +2861,71 @@ export function Feed({
     // Opening again is a later read choice even while an unread write is pending.
     const cardKey = item.done_card_key;
     if (item.read_at === undefined || !cardKey) return;
-    const generation = viewGeneration(), source = item.sourceId ?? scopedSource;
-    if (operationBlockReason(source, allSources.find(entry => entry.id === source)?.capabilities, workspaceApi.feedRead)) return;
+    const generation = viewGeneration(),
+      source = item.sourceId ?? scopedSource;
+    if (
+      operationBlockReason(
+        source,
+        allSources.find((entry) => entry.id === source)?.capabilities,
+        workspaceApi.feedRead,
+      )
+    )
+      return;
     try {
       await writeDoneReadState(source, () =>
-        callRoute(workspaceApi.feedRead, { params: { id: item.conversation_id }, body: { cardKey, unreadVersion: doneReadVersion(source, "d:" + cardKey, item.unread_version) } }, source));
+        callRoute(
+          workspaceApi.feedRead,
+          {
+            params: { id: item.conversation_id },
+            body: {
+              cardKey,
+              unreadVersion: doneReadVersion(
+                source,
+                "d:" + cardKey,
+                item.unread_version,
+              ),
+            },
+          },
+          source,
+        ),
+      );
       if (!bulk && generation === viewGeneration()) await load();
     } catch (error) {
       if (bulk) throw error;
       if (generation === viewGeneration()) setError((error as Error).message);
     }
   }
-  async function markUnread(item: FeedItem, thread?: SourcedDoneThread, bulk = false) {
+  async function markUnread(
+    item: FeedItem,
+    thread?: SourcedDoneThread,
+    bulk = false,
+  ) {
     const generation = viewGeneration();
-    const cardKey = item.done_card_key, source = item.sourceId ?? scopedSource;
+    const cardKey = item.done_card_key,
+      source = item.sourceId ?? scopedSource;
     try {
       if (thread) {
-        await writeDoneUnreadState(thread.source, () =>
-          callRoute(workspaceApi.doneThreadUnread, { params: { id: thread.id } }, thread.source), thread.id);
+        await writeDoneUnreadState(
+          thread.source,
+          () =>
+            callRoute(
+              workspaceApi.doneThreadUnread,
+              { params: { id: thread.id } },
+              thread.source,
+            ),
+          thread.id,
+        );
       } else if (cardKey) {
         await writeDoneUnreadState(source, () =>
-          callRoute(workspaceApi.feedUnread, {
-            params: { id: item.conversation_id }, body: { cardKey },
-          }, source));
+          callRoute(
+            workspaceApi.feedUnread,
+            {
+              params: { id: item.conversation_id },
+              body: { cardKey },
+            },
+            source,
+          ),
+        );
       } else return;
       if (!bulk && generation === viewGeneration()) {
         grouping.refresh();
@@ -2113,7 +2939,7 @@ export function Feed({
   async function markSelectedRead(unread: boolean) {
     if (bulkReadBusy) return;
     const currentGeneration = viewGeneration();
-    const rows = visibleCards.filter(row => selectedCards?.includes(row.key));
+    const rows = visibleCards.filter((row) => selectedCards?.includes(row.key));
     setBulkReadBusy(true);
     const failed: string[] = [];
     try {
@@ -2121,10 +2947,18 @@ export function Feed({
         if (currentGeneration !== viewGeneration()) return;
         const source = row.thread?.source ?? row.item.sourceId ?? scopedSource;
         const route = row.thread
-          ? unread ? workspaceApi.doneThreadUnread : workspaceApi.doneThreadRead
-          : unread ? workspaceApi.feedUnread : workspaceApi.feedRead;
+          ? unread
+            ? workspaceApi.doneThreadUnread
+            : workspaceApi.doneThreadRead
+          : unread
+            ? workspaceApi.feedUnread
+            : workspaceApi.feedRead;
         try {
-          const reason = operationBlockReason(source, allSources.find(entry => entry.id === source)?.capabilities, route);
+          const reason = operationBlockReason(
+            source,
+            allSources.find((entry) => entry.id === source)?.capabilities,
+            route,
+          );
           if (reason) throw new Error(reason);
           if (unread) await markUnread(row.item, row.thread, true);
           else if (row.thread) await markThreadRead(row.thread, true);
@@ -2135,7 +2969,10 @@ export function Feed({
       }
       if (currentGeneration !== viewGeneration()) return;
       setSelectedCards(failed.length ? failed : null);
-      if (failed.length) setError(`${failed.length} cards could not be marked ${unread ? "unread" : "read"}. Select the action again to retry.`);
+      if (failed.length)
+        setError(
+          `${failed.length} cards could not be marked ${unread ? "unread" : "read"}. Select the action again to retry.`,
+        );
       grouping.refresh();
       await load();
     } finally {
@@ -2149,18 +2986,46 @@ export function Feed({
   }
   async function markThreadRead(thread: SourcedDoneThread, bulk = false) {
     const generation = viewGeneration();
-    if (operationBlockReason(thread.source, allSources.find(entry => entry.id === thread.source)?.capabilities, workspaceApi.doneThreadRead)) return;
+    if (
+      operationBlockReason(
+        thread.source,
+        allSources.find((entry) => entry.id === thread.source)?.capabilities,
+        workspaceApi.doneThreadRead,
+      )
+    )
+      return;
     try {
       await writeDoneReadState(thread.source, () =>
-        callRoute(workspaceApi.doneThreadRead, { params: { id: thread.id }, body: thread.unreadVersions === undefined ? {} : { unreadVersions: doneThreadReadVersions(thread.source, thread.id, thread.unreadVersions) } }, thread.source));
-      if (!bulk && generation === viewGeneration()) { grouping.refresh(); await load(); }
+        callRoute(
+          workspaceApi.doneThreadRead,
+          {
+            params: { id: thread.id },
+            body:
+              thread.unreadVersions === undefined
+                ? {}
+                : {
+                    unreadVersions: doneThreadReadVersions(
+                      thread.source,
+                      thread.id,
+                      thread.unreadVersions,
+                    ),
+                  },
+          },
+          thread.source,
+        ),
+      );
+      if (!bulk && generation === viewGeneration()) {
+        grouping.refresh();
+        await load();
+      }
     } catch (error) {
       if (bulk) throw error;
       if (generation === viewGeneration()) setError((error as Error).message);
     }
   }
   function markSaved(item: FeedItem, saved: boolean, active = true) {
-    const change = (old: FeedItem[]) => old.map((row) =>
+    const change = (old: FeedItem[]) =>
+      old.map((row) =>
         row.last_message?.id === item.last_message?.id &&
         (row.sourceId || "") === (item.sourceId || "") &&
         row.last_message
@@ -2168,24 +3033,54 @@ export function Feed({
           : row,
       );
     const cached = cachedView<Shown>(shownKey());
-    if (cached) cacheView(shownKey(), { ...cached, items: change(cached.items) }, viewOwner());
+    if (cached)
+      cacheView(
+        shownKey(),
+        { ...cached, items: change(cached.items) },
+        viewOwner(),
+      );
     const source = item.sourceId ?? scopedSource;
-    const page = sourcePages.current.key === pagesKey()
-      ? sourcePages.current.pages.get(source) : undefined;
-    if (page) sourcePages.current.pages.set(source, {
-      ...page, items: change(page.items.map((row) => ({ ...row, sourceId: source }))),
-    });
+    const page =
+      sourcePages.current.key === pagesKey()
+        ? sourcePages.current.pages.get(source)
+        : undefined;
+    if (page)
+      sourcePages.current.pages.set(source, {
+        ...page,
+        items: change(page.items.map((row) => ({ ...row, sourceId: source }))),
+      });
     const owner = viewOwner();
     const cardKey = "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
     const reader = doneCards.current.get(cardKey);
     const window = reader?.pager.snapshot() ?? cachedView<CardWindow>(cardKey);
     if (window) {
-      const changed = {...window, page: {...window.page, items: window.page.items.map(entry => {
-        const card = entry.card;
-        if (card.type !== "done" || card.source.message_id !== item.last_message?.id) return entry;
-        return {...entry, card: {...card, saved, display: {...card.display,
-          last_message: card.display.last_message ? {...card.display.last_message, saved} : null}}};
-      })}};
+      const changed = {
+        ...window,
+        page: {
+          ...window.page,
+          items: window.page.items.map((entry) => {
+            const card = entry.card;
+            if (
+              card.type !== "done" ||
+              card.source.message_id !== item.last_message?.id
+            )
+              return entry;
+            return {
+              ...entry,
+              card: {
+                ...card,
+                saved,
+                display: {
+                  ...card.display,
+                  last_message: card.display.last_message
+                    ? { ...card.display.last_message, saved }
+                    : null,
+                },
+              },
+            };
+          }),
+        },
+      };
       reader?.invalidateForAction();
       reader?.pager.restore(cardKey, changed);
       cacheView(cardKey, changed, owner);
@@ -2193,7 +3088,8 @@ export function Feed({
         ++request.current;
         inFlight.current = false;
         setReadBusy(false);
-        for (const source of headSources.current) pendingRefresh.current.sources.add(source);
+        for (const source of headSources.current)
+          pendingRefresh.current.sources.add(source);
         headSources.current.clear();
         schedulePendingRefresh();
         setLoadedKey(shownKey());
@@ -2206,9 +3102,14 @@ export function Feed({
     messageId: string,
     saved: boolean,
   ) {
-    await callRoute(saved ? workspaceApi.messageSave : workspaceApi.messageUnsave, {
-      params: { id: messageId }, body: saved ? {} : undefined,
-    }, item.sourceId ?? scopedSource);
+    await callRoute(
+      saved ? workspaceApi.messageSave : workspaceApi.messageUnsave,
+      {
+        params: { id: messageId },
+        body: saved ? {} : undefined,
+      },
+      item.sourceId ?? scopedSource,
+    );
     window.dispatchEvent(new Event("loop-later-change"));
   }
   /**
@@ -2219,7 +3120,8 @@ export function Feed({
   async function toggleSaved(item: FeedItem) {
     const message = item.last_message;
     if (!message) return;
-    const owner = viewOwner(), key = JSON.stringify([owner, shownKey()]);
+    const owner = viewOwner(),
+      key = JSON.stringify([owner, shownKey()]);
     const current = () => owner === viewOwner() && activeView.current === key;
     const restore = (saved: boolean) => {
       if (owner !== viewOwner()) return;
@@ -2239,14 +3141,23 @@ export function Feed({
     if (saved) {
       notify({
         text: "Removed from Saved.",
-        undo: () => { clearPending(); restore(true); },
+        undo: () => {
+          clearPending();
+          restore(true);
+        },
         onExpire: () => {
-          if (owner !== viewOwner() || deferredUnsaves.current.get(pendingKey) !== pending) return;
-          void setSavedOnServer(item, message.id, false).then(clearPending).catch((e) => {
-            clearPending();
-            restore(true);
-            if (current()) setError((e as Error).message);
-          });
+          if (
+            owner !== viewOwner() ||
+            deferredUnsaves.current.get(pendingKey) !== pending
+          )
+            return;
+          void setSavedOnServer(item, message.id, false)
+            .then(clearPending)
+            .catch((e) => {
+              clearPending();
+              restore(true);
+              if (current()) setError((e as Error).message);
+            });
         },
       });
       // Reconcile other environments immediately; the deferred item stays
@@ -2270,34 +3181,82 @@ export function Feed({
       if (current()) setError((e as Error).message);
     }
   }
-  function actionsFor(item: FeedItem, thread?: SourcedDoneThread | null): Action[] {
+  function actionsFor(
+    item: FeedItem,
+    thread?: SourcedDoneThread | null,
+  ): Action[] {
     const unreadSource = thread?.source ?? item.sourceId ?? scopedSource;
-    const unreadReason = operationBlockReason(unreadSource,
-      allSources.find(source => source.id === unreadSource)?.capabilities,
-      thread ? workspaceApi.doneThreadUnread : workspaceApi.feedUnread);
+    const unreadReason = operationBlockReason(
+      unreadSource,
+      allSources.find((source) => source.id === unreadSource)?.capabilities,
+      thread ? workspaceApi.doneThreadUnread : workspaceApi.feedUnread,
+    );
     // An open reader in the Unread selection retains its original card while
     // the read write removes it from that selection. Allow marking it unread
     // even when this retained snapshot still says it is unread.
-    const unread: Action[] = (thread ? thread.unread !== undefined : item.done_card_key && item.read_at !== undefined) ? [{
-      id: "mark-unread", label: "Mark unread", icon: <Mail size={20} />,
-      disabled: !!unreadReason, hint: unreadReason,
-      onSelect: () => void markUnread(item, thread ?? undefined),
-    }] : [];
-    const key = thread ? JSON.stringify([thread.source, "thread", thread.id]) : feedItemKey(item, item.sourceId ?? scopedSource);
-    const organize: Action[] = aggregatable(item) ? [
-      { id: "select-cards", label: "Select cards", icon: <ListChecks size={20} />, onSelect: () => setSelectedCards([key]) },
-      { id: "move-to", label: "Move to…", icon: <FolderInput size={20} />, onSelect: () => organizeSelection([key]) },
-      { id: "combine", label: "Combine with another card", icon: <Layers size={20} />,
-        hint: "One thread. The whole conversation.",
-        disabled: !visibleCards.some(row => row.key !== key && aggregatable(row.item)),
-        onSelect: () => setCombineFrom(key) },
-    ] : [];
-    if (thread) return [
-      { id: "open-thread", label: "Open thread", icon: <MessageSquare size={20} />, onSelect: () => openThread(thread) },
-      ...unread,
-      ...organize,
-      { id: "ungroup", label: "Ungroup cards", hint: "Return each card to Done", icon: <Layers size={20} />, onSelect: () => void ungroup(thread) },
-    ];
+    const unread: Action[] = (
+      thread
+        ? thread.unread !== undefined
+        : item.done_card_key && item.read_at !== undefined
+    )
+      ? [
+          {
+            id: "mark-unread",
+            label: "Mark unread",
+            icon: <Mail size={20} />,
+            disabled: !!unreadReason,
+            hint: unreadReason,
+            onSelect: () => void markUnread(item, thread ?? undefined),
+          },
+        ]
+      : [];
+    const key = thread
+      ? JSON.stringify([thread.source, "thread", thread.id])
+      : feedItemKey(item, item.sourceId ?? scopedSource);
+    const organize: Action[] = aggregatable(item)
+      ? [
+          {
+            id: "select-cards",
+            label: "Select cards",
+            icon: <ListChecks size={20} />,
+            onSelect: () => setSelectedCards([key]),
+          },
+          {
+            id: "move-to",
+            label: "Move to…",
+            icon: <FolderInput size={20} />,
+            onSelect: () => organizeSelection([key]),
+          },
+          {
+            id: "combine",
+            label: "Combine with another card",
+            icon: <Layers size={20} />,
+            hint: "One thread. The whole conversation.",
+            disabled: !visibleCards.some(
+              (row) => row.key !== key && aggregatable(row.item),
+            ),
+            onSelect: () => setCombineFrom(key),
+          },
+        ]
+      : [];
+    if (thread)
+      return [
+        {
+          id: "open-thread",
+          label: "Open thread",
+          icon: <MessageSquare size={20} />,
+          onSelect: () => openThread(thread),
+        },
+        ...unread,
+        ...organize,
+        {
+          id: "ungroup",
+          label: "Ungroup cards",
+          hint: "Return each card to Done",
+          icon: <Layers size={20} />,
+          onSelect: () => void ungroup(thread),
+        },
+      ];
     const agent = agents.find(
       (a) =>
         a.id === item.agent_id &&
@@ -2306,17 +3265,34 @@ export function Feed({
     const source = item.sourceId ?? scopedSource;
     const state = item.run?.state || "";
     const actions: Action[] = [
-      ...(filter === "done" ? [{
-        id: "reply", label: "Reply", icon: <MessageSquare size={20} />,
-        onSelect: () => onReply
-          ? onReply(item.conversation_id, source, feedReplyQuote(item) ?? undefined)
-          : onOpen(item.conversation_id, item.last_message?.id, source),
-      }] : []),
+      ...(filter === "done"
+        ? [
+            {
+              id: "reply",
+              label: "Reply",
+              icon: <MessageSquare size={20} />,
+              onSelect: () =>
+                onReply
+                  ? onReply(
+                      item.conversation_id,
+                      source,
+                      feedReplyQuote(item) ?? undefined,
+                    )
+                  : onOpen(item.conversation_id, item.last_message?.id, source),
+            },
+          ]
+        : []),
       ...unread,
-      ...(item.reply ? [{
-        id: "archive-reply", label: "Archive reply", icon: <Archive size={20} />,
-        onSelect: () => void dismissFeedCard(item),
-      }] : []),
+      ...(item.reply
+        ? [
+            {
+              id: "archive-reply",
+              label: "Archive reply",
+              icon: <Archive size={20} />,
+              onSelect: () => void dismissFeedCard(item),
+            },
+          ]
+        : []),
       // Nothing written yet is nothing to keep.
       ...(item.last_message
         ? [
@@ -2343,10 +3319,13 @@ export function Feed({
       },
     ];
     actions.push(...organize);
-    if (filter === "done" && item.done_card_key) actions.push({
-      id: "remove-done", label: "Remove from Done", icon: <Archive size={20} />,
-      onSelect: () => void dismissFeedCard(item),
-    });
+    if (filter === "done" && item.done_card_key)
+      actions.push({
+        id: "remove-done",
+        label: "Remove from Done",
+        icon: <Archive size={20} />,
+        onSelect: () => void dismissFeedCard(item),
+      });
     // Queued follow-ups have their own controls, separate from the thread's
     // current run; a thread can hold a running task and queued messages.
     const queued = item.queued_runs || [];
@@ -2456,11 +3435,14 @@ export function Feed({
     return actions;
   }
   function card(item: FeedItem, inNeeds = false, thread?: SourcedDoneThread) {
-    const displayKey = thread ? JSON.stringify([thread.source, "thread", thread.id]) : feedItemKey(item, item.sourceId ?? scopedSource);
+    const displayKey = thread
+      ? JSON.stringify([thread.source, "thread", thread.id])
+      : feedItemKey(item, item.sourceId ?? scopedSource);
     const source = item.sourceId ?? scopedSource;
     // The reading sheet identifies agent output. A thread whose latest
     // content is a prompt opens the conversation with its original author.
-    const threadOutput = !!item.live_preview || item.last_message?.role === "assistant";
+    const threadOutput =
+      !!item.live_preview || item.last_message?.role === "assistant";
     const dismissFailure =
       inNeeds && item.run && ["failed", "interrupted"].includes(item.run.state);
     const agent = agents.find(
@@ -2497,31 +3479,71 @@ export function Feed({
     return (
       <FeedCard
         key={displayKey}
-        item={thread ? { ...item, title: thread.title, next_action: undefined } : item}
+        item={
+          thread
+            ? { ...item, title: thread.title, next_action: undefined }
+            : item
+        }
         groupCount={thread?.cardIds.length}
-        selected={!inNeeds && selectedCards ? selectedCards.includes(displayKey) : undefined}
-        onSelect={!inNeeds && selectedCards && aggregatable(item) ? () => { if (!bulkReadBusy) toggleSelection(displayKey); } : undefined}
+        selected={
+          !inNeeds && selectedCards
+            ? selectedCards.includes(displayKey)
+            : undefined
+        }
+        onSelect={
+          !inNeeds && selectedCards && aggregatable(item)
+            ? () => {
+                if (!bulkReadBusy) toggleSelection(displayKey);
+              }
+            : undefined
+        }
         aggregationId={!inNeeds && aggregatable(item) ? displayKey : undefined}
         dragSession={dragSession}
         onAggregate={combineCards}
-        sourceCapabilities={allSources.find(entry => entry.id === source)?.capabilities}
-        readAsCard={!inNeeds && !thread && (
-          ["done", "replies", "working", "queued"].includes(filter) ||
-          (filter === "threads" && threadOutput)
-        )}
+        sourceCapabilities={
+          allSources.find((entry) => entry.id === source)?.capabilities
+        }
+        readAsCard={
+          !inNeeds &&
+          !thread &&
+          (["done", "replies", "working", "queued"].includes(filter) ||
+            (filter === "threads" && threadOutput))
+        }
         agent={agent}
         model={model}
         environment={cardEnvironment(
           source,
           connectionId,
           agent?.executionEnvironment ||
-            (source && allSources.find(item => item.id === source)?.name) ||
+            (source && allSources.find((item) => item.id === source)?.name) ||
             item.executionEnvironment,
         )}
-        onRead={item.reply ? () => void markReplyRead(item) : item.read_at !== undefined && !thread ? () => void markDoneRead(item) : undefined}
-        onReadingChange={!inNeeds && !thread && doneRead === "unread" ? open => setReadingCard(open ? { item, view: shownKey() } : null) : undefined}
-        onQuestion={item.reply ? () => onOpen(item.conversation_id, item.reply!.message_id, source) : undefined}
-        onOpen={() => thread ? openThread(thread) : onOpen(item.conversation_id, item.reply ? item.last_message?.id : undefined, source)}
+        onRead={
+          item.reply
+            ? () => void markReplyRead(item)
+            : item.read_at !== undefined && !thread
+              ? () => void markDoneRead(item)
+              : undefined
+        }
+        onReadingChange={
+          !inNeeds && !thread && doneRead === "unread"
+            ? (open) => setReadingCard(open ? { item, view: shownKey() } : null)
+            : undefined
+        }
+        onQuestion={
+          item.reply
+            ? () => onOpen(item.conversation_id, item.reply!.message_id, source)
+            : undefined
+        }
+        onOpen={() =>
+          thread
+            ? openThread(thread)
+            : onOpen(
+                item.conversation_id,
+                item.reply ? item.last_message?.id : undefined,
+                source,
+              )
+        }
         onReply={() =>
           onReply
             ? onReply(
@@ -2543,15 +3565,27 @@ export function Feed({
               )
         }
         onAgent={agent ? () => onAgent(agent) : undefined}
-        onMenu={() => { setMenu(item); setMenuThread(thread ?? null); }}
-        onDismiss={thread || selectedCards ? undefined :
+        onMenu={() => {
+          setMenu(item);
+          setMenuThread(thread ?? null);
+        }}
+        onDismiss={
+          thread || selectedCards
+            ? undefined
+            : dismissFailure
+              ? () => void runAction(item.run!.id, "dismiss", source)
+              : (filter === "done" && item.done_card_key) ||
+                  (filter === "replies" && item.reply_card_key)
+                ? () => void dismissFeedCard(item)
+                : undefined
+        }
+        dismissLabel={
           dismissFailure
-            ? () => void runAction(item.run!.id, "dismiss", source)
-            : (filter === "done" && item.done_card_key) || (filter === "replies" && item.reply_card_key)
-              ? () => void dismissFeedCard(item)
+            ? "Dismiss from Needs you"
+            : item.reply
+              ? "Archive reply"
               : undefined
         }
-        dismissLabel={dismissFailure ? "Dismiss from Needs you" : item.reply ? "Archive reply" : undefined}
         onLater={() => setLater(item)}
       />
     );
@@ -2626,11 +3660,7 @@ export function Feed({
         </NeedsStack>
       )}
       {!hideFilters && (
-        <div
-          className="chip-row feed-tabs"
-          role="tablist"
-          aria-label="Show"
-        >
+        <div className="chip-row feed-tabs" role="tablist" aria-label="Show">
           {feedFilters.map((f) => (
             <button
               key={f.id}
@@ -2649,11 +3679,21 @@ export function Feed({
           ))}
         </div>
       )}
-      <CollectionReadNotice error={readError} busy={readBusy} retry={retryRead} />
+      <CollectionReadNotice
+        error={readError}
+        busy={readBusy}
+        retry={retryRead}
+      />
       {error && (
         <div className="error" role="alert">
           {error}
-          <button className="text-button" onClick={() => { setError(""); void load(); }}>
+          <button
+            className="text-button"
+            onClick={() => {
+              setError("");
+              void load();
+            }}
+          >
             Try again
           </button>
         </div>
@@ -2663,28 +3703,71 @@ export function Feed({
           {notice}
         </p>
       )}
-      {grouping.error && <p className="error" role="alert">{grouping.error}<button onClick={grouping.refresh}>Retry</button></p>}
-      {mailThreads.error && <p className="error" role="alert">{mailThreads.error}<button onClick={mailThreads.refresh}>Retry agent threads</button></p>}
-      {selectedCards && <div className="done-selection-bar" role="region" aria-label="Selected cards">
-        <strong>{selectedCards.length} selected</strong>
-        <button disabled={bulkReadBusy || !selectedCards.length} onClick={() => void markSelectedRead(false)}>Mark read</button>
-        <button disabled={bulkReadBusy || !selectedCards.length} onClick={() => void markSelectedRead(true)}>Mark unread</button>
-        <button className="primary" disabled={bulkReadBusy || !selectedCards.length} onClick={() => organizeSelection(selectedCards)}>Move to…</button>
-        <button disabled={bulkReadBusy} onClick={() => setSelectedCards(null)}>Cancel</button>
-      </div>}
+      {grouping.error && (
+        <p className="error" role="alert">
+          {grouping.error}
+          <button onClick={grouping.refresh}>Retry</button>
+        </p>
+      )}
+      {mailThreads.error && (
+        <p className="error" role="alert">
+          {mailThreads.error}
+          <button onClick={mailThreads.refresh}>Retry agent threads</button>
+        </p>
+      )}
+      {selectedCards && (
+        <div
+          className="done-selection-bar"
+          role="region"
+          aria-label="Selected cards"
+        >
+          <strong>{selectedCards.length} selected</strong>
+          <button
+            disabled={bulkReadBusy || !selectedCards.length}
+            onClick={() => void markSelectedRead(false)}
+          >
+            Mark read
+          </button>
+          <button
+            disabled={bulkReadBusy || !selectedCards.length}
+            onClick={() => void markSelectedRead(true)}
+          >
+            Mark unread
+          </button>
+          <button
+            className="primary"
+            disabled={bulkReadBusy || !selectedCards.length}
+            onClick={() => organizeSelection(selectedCards)}
+          >
+            Move to…
+          </button>
+          <button
+            disabled={bulkReadBusy}
+            onClick={() => setSelectedCards(null)}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
       {/* Keep the selected feed mounted so collapsing Needs you restores it. */}
       <div className="feed-results" hidden={needsOpen}>
-        {!hideFilters && filter === "done" && <DoneFeedFilters
-          read={selection.read}
-          agent={selectedAgent ? selection.agent : ""}
-          agents={doneAgents}
-          source={scopedSource}
-          onRead={read => setDoneSelection({ ...selection, read })}
-          onAgent={agent => setDoneSelection({ ...selection, agent })}
-          onClear={clearDoneFilters}
-        />}
+        {!hideFilters && filter === "done" && (
+          <DoneFeedFilters
+            read={selection.read}
+            agent={selectedAgent ? selection.agent : ""}
+            agents={doneAgents}
+            source={scopedSource}
+            onRead={(read) => setDoneSelection({ ...selection, read })}
+            onAgent={(agent) => setDoneSelection({ ...selection, agent })}
+            onClear={clearDoneFilters}
+          />
+        )}
         <>
-          {(loading || partialReadPending || mailThreads.loading || (combined && sourcesLoading)) && !feedRows.length ? (
+          {(loading ||
+            partialReadPending ||
+            mailThreads.loading ||
+            (combined && sourcesLoading)) &&
+          !feedRows.length ? (
             <div
               className="feed-loading"
               role="status"
@@ -2696,80 +3779,145 @@ export function Feed({
             </div>
           ) : feedRows.length ? (
             <ul className="feed-list feed">
-              {feedRows.map(row => row.kind === "card" ? card(row.card.item, false, row.card.thread) : <AgentThreadCard
-                key={row.key} thread={row.thread} environment={row.thread.source ? activeSources.find(source => source.id === row.thread.source)?.name : undefined}
-                onOpen={() => setReadingMail({ ...row.thread, generation })} />)}
+              {feedRows.map((row) =>
+                row.kind === "card" ? (
+                  card(row.card.item, false, row.card.thread)
+                ) : (
+                  <AgentThreadCard
+                    key={row.key}
+                    thread={row.thread}
+                    environment={
+                      row.thread.source
+                        ? activeSources.find(
+                            (source) => source.id === row.thread.source,
+                          )?.name
+                        : undefined
+                    }
+                    onOpen={() => setReadingMail({ ...row.thread, generation })}
+                  />
+                ),
+              )}
             </ul>
           ) : (
-            !error && !readError && (
+            !error &&
+            !readError && (
               <div className="feed-empty">
                 <p>
                   <strong>
                     {doneFiltered
                       ? "No results match these filters."
                       : filter === "all"
-                      ? "Nothing here yet."
-                      : filter === "threads"
-                        ? "No threads yet."
-                        : filter === "done"
-                          ? "Nothing finished yet."
-                          : filter === "replies"
-                            ? "Replies to messages you send during a task will appear here."
-                            : filter === "working"
-                              ? "No agents are working right now."
-                              : filter === "outcomes"
-                                ? "No finished work here yet."
-                                : filter === "unfinished"
-                                  ? "Nothing unfinished here."
-                                  : "Nothing is queued."}
+                        ? "Nothing here yet."
+                        : filter === "threads"
+                          ? "No threads yet."
+                          : filter === "done"
+                            ? "Nothing finished yet."
+                            : filter === "replies"
+                              ? "Replies to messages you send during a task will appear here."
+                              : filter === "working"
+                                ? "No agents are working right now."
+                                : filter === "outcomes"
+                                  ? "No finished work here yet."
+                                  : filter === "unfinished"
+                                    ? "Nothing unfinished here."
+                                    : "Nothing is queued."}
                   </strong>
                 </p>
-                {!doneFiltered && ["all", "done", "threads"].includes(filter) && emptyAction}
+                {!doneFiltered &&
+                  ["all", "done", "threads"].includes(filter) &&
+                  emptyAction}
               </div>
             )
           )}
           {(next || mailThreads.hasMore) && (
             <button
               className="secondary load-more"
-              onClick={() => { if (next) void load(true); if (mailThreads.hasMore) mailThreads.loadMore(); }}
+              onClick={() => {
+                if (next) void load(true);
+                if (mailThreads.hasMore) mailThreads.loadMore();
+              }}
             >
               Load more
             </button>
           )}
         </>
       </div>
-      {menu && (menuThread || (filter === "done" && menu.done_card_key) ? <DoneCardMenu
-        title={menuThread?.title ?? menu.title}
-        subtitle={[menu.agent_name && `@${menu.agent_name}`, menu.project_name].filter(Boolean).join(" · ")}
-        threadCount={menuThread?.cardIds.length}
-        actions={actionsFor(menu, menuThread)} onClose={() => setMenu(null)} /> : (
-        <ActionSheet
-          title={menu.title}
-          onClose={() => setMenu(null)}
-          actions={actionsFor(menu, menuThread)}
-        >
-          {!menuThread && menu.run && (
-            <p className="field-hint">
-              {runStatus(menu.run.state, menu.pending_approvals).label} ·{" "}
-              {runTiming(menu.run)}
-            </p>
-          )}
-        </ActionSheet>
-      ))}
+      {menu &&
+        (menuThread || (filter === "done" && menu.done_card_key) ? (
+          <DoneCardMenu
+            title={menuThread?.title ?? menu.title}
+            subtitle={[
+              menu.agent_name && `@${menu.agent_name}`,
+              menu.project_name,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            threadCount={menuThread?.cardIds.length}
+            actions={actionsFor(menu, menuThread)}
+            onClose={() => setMenu(null)}
+          />
+        ) : (
+          <ActionSheet
+            title={menu.title}
+            onClose={() => setMenu(null)}
+            actions={actionsFor(menu, menuThread)}
+          >
+            {!menuThread && menu.run && (
+              <p className="field-hint">
+                {runStatus(menu.run.state, menu.pending_approvals).label} ·{" "}
+                {runTiming(menu.run)}
+              </p>
+            )}
+          </ActionSheet>
+        ))}
       {combineFrom && (
-        <DoneCardPicker onClose={() => setCombineFrom(null)}
-          actions={visibleCards.filter(row => row.key !== combineFrom && aggregatable(row.item)).map(row => ({
-            id: row.key, label: row.thread?.title ?? row.item.title,
-            hint: row.thread ? `${row.thread.cardIds.length} cards` : row.item.agent_name ?? undefined,
-            icon: <Layers size={20} />, onSelect: () => combineCards(combineFrom, row.key),
-          }))} />
+        <DoneCardPicker
+          onClose={() => setCombineFrom(null)}
+          actions={visibleCards
+            .filter((row) => row.key !== combineFrom && aggregatable(row.item))
+            .map((row) => ({
+              id: row.key,
+              label: row.thread?.title ?? row.item.title,
+              hint: row.thread
+                ? `${row.thread.cardIds.length} cards`
+                : (row.item.agent_name ?? undefined),
+              icon: <Layers size={20} />,
+              onSelect: () => combineCards(combineFrom, row.key),
+            }))}
+        />
       )}
-      {aggregate && <OrganizeCards selection={aggregate} threads={grouping.threads}
-        onClose={() => setAggregate(null)} onDone={() => { grouping.refresh(); setSelectedCards(null); }} />}
-      {readingThread?.generation === generation && <DoneThreadReader key={JSON.stringify([generation, readingThread.source, readingThread.id])}
-        thread={readingThread} onClose={() => setReadingThread(null)} onOpen={onOpen} onChanged={grouping.refresh} />}
-      {readingMail?.generation === generation && <AgentThreadReader key={JSON.stringify([generation, readingMail.source, readingMail.id])} thread={readingMail}
-        onClose={() => setReadingMail(null)} onOpen={onOpen} />}
+      {aggregate && (
+        <OrganizeCards
+          selection={aggregate}
+          threads={grouping.threads}
+          onClose={() => setAggregate(null)}
+          onDone={() => {
+            grouping.refresh();
+            setSelectedCards(null);
+          }}
+        />
+      )}
+      {readingThread?.generation === generation && (
+        <DoneThreadReader
+          key={JSON.stringify([
+            generation,
+            readingThread.source,
+            readingThread.id,
+          ])}
+          thread={readingThread}
+          onClose={() => setReadingThread(null)}
+          onOpen={onOpen}
+          onChanged={grouping.refresh}
+        />
+      )}
+      {readingMail?.generation === generation && (
+        <AgentThreadReader
+          key={JSON.stringify([generation, readingMail.source, readingMail.id])}
+          thread={readingMail}
+          onClose={() => setReadingMail(null)}
+          onOpen={onOpen}
+        />
+      )}
       {later && (
         <LaterSheet
           kind={reminderMessage ? "message" : "conversation"}

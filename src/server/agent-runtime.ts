@@ -11,9 +11,16 @@ import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import * as continuationQueries from "./sql/review-continuations.js";
 import { assertEffect } from "./effect-authority.js";
-import { MessageMetadata, readRunFolder, readRunReviewId, parseMessages, parseRuns, maybeRun, agentPayload } from "./row-schemas.js";
+import {
+  MessageMetadata,
+  readRunFolder,
+  readRunReviewId,
+  parseMessages,
+  parseRuns,
+  maybeRun,
+  agentPayload,
+} from "./row-schemas.js";
 import { QueryRecords, type QueryRow } from "./query-records.js";
-
 
 import { watchRun } from "./run-signal.js";
 import { isNativeConnection } from "./native-connections.js";
@@ -31,15 +38,24 @@ import {
 import type { ChatMessage, ToolCall } from "./providers.js";
 import { db, emit, id, now } from "./db.js";
 import { enqueue, type Run, transition } from "./queue.js";
-import { ownedConversation, ownedFolder, ownedConnection, ownedAgent, ownedTeam, ownedRun, Problem } from "./domain.js";
 import {
-  streamConnection,
-  isSubscription,
-} from "./subscriptions.js";
+  ownedConversation,
+  ownedFolder,
+  ownedConnection,
+  ownedAgent,
+  ownedTeam,
+  ownedRun,
+  Problem,
+} from "./domain.js";
+import { streamConnection, isSubscription } from "./subscriptions.js";
 import { saveArtifact } from "./artifacts.js";
 import { recordConversationUpdate } from "./conversation-updates.js";
 import { recordTrace } from "./traces.js";
-import { apiToolActivity, applyActivity, setActivityCapabilities } from "./activities.js";
+import {
+  apiToolActivity,
+  applyActivity,
+  setActivityCapabilities,
+} from "./activities.js";
 import { attachedFiles, attachmentPrompt } from "./uploads.js";
 import { toolErrorMessage } from "./mcp/results.js";
 import { messageReplyContext } from "./message-replies.js";
@@ -81,7 +97,8 @@ export function nextTurnFolder(
   conversation?: string,
 ): string | null {
   const previous = conversation
-    ? (runsQueries.latestConversationPayload(db, owner, conversation) as { id: string; payload: string } | undefined)
+    ? (runsQueries.latestConversationPayload(db, owner, conversation) as
+        { id: string; payload: string } | undefined)
     : undefined;
   return previous
     ? (readRunFolder(previous.payload, previous.id) ?? null)
@@ -133,7 +150,9 @@ export function submit(
       let conversation = data.conversationId,
         teamId = data.teamId;
       if (data.steer && !conversation) {
-        const active = parseRuns(runsQueries.steerableForAgent(db, owner, agent.id));
+        const active = parseRuns(
+          runsQueries.steerableForAgent(db, owner, agent.id),
+        );
         if (active.length > 1)
           throw new Problem(
             409,
@@ -142,10 +161,15 @@ export function submit(
         conversation = active[0]?.conversation_id || undefined;
       }
       const attachments = attachedFiles(owner, data.attachmentIds || []);
-      const live = data.steer && conversation ? activeRun(owner, conversation, agent.id) : undefined;
+      const live =
+        data.steer && conversation
+          ? activeRun(owner, conversation, agent.id)
+          : undefined;
       // Steering belongs to the running task, even if its agent now selects
       // another provider for future conversations.
-      const steeringConnection = live?.liveInput ? live.run.payload.connectionId : undefined;
+      const steeringConnection = live?.liveInput
+        ? live.run.payload.connectionId
+        : undefined;
       if (conversation && !steeringConnection)
         ownedConversation(conversation, owner);
       const { connection } = nextTurnConnection(
@@ -153,7 +177,9 @@ export function submit(
         steeringConnection ? { connection_id: steeringConnection } : agent,
       );
       if (data.folderId) ownedFolder(data.folderId, owner);
-      const prior = maybeRun(runsQueries.byIdempotency(db, owner, data.idempotencyKey));
+      const prior = maybeRun(
+        runsQueries.byIdempotency(db, owner, data.idempotencyKey),
+      );
       if (prior) {
         if (
           prior.input !== data.input ||
@@ -168,8 +194,7 @@ export function submit(
             (data.replyToMessageId || data.replyTo?.id) ||
           (!data.replyTo &&
             data.replyExcerpt?.trim() &&
-            prior.payload.replyTo?.content?.trim() !==
-              data.replyExcerpt.trim())
+            prior.payload.replyTo?.content?.trim() !== data.replyExcerpt.trim())
         )
           throw new Problem(409, "This request key belongs to different work");
         return prior;
@@ -186,10 +211,16 @@ export function submit(
             )
           : undefined);
       if (agent.retired_at)
-        throw new Problem(409, "This agent is retired. Restore it from its profile before sending new work.");
+        throw new Problem(
+          409,
+          "This agent is retired. Restore it from its profile before sending new work.",
+        );
       if (!conversation && !teamId && data.mailScope !== "direct") {
-        const managerTeam = teamsQueries.latestManagerConversation(db, owner, agent.id) as
-          { conversation_id: string; id: string } | undefined;
+        const managerTeam = teamsQueries.latestManagerConversation(
+          db,
+          owner,
+          agent.id,
+        ) as { conversation_id: string; id: string } | undefined;
         if (managerTeam) {
           conversation = managerTeam.conversation_id || undefined;
           teamId = managerTeam.id;
@@ -218,12 +249,34 @@ export function submit(
             throw new Problem(403, "Agent is not a member of this team");
         }
         conversation = id();
-        conversationsQueries.insertTeam(db, conversation, owner, agent.id, data.input.slice(0, 100), now(), teamId || null);
+        conversationsQueries.insertTeam(
+          db,
+          conversation,
+          owner,
+          agent.id,
+          data.input.slice(0, 100),
+          now(),
+          teamId || null,
+        );
         if (teamId)
-          teamsQueries.claimConversation(db, conversation, teamId, owner, agent.id);
+          teamsQueries.claimConversation(
+            db,
+            conversation,
+            teamId,
+            owner,
+            agent.id,
+          );
       }
-      const previousReview = runsQueries.latestConversationPayloadByRowid(db, owner, conversation) as { id: string; payload: string } | undefined;
-      const reviewId = data.reviewId || (previousReview ? readRunReviewId(previousReview.payload, previousReview.id) : undefined);
+      const previousReview = runsQueries.latestConversationPayloadByRowid(
+        db,
+        owner,
+        conversation,
+      ) as { id: string; payload: string } | undefined;
+      const reviewId =
+        data.reviewId ||
+        (previousReview
+          ? readRunReviewId(previousReview.payload, previousReview.id)
+          : undefined);
       if (
         !reviewId &&
         teamsQueries.hasReviewAgent(db, owner, agent.id, agent.id)
@@ -243,7 +296,8 @@ export function submit(
           connection.id === agent.connection_id
             ? agent.model
             : (
-                runsQueries.latestConversationModel(db, conversation) as { model?: string } | undefined
+                runsQueries.latestConversationModel(db, conversation) as
+                  { model?: string } | undefined
               )?.model || agent.model,
         effort: agent.effort,
         permissionMode: agentPermissionMode(owner),
@@ -293,19 +347,37 @@ export function submit(
           );
         }
       }
-      conversationsQueries.pinExecution(db, connection.id, folderId, conversation);
+      conversationsQueries.pinExecution(
+        db,
+        connection.id,
+        folderId,
+        conversation,
+      );
       const run = enqueue(owner, data.input, data.idempotencyKey, {
         agent: agent.id,
         conversation,
         payload: snapshot,
       });
-      const messageId = id(), messageAt = now();
-      messagesQueries.insert(db, messageId, owner, conversation, run.id, "user", data.input, JSON.stringify(MessageMetadata.parse({
-          attachments,
-          replyTo,
-          personal: data.personal === true,
-          ...(data.automation ? { automation: data.automation } : {}),
-        })), messageAt);
+      const messageId = id(),
+        messageAt = now();
+      messagesQueries.insert(
+        db,
+        messageId,
+        owner,
+        conversation,
+        run.id,
+        "user",
+        data.input,
+        JSON.stringify(
+          MessageMetadata.parse({
+            attachments,
+            replyTo,
+            personal: data.personal === true,
+            ...(data.automation ? { automation: data.automation } : {}),
+          }),
+        ),
+        messageAt,
+      );
       return run;
     })
     .immediate();
@@ -356,27 +428,33 @@ function apiCapabilities(run: Run) {
   const scope = { owner: run.owner_id, conversation: run.conversation_id };
   const unavailable = (reason: string) =>
     ({ state: "unsupported", source: "loop", reason }) as const;
-  setActivityCapabilities(scope, { transport: "api" }, {
-    plans: { state: "supported", source: "loop_plan tool" },
-    tools: { state: "supported", source: "loop tool broker" },
-    diffs: unavailable(
-      "Provider-key runs execute only Loop's tool broker; MCP tool results carry no trusted file-change data.",
-    ),
-    output: unavailable(
-      "Provider-key runs execute only Loop's tool broker; MCP tool results carry no structured command output.",
-    ),
-    settings: { state: "supported", source: "loop agent settings" },
-    commands: unavailable(
-      "Commands and skills come from a Codex or Claude Code runtime. This agent uses a provider API key.",
-    ),
-  });
+  setActivityCapabilities(
+    scope,
+    { transport: "api" },
+    {
+      plans: { state: "supported", source: "loop_plan tool" },
+      tools: { state: "supported", source: "loop tool broker" },
+      diffs: unavailable(
+        "Provider-key runs execute only Loop's tool broker; MCP tool results carry no trusted file-change data.",
+      ),
+      output: unavailable(
+        "Provider-key runs execute only Loop's tool broker; MCP tool results carry no structured command output.",
+      ),
+      settings: { state: "supported", source: "loop agent settings" },
+      commands: unavailable(
+        "Commands and skills come from a Codex or Claude Code runtime. This agent uses a provider API key.",
+      ),
+    },
+  );
 }
 export async function executeAgent(run: Run): Promise<boolean> {
   assertEffect(run.owner_id, "run", run.id);
   // Recheck after claim, before any checkpoint or native dispatch. A temporary
   // disconnection must not consume the durable review continuation.
   if (continuationQueries.shouldDefer(db, run.id, run.owner_id))
-    throw new RunDeferred("Review follow-up is waiting for its requester, review or selected provider.");
+    throw new RunDeferred(
+      "Review follow-up is waiting for its requester, review or selected provider.",
+    );
   const snapshot = agentPayload(run);
   if (snapshot.reviewId) {
     assertReviewIdentity(
@@ -389,24 +467,37 @@ export async function executeAgent(run: Run): Promise<boolean> {
   const connection = ownedConnection(snapshot.connectionId, run.owner_id);
   if (snapshot.teamId || snapshot.reviewId) assertTeamConnection(connection);
   const harness = connection.metadata.loopHarness;
-  if (harness &&
+  if (
+    harness &&
     (providerChangeInProgress(harness) || nativeSignIns.inProgress(harness)) &&
     !nativeDispatchQueries.exists(db, run.id) &&
-    !agentCheckpointsQueries.exists(db, run.id))
+    !agentCheckpointsQueries.exists(db, run.id)
+  )
     throw new RunDeferred("Wait for this harness’s provider change to finish.");
   if (connection.status !== "connected") {
     // Disconnection can race the atomic queue claim. Only a mail turn that
     // has not begun model/tool work can safely return to the queue here.
     if (!queuedMailReady(run) && !agentCheckpointsQueries.exists(db, run.id))
-      throw new RunDeferred("Agent mail is waiting for its provider to reconnect.");
+      throw new RunDeferred(
+        "Agent mail is waiting for its provider to reconnect.",
+      );
     throw new Problem(409, "Reconnect this provider before continuing.");
   }
   if (isNativeConnection(connection)) {
     return nativeSessions.execute(run);
   }
-  let cp = agentCheckpointsQueries.get(db, run.id) as QueryRow<"agent_checkpoints"> | undefined;
+  let cp = agentCheckpointsQueries.get(db, run.id) as
+    QueryRow<"agent_checkpoints"> | undefined;
   if (!cp) {
-    const turns = parseMessages(messagesQueries.agentHistory(db, run.conversation_id, run.owner_id, run.id, run.id));
+    const turns = parseMessages(
+      messagesQueries.agentHistory(
+        db,
+        run.conversation_id,
+        run.owner_id,
+        run.id,
+        run.id,
+      ),
+    );
     const history: ChatMessage[] = turns.map((m) => ({
       role: m.role as "user" | "assistant",
       content: attachmentPrompt(
@@ -430,7 +521,15 @@ export async function executeAgent(run: Run): Promise<boolean> {
       );
     const messageId = id();
     db.transaction(() => {
-      messagesQueries.insertAssistantPlaceholder(db, messageId, run.owner_id, run.conversation_id, run.id, JSON.stringify(MessageMetadata.parse({ ...snapshot, partial: true })), now());
+      messagesQueries.insertAssistantPlaceholder(
+        db,
+        messageId,
+        run.owner_id,
+        run.conversation_id,
+        run.id,
+        JSON.stringify(MessageMetadata.parse({ ...snapshot, partial: true })),
+        now(),
+      );
       const artifactId = saveArtifact(run.owner_id, {
         title: run.input.slice(0, 85),
         content: "",
@@ -440,26 +539,45 @@ export async function executeAgent(run: Run): Promise<boolean> {
         folder: snapshot.folderId,
         metadata: { ...snapshot, messageId, partial: true },
       });
-      agentCheckpointsQueries.insert(db, run.id, messageId, artifactId, JSON.stringify(history));
+      agentCheckpointsQueries.insert(
+        db,
+        run.id,
+        messageId,
+        artifactId,
+        JSON.stringify(history),
+      );
     }).immediate();
-    cp = QueryRecords.agent_checkpoints.parse(agentCheckpointsQueries.get(db, run.id));
+    cp = QueryRecords.agent_checkpoints.parse(
+      agentCheckpointsQueries.get(db, run.id),
+    );
   }
   let history = JSON.parse(cp.history) as ChatMessage[],
     output = cp.output as string,
     round = cp.round as number;
   if (cp.stage === "done") return true;
   apiSessionActivities(run, snapshot);
-  const steering = new SteeringInbox(run, (message) => {
-    history.push(message);
-    agentCheckpointsQueries.history(db, JSON.stringify(history), run.id);
-  }, !snapshot.reviewId);
+  const steering = new SteeringInbox(
+    run,
+    (message) => {
+      history.push(message);
+      agentCheckpointsQueries.history(db, JSON.stringify(history), run.id);
+    },
+    !snapshot.reviewId,
+  );
   const persist = db.transaction((partial: boolean) => {
-    const metadata = JSON.stringify(MessageMetadata.parse({
-      ...snapshot,
-      messageId: cp.message_id,
-      partial,
-    }));
-    messagesQueries.updateContentAndMetadata(db, output, metadata, cp.message_id);
+    const metadata = JSON.stringify(
+      MessageMetadata.parse({
+        ...snapshot,
+        messageId: cp.message_id,
+        partial,
+      }),
+    );
+    messagesQueries.updateContentAndMetadata(
+      db,
+      output,
+      metadata,
+      cp.message_id,
+    );
     artifactsQueries.streamInitial(db, output, metadata, now(), cp.artifact_id);
     artifactVersionsQueries.streamInitial(db, output, cp.artifact_id);
     agentCheckpointsQueries.output(db, output, run.id);
@@ -562,9 +680,11 @@ export async function executeAgent(run: Run): Promise<boolean> {
                   );
           } catch (error) {
             // The broker marks calls whose external outcome is uncertain.
-            const unknown = (
-              toolInvocationsQueries.isUnknown(db, run.id, invocation.call.id) as unknown
-            )
+            const unknown = (toolInvocationsQueries.isUnknown(
+              db,
+              run.id,
+              invocation.call.id,
+            ) as unknown)
               ? true
               : false;
             toolActivity({
@@ -623,10 +743,17 @@ export async function executeAgent(run: Run): Promise<boolean> {
             }),
             content: [
               ...(outcome.artifactId
-                ? [{ type: "artifact" as const, artifactId: outcome.artifactId }]
+                ? [
+                    {
+                      type: "artifact" as const,
+                      artifactId: outcome.artifactId,
+                    },
+                  ]
                 : []),
               ...(outcome.result.content || [])
-                .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+                .filter(
+                  (c: any) => c?.type === "text" && typeof c.text === "string",
+                )
                 .slice(0, 8)
                 .map((c: any) => ({
                   type: "text" as const,
@@ -655,7 +782,12 @@ export async function executeAgent(run: Run): Promise<boolean> {
             isError: outcome.result.isError === true,
           });
           invocation.done = true;
-          agentCheckpointsQueries.pending(db, JSON.stringify(history), JSON.stringify(pending), run.id);
+          agentCheckpointsQueries.pending(
+            db,
+            JSON.stringify(history),
+            JSON.stringify(pending),
+            run.id,
+          );
         }
         cp.stage = "model";
         cp.pending = "[]";
@@ -677,15 +809,18 @@ export async function executeAgent(run: Run): Promise<boolean> {
         });
         return false;
       }
-      const currentConnection = ownedConnection(snapshot.connectionId, run.owner_id);
+      const currentConnection = ownedConnection(
+        snapshot.connectionId,
+        run.owner_id,
+      );
       if (currentConnection.status !== "connected")
         throw new Problem(409, "Provider was disconnected.");
       const bindings = snapshot.reviewId
         ? nativeBindings(run)
         : [
-          ...toolBindings(run.owner_id, run.agent_id!),
-          ...nativeBindings(run, { plans: true }),
-        ];
+            ...toolBindings(run.owner_id, run.agent_id!),
+            ...nativeBindings(run, { plans: true }),
+          ];
       const calls: ToolCall[] = [];
       let providerContent: unknown[] | undefined,
         paused = false;
@@ -703,13 +838,18 @@ export async function executeAgent(run: Run): Promise<boolean> {
           content: turnText,
           metadata: { final, round },
         });
-      const publicMessage = db.transaction(() => {
-        const message = saveTurn();
-        if (message) emit(run.owner_id, run.id, "message.started", {
-          messageId: message.id, round, snapshot,
-        });
-        return message;
-      }).immediate();
+      const publicMessage = db
+        .transaction(() => {
+          const message = saveTurn();
+          if (message)
+            emit(run.owner_id, run.id, "message.started", {
+              messageId: message.id,
+              round,
+              snapshot,
+            });
+          return message;
+        })
+        .immediate();
       const generation = new AbortController();
       let dirty = false;
       let writeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -719,14 +859,22 @@ export async function executeAgent(run: Run): Promise<boolean> {
         if (!dirty) return;
         // Public transcript, aggregate/artifact and their typed events share
         // one commit. Tokens never get ahead of the materialized snapshot.
-        db.transaction(() => { saveTurn(); persist(true); }).immediate();
+        db.transaction(() => {
+          saveTurn();
+          persist(true);
+        }).immediate();
         dirty = false;
       };
       const scheduleWrite = () => {
         dirty = true;
-        if (!writeTimer) writeTimer = setTimeout(() => {
-          try { flush(); } catch (error) { generation.abort(error); }
-        }, 250);
+        if (!writeTimer)
+          writeTimer = setTimeout(() => {
+            try {
+              flush();
+            } catch (error) {
+              generation.abort(error);
+            }
+          }, 250);
       };
       const redirected = new Error("Input added to the active run");
       const stopSteering = !isSubscription(currentConnection)
@@ -773,8 +921,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           }
           if (chunk.providerContent) {
             if (
-              Buffer.byteLength(JSON.stringify(chunk.providerContent)) >
-              262144
+              Buffer.byteLength(JSON.stringify(chunk.providerContent)) > 262144
             )
               throw new Problem(
                 422,
@@ -790,10 +937,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
             });
         }
       } catch (error) {
-        if (
-          generation.signal.reason !== redirected ||
-          signal.aborted
-        )
+        if (generation.signal.reason !== redirected || signal.aborted)
           throw error;
       } finally {
         try {
@@ -802,10 +946,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           await stopSteering?.();
         }
       }
-      if (
-        generation.signal.reason === redirected &&
-        !signal.aborted
-      ) {
+      if (generation.signal.reason === redirected && !signal.aborted) {
         round++;
         agentCheckpointsQueries.round(db, round, run.id);
         continue;
@@ -828,7 +969,12 @@ export async function executeAgent(run: Run): Promise<boolean> {
           providerContent,
           paused: true,
         });
-        agentCheckpointsQueries.roundHistory(db, round, JSON.stringify(history), run.id);
+        agentCheckpointsQueries.roundHistory(
+          db,
+          round,
+          JSON.stringify(history),
+          run.id,
+        );
         continue;
       }
       if (!calls.length && !turnText.trim())
@@ -849,13 +995,23 @@ export async function executeAgent(run: Run): Promise<boolean> {
         const continuing = db
           .transaction(() => {
             if (steering.appendPending(history)) {
-              agentCheckpointsQueries.roundHistory(db, round, JSON.stringify(history), run.id);
+              agentCheckpointsQueries.roundHistory(
+                db,
+                round,
+                JSON.stringify(history),
+                run.id,
+              );
               return true;
             }
             saveTurn(true);
             persist(false);
             runsQueries.setResult(db, output, run.id);
-            agentCheckpointsQueries.done(db, round, JSON.stringify(history), run.id);
+            agentCheckpointsQueries.done(
+              db,
+              round,
+              JSON.stringify(history),
+              run.id,
+            );
             return false;
           })
           .immediate();
@@ -872,9 +1028,10 @@ export async function executeAgent(run: Run): Promise<boolean> {
           });
           return false;
         }
-        if (publicMessage) emit(run.owner_id, run.id, "message.completed", {
-          messageId: publicMessage.id,
-        });
+        if (publicMessage)
+          emit(run.owner_id, run.id, "message.completed", {
+            messageId: publicMessage.id,
+          });
         return true;
       }
       pending = calls.map((call) => {
@@ -894,15 +1051,20 @@ export async function executeAgent(run: Run): Promise<boolean> {
       });
       cp.stage = "tools";
       cp.pending = JSON.stringify(pending);
-      agentCheckpointsQueries.toolsStage(db, round, JSON.stringify(history), cp.pending, run.id);
+      agentCheckpointsQueries.toolsStage(
+        db,
+        round,
+        JSON.stringify(history),
+        cp.pending,
+        run.id,
+      );
     }
   } catch (error) {
     persist(true);
     if (signal.aborted) {
       const current = ownedRun(run.id, run.owner_id);
       if (current.state === "cancelled") return false;
-      if (signal.reason instanceof Problem)
-        throw signal.reason;
+      if (signal.reason instanceof Problem) throw signal.reason;
       throw new Problem(
         408,
         "The run stopped before an answer was completed. Check the provider connection and review partial work before retrying.",

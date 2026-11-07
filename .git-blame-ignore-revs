@@ -1,4 +1,4 @@
-# Formatting-only commits. Preserve these commits when merging; do not squash.
+# Reachable formatting-only commits, including squash merges of formatting-only PRs.
 07704acc5d5ad41966ea37d3e04dac81a47ddc0f
 41ddf67ac16123874769eabedeb9ad40f904d4b6
 2266039668ae4d04c252a3b865dc5459e4d7b31d

@@ -1,8 +1,17 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { readRoute } from "./workspace-api";
-import { workspaceApi, type NativeDecision as Decision, type RouteInput } from "../shared/workspace-api";
+import {
+  workspaceApi,
+  type NativeDecision as Decision,
+  type RouteInput,
+} from "../shared/workspace-api";
 import { viewOwner, viewGeneration } from "./viewCache";
-import { useSourceOperation, useSourceId, useSourceRoute, useProjectionRoute } from "./SourceContext";
+import {
+  useSourceOperation,
+  useSourceId,
+  useSourceRoute,
+  useProjectionRoute,
+} from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { parse, clearAuthorization, isExecutionRefused } from "./api";
 import type { Request } from "../protocol";
@@ -12,8 +21,15 @@ import { Tools } from "./Tools";
 import { ConnectionNotice, setConnection } from "./ConnectionNotice";
 import { NativeRequestDetails } from "./NativeRequestDetails";
 import { watchWorkspaceEvents } from "./workspace-events";
-import { publishProjectionFrame, forgetProjectionSource, surfaceFallback } from "./workspace-projections";
-import { WorkspaceChangeQueue, listenWorkspaceChanges } from "./workspace-changes";
+import {
+  publishProjectionFrame,
+  forgetProjectionSource,
+  surfaceFallback,
+} from "./workspace-projections";
+import {
+  WorkspaceChangeQueue,
+  listenWorkspaceChanges,
+} from "./workspace-changes";
 import { type WorkspaceEvent } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
 import { multiplexWorkspaceSocket } from "./workspace-multiplex";
@@ -65,19 +81,29 @@ export function WorkspaceConnection({
       const url = new URL(path, location.href);
       url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       return watchWorkspaceEvents({
-        url, source: sourceId,
+        url,
+        source: sourceId,
         socket: (url: URL) => multiplexWorkspaceSocket(url, sourceId),
         read: (after, signal) =>
-          readRoute(workspaceApi.events, { query: { after } }, sourceId, signal),
+          readRoute(
+            workspaceApi.events,
+            { query: { after } },
+            sourceId,
+            signal,
+          ),
         changed: (events) => changed(sourceId, events),
         frame: (m) => {
           publishProjectionFrame(sourceId, m);
-          if (m.capabilities) pending.capabilities.set(sourceId, m.capabilities);
+          if (m.capabilities)
+            pending.capabilities.set(sourceId, m.capabilities);
           if (m.type !== "reset") return;
           if (sourceId || typeof m.build !== "string") return;
           const identity = BuildIdentity.safeParse(m.buildIdentity);
-          const updated = identity.success ? browserNeedsReload(runningBuild, identity.data) : null;
-          if (updated === false || (!build && updated === null)) build = m.build;
+          const updated = identity.success
+            ? browserNeedsReload(runningBuild, identity.data)
+            : null;
+          if (updated === false || (!build && updated === null))
+            build = m.build;
           if (updated !== null) setConnection({ updated });
           else if (m.build !== build) setConnection({ updated: true });
         },
@@ -113,7 +139,10 @@ export function WorkspaceConnection({
     };
     reconcileSources.current = reconcile;
     const stop = () => {
-      stops.forEach((stop, source) => { stop(); forgetProjectionSource(source); });
+      stops.forEach((stop, source) => {
+        stop();
+        forgetProjectionSource(source);
+      });
       stops.clear();
       pending.clear();
       if (reconcileSources.current === reconcile)
@@ -145,16 +174,24 @@ export function NativeDecisions({
   const sourceId = useSourceId();
   const [items, setItems] = useState<Decision[]>([]);
   useEffect(() => {
-    let stopped = false, latest = 0;
+    let stopped = false,
+      latest = 0;
     const load = () => {
       const request = ++latest;
-      void readContract(workspaceApi.nativeDecisions, { query: { conversation } })
+      void readContract(workspaceApi.nativeDecisions, {
+        query: { conversation },
+      })
         .then((x) => {
           if (!stopped && request === latest) setItems(x);
         })
         .catch(() => {});
     };
-    const stopChanges = listenWorkspaceChanges("decisions", load, sourceId, conversation);
+    const stopChanges = listenWorkspaceChanges(
+      "decisions",
+      load,
+      sourceId,
+      conversation,
+    );
     const stopFallback = surfaceFallback([sourceId], "workspace", 3000, load);
     load();
     return () => {
@@ -206,7 +243,12 @@ function QuestionResponse({
     placeholder: "Your response",
   };
   return secret ? (
-    <input {...literalEntry} {...props} type="password" onChange={(e) => onChange(e.target.value)} />
+    <input
+      {...literalEntry}
+      {...props}
+      type="password"
+      onChange={(e) => onChange(e.target.value)}
+    />
   ) : (
     <textarea
       {...proseEntry}
@@ -239,13 +281,17 @@ function DecisionCard({
     [done, setDone] = useState(false);
   const lock = useRef(false);
   const [toolSettings, setToolSettings] = useState(false);
-  async function answer(value: RouteInput<typeof workspaceApi.nativeAnswer>["body"]["answer"]) {
+  async function answer(
+    value: RouteInput<typeof workspaceApi.nativeAnswer>["body"]["answer"],
+  ) {
     if (lock.current || unavailable) return;
     lock.current = true;
     setBusy(true);
     setError("");
-    const owner = viewOwner(), generation = viewGeneration();
-    const storage = "loop-decision-" + JSON.stringify([owner, sourceId, item.id]);
+    const owner = viewOwner(),
+      generation = viewGeneration();
+    const storage =
+      "loop-decision-" + JSON.stringify([owner, sourceId, item.id]);
     try {
       // Retain the receipt identity across reloads, never secret question answers.
       const signature = JSON.stringify(value);
@@ -259,15 +305,20 @@ function DecisionCard({
         .map((x) => x.toString(16).padStart(2, "0"))
         .join("");
       if (generation !== viewGeneration() || owner !== viewOwner())
-        throw new Error("This workspace session changed. Reopen the owning conversation.");
+        throw new Error(
+          "This workspace session changed. Reopen the owning conversation.",
+        );
       const old = parse<any>(sessionStorage.getItem(storage) || "", {});
       const commandId =
         old.digest === digest ? old.commandId : crypto.randomUUID();
       sessionStorage.setItem(storage, JSON.stringify({ commandId, digest }));
-      const r = await call(workspaceApi.nativeAnswer, { params: { id: item.id }, body: {
-        commandId,
-        answer: value,
-      } });
+      const r = await call(workspaceApi.nativeAnswer, {
+        params: { id: item.id },
+        body: {
+          commandId,
+          answer: value,
+        },
+      });
       if (r.state !== "resolved")
         throw new Error(
           "Decision delivery is uncertain. Inspect the native session before sending another decision.",
@@ -275,8 +326,16 @@ function DecisionCard({
       setDone(true);
       window.dispatchEvent(new Event("loop-workspace-change"));
     } catch (e) {
-      if (isExecutionRefused(e) && owner === viewOwner() && generation === viewGeneration()) {
-        try { sessionStorage.removeItem(storage); } catch { /* Retaining a refused ID is safe. */ }
+      if (
+        isExecutionRefused(e) &&
+        owner === viewOwner() &&
+        generation === viewGeneration()
+      ) {
+        try {
+          sessionStorage.removeItem(storage);
+        } catch {
+          /* Retaining a refused ID is safe. */
+        }
       }
       setError((e as Error).message);
     } finally {
@@ -301,7 +360,15 @@ function DecisionCard({
       )}
       <NativeRequestDetails request={request} />
       {request.completionUrl?.startsWith("https://") && (
-        <p><a href={request.completionUrl} target="_blank" rel="noopener noreferrer">Open completion page</a></p>
+        <p>
+          <a
+            href={request.completionUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open completion page
+          </a>
+        </p>
       )}
       {item.state !== "pending" ? (
         <p className="note">
@@ -335,7 +402,9 @@ function DecisionCard({
                   ) : deny ? (
                     <X size={20} aria-hidden="true" />
                   ) : null}
-                  {request.completionUrl && choice === "accept" ? "Completed" : choice.charAt(0).toUpperCase() + choice.slice(1)}
+                  {request.completionUrl && choice === "accept"
+                    ? "Completed"
+                    : choice.charAt(0).toUpperCase() + choice.slice(1)}
                 </button>
               );
             })}
@@ -412,7 +481,11 @@ function DecisionCard({
           </button>
         </form>
       )}
-      {unavailable && <p className="field-hint" role="status">{unavailable}</p>}
+      {unavailable && (
+        <p className="field-hint" role="status">
+          {unavailable}
+        </p>
+      )}
       {error && (
         <p className="error" role="alert">
           {error}

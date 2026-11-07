@@ -38,9 +38,7 @@ it("replays bounded, whole append events after disconnect halfway through a larg
     epoch = "";
   const connect = (query: string, interrupt = false) => {
     const socket = new WebSocket(
-      f.origin.replace("http:", "ws:") +
-        "/api/events/ws?v=3" +
-        query,
+      f.origin.replace("http:", "ws:") + "/api/events/ws?v=3" + query,
       { headers: f.browser },
     );
     sockets.push(socket);
@@ -100,21 +98,54 @@ it("replays bounded, whole append events after disconnect halfway through a larg
   ).json();
   expect(projection.rows()).toEqual(final.messages);
   const replacement = "Replacement " + "x".repeat(70 * 1024);
-  const beforeReplacement = (f.db.prepare("SELECT max(id) n FROM events WHERE owner_id=?").get(f.owner) as {n:number}).n;
-  f.db.prepare("UPDATE messages SET content=? WHERE id='message'").run(replacement);
-  await expect.poll(() => frames.flatMap(frame => frame.type === "events" ? frame.events : [])
-    .some(entry => entry.id > beforeReplacement && entry.event.type === "invalidate" && entry.event.subject?.kind === "message" && entry.event.subject.id === "message")).toBe(true);
-  const fallback = frames.flatMap(frame => frame.type === "events" ? frame.events : [])
-    .find(entry => entry.id > beforeReplacement && entry.event.subject?.id === "message");
+  const beforeReplacement = (
+    f.db
+      .prepare("SELECT max(id) n FROM events WHERE owner_id=?")
+      .get(f.owner) as { n: number }
+  ).n;
+  f.db
+    .prepare("UPDATE messages SET content=? WHERE id='message'")
+    .run(replacement);
+  await expect
+    .poll(() =>
+      frames
+        .flatMap((frame) => (frame.type === "events" ? frame.events : []))
+        .some(
+          (entry) =>
+            entry.id > beforeReplacement &&
+            entry.event.type === "invalidate" &&
+            entry.event.subject?.kind === "message" &&
+            entry.event.subject.id === "message",
+        ),
+    )
+    .toBe(true);
+  const fallback = frames
+    .flatMap((frame) => (frame.type === "events" ? frame.events : []))
+    .find(
+      (entry) =>
+        entry.id > beforeReplacement && entry.event.subject?.id === "message",
+    );
   expect(fallback?.event).toMatchObject({
-    type: "invalidate", scope: { kind: "conversation", id: "thread" },
+    type: "invalidate",
+    scope: { kind: "conversation", id: "thread" },
     subject: { kind: "message", id: "message" },
   });
-  const stored = f.db.prepare("SELECT type,payload FROM events WHERE id=?").get(fallback!.id) as {type:string;payload:string};
+  const stored = f.db
+    .prepare("SELECT type,payload FROM events WHERE id=?")
+    .get(fallback!.id) as { type: string; payload: string };
   expect(stored.type).toBe("invalidate");
   expect(Buffer.byteLength(stored.payload)).toBeLessThan(60 * 1024);
-  const recovered = await (await f.request("/api/conversations/thread?message=message", {headers:f.browser})).json();
-  projection.install(recovered.messages, recovered.projection.cursor, recovered.range, false);
+  const recovered = await (
+    await f.request("/api/conversations/thread?message=message", {
+      headers: f.browser,
+    })
+  ).json();
+  projection.install(
+    recovered.messages,
+    recovered.projection.cursor,
+    recovered.range,
+    false,
+  );
   expect(projection.rows()[0].content).toBe(replacement);
 }, 15000);
 it("serves atomic per-page Feed deltas with upserts, removals, filter changes and owner isolation", async () => {
@@ -165,7 +196,10 @@ it("serves atomic per-page Feed deltas with upserts, removals, filter changes an
       }),
     );
   f.db.prepare("UPDATE runs SET input='Edited' WHERE id='feed-a'").run();
-  const inline = f.db.prepare("SELECT payload FROM events WHERE owner_id=? AND type='feed.card' AND json_extract(payload,'$.conversationId')='feed-a' ORDER BY id DESC LIMIT 1")
+  const inline = f.db
+    .prepare(
+      "SELECT payload FROM events WHERE owner_id=? AND type='feed.card' AND json_extract(payload,'$.conversationId')='feed-a' ORDER BY id DESC LIMIT 1",
+    )
     .get(f.owner) as { payload: string };
   expect(JSON.parse(inline.payload).card).toMatchObject({ title: "Edited" });
   const delta = await read("/api/feed?filter=working&known=" + token(first));
@@ -173,32 +207,66 @@ it("serves atomic per-page Feed deltas with upserts, removals, filter changes an
   expect(delta.items.map((i: any) => i.conversation_id)).toEqual(["feed-a"]);
   let shown = reduceFeedPage(first, delta);
   expect(shown.items).toEqual((await read("/api/feed?filter=working")).items);
-  f.db.transaction(() => {
-    f.db.prepare("INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES('feed-long-answer',?,'feed-b','feed-b','assistant',?,2)")
-      .run(f.owner, "Large streamed answer ".repeat(2000));
-    f.db.prepare("UPDATE runs SET updated_at=updated_at+1 WHERE id='feed-b'").run();
-  }).immediate();
-  const largeSignals = f.db.prepare("SELECT payload FROM events WHERE owner_id=? AND id>? AND type='feed.card' AND json_extract(payload,'$.conversationId')='feed-b' ORDER BY id")
+  f.db
+    .transaction(() => {
+      f.db
+        .prepare(
+          "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES('feed-long-answer',?,'feed-b','feed-b','assistant',?,2)",
+        )
+        .run(f.owner, "Large streamed answer ".repeat(2000));
+      f.db
+        .prepare("UPDATE runs SET updated_at=updated_at+1 WHERE id='feed-b'")
+        .run();
+    })
+    .immediate();
+  const largeSignals = f.db
+    .prepare(
+      "SELECT payload FROM events WHERE owner_id=? AND id>? AND type='feed.card' AND json_extract(payload,'$.conversationId')='feed-b' ORDER BY id",
+    )
     .all(f.owner, shown.projection.cursor) as { payload: string }[];
-  expect(largeSignals.map(event => JSON.parse(event.payload))).toEqual([
-    { conversationId: "feed-b", cardKey: "run:feed-b", kind: "thread", removed: true, card: null },
-    { conversationId: "feed-b", cardKey: "message:feed-long-answer", kind: "thread", removed: false, card: null },
+  expect(largeSignals.map((event) => JSON.parse(event.payload))).toEqual([
+    {
+      conversationId: "feed-b",
+      cardKey: "run:feed-b",
+      kind: "thread",
+      removed: true,
+      card: null,
+    },
+    {
+      conversationId: "feed-b",
+      cardKey: "message:feed-long-answer",
+      kind: "thread",
+      removed: false,
+      card: null,
+    },
   ]);
-  for (const event of largeSignals) expect(Buffer.byteLength(event.payload)).toBeLessThan(4096);
-  const largeDelta = await read("/api/feed?filter=working&known=" + token(shown));
-  expect(largeDelta.items.map((item: any) => item.conversation_id)).toEqual(["feed-b"]);
+  for (const event of largeSignals)
+    expect(Buffer.byteLength(event.payload)).toBeLessThan(4096);
+  const largeDelta = await read(
+    "/api/feed?filter=working&known=" + token(shown),
+  );
+  expect(largeDelta.items.map((item: any) => item.conversation_id)).toEqual([
+    "feed-b",
+  ]);
   shown = reduceFeedPage(shown, largeDelta);
   expect(reduceFeedPage(shown, largeDelta).items).toEqual(shown.items);
   expect(shown.items).toEqual((await read("/api/feed?filter=working")).items);
   f.db.prepare("UPDATE runs SET state='completed' WHERE id='feed-a'").run();
-  const emitted = f.db.prepare("SELECT id,payload FROM events WHERE owner_id=? AND id>? AND type='feed.card' AND json_extract(payload,'$.conversationId')='feed-a'")
-    .all(f.owner, shown.projection.cursor) as {id:number;payload:string}[];
-  expect(emitted.some(event => JSON.parse(event.payload).kind === "thread")).toBe(true);
+  const emitted = f.db
+    .prepare(
+      "SELECT id,payload FROM events WHERE owner_id=? AND id>? AND type='feed.card' AND json_extract(payload,'$.conversationId')='feed-a'",
+    )
+    .all(f.owner, shown.projection.cursor) as { id: number; payload: string }[];
+  expect(
+    emitted.some((event) => JSON.parse(event.payload).kind === "thread"),
+  ).toBe(true);
   const removed = await read("/api/feed?filter=working&known=" + token(shown));
   expect(removed.projectionRows.removed).toContain(
     JSON.stringify(["feed-a", null]),
   );
-  expect(removed.projection.cursor).toBeGreaterThanOrEqual(Math.max(...emitted.map(event => event.id)));
+  expect(removed.projection.cursor).toBeGreaterThanOrEqual(
+    Math.max(...emitted.map((event) => event.id)),
+  );
   shown = reduceFeedPage(shown, removed);
   expect(reduceFeedPage(shown, removed).items).toEqual(shown.items);
   expect(shown.items).toEqual((await read("/api/feed?filter=working")).items);

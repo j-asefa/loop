@@ -227,13 +227,19 @@ it("keeps the listener available when rejected upgrade clients reset their socke
     await expect.poll(() => replay.frames.length).toBeGreaterThan(0);
     await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(baseline + 100);
     expect(replay.frames.flatMap((frame) => frame.events)).toHaveLength(100);
-    expect(replay.frames.flatMap((frame) => frame.events).every((entry) => entry.event.type === "invalidate")).toBe(true);
+    expect(
+      replay.frames
+        .flatMap((frame) => frame.events)
+        .every((entry) => entry.event.type === "invalidate"),
+    ).toBe(true);
     expect(Buffer.byteLength(JSON.stringify(replay.frames[0]))).toBeLessThan(
       1024 * 1024,
     );
     expect(
       f.db
-        .prepare("SELECT payload FROM events WHERE owner_id=? AND type='progress' LIMIT 1")
+        .prepare(
+          "SELECT payload FROM events WHERE owner_id=? AND type='progress' LIMIT 1",
+        )
         .get(f.owner),
     ).toEqual({ payload });
     const next = emit(f, "after-large-replay");
@@ -250,7 +256,9 @@ it("keeps the listener available when rejected upgrade clients reset their socke
     await expect.poll(() => replay.frames.at(-1)?.cursor).toBe(baseline + 141);
     expect(replay.frames.at(-1).type).toBe("events");
     for (const frame of replay.frames)
-      expect(Buffer.byteLength(JSON.stringify(frame))).toBeLessThanOrEqual(512 * 1024);
+      expect(Buffer.byteLength(JSON.stringify(frame))).toBeLessThanOrEqual(
+        512 * 1024,
+      );
     expect(replay.socket.readyState).toBe(WebSocket.OPEN);
   }, 30_000);
 }
@@ -464,7 +472,15 @@ it("catches up every replay page without a later write even after the process cu
     expect(mutation.type).toBe("events");
     expect(mutation.cursor).toBeGreaterThan(last);
     if (mutation.type === "events") {
-      expect(mutation.events.some(({ id, event }) => id > last && event.type === "invalidate" && event.subject?.kind === "artifact" && event.subject.id === "revision-only")).toBe(true);
+      expect(
+        mutation.events.some(
+          ({ id, event }) =>
+            id > last &&
+            event.type === "invalidate" &&
+            event.subject?.kind === "artifact" &&
+            event.subject.id === "revision-only",
+        ),
+      ).toBe(true);
     }
   }, 30_000);
 }
@@ -495,11 +511,21 @@ it("negotiates v3 through paired source routing into another compiled companion"
   expect(WorkspaceFrameV3.parse({ ...linkedReset, serverNow: 0 })).toEqual(
     WorkspaceFrameV3.parse({ ...directReset, serverNow: 0 }),
   );
-  const snapshot = await paired.request(`/api/agent-sources/${encodeURIComponent(sources[0].id)}/feed`, { headers: paired.browser });
-  expect(snapshot.status, `${await snapshot.clone().text()}\n${remote.stderr}\n${paired.stderr}`).toBe(200);
-  expect(snapshot.headers.get("x-loop-change-epoch")).toBe(linked.frames[0].epoch);
+  const snapshot = await paired.request(
+    `/api/agent-sources/${encodeURIComponent(sources[0].id)}/feed`,
+    { headers: paired.browser },
+  );
+  expect(
+    snapshot.status,
+    `${await snapshot.clone().text()}\n${remote.stderr}\n${paired.stderr}`,
+  ).toBe(200);
+  expect(snapshot.headers.get("x-loop-change-epoch")).toBe(
+    linked.frames[0].epoch,
+  );
   expect(snapshot.headers.get("x-loop-next-deadline")).toBe("null");
-  expect(Number(snapshot.headers.get("x-loop-server-now"))).toBeGreaterThan(Date.now() - 5000);
+  expect(Number(snapshot.headers.get("x-loop-server-now"))).toBeGreaterThan(
+    Date.now() - 5000,
+  );
   expect(linked.frames[0].capabilities).toEqual(
     COMPLETE_WORKSPACE_CAPABILITIES,
   );
@@ -518,7 +544,13 @@ it("negotiates v3 through paired source routing into another compiled companion"
   const frame = WorkspaceFrameV3.parse(linked.frames.at(-1));
   // Pending Feed projections may share this batch; inspect progress events
   // without depending on when the source's earlier projection flush ran.
-  expect({ ...frame, events: frame.type === "events" ? frame.events.filter(({ event }) => event.type === "progress") : [] }).toMatchObject({
+  expect({
+    ...frame,
+    events:
+      frame.type === "events"
+        ? frame.events.filter(({ event }) => event.type === "progress")
+        : [],
+  }).toMatchObject({
     type: "events",
     events: [
       {
@@ -528,29 +560,65 @@ it("negotiates v3 through paired source routing into another compiled companion"
     ],
   });
   expect(JSON.stringify(linked.frames)).not.toContain("Local only");
-  const resumed = connect(paired,
+  const resumed = connect(
+    paired,
     `?v=3&epoch=${frame.epoch}&cursor=${id}`,
     paired.browser,
-    `/api/agent-sources/${encodeURIComponent(sources[0].id)}/events/ws`);
+    `/api/agent-sources/${encodeURIComponent(sources[0].id)}/events/ws`,
+  );
   await expect.poll(() => resumed.frames.length).toBeGreaterThan(0);
-  expect(resumed.frames[0]).toMatchObject({ type: "events", capabilities: COMPLETE_WORKSPACE_CAPABILITIES });
+  expect(resumed.frames[0]).toMatchObject({
+    type: "events",
+    capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
+  });
 }, 30_000);
 
 // These cases start an isolated compiled server, like the other endpoint tests.
 // Keep their fixture budget consistent; event polling retains its own bound.
-it.each(["secret", "routing"] as const)("revokes a connection with invalid %s through the compiled v3 endpoint", async (invalid) => {
-  const f = await fixture();
-  const socket = connect(f, "?v=3");
-  await expect.poll(() => socket.frames.length).toBe(1);
-  const metadata = invalid === "routing" ? '{"loopHarness":false}' : '{}';
-  f.db.prepare("INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('status-connection',?,'openai','Fixture',?,'connected',?,1)").run(f.owner, invalid === "secret" ? "must stay secret" : f.fixtureSecret, metadata);
-  const response = await f.request("/api/connections/status-connection", { method: "DELETE", headers: f.browser });
-  expect(response.status).toBe(200);
-  await expect.poll(() => socket.frames.flatMap((frame) => frame.events || []).find((entry) => entry.event?.type === "connection.status")).toMatchObject({
-    event: { type: "connection.status", scope: { kind: "connection", id: "status-connection" }, payload: { status: "disconnected" } },
-  });
-  expect(JSON.stringify(socket.frames)).not.toContain("must stay secret");
-  expect(f.db.prepare("SELECT secret,status,metadata FROM connections WHERE id='status-connection'").get()).toEqual({ secret: "", status: "disconnected", metadata });
-  expect(f.db.prepare("SELECT count(*) n FROM runs").get()).toEqual({ n: 0 });
-  socket.socket.close();
-}, 30_000);
+it.each(["secret", "routing"] as const)(
+  "revokes a connection with invalid %s through the compiled v3 endpoint",
+  async (invalid) => {
+    const f = await fixture();
+    const socket = connect(f, "?v=3");
+    await expect.poll(() => socket.frames.length).toBe(1);
+    const metadata = invalid === "routing" ? '{"loopHarness":false}' : "{}";
+    f.db
+      .prepare(
+        "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('status-connection',?,'openai','Fixture',?,'connected',?,1)",
+      )
+      .run(
+        f.owner,
+        invalid === "secret" ? "must stay secret" : f.fixtureSecret,
+        metadata,
+      );
+    const response = await f.request("/api/connections/status-connection", {
+      method: "DELETE",
+      headers: f.browser,
+    });
+    expect(response.status).toBe(200);
+    await expect
+      .poll(() =>
+        socket.frames
+          .flatMap((frame) => frame.events || [])
+          .find((entry) => entry.event?.type === "connection.status"),
+      )
+      .toMatchObject({
+        event: {
+          type: "connection.status",
+          scope: { kind: "connection", id: "status-connection" },
+          payload: { status: "disconnected" },
+        },
+      });
+    expect(JSON.stringify(socket.frames)).not.toContain("must stay secret");
+    expect(
+      f.db
+        .prepare(
+          "SELECT secret,status,metadata FROM connections WHERE id='status-connection'",
+        )
+        .get(),
+    ).toEqual({ secret: "", status: "disconnected", metadata });
+    expect(f.db.prepare("SELECT count(*) n FROM runs").get()).toEqual({ n: 0 });
+    socket.socket.close();
+  },
+  30_000,
+);

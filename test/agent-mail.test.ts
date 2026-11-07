@@ -56,7 +56,11 @@ async function http(owner: string, path: string, body?: object) {
     {
       method: body ? "POST" : "GET",
       // Synchronous fixture setup can outlast a pooled socket's keep-alive timeout.
-      headers: { "content-type": "application/json", "x-owner": owner, connection: "close" },
+      headers: {
+        "content-type": "application/json",
+        "x-owner": owner,
+        connection: "close",
+      },
       body: body ? JSON.stringify(body) : undefined,
     },
   );
@@ -126,7 +130,9 @@ async function message(run: Run, args: Record<string, unknown>, call = id()) {
 const mail = (mailId: string) =>
   db.prepare("SELECT * FROM agent_mail WHERE id=?").get(mailId) as any;
 const runOf = (runId: string) => {
-  const row = db.prepare("SELECT owner_id FROM runs WHERE id=?").get(runId) as { owner_id: string };
+  const row = db.prepare("SELECT owner_id FROM runs WHERE id=?").get(runId) as {
+    owner_id: string;
+  };
   return ownedRun(runId, row.owner_id);
 };
 const userMessage = (runId: string) =>
@@ -162,28 +168,50 @@ it("tracks teammate-triggered work in delegated conversations", async () => {
     "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,1)",
   ).run(lead.id, "feed-child", child.id, "{}");
   const sent = await message(lead, {
-    to: coder.id, body: "Use the updated requirements", interrupt: true,
+    to: coder.id,
+    body: "Use the updated requirements",
+    interrupt: true,
   });
   expect(sent).toMatchObject({ delivery: "steered" });
   const working = feed(owner, { filter: "working" });
-  expect(working.items).toEqual(expect.arrayContaining([
-    expect.objectContaining({ conversation_id: child.conversation_id, run: expect.objectContaining({ id: child.id, state: "running" }) }),
-  ]));
+  expect(working.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        conversation_id: child.conversation_id,
+        run: expect.objectContaining({ id: child.id, state: "running" }),
+      }),
+    ]),
+  );
   expect(working.summary.working).toBe(2);
   expect(feed(owner, { filter: "done" }).summary.working).toBe(2);
   expect(feed("other-owner", { filter: "working" }).items).toEqual([]);
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(child.id);
   // A queued message wakes the same worker conversation as a new turn.
-  const followUp = await message(lead, { to: coder.id, body: "Check the final result", threadId: (sent as any).threadId });
+  const followUp = await message(lead, {
+    to: coder.id,
+    body: "Check the final result",
+    threadId: (sent as any).threadId,
+  });
   expect(followUp).toMatchObject({ delivery: "new_turn" });
   const followUpRun = mail((followUp as any).messageId).run_id;
-  db.prepare("UPDATE runs SET state='running',worker_id='fixture-worker' WHERE id=?").run(followUpRun);
-  expect(feed(owner, { filter: "working" }).items).toEqual(expect.arrayContaining([
-    expect.objectContaining({ conversation_id: child.conversation_id, run: expect.objectContaining({ id: followUpRun }) }),
-  ]));
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='fixture-worker' WHERE id=?",
+  ).run(followUpRun);
+  expect(feed(owner, { filter: "working" }).items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        conversation_id: child.conversation_id,
+        run: expect.objectContaining({ id: followUpRun }),
+      }),
+    ]),
+  );
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(followUpRun);
   expect(feed(owner, { filter: "working" }).summary.working).toBe(1);
-  expect(feed(owner, { filter: "done" }).items.some((item) => item.conversation_id === child.conversation_id)).toBe(true);
+  expect(
+    feed(owner, { filter: "done" }).items.some(
+      (item) => item.conversation_id === child.conversation_id,
+    ),
+  ).toBe(true);
 });
 
 it.each(["refused", "cancelled", "failed", "interrupted"] as const)(
@@ -810,8 +838,16 @@ it("lets a manager delegate without waiting, answer a worker mid-task, and get e
     const workers = new Map([a, b].map((r) => [r.agent_id, r]));
     const firstTask = workers.get(first.id)!,
       secondTask = workers.get(second.id)!;
-    expect(feed(owner, { filter: "working" }).items.map((item) => item.conversation_id))
-      .toEqual(expect.arrayContaining([firstTask.conversation_id, secondTask.conversation_id]));
+    expect(
+      feed(owner, { filter: "working" }).items.map(
+        (item) => item.conversation_id,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        firstTask.conversation_id,
+        secondTask.conversation_id,
+      ]),
+    );
     // The first worker asks a question while both are still working.
     const asked = await message(firstTask, {
       to: manager.id,
@@ -845,8 +881,14 @@ it("lets a manager delegate without waiting, answer a worker mid-task, and get e
       expect(await executeAgent(task)).toBe(true);
       transition(task, "completed");
     }
-    expect(feed(owner, { filter: "done" }).items.map((item) => item.conversation_id))
-      .toEqual(expect.arrayContaining([firstTask.conversation_id, secondTask.conversation_id]));
+    expect(
+      feed(owner, { filter: "done" }).items.map((item) => item.conversation_id),
+    ).toEqual(
+      expect.arrayContaining([
+        firstTask.conversation_id,
+        secondTask.conversation_id,
+      ]),
+    );
     sweepAgentMail();
     sweepAgentMail();
     const results = db
@@ -1176,9 +1218,7 @@ it.each(["team", "direct"])(
     const final = db
       .prepare("SELECT run_id FROM agent_mail WHERE sender_run_id=?")
       .get(received.id) as any;
-    expect(runOf(final.run_id).payload.connectionId).toBe(
-      pi.connection_id,
-    );
+    expect(runOf(final.run_id).payload.connectionId).toBe(pi.connection_id);
     db.prepare("UPDATE runs SET state='running' WHERE id=?").run(final.run_id);
     expect(
       readRunFile(runOf(final.run_id), file.artifactId, 0, 1000, "utf8")
@@ -1751,9 +1791,7 @@ it.each(["disconnected", "deleted"])(
       state: "refused",
       error: expect.stringContaining("provider selected"),
     });
-    expect(runOf(target.id).payload.connectionId).toBe(
-      recipient.connection_id,
-    );
+    expect(runOf(target.id).payload.connectionId).toBe(recipient.connection_id);
     transition(next, "completed");
   },
 );
@@ -2059,14 +2097,19 @@ it("interrupts the current conversation from an existing direct thread without m
   });
   expect(mail(followUp.messageId).recipient_conversation_id).toBe(original);
   const exchange = readAgentThread(owner, first.threadId, { limit: 40 });
-  expect(exchange.messages.map(message => [message.id, message.content])).toEqual([
+  expect(
+    exchange.messages.map((message) => [message.id, message.content]),
+  ).toEqual([
     [first.messageId, "Hold merges"],
     [urgent.messageId, "Hold merges now"],
     [followUp.messageId, "When you are done"],
   ]);
   expect(exchange.messages[1].message_id).toBe(
-    (db.prepare("SELECT message_id FROM run_steering WHERE id=?")
-      .get(mail(urgent.messageId).steering_id) as { message_id: string }).message_id,
+    (
+      db
+        .prepare("SELECT message_id FROM run_steering WHERE id=?")
+        .get(mail(urgent.messageId).steering_id) as { message_id: string }
+    ).message_id,
   );
   expect(
     db
@@ -2387,44 +2430,79 @@ it("bounds accepted pending mail without creating orphan threads on refusal", ()
   ).toEqual({ n: 100 });
 });
 
-
-it.each(["pending", "stranded"])("isolates malformed %s mail during the worker sweep", async (phase) => {
-  const owner = `malformed-sweep-${phase}`;
-  const pending = (owner: string) => {
-    const sender = agent(owner, "sender"), recipient = agent(owner, "recipient");
-    db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(recipient.connection_id);
-    const receipt = sendMail(running(owner, sender.id, {}), "pending", { to: recipient.id, body: "Deliver after recovery" });
-    expect(receipt.delivery).toBe("pending");
-    return { receipt, recipient, sender };
-  };
-  let damaged: string;
-  if (phase === "stranded") {
-    const { manager, coder, team } = mixedTeam(owner);
-    const lead = running(owner, manager.id, { conversationId: team.conversation_id! });
-    const busy = running(owner, coder.id, { teamId: team.id });
-    const receipt = sendMail(lead, "unread", { to: coder.id, body: "Unread steering", interrupt: true });
-    expect(mail(receipt.messageId).steering_id).toEqual(expect.any(String));
-    transition(busy, "completed");
-    damaged = receipt.messageId;
-  } else damaged = pending(owner).receipt.messageId;
-  db.prepare("UPDATE agent_mail SET attempts='bad' WHERE id=?").run(damaged);
-  const healthy = pending(owner + "-healthy");
-  db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(healthy.recipient.connection_id);
-  sweepAgentMail(now() + 600000);
-  expect(mail(damaged)).toMatchObject({ state: "refused", attempts: "bad", requeued_run_id: null });
-  expect(mail(healthy.receipt.messageId)).toMatchObject({ state: "sent", owner_id: owner + "-healthy", run_id: expect.any(String) });
-  const delivered = mail(healthy.receipt.messageId).run_id;
-  sweepAgentMail(now() + 1200000);
-  expect(mail(healthy.receipt.messageId).run_id).toBe(delivered);
-  expect(db.prepare("SELECT count(*) n FROM runs WHERE agent_id=?").get(healthy.recipient.id)).toEqual({ n: 1 });
-  const row = mail(damaged);
-  const readable = readAgentThread(owner, row.thread_id, { limit: 40 });
-  expect(readable.messages.some(message => message.id === damaged)).toBe(true);
-  const statusRun = runOf(row.sender_run_id);
-  const status = await toolResult(statusRun, "loop_message_status", { threadId: row.thread_id });
-  expect(status.messages.some((message: { messageId: string }) => message.messageId === damaged)).toBe(true);
-
-});
+it.each(["pending", "stranded"])(
+  "isolates malformed %s mail during the worker sweep",
+  async (phase) => {
+    const owner = `malformed-sweep-${phase}`;
+    const pending = (owner: string) => {
+      const sender = agent(owner, "sender"),
+        recipient = agent(owner, "recipient");
+      db.prepare("UPDATE connections SET status='disconnected' WHERE id=?").run(
+        recipient.connection_id,
+      );
+      const receipt = sendMail(running(owner, sender.id, {}), "pending", {
+        to: recipient.id,
+        body: "Deliver after recovery",
+      });
+      expect(receipt.delivery).toBe("pending");
+      return { receipt, recipient, sender };
+    };
+    let damaged: string;
+    if (phase === "stranded") {
+      const { manager, coder, team } = mixedTeam(owner);
+      const lead = running(owner, manager.id, {
+        conversationId: team.conversation_id!,
+      });
+      const busy = running(owner, coder.id, { teamId: team.id });
+      const receipt = sendMail(lead, "unread", {
+        to: coder.id,
+        body: "Unread steering",
+        interrupt: true,
+      });
+      expect(mail(receipt.messageId).steering_id).toEqual(expect.any(String));
+      transition(busy, "completed");
+      damaged = receipt.messageId;
+    } else damaged = pending(owner).receipt.messageId;
+    db.prepare("UPDATE agent_mail SET attempts='bad' WHERE id=?").run(damaged);
+    const healthy = pending(owner + "-healthy");
+    db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
+      healthy.recipient.connection_id,
+    );
+    sweepAgentMail(now() + 600000);
+    expect(mail(damaged)).toMatchObject({
+      state: "refused",
+      attempts: "bad",
+      requeued_run_id: null,
+    });
+    expect(mail(healthy.receipt.messageId)).toMatchObject({
+      state: "sent",
+      owner_id: owner + "-healthy",
+      run_id: expect.any(String),
+    });
+    const delivered = mail(healthy.receipt.messageId).run_id;
+    sweepAgentMail(now() + 1200000);
+    expect(mail(healthy.receipt.messageId).run_id).toBe(delivered);
+    expect(
+      db
+        .prepare("SELECT count(*) n FROM runs WHERE agent_id=?")
+        .get(healthy.recipient.id),
+    ).toEqual({ n: 1 });
+    const row = mail(damaged);
+    const readable = readAgentThread(owner, row.thread_id, { limit: 40 });
+    expect(readable.messages.some((message) => message.id === damaged)).toBe(
+      true,
+    );
+    const statusRun = runOf(row.sender_run_id);
+    const status = await toolResult(statusRun, "loop_message_status", {
+      threadId: row.thread_id,
+    });
+    expect(
+      status.messages.some(
+        (message: { messageId: string }) => message.messageId === damaged,
+      ),
+    ).toBe(true);
+  },
+);
 
 it("does not let blocked followers starve retryable thread heads across owners", () => {
   const heads: string[] = [];
@@ -2512,47 +2590,118 @@ it("arbitrates mail claims between independent worker processes and never replay
   expect(mail(receipts[1].messageId).requeued_run_id).toBeNull();
 }, 20000);
 
-it.each(["models", "secret", "metadata"] as const)("isolates damaged teammate %s from healthy turns and directory discovery", async (column) => {
-  const owner = id(), { manager, coder, piWorker, team } = mixedTeam(owner);
-  const lead = running(owner, manager.id, { conversationId: team.conversation_id! });
-  const bad = column === "models" ? '[{"id":"fixture","name":42}]'
-    : column === "secret" ? "bad-envelope" : '{"loopHarness":false}';
-  db.prepare(`UPDATE connections SET ${column}=? WHERE id=?`).run(bad, coder.connection_id);
-  const restore = withTestAdapter("openai", {
-    async models() { return []; },
-    async *stream() { yield { text: "Healthy teammate still works." }; },
-  });
-  try {
-    expect(await executeAgent(lead)).toBe(true);
-    const page = await toolResult(lead, "loop_agents", {});
-    expect(page.agents).toEqual(expect.arrayContaining([
-      expect.objectContaining({ agentId: coder.id, runtime: "unavailable", availability: "unavailable", reason: expect.stringContaining(coder.connection_id!) }),
-      expect.objectContaining({ agentId: piWorker.id, availability: "available" }),
-    ]));
-    expect(await message(lead, { to: coder.id, body: "Unavailable" })).toEqual({ error: expect.stringContaining(coder.connection_id!) });
-    expect(db.prepare("SELECT count(*) n FROM runs WHERE agent_id=?").get(coder.id)).toEqual({ n: 0 });
-  } finally { restore(); }
-});
+it.each(["models", "secret", "metadata"] as const)(
+  "isolates damaged teammate %s from healthy turns and directory discovery",
+  async (column) => {
+    const owner = id(),
+      { manager, coder, piWorker, team } = mixedTeam(owner);
+    const lead = running(owner, manager.id, {
+      conversationId: team.conversation_id!,
+    });
+    const bad =
+      column === "models"
+        ? '[{"id":"fixture","name":42}]'
+        : column === "secret"
+          ? "bad-envelope"
+          : '{"loopHarness":false}';
+    db.prepare(`UPDATE connections SET ${column}=? WHERE id=?`).run(
+      bad,
+      coder.connection_id,
+    );
+    const restore = withTestAdapter("openai", {
+      async models() {
+        return [];
+      },
+      async *stream() {
+        yield { text: "Healthy teammate still works." };
+      },
+    });
+    try {
+      expect(await executeAgent(lead)).toBe(true);
+      const page = await toolResult(lead, "loop_agents", {});
+      expect(page.agents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            agentId: coder.id,
+            runtime: "unavailable",
+            availability: "unavailable",
+            reason: expect.stringContaining(coder.connection_id!),
+          }),
+          expect.objectContaining({
+            agentId: piWorker.id,
+            availability: "available",
+          }),
+        ]),
+      );
+      expect(
+        await message(lead, { to: coder.id, body: "Unavailable" }),
+      ).toEqual({ error: expect.stringContaining(coder.connection_id!) });
+      expect(
+        db
+          .prepare("SELECT count(*) n FROM runs WHERE agent_id=?")
+          .get(coder.id),
+      ).toEqual({ n: 0 });
+    } finally {
+      restore();
+    }
+  },
+);
 
-it.each([["reviewId", null], ["connectionId", false], ["maxSeconds", 0]])("delivers exactly one failure notice for a rejected background child with invalid %s", (field, value) => {
-  const owner = id(), { manager, coder, team } = mixedTeam(owner);
-  const lead = running(owner, manager.id, { conversationId: team.conversation_id! });
-  const child = submit(owner, { agentId: coder.id, teamId: team.id, input: "Background work", idempotencyKey: id() });
-  db.prepare("INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,'{}',1)").run(lead.id, id(), child.id);
-  const payload = JSON.stringify({ ...child.payload, [String(field)]: value });
-  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(payload, child.id);
-  expect(claim("reject-invalid", (r) => r.id === child.id)).toBeUndefined();
-  expect(db.prepare("SELECT state,worker_id,error FROM runs WHERE id=?").get(child.id)).toEqual({ state: "failed", worker_id: null, error: expect.stringContaining(child.id) });
-  transition(lead, "completed");
-  sweepAgentMail();
-  sweepAgentMail(now() + 600000);
-  const notices = db.prepare("SELECT state,run_id FROM agent_mail WHERE owner_id=? AND kind='result'").all(owner) as { state: string; run_id: string }[];
-  expect(notices).toHaveLength(1);
-  expect(notices[0].state).toBe("sent");
-  const notice = runOf(notices[0].run_id);
-  expect(notice.conversation_id).toBe(lead.conversation_id);
-  expect(notice.input).toContain(child.id);
-  expect(notice.input).toContain("ended: failed");
-  expect(db.prepare("SELECT payload FROM runs WHERE id=?").get(child.id)).toEqual({ payload });
-  expect(db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(child.id)).toBeUndefined();
-});
+it.each([
+  ["reviewId", null],
+  ["connectionId", false],
+  ["maxSeconds", 0],
+])(
+  "delivers exactly one failure notice for a rejected background child with invalid %s",
+  (field, value) => {
+    const owner = id(),
+      { manager, coder, team } = mixedTeam(owner);
+    const lead = running(owner, manager.id, {
+      conversationId: team.conversation_id!,
+    });
+    const child = submit(owner, {
+      agentId: coder.id,
+      teamId: team.id,
+      input: "Background work",
+      idempotencyKey: id(),
+    });
+    db.prepare(
+      "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,'{}',1)",
+    ).run(lead.id, id(), child.id);
+    const payload = JSON.stringify({
+      ...child.payload,
+      [String(field)]: value,
+    });
+    db.prepare("UPDATE runs SET payload=? WHERE id=?").run(payload, child.id);
+    expect(claim("reject-invalid", (r) => r.id === child.id)).toBeUndefined();
+    expect(
+      db
+        .prepare("SELECT state,worker_id,error FROM runs WHERE id=?")
+        .get(child.id),
+    ).toEqual({
+      state: "failed",
+      worker_id: null,
+      error: expect.stringContaining(child.id),
+    });
+    transition(lead, "completed");
+    sweepAgentMail();
+    sweepAgentMail(now() + 600000);
+    const notices = db
+      .prepare(
+        "SELECT state,run_id FROM agent_mail WHERE owner_id=? AND kind='result'",
+      )
+      .all(owner) as { state: string; run_id: string }[];
+    expect(notices).toHaveLength(1);
+    expect(notices[0].state).toBe("sent");
+    const notice = runOf(notices[0].run_id);
+    expect(notice.conversation_id).toBe(lead.conversation_id);
+    expect(notice.input).toContain(child.id);
+    expect(notice.input).toContain("ended: failed");
+    expect(
+      db.prepare("SELECT payload FROM runs WHERE id=?").get(child.id),
+    ).toEqual({ payload });
+    expect(
+      db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(child.id),
+    ).toBeUndefined();
+  },
+);
