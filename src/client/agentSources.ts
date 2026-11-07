@@ -273,15 +273,9 @@ export function useAgentSources(
         confirmed = true;
       } catch (failure) {
         if (!currentPass()) return;
-        // A 404 means this workspace has no linked sources: stop showing and
-        // polling the ones it listed before.
-        if ((failure as { status?: number }).status === 404) {
-          linked = known = [];
-          confirmed = true;
-        } else
-          error = known.length
-            ? "Connection check unavailable. Showing your last connected environments."
-            : "Couldn’t connect to your execution environments. Check your connection and retry.";
+        error = known.length
+          ? "Connection check unavailable. Showing your last connected environments."
+          : "Couldn’t connect to your execution environments. Check your connection and retry.";
       }
       const sources: AgentSource[] = [
         {

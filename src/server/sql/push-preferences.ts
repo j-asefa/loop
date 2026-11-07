@@ -1,7 +1,4 @@
 import type Database from "better-sqlite3";
-import { z } from "zod";
-import { QueryRecords } from "../query-records.js";
-import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
 const upsertStatement = statement(

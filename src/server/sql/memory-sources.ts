@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type Database from "better-sqlite3";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";

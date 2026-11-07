@@ -117,7 +117,7 @@ it("tells an empty search apart from memory being off", () => {
   ).toBe("Added 1 saved source, about 1 token of context.");
 });
 
-it("reports conversation memory policy without requiring a HAPI session and isolates owners", async () => {
+it("reports conversation memory policy and isolates owners", async () => {
   const owner = id(),
     rid = runFor(owner);
   const { conversation_id: conversation } = db

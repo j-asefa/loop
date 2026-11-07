@@ -973,7 +973,7 @@ it("keeps system messages and native failure notices in conversation pages", asy
       id(),
       run.conversation_id,
       type + " notice",
-      JSON.stringify({ backend: "hapi", native: { type } }),
+      JSON.stringify({ native: { type } }),
       now(),
     );
   const page = await get(`/conversations/${run.conversation_id}`);

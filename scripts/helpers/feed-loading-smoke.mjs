@@ -1239,12 +1239,17 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     await page.keyboard.press("Escape");
     await expect(second).toBeVisible();
 
-    // Older workspaces without source discovery confirm a local-only feed.
+    // A missing discovery endpoint cannot confirm an empty source list.
     discoveryFails = true;
     discoveryStatus = 404;
     await page.goto(fixture.base);
-    await expect(noResults).toBeVisible();
-    await expect(loading).toHaveCount(0);
+    await expect(
+      page.getByText(
+        "Couldn’t connect to your execution environments. Check your connection and retry.",
+        { exact: false },
+      ),
+    ).toBeVisible();
+    await expect(noResults).toHaveCount(0);
   } finally {
     discovery.resolve();
     metadata.resolve();

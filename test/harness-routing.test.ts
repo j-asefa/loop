@@ -18,8 +18,6 @@ import { gitProject } from "./git-project.js";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-harness-routing-")));
 process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_HAPI_URL = "http://fixture";
-process.env.LOOP_HAPI_TOKEN = "fixture";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { core } = await import("../src/server/core-routes");

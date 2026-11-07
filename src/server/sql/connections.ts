@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
-import { InvalidRow, parseRecord } from "../row-schemas.js";
+import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 export const LIVE_INPUT_HARNESSES = new Set(["codex", "claude", "pi", "muse"]);
 

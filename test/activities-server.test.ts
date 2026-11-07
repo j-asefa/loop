@@ -210,7 +210,7 @@ it("does not offer or accept the plan tool on the native bridge path", async () 
   const binding = nativeBindings(run, { plans: true }).find(
     (b) => b.tool === "loop_plan",
   )!;
-  // Bridge and HAPI callers do not pass { plans: true }, so a direct call is refused.
+  // Native bridge callers do not pass { plans: true }, so a direct call is refused.
   await expect(
     invokeNative(run, binding, "p", {
       steps: [{ title: "x", status: "pending" }],

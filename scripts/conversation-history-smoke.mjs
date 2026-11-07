@@ -1560,13 +1560,15 @@ async function localRequestRefusal(engine) {
       "Local validation must refuse before transport",
     );
     const receipts = await page.evaluate(() =>
-      Object.values(sessionStorage).flatMap((value) => {
+      Object.values(localStorage).flatMap((value) => {
         try {
-          const item = JSON.parse(value);
-          return typeof item?.signature === "string" &&
-            item.signature.includes("too-long-fixture-")
-            ? [item]
-            : [];
+          // Each thread key holds a list of receipts, one per message.
+          const list = JSON.parse(value);
+          return (Array.isArray(list) ? list : []).filter(
+            (item) =>
+              typeof item?.signature === "string" &&
+              item.signature.includes("too-long-fixture-"),
+          );
         } catch {
           return [];
         }

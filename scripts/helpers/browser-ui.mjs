@@ -73,13 +73,3 @@ export async function openAgentProfile(page, name) {
   await page.locator(".profile-head h1", { hasText: name }).waitFor();
   await page.getByRole("tab", { name: "Results", exact: true }).click();
 }
-
-// Open a Feed row's action sheet (context menu) and pick an item.
-export async function inboxRowAction(page, rowName, item) {
-  const row = page.locator(".feed-row").filter({ hasText: rowName }).first();
-  await row.click({ button: "right" });
-  const sheet = page.locator("dialog[open].action-sheet").last();
-  await sheet.waitFor();
-  if (item) await sheet.getByRole("menuitem", { name: item }).click();
-  return sheet;
-}

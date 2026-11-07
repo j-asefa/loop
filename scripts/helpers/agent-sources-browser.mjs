@@ -147,9 +147,11 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     });
   let discoveryFailed = false,
     discoveryMissing = false,
+    discoveryEmpty = false,
     discoveryHung = false,
     sourceFailed = false;
   let failedDiscoveryReads = 0;
+  let missingDiscoveryReads = 0;
   const hung = [];
   const unavailable = (route) =>
     route.fulfill({
@@ -160,12 +162,15 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
   const list = (route) => {
     // A black-holed tunnel: the request stays open until the fixture ends.
     if (discoveryHung) return new Promise((resolve) => hung.push(resolve));
-    if (discoveryMissing) return route.fulfill({ status: 404, body: "{}" });
+    if (discoveryMissing) {
+      missingDiscoveryReads++;
+      return route.fulfill({ status: 404, body: "{}" });
+    }
     if (discoveryFailed) {
       failedDiscoveryReads++;
       return unavailable(route);
     }
-    return fulfill(route, sources);
+    return fulfill(route, discoveryEmpty ? [] : sources);
   };
   const visible = (route, thread) =>
     ["needs", "queued"].includes(
@@ -562,16 +567,38 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     );
     await expect.poll(() => hung.length).toBe(1);
     discoveryHung = false;
-    // The workspace no longer lists linked sources: stop showing them.
+    // A missing discovery endpoint is an error, not an empty source list.
     discoveryMissing = true;
-    await expect(async () => {
-      await page.evaluate(() =>
-        window.dispatchEvent(new Event("loop-source-refresh")),
-      );
-      await expect(
-        strip.getByRole("button", { name: /@remote-0/ }),
-      ).toHaveCount(0, { timeout: 1_000 });
-    }).toPass({ timeout: 30_000 });
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("loop-source-refresh")),
+    );
+    await expect
+      .poll(() => missingDiscoveryReads, { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    await expect(
+      page.getByText(
+        "Connection check unavailable. Showing your last connected environments.",
+      ),
+    ).toBeVisible();
+    await expect(
+      strip.getByRole("button", { name: /@remote-0/ }),
+    ).toBeVisible();
+    // Only a successful empty discovery response removes known sources.
+    discoveryMissing = false;
+    discoveryEmpty = true;
+    await page
+      .getByRole("status")
+      .filter({ hasText: "Connection check unavailable" })
+      .getByRole("button", { name: "Retry connection", exact: true })
+      .click();
+    await expect(strip.getByRole("button", { name: /@remote-0/ })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByText(
+        "Connection check unavailable. Showing your last connected environments.",
+      ),
+    ).toHaveCount(0);
     await expect(
       strip.getByRole("button", { name: /@laptop-agent/ }),
     ).toBeVisible();
