@@ -186,11 +186,11 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       folders: [],
       teams: [],
     });
-  let holdNextInbox = null;
-  let releaseInbox = () => {};
-  const localInbox = async (route) => {
-    const hold = holdNextInbox;
-    holdNextInbox = null;
+  let holdNextFeed = null;
+  let releaseFeed = () => {};
+  const localFeed = async (route) => {
+    const hold = holdNextFeed;
+    holdNextFeed = null;
     if (hold) await hold();
     return fulfill(route, {
       items: visible(route, local.thread),
@@ -257,7 +257,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
   await page.route("**/api/agent-sources", list);
   await page.route("**/api/agent-sources/**", detail);
   await page.route("**/api/bootstrap", localBootstrap);
-  await page.route("**/api/feed?*", localInbox);
+  await page.route("**/api/feed?*", localFeed);
   // These source fixtures serve the legacy Feed contract. Keep the local
   // fixture on the same contract instead of mixing it with the real empty DB.
   const noCards = (route) => route.fulfill({ status: 404, body: "{}" });
@@ -312,10 +312,10 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     // Keep an older successful Feed pass in flight while the explicit refresh
     // arrives. Previously the Feed dropped that event and never read the
     // failing source, depending on timing in Chromium CI.
-    const inboxStarted = new Promise((started) => {
-      holdNextInbox = () =>
+    const feedStarted = new Promise((started) => {
+      holdNextFeed = () =>
         new Promise((release) => {
-          releaseInbox = release;
+          releaseFeed = release;
           started();
         });
     });
@@ -332,7 +332,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop-later-change")),
     );
-    await Promise.all([inboxStarted, ...remoteReads]);
+    await Promise.all([feedStarted, ...remoteReads]);
     discoveryFailed = true;
     sourceFailed = true;
     await page.evaluate(() => {
@@ -354,7 +354,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await expect(
       page.getByText(/Some environments could not refresh/),
     ).toBeVisible();
-    releaseInbox();
+    releaseFeed();
     discoveryFailed = false;
     sourceFailed = false;
     // Retry reloads both the agent sources and the Feed threads it explains.
@@ -603,12 +603,12 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       strip.getByRole("button", { name: /@laptop-agent/ }),
     ).toBeVisible();
   } finally {
-    releaseInbox();
+    releaseFeed();
     for (const release of hung.splice(0)) release();
     await page.unroute("**/api/agent-sources", list);
     await page.unroute("**/api/agent-sources/**", detail);
     await page.unroute("**/api/bootstrap", localBootstrap);
-    await page.unroute("**/api/feed?*", localInbox);
+    await page.unroute("**/api/feed?*", localFeed);
     await page.unroute("**/api/v1/cards?*", noCards);
   }
 }

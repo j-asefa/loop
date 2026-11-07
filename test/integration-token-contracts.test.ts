@@ -459,10 +459,10 @@ it("companion keeps Results reads and disclosures coherent while a worker tries 
   }
 }, 60000);
 
-it("rejects retired credential prefixes and grants at the companion HTTP boundary", async () => {
+it("rejects invalid credential prefixes and grants at the companion HTTP boundary", async () => {
   const f = await cardsFixture();
   try {
-    for (const prefix of ["loop_card_", "loop55_card_", "loop55_token_"]) {
+    for (const prefix of ["loop_card_", "invalid_card_", "invalid_token_"]) {
       const request = integrationTokenRequest("Rejected credential", ["read"]);
       request.secret = request.secret.replace("loop_token_", prefix);
       const created = await f.request("/api/card-tokens", {

@@ -931,12 +931,12 @@ it("verifies real deliveries with the documented snippet and rejects tampering",
   ).toThrow();
 }, 30000);
 
-it("rejects Loop55 webhook secrets and replays current creation receipts", async () => {
+it("rejects invalid webhook secret prefixes and replays current creation receipts", async () => {
   const { f, destination } = await fixture("public");
   const request = webhookRequest(destination, ["run.stopped"]);
   const rejected = await f.request("/api/webhooks", {
     headers: f.browser,
-    body: { ...request, secret: request.secret.replace(/^loop_/, "loop55_") },
+    body: { ...request, secret: request.secret.replace(/^loop_/, "invalid_") },
   });
   expect(rejected.status).toBe(400);
   const empty = WebhookList.parse(

@@ -73,7 +73,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     .get(created.id);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(fixture.base);
-  const inboxNav = page
+  const feedNav = page
     .locator(".mobile-nav")
     .getByRole("button", { name: "Feed", exact: true });
   const feedPattern = /\/api\/feed(?:\?|$)/;
@@ -95,32 +95,32 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   await page.route(feedPattern, counts);
   try {
     await page.reload();
-    await expect(inboxNav.locator("small")).toHaveText("8");
-    await expect(inboxNav.locator("small")).toHaveAttribute(
+    await expect(feedNav.locator("small")).toHaveText("8");
+    await expect(feedNav.locator("small")).toHaveAttribute(
       "aria-label",
       "8 items in Feed",
     );
-    const icon = await inboxNav.locator("svg").boundingBox();
-    const badge = await inboxNav.locator("small").boundingBox();
+    const icon = await feedNav.locator("svg").boundingBox();
+    const badge = await feedNav.locator("small").boundingBox();
     assert(badge.x > icon.x + icon.width / 2 && badge.y < icon.y);
     await capture("feed-total-badge");
     // Every category contributes; the accessible count remains exact above nine.
     summary = { working: 2, queued: 3, replies_unread: 1, done_unread: 5 };
     await page.reload();
-    await expect(inboxNav.locator("small")).toHaveText("9+");
-    await expect(inboxNav.locator("small")).toHaveAttribute(
+    await expect(feedNav.locator("small")).toHaveText("9+");
+    await expect(feedNav.locator("small")).toHaveAttribute(
       "aria-label",
       "11 items in Feed",
     );
     // The badge also loads when the app starts on another tab.
     await page.goto(fixture.base + "/?page=projects");
-    await expect(inboxNav.locator("small")).toHaveAttribute(
+    await expect(feedNav.locator("small")).toHaveAttribute(
       "aria-label",
       "11 items in Feed",
     );
     summary = { working: 0, queued: 0, replies_unread: 0, done_unread: 0 };
     await page.reload();
-    await expect(inboxNav.locator("small")).toHaveCount(0);
+    await expect(feedNav.locator("small")).toHaveCount(0);
   } finally {
     await page.unroute(feedPattern, counts);
   }

@@ -410,13 +410,7 @@ function worktreePaths(
       ]),
     )
     .digest("hex");
-  // Existing checkouts contain harness-owned context and possibly uncommitted
-  // work. Ones created while the product was named Loop55 keep their path and
-  // branch; new agents use the Loop namespace.
-  const loop55 = join(common, "loop55-agent-worktrees");
-  const storage = existsSync(join(loop55, key))
-    ? loop55
-    : join(common, "loop-agent-worktrees");
+  const storage = join(common, "loop-agent-worktrees");
   const checkout = join(storage, key);
   return {
     key,

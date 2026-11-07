@@ -15,10 +15,10 @@ export function readableText(value: string): string {
       "[encoded content omitted]",
     )
     .replace(
-      /(?<![\w./-])(?:[\w./-]*\/)?\.git\/loop(?:55)?-agent-worktrees\/[^\s`"'<>]+/gi,
+      /(?<![\w./-])(?:[\w./-]*\/)?\.git\/loop-agent-worktrees\/[^\s`"'<>]+/gi,
       "the agent’s workspace",
     )
-    .replace(/loop(?:55)?\/agent-[a-f0-9]{4,64}\b/gi, "the agent’s branch")
+    .replace(/loop\/agent-[a-f0-9]{4,64}\b/gi, "the agent’s branch")
     .replace(/[a-z0-9+/_=-]{80,}/gi, "[encoded content omitted]")
     .replace(
       new RegExp(

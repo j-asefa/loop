@@ -153,7 +153,7 @@ export async function swipeBackSmoke(page, fixture, engine, capture) {
     await swipe(heading);
     await expect(nav("Feed")).toHaveAttribute("aria-current", "page");
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(240);
-    await capture("swipe-back-inbox");
+    await capture("swipe-back-feed");
     // Back returns to where you were: closing a thread keeps the Feed at
     // the same place, and earlier pages keep their query, results and section.
     // Put a thread title on screen, then preserve that reading position.

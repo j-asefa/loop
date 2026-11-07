@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
-  mkdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -268,21 +267,4 @@ it("fetches main from its configured upstream rather than origin", async () => {
   expect(git(imported.directory, "rev-parse", "HEAD")).toBe(
     git(upstream, "rev-parse", "HEAD"),
   );
-});
-
-it("retains a Loop55-era registered worktree, branch and uncommitted native workspace", () => {
-  const repo = fixture();
-  const current = worktree(repo, "legacy");
-  const key = current.split("/").at(-1)!;
-  const storage = join(repo, ".git", "loop55-agent-worktrees");
-  mkdirSync(storage);
-  const legacy = join(storage, key);
-  git(current, "branch", "-m", "loop55/agent-" + key);
-  git(repo, "worktree", "move", current, legacy);
-  writeFileSync(join(legacy, "uncommitted.txt"), "original native workspace");
-  expect(worktree(repo, "legacy")).toBe(legacy);
-  expect(readFileSync(join(legacy, "uncommitted.txt"), "utf8")).toBe(
-    "original native workspace",
-  );
-  expect(git(legacy, "branch", "--show-current")).toBe("loop55/agent-" + key);
 });
