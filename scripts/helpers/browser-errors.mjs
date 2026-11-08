@@ -39,9 +39,23 @@ export async function collectionReadRecovery(
   let blocked = true;
   let status = 503;
   let delay = 0;
+  let releaseRecovery;
+  let finishRecovery;
+  let recoveryStarted = false;
+  const recoveryFinished = new Promise((resolve) => {
+    finishRecovery = resolve;
+  });
+  const recoveryPending = new Promise((resolve) => {
+    releaseRecovery = resolve;
+  });
   const handler = async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     reads++;
+    const held = automaticRecovery && reads === 4;
+    if (held) {
+      recoveryStarted = true;
+      await recoveryPending;
+    }
     if (blocked)
       await route.fulfill({
         status,
@@ -51,6 +65,7 @@ export async function collectionReadRecovery(
       if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
       await route.continue();
     }
+    if (held) finishRecovery();
   };
   // Let notifications from preceding fixture mutations settle first.
   await page.waitForTimeout(2500);
@@ -64,6 +79,15 @@ export async function collectionReadRecovery(
       // Exhaustion registers with the shared watcher, including when its event
       // response is empty. No wake event or manual click should be necessary.
       await expect.poll(() => reads, { timeout: 20_000 }).toBeGreaterThan(3);
+      // Keep the recovery request pending: cached rows must retain their warning
+      // until a successful response establishes that they are current again.
+      await page.waitForTimeout(200);
+      await expect(marker).toBeVisible({ timeout: 1000 });
+      await expect(
+        marker.getByRole("button", { name: "Retry connection", exact: true }),
+      ).toBeDisabled();
+      releaseRecovery();
+      await page.waitForTimeout(200);
       blocked = false;
       const recoveryReads = reads;
       await expect
@@ -155,6 +179,8 @@ export async function collectionReadRecovery(
       assert.equal(reads, before + 1, "One change issues one healthy read");
     }
   } finally {
+    releaseRecovery();
+    if (recoveryStarted) await recoveryFinished;
     await page.unroute(match, handler);
   }
 }

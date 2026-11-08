@@ -50,7 +50,7 @@ export function useCollectionRead(key: string) {
         owner === viewGeneration();
       setState((old) => ({
         context,
-        error: manual && old.context === context ? old.error : "",
+        error: old.context === context ? old.error : "",
         busy: true,
       }));
       try {
