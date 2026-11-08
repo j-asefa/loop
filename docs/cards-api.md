@@ -562,8 +562,7 @@ operational Feed summaries and Needs you/Working/Queued actions keep their own
 identity and behavior. Done uses the typed Cards reader and a bounded per-source
 pager; it retains loaded windows and reconciles further 200-revision batches in
 scheduled refreshes. Opening a Done answer uses its full card body without a
-per-message fetch. A source whose initial Done Cards read returns 400/404 uses the Feed read;
-refresh rechecks availability after reconnecting or replacing the source.
-Contract transitions retain loaded history while the new pager catches up; opaque
-cursors are never sent to the other endpoint. Dismissal/Undo and save update the
+per-message fetch. Failed Cards reads surface a source error and retain its loaded
+window and paging cursor. A 409 revision reset resynchronizes within the Cards
+contract; reads do not switch to the operational Feed endpoint. Dismissal/Undo and save update the
 source-bound visible and pager caches together.
