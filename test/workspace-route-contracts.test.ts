@@ -557,3 +557,56 @@ it("keeps native decisions and session controls generation-bound through the pro
     { n: 0 },
   );
 });
+
+it("reads current work beyond an anchored transcript without exposing Feed cache columns", async () => {
+  const { agent, run } = fixture();
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
+  const insert = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Earlier result',?)",
+  );
+  const anchor = id();
+  insert.run(anchor, owner, run.conversation_id, run.id, 1);
+  for (let n = 2; n <= 60; n++)
+    insert.run(id(), owner, run.conversation_id, run.id, n);
+  const current = submit(owner, {
+    agentId: agent.id,
+    conversationId: run.conversation_id!,
+    input: "Current task",
+    idempotencyKey: id(),
+  });
+  const path = `/conversations/${run.conversation_id}?message=${anchor}`;
+  const initial = await request(path);
+  expect(initial.status).toBe(200);
+  const page = workspaceApi.conversation.response.parse(initial.data);
+  expect(page.messages.some((message) => message.run_id === current.id)).toBe(
+    false,
+  );
+  expect(page.working).toBe(true);
+  expect(page.conversation).not.toHaveProperty("feed_run_state");
+  for (const state of [
+    "running",
+    "pausing",
+    "paused",
+    "awaiting_approval",
+    "completed",
+    "cancelled",
+  ]) {
+    db.prepare("UPDATE runs SET state=? WHERE id=?").run(state, current.id);
+    const result = await request(path);
+    expect(result.status).toBe(200);
+    expect(result.data.working).toBe(
+      !["completed", "cancelled"].includes(state),
+    );
+  }
+  db.prepare(
+    "UPDATE runs SET state='queued',owner_id='another-owner' WHERE id=?",
+  ).run(current.id);
+  expect((await request(path)).data.working).toBe(false);
+  expect(
+    (
+      await request(
+        `/conversations/${fixture("another-owner").run.conversation_id}`,
+      )
+    ).status,
+  ).toBe(404);
+});

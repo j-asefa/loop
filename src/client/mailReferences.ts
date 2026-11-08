@@ -60,8 +60,8 @@ export function mailConversationTarget(
       return null;
     return { id: remote.conversationId, source: `peer:${remote.machineId}` };
   }
-  // Older projections expose only a source-local conversation. A remote ID
-  // must not become local just because the peer projection is incomplete.
+  // Local mail exposes a source-local conversation. A remote ID must not
+  // become local just because the peer projection is incomplete.
   if (message.to_ref?.kind === "peer") return null;
   return message.conversation_id
     ? { id: message.conversation_id, source }

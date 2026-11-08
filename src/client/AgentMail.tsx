@@ -178,11 +178,7 @@ function MailThreadsView({
             <header>
               <strong>{thread.subject}</strong>
               <small>
-                {(thread.scope === "direct"
-                  ? "Direct · "
-                  : thread.scope === "team"
-                    ? "Team · "
-                    : "") +
+                {(thread.scope === "direct" ? "Direct · " : "Team · ") +
                   (thread.participant_refs
                     ? thread.participant_refs.map((reference) =>
                         name(mailReferenceId(reference), reference),

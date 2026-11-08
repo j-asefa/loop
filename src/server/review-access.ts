@@ -88,10 +88,15 @@ export function reviewSnapshot(owner: string, id: string) {
     { snapshot: string } | undefined;
   if (!row) throw new Problem(404, "Review not found");
   const snapshot: ReviewSnapshot = JSON.parse(row.snapshot);
+  if (!snapshot.context)
+    throw new Problem(
+      410,
+      "An earlier Loop build saved this review; it cannot be read.",
+    );
   const paths = [
     ...new Set([
       ...Object.keys(snapshot.files),
-      ...Object.keys(snapshot.context ?? {}),
+      ...Object.keys(snapshot.context),
     ]),
   ].sort();
   // Charge two bytes per UTF-16 code unit plus conservative map/array overhead.
@@ -103,7 +108,7 @@ export function reviewSnapshot(owner: string, id: string) {
       snapshot.changed.length +
       snapshot.omitted.length) *
       256;
-  if (snapshot.context) Object.freeze(snapshot.context);
+  Object.freeze(snapshot.context);
   Object.freeze(snapshot.files);
   Object.freeze(snapshot.before);
   Object.freeze(snapshot.changed);
@@ -194,7 +199,7 @@ export function readReview(run: Run, input: unknown) {
   }
   const files = d.version === "before" ? s.before : s.files;
   const reference =
-    d.version === "current" && s.context && Object.hasOwn(s.context, d.path)
+    d.version === "current" && Object.hasOwn(s.context, d.path)
       ? s.context[d.path]
       : undefined;
   if (!Object.hasOwn(files, d.path) && reference === undefined)

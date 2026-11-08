@@ -4,7 +4,6 @@ import { spawnNative } from "../native-spawn.js";
 import { nativeFailureDetail, nativeMemoryFailure } from "../native-memory.js";
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
-import { commandInput } from "../../native/command-results.js";
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -793,7 +792,15 @@ export class Acp implements Adapter {
       const old = this.toolItems.get(u.toolCallId);
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
       if (kind) this.toolKinds.set(u.toolCallId, kind);
-      const command = commandInput(u.rawInput);
+      // Commands come from invocation input, never a tool title or result prose.
+      const input = u.rawInput;
+      const command =
+        input &&
+        typeof input === "object" &&
+        "command" in input &&
+        typeof input.command === "string"
+          ? input.command
+          : undefined;
       if (kind === "execute" && command && command.length <= 4000)
         this.toolCommands.set(u.toolCallId, command);
       const item: Item = {

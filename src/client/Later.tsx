@@ -521,9 +521,7 @@ export function Later({
   const [error, setError] = useState("");
   const [snoozing, setSnoozing] = useState<LaterView | null>(null);
   const [section, setSectionState] = useState<LaterSection>(() => {
-    const value = cachedView<string>("later-section");
-    // Older links and cached views used "snoozed" for reminders.
-    return value === "snoozed" ? "reminders" : (value as LaterSection) || "all";
+    return cachedView<LaterSection>("later-section") || "all";
   });
   const [focus, setFocus] = useState<string | null>(
     () =>
@@ -593,7 +591,7 @@ export function Later({
   }, [read]);
   useEffect(() => {
     // Complete sources refresh through the scoped subscription below. Parent
-    // revisions supply only the legacy fallback and must not cancel a read.
+    // revisions supply only the incomplete-stream fallback and must not cancel a read.
     if (!reactiveSource(sourceId, "workspace")) void load(false, true);
   }, [revision, sourceId, read]);
   useEffect(() => {

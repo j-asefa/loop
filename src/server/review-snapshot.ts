@@ -12,7 +12,7 @@ export type ReviewSnapshot = {
   diff: string;
   files: Record<string, string>;
   before: Record<string, string>;
-  context?: Record<string, string>;
+  context: Record<string, string>;
   changed: string[];
   omitted: string[];
 };
@@ -40,7 +40,6 @@ export function captureSnapshot(
   directory: string,
   scope: ReviewScope,
   base = "main",
-  format: "references" | "legacy-inline" = "references",
 ): ReviewSnapshot {
   const root = realpathSync(directory);
   const gitBytes = (args: string[], maxBuffer = 5_000_000, input?: string) => {
@@ -94,20 +93,7 @@ export function captureSnapshot(
       422,
       "Bind the project to the repository root to review changes",
     );
-  if (
-    format === "legacy-inline" &&
-    git([
-      "for-each-ref",
-      "--format=%(refname)",
-      "--",
-      process.env.GIT_REPLACE_REF_BASE || "refs/replace",
-    ]).trim()
-  )
-    throw new Problem(
-      409,
-      "Freshness unavailable for legacy snapshots while Git replacement refs exist",
-    );
-  if (scope === "uncommitted" && format === "references") {
+  if (scope === "uncommitted") {
     // Flags and conversion filters can make Git's unchanged list differ from
     // working bytes. Refuse those cases before diff can invoke a clean filter.
     const tracked = git(["ls-files", "-v", "-z"]).split("\0").filter(Boolean);
@@ -210,9 +196,8 @@ export function captureSnapshot(
     if (omitted.has(path)) return;
     const bytes = Buffer.byteLength(JSON.stringify(path)) + 1;
     if (
-      format === "references" &&
-      (omitted.size >= MAX_OMITTED_PATHS ||
-        omittedBytes + bytes > MAX_OMITTED_BYTES)
+      omitted.size >= MAX_OMITTED_PATHS ||
+      omittedBytes + bytes > MAX_OMITTED_BYTES
     )
       throw new Problem(
         413,
@@ -336,33 +321,21 @@ export function captureSnapshot(
         entries.push({ path, mode: "100644", hash: "" });
   entries.sort((a, b) => a.path.localeCompare(b.path));
   const changedPaths = new Set(changes);
-  // Freshness checks for stored legacy rows must reproduce their original
-  // inline format and bounds; new reviews always use metadata references.
-  if (format === "legacy-inline" && entries.length > 2000)
-    throw new Problem(
-      413,
-      "Legacy snapshot freshness supports up to 2,000 files",
-    );
-  if (format === "references") {
-    // Context capture reads metadata only. Binary detection is deferred until
-    // first access, so unchanged content cannot create unbounded synchronous IO.
-    let contextCount = 0;
-    for (const { entry } of blobs(
-      entries.filter((e) => !changedPaths.has(e.path)),
-      false,
-    )) {
-      if (++contextCount > MAX_CONTEXT_FILES)
-        throw new Problem(
-          413,
-          "Snapshot reviews support up to 20,000 context references",
-        );
-      context[entry.path] = entry.hash;
-    }
+  // Context capture reads metadata only. Binary detection is deferred until
+  // first access, so unchanged content cannot create unbounded synchronous IO.
+  let contextCount = 0;
+  for (const { entry } of blobs(
+    entries.filter((e) => !changedPaths.has(e.path)),
+    false,
+  )) {
+    if (++contextCount > MAX_CONTEXT_FILES)
+      throw new Problem(
+        413,
+        "Snapshot reviews support up to 20,000 context references",
+      );
+    context[entry.path] = entry.hash;
   }
-  const inlineEntries =
-    format === "legacy-inline"
-      ? entries
-      : entries.filter((e) => changedPaths.has(e.path));
+  const inlineEntries = entries.filter((e) => changedPaths.has(e.path));
   const captured =
     scope === "uncommitted"
       ? inlineEntries.map((entry) => ({
@@ -436,7 +409,7 @@ export function captureSnapshot(
     diff,
     files,
     before,
-    ...(format === "references" ? { context } : {}),
+    context,
     changed: selected,
     omitted: [...omitted].sort(),
   };

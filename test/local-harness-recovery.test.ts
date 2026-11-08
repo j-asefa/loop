@@ -126,7 +126,6 @@ it("reconnects available accounts only after verification, preserving team threa
     idempotencyKey: id(),
   });
   expect(next.conversation_id).toBe(team.conversation_id);
-  expect(next.payload.execution).toBeUndefined();
 });
 it("leaves intentional disconnects disconnected and does not invoke their account probes", async () => {
   connection("codex", "disconnected");

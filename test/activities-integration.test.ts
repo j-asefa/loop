@@ -255,18 +255,12 @@ it("persisted records equal the pure fold for duplicated, out-of-order delivery"
 });
 
 it("client merge keeps the newest record per key and renders the production activity components", () => {
-  const item = (
-    key: string,
-    sequence: number,
-    record: any,
-    extra = {},
-  ): ActivityItem => ({
+  const item = (key: string, sequence: number, record: any): ActivityItem => ({
     key,
     kind: record.kind,
     run: "r",
     sequence,
     record,
-    ...extra,
   });
   const file = (state: string) => ({
     v: 1,
@@ -305,20 +299,15 @@ it("client merge keeps the newest record per key and renders the production acti
   expect(html).toContain("new file");
   expect(html).toContain("binary");
   expect(html).not.toContain("Diff content was not supplied");
-  // Legacy trace projections are replaced by real records; unknown versions are skipped.
+  // New records replace the same activity key; unknown versions are skipped.
   items = mergeActivities(
     [
-      item(
-        "t",
-        0,
-        {
-          v: 1,
-          kind: "tool",
-          source: { transport: "native", harness: "codex" },
-          data: { title: "x", status: "unknown", content: [] },
-        },
-        { legacy: true },
-      ),
+      item("t", 0, {
+        v: 1,
+        kind: "tool",
+        source: { transport: "native", harness: "codex" },
+        data: { title: "x", status: "unknown", content: [] },
+      }),
     ],
     {
       items: [

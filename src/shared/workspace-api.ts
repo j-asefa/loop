@@ -228,18 +228,6 @@ const PublicConversation = z.object({
   execution_connection_id: MaybeText,
   project_id: MaybeText,
   feed_hidden: z.number(),
-  feed_run_id: MaybeText,
-  feed_run_raw_state: MaybeText,
-  feed_run_state: MaybeText,
-  feed_run_dismissed_at: Time.nullable(),
-  feed_queued: z.number(),
-  feed_done_run_id: MaybeText,
-  feed_done_at: Time.nullable(),
-  feed_last_activity_at: Time.nullable(),
-  feed_last_message_id: MaybeText,
-  feed_folder_id: MaybeText,
-  feed_visible: z.number(),
-  feed_approval_until: Time.nullable(),
 });
 export const Bootstrap = z.object({
   agents: z.array(PublicAgent),
@@ -360,29 +348,26 @@ export const FeedPage = z.object({
   projectionRows: FeedEntities.optional(),
 });
 export type FeedPage = z.infer<typeof FeedPage>;
-// Older linked workspaces may omit the handoff, range and resume markers.
 export const ConversationPage = z.object({
   conversation: PublicConversation,
+  working: z.boolean(),
   messages: z.array(
     PublicMessage.extend({ cursor: ProjectedMessage.shape.cursor }),
   ),
   next: MaybeText,
-  range: z
-    .object({
-      from: ProjectedMessage.shape.cursor,
-      before: ProjectedMessage.shape.cursor,
-    })
-    .optional(),
+  range: z.object({
+    from: ProjectedMessage.shape.cursor,
+    before: ProjectedMessage.shape.cursor,
+  }),
   position_message_id: MaybeText,
   saved: z.array(Text),
-  steerable_run_id: MaybeText.optional(),
-  resumed: z.boolean().optional(),
+  steerable_run_id: MaybeText,
+  resumed: z.boolean(),
   projection: WorkspaceClock.optional(),
   // The agent's latest visible message, beyond this page if need be.
   latest_agent_message: z
     .object({ id: Text, cursor: ProjectedMessage.shape.cursor })
-    .nullable()
-    .optional(),
+    .nullable(),
 });
 export type ConversationPage = z.infer<typeof ConversationPage>;
 const ResultFields = {
@@ -481,7 +466,7 @@ export type RouteContract = {
   body: z.ZodType;
   response: z.ZodType;
   status?: number;
-  // Body field required for a bearer mutation; session compatibility is unchanged.
+  // Body field required for a bearer mutation; owner-session writes keep their own authentication.
   identity?: string;
   // Other statuses using this response shape (accepted replay or health failure).
   additionalStatuses?: readonly number[];
@@ -1515,7 +1500,7 @@ export const workspaceRoutes = {
     query: companion.ActivityQuery,
     response: companion.PublicActivityPage,
   }),
-  // All three reads admit read and both legacy grants; selection stays scoped.
+  // All three reads admit the read grant; selection stays scoped.
   // The admission boundary still limits each grant's selections and excludes Done.
   cardList: endpoint({
     ...base,

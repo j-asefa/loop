@@ -559,7 +559,7 @@ it("a pre-forward failure stays uncertain until the destination retires its abse
   expect(actionCalls - before).toBe(1);
 });
 
-it.each(["command_tag", "result"] as const)(
+it.each(["result"] as const)(
   "recovers completion with null %s without exposing a result or repeating the effect",
   async (field) => {
     const id = randomUUID(),
@@ -569,7 +569,7 @@ it.each(["command_tag", "result"] as const)(
       n: number;
     };
     await loseResponse(id, input);
-    // This is the row shape retained by migration 137 for pre-tag acceptances.
+    // Current compaction removes response bodies while retaining command identity.
     db.prepare(
       `UPDATE fleet_command_receipts SET ${field}=NULL WHERE owner_id=? AND command_id=?`,
     ).run(OWNER, id);

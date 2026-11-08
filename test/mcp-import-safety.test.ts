@@ -13,8 +13,6 @@ const { seal } = await import("../src/server/secrets");
 const { mcp } = await import("../src/server/mcp/routes");
 const { withTestMcp, readSecret, connectionUrl, discover } =
   await import("../src/server/mcp/client");
-const { migrateMcpUrlCredentials } =
-  await import("../src/server/mcp/credentials");
 const { MCP_TOOL_BUDGET, workspaceToolBindings, ToolBudgetError } =
   await import("../src/server/mcp/tool-budget");
 const { redactCredentials } = await import("../src/server/mcp/redaction");
@@ -311,7 +309,7 @@ it("encrypts imported query credentials alongside headers, preserving repeated p
   }
 });
 
-it("keeps credentials out of manual connection responses and repairs earlier records idempotently", async () => {
+it("keeps query credentials out of current manual connection responses", async () => {
   const owner = id();
   const manual = await api(owner, "/mcp", {
     name: "Manual",
@@ -321,37 +319,20 @@ it("keeps credentials out of manual connection responses and repairs earlier rec
   expect(manual.status).toBe(201);
   expect(manual.data.url).toBe("https://fixture.example/mcp");
   expect(JSON.stringify(manual.data)).not.toContain("manual-secret");
-  const legacy = insert(owner, []),
-    disconnected = insert(owner, [], "disconnected");
-  db.prepare("UPDATE mcp_connections SET url=?,secret=? WHERE id=?").run(
-    "https://fixture.example/mcp?key=old-secret&scope=a&scope=b",
-    seal(
-      JSON.stringify({
-        type: "oauth",
-        tokens: { access_token: "oauth-secret" },
-      }),
-      owner,
-    ),
-    legacy,
+  expect(readSecret(record(manual.data.id))).toMatchObject({
+    type: "query",
+    query: { token: "manual-secret" },
+  });
+  expect(JSON.stringify((await api(owner, "/mcp")).data)).not.toContain(
+    "manual-secret",
   );
   db.prepare("UPDATE mcp_connections SET url=? WHERE id=?").run(
-    "https://fixture.example/mcp?key=forgotten-secret",
-    disconnected,
+    "https://fixture.example/mcp?key=earlier-secret",
+    manual.data.id,
   );
-  migrateMcpUrlCredentials();
-  const clean = record(legacy);
-  expect(clean.status).toBe("connected");
-  expect(readSecret(clean)).toMatchObject({
-    type: "oauth",
-    tokens: { access_token: "oauth-secret" },
-    query: { key: "old-secret", scope: ["a", "b"] },
-  });
-  expect(readSecret(record(disconnected))).toEqual({ type: "none" });
-  expect(
-    (await api(owner, "/mcp")).data.every((c: any) => !c.url.includes("?")),
-  ).toBe(true);
-  migrateMcpUrlCredentials();
-  expect(record(legacy)).toEqual(clean);
+  const refused = await api(owner, "/mcp");
+  expect(refused.status).toBe(500);
+  expect(JSON.stringify(refused.data)).not.toContain("earlier-secret");
 });
 
 it("enforces the aggregate tool count at install and re-enable without affecting other owners or connected tools", async () => {

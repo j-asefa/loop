@@ -9,7 +9,7 @@ export type WorkspaceComposerDraft = {
 };
 
 /** Capture the authenticated owner and view generation before handing a
- * persistence callback to a component. Unattributed legacy keys are not read. */
+ * persistence callback to a component. Only this owner/source namespace is read. */
 export function sessionDraft<T>(
   owner: string | undefined,
   source: string,

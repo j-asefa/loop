@@ -6,6 +6,7 @@ const message = {
   kind: "message",
   status: "queued",
   id: randomUUID(),
+  conversation_id: randomUUID(),
   from: "Same display name",
   to: "Recipient",
   preview: "Fixture",
@@ -14,7 +15,7 @@ const message = {
   files: 0,
 };
 
-it("keeps legacy mail responses compatible without inventing a remote owner", () => {
+it("parses current mail responses without inventing a remote owner", () => {
   expect(PublicMailMessage.parse(message)).toEqual(message);
 });
 

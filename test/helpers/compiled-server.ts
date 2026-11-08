@@ -15,13 +15,7 @@ export async function compiledServerFixture() {
     await symlink(resolve("node_modules"), join(root, "node_modules"), "dir");
     // Match the production graph's module-relative asset layout. The shared
     // staging compiler rewrites imports/resources into dist/support as usual.
-    for (const asset of [
-      "runtime",
-      "native",
-      "migrations",
-      "deployment",
-      "package.json",
-    ])
+    for (const asset of ["runtime", "migrations", "deployment", "package.json"])
       await cp(join(project, asset), join(root, asset), {
         recursive: true,
         filter: (path) =>

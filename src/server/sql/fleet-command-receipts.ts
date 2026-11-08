@@ -28,7 +28,7 @@ export function refuse(
   digest: string,
   created: number,
   updated: number,
-  tag: string | null,
+  tag: string,
 ) {
   return refuseStatement(db).run(
     owner,
@@ -58,7 +58,7 @@ export function start(
   digest: string,
   created: number,
   updated: number,
-  tag: string | null,
+  tag: string,
 ) {
   return startStatement(db).run(
     owner,

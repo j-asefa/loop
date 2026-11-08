@@ -485,7 +485,7 @@ it("bounds dirty work for unrelated folders, queued payloads and connection scop
   await equivalent();
 }, 30_000);
 
-it("recreates an idle fallback when the last result becomes ineligible without consulting retired columns", async () => {
+it("recreates an idle fallback when the last result becomes ineligible", async () => {
   const { db } = fixture;
   db.transaction(() => {
     db.prepare(
@@ -506,11 +506,6 @@ it("recreates an idle fallback when the last result becomes ineligible without c
     "UPDATE messages SET metadata=json_object('progress',1) WHERE id='projection-idle'",
   ).run();
   expect(kinds()).toEqual([{ kind: "idle" }, { kind: "thread" }]);
-  // Historical columns remain only so upgrades do not rebuild conversations.
-  // The production reader must not depend on them.
-  db.prepare(
-    "UPDATE conversations SET feed_run_state='running',feed_visible=0,feed_approval_until=? WHERE id='projection-idle'",
-  ).run(NOW + 100_000);
   await equivalent();
   const done = readers.doneCardRows(OWNER, {
     folders: null,

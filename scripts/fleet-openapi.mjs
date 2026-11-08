@@ -71,7 +71,7 @@ const proof = {
   workspaceAction:
     "Requires an act credential and allowlisted local action. Records the command and parsed wire digest before its owning handler; defaults cannot change that digest. Rechecks grants and native generations at owning boundaries. Never replays uncertain work.",
   workspaceReceipt:
-    "Requires an act credential, original command ID and parsed wire digest. The optional action name binds typed recovery and atomically retires an absent ID without dispatch. Legacy requests omit that name and only read existing receipts; a missing legacy receipt preserves uncertainty.",
+    "Requires an act credential, original command ID and parsed wire digest. The required action name binds typed recovery and atomically retires an absent ID without dispatch. Missing or unverifiable receipts preserve uncertainty.",
   credentialChallenge:
     "Returns a signed, short-lived challenge only for a currently authorized destination grant, peer, directory and operation. A challenge grants no access and allocates no per-request nonce state.",
   credentialIssue:

@@ -72,7 +72,7 @@ export function reactiveSource(source: string, surface: ReactiveSurface) {
       : capabilities[surface] === "delta")
   );
 }
-/** Legacy sources retain only their own safety poll. Complete sources use the
+/** Sources awaiting a complete stream retain their safety poll. Complete streams use the
  * shared socket-down HTTP fallback, wake handlers and single deadline timer. */
 export function surfaceFallback(
   sourceIds: string[],

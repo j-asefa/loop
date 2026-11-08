@@ -4,7 +4,7 @@ import {
 } from "./agent-model-options.mjs";
 import { expect } from "@playwright/test";
 
-// Exercise the production Feed and creation form with legacy metadata, named
+// Exercise the production Feed and creation form with source metadata, named
 // Docker destinations and an agent that has since changed connections.
 export async function executionEnvironmentsSmoke(
   page,

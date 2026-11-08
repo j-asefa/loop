@@ -16,8 +16,8 @@ import { atomic, privateDir } from "../state.js";
 const Owner = z.strictObject({
   pid: z.number().int().min(2),
   identity: z.string().min(1),
-  namespace: z.string().optional(),
-  namespaceIdentity: z.string().optional(),
+  namespace: z.string().min(1),
+  namespaceIdentity: z.string().min(1),
   generation: z.string().uuid(),
 });
 export type ExecutionOwnership = {
@@ -133,8 +133,6 @@ export function recoverStoppedExecution(
         "Execution generation changed or is absent. Inspect loop recover-execution again; no records were retired.",
       );
     const location = executionNamespace();
-    // Older non-Linux records have no location. They require the same explicit
-    // stopped-generation assertion as a known foreign host; never infer local.
     if (sameNamespace(owner, location))
       throw new Error(
         "This recovery is only for a stopped foreign PID namespace lifetime. Use loop stop for processes in this same namespace lifetime.",

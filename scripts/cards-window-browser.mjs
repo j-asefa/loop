@@ -45,6 +45,7 @@ const entry = (text) => ({
     author: { kind: "owner", id: null, name: null, provider: null },
     recipient: null,
     source: {
+      agent_id: null,
       artifact_id: null,
       message_id: "shared-id",
       conversation_id: "thread",

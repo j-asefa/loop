@@ -64,28 +64,19 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await page.route("**/api/social/unread", (route) =>
     route.fulfill({ json: { unread: 99 } }),
   );
-  // An already-open pre-upgrade tab must receive the new robot at its old URL.
   assert(accountArtwork.avatar.startsWith("/avatars/robots/"));
-  const legacyAvatar = accountArtwork.avatar.replace(
-    "/avatars/robots/",
-    "/avatars/",
+  const currentImage = await page.request.get(
+    fixture.base + accountArtwork.avatar,
   );
-  const [currentImage, legacyImage] = await Promise.all([
-    page.request.get(fixture.base + accountArtwork.avatar),
-    page.request.get(fixture.base + legacyAvatar),
-  ]);
-  for (const response of [currentImage, legacyImage]) {
-    assert.equal(response.status(), 200);
-    assert.match(response.headers()["content-type"], /^image\/webp/);
-  }
-  assert.deepEqual(await legacyImage.body(), await currentImage.body());
+  assert.equal(currentImage.status(), 200);
+  assert.match(currentImage.headers()["content-type"], /^image\/webp/);
   assert.deepEqual(
     await page.evaluate(async (source) => {
       const image = new Image();
       image.src = source;
       await image.decode();
       return [image.naturalWidth, image.naturalHeight];
-    }, legacyAvatar),
+    }, accountArtwork.avatar),
     [384, 384],
   );
   const covers = new Set();

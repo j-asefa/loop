@@ -71,17 +71,15 @@ it("captures repository context with bounded Git processes and preserves byte-fr
     expect(snapshot.changed).toEqual(["file000.txt"]);
     expect(snapshot.files["file000.txt"]).toBe("New α🙂 content\n");
     expect(snapshot.before["file000.txt"]).toBe("Context 0: café 漢字 🙂\n");
-    expect(snapshot.context?.["file129.txt"]).toBe(
+    expect(snapshot.context["file129.txt"]).toBe(
       git("rev-parse", "HEAD:file129.txt").toString().trim(),
     );
-    expect(snapshot.context?.["empty.txt"]).toBe(
+    expect(snapshot.context["empty.txt"]).toBe(
       git("rev-parse", "HEAD:empty.txt").toString().trim(),
     );
-    expect(snapshot.context?.["same-a.txt"]).toBe(
-      snapshot.context?.["same-b.txt"],
-    );
+    expect(snapshot.context["same-a.txt"]).toBe(snapshot.context["same-b.txt"]);
     expect(snapshot.omitted).not.toContain("binary.bin");
-    expect(snapshot.context?.["binary.bin"]).toBe(
+    expect(snapshot.context["binary.bin"]).toBe(
       git("rev-parse", "HEAD:binary.bin").toString().trim(),
     );
     expect(snapshot.omitted).toContain("oversized.txt");
@@ -166,7 +164,7 @@ it("ignores replacement objects consistently for captured context and changed te
   git("replace", context, replacement);
   git("replace", changed, replacement);
   const snapshot = captureSnapshot(repo, "branch", "HEAD~1");
-  expect(snapshot.context?.["context.txt"]).toBe(context);
+  expect(snapshot.context["context.txt"]).toBe(context);
   expect(snapshot.files["changed.txt"]).toBe("after\n");
   expect(snapshot.before["changed.txt"]).toBe("before\n");
   expect(snapshot.omitted).not.toContain("context.txt");
@@ -235,42 +233,6 @@ it.each(["count", "bytes"])(
     expect(() => captureSnapshot(repo, "branch", "HEAD~1")).toThrow(
       /Snapshot omission metadata exceeds/,
     );
-    if (limit === "bytes") {
-      // Historical format assembled independently from the new capture code.
-      const historical = {
-        scope: "branch" as const,
-        base: git("rev-parse", "HEAD~1").trim(),
-        head: git("rev-parse", "HEAD").trim(),
-        diff: git(
-          "diff",
-          "--no-ext-diff",
-          "--no-textconv",
-          "--no-renames",
-          "--unified=3",
-          "HEAD~1",
-          "HEAD",
-          "--",
-          "changed.txt",
-        ),
-        files: { "changed.txt": "after\n" },
-        before: { "changed.txt": "before\n" },
-        changed: ["changed.txt"],
-        omitted: Array.from(
-          { length: count },
-          (_, i) => `${prefix}-${i}.txt`,
-        ).sort(),
-      };
-      const recaptured = captureSnapshot(
-        repo,
-        "branch",
-        "HEAD~1",
-        "legacy-inline",
-      );
-      expect(recaptured).toEqual(historical);
-      expect(snapshotFingerprint(recaptured)).toBe(
-        snapshotFingerprint(historical),
-      );
-    }
   },
 );
 
@@ -294,11 +256,6 @@ it.each(["assume-unchanged", "skip-worktree"])(
     expect(() => captureSnapshot(repo, "uncommitted")).toThrow(
       /assume-unchanged or skip-worktree/,
     );
-    expect(
-      captureSnapshot(repo, "uncommitted", "main", "legacy-inline").files[
-        "caller.txt"
-      ],
-    ).toBe("hidden edited caller\n");
     git("update-index", `--no-${flag}`, "caller.txt");
     const first = captureSnapshot(repo, "uncommitted");
     expect(first.files["caller.txt"]).toBe("hidden edited caller\n");

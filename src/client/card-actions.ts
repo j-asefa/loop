@@ -4,7 +4,7 @@ import type { ResultCard, MessageCard } from "../shared/cards";
 import type { Artifact, Provider } from "../shared/types";
 import type { SavedMessage } from "./Later";
 
-/** Compatibility at existing signed-in action boundaries only. Rendering and
+/** Adapt typed cards for current signed-in action handlers. Rendering and
  * collection membership use the typed card, never a reconstructed DB row. */
 export type CardArtifact = Artifact & {
   card?: ResultCard;

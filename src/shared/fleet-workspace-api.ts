@@ -190,7 +190,7 @@ export const FleetWorkspaceCatalog = z.strictObject({
   requestId: z.string().uuid(),
   machineId: MachineId,
   directory: FleetDigest,
-  // Unknown names from a newer peer grant no route. Keep compatible known reads.
+  // Unknown operation names grant no route; select only declared reads.
   reads: z.array(z.string().regex(/^[a-z][a-zA-Z0-9]{0,99}$/)).max(100),
   actions: z.array(z.string().max(100)).max(100),
   events: z.boolean(),

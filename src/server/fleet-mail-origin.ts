@@ -137,7 +137,6 @@ function currentSender(mail: OriginMail) {
     run.payload.connectionId !== captured.connection_id ||
     sender.connection_id !== captured.connection_id ||
     run.payload.reviewId ||
-    run.payload.execution ||
     ["failed", "cancelled", "interrupted"].includes(run.state) ||
     !connectionsQueries.existsOwned(db, captured.connection_id, mail.owner_id)
   )

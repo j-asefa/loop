@@ -1,8 +1,5 @@
-import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
-import { db } from "../db.js";
-import { seal, unseal } from "../secrets.js";
 import { safeUrl } from "./network.js";
-import type { AuthSecret, MCPConnection } from "./client.js";
+import type { AuthSecret } from "./client.js";
 
 // Treat all query values as credentials: publishers choose their own key names.
 // This also supports combined header/query auth and repeated query parameters.
@@ -25,27 +22,4 @@ export function privateMcpUrl(value: string, auth: AuthSecret) {
         }
       : auth,
   };
-}
-
-// Earlier JSON/manual installs stored the full URL. Repair them before either
-// the API or worker starts, preserving their owner, credentials and identity.
-export function migrateMcpUrlCredentials() {
-  db.transaction(() => {
-    const rows = mcpConnectionsQueries.credentialUrls(db) as MCPConnection[];
-    for (const row of rows) {
-      const auth: AuthSecret = row.secret
-        ? JSON.parse(unseal(row.secret, row.owner_id))
-        : { type: "none" };
-      const clean = privateMcpUrl(row.url, auth);
-      mcpConnectionsQueries.setPrivateUrl(
-        db,
-        clean.url,
-        seal(
-          JSON.stringify(row.status === "disconnected" ? auth : clean.auth),
-          row.owner_id,
-        ),
-        row.id,
-      );
-    }
-  }).immediate();
 }

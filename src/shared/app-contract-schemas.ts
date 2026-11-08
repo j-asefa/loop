@@ -39,8 +39,8 @@ export const PublicBuild = z.object({
     })
     .optional(),
 });
-// The HTTP fallback predates V3 socket frames. Keep its array and serialized
-// payload unchanged; the event reader performs the existing normalization.
+// HTTP polling returns stored events with serialized payloads; the browser
+// event reader normalizes them into the same updates as socket frames.
 export const PublicHttpEvent = z.object({
   id: Count,
   owner_id: Text,
@@ -48,9 +48,8 @@ export const PublicHttpEvent = z.object({
   type: Text,
   payload: Text,
   created_at: Count,
-  // Sources predating subject routing omit these; absence grants no authority.
-  subject_kind: Text.optional(),
-  subject_id: Text.nullable().optional(),
+  subject_kind: Text,
+  subject_id: Text.nullable(),
 });
 // The session read exposes only the display identity used by the shell.
 export const PublicAuthSession = z

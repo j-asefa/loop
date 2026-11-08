@@ -365,8 +365,7 @@ function assertMailRun(run: Run) {
     !current.agent_id ||
     current.agent_id !== run.agent_id ||
     current.conversation_id !== run.conversation_id ||
-    current.payload.reviewId ||
-    current.payload.execution
+    current.payload.reviewId
   )
     throw new Problem(403, "Agent mail is unavailable to this run.");
   return current;

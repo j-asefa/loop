@@ -249,7 +249,6 @@ for (const restart of [
   "container restart",
   "host reboot",
   "macOS host replacement",
-  "macOS legacy metadata",
 ]) {
   test(
     `compiled recovery CLI requires a stopped generation after ${restart} and preserves data and the lock inode`,
@@ -307,9 +306,7 @@ for (const restart of [
           ? { namespace: "pid:[0]" }
           : restart === "host reboot"
             ? { namespaceIdentity: "prior-boot:1", identity: "prior-boot:2" }
-            : restart === "macOS legacy metadata"
-              ? { namespace: undefined, namespaceIdentity: undefined }
-              : {};
+            : {};
       writeFileSync(
         path,
         JSON.stringify({ ...JSON.parse(original), ...location }),
@@ -530,6 +527,37 @@ for (const stale of ["owner", "stop records"]) {
         alive(unrelated.pid!),
         "the unrelated process group remains running",
       );
+    },
+  );
+}
+
+for (const field of ["namespace", "namespaceIdentity"]) {
+  test(
+    `compiled worker refuses damaged ownership missing ${field}`,
+    { timeout: 20_000 },
+    async (t) => {
+      const root = mkdtempSync(join(tmpdir(), "loop-execution-damaged-owner-"));
+      const dir = join(root, "workspace");
+      const a = worker(dir);
+      const children = [a.child];
+      t.after(async () => {
+        for (const child of children) await stop(child);
+        rmSync(root, { recursive: true, force: true });
+      });
+      await ready(a);
+      const path = join(dir, "execution/owner.json");
+      a.child.kill("SIGKILL");
+      await until(() => a.child.signalCode !== null);
+      const record = JSON.parse(readFileSync(path, "utf8"));
+      delete record[field];
+      const damaged = JSON.stringify(record);
+      writeFileSync(path, damaged);
+      const b = worker(dir);
+      children.push(b.child);
+      await until(() => b.child.exitCode !== null);
+      assert.notEqual(b.child.exitCode, 0);
+      assert.match(b.log(), /Execution ownership is unreadable/);
+      assert.equal(readFileSync(path, "utf8"), damaged);
     },
   );
 }

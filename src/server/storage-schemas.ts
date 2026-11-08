@@ -54,18 +54,6 @@ export const ConversationRecord = z.object({
   execution_connection_id: z.string().nullable(),
   project_id: z.string().nullable(),
   feed_hidden: z.number(),
-  feed_run_id: z.string().nullable(),
-  feed_run_raw_state: z.string().nullable(),
-  feed_run_state: z.string().nullable(),
-  feed_run_dismissed_at: z.number().nullable(),
-  feed_queued: z.number(),
-  feed_done_run_id: z.string().nullable(),
-  feed_done_at: z.number().nullable(),
-  feed_last_activity_at: z.number().nullable(),
-  feed_last_message_id: z.string().nullable(),
-  feed_folder_id: z.string().nullable(),
-  feed_visible: z.number(),
-  feed_approval_until: z.number().nullable(),
 });
 export const MessageRecord = z.object({
   id: Id,

@@ -480,8 +480,8 @@ export async function doneFeedFiltersSmoke(page, fixture, engine, capture) {
         peerReadWrites.push(path);
         return route.fulfill({ status: 409, json: { error: "Read only" } });
       }
-      // Model an older linked source: the initial page route is absent,
-      // while its legacy destination list remains readable.
+      // Model a current page read whose group is no longer available;
+      // the unpaged destination list remains readable.
       if (path === "feed/threads/page" && sourceKind !== "peer")
         return route.fulfill({ status: 404, json: { error: "Not found" } });
       if (path === "feed/threads" && sourceKind !== "peer")

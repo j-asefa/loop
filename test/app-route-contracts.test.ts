@@ -156,6 +156,8 @@ it("projects public discovery, paired identity, health, build and actual diagnos
     expect.arrayContaining([
       expect.objectContaining({
         run_id: created.data.id,
+        subject_kind: "run",
+        subject_id: created.data.id,
         type: "queued",
         payload: expect.any(String),
       }),

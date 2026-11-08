@@ -51,7 +51,9 @@ may write that ledger. New installs execute the whole chain and record every
 completion in `schema_migrations`. Restarts consult only that named ledger.
 Earlier numbered-only databases are refused; start with a fresh data directory.
 Forward migrations assume data written by the current build. They do not
-repair rows only earlier builds wrote, and may drop them instead.
+repair rows only earlier builds wrote, and may drop them instead. Readers
+refuse such rows. Upgrading data that an earlier build wrote is unsupported;
+convert it outside Loop before the first start.
 
 ## Build provenance
 
@@ -155,7 +157,7 @@ The same smoke renders the production agent-mail sheet and thread reader with
 machine-qualified references. It checks duplicate display-name labels, navigation
 to the owning peer from another machine's mail sheet, local navigation when the
 browser opens that recipient's gateway, source-bound attachment links, unavailable
-directory state and legacy source-local responses. Its HTTP projections are
+directory state and current source-qualified responses. Its HTTP projections are
 scripted; fleet mail HTTP/native tests separately exercise owning projections and
 delivery.
 
@@ -235,7 +237,7 @@ camera, provider or Internet tunnel acceptance.
 
 The native contract checks exercise direct adapter framing, paired sign-in, native session recovery, live steering and team messaging across harnesses. They use subprocess fixtures and do not verify real provider OAuth or inference.
 
-Before a PR, run `npm run check` on the commit you are submitting and paste its `check:` lines into the PR; repeat after revisions. The review team reads a snapshot and does not run it. The command runs Prettier's check, [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the [formatting policy](../test/format-policy.test.ts), the registry route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. Budget roughly a minute on an idle shared host. Typecheck needs about 2 GiB, and the contract tests use two Vitest workers; the route inventory starts the server twice, once per profile. Run it per submitted PR head, not in a mandatory push hook. It refuses to start without the required local `node_modules` tools or with a different Prettier version; use `npm ci`. It is not the full suite. Also run checks relevant to the change and report exact failures or unavailable dependencies.
+Before a PR, run `npm run check` on the commit you are submitting and paste its `check:` lines into the PR; repeat after revisions. The review team reads a snapshot and does not run it. The command runs Prettier's check, [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the [formatting policy](../test/format-policy.test.ts), the registry route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. Budget roughly a minute on an idle shared host. Typecheck needs about 2 GiB, and the contract tests use two Vitest workers; the route inventory checks the companion's mounted routes. Run it per submitted PR head, not in a mandatory push hook. It refuses to start without the required local `node_modules` tools or with a different Prettier version; use `npm ci`. It is not the full suite. Also run checks relevant to the change and report exact failures or unavailable dependencies.
 
 TypeScript and JavaScript (`ts`, `tsx`, `js`, `jsx`, `mjs`, `cjs`) in `src/`, `test/` and `scripts/` use the exactly pinned Prettier version with its defaults; `npm run format` rewrites them. The formatting policy rejects a repository ignore file; all files in these source directories are checked.
 

@@ -29,7 +29,7 @@ it("names enrolled Docker companions using their recorded execution location", (
   ).toBe("Docker · research");
 });
 
-it("keeps distinct local Docker destinations and resolves legacy names from a Docker source", () => {
+it("keeps distinct local Docker destinations and resolves generic Docker names from a Docker source", () => {
   expect(
     agentEnvironment(
       agent,

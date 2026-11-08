@@ -54,6 +54,7 @@ function snapshot(
     head: "head",
     diff: "+new content",
     files,
+    context: {},
     before: { "changed.ts": "old content" },
     changed: ["changed.ts"],
     omitted: [".env"],
@@ -213,6 +214,12 @@ it("rechecks ownership, deletion, team membership and fingerprint after a cache 
   expect(readReview(f.run, { path: "changed.ts" })).toMatchObject({
     content: "replacement content",
   });
+  db.prepare("UPDATE code_reviews SET snapshot=?,fingerprint=? WHERE id=?").run(
+    JSON.stringify({ ...replacement, context: undefined }),
+    "earlier-inline",
+    f.review,
+  );
+  expect(() => readReview(f.run, {})).toThrow(/earlier Loop build/);
   db.prepare("DELETE FROM code_reviews WHERE id=?").run(f.review);
   expect(() => readReview(f.run, { path: "changed.ts" })).toThrow(/not found/);
 });

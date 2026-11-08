@@ -1222,10 +1222,7 @@ function ConversationView({
   latestRef.current = onLatestAgentMessage;
   // The page may be anchored before the current work; the conversation's own
   // run state covers it.
-  const working =
-    activeWork.includes(workState) ||
-    activeWork.includes(data?.conversation.feed_run_state || "") ||
-    (data?.conversation.feed_queued ?? 0) > 0;
+  const working = activeWork.includes(workState) || data?.working === true;
   useEffect(() => {
     if (loadedFor)
       latestRef.current?.({
@@ -1798,9 +1795,8 @@ function ConversationView({
               m.role === "assistant" &&
               !meta.progress &&
               (meta.partial === true || !m.content.trim());
-            // Current runtimes stream public text as message traces. Older
-            // records may only have partial answer text; display it if there is
-            // no trace for that run, without duplicating the current stream.
+            // Display a partial answer when no progress message for its run
+            // is visible, without duplicating that run's current stream.
             const showContent =
               m.content &&
               (meta.partial !== true ||

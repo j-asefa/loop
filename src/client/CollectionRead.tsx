@@ -29,7 +29,7 @@ export function useCollectionRead(key: string) {
       background = false,
     ) => {
       if (!context.active || owner !== viewGeneration()) return;
-      // Legacy fallback ticks must not cancel a slow request or its bounded
+      // Background fallback ticks must not cancel a slow request or its bounded
       // backoff. An actual change or manual retry can still supersede it.
       if (background && context.controller) return;
       // A newer signal supersedes an old attempt and its pending backoff.

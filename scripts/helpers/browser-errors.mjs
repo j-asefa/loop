@@ -90,9 +90,9 @@ export async function collectionReadRecovery(
   }
 }
 
-// Legacy sources retain their existing fallback timers. A tick must neither
+// Sources without complete stream coverage retain their fallback timers. A tick must neither
 // interrupt an active read nor hide its exhausted notice before recovery.
-export async function legacyFallbackRecovery(browser, fixture) {
+export async function incompleteStreamRecovery(browser, fixture) {
   const page = await browser.newPage({
     viewport: { width: 390, height: 844 },
     isMobile: true,
@@ -100,7 +100,7 @@ export async function legacyFallbackRecovery(browser, fixture) {
     serviceWorkers: "block",
   });
   await fixture.pair(page.context());
-  let legacyFrames = 0;
+  let incompleteFrames = 0;
   try {
     // The companion's sources share one multiplexed socket; downgrade the
     // capabilities each source frame announces.
@@ -117,19 +117,19 @@ export async function legacyFallbackRecovery(browser, fixture) {
             feed: "snapshot",
             results: "snapshot",
           };
-          legacyFrames++;
+          incompleteFrames++;
         }
         route.send(JSON.stringify(envelope));
       });
     });
-    // Saved exercises useCards' separate legacy timer. Seed through the real
+    // Saved exercises useCards' separate fallback timer. Seed through the real
     // save endpoint, then hold an unchanged successful delta after exhaustion.
     const saved = fixture.db
       .prepare("SELECT id FROM messages WHERE role='assistant' LIMIT 1")
       .get();
     await fixture.api(`/messages/${saved.id}/saved`, {});
     await page.goto(fixture.base);
-    await expect.poll(() => legacyFrames).toBeGreaterThan(0);
+    await expect.poll(() => incompleteFrames).toBeGreaterThan(0);
     await page
       .locator(".mobile-nav")
       .getByRole("button", { name: "Your profile", exact: true })
@@ -183,7 +183,7 @@ export async function legacyFallbackRecovery(browser, fixture) {
       await page.unroute(cardsMatch, cardsHandler);
     }
 
-    // These views also receive the parent's 15 s legacy revision tick. Hold
+    // These views also receive the parent's 15 s fallback revision tick. Hold
     // their initial real response past that tick; it must still reach the UI.
     for (const [tab, path] of [
       ["Reminders", "/api/later"],

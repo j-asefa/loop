@@ -332,7 +332,6 @@ async function buildCheckout(dir: string, record: Record, source: string) {
       "dist",
       "migrations",
       "runtime",
-      "native",
       "package.json",
       "package-lock.json",
     ])

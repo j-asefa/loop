@@ -237,36 +237,20 @@ it("can interrupt a native run with malformed saved identity without replaying o
   expect(() => ownedRun(run.id, owner)).toThrow(run.id);
 });
 
-it("executes a legacy snapshot without copying unknown display fields into new output", async () => {
+it("refuses unknown saved execution fields without an external effect", async () => {
   const { owner, run } = fixture(),
     before = effects;
-  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(
-    JSON.stringify({ ...run.payload, historicalLabel: "Old display label" }),
-    run.id,
-  );
+  const payload = JSON.stringify({
+    ...run.payload,
+    unknownExecutionField: "unsupported",
+  });
+  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(payload, run.id);
   await tick(execute);
-  expect(ownedRun(run.id, owner).state).toBe("completed");
-  expect(ownedRun(run.id, owner).payload).toHaveProperty(
-    "historicalLabel",
-    "Old display label",
-  );
-  expect(effects).toBe(before + 1);
-  const message = db
-    .prepare(
-      "SELECT id FROM messages WHERE run_id=? AND role='assistant' ORDER BY rowid DESC LIMIT 1",
-    )
-    .get(run.id) as { id: string };
-  const artifact = db
-    .prepare(
-      "SELECT id FROM artifacts WHERE run_id=? ORDER BY rowid DESC LIMIT 1",
-    )
-    .get(run.id) as { id: string };
-  expect(ownedMessage(message.id, owner).metadata).not.toHaveProperty(
-    "historicalLabel",
-  );
-  expect(ownedArtifact(artifact.id, owner).metadata).not.toHaveProperty(
-    "historicalLabel",
-  );
+  expect(effects).toBe(before);
+  expect(() => ownedRun(run.id, owner)).toThrow(run.id);
+  expect(
+    db.prepare("SELECT state,payload FROM runs WHERE id=?").get(run.id),
+  ).toEqual({ state: "failed", payload });
 });
 
 it("records an invalid saved scalar with its connection identity before execution", async () => {

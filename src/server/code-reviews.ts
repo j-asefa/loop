@@ -31,7 +31,7 @@ import { AgentSnapshot } from "./row-schemas.js";
 import { agentPermissionMode } from "./mcp/approval-policy.js";
 
 // Retain queued execution settings, excluding attachments, mail identity
-// and review-only tool restrictions. Unknown legacy fields are stripped.
+// and review-only tool restrictions.
 const continuationSnapshot = AgentSnapshot.omit({
   source: true,
   reviewId: true,
@@ -274,7 +274,6 @@ export function reviewStatus(
               : directory(owner, r.folder_id),
             s.scope,
             s.base,
-            Object.hasOwn(s, "context") ? "references" : "legacy-inline",
           ),
         ) === r.fingerprint;
     } catch (error) {

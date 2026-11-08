@@ -48,11 +48,7 @@ try {
   }
   if (!process.exitCode && source.directory !== root) {
     await rm(join(root, "dist"), { recursive: true, force: true });
-    for (const file of [
-      "dist",
-      "native/command-results.js",
-      "npm-shrinkwrap.json",
-    ])
+    for (const file of ["dist", "npm-shrinkwrap.json"])
       await cp(join(source.directory, file), join(root, file), {
         recursive: true,
       });

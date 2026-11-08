@@ -97,34 +97,6 @@ export function setStatus(db: Database.Database, status: string, id: string) {
   return setStatusStatement(db).run(status, id);
 }
 
-const credentialUrlsStatement = statement(
-  "SELECT * FROM mcp_connections WHERE url LIKE 'https:%?%'",
-);
-const credentialUrlsRow = QueryRecords.mcp_connections.pick({
-  id: true,
-  owner_id: true,
-  url: true,
-  secret: true,
-  status: true,
-});
-export function credentialUrls(db: Database.Database) {
-  return credentialUrlsStatement(db)
-    .all()
-    .map((row) => parseRecord(credentialUrlsRow, row, "mcp_connections"));
-}
-
-const setPrivateUrlStatement = statement(
-  "UPDATE mcp_connections SET url=?,secret=? WHERE id=?",
-);
-export function setPrivateUrl(
-  db: Database.Database,
-  url: string,
-  secret: string,
-  id: string,
-) {
-  return setPrivateUrlStatement(db).run(url, secret, id);
-}
-
 const connectedCatalogStatement = statement(
   "SELECT id,name,tools FROM mcp_connections WHERE owner_id=? AND status='connected' ORDER BY id",
 );

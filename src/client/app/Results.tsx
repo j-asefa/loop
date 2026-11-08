@@ -405,7 +405,7 @@ export function renderResults(
       ) : resultsError && !items.length ? null : items.length ? (
         items
           // Typed cards already carry public selection membership. Retained
-          // Files/legacy rows keep their existing snippet filter.
+          // Files rows keep their existing snippet filter.
           .filter(
             (item) =>
               item.card ||

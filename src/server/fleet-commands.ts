@@ -12,7 +12,7 @@ const ReceiptRow = z.object({
   grant_id: z.string(),
   operation: z.string(),
   payload_digest: z.string(),
-  command_tag: z.string().nullable(),
+  command_tag: z.string(),
   state: z.enum(["started", "completed", "unknown", "refused"]),
   result: z.string().nullable(),
 });
@@ -46,17 +46,11 @@ export class FleetCommands {
   private view(
     commandId: string,
     row: z.infer<typeof ReceiptRow>,
-    tag?: string,
   ): FleetCommandReceipt {
     return {
       commandId,
       state: row.state,
-      // An older row proves its outcome and digest, but not an action schema.
-      // Preserve reconciliation without relabelling or exposing its old result.
-      result:
-        row.result === null || (tag !== undefined && row.command_tag === null)
-          ? null
-          : JSON.parse(row.result),
+      result: row.result === null ? null : JSON.parse(row.result),
     };
   }
 
@@ -76,15 +70,13 @@ export class FleetCommands {
       row.grant_id !== context.grantId ||
       row.operation !== context.operation ||
       (expectedDigest !== undefined && row.payload_digest !== expectedDigest) ||
-      (expectedTag !== undefined &&
-        row.command_tag !== null &&
-        row.command_tag !== expectedTag)
+      (expectedTag !== undefined && row.command_tag !== expectedTag)
     )
       throw new Problem(
         409,
         "Fleet command belongs to another authorization context.",
       );
-    return this.observed(owner, commandId, row, expectedTag);
+    return this.observed(owner, commandId, row);
   }
 
   /** Reconciliation retires an absent action atomically with checking for its
@@ -145,19 +137,18 @@ export class FleetCommands {
     if (
       row.operation !== operation ||
       row.payload_digest !== digest ||
-      (row.command_tag !== null && row.command_tag !== tag)
+      row.command_tag !== tag
     )
       throw new Problem(
         409,
         "This receipt belongs to a different command or action.",
       );
-    return this.observed(owner, commandId, row, tag);
+    return this.observed(owner, commandId, row);
   }
   private observed(
     owner: string,
     commandId: string,
     row: z.infer<typeof ReceiptRow>,
-    tag?: string,
   ): FleetCommandReceipt {
     const key = JSON.stringify([owner, commandId]);
     // A surviving process may still be executing this request. A different
@@ -165,7 +156,7 @@ export class FleetCommands {
     // original process has died. Reporting unknown never starts it again.
     if (row.state === "started" && !this.inflight.has(key))
       return { commandId, state: "unknown", result: null };
-    return this.view(commandId, row, tag);
+    return this.view(commandId, row);
   }
 
   async execute(
@@ -174,11 +165,11 @@ export class FleetCommands {
     request: unknown,
     output: z.ZodType,
     apply: (owner: string, originalCommandId: string) => Promise<unknown>,
-    tag: string | null = null,
+    tag: string,
   ): Promise<FleetCommandReceipt> {
     const context = FleetGrantContext.parse(input);
     z.string().uuid().parse(commandId);
-    z.string().min(1).max(100).nullable().parse(tag);
+    z.string().min(1).max(100).parse(tag);
     if (!["act", "mail", "files"].includes(context.operation))
       throw new Problem(400, "This fleet operation is not a mutation.");
     const digest = fleetPayloadDigest(request);
@@ -192,7 +183,7 @@ export class FleetCommands {
             prior.grant_id !== context.grantId ||
             prior.operation !== context.operation ||
             prior.payload_digest !== digest ||
-            (prior.command_tag !== null && prior.command_tag !== tag)
+            prior.command_tag !== tag
           )
             throw new Problem(
               409,
@@ -225,12 +216,9 @@ export class FleetCommands {
     const key = JSON.stringify([owner, commandId]);
     if (prior) {
       const current = this.inflight.get(key);
-      if (current)
-        return tag !== null && prior.command_tag === null
-          ? current.then((receipt) => ({ ...receipt, result: null }))
-          : current;
+      if (current) return current;
       if (prior.state === "completed" || prior.state === "refused")
-        return this.view(commandId, prior, tag ?? undefined);
+        return this.view(commandId, prior);
       return { commandId, state: "unknown", result: null };
     }
     const promise = Promise.resolve()

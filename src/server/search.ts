@@ -54,8 +54,7 @@ function embeddingConfig(owner: string): EmbeddingConfig | undefined {
   return preferencesQueries.embeddingConnection(db, owner) as
     EmbeddingConfig | undefined;
 }
-// The selected shared corpus has one embedding owner (MemSearch). Existing
-// lexical search remains available; unrelated existing search keeps its backend.
+// Bind semantic indexing to the selected connection and model.
 const configuration = (c: EmbeddingConfig) =>
   JSON.stringify([c.id, c.embedding_model || modelDefault]);
 export function searchStatus(owner: string) {

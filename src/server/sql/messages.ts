@@ -761,14 +761,7 @@ const PROMPTS_WITH = `WITH RECURSIVE folder_project(id,owner_id,project_id) AS (
 export const personalMessageSql = `m.role='user'
     AND r.id IS NOT NULL AND r.conversation_id=c.id
     AND (c.project_id IS NULL OR EXISTS(SELECT 1 FROM folders p WHERE p.id=c.project_id AND p.owner_id=m.owner_id))
-    AND (json_extract(m.metadata,'$.personal')=1 OR (
-      json_type(m.metadata,'$.personal') IS NULL
-      AND json_type(m.metadata,'$.attachments')='array'
-      AND json_type(m.metadata,'$.backend') IS NULL
-      AND json_type(m.metadata,'$.sourceMessage') IS NULL
-      AND r.kind='agent'
-      AND NOT EXISTS(SELECT 1 FROM delegations d WHERE d.child_run_id=r.id)
-    ))`;
+    AND json_extract(m.metadata,'$.personal')=1`;
 const PROMPTS_FROM = `    FROM messages m
     JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
     JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id AND r.conversation_id=c.id

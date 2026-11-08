@@ -31,7 +31,7 @@ const common = {
     conversation_id: nullableText,
     run_id: nullableText,
     // The source thread's agent target is separate from the message's author.
-    agent_id: nullableText.optional(),
+    agent_id: nullableText,
   }),
   author: CardAgentSchema.extend({
     kind: z.enum(["owner", "agent", "system", "unknown"]),
@@ -68,15 +68,14 @@ export const ResultCardSchema = z.object({
     uploaded: z.boolean(),
     mime: nullableText,
     filename: nullableText,
-    size: z.number().nonnegative().nullable().default(null),
-    text: z.boolean().default(false),
-    download: nullableText.default(null),
+    size: z.number().nonnegative().nullable(),
+    text: z.boolean(),
+    download: nullableText,
     source: z
       .object({ url: z.string(), title: nullableText, excerpt: nullableText })
-      .nullable()
-      .default(null),
-    refreshable: z.boolean().default(false),
-    app: z.boolean().default(false),
+      .nullable(),
+    refreshable: z.boolean(),
+    app: z.boolean(),
   }),
 });
 export const MessageCardSchema = z.object({

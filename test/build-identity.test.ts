@@ -171,7 +171,6 @@ it.each(["mjs", "ts"])(
     for (const folder of [
       "src/server",
       "runtime",
-      "native",
       "migrations",
       "deployment",
       "node_modules",
@@ -190,10 +189,6 @@ it.each(["mjs", "ts"])(
       join(root, `runtime/sibling.${extension}`),
       `export const value${extension === "ts" ? ": string" : ""}="captured-runtime";`,
     );
-    writeFileSync(
-      join(root, "native/helper.js"),
-      'export const value="captured-native";',
-    );
     writeFileSync(join(root, "migrations/001.sql"), "captured-migration");
     writeFileSync(join(root, "deployment/versions.json"), "{}");
     writeFileSync(
@@ -201,7 +196,6 @@ it.each(["mjs", "ts"])(
       `
 import {readFileSync} from 'node:fs';
 import {value} from '../../runtime/helper.${extension}';
-export {value as native} from '../../native/helper.js';
 export {value};
 const migration='001.sql';
 export const sql=readFileSync(new URL('../../migrations/'+migration,import.meta.url),'utf8');
@@ -242,10 +236,6 @@ export const dynamic=(await import('../../runtime/helper.${extension}')).value;
         join(root, `runtime/helper.${extension}`),
         'throw new Error("mutable runtime loaded");',
       );
-      writeFileSync(
-        join(root, "native/helper.js"),
-        'throw new Error("mutable native helper loaded");',
-      );
       writeFileSync(join(root, "migrations/001.sql"), "later-migration");
       writeFileSync(
         join(root, "package.json"),
@@ -278,7 +268,6 @@ export const dynamic=(await import('../../runtime/helper.${extension}')).value;
       );
       expect(result).toEqual({
         value: "captured-runtime",
-        native: "captured-native",
         sql: "captured-migration",
         version: "captured-version",
         dynamic: "captured-runtime",

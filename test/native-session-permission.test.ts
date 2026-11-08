@@ -364,9 +364,9 @@ it("isolates agents while reusing their dirty worktrees across conversations and
   }
 });
 
-it("preserves old native sessions instead of resuming them in a different checkout", async () => {
+it("refuses native sessions bound to another agent instead of changing their checkout", async () => {
   const sessions = new NativeSessions();
-  const task = run("worktree-legacy");
+  const task = run("worktree-foreign-binding");
   db.prepare(
     "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,native_id,instructions,updated_at) VALUES('other-agent',?,'claude',?,'old-native-session','',0)",
   ).run(task.conversation_id, dir);

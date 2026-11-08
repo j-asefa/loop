@@ -998,7 +998,7 @@ export function ScheduledSends({
   };
   useEffect(() => {
     // Complete sources already refresh through their scoped subscription.
-    // Parent revisions are needed only for legacy polling.
+    // Parent revisions supply polling while the source stream is incomplete.
     if (!reactiveSource(sourceId, "workspace")) void load(false, true);
   }, [conversationId, revision, sourceId, read]);
   useEffect(() => {

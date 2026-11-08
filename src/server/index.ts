@@ -53,8 +53,6 @@ import { publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
 import { eventLoopHealth } from "./event-loop-health.js";
 
-import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
-migrateMcpUrlCredentials();
 export const app = express();
 app.disable("x-powered-by");
 app.use(compressResponse);

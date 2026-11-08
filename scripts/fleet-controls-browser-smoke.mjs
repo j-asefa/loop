@@ -104,7 +104,7 @@ const mailDirectory = {
 };
 let mailDirectoryUnavailable = false,
   mailGatewayId = mailGateway.machineId,
-  legacyMail = false;
+  localMail = false;
 let holdUpload = false,
   releaseUpload,
   loseFirstUpload = true;
@@ -285,7 +285,7 @@ try {
       req.url ===
       `/api/agent-sources/${encodeURIComponent(peer)}/agents/${mailAgent}/mail`
     ) {
-      const message = legacyMail
+      const message = localMail
         ? {
             ...mailMessage,
             to: mailAgent,
@@ -299,7 +299,7 @@ try {
         threads: [
           {
             ...mailThread,
-            participant_refs: legacyMail
+            participant_refs: localMail
               ? undefined
               : mailThread.participant_refs,
             messages: [message],
@@ -454,6 +454,7 @@ try {
 
           execution_connection_id: null,
           project_id: null,
+          feed_hidden: 0,
         },
         messages: [
           {
@@ -468,6 +469,10 @@ try {
             cursor: [1, 1, 1],
           },
         ],
+        working: false,
+        range: { from: [0, 0, 0], before: [2, 0, 0] },
+        steerable_run_id: null,
+        latest_agent_message: null,
         next: null,
         position_message_id: null,
         saved: [],
@@ -977,8 +982,8 @@ try {
     id: mailConversation,
     source: "",
   });
-  legacyMail = true;
-  await page.evaluate(() => window.mail(false, "fixture-legacy-mail"));
+  localMail = true;
+  await page.evaluate(() => window.mail(false, "fixture-local-mail"));
   await expect(openMail).toBeEnabled();
   await openMail.click();
   assert.deepEqual(await page.evaluate(() => window.openedMail), {
@@ -1078,7 +1083,7 @@ try {
 
   assert.deepEqual(failures, []);
   console.log(
-    `PASS (${engine.name()}): continuation, question and upload controls respect capabilities; denied continuations retain uncertain requests without new storage or dispatch; questions and shared sends renew confirmed refusals and retain uncertain identities; question reconciliation produces no second effect; sharing and uploads reconcile uncertain commands without resubmission; upload reconciliation omits file bytes; held requests and previews are fenced by owner/source changes; mail identity labels and conversation navigation retain the owning machine, block stale directory navigation and preserve legacy source-local targets. Deterministic HTTP fixture.`,
+    `PASS (${engine.name()}): continuation, question and upload controls respect capabilities; denied continuations retain uncertain requests without new storage or dispatch; questions and shared sends renew confirmed refusals and retain uncertain identities; question reconciliation produces no second effect; sharing and uploads reconcile uncertain commands without resubmission; upload reconciliation omits file bytes; held requests and previews are fenced by owner/source changes; mail identity labels and conversation navigation retain the owning machine, block stale directory navigation and preserve current source-local targets. Deterministic HTTP fixture.`,
   );
 } finally {
   releasePreview?.();

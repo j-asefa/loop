@@ -66,8 +66,7 @@ it("returns personal prompts across projects and maps the run recipient", () => 
   message("automated", { metadata: { personal: false, attachments: [] } });
   message("unmarked", { metadata: {} });
   message("answer", { role: "assistant" });
-  message("native", { metadata: { backend: "hapi", attachments: [] } });
-  message("legacy", { metadata: { attachments: [] } });
+  message("unattributed", { metadata: { attachments: [] } });
   message("delegated", { metadata: { attachments: [] } });
   db.prepare(
     "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES('first','call','delegated','{}')",
@@ -76,7 +75,7 @@ it("returns personal prompts across projects and maps the run recipient", () => 
     "UPDATE conversations SET agent_id='bob' WHERE id='aliceone'",
   ).run();
   const items = personalHistory("alice").items;
-  expect(items.map((i) => i.id).sort()).toEqual(["first", "legacy", "second"]);
+  expect(items.map((i) => i.id).sort()).toEqual(["first", "second"]);
   expect(items.find((i) => i.id === "first")?.agent_name).toBe("alice");
   expect(new Set(items.map((i) => i.project_name))).toEqual(
     new Set(["one", "two"]),

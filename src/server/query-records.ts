@@ -289,7 +289,7 @@ export const QueryRecords = {
     payload_digest: z.string(),
     state: z.string(),
     result: z.string().nullable(),
-    command_tag: z.string().nullable(),
+    command_tag: z.string(),
     created_at: z.number(),
     updated_at: z.number(),
   }),

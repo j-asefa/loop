@@ -72,18 +72,16 @@ export const PublicMailMessage = z.object({
   to: Text,
   preview: Text,
   created_at: z.number(),
-  // Recipient navigation was added with direct mail in 3ae55ca7.
   error: Text.nullable(),
   files: z.number(),
-  conversation_id: Text.nullable().optional(),
+  conversation_id: Text.nullable(),
+  // Machine-qualified references are present only for fleet mail.
   from_ref: PublicMailAgentReference.optional(),
   to_ref: PublicMailAgentReference.optional(),
   remote_conversation: PublicMailConversationReference.nullable().optional(),
 });
 export const PublicMailThread = z.object({
   ...ThreadFields,
-  // The original team-mail HTTP projection did not return scope (3ae55ca7).
-  scope: ThreadFields.scope.optional(),
   id: Text,
   paused_at: z.number().nullable(),
   paused_reason: Text.nullable(),

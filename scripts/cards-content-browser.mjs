@@ -91,26 +91,6 @@ try {
             );
         });
         try {
-          // Initial v1 sources omit the newer display capabilities. Exercise
-          // their wire shape through list, changes and the full reader.
-          await page.route("**/api/v1/cards**", async (route) => {
-            const response = await route.fetch();
-            if (!response.ok()) return route.fulfill({ response });
-            const body = await response.json();
-            for (const { card } of body.items || [{ card: body }]) {
-              if (card.type === "result")
-                for (const key of [
-                  "size",
-                  "text",
-                  "download",
-                  "source",
-                  "refreshable",
-                  "app",
-                ])
-                  delete card.display[key];
-            }
-            await route.fulfill({ response, json: body });
-          });
           // Agent Results, full body, selected text and return to loaded range.
           await page.route("**/api/v1/cards?*", async (route) => {
             if (await page.evaluate(() => !!window.__cardsManualRetry))

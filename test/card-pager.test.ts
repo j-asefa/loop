@@ -20,6 +20,7 @@ const entry = (key: string, at: number, content = key): CardEntry =>
       author: { kind: "owner", id: null, name: null, provider: null },
       recipient: null,
       source: {
+        agent_id: null,
         artifact_id: null,
         message_id: key,
         conversation_id: "thread",

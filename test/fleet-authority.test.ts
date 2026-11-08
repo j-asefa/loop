@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -39,11 +40,25 @@ afterAll(() => {
   for (const db of databases) if (db.open) db.close();
   rmSync(root, { recursive: true, force: true });
 });
+// Authority cases need independent current schemas, not repeated migration work
+// inside their timeout. Identity creation still happens separately per machine;
+// the migration regression below constructs and upgrades its own database.
+const emptySchema = join(root, "empty-schema.db");
+{
+  const db = new Database(emptySchema);
+  try {
+    db.pragma("foreign_keys=ON");
+    applyMigrations(db);
+  } finally {
+    db.close();
+  }
+}
 const all: FleetOperation[] = ["read", "act", "events", "mail", "files"];
 function machine(
   owner: string = randomUUID(),
   path = join(root, randomUUID() + ".db"),
 ) {
+  if (!existsSync(path)) copyFileSync(emptySchema, path);
   const db = new Database(path);
   db.pragma("foreign_keys=ON");
   db.pragma("busy_timeout=5000");
@@ -605,6 +620,7 @@ it("records a destination intent before dispatch, projects safe results, and ded
       await gate;
       return { id: "created-run", privateKey: "fixture-never-project" };
     },
+    "fixture",
   );
   const retry = commands.execute(
     context(b, c, "act"),
@@ -614,6 +630,7 @@ it("records a destination intent before dispatch, projects safe results, and ded
     async () => {
       throw new Error("duplicate effect");
     },
+    "fixture",
   );
   expect(commands.receipt(context(b, c, "act"), commandId)?.state).toBe(
     "started",
@@ -636,6 +653,20 @@ it("records a destination intent before dispatch, projects safe results, and ded
       commandId,
     ),
   ).toEqual(result);
+  const setTag = b.db.prepare(
+    "UPDATE fleet_command_receipts SET command_tag=? WHERE command_id=?",
+  );
+  const tag = b.db
+    .prepare(
+      "SELECT command_tag FROM fleet_command_receipts WHERE command_id=?",
+    )
+    .pluck()
+    .get(commandId);
+  setTag.run(null, commandId);
+  expect(() => commands.receipt(context(b, c, "act"), commandId)).toThrow(
+    /fleet_command_receipts record .* is unavailable/,
+  );
+  setTag.run(tag, commandId);
   await expect(
     commands.execute(
       context(b, c, "act"),
@@ -643,6 +674,7 @@ it("records a destination intent before dispatch, projects safe results, and ded
       { generation: "g2", text: "hello" },
       output,
       async () => ({}),
+      "fixture",
     ),
   ).rejects.toThrow("different input");
 });
@@ -662,7 +694,7 @@ it("never replays an effect when its process exits before recording completion",
     const commands=new FleetCommands(db,new FleetAuthority(db,{seal,unseal}));
     await commands.execute(${JSON.stringify(input)},${JSON.stringify(commandId)},${JSON.stringify(request)},z.object({ok:z.boolean()}),async()=>{
       db.prepare('INSERT INTO fixture_effects DEFAULT VALUES').run(); process.exit(0);
-    });
+    }, 'fixture');
   `;
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("LOOP_")),
@@ -697,6 +729,7 @@ it("never replays an effect when its process exits before recording completion",
           .run();
         return { ok: true };
       },
+      "fixture",
     ),
   ).toEqual({ commandId, state: "unknown", result: null });
   expect(
@@ -727,6 +760,7 @@ it("rechecks removal before dispatch and preserves a definite generation refusal
       effects++;
       return {};
     },
+    "fixture",
   );
   b.authority.accept(b.owner, revise(a, signed.document.members));
   expect((await pending).state).toBe("refused");
@@ -743,6 +777,7 @@ it("rechecks removal before dispatch and preserves a definite generation refusal
         async () => {
           throw new ExecutionRefused(409, "Stale native decision generation");
         },
+        "fixture",
       )
     ).state,
   ).toBe("refused");
@@ -757,6 +792,7 @@ it("rechecks removal before dispatch and preserves a definite generation refusal
           effects++;
           return {};
         },
+        "fixture",
       )
     ).state,
   ).toBe("refused");
@@ -779,6 +815,7 @@ it("preserves uncertainty without persisting requests or unprojected failures", 
         effects++;
         throw new Error("fixture-private-provider-failure");
       },
+      "fixture",
     );
   expect((await run()).state).toBe("unknown");
   expect((await run()).state).toBe("unknown");
@@ -807,6 +844,7 @@ it("bounds cached result bodies while retaining completed command identities", a
         effects++;
         return { id: i };
       },
+      "fixture",
     );
   }
   expect(
@@ -826,6 +864,7 @@ it("bounds cached result bodies while retaining completed command identities", a
         effects++;
         return { id: 0 };
       },
+      "fixture",
     ),
   ).toEqual({ commandId: ids[0], state: "completed", result: null });
   expect(effects).toBe(65);
@@ -894,52 +933,6 @@ it("binds local recovery to the owner and the action saved before execution, inc
     receipt,
   );
   expect(effects).toBe(1);
-});
-
-it("upgrades old command receipts without inventing their action or losing uncertain outcomes", () => {
-  const previous = join(root, "pre-command-tags-migrations");
-  mkdirSync(previous);
-  const migrations = new URL("../migrations/", import.meta.url);
-  for (const name of readdirSync(migrations))
-    if (Number(name.split("-")[0]) < 137)
-      copyFileSync(new URL(name, migrations), join(previous, name));
-  const db = new Database(join(root, "old-commands.db"));
-  databases.push(db);
-  applyMigrations(db, previous);
-  const owner = randomUUID(),
-    id = randomUUID(),
-    digest = "a".repeat(64);
-  db.prepare(
-    "INSERT INTO fleet_command_receipts VALUES(?,?,?,?,?,? ,?,'unknown',NULL,1,1)",
-  ).run(owner, "old-peer", id, "old-fleet", "old-grant", "act", digest);
-  applyMigrations(db);
-  const commands = new FleetCommands(db, new FleetAuthority(db, secrets));
-  expect(commands.localReceipt(owner, id, digest, "agentCreate")).toEqual({
-    commandId: id,
-    state: "unknown",
-    result: null,
-  });
-  db.prepare(
-    "UPDATE fleet_command_receipts SET state='completed',result=? WHERE command_id=?",
-  ).run(JSON.stringify({ privateUntypedResult: "must not escape" }), id);
-  expect(commands.localReceipt(owner, id, digest, "agentCreate")).toEqual({
-    commandId: id,
-    state: "completed",
-    result: null,
-  });
-  expect(() =>
-    commands.localReceipt(owner, id, "b".repeat(64), "agentCreate"),
-  ).toThrow();
-  expect(
-    commands.localReceipt(randomUUID(), id, digest, "agentCreate"),
-  ).toBeNull();
-  expect(
-    db
-      .prepare(
-        "SELECT state,command_tag,payload_digest FROM fleet_command_receipts WHERE command_id=?",
-      )
-      .get(id),
-  ).toEqual({ state: "completed", command_tag: null, payload_digest: digest });
 });
 
 it("migrates an existing companion without changing its identity or workspace records", () => {
@@ -1061,14 +1054,21 @@ it("refuses excess pending commands before recording another intent", async () =
     finish = resolve;
   });
   const promises = Array.from({ length: 64 }, () =>
-    commands.execute(ctx, randomUUID(), {}, z.object({}), async () => {
-      await gate;
-      return {};
-    }),
+    commands.execute(
+      ctx,
+      randomUUID(),
+      {},
+      z.object({}),
+      async () => {
+        await gate;
+        return {};
+      },
+      "fixture",
+    ),
   );
   const extra = randomUUID();
   await expect(
-    commands.execute(ctx, extra, {}, z.object({}), async () => ({})),
+    commands.execute(ctx, extra, {}, z.object({}), async () => ({}), "fixture"),
   ).rejects.toThrow("busy");
   expect(
     b.db

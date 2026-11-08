@@ -232,7 +232,7 @@ export function nativeBindings(
     ? (agentsQueries.retirement(db, run.agent_id, run.owner_id) as
         { retired_at: number | null } | undefined)
     : undefined;
-  if (agent && !agent.retired_at && !run.payload.execution) {
+  if (agent && !agent.retired_at) {
     descriptions.loop_agents =
       "Discover other non-retired agents. Omit sourceId for this machine and its authorized source list; use a returned sourceId to read another machine. Search by name and paginate with nextOffset on that same source. Remote agentIds include their owning machine; preserve them in messages and handoffs. An unreachable source does not hide local agents. Availability is not a guarantee that inference can start.";
     descriptions.loop_message =

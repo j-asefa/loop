@@ -84,7 +84,7 @@ export function fleetEnrollmentFromLink(input: string): FleetEnrollmentLink {
 }
 
 /** The OS-camera flow opens the destination itself. An enrollment-only link is
- * intentionally not a device pairing credential. Local legacy links still work. */
+ * intentionally not a device pairing credential. Device links use a separate credential. */
 export function fleetDeviceFromLink(
   input: string,
   expectedOrigin: string,

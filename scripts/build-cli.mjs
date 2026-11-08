@@ -7,8 +7,6 @@ for (const entry of readdirSync("dist")) {
   if (entry !== "client")
     await rm(`dist/${entry}`, { recursive: true, force: true });
 }
-// Older builds emitted runner bundles here; nothing loads them now.
-await rm("native/generated", { recursive: true, force: true });
 // Preserve module-relative paths used by native fixtures, migration and host assets.
 await build({
   entryPoints: globSync("src/**/*.ts").filter(
@@ -25,15 +23,6 @@ await build({
       ? readFileSync(process.env.LOOP_BUILD_STAMP_FILE, "utf8")
       : "null",
   },
-});
-// The unbundled ACP adapter imports this portable helper from native/. Ship
-// JavaScript beside the TypeScript source.
-await build({
-  entryPoints: ["native/command-results.ts"],
-  outdir: "native",
-  platform: "node",
-  format: "esm",
-  target: "node22",
 });
 await import("./build-connection.mjs");
 await cp("src/pi-extension.mjs", "dist/pi-extension.mjs");

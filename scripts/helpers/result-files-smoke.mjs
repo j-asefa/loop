@@ -221,7 +221,7 @@ export async function resultFilesSmoke(page, fixture, capture) {
         url.pathname === "/api/runs" && url.searchParams.get("active") === "1"
       );
     });
-    // A real run write emits the scoped collection invalidation. Legacy
+    // A real run write emits the scoped collection invalidation. Incomplete-stream
     // artifact events no longer require an unrelated run-list refresh.
     assert.equal(
       fixture.db

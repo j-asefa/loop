@@ -773,6 +773,7 @@ routes.on(
     }
     res.json({
       conversation: c,
+      working: runsQueries.conversationWorking(db, res.locals.owner, c.id),
       // The run a reply would steer now; null means a reply queues.
       steerable_run_id: active?.liveInput ? active.run.id : null,
       ...page,

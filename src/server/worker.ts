@@ -30,7 +30,6 @@ import { recoverStuckRuns, sweepLeftoverToolCalls } from "./recover-stuck.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { providerChangeInProgress } from "./native-provider-locks.js";
 import { nativeSignIns } from "./native-auth.js";
-import { migrateMcpUrlCredentials } from "./mcp/credentials.js";
 import { captureMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
@@ -173,7 +172,6 @@ export async function execute(run: Run) {
 export function startWorker() {
   assertExecutionGeneration(workerId);
   const stopObservation = observeProcess("worker");
-  migrateMcpUrlCredentials();
   nativeSessions.recover();
   // Sweep calls a crashed earlier worker left 'executing' once here, after the
   // stale-run recovery, rather than scanning those tables on every tick.

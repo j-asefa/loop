@@ -114,6 +114,10 @@ routes.on(workspaceApi.mcpInstall, async (req, res) => {
     );
 });
 function publicConnection(c: MCPConnection) {
+  // Current writes seal every HTTP query parameter; never echo an unsealed
+  // one. Stdio connections store their command, not a network URL.
+  if (/^https?:/i.test(c.url) && new URL(c.url).search)
+    throw new InvalidRow("mcp_connections", c.id, "url");
   const { secret, ...safe } = c;
   return projectResponse(workspaceApi.mcpCreate, {
     ...safe,

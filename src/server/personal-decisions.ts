@@ -207,8 +207,8 @@ export function personalDecisions(
   return PersonalDecisionsPageSchema.parse({
     items: rows.map((row) => {
       const request = JSON.parse(row.request);
-      // Older records may contain complete answers. Bound them in SQL before
-      // materializing the page, and never parse a truncated JSON fragment.
+      // Keep page memory bounded at the SQL boundary and never parse a
+      // truncated JSON fragment.
       const oversizedResponse =
         !!row.response &&
         Buffer.byteLength(row.response) > PERSONAL_DECISION_RESPONSE_LIMIT;

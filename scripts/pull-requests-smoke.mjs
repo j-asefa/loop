@@ -482,38 +482,33 @@ try {
       ).toBeVisible();
       await capture("conversation");
 
-      // Older linked sources omit fields added after their version. Remove
-      // them from the actual HTTP projection and remount the detail reader so
-      // cached current data cannot disguise a rejected response.
+      // Inspect current production fields while remounting the detail reader.
       const detailRoute = (url) =>
         url.pathname === "/api/github/pulls/acme/api/64";
-      let olderPull;
-      const olderDetail = async (route) => {
+      let currentPull;
+      const currentDetail = async (route) => {
         const response = await route.fetch();
         const body = await response.json();
         assert(Array.isArray(body.commitHistory));
         assert.equal(typeof body.reviewsTotal, "number");
         assert.equal(typeof body.reviewsOmitted, "boolean");
-        delete body.commitHistory;
-        delete body.reviewsTotal;
-        delete body.reviewsOmitted;
-        olderPull = body;
+        currentPull = body;
         await route.fulfill({ response, json: body });
       };
-      await page.route(detailRoute, olderDetail);
+      await page.route(detailRoute, currentDetail);
       try {
         await page.goto(fixture.base + "/?page=pulls&pull=acme/api/64");
         await expect(page.locator(".pull-detail-head h2")).toHaveText(
           "Add rate limiting to public API endpoints",
         );
         assert(
-          olderPull,
-          "The older projection passed through the production reader",
+          currentPull,
+          "The current projection passed through the production reader",
         );
         const count =
-          olderPull.conversationTotal +
-          olderPull.threadsTotal +
-          olderPull.reviews.length;
+          currentPull.conversationTotal +
+          currentPull.threadsTotal +
+          currentPull.reviewsTotal;
         await page
           .getByRole("button", { name: `Conversation (${count})`, exact: true })
           .click();
@@ -527,18 +522,18 @@ try {
           .getByRole("button", { name: "Commits (4)", exact: true })
           .click();
         await expect(
-          page.getByText("No commits shown.", { exact: true }),
+          page.getByText("Commit with no body", { exact: true }),
         ).toBeVisible();
-        await expect(page.locator(".pull-commit-title")).toHaveCount(0);
+        await expect(page.locator(".pull-commit-title")).toHaveCount(1);
         await expect(
           page.getByRole("link", {
             name: "Read them all on GitHub",
             exact: true,
           }),
         ).toBeVisible();
-        await capture("older-source");
+        await capture("current-source");
       } finally {
-        await page.unroute(detailRoute, olderDetail);
+        await page.unroute(detailRoute, currentDetail);
       }
       await page.getByRole("button", { name: "Refresh", exact: true }).click();
       await expect(page.locator(".pull-commit-title")).toHaveText(

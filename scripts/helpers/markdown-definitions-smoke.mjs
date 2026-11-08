@@ -620,12 +620,12 @@ export async function markdownModelsSmoke(page, fixture) {
 }
 
 export async function markdownSourceSmoke(page, fixture, _engine, capture) {
-  const source = "docker:markdown-legacy";
+  const source = "docker:markdown-source";
   const codex = fixture.db
     .prepare("SELECT id FROM connections WHERE provider='codex'")
     .get();
-  let legacy = true,
-    missing = false,
+  let missingSource = true,
+    disconnectedSource = false,
     remoteReads = 0,
     localReads = 0;
   const dialog = () => page.locator("dialog[open]").last();
@@ -635,17 +635,17 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
   });
   await page.route("**/api/agent-sources", (route) =>
     route.fulfill({
-      json: [{ id: source, name: "Older Docker workspace", kind: "docker" }],
+      json: [{ id: source, name: "Fixture Docker workspace", kind: "docker" }],
     }),
   );
-  // Script the linked-workspace boundary, including an older server's 404.
+  // A current source can disappear or disconnect before its definitions read.
   await page.route("**/api/agent-sources/*/**", async (route) => {
     const url = new URL(route.request().url());
     const match = /^\/api\/agent-sources\/[^/]+\/(.*)$/.exec(url.pathname);
     if (!match) return route.continue();
     if (match[1] === "agent-definitions") {
       remoteReads++;
-      if (missing)
+      if (disconnectedSource)
         return route.fulfill({
           status: 404,
           json: {
@@ -653,8 +653,8 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
               "This Docker workspace is unavailable. Return to the laptop workspace.",
           },
         });
-      return legacy
-        ? route.fulfill({ status: 404, json: { error: "Endpoint not found" } })
+      return missingSource
+        ? route.fulfill({ status: 404, json: { error: "Source not found" } })
         : route.fulfill({ json: [] });
     }
     return route.continue({
@@ -673,17 +673,13 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
       .click();
   };
   const unavailable = async (kind) => {
-    await expect(
-      dialog()
-        .getByRole("status")
-        .filter({ hasText: "Markdown definitions are unavailable" }),
-    ).toContainText("Update Loop on that computer");
+    await expect(dialog().getByRole("alert")).toContainText("Source not found");
     await expect(
       dialog().getByRole("button", {
         name: `New ${kind} definition`,
         exact: true,
       }),
-    ).toHaveCount(0);
+    ).toBeDisabled();
   };
   try {
     await page.goto(`${fixture.base}/?source=${encodeURIComponent(source)}`, {
@@ -703,10 +699,10 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
       .getByRole("button", { name: "From Markdown", exact: true })
       .click();
     await unavailable("agent");
-    await capture("markdown-update-workspace");
-    legacy = false;
+    await capture("markdown-source-unavailable");
+    missingSource = false;
     await dialog()
-      .getByRole("button", { name: "Check again", exact: true })
+      .getByRole("button", { name: "Reload definitions", exact: true })
       .click();
     await expect(
       dialog().getByRole("button", {
@@ -716,7 +712,7 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
     ).toBeVisible();
     await expect(dialog()).toContainText("No saved agent definitions yet");
 
-    legacy = true;
+    missingSource = true;
     await openTeams();
     await dialog()
       .getByRole("button", { name: "New team", exact: true })
@@ -735,9 +731,9 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
       .getByRole("button", { name: "Create worker from Markdown", exact: true })
       .click();
     await unavailable("agent");
-    missing = true;
+    disconnectedSource = true;
     await dialog()
-      .getByRole("button", { name: "Check again", exact: true })
+      .getByRole("button", { name: "Reload definitions", exact: true })
       .click();
     await expect(dialog().getByRole("alert")).toContainText(
       "Return to the laptop workspace.",
@@ -749,7 +745,7 @@ export async function markdownSourceSmoke(page, fixture, _engine, capture) {
         exact: true,
       }),
     ).toBeDisabled();
-    missing = legacy = false;
+    disconnectedSource = missingSource = false;
     await dialog()
       .getByRole("button", { name: "Reload definitions", exact: true })
       .click();

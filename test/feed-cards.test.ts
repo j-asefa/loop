@@ -46,6 +46,7 @@ const entry = (id: string, at: number) =>
       author: { kind: "unknown", id: null, name: null, provider: null },
       recipient: null,
       source: {
+        agent_id: null,
         artifact_id: null,
         message_id: id,
         conversation_id: id,

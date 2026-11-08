@@ -4,13 +4,7 @@ import { cp, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { compileRuntime } from "./compile-runtime.mjs";
 
-const assets = [
-  "runtime",
-  "native",
-  "migrations",
-  "deployment",
-  "package.json",
-];
+const assets = ["runtime", "migrations", "deployment", "package.json"];
 
 /** Keep module-relative runtime inputs inside the generated distribution.
  * The orchestrator invokes this in the same source archive as compilation. */

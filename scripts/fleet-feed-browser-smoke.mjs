@@ -541,7 +541,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    `PASS ${engineName} actual app draft hydration isolates owners and sources, restores returning drafts and ignores unattributed legacy keys`,
+    `PASS ${engineName} actual app draft hydration isolates owners and sources and restores returning drafts`,
   );
 } finally {
   for (const release of pending) release();

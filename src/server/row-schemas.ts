@@ -258,7 +258,7 @@ export const RunRow = z.object({
   input: z.string(),
   state: RunState,
   idempotency_key: z.string().optional(),
-  payload: RunPayload.passthrough(),
+  payload: RunPayload,
   result: z.string().nullable(),
   error: z.string().nullable(),
   created_at: z.number(),
@@ -304,15 +304,7 @@ export function parseRun(value: unknown): Run {
     value,
     "runs",
   );
-  // Unknown legacy display fields are retained on reads, never allowed on new
-  // writes. Known identity and permission fields retain their strict validators.
-  const payload = readJson(
-    RunPayload.passthrough(),
-    raw.payload,
-    "runs",
-    raw.id,
-    "payload",
-  );
+  const payload = readJson(RunPayload, raw.payload, "runs", raw.id, "payload");
   const result = RunRow.safeParse({ ...Object(value), payload });
   if (!result.success) throw new InvalidRow("runs", raw.id, "row");
   return result.data;

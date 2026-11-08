@@ -207,6 +207,7 @@ it.each([
       }),
       source: {
         artifact_id: "presentation",
+        agent_id: "writer",
         message_id: null,
         conversation_id: null,
         run_id: null,

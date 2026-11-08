@@ -76,9 +76,8 @@ export function installDaemonLog(path: string, maxBytes = LOG_MAX_BYTES) {
 }
 
 /**
- * Moves the previous run's log to `.1` with any pairing secrets redacted (logs
- * from older builds printed them), so a fresh 0600 log starts each launch. Only
- * the last LOG_MAX_BYTES of an oversized legacy log are kept.
+ * Moves the previous run's log to `.1` with pairing secrets redacted, so a
+ * fresh 0600 log starts each launch. Keep only its last LOG_MAX_BYTES.
  */
 export async function retireLog(path: string) {
   const file = await open(path, "r").catch(() => undefined);

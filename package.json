@@ -114,7 +114,6 @@
     "docs",
     "README.md",
     "npm-shrinkwrap.json",
-    "native",
     "deployment",
     "scripts/heavy-supervisor.py"
   ]

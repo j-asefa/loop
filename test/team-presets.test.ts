@@ -25,8 +25,7 @@ const { core } = await import("../src/server/core-routes");
 const { reviewContext } = await import("../src/server/review-access");
 const { startCodeReview, reviewStatus } =
   await import("../src/server/code-reviews");
-const { captureSnapshot, snapshotFingerprint } =
-  await import("../src/server/review-snapshot");
+const { captureSnapshot } = await import("../src/server/review-snapshot");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
@@ -473,25 +472,8 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   ).toBeUndefined();
   expect(report.report).toBe("Consolidated fixture report");
   expect(report.reviewers).toHaveLength(3);
-  // New default returns promptly and persists one recoverable request.
+  // The asynchronous default persists one recoverable request.
   const asyncRun = start(worktree);
-  // Simulate an old pending call persisted before the wait option existed.
-  const legacyArgs = JSON.stringify({
-    teamId: team.id,
-    scope: "branch",
-    base: "main",
-  });
-  expect(
-    await invokeNative(asyncRun, binding(asyncRun), "async", request),
-  ).toEqual({ pending: "async" });
-  const legacyReview = db
-    .prepare(
-      "SELECT c.id FROM code_reviews c JOIN delegations d ON d.child_run_id=c.run_id WHERE d.parent_run_id=?",
-    )
-    .get(asyncRun.id) as { id: string };
-  db.prepare(
-    "UPDATE native_calls SET arguments=? WHERE run_id=? AND call_id=?",
-  ).run(legacyArgs, asyncRun.id, "async");
   const accepted = (await invokeNative(asyncRun, binding(asyncRun), "async", {
     teamId: team.id,
     scope: "branch",
@@ -499,7 +481,12 @@ it("lets a working agent request a review of its own worktree, waits for the lea
   })) as any;
   const receipt = JSON.parse(accepted.result.content[0].text);
   expect(receipt.error).toBeUndefined();
-  expect(receipt.reviewId).toBe(legacyReview.id);
+  const persisted = db
+    .prepare(
+      "SELECT c.id FROM code_reviews c JOIN delegations d ON d.child_run_id=c.run_id WHERE d.parent_run_id=?",
+    )
+    .get(asyncRun.id) as { id: string };
+  expect(receipt.reviewId).toBe(persisted.id);
   expect(receipt.state).toBe("queued");
   const replay = (await invokeNative(asyncRun, binding(asyncRun), "async", {
     teamId: team.id,
@@ -724,47 +711,6 @@ it("creates an LLM council whose chair manages members on their own connections"
   expect(agent(assignments[1].agentId).instructions).toMatch(/FINAL RANKING:/);
 });
 
-it("preserves freshness comparisons for stored inline-format reviews", () => {
-  const legacy = captureSnapshot(repo, "uncommitted", "main", "legacy-inline");
-  expect(Object.hasOwn(legacy, "context")).toBe(false);
-  expect(legacy.files["stable.ts"]).toContain("stable = true");
-  const review = startCodeReview("alice", team.id, {
-    folderId: folder,
-    scope: "uncommitted",
-    idempotencyKey: id(),
-  });
-  db.prepare("UPDATE code_reviews SET snapshot=?,fingerprint=? WHERE id=?").run(
-    JSON.stringify(legacy),
-    snapshotFingerprint(legacy),
-    review.id,
-  );
-  expect(reviewStatus("alice", review.id, true).current).toBe(true);
-  const replaced = git("rev-parse", "HEAD:stable.ts").trim();
-  const replacement = execFileSync("git", ["hash-object", "-w", "--stdin"], {
-    cwd: repo,
-    input: "replacement context\n",
-    encoding: "utf8",
-  }).trim();
-  git("replace", replaced, replacement);
-  try {
-    expect(reviewStatus("alice", review.id, true)).toMatchObject({
-      current: null,
-      freshnessError:
-        "Freshness unavailable for legacy snapshots while Git replacement refs exist",
-    });
-  } finally {
-    git("replace", "-d", replaced);
-  }
-
-  const original = readFileSync(join(repo, "stable.ts"), "utf8");
-  try {
-    writeFileSync(join(repo, "stable.ts"), "changed context\n");
-    expect(reviewStatus("alice", review.id, true).current).toBe(false);
-  } finally {
-    writeFileSync(join(repo, "stable.ts"), original);
-  }
-});
-
 it("does not report current when ident conversions hide working edits", () => {
   const review = startCodeReview("alice", team.id, {
     folderId: folder,
@@ -799,14 +745,6 @@ it("durably queues one review follow-up outside teams, waits for both turns and 
   const binding = nativeBindings(parent).find(
     (b) => b.tool === "loop_request_review",
   )!;
-  db.prepare("UPDATE runs SET payload=? WHERE id=?").run(
-    JSON.stringify({
-      ...parent.payload,
-      workflowRun: id(),
-      workflowStep: "old-step",
-    }),
-    parent.id,
-  );
   const messages = await import("../src/server/sql/messages");
   const personalBefore = messages.personalCount(db, "alice").n;
   const untrustedBase = "main\nINJECTED_BASE_INSTRUCTION";
@@ -886,8 +824,6 @@ it("durably queues one review follow-up outside teams, waits for both turns and 
   expect(claimed.input).toContain(receipt.reviewId);
   expect(claimed.input).toContain("Completion is not approval");
   expect(claimed.input).not.toContain("INJECTED_BASE_INSTRUCTION");
-  expect(claimed.payload.workflowRun).toBeUndefined();
-  expect(claimed.payload.workflowStep).toBeUndefined();
   expect(claimed.payload.connectionId).toBe(parent.payload.connectionId);
 
   expect(claimed.input).toContain(

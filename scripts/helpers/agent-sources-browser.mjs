@@ -258,7 +258,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
   await page.route("**/api/agent-sources/**", detail);
   await page.route("**/api/bootstrap", localBootstrap);
   await page.route("**/api/feed?*", localFeed);
-  // These source fixtures serve the legacy Feed contract. Keep the local
+  // These source fixtures serve Feed reads while Cards is unavailable. Keep the local
   // fixture on the same contract instead of mixing it with the real empty DB.
   const noCards = (route) => route.fulfill({ status: 404, body: "{}" });
   await page.route("**/api/v1/cards?*", noCards);

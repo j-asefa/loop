@@ -499,7 +499,7 @@ its current eligible representation or a selection-relative removal.
 | Folders and Workspace membership                            | Project names, descendant membership, folder-kind changes, subfolder moves and unfiled/default Workspace selection                                                           |
 | Referenced artifacts, objects and artifact-object relations | Attachment existence/authorization and source-relative file availability; indexed reverse references identify dependent cards                                                |
 
-User messages retain the legacy `prompt` revision entity; bookmarked non-user
+User messages use the `prompt` revision entity; bookmarked non-user
 messages use `message`. Changes coalesce both into one `m:` identity. Ownership
 and relationship changes retain the old owner's/selection's removal as well as
 the new state. Partial body chunks do not emit a body revision per chunk;
@@ -525,7 +525,7 @@ clients supply the complete header. All management writes require a matching
 read its value from the authenticated `/session` response. Browser requests
 supply `Origin` automatically.
 
-## First-party readers and compatibility
+## First-party readers
 
 Feed Done, Agent Results, project Activity, Saved and personally sent Messages use the
 versioned service and shared typed card bodies. The result reader fetches typed
@@ -536,11 +536,8 @@ explicit display fields; the app's private tool payload is fetched only when a
 signed-in reader opens the interactive app, outside the Cards API.
 `refreshable` requires a complete stored agent/tool/connection/arguments source.
 It is not a permission grant; refresh rechecks current owner and tool access.
-Readers accept the initial v1 result shape from an older linked source: absent
-display additions default to unknown values or unadvertised capabilities, without
-inventing file links or application permissions. Sources predating `/api/v1/cards`
-must be updated to use these views. Update a v1 source to obtain the richer file
-and application display fields; its ordinary content remains readable meanwhile.
+Every result includes explicit nullable display values and capability booleans,
+and every card identifies its source agent or explicitly reports null.
 Model labels prefer the recorded execution identity. Historical aliases resolve
 only through their recorded, same-owner connection and matching provider; absent
 catalogs keep the stored alias. The public display field contains the label,
@@ -556,17 +553,17 @@ in-memory view cache for their owner, source and selection. Returning to a tab
 restores that window and reconciles changes; logout/account changes clear it.
 Full-collection integrations omit `through` and paginate the HTTP results. A still-eligible card below `through` is not a removal.
 
-The Files tab retains `/api/results?view=files` and its legacy renderer adapter.
+The Files tab retains `/api/results?view=files` and its card renderer adapter.
 Remaining `/api/results`, `/api/results/updates`, `/api/saved`, `/api/me/prompts`
 and artifact-reader callers retain their wire contracts. Shared production
-eligibility/provenance predicates still govern those compatibility reads; the
+eligibility/provenance predicates still govern those reads; the
 new first-party content collections do not interpret their raw rows. The
 operational Feed summaries and Needs you/Working/Queued actions keep their own
 identity and behavior. Done uses the typed Cards reader and a bounded per-source
 pager; it retains loaded windows and reconciles further 200-revision batches in
 scheduled refreshes. Opening a Done answer uses its full card body without a
-per-message fetch. Sources that reject the Done view retain expanded legacy Feed
-reads, and refresh rechecks capabilities after a source upgrade or replacement.
+per-message fetch. A source whose initial Done Cards read returns 400/404 uses the Feed read;
+refresh rechecks availability after reconnecting or replacing the source.
 Contract transitions retain loaded history while the new pager catches up; opaque
 cursors are never sent to the other endpoint. Dismissal/Undo and save update the
 source-bound visible and pager caches together.

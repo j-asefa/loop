@@ -186,7 +186,7 @@ it("uses personal-history provenance and keeps truthful attribution and historic
   setup("personal");
   for (const [id, meta] of [
     ["personal-explicit", { personal: true }],
-    ["personal-legacy", { attachments: [] }],
+    ["personal-unattributed", { attachments: [] }],
     ["personal-import", { backend: "native", attachments: [] }],
     ["personal-forward", { sourceMessage: "x", attachments: [] }],
     ["personal-unlinked", {}],
@@ -204,7 +204,7 @@ it("uses personal-history provenance and keeps truthful attribution and historic
       .items.map((i) => i.id)
       .sort(),
   );
-  expect(ids).toEqual(["personal-explicit", "personal-legacy"]);
+  expect(ids).toEqual(["personal-explicit"]);
   setSaved("personal", "personal-explicit", true);
   const sent = cardDetail("personal", "m:personal-explicit");
   expect(sent).toMatchObject({
@@ -464,7 +464,10 @@ it("invalidates joined display, scope, personal provenance, canonical saves and 
   setup("joined");
   setup("foreign");
   const id = result("joined");
-  message("joined", "joined-message", "user", { attachments: [] });
+  message("joined", "joined-message", "user", {
+    personal: true,
+    attachments: [],
+  });
   setSaved("joined", "joined-message", true);
   const views = ["results", "saved", "sent"] as const;
   const caches = views.map((view) => all("joined", { view }));
@@ -500,12 +503,12 @@ it("invalidates joined display, scope, personal provenance, canonical saves and 
   expect(workspaceCache.items.size).toBe(1);
   check();
   db.prepare(
-    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES('joined-message','call','joined-message','{}')",
+    "UPDATE messages SET metadata=json_set(metadata,'$.personal',json('false')) WHERE id='joined-message'",
   ).run();
   check();
   expect(caches[2].items.size).toBe(0);
   db.prepare(
-    "DELETE FROM delegations WHERE child_run_id='joined-message'",
+    "UPDATE messages SET metadata=json_set(metadata,'$.personal',json('true')) WHERE id='joined-message'",
   ).run();
   check();
   const related = result("joined", {
@@ -1182,7 +1185,7 @@ it("keeps reusable prompt snippets out of content collections while exposing the
   expect(savedCache.items.size).toBe(1);
 });
 
-it("keeps legacy model labels owner-scoped and reconciles their catalog dependencies", () => {
+it("keeps provider model aliases owner-scoped and reconciles their catalog dependencies", () => {
   setup("model-labels");
   const insert = db.prepare(
     "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES('model-account',?,'anthropic','Private account','never-public','disconnected',?,1)",

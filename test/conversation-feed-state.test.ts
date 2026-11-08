@@ -1,6 +1,6 @@
 // Historical migration contract through 122: migrations 081/084 maintained
-// conversation cache columns. PR 9b retires them in 123; feed-projection.test.ts
-// compares the current production reader with the permanent raw-history oracle.
+// conversation cache columns. Current production uses feed_cards; this test
+// preserves the historical SQL chain contract only.
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";

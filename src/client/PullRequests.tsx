@@ -974,7 +974,7 @@ function PullRequestDetail({
             ],
             [
               "conversation",
-              `Conversation (${pr.conversationTotal + pr.threadsTotal + (pr.reviewsTotal ?? pr.reviews.length)})`,
+              `Conversation (${pr.conversationTotal + pr.threadsTotal + pr.reviewsTotal})`,
             ],
           ] as const
         ).map(([value, label]) => (
@@ -1062,9 +1062,9 @@ function PullRequestDetail({
       {page === "commits" && (
         <section className="pull-section">
           <h3>Commits</h3>
-          {(pr.commits ?? 0) > (pr.commitHistory?.length ?? 0) && (
+          {(pr.commits ?? 0) > pr.commitHistory.length && (
             <p className="pr-card-note">
-              Showing the latest {pr.commitHistory?.length ?? 0} of {pr.commits}{" "}
+              Showing the latest {pr.commitHistory.length} of {pr.commits}{" "}
               commits.{" "}
               <a
                 href={pr.url + "/commits"}
@@ -1076,8 +1076,8 @@ function PullRequestDetail({
               .
             </p>
           )}
-          {(pr.commitHistory?.length ?? 0) ? (
-            (pr.commitHistory ?? []).map((commit) => (
+          {pr.commitHistory.length ? (
+            pr.commitHistory.map((commit) => (
               <CommitEntry
                 key={`${commit.sha}:${pr.fetchedAt}`}
                 pullRef={pullRef}

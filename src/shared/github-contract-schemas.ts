@@ -100,22 +100,19 @@ export const PublicPullDetail = PublicPullItem.extend({
   mergeState: Text.optional(),
   conflicts: z.boolean(),
   commits: z.number().optional(),
-  // Linked sources before 936778ea did not report commit history or review totals.
-  commitHistory: z
-    .array(
-      z.object({
-        sha: Text,
-        message: Text,
-        author: Text.optional(),
-        committedAt: Text.optional(),
-        url: Text,
-      }),
-    )
-    .optional(),
+  commitHistory: z.array(
+    z.object({
+      sha: Text,
+      message: Text,
+      author: Text.optional(),
+      committedAt: Text.optional(),
+      url: Text,
+    }),
+  ),
   requested: z.array(Text),
   reviews: z.array(PublicComment.extend({ state: Text })),
-  reviewsTotal: z.number().optional(),
-  reviewsOmitted: z.boolean().optional(),
+  reviewsTotal: z.number(),
+  reviewsOmitted: z.boolean(),
   checkRuns: z.array(
     z.object({
       name: Text,
@@ -178,12 +175,10 @@ export const PublicPrWatch = z.object({
   ci_conclusion: MaybeText,
   created_at: Time,
   updated_at: Time,
-  // Freshness/observed-CI fields were added in 40e12f31 and 809e92ab. Absence
-  // must retain the existing unknown-status presentation, never imply success.
-  ci_pending: z.number().optional(),
-  read_at: Time.nullable().optional(),
-  seen_ci_sha: MaybeText.optional(),
-  seen_ci_conclusion: MaybeText.optional(),
+  ci_pending: z.number(),
+  read_at: Time.nullable(),
+  seen_ci_sha: MaybeText,
+  seen_ci_conclusion: MaybeText,
 });
 export const PublicCreatedPrWatch = PublicPrWatch.extend({
   owner_id: Text,

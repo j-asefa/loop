@@ -2615,10 +2615,10 @@ export function Feed({
     generation,
   ]);
   useEffect(() => {
-    const legacy = activeSources
+    const pending = activeSources
       .filter((source) => !reactiveSource(source.id, "feed"))
       .map((source) => source.id);
-    if (legacy.length) void load(false, true, legacy);
+    if (pending.length) void load(false, true, pending);
   }, [revision]);
   useEffect(() => {
     // Explicit refreshes supersede an older read: dropping one while polling
@@ -3591,7 +3591,7 @@ export function Feed({
   }
   // Approvals and native decisions from this workspace have their own cards
   // in the stack (needsSlot); other threads waiting on you show as threads.
-  // A stopped run must stay visible even if an older source still reports
+  // A stopped run must stay visible even if a cached source snapshot reports
   // a stale approval as its next action. Its approval card cannot be answered.
   const needsThreads = needs.filter(
     (item) =>

@@ -82,12 +82,13 @@ export async function feedLoadingSmoke(page, fixture, engine, capture) {
       reset();
     },
   );
-  for (const legacy of [false, true])
+  for (const cardsUnavailable of [false, true])
     await feedLoadingCase(
       page,
       fixture,
-      legacy,
-      (name) => capture((legacy ? "legacy-" : "cards-") + name),
+      cardsUnavailable,
+      (name) =>
+        capture((cardsUnavailable ? "cardsUnavailable-" : "cards-") + name),
       streamResets,
     );
   await openConnectedFeed(page, fixture.base);
@@ -386,7 +387,13 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
   }
 }
 
-async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
+async function feedLoadingCase(
+  page,
+  fixture,
+  cardsUnavailable,
+  capture,
+  streamResets,
+) {
   const sources = [
     { id: "cloud:first", name: "First environment", kind: "cloud" },
     { id: "cloud:second", name: "Second environment", kind: "cloud" },
@@ -455,7 +462,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
   const localCards = (route) =>
     localUnavailable
       ? route.fulfill({ status: 503, json: { error: "Fixture outage" } })
-      : legacy
+      : cardsUnavailable
         ? route.fulfill({ status: 404, body: "{}" })
         : fulfill(
             route,
@@ -511,7 +518,8 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
       return fulfill(route, bootstrap);
     }
     const typed = match[2].startsWith("v1/cards");
-    if (typed && legacy) return route.fulfill({ status: 404, body: "{}" });
+    if (typed && cardsUnavailable)
+      return route.fulfill({ status: 404, body: "{}" });
     if (match[2] === "feed" || typed) {
       if (!typed && url.searchParams.get("filter") === "queued")
         await queuedHold?.promise;
@@ -550,7 +558,10 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
           next: index < 4 ? String(index) : null,
         });
       }
-      if (!typed && (url.searchParams.get("filter") !== "done" || !legacy))
+      if (
+        !typed &&
+        (url.searchParams.get("filter") !== "done" || !cardsUnavailable)
+      )
         return fulfill(route, empty);
       doneReads.set(source.id, (doneReads.get(source.id) || 0) + 1);
       if (source === sources[0]) await firstFeed?.promise;
@@ -650,7 +661,7 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
   await page.route("**/api/agent-sources/**", sourceRoute);
   try {
     const localRead = page.waitForResponse((response) =>
-      legacy
+      cardsUnavailable
         ? new URL(response.url()).pathname === "/api/feed" &&
           new URL(response.url()).searchParams.get("filter") === "done"
         : new URL(response.url()).pathname === "/api/v1/cards",
@@ -781,8 +792,8 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
         const url = new URL(request.url());
         return (
           url.pathname ===
-            `/api/agent-sources/${encodeURIComponent(source.id)}/${legacy ? "feed" : "v1/cards/changes"}` &&
-          (!legacy || url.searchParams.get("filter") === "done")
+            `/api/agent-sources/${encodeURIComponent(source.id)}/${cardsUnavailable ? "feed" : "v1/cards/changes"}` &&
+          (!cardsUnavailable || url.searchParams.get("filter") === "done")
         );
       }),
     );
@@ -1150,13 +1161,13 @@ async function feedLoadingCase(page, fixture, legacy, capture, streamResets) {
     // Unsaving an early card must not postpone other sources until the Undo
     // window ends. Refreshes keep the pending unsave scoped to its source.
     slowFeed = Promise.withResolvers();
-    if (legacy) {
+    if (cardsUnavailable) {
       firstFeed = Promise.withResolvers();
       doneReads.clear();
       streamResets.clear();
     }
     await page.goto(fixture.base);
-    if (legacy) {
+    if (cardsUnavailable) {
       // Reset both linked streams after their first reads start. The empty
       // local page may complete, but cannot suppress either source's first
       // successful page on retry while the other source is still held.

@@ -140,37 +140,6 @@ export async function agentMailSmoke(page, fixture, _engine, capture) {
   await page.unroute(endpoint, unavailable);
   await region.getByRole("button", { name: "Refresh mail" }).click();
   await expect(region.getByRole("alert")).toHaveCount(0);
-  // Older team-mail producers lacked scope and recipient navigation. Derive
-  // their payload from the production route, without inventing a second DTO.
-  let legacyReads = 0;
-  const legacyMail = async (route) => {
-    const response = await route.fetch();
-    expect(response.ok()).toBe(true);
-    const body = await response.json();
-    for (const item of body.threads) {
-      delete item.scope;
-      for (const message of item.messages) delete message.conversation_id;
-    }
-    legacyReads++;
-    await route.fulfill({ response, json: body });
-  };
-  await page.route(endpoint, legacyMail);
-  try {
-    await region.getByRole("button", { name: "Refresh mail" }).click();
-    await expect(direct.locator("header small")).toHaveText(
-      `@${a.name} · @${b.name}`,
-    );
-    await expect(direct).toContainText("Queued");
-    await expect(direct).toContainText("Please check the interface");
-    await expect(region.getByRole("button", { name: /Open in/ })).toHaveCount(
-      0,
-    );
-    await expect(region.getByRole("alert")).toHaveCount(0);
-    expect(legacyReads).toBeGreaterThan(0);
-    await capture("mail-older-response");
-  } finally {
-    await page.unroute(endpoint, legacyMail);
-  }
   // A late read from the previous profile is discarded on navigation.
   let releaseRead, readStarted;
   const readGate = new Promise((r) => (releaseRead = r)),

@@ -1350,3 +1350,21 @@ export function projectSummaries(db: Database.Database, owner: string) {
     .all({ owner })
     .map((row) => parseRecord(projectSummaryRow, row, "runs"));
 }
+
+const conversationWorkingStatement = statement(
+  "SELECT EXISTS(SELECT 1 FROM runs WHERE owner_id=? AND conversation_id=? AND state IN ('queued','running','pausing','paused','awaiting_approval')) working",
+);
+const conversationWorkingRow = z.object({ working: z.number() });
+export function conversationWorking(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+) {
+  return (
+    parseRecord(
+      conversationWorkingRow,
+      conversationWorkingStatement(db).get(owner, conversation),
+      "runs",
+    ).working !== 0
+  );
+}
