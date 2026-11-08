@@ -637,33 +637,35 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     );
     // A current Cards read can reject its cursor. Recover without reloading
     // the SPA, retaining all loaded history.
-    const fallbackRead = page.waitForResponse((response) => {
+    const rejectedRead = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
         url.origin === fixture.base &&
-        url.pathname === "/api/feed" &&
-        url.searchParams.get("filter") === "done" &&
-        response.status() === 200
+        url.pathname.startsWith("/api/v1/cards") &&
+        url.searchParams.get("view") === "done" &&
+        response.status() === 400
       );
     });
     localReadRejected = true;
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
-    await fallbackRead;
+    await rejectedRead;
+    await expect(
+      page.getByText(
+        "Some environments could not refresh. Showing their last loaded threads.",
+      ),
+    ).toBeVisible();
     await page.waitForLoadState("networkidle");
     await expect(history).toHaveCount(125);
-    // Retained rows stay visible during recovery catch-up. Wait for the final
-    // Cards page and its pagination state before starting the outage.
-    const reconciled = page.waitForResponse(async (response) => {
+    // Recovery reconciles the retained Cards window without switching contracts.
+    const reconciled = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
         url.origin === fixture.base &&
-        url.pathname === "/api/v1/cards" &&
+        url.pathname === "/api/v1/cards/changes" &&
         url.searchParams.get("view") === "done" &&
-        url.searchParams.has("before") &&
-        response.status() === 200 &&
-        (await response.json()).next === null
+        response.status() === 200
       );
     });
     localReadRejected = false;
