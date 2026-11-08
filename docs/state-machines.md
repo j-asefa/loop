@@ -314,6 +314,26 @@ the IndexedDB command journal in
 [`fleetCommand.ts`](../src/client/fleetCommand.ts) (reserved → dispatched →
 removed on a terminal answer), which turns a repeat into a receipt-only query.
 
+### Provider and artifact command identities
+
+[`durableIdentities.ts`](../src/client/durableIdentities.ts) stores a pending
+command ID and attempt ID in owner/source/operation-scoped `localStorage`.
+Preparation holds a Web Lock, records both identities before dispatch, and
+refuses dispatch if storage or the current view is unavailable. Concurrent
+attempts of the same logical request reuse the command ID; only the latest
+attempt may remove its receipt. A lost reply or an explicit unknown execution
+outcome retains it across reloads. An authoritative success, refusal or
+completed outcome settles it. An ordinary artifact-route 4xx settles a fresh
+request, but cannot settle an earlier uncertain attempt. A later authentication
+refusal therefore cannot cause a previously accepted refresh to be sent with a
+new ID.
+
+Provider-key identity includes a SHA-256 equality fingerprint of the normalized
+key, so entering a different key is a separate explicit request. Credential
+values are not stored in this journal. A fingerprint establishes equality; it
+does not encrypt a low-entropy value. Existing native command receipts remain
+the authority for whether an external effect ran.
+
 ### Workspace event socket
 
 [`workspace-events.ts`](../src/client/workspace-events.ts): connecting → ready

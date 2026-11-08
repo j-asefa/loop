@@ -173,7 +173,7 @@ export class SteeringInbox {
             input,
             "failed",
             error instanceof ExecutionRefused
-              ? "The fleet grant was revoked before this input was delivered."
+              ? error.message
               : "Live delivery could not be confirmed. Review the agent's messages before sending again.",
           );
         }
@@ -207,11 +207,7 @@ export class SteeringInbox {
         });
       } catch (error) {
         if (!(error instanceof ExecutionRefused)) throw error;
-        this.receipt(
-          input,
-          "failed",
-          "The fleet grant was revoked before this input was delivered.",
-        );
+        this.receipt(input, "failed", error.message);
       }
     }
     return delivered;

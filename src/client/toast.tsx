@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { topSheet } from "./components";
+import { topSheet } from "./modalDialog";
 
 /**
  * A brief confirmation with an optional link to what was created and an

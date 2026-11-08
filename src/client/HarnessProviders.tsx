@@ -5,6 +5,8 @@ import { workspaceApi } from "../shared/workspace-api";
 import type { NativeProviderView } from "../shared/native-providers";
 import { useSourceId, useProjectionRoute } from "./SourceContext";
 import { callRoute } from "./workspace-api";
+import { performStoredEffect } from "./durableIdentities";
+import { viewGeneration, viewOwner } from "./viewCache";
 import { RuntimeSignIn } from "./RuntimeSignIn";
 
 type Harness = "pi" | "opencode";
@@ -42,6 +44,27 @@ export function HarnessProviders({
   const [results, setResults] = useState<string[]>([]);
   const [inspect, setInspect] = useState(false);
   const mounted = useRef(true);
+  const owner = viewOwner();
+  const generation = viewGeneration();
+  const context = JSON.stringify([sourceId, runtime, projectId, generation]);
+  const activeContext = useRef(context);
+  activeContext.current = context;
+  const current = () =>
+    mounted.current &&
+    activeContext.current === context &&
+    generation === viewGeneration();
+  const command = <T,>(
+    target: string[],
+    dispatch: (id: string) => Promise<T>,
+  ) =>
+    performStoredEffect(
+      localStorage,
+      owner,
+      sourceId,
+      target,
+      current,
+      dispatch,
+    );
   const selected = view?.providers.find((p) => p.id === provider);
   const selectedMethod = selected?.methods.find((m) => m.id === method);
   const modelCount =
@@ -57,13 +80,13 @@ export function HarnessProviders({
     });
   async function load() {
     const next = await catalog(runtime, projectId);
-    if (mounted.current) setView(next);
+    if (current()) setView(next);
     return next;
   }
   useEffect(() => {
     mounted.current = true;
     void load().catch(() => {
-      if (mounted.current)
+      if (current())
         setError("Could not load providers. Refresh to try again.");
     });
     return () => {
@@ -77,36 +100,40 @@ export function HarnessProviders({
     try {
       await action();
     } catch (e) {
-      if (mounted.current) setError((e as Error).message);
+      if (current()) setError((e as Error).message);
     } finally {
-      if (mounted.current) setBusy(false);
+      if (current()) setBusy(false);
     }
   }
   async function refresh(useProviderBilling = false) {
     setLogin(undefined);
     setRefreshing(true);
     await perform(async () => {
-      const next = await callRoute(
-        workspaceApi.runtimeProviderRefresh,
-        {
-          params: { name: runtime },
-          body: {
-            projectId,
-            useProviderBilling,
-            commandId: crypto.randomUUID(),
-          },
-        },
-        sourceId,
+      const next = await command(
+        ["provider-refresh", runtime, projectId, String(useProviderBilling)],
+        (commandId) =>
+          callRoute(
+            workspaceApi.runtimeProviderRefresh,
+            {
+              params: { name: runtime },
+              body: {
+                projectId,
+                useProviderBilling,
+                commandId,
+              },
+            },
+            sourceId,
+          ),
       );
-      if (mounted.current) {
+      if (current()) {
         setView(next);
         setInspect(false);
       }
-      await onChange();
-      if (mounted.current && next.enabled && !next.syncError)
+      if (current()) await onChange();
+      if (current() && next.enabled && !next.syncError)
         setNotice(`${labels[runtime]} refreshed successfully.`);
     });
-    if (mounted.current) setRefreshing(false);
+    if (current()) setRefreshing(false);
   }
   function choose(p: Provider) {
     setProvider(p.id);
@@ -122,10 +149,17 @@ export function HarnessProviders({
     setSecret("");
     setResults([]);
     await perform(async () => {
+      const fingerprint = Array.from(
+        new Uint8Array(
+          await crypto.subtle.digest(
+            "SHA-256",
+            new TextEncoder().encode(key.trim()),
+          ),
+        ),
+        (byte) => byte.toString(16).padStart(2, "0"),
+      ).join("");
       const outcomes: string[] = [];
       let failed = false;
-      // Each native credential store gets a separate durable command. A partial
-      // success is displayed as such, and no failed/uncertain write is replayed.
       for (const target of [
         { name: runtime, projectId, label: labels[runtime] },
         ...targets.filter((t) => also.includes(t.name)),
@@ -148,37 +182,48 @@ export function HarnessProviders({
             throw new Error(
               "Choose this provider’s API-key method in its own provider list.",
             );
-          const next = await callRoute(
-            workspaceApi.runtimeProviderKey,
-            {
-              params: { name: target.name },
-              body: {
-                projectId: target.projectId,
-                provider,
-                method: targetMethod,
-                secret: key,
-                commandId: crypto.randomUUID(),
-              },
-            },
-            sourceId,
+          const next = await command(
+            [
+              "provider-key",
+              target.name,
+              target.projectId,
+              provider,
+              targetMethod,
+              fingerprint,
+            ],
+            (commandId) =>
+              callRoute(
+                workspaceApi.runtimeProviderKey,
+                {
+                  params: { name: target.name },
+                  body: {
+                    projectId: target.projectId,
+                    provider,
+                    method: targetMethod,
+                    secret: key,
+                    commandId,
+                  },
+                },
+                sourceId,
+              ),
           );
           outcomes.push(
             `${target.label}: key saved. ${next.syncError || (next.billing === "subscription" ? "Models refreshed under the saved subscription-only restriction." : "Models refreshed.")}`,
           );
-          if (mounted.current && target.name === runtime) setView(next);
+          if (current() && target.name === runtime) setView(next);
         } catch (e) {
           failed = true;
           outcomes.push(
             `${target.label}: change unconfirmed. ${(e as Error).message}`,
           );
         }
-        if (mounted.current) setResults([...outcomes]);
+        if (current()) setResults([...outcomes]);
       }
-      if (mounted.current) {
+      if (current()) {
         setInspect(failed);
         if (!failed) setAdding(false);
       }
-      await onChange();
+      if (current()) await onChange();
     });
   }
   if (login)
@@ -210,7 +255,7 @@ export function HarnessProviders({
             setLogin(undefined);
             void perform(async () => {
               await load();
-              await onChange();
+              if (current()) await onChange();
             });
           }}
         />
@@ -378,24 +423,28 @@ export function HarnessProviders({
             onClick={() =>
               void perform(async () => {
                 setInspect(true);
-                const next = await callRoute(
-                  workspaceApi.runtimeProviderRemove,
-                  {
-                    params: { name: runtime },
-                    body: {
-                      projectId,
-                      provider: removing.id,
-                      commandId: crypto.randomUUID(),
-                    },
-                  },
-                  sourceId,
+                const next = await command(
+                  ["provider-remove", runtime, projectId, removing.id],
+                  (commandId) =>
+                    callRoute(
+                      workspaceApi.runtimeProviderRemove,
+                      {
+                        params: { name: runtime },
+                        body: {
+                          projectId,
+                          provider: removing.id,
+                          commandId,
+                        },
+                      },
+                      sourceId,
+                    ),
                 );
-                if (mounted.current) {
+                if (current()) {
                   setView(next);
                   setRemoving(undefined);
                   setInspect(false);
                 }
-                await onChange();
+                if (current()) await onChange();
               })
             }
           >
@@ -559,8 +608,8 @@ export function HarnessProviders({
               await load();
               for (const t of targets.filter((t) => also.includes(t.name)))
                 await catalog(t.name, t.projectId);
-              if (mounted.current) setInspect(false);
-              if (mounted.current) setNotice("Provider status checked.");
+              if (current()) setInspect(false);
+              if (current()) setNotice("Provider status checked.");
             })
           }
         >

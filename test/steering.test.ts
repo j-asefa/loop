@@ -682,3 +682,77 @@ it.each([true, false])(
     }
   },
 );
+
+it("preserves a non-fleet refusal in the live delivery receipt", async () => {
+  const { ExecutionRefused } = await import("../src/server/execution-refusal");
+  const { byIdempotency } = await import("../src/server/sql/run-steering");
+  const { agent, run } = start();
+  const key = id();
+  const reply = await send({
+    agentId: agent.id,
+    input: "Do not switch provider",
+    idempotencyKey: key,
+  });
+  expect(reply.status).toBe(202);
+  const stop = new SteeringInbox(run).listen(async () => {
+    throw new ExecutionRefused(409, "The provider changed before delivery.");
+  });
+  try {
+    await expect
+      .poll(() => byIdempotency(db, "alice", key))
+      .toMatchObject({
+        state: "failed",
+        error: "The provider changed before delivery.",
+      });
+    expect(byIdempotency(db, "bob", key)).toBeUndefined();
+  } finally {
+    await stop();
+    transition(run, "cancelled");
+  }
+});
+
+it("preserves an authority refusal when appending pending steering", async () => {
+  const { ExecutionRefused } = await import("../src/server/execution-refusal");
+  const { byIdempotency } = await import("../src/server/sql/run-steering");
+  const {
+    registerEffectAuthority,
+    registeredEffectAuthority,
+    resetEffectAuthorityForTests,
+  } = await import("../src/server/effect-authority");
+  const { agent, run } = start();
+  const key = id();
+  expect(
+    (await send({ agentId: agent.id, input: "Follow up", idempotencyKey: key }))
+      .status,
+  ).toBe(202);
+  const prior = registeredEffectAuthority();
+  registerEffectAuthority({
+    authorize() {},
+    discardEdit() {},
+    record() {},
+    recordEdit() {
+      return undefined;
+    },
+    assert() {},
+    inherit() {},
+    within() {
+      throw new ExecutionRefused(
+        403,
+        "Execution is unavailable on this machine.",
+      );
+    },
+  });
+  try {
+    const messages: ChatMessage[] = [];
+    expect(new SteeringInbox(run).appendPending(messages)).toBe(0);
+    expect(messages).toEqual([]);
+    expect(byIdempotency(db, "alice", key)).toMatchObject({
+      state: "failed",
+      error: "Execution is unavailable on this machine.",
+    });
+  } finally {
+    if (prior) registerEffectAuthority(prior);
+    else resetEffectAuthorityForTests();
+    transition(run, "cancelled");
+  }
+});

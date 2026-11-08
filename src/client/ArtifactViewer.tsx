@@ -5,7 +5,8 @@ import type { ResultCard } from "../shared/cards";
 import type { CardArtifact } from "./card-actions";
 import { CardBody } from "./ContentCard";
 import { useSourcePath, useSourceRoute, useSourceId } from "./SourceContext";
-import { viewOwner } from "./viewCache";
+import { performStoredEffect } from "./durableIdentities";
+import { viewGeneration, viewOwner } from "./viewCache";
 import { SourceCard } from "./Sharing";
 import { Chart } from "./Chart";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
@@ -150,6 +151,10 @@ export function ArtifactViewer({
   const call = useSourceRoute();
   const sourceId = useSourceId();
   const sourceApiPath = useSourcePath();
+  const generation = viewGeneration();
+  const context = JSON.stringify([sourceId, item.id, generation]);
+  const activeContext = useRef(context);
+  activeContext.current = context;
   const owner = useRef(viewOwner()),
     alive = useRef(true);
   useEffect(() => {
@@ -158,7 +163,11 @@ export function ArtifactViewer({
       alive.current = false;
     };
   }, []);
-  const current = () => alive.current && owner.current === viewOwner();
+  const current = () =>
+    alive.current &&
+    owner.current === viewOwner() &&
+    generation === viewGeneration() &&
+    context === activeContext.current;
   const card = item.card;
   const meta = card
       ? {
@@ -249,12 +258,35 @@ export function ArtifactViewer({
                 <button
                   onClick={async () => {
                     try {
-                      await call(workspaceApi.artifactRefresh, {
-                        params: { id: item.id },
-                        body: {
-                          idempotencyKey: crypto.randomUUID(),
+                      await performStoredEffect(
+                        localStorage,
+                        owner.current,
+                        sourceId,
+                        ["artifact-refresh", item.id],
+                        current,
+                        (idempotencyKey) =>
+                          call(workspaceApi.artifactRefresh, {
+                            params: { id: item.id },
+                            body: { idempotencyKey },
+                          }),
+                        (error, recovering) => {
+                          const failure = error as {
+                            status?: number;
+                            executionOutcome?: string;
+                          };
+                          if (failure.executionOutcome)
+                            return (
+                              failure.executionOutcome === "refused" ||
+                              failure.executionOutcome === "completed"
+                            );
+                          return (
+                            !recovering &&
+                            failure.status !== undefined &&
+                            failure.status >= 400 &&
+                            failure.status < 500
+                          );
                         },
-                      });
+                      );
                       if (!current()) return;
                       setError(
                         "Refresh queued. Approve the request in Running; this snapshot stays saved.",

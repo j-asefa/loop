@@ -1,8 +1,8 @@
+import { openModalDialog } from "./modalDialog";
 import { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
-/** Native modal supplies focus trapping, Escape dismissal and focus restoration. */
 export function ProfilePhoto({
   src,
   label,
@@ -13,19 +13,12 @@ export function ProfilePhoto({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  useLayoutEffect(() => {
-    const element = dialog.current!;
-    const previousFocus = document.activeElement;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    element.showModal();
-    return () => {
-      element.close();
-      document.body.style.overflow = overflow;
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected)
-        previousFocus.focus({ preventScroll: true });
-    };
-  }, []);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useLayoutEffect(
+    () => openModalDialog(dialog.current!, () => close.current()),
+    [],
+  );
   return createPortal(
     <dialog
       ref={dialog}
