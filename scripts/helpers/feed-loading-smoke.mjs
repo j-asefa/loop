@@ -1146,16 +1146,14 @@ async function feedLoadingCase(page, fixture, capture, streamResets) {
           ),
         )
         .toBe(true);
-      const before = new Map(doneReads);
+      const before = doneReads.get(sources[0].id);
       for (const source of sources) streamResets.get(streamPath(source))();
-      await expect
-        .poll(() =>
-          sources.every(
-            (source) => doneReads.get(source.id) > before.get(source.id),
-          ),
-        )
-        .toBe(true);
+      // Cards coalesces a reset behind the active page. Release the first
+      // source and observe its reconciliation while the second stays held.
       firstFeed.resolve();
+      await expect
+        .poll(() => doneReads.get(sources[0].id))
+        .toBeGreaterThan(before);
     }
     await expect(first).toBeVisible();
     await expect(second).toHaveCount(0);
