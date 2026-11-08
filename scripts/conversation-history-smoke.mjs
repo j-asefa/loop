@@ -1904,7 +1904,7 @@ async function httpEpochRecovery(engine) {
         ),
       );
     };
-    const reload = page.getByRole("button", {
+    const reload = page.getByRole("dialog").getByRole("button", {
       name: "Reload to update",
       exact: true,
     });
