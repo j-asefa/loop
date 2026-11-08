@@ -1,3 +1,5 @@
+import { readRoute } from "../src/client/workspace-api";
+import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { watchWorkspaceEvents } from "../src/client/workspace-events";
 import {
@@ -146,4 +148,119 @@ it("refreshes after an HTTP-only database replacement while its new socket has n
     "replacement",
   );
   expect(current.frame).toHaveBeenCalledTimes(2);
+});
+
+it.each([false, true])(
+  "recovers exhausted snapshot reads on an empty poll (socket ready: %s)",
+  async (ready) => {
+    const controller = new AbortController();
+    stops.push(() => controller.abort());
+    let unavailable = true;
+    const fetcher = vi.fn(async () =>
+      unavailable
+        ? Response.json({ error: "Unavailable" }, { status: 503 })
+        : Response.json([]),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    let displayed = false;
+    const refresh = () =>
+      void readRoute(workspaceApi.nativeDecisions, {}, "", controller.signal)
+        .then(() => {
+          displayed = true;
+        })
+        .catch(() => {});
+    const poll = vi.fn(async () => []);
+    const changed = vi.fn(refresh);
+    stops.push(
+      watchWorkspaceEvents({
+        url: new URL("ws://loop/api/events/ws"),
+        read: poll,
+        changed,
+      }),
+    );
+    if (ready) Socket.instances[0].reset("first");
+    else refresh();
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(displayed).toBe(false);
+    unavailable = false;
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(displayed).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    const changes = changed.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(5400);
+    expect(changed).toHaveBeenCalledTimes(changes);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  },
+);
+
+it.each(["abort", "owner", "source", "permanent"])(
+  "does not recover snapshots across %s boundaries",
+  async (boundary) => {
+    const controller = new AbortController();
+    stops.push(() => controller.abort());
+    const fetcher = vi.fn(async () =>
+      Response.json(
+        { error: "Unavailable" },
+        { status: boundary === "permanent" ? 403 : 503 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const failed = readRoute(
+      workspaceApi.nativeDecisions,
+      {},
+      "",
+      controller.signal,
+    ).catch(() => {});
+    await vi.advanceTimersByTimeAsync(6000);
+    await failed;
+    if (boundary === "abort") controller.abort();
+    if (boundary === "owner") setViewOwner("another-owner");
+    const changed = vi.fn();
+    stops.push(
+      watchWorkspaceEvents({
+        url: new URL("ws://loop/api/events/ws"),
+        source: boundary === "source" ? "another-source" : "",
+        read: async () => [],
+        changed,
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(1800);
+    expect(changed).not.toHaveBeenCalled();
+  },
+);
+
+it("keeps network read recovery pending through failed HTTP probes", async () => {
+  const controller = new AbortController();
+  stops.push(() => controller.abort());
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      throw new TypeError("Network unavailable");
+    }),
+  );
+  await readRoute(
+    workspaceApi.nativeDecisions,
+    {},
+    "",
+    controller.signal,
+  ).catch(() => {});
+  const read = vi
+    .fn<() => Promise<{ id: number }[]>>()
+    .mockRejectedValueOnce(new Error("Offline"))
+    .mockResolvedValue([]);
+  const changed = vi.fn();
+  stops.push(
+    watchWorkspaceEvents({
+      url: new URL("ws://loop/api/events/ws"),
+      read,
+      changed,
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(1800);
+  expect(changed).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1800);
+  expect(changed).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1800);
+  expect(changed).toHaveBeenCalledTimes(1);
 });

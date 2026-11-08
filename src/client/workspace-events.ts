@@ -8,6 +8,10 @@ import {
 } from "../shared/workspace-events";
 import { viewGeneration } from "./viewCache";
 import { retryAfter } from "./api";
+import {
+  needsWorkspaceReadRecovery,
+  takeWorkspaceReadRecovery,
+} from "./workspace-read-recovery";
 import type { WorkspaceSocket } from "./workspace-multiplex";
 import {
   acquireWorkspacePoll,
@@ -263,7 +267,7 @@ export function watchWorkspaceEvents(options: {
       stopped ||
       document.visibilityState === "hidden" ||
       viewGeneration() !== ownerGeneration ||
-      ready ||
+      (ready && !needsWorkspaceReadRecovery(options.source ?? "")) ||
       polling ||
       Date.now() < pollAfter
     ) {
@@ -273,6 +277,7 @@ export function watchWorkspaceEvents(options: {
     const releasePoll = acquireWorkspacePoll(pollKey);
     if (!releasePoll) return;
     polling = true;
+    const recovering = ready;
     const requestEpoch = epoch;
     const controller = (request = new AbortController());
     const deadline = setTimeout(() => controller.abort(), 12_000);
@@ -281,7 +286,7 @@ export function watchWorkspaceEvents(options: {
       if (
         stopped ||
         viewGeneration() !== ownerGeneration ||
-        ready ||
+        (ready && !recovering) ||
         controller.signal.aborted
       )
         return;
@@ -289,7 +294,8 @@ export function watchWorkspaceEvents(options: {
       options.connected?.(true);
       if (events.length && epoch === requestEpoch)
         pollCursor = events.at(-1)!.id;
-      if (events.length) options.changed();
+      const recover = takeWorkspaceReadRecovery(options.source ?? "");
+      if (events.length || recover) options.changed();
     } catch (error) {
       if (!stopped && !controller.signal.aborted)
         pollAfter = Math.max(pollAfter, Date.now() + retryAfter(error));

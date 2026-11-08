@@ -12,6 +12,7 @@ import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import { viewGeneration } from "./viewCache";
 import { prepareFleetCommand } from "./fleetCommand";
+import { recoverWorkspaceRead } from "./workspace-read-recovery";
 let csrf = "";
 let sessionRequest: Promise<void> | undefined;
 let backoffGeneration = -1;
@@ -237,8 +238,9 @@ async function requestInWorkspace<T>(
     command?.dispatch,
   ).catch((error) => {
     if (error instanceof TypeError && !signal?.aborted)
-      throw new Error(
-        "Couldn’t reach Loop. Check your connection and try again.",
+      throw Object.assign(
+        new Error("Couldn’t reach Loop. Check your connection and try again."),
+        { network: true },
       );
     throw error;
   });
@@ -513,15 +515,31 @@ export async function readRoute<C extends RouteContract & { method: "GET" }>(
   onRetry?: (error: unknown) => void,
   mode: ReadMode = "automatic",
 ): Promise<RouteResponse<C>> {
-  return response(
-    contract,
-    await readRequest<unknown>(
-      routePath(contract, input),
-      sourceId,
-      signal,
-      onRetry,
-      contract.kind,
-      mode,
-    ),
-  );
+  const generation = viewGeneration();
+  try {
+    return response(
+      contract,
+      await readRequest<unknown>(
+        routePath(contract, input),
+        sourceId,
+        signal,
+        onRetry,
+        contract.kind,
+        mode,
+      ),
+    );
+  } catch (error) {
+    const failure = error as { status?: number; network?: boolean };
+    if (
+      mode === "automatic" &&
+      !signal.aborted &&
+      generation === viewGeneration() &&
+      (failure.network ||
+        (failure.status !== undefined &&
+          failure.status >= 500 &&
+          failure.status < 600))
+    )
+      recoverWorkspaceRead(sourceId, signal);
+    throw error;
+  }
 }

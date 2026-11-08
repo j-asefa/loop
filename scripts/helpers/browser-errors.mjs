@@ -35,12 +35,13 @@ export async function collectionReadRecovery(
 ) {
   let reads = 0;
   let blocked = true;
+  let status = 503;
   const handler = async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     reads++;
     if (blocked)
       await route.fulfill({
-        status: 503,
+        status,
         json: { error: "Collection recovery fixture" },
       });
     else await route.continue();
@@ -53,22 +54,40 @@ export async function collectionReadRecovery(
     const marker = scope
       .locator(".collection-read-error")
       .filter({ hasText: errorText });
-    await expect(marker).toBeVisible({ timeout: 15_000 });
-    await expect.poll(() => reads, { timeout: 10_000 }).toBe(3);
-    assert.equal(reads, 3, "One initial GET and the two existing retries");
+    // Exhaustion registers with the shared watcher, including when its event
+    // response is empty. No wake event or manual click should be necessary.
+    await expect.poll(() => reads, { timeout: 20_000 }).toBeGreaterThan(3);
+    blocked = false;
+    const recoveryReads = reads;
+    await expect
+      .poll(() => reads, { timeout: 10_000 })
+      .toBeGreaterThan(recoveryReads);
+    await expect(marker).toHaveCount(0);
+
+    // Permanent refusals remain visible and require an explicit retry.
+    status = 403;
+    blocked = true;
+    const beforeRefusal = reads;
+    await start();
+    await expect(marker).toBeVisible({ timeout: 10_000 });
+    await expect.poll(() => reads).toBe(beforeRefusal + 1);
     await page.waitForTimeout(2100);
-    assert.equal(reads, 3, "Exhaustion stops background recovery");
+    assert.equal(
+      reads,
+      beforeRefusal + 1,
+      "Permanent refusals do not recover automatically",
+    );
     const retry = marker.getByRole("button", {
       name: "Retry connection",
       exact: true,
     });
     await retry.click();
-    await expect.poll(() => reads).toBe(4);
+    await expect.poll(() => reads).toBe(beforeRefusal + 2);
     await expect(retry).toBeEnabled();
     await page.waitForTimeout(6500);
     assert.equal(
       reads,
-      4,
+      beforeRefusal + 2,
       "The manual retry must not start another retry budget",
     );
     await expect(marker).toBeVisible();
@@ -76,7 +95,7 @@ export async function collectionReadRecovery(
     if (recovered) await recovered();
     else await retry.click();
     await expect(marker).toHaveCount(0);
-    await expect.poll(() => reads).toBeGreaterThanOrEqual(5);
+    await expect.poll(() => reads).toBeGreaterThanOrEqual(beforeRefusal + 3);
     if (change) {
       const before = reads;
       await change();

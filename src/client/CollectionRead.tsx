@@ -60,9 +60,6 @@ export function useCollectionRead(key: string) {
               : "The workspace is unavailable.",
           busy: false,
         });
-      } finally {
-        controller.abort();
-        if (context.controller === controller) context.controller = undefined;
       }
     },
     [context, owner],
