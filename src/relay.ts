@@ -26,7 +26,6 @@ const HOP = new Set([
   "upgrade",
   "expect",
   "x-loop-probe",
-  "x-loop-probe",
 ]);
 function forwardable(headers: IncomingHttpHeaders) {
   const named = new Set(

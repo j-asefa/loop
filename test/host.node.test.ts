@@ -45,10 +45,11 @@ test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentica
         },
         body: JSON.stringify({ secret, credential }),
       });
-    assert.equal((await redeem("bearer", host.origin)).status, 400);
+    for (const credential of ["bearer", "cookie"])
+      assert.equal((await redeem(credential, host.origin)).status, 400);
     assert.equal((await redeem()).status, 403);
-    assert.equal((await redeem("cookie", "https://evil.example")).status, 403);
-    const paired = await redeem("cookie", host.origin);
+    assert.equal((await redeem(undefined, "https://evil.example")).status, 403);
+    const paired = await redeem(undefined, host.origin);
     assert.equal(
       paired.status,
       200,

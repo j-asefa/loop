@@ -64,8 +64,7 @@ function fingerprint(owner: string, options: Selection) {
         options.agent || null,
         options.teamIds,
         options.q || null,
-        // Preserve existing unfiltered cursor domains.
-        ...(options.read ? [options.read] : []),
+        options.read || null,
       ]),
     )
     .digest("hex");

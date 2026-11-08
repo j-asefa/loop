@@ -1305,14 +1305,6 @@ export const workspaceRoutes = {
     response: NoBody,
     status: 204,
   }),
-  subscriptionAction: endpoint({
-    ...base,
-    method: "POST",
-    path: "/subscriptions/:id/:action",
-    params: companion.SubscriptionActionParams,
-    body: z.unknown(),
-    response: companion.PublicSubscriptionAction,
-  }),
   workspace: endpoint({
     ...base,
     method: "GET",

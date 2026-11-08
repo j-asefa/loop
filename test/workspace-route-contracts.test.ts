@@ -42,6 +42,11 @@ it("resolves nested production registrars without invoking native history or dia
     );
   }
 });
+it("does not mount the retired subscription action route", () => {
+  expect(
+    mountedRoute(app, "POST", "/api/subscriptions/fixture/status"),
+  ).toBeUndefined();
+});
 async function request(
   path: string,
   body?: unknown,

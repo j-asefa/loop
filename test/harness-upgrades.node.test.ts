@@ -336,10 +336,10 @@ test("unresolvable releases change nothing", async (t) => {
   assert.equal(calls.filter(([, arg]) => arg === "install").length, 0);
 });
 
-test("recognizes all npm harnesses and private helpers without modifying project dependencies", (t) => {
+test("recognizes global npm harnesses without modifying project dependencies", (t) => {
   const dir = fixture(t);
   for (const [name, pkg] of Object.entries(packages)) {
-    const base = join(dir, "helpers/native");
+    const base = join(dir, "lib");
     const file = join(base, "node_modules", pkg, "bin/run.js");
     script(file, 'console.log("1.0.0")');
     writeFileSync(
@@ -348,7 +348,7 @@ test("recognizes all npm harnesses and private helpers without modifying project
     );
     assert.deepEqual(upgradePlan(name as keyof typeof packages, file), {
       command: "npm",
-      args: ["install", "--prefix", base, "--save-exact", pkg + "@latest"],
+      args: ["install", "--global", "--prefix", dir, pkg + "@latest"],
     });
   }
   const custom = join(dir, "project/node_modules/@openai/codex/bin/run.js");
@@ -389,11 +389,7 @@ test("a restart preserves interrupted upgrades for explicit recovery without rep
   const file = join(dir, "status.json");
   const executable = join(dir, "codex");
   script(executable, "process.exit(97)");
-  const [reached, interrupted, legacy] = [
-    randomUUID(),
-    randomUUID(),
-    randomUUID(),
-  ];
+  const [reached, interrupted] = [randomUUID(), randomUUID()];
   writeFileSync(
     file,
     JSON.stringify({
@@ -415,13 +411,6 @@ test("a restart preserves interrupted upgrades for explicit recovery without rep
         previous: "0.160.0",
         target: "0.161.0",
       },
-      // State left by an earlier build: no executable to re-probe.
-      [legacy]: {
-        commandId: legacy,
-        name: "pi",
-        state: "unknown",
-        message: "Upgrading",
-      },
     }),
   );
   const { run, calls } = fakeRunner({ version: "0.160.0" }, () => {
@@ -429,7 +418,7 @@ test("a restart preserves interrupted upgrades for explicit recovery without rep
   });
   const manager = new HarnessUpgrades(file, run);
   await manager.ready;
-  for (const name of ["codex", "claude", "pi"] as const) {
+  for (const name of ["codex", "claude"] as const) {
     assert.equal(manager.busy(name), true);
     assert.equal(manager.status(name)?.state, "unconfirmed");
   }
@@ -447,7 +436,7 @@ test("a restart preserves interrupted upgrades for explicit recovery without rep
   const saved = JSON.parse(readFileSync(file, "utf8"));
   assert.deepEqual(
     Object.values(saved).map((r: any) => r.state),
-    ["unconfirmed", "failed", "unconfirmed"],
+    ["unconfirmed", "failed"],
   );
 });
 

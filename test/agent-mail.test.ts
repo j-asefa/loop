@@ -711,7 +711,6 @@ it("tells a teammate in another environment that files aren't shared, and queues
   const coder = agent(owner, "coder", harness("codex"));
   const remote = agent(owner, "remote", {
     authMode: "subscription",
-    runtime: "codex",
   });
   const team = createTeam(owner, {
     name: "Split",

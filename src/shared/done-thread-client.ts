@@ -6,8 +6,6 @@ import type {
 } from "./done-threads.js";
 
 type ThreadReadContract =
-  | typeof workspaceApi.doneThreadList
-  | typeof workspaceApi.doneThreadDetail
   | typeof workspaceApi.doneThreadListPage
   | typeof workspaceApi.doneThreadDetailPage;
 export type ThreadReadTransport = <C extends ThreadReadContract>(
@@ -51,12 +49,6 @@ export function contractDoneThreadReader(request: ThreadReadTransport) {
             ),
           );
         } catch (error) {
-          if (!cursor && (error as { status?: number }).status === 404) {
-            signal?.throwIfAborted();
-            return workspaceApi.doneThreadList.response.parse(
-              await request(workspaceApi.doneThreadList, { query }, signal),
-            );
-          }
           readFailure(error);
         }
         threads.push(...page.threads);
@@ -80,16 +72,6 @@ export function contractDoneThreadReader(request: ThreadReadTransport) {
             ),
           );
         } catch (error) {
-          if (!cursor && (error as { status?: number }).status === 404) {
-            signal?.throwIfAborted();
-            return workspaceApi.doneThreadDetail.response.parse(
-              await request(
-                workspaceApi.doneThreadDetail,
-                { params: { id } },
-                signal,
-              ),
-            );
-          }
           readFailure(error);
         }
         if (

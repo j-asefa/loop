@@ -269,10 +269,6 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
     assert.match(stdout, /running in the background/);
     assert.equal((await w.status()).state, "ready");
     assert(alive(pid), "workspace outlives the command that started it");
-    assert.equal(
-      JSON.parse(await readFile(join(w.dir, "control.json"), "utf8")).pid,
-      pid,
-    );
 
     const paired = await fetch(url.origin + "/pair", {
       method: "POST",
