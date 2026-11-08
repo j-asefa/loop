@@ -94,7 +94,7 @@ it("labels only connections with a recorded local location", () => {
     {
       id: "laptop",
       metadata: JSON.stringify({
-        environmentName: "This laptop",
+        environmentName: "This computer",
         location: "laptop",
       }),
     },
@@ -144,7 +144,7 @@ it("uses recorded computer names and resolves legacy laptop labels from their so
   ).toEqual({ kind: "laptop", label: "Alex’s MacBook Pro" });
   expect(
     connectionLocation(
-      connection({ location: "laptop", environmentName: "This laptop" }),
+      connection({ location: "laptop", environmentName: "This computer" }),
       "Workstation",
     ),
   ).toEqual({ kind: "laptop", label: "Workstation" });

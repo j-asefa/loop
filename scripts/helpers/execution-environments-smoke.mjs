@@ -34,7 +34,7 @@ export async function executionEnvironmentsSmoke(
     });
   });
   try {
-    setEnvironment("laptop", "This laptop");
+    setEnvironment("laptop", "This computer");
     await page.goto(fixture.base + "/?filter=working");
     const card = page
       .locator(".feed-item-card")
@@ -63,7 +63,7 @@ export async function executionEnvironmentsSmoke(
         await chooseAgentConnection(sheet, { id });
         await expect(sheet.locator(".connection-details")).toContainText(name);
       }
-      await expect(sheet).not.toContainText("This laptop");
+      await expect(sheet).not.toContainText("This computer");
       await sheet.getByRole("button", { name: "Close", exact: true }).click();
     };
     await checkDestinations([[connection.id, computer]]);

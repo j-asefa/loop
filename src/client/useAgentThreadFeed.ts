@@ -142,13 +142,7 @@ export function useAgentThreadFeed(
             errors.delete(source);
           } catch (error) {
             if (!current()) return;
-            if ((error as { status?: number }).status === 404) {
-              const empty = { items: [], next: null };
-              pages.set(source, empty);
-              cacheView(cacheKey(source), empty, owner);
-              progress.delete(source);
-              errors.delete(source);
-            } else errors.set(source, (error as Error).message);
+            errors.set(source, (error as Error).message);
           }
         }),
       );

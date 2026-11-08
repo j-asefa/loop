@@ -364,7 +364,6 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       }),
     );
     let remoteWorking = 0;
-    let remoteReadRejected = false;
     let remoteHidden = false;
     const remoteActions = [];
     let rejectSave = false,
@@ -448,24 +447,20 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         return route.fulfill({ json: saved ? saveReceipt : unsaveReceipt });
       }
       if (path.includes("/v1/cards"))
-        return route.fulfill(
-          remoteReadRejected
-            ? { status: 400, json: { error: "Invalid cursor" } }
+        return route.fulfill({
+          json: path.endsWith("/changes")
+            ? {
+                revision: "remote-revision",
+                items: remoteHidden ? [] : [remoteEntry],
+                removed: remoteHidden ? [remoteEntry.card.id] : [],
+                more: false,
+              }
             : {
-                json: path.endsWith("/changes")
-                  ? {
-                      revision: "remote-revision",
-                      items: remoteHidden ? [] : [remoteEntry],
-                      removed: remoteHidden ? [remoteEntry.card.id] : [],
-                      more: false,
-                    }
-                  : {
-                      revision: "remote-revision",
-                      items: remoteHidden ? [] : [remoteEntry],
-                      next: null,
-                    },
+                revision: "remote-revision",
+                items: remoteHidden ? [] : [remoteEntry],
+                next: null,
               },
-        );
+        });
       const json = path.endsWith("/bootstrap")
         ? {
             agents: [],
@@ -637,33 +632,35 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     );
     // A current Cards read can reject its cursor. Recover without reloading
     // the SPA, retaining all loaded history.
-    const fallbackRead = page.waitForResponse((response) => {
+    const rejectedRead = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
         url.origin === fixture.base &&
-        url.pathname === "/api/feed" &&
-        url.searchParams.get("filter") === "done" &&
-        response.status() === 200
+        url.pathname.startsWith("/api/v1/cards") &&
+        url.searchParams.get("view") === "done" &&
+        response.status() === 400
       );
     });
     localReadRejected = true;
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
-    await fallbackRead;
+    await rejectedRead;
+    await expect(
+      page.getByText(
+        "Some environments could not refresh. Showing their last loaded threads.",
+      ),
+    ).toBeVisible();
     await page.waitForLoadState("networkidle");
     await expect(history).toHaveCount(125);
-    // Retained rows stay visible during recovery catch-up. Wait for the final
-    // Cards page and its pagination state before starting the outage.
-    const reconciled = page.waitForResponse(async (response) => {
+    // Recovery reconciles the retained Cards window without switching contracts.
+    const reconciled = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
         url.origin === fixture.base &&
-        url.pathname === "/api/v1/cards" &&
+        url.pathname === "/api/v1/cards/changes" &&
         url.searchParams.get("view") === "done" &&
-        url.searchParams.has("before") &&
-        response.status() === 200 &&
-        (await response.json()).next === null
+        response.status() === 200
       );
     });
     localReadRejected = false;
@@ -724,7 +721,6 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     // A brief reconnect may append a page before the next outage. It must
     // extend the restored source cache instead of replacing its earlier pages.
     localUnavailable = false;
-    remoteReadRejected = true;
     await page.reload({ waitUntil: "networkidle" });
     await expect(history).toHaveCount(39);
     await page.getByRole("button", { name: "Load more", exact: true }).click();

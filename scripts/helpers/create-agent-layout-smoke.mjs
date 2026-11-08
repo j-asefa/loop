@@ -18,7 +18,7 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
     const data = await response.json();
     await route.fulfill({
       response,
-      json: { ...data, environmentName: "This laptop" },
+      json: { ...data, environmentName: "This computer" },
     });
   });
   await page.goto(fixture.base, { waitUntil: "networkidle" });

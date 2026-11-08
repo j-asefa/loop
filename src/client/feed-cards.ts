@@ -2,7 +2,7 @@ import { CardPager, type CardWindow } from "./card-pager";
 import { contractCardReader } from "../shared/card-client";
 import type { CardSelection } from "../shared/cards";
 
-/** One source/owner/selection. Unavailable card reads can use the Feed read. */
+/** One source/owner/selection with a retained paging window. */
 export class DoneCardsReader {
   readonly pager = new CardPager();
   hasMore = false;
@@ -15,30 +15,18 @@ export class DoneCardsReader {
     this.generation++;
     this.pendingAppend ||= this.activeAppends > 0;
   }
-  private supported: boolean | null = null;
   constructor(
     readonly key: string,
     saved?: CardWindow,
   ) {
-    if (saved) {
-      this.pager.restore(key, saved);
-      this.supported = true;
-    }
-  }
-  private isUnsupported() {
-    return this.supported === false;
+    if (saved) this.pager.restore(key, saved);
   }
   async load(
     request: Parameters<typeof contractCardReader>[0],
     selection: CardSelection,
     append: boolean,
     allowResync = true,
-  ): Promise<CardWindow | null> {
-    if (this.supported === false) {
-      // Re-probe on refresh: source availability can change without a page reload.
-      this.supported = null;
-      this.pager.reset(this.key);
-    }
+  ): Promise<CardWindow> {
     const reader = contractCardReader(request);
     const generation = this.generation;
     const effectiveAppend = append || this.pendingAppend;
@@ -49,26 +37,13 @@ export class DoneCardsReader {
         "done",
         effectiveAppend,
         async (before) => {
-          try {
-            const page = await reader.list({
-              ...selection,
-              before: before ?? undefined,
-            });
-            if (page.items.some((entry) => entry.card.type !== "done"))
-              throw new Error("The source returned an invalid Done collection");
-            this.supported = true;
-            return page;
-          } catch (error) {
-            // Only a first-page availability probe may use the Feed contract.
-            // A failed cursor, expired session or outage must retain its window.
-            if (
-              this.supported === null &&
-              before === null &&
-              [400, 404].includes((error as { status?: number }).status ?? 0)
-            )
-              this.supported = false;
-            throw error;
-          }
+          const page = await reader.list({
+            ...selection,
+            before: before ?? undefined,
+          });
+          if (page.items.some((entry) => entry.card.type !== "done"))
+            throw new Error("The source returned an invalid Done collection");
+          return page;
         },
         async (after) => {
           const delta = await reader.changes({ ...selection, after });
@@ -80,7 +55,7 @@ export class DoneCardsReader {
         this.pendingAppend = false;
       const window = this.pager.snapshot();
       // A concurrent caller can finish against a window replaced by a 409
-      // reset. Only an explicit unsupported probe may return null to Feed.
+      // reset. Retry within the same contract before publishing a window.
       if (!window) {
         if (allowResync)
           return this.load(request, selection, effectiveAppend, false);
@@ -97,20 +72,6 @@ export class DoneCardsReader {
       }
       if (allowResync && (error as { status?: number }).status === 409)
         return this.load(request, selection, false, false);
-      if (this.isUnsupported()) return null;
-      if ([400, 404].includes((error as { status?: number }).status ?? 0)) {
-        // A cursor failure alone is not a capability failure. Confirm against
-        // a fresh list before changing contracts after a source replacement.
-        try {
-          await reader.list(selection);
-        } catch (probe) {
-          if ([400, 404].includes((probe as { status?: number }).status ?? 0)) {
-            this.supported = false;
-            this.pager.reset(this.key);
-            return null;
-          }
-        }
-      }
       throw error;
     } finally {
       if (effectiveAppend) this.activeAppends--;

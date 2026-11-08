@@ -101,11 +101,7 @@ export function connectionLocation(
     typeof metadata.environmentName === "string"
       ? metadata.environmentName.trim()
       : "";
-  const named =
-    name &&
-    name !== "This laptop" &&
-    name !== "This computer" &&
-    name !== "Docker";
+  const named = name && name !== "This computer" && name !== "Docker";
   if (kind === "docker")
     return {
       kind,
@@ -121,7 +117,7 @@ export function connectionLocation(
     return {
       kind,
       label:
-        name && name !== "This laptop" && name !== "This computer"
+        name && name !== "This computer"
           ? name
           : localName || executionLocationLabels.laptop,
     };

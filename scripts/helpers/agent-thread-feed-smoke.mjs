@@ -249,9 +249,10 @@ export async function agentThreadFeedSmoke(page, fixture, _engine, capture) {
   ).toHaveCount(1);
 
   // Failed reads preserve native cards and recover without submitting work.
+  let failureStatus = 404;
   const fail = (route) =>
     route.fulfill({
-      status: 503,
+      status: failureStatus,
       contentType: "application/json",
       body: JSON.stringify({ error: "Unavailable" }),
     });
@@ -260,6 +261,7 @@ export async function agentThreadFeedSmoke(page, fixture, _engine, capture) {
   await expect(
     page.getByRole("button", { name: "Retry agent threads" }),
   ).toBeVisible({ timeout: 12000 });
+  failureStatus = 503;
   await page.getByRole("button", { name: "Retry agent threads" }).click();
   await page.unroute("**/api/feed/agent-threads?**", fail);
   await expect(mailCard(first)).toContainText("3 messages", { timeout: 12000 });

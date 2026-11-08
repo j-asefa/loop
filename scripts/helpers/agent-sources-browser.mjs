@@ -110,7 +110,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       models: JSON.stringify([{ id: "gpt-5.5", name: "GPT-5.5" }]),
       metadata: JSON.stringify({
         authMode: "subscription",
-        environmentName: "This laptop",
+        environmentName: "This computer",
         location: "laptop",
       }),
       created_at: now,
@@ -198,6 +198,65 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       summary: { needs: 0, working: 0, queued: 0, later_due: 0 },
     });
   };
+  const cards = (route, record) => {
+    const { thread, agent } = record;
+    const id = "d:message:" + thread.last_message.id;
+    const entry = {
+      card: {
+        type: "done",
+        id,
+        display: {
+          ...thread,
+          done_card_key: "message:" + thread.last_message.id,
+          last_message: {
+            ...thread.last_message,
+            content: `Full reading view for ${agent.name}`,
+            saved: false,
+          },
+          pull: null,
+          next_action: null,
+        },
+        content: `Full reading view for ${agent.name}`,
+        format: "markdown",
+        created_at: thread.last_activity_at,
+        updated_at: null,
+        saved: false,
+        attachments: [],
+        href: "/?conversation=" + thread.conversation_id,
+        author: {
+          kind: "agent",
+          id: agent.id,
+          name: agent.name,
+          provider: agent.provider,
+        },
+        recipient: null,
+        source: {
+          artifact_id: null,
+          message_id: thread.last_message.id,
+          conversation_id: thread.conversation_id,
+          run_id: null,
+          agent_id: agent.id,
+        },
+        context: {
+          conversation_title: thread.title,
+          folder_id: null,
+          project_id: null,
+          project_name: null,
+          team_id: null,
+        },
+      },
+      order: [thread.last_activity_at, id],
+      saved: null,
+    };
+    return fulfill(route, {
+      revision: "source-fixture",
+      items: [entry],
+      ...(new URL(route.request().url()).pathname.endsWith("/changes")
+        ? { removed: [], more: false }
+        : { next: null }),
+    });
+  };
+  const localCards = (route) => cards(route, local);
   const uploads = [];
   const creations = [];
   const detail = async (route) => {
@@ -245,6 +304,10 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       // Keep the form open to test retries without dispatching a real run.
       return unavailable(route);
     }
+    if (match[2] === "v1/cards" || match[2] === "v1/cards/changes")
+      return cards(route, record);
+    if (match[2] === "feed/agent-threads")
+      return fulfill(route, { items: [], next: null });
     if (match[2] === "runs") return fulfill(route, []);
     if (match[2] === "feed")
       return fulfill(route, {
@@ -258,10 +321,8 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
   await page.route("**/api/agent-sources/**", detail);
   await page.route("**/api/bootstrap", localBootstrap);
   await page.route("**/api/feed?*", localFeed);
-  // These source fixtures serve Feed reads while Cards is unavailable. Keep the local
-  // fixture on the same contract instead of mixing it with the real empty DB.
-  const noCards = (route) => route.fulfill({ status: 404, body: "{}" });
-  await page.route("**/api/v1/cards?*", noCards);
+  await page.route("**/api/v1/cards?*", localCards);
+  await page.route("**/api/v1/cards/changes?*", localCards);
   try {
     await page.goto(workspaceUrl);
     const strip = page.getByRole("region", {
@@ -463,7 +524,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       .click();
     await chooseAgentConnection(sheet, { source: "", id: local.connection.id });
     await expect(sheet.locator(".connection-details")).toContainText(computer);
-    await expect(sheet).not.toContainText("This laptop");
+    await expect(sheet).not.toContainText("This computer");
     await expect(
       sheet.getByRole("button", { name: "Start chatting" }),
     ).toBeDisabled();
@@ -609,6 +670,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
     await page.unroute("**/api/agent-sources/**", detail);
     await page.unroute("**/api/bootstrap", localBootstrap);
     await page.unroute("**/api/feed?*", localFeed);
-    await page.unroute("**/api/v1/cards?*", noCards);
+    await page.unroute("**/api/v1/cards?*", localCards);
+    await page.unroute("**/api/v1/cards/changes?*", localCards);
   }
 }

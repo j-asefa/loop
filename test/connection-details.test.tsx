@@ -44,14 +44,14 @@ it("shows reported billing and location without claiming a live sign-in check", 
   ).toContain("This computer");
 });
 
-it("shows the computer name for a legacy connection projected from its source", () => {
+it("shows the computer name for a connection projected from its source", () => {
   const html = renderToStaticMarkup(
     <ConnectionDetails
       connection={
         {
           metadata: JSON.stringify({
             location: "laptop",
-            environmentName: "This laptop",
+            environmentName: "This computer",
           }),
           status: "connected",
           executionEnvironment: "Office Mac",
@@ -60,5 +60,5 @@ it("shows the computer name for a legacy connection projected from its source", 
     />,
   );
   expect(html).toContain("Office Mac");
-  expect(html).not.toContain("This laptop");
+  expect(html).not.toContain("This computer");
 });
