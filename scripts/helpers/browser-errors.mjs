@@ -33,6 +33,7 @@ export async function collectionReadRecovery(
     errorText = "Collection recovery fixture",
     slowRefresh = false,
     automaticRecovery = true,
+    preserveNotice = false,
   },
 ) {
   let reads = 0;
@@ -51,7 +52,7 @@ export async function collectionReadRecovery(
   const handler = async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     reads++;
-    const held = automaticRecovery && reads === 4;
+    const held = automaticRecovery && preserveNotice && reads === 4;
     if (held) {
       recoveryStarted = true;
       await recoveryPending;
@@ -81,13 +82,15 @@ export async function collectionReadRecovery(
       await expect.poll(() => reads, { timeout: 20_000 }).toBeGreaterThan(3);
       // Keep the recovery request pending: cached rows must retain their warning
       // until a successful response establishes that they are current again.
-      await page.waitForTimeout(200);
-      await expect(marker).toBeVisible({ timeout: 1000 });
-      await expect(
-        marker.getByRole("button", { name: "Retry connection", exact: true }),
-      ).toBeDisabled();
-      releaseRecovery();
-      await page.waitForTimeout(200);
+      if (preserveNotice) {
+        await page.waitForTimeout(200);
+        await expect(marker).toBeVisible({ timeout: 1000 });
+        await expect(
+          marker.getByRole("button", { name: "Retry connection", exact: true }),
+        ).toBeDisabled();
+        releaseRecovery();
+        await recoveryFinished;
+      }
       blocked = false;
       const recoveryReads = reads;
       await expect

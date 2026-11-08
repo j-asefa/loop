@@ -645,6 +645,7 @@ for (const engine of selectedEngines()) {
           start: () => signalCollection(page, "metadata"),
           recovered: () => signalCollection(page, "metadata"),
           slowRefresh: true,
+          preserveNotice: true,
         });
         assert(
           (await thread()
