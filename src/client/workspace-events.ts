@@ -309,6 +309,8 @@ export function watchWorkspaceEvents(options: {
         options.connected?.(false);
       }
     } finally {
+      controller.abort();
+      if (request === controller) request = undefined;
       releasePoll();
       clearTimeout(deadline);
       polling = false;

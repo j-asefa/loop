@@ -147,6 +147,30 @@ function view() {
     displayed: () => displayed,
   };
 }
+it.each(["network", "503"])(
+  "stops failed HTTP event polls after socket recovery (%s)",
+  async (failure) => {
+    const fetcher = vi.fn(async () => {
+      if (failure === "network") throw new TypeError("HTTP unavailable");
+      return Response.json({ error: "HTTP unavailable" }, { status: 503 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    stops.push(
+      watchWorkspaceEvents({
+        url: new URL("ws://loop/api/events/ws"),
+        read: (after, signal) =>
+          readRoute(workspaceApi.events, { query: { after } }, "", signal),
+        changed: () => {},
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(18_000);
+    const before = fetcher.mock.calls.length;
+    expect(before).toBeGreaterThanOrEqual(6);
+    Socket.instances[0].reset("restored");
+    await vi.advanceTimersByTimeAsync(7200);
+    expect(fetcher).toHaveBeenCalledTimes(before);
+  },
+);
 it("refreshes a view through shared HTTP polling before the first socket frame, then stops polling when push is ready", async () => {
   const current = view();
   current.change("before first frame");
