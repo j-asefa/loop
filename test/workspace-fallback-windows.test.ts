@@ -314,6 +314,54 @@ it.each([false, true])(
   },
 );
 
+it.each(["disconnect", "malformed", "abort", "refusal"])(
+  "handles a %s while consuming a successful response body",
+  async (failure) => {
+    const controller = new AbortController();
+    stops.push(() => controller.abort());
+    const response =
+      failure === "malformed"
+        ? new Response("not JSON", { status: 200 })
+        : new Response(
+            new ReadableStream({
+              start(stream) {
+                stream.error(new TypeError("Response connection lost"));
+              },
+            }),
+            { status: failure === "refusal" ? 403 : 200 },
+          );
+    if (failure === "abort")
+      vi.spyOn(response, "json").mockImplementation(async () => {
+        controller.abort();
+        throw new TypeError("Response connection lost");
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response),
+    );
+    await readRoute(
+      workspaceApi.nativeDecisions,
+      {},
+      "",
+      controller.signal,
+    ).catch(() => {});
+    const poll = vi.fn(async () => []);
+    const changed = vi.fn();
+    stops.push(
+      watchWorkspaceEvents({
+        url: new URL("ws://loop/api/events/ws"),
+        read: poll,
+        changed,
+      }),
+    );
+    Socket.instances[0].reset("first");
+    changed.mockClear();
+    await vi.advanceTimersByTimeAsync(1800);
+    expect(poll).toHaveBeenCalledTimes(failure === "disconnect" ? 1 : 0);
+    expect(changed).toHaveBeenCalledTimes(failure === "disconnect" ? 1 : 0);
+  },
+);
+
 it("keeps network read recovery pending through failed HTTP probes", async () => {
   const controller = new AbortController();
   stops.push(() => controller.abort());

@@ -274,14 +274,16 @@ async function requestInWorkspace<T>(
   // returned an error page instead of Loop's JSON receipt.
   const uploadFailure = `Upload failed (HTTP ${r.status}${r.statusText ? " " + r.statusText : ""}). Try again.`;
   let parsed = true;
+  let bodyDisconnected = false;
   const data = await (
     empty && r.status === 204
       ? Promise.resolve(undefined)
       : r.ok && kind === "stream"
         ? r.blob()
         : r.json()
-  ).catch(() => {
+  ).catch((error) => {
     parsed = false;
+    bodyDisconnected = r.ok && error instanceof TypeError && !signal?.aborted;
     return {
       error: multipart ? uploadFailure : "Connection unavailable. Try again.",
     };
@@ -302,6 +304,7 @@ async function requestInWorkspace<T>(
           (multipart ? uploadFailure : "Request failed"),
       ),
       {
+        ...(bodyDisconnected ? { network: true } : {}),
         status:
           parsed || r.status === 429 || r.status >= 500 ? r.status : undefined,
         ...(["refused", "unknown", "completed"].includes(data?.executionOutcome)
