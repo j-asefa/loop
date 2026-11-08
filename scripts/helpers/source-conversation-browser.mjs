@@ -174,8 +174,7 @@ export async function sourceConversationBrowser(
     await page.waitForFunction(() => history.state?.loopSheet !== true);
   };
   try {
-    // Reading a linked host's card fetches its message from that same host,
-    // and Reply keeps the source even when conversation ids collide.
+    // Reply keeps the card source even when conversation ids collide.
     await page
       .locator(".feed-row")
       .filter({ hasText: remote.thread.title })
