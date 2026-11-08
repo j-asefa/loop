@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listenWorkspaceChanges } from "./workspace-changes";
+import { useCollectionRead } from "./CollectionRead";
 import { ArrowUpRight } from "lucide-react";
 import { callRoute, readRoute } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
@@ -57,9 +58,9 @@ function MailThreadsView({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [resuming, setResuming] = useState("");
-  const [loading, setLoading] = useState(false);
+  const collection = useCollectionRead(JSON.stringify([sourceId, target]));
+  const loading = collection.busy;
   const active = useRef(false);
-  const generation = useRef(0);
   const requests = useRef(new Set<AbortController>());
   const request = async <T,>(work: (signal: AbortSignal) => Promise<T>) => {
     const controller = new AbortController();
@@ -70,11 +71,9 @@ function MailThreadsView({
       requests.current.delete(controller);
     }
   };
-  const load = async () => {
-    const current = ++generation.current;
-    setLoading(true);
-    try {
-      const response = await request((signal) =>
+  const load = () =>
+    collection.load(
+      (signal, mode) =>
         readRoute(
           target.kind === "team"
             ? workspaceApi.teamMessages
@@ -82,19 +81,14 @@ function MailThreadsView({
           { params: { id: target.id } },
           sourceId,
           signal,
+          undefined,
+          mode,
         ),
-      );
-      if (active.current && current === generation.current) {
+      (response) => {
         setThreads(response.threads);
         setError("");
-      }
-    } catch (failure) {
-      if (active.current && current === generation.current)
-        setError((failure as Error).message);
-    } finally {
-      if (active.current && current === generation.current) setLoading(false);
-    }
-  };
+      },
+    );
   useEffect(() => {
     active.current = true;
     const stopChanges = listenWorkspaceChanges(
@@ -106,7 +100,6 @@ function MailThreadsView({
     return () => {
       stopChanges();
       active.current = false;
-      generation.current++;
       for (const request of requests.current) request.abort();
     };
   }, []);
@@ -156,9 +149,9 @@ function MailThreadsView({
       >
         Refresh mail
       </button>
-      {error && (
+      {(error || collection.error) && (
         <p role="alert" className="error">
-          {error}
+          {error || collection.error}
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
