@@ -364,7 +364,6 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
       }),
     );
     let remoteWorking = 0;
-    let remoteReadRejected = false;
     let remoteHidden = false;
     const remoteActions = [];
     let rejectSave = false,
@@ -448,24 +447,20 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
         return route.fulfill({ json: saved ? saveReceipt : unsaveReceipt });
       }
       if (path.includes("/v1/cards"))
-        return route.fulfill(
-          remoteReadRejected
-            ? { status: 400, json: { error: "Invalid cursor" } }
+        return route.fulfill({
+          json: path.endsWith("/changes")
+            ? {
+                revision: "remote-revision",
+                items: remoteHidden ? [] : [remoteEntry],
+                removed: remoteHidden ? [remoteEntry.card.id] : [],
+                more: false,
+              }
             : {
-                json: path.endsWith("/changes")
-                  ? {
-                      revision: "remote-revision",
-                      items: remoteHidden ? [] : [remoteEntry],
-                      removed: remoteHidden ? [remoteEntry.card.id] : [],
-                      more: false,
-                    }
-                  : {
-                      revision: "remote-revision",
-                      items: remoteHidden ? [] : [remoteEntry],
-                      next: null,
-                    },
+                revision: "remote-revision",
+                items: remoteHidden ? [] : [remoteEntry],
+                next: null,
               },
-        );
+        });
       const json = path.endsWith("/bootstrap")
         ? {
             agents: [],
@@ -726,7 +721,6 @@ export async function doneCardDismissalSmoke(page, fixture, engine) {
     // A brief reconnect may append a page before the next outage. It must
     // extend the restored source cache instead of replacing its earlier pages.
     localUnavailable = false;
-    remoteReadRejected = true;
     await page.reload({ waitUntil: "networkidle" });
     await expect(history).toHaveCount(39);
     await page.getByRole("button", { name: "Load more", exact: true }).click();
