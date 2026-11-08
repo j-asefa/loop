@@ -372,6 +372,7 @@ for (const engine of selectedEngines()) {
     );
     assert.equal(update.searchParams.get("after"), "1201");
     await collectionReadRecovery(page, {
+      automaticRecovery: false,
       route: (url) =>
         url.pathname === `/api/conversations/${conversation.id}/activities` &&
         url.searchParams.has("before"),

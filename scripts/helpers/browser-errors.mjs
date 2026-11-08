@@ -32,6 +32,7 @@ export async function collectionReadRecovery(
     change,
     errorText = "Collection recovery fixture",
     slowRefresh = false,
+    automaticRecovery = true,
   },
 ) {
   let reads = 0;
@@ -59,71 +60,84 @@ export async function collectionReadRecovery(
     const marker = scope
       .locator(".collection-read-error")
       .filter({ hasText: errorText });
-    // Exhaustion registers with the shared watcher, including when its event
-    // response is empty. No wake event or manual click should be necessary.
-    await expect.poll(() => reads, { timeout: 20_000 }).toBeGreaterThan(3);
-    blocked = false;
-    const recoveryReads = reads;
-    await expect
-      .poll(() => reads, { timeout: 10_000 })
-      .toBeGreaterThan(recoveryReads);
-    await expect(marker).toHaveCount(0);
+    if (automaticRecovery) {
+      // Exhaustion registers with the shared watcher, including when its event
+      // response is empty. No wake event or manual click should be necessary.
+      await expect.poll(() => reads, { timeout: 20_000 }).toBeGreaterThan(3);
+      blocked = false;
+      const recoveryReads = reads;
+      await expect
+        .poll(() => reads, { timeout: 10_000 })
+        .toBeGreaterThan(recoveryReads);
+      await expect(marker).toHaveCount(0);
 
-    if (slowRefresh) {
-      // A healthy slow read must finish despite unrelated recovery broadcasts.
-      await page.waitForTimeout(500);
-      delay = 4500;
-      const beforeSlow = reads;
-      const completed = page.waitForResponse(
-        (response) => match(new URL(response.url())) && response.ok(),
-      );
-      void completed.catch(() => {});
-      await start();
-      await expect.poll(() => reads).toBe(beforeSlow + 1);
-      for (let n = 0; n < 5; n++) {
-        await signalCollection(page, "all");
+      if (slowRefresh) {
+        // A healthy slow read must finish despite unrelated recovery broadcasts.
         await page.waitForTimeout(500);
+        delay = 4500;
+        const beforeSlow = reads;
+        const completed = page.waitForResponse(
+          (response) => match(new URL(response.url())) && response.ok(),
+        );
+        void completed.catch(() => {});
+        await start();
+        await expect.poll(() => reads).toBe(beforeSlow + 1);
+        for (let n = 0; n < 5; n++) {
+          await signalCollection(page, "all");
+          await page.waitForTimeout(500);
+        }
+        assert.equal(
+          reads,
+          beforeSlow + 1,
+          "Invalidations let the in-flight read finish",
+        );
+        delay = 0;
+        await completed;
+        await expect.poll(() => reads).toBe(beforeSlow + 2);
+        await page.waitForTimeout(500);
+        assert.equal(
+          reads,
+          beforeSlow + 2,
+          "Concurrent invalidations coalesce to one trailing read",
+        );
       }
+
+      // Permanent refusals remain visible and require an explicit retry.
+      status = 403;
+      blocked = true;
+      const beforeRefusal = reads;
+      await start();
+      await expect(marker).toBeVisible({ timeout: 10_000 });
+      await expect.poll(() => reads).toBe(beforeRefusal + 1);
+      await page.waitForTimeout(2100);
       assert.equal(
         reads,
-        beforeSlow + 1,
-        "Invalidations let the in-flight read finish",
+        beforeRefusal + 1,
+        "Permanent refusals do not recover automatically",
       );
-      delay = 0;
-      await completed;
-      await expect.poll(() => reads).toBe(beforeSlow + 2);
-      await page.waitForTimeout(500);
+    } else {
+      // Discovery and older-page reads are explicit requests, not live views.
+      await expect(marker).toBeVisible({ timeout: 15_000 });
+      await expect.poll(() => reads).toBe(3);
+      await page.waitForTimeout(2100);
       assert.equal(
         reads,
-        beforeSlow + 2,
-        "Concurrent invalidations coalesce to one trailing read",
+        3,
+        "An explicit read stops after its bounded retries",
       );
     }
-
-    // Permanent refusals remain visible and require an explicit retry.
-    status = 403;
-    blocked = true;
-    const beforeRefusal = reads;
-    await start();
-    await expect(marker).toBeVisible({ timeout: 10_000 });
-    await expect.poll(() => reads).toBe(beforeRefusal + 1);
-    await page.waitForTimeout(2100);
-    assert.equal(
-      reads,
-      beforeRefusal + 1,
-      "Permanent refusals do not recover automatically",
-    );
+    const beforeManual = reads;
     const retry = marker.getByRole("button", {
       name: "Retry connection",
       exact: true,
     });
     await retry.click();
-    await expect.poll(() => reads).toBe(beforeRefusal + 2);
+    await expect.poll(() => reads).toBe(beforeManual + 1);
     await expect(retry).toBeEnabled();
     await page.waitForTimeout(6500);
     assert.equal(
       reads,
-      beforeRefusal + 2,
+      beforeManual + 1,
       "The manual retry must not start another retry budget",
     );
     await expect(marker).toBeVisible();
@@ -131,7 +145,7 @@ export async function collectionReadRecovery(
     if (recovered) await recovered();
     else await retry.click();
     await expect(marker).toHaveCount(0);
-    await expect.poll(() => reads).toBeGreaterThanOrEqual(beforeRefusal + 3);
+    await expect.poll(() => reads).toBeGreaterThanOrEqual(beforeManual + 2);
     if (change) {
       const before = reads;
       await change();
