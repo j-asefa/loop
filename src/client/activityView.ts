@@ -1,5 +1,4 @@
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { surfaceFallback } from "./workspace-projections";
 import { useSourceId, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { ActivityHistory, type ActivityHistoryState } from "./activityHistory";
@@ -110,17 +109,10 @@ export function useConversationActivities(
       sourceId,
       conversation,
     );
-    const stopFallback = surfaceFallback(
-      [sourceId],
-      "workspace",
-      5000,
-      () => void current.refresh(false, true),
-    );
     update();
     return () => {
       current.stop();
       if (loader.current === current) loader.current = null;
-      stopFallback();
       stopChanges();
     };
   }, [conversation, tools, sourceId]);

@@ -9,7 +9,6 @@ import {
   useSourceRoute,
   useSourceRouteRead,
 } from "./SourceContext";
-import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useRef, useState } from "react";
 import type {
   ActivityCapabilities,
@@ -134,7 +133,6 @@ export function SessionActivityControls({
     readController.current = controller;
     void refresh();
     const update = () => void refresh();
-    const stopFallback = surfaceFallback([sourceId], "workspace", 3000, update);
     const stopChanges = listenWorkspaceChanges(
       "activities",
       update,
@@ -145,7 +143,6 @@ export function SessionActivityControls({
       epoch.current++;
       controller.abort();
       readController.current = null;
-      stopFallback();
       stopChanges();
     };
   }, [open, conversationId, sourceId, read]);

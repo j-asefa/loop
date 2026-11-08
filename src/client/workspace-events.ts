@@ -3,7 +3,7 @@ import {
   type WorkspaceFrameV3,
   WorkspaceClock,
   invalidate,
-  PARTIAL_WORKSPACE_CAPABILITIES,
+  COMPLETE_WORKSPACE_CAPABILITIES,
   type WorkspaceEvent,
 } from "../shared/workspace-events";
 import { viewGeneration } from "./viewCache";
@@ -17,7 +17,7 @@ import {
 export type WorkspaceFrame =
   | WorkspaceFrameV3
   // A clock observed over HTTP can reset a replaced source, but cannot make
-  // claims about that deployment's build or delta capabilities.
+  // identify that deployment's build.
   | (Omit<
       Extract<WorkspaceFrameV3, { type: "reset" }>,
       "build" | "buildIdentity"
@@ -140,7 +140,7 @@ export function watchWorkspaceEvents(options: {
           v: 3,
           type: "reset",
           ...parsed.data,
-          capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+          capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
         });
         options.changed();
       }

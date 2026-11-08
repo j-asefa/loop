@@ -5,7 +5,6 @@ import {
   useProjectionRoute,
 } from "./SourceContext";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Eye, GitPullRequest, PanelRight } from "lucide-react";
 import type { PullRequestCard, PullRequestSummary } from "../shared/github";
@@ -50,12 +49,10 @@ export function useWatchState(conversation: string | null | undefined) {
       sourceId,
       conversation ?? undefined,
     );
-    const stopFallback = surfaceFallback([sourceId], "workspace", 60_000, load);
     return () => {
       live = false;
       window.removeEventListener(WATCH_CHANGE, load);
       stopChanges();
-      stopFallback();
     };
   }, [conversation, sourceId]);
   return { watches, status };

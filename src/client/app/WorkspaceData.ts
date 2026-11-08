@@ -2,13 +2,11 @@ import {
   workspaceApi,
   type Bootstrap as BootstrapResponse,
 } from "../../shared/workspace-api";
-import { surfaceFallback } from "../workspace-projections";
 import { workspaceChangeAffects } from "../workspace-changes";
 import {
   WORKSPACE_COLLECTIONS,
   type WorkspaceCollection,
 } from "../../shared/workspace-events";
-import { capabilities } from "../capabilities";
 import { useProjectionRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
 
@@ -265,27 +263,8 @@ export function useWorkspaceEvents(
       }, 250);
     };
     window.addEventListener("loop-workspace-change", update);
-    const stopFallback = surfaceFallback(
-      [executionSourceId()],
-      "workspace",
-      15000,
-      () => update(new Event("refresh")),
-    );
-    // Preserve the existing bounded catch-up cadence for visible result
-    // collections; a single notification can represent more than one page.
-    const stopResultsFallback = surfaceFallback(
-      [executionSourceId()],
-      "results",
-      1800,
-      () => {
-        if (!capabilities.pairedDevices && resultsVisible.current)
-          void loadResults(false, true, false, "fallback");
-      },
-    );
     return () => {
       clearTimeout(timer);
-      stopFallback();
-      stopResultsFallback();
       window.removeEventListener("loop-workspace-change", update);
     };
   }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);

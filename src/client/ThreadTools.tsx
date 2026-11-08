@@ -25,7 +25,6 @@ import {
 import { callRoute, readRoute } from "./workspace-api";
 import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { reactiveSource } from "./workspace-projections";
 import {
   workspaceApi,
   type RouteInput,
@@ -958,7 +957,7 @@ export function ScheduledSends({
     conversation: conversationId || undefined,
     failedBefore,
   });
-  const load = (manual = false, background = false) =>
+  const load = (manual = false) =>
     read(
       (signal, mode) =>
         readRoute(
@@ -975,7 +974,6 @@ export function ScheduledSends({
         setLoaded(true);
       },
       manual,
-      background,
     );
   const loadOlder = async () => {
     if (!failedNext) return;
@@ -997,12 +995,7 @@ export function ScheduledSends({
     }
   };
   useEffect(() => {
-    // Complete sources already refresh through their scoped subscription.
-    // Parent revisions supply polling while the source stream is incomplete.
-    if (!reactiveSource(sourceId, "workspace")) void load(false, true);
-  }, [conversationId, revision, sourceId, read]);
-  useEffect(() => {
-    void load(false, true);
+    void load();
     const refresh = () => void load();
     const stopChanges = listenWorkspaceChanges("scheduled", refresh, sourceId);
     window.addEventListener("loop-scheduled-change", refresh);

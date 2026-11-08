@@ -5,7 +5,6 @@ import {
   useSourceRoute,
   useSourceRouteRead,
 } from "./SourceContext";
-import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -68,12 +67,8 @@ export function Approvals({
   useEffect(() => {
     const update = () => setPoll((value) => value + 1);
     const stopChanges = listenWorkspaceChanges("approvals", update, sourceId);
-    const stopFallback = runId
-      ? surfaceFallback([sourceId], "workspace", 5000, update)
-      : () => {};
     return () => {
       stopChanges();
-      stopFallback();
     };
   }, [runId, sourceId]);
   useEffect(() => {

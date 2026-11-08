@@ -80,11 +80,7 @@ import {
   type TranscriptEvent,
 } from "../shared/transcript-projection";
 import { eventScopes } from "../shared/workspace-events";
-import {
-  listenProjectionFrames,
-  reactiveSource,
-  surfaceFallback,
-} from "./workspace-projections";
+import { listenProjectionFrames } from "./workspace-projections";
 import { watchWorkspaceDetail } from "./workspace-multiplex";
 import { Sheet, RichText, Avatar } from "./components";
 import type { Agent, Connection, Folder, Message, Team } from "../shared/types";
@@ -458,7 +454,6 @@ function ConversationView({
     generation: number;
     queued: boolean;
   } | null>(null);
-  const seenRevision = useRef(revision);
   const transcriptHandoff = useRef(new TranscriptHandoff());
   const projectionContext = useRef("");
   const missingMessages = useRef(new Map<string, number>());
@@ -818,7 +813,7 @@ function ConversationView({
           update();
         return;
       }
-      if (frame.v !== 3 || !reactiveSource(sourceId, "transcript")) return;
+      if (frame.v !== 3) return;
       let changed = false,
         refresh = false;
       for (const entry of frame.events) {
@@ -931,20 +926,10 @@ function ConversationView({
     )
       void load();
     window.addEventListener("loop-refresh", update);
-    const stopFallback = surfaceFallback(
-      [sourceId],
-      "transcript",
-      5000,
-      update,
-    );
     const stopChanges = listenWorkspaceChanges(
       "thread",
       (event) => {
-        if (
-          !reactiveSource(sourceId, "transcript") ||
-          broadWorkspaceChange(event)
-        )
-          update();
+        if (broadWorkspaceChange(event)) update();
       },
       sourceId,
       id,
@@ -953,18 +938,12 @@ function ConversationView({
       generation.current++;
       readController.current?.abort();
       window.removeEventListener("loop-refresh", update);
-      stopFallback();
       stopFrames();
       stopDetail();
       clearTimeout(retryTimer.current);
       stopChanges();
     };
   }, [id, anchor, sourceId]);
-  useEffect(() => {
-    if (seenRevision.current === revision) return;
-    seenRevision.current = revision;
-    if (!reactiveSource(sourceId, "transcript")) void load();
-  }, [revision]);
   useEffect(() => {
     let active = true;
     let latest = 0;
@@ -984,17 +963,10 @@ function ConversationView({
       sourceId,
       id,
     );
-    const stopFallback = surfaceFallback(
-      [sourceId],
-      "workspace",
-      5000,
-      () => void refresh(),
-    );
     void refresh();
     return () => {
       active = false;
       window.removeEventListener("loop-refresh", refresh);
-      stopFallback();
       stopChanges();
     };
   }, [id, sourceId]);

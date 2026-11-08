@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { watchWorkspaceEvents } from "../src/client/workspace-events";
 import { setViewOwner, viewGeneration } from "../src/client/viewCache";
-import { PARTIAL_WORKSPACE_CAPABILITIES } from "../src/shared/workspace-events";
+import {
+  PARTIAL_WORKSPACE_CAPABILITIES,
+  COMPLETE_WORKSPACE_CAPABILITIES,
+} from "../src/shared/workspace-events";
 import {
   WorkspaceChangeQueue,
   listenWorkspaceChanges,
@@ -336,7 +339,7 @@ it("exposes reset capabilities separately for each source and clears removed sou
   queue.clear();
   expect(queue.capabilities.size).toBe(0);
 });
-it("falls back for old servers and cancels a pending read when push recovers", async () => {
+it("polls while the socket is unavailable and cancels a pending read when push recovers", async () => {
   let finish!: (value: { id: number }[]) => void;
   const read = vi.fn(
     (_after: number, _signal: AbortSignal) =>
@@ -672,7 +675,7 @@ it("resets projections and cursors on an HTTP-only epoch replacement and rejects
     cursor: 1,
     serverNow: 1000,
     nextDeadline: 1500,
-    capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+    capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
   });
   expect(s.changed).toHaveBeenCalledExactlyOnceWith();
   received(1, "old", 20_000);
@@ -703,48 +706,6 @@ it("resets projections and cursors on an HTTP-only epoch replacement and rejects
   expect(replacement.url.searchParams.get("cursor")).toBe("1");
   await vi.advanceTimersByTimeAsync(1300);
   expect(s.read).toHaveBeenCalledWith(1, expect.any(AbortSignal));
-});
-
-it("keeps fallback until source capabilities are known and restores it after invalidation", async () => {
-  const { publishProjectionFrame, surfaceFallback, forgetProjectionSource } =
-    await import("../src/client/workspace-projections");
-  const { COMPLETE_WORKSPACE_CAPABILITIES } =
-    await import("../src/shared/workspace-events");
-  setViewOwner("mixed-capability-owner");
-  const read = vi.fn();
-  for (const source of ["unannounced", "partial", "complete"])
-    stops.push(surfaceFallback([source], "transcript", 5000, read));
-  const reset = (capabilities: typeof COMPLETE_WORKSPACE_CAPABILITIES) => ({
-    serverNow: Date.now(),
-    nextDeadline: null,
-    v: 3 as const,
-    type: "reset" as const,
-    epoch: "v3",
-    cursor: 1,
-    build: "",
-    buildIdentity: null,
-    capabilities,
-  });
-  publishProjectionFrame("partial", reset(PARTIAL_WORKSPACE_CAPABILITIES));
-  publishProjectionFrame("complete", reset(COMPLETE_WORKSPACE_CAPABILITIES));
-  await vi.advanceTimersByTimeAsync(5000);
-  expect(read.mock.calls.map(([sources]) => sources)).toEqual([
-    ["unannounced"],
-    ["partial"],
-  ]);
-  read.mockClear();
-  forgetProjectionSource("complete");
-  await vi.advanceTimersByTimeAsync(5000);
-  expect(
-    read.mock.calls.some(([sources]) => sources.includes("complete")),
-  ).toBe(true);
-  publishProjectionFrame("complete", reset(COMPLETE_WORKSPACE_CAPABILITIES));
-  publishProjectionFrame("complete", reset(PARTIAL_WORKSPACE_CAPABILITIES));
-  read.mockClear();
-  await vi.advanceTimersByTimeAsync(5000);
-  expect(
-    read.mock.calls.some(([sources]) => sources.includes("complete")),
-  ).toBe(true);
 });
 
 it("delivers typed rows only to the subscribed source and drops a previous owner's late socket frame", async () => {
@@ -811,22 +772,17 @@ it.each([
   ["pull watch state and visibility deadlines", "pulls", 60000],
   ["saved membership, edits and removals", "saved", 2000],
 ] as const)(
-  "replaces the %s poll with a scoped complete-source signal while preserving legacy fallback",
+  "refreshes %s from scoped push and wake signals",
   async (_name, collection, interval) => {
-    const { publishProjectionFrame, surfaceFallback } =
+    const { publishProjectionFrame } =
       await import("../src/client/workspace-projections");
     const { COMPLETE_WORKSPACE_CAPABILITIES, invalidate } =
       await import("../src/shared/workspace-events");
     setViewOwner("responsibility-" + collection);
-    const complete = subscribe(undefined, "complete"),
-      legacy = subscribe(undefined, "legacy");
-    const reads = vi.fn(),
-      legacyReads = vi.fn();
+    const complete = subscribe(undefined, "complete");
+    const reads = vi.fn();
     const queue = new WorkspaceChangeQueue();
-    for (const [source, subscription] of [
-      ["complete", complete],
-      ["legacy", legacy],
-    ] as const) {
+    for (const [source, subscription] of [["complete", complete]] as const) {
       subscription.frame.mockImplementation((frame) => {
         publishProjectionFrame(source, frame);
         if (frame.type === "reset")
@@ -858,18 +814,9 @@ it.each([
         nextDeadline: null,
       }),
     });
-    legacy.socket.frame(0, "legacy", "reset");
-    stops.push(
-      listenWorkspaceChanges(collection, reads, "complete"),
-      listenWorkspaceChanges(collection, legacyReads, "legacy"),
-    );
-    stops.push(
-      surfaceFallback(["complete"], "workspace", interval, () => reads()),
-      surfaceFallback(["legacy"], "workspace", interval, () => legacyReads()),
-    );
+    stops.push(listenWorkspaceChanges(collection, reads, "complete"));
     await vi.advanceTimersByTimeAsync(interval + 1);
     expect(reads).not.toHaveBeenCalled();
-    expect(legacyReads).toHaveBeenCalled();
     complete.socket.onmessage?.({
       data: JSON.stringify({
         serverNow: Date.now(),
@@ -907,33 +854,4 @@ it("routes Social unread changes to Feed and run changes to usage without refres
   expect(workspaceChangeAffects(event, "feed", "one")).toBe(true);
   expect(workspaceChangeAffects(event, "usage", "one")).toBe(true);
   expect(workspaceChangeAffects(event, "metadata", "one")).toBe(false);
-});
-
-it("negotiates Feed snapshots separately from transcript, Results and workspace controls", async () => {
-  const { publishProjectionFrame, reactiveSource, surfaceFallback } =
-    await import("../src/client/workspace-projections");
-  const { COMPLETE_WORKSPACE_CAPABILITIES } =
-    await import("../src/shared/workspace-events");
-  publishProjectionFrame("feed-snapshot", {
-    serverNow: Date.now(),
-    nextDeadline: null,
-    v: 3,
-    type: "reset",
-    epoch: "split",
-    cursor: 1,
-    build: "fixture",
-    buildIdentity: null,
-    capabilities: { ...COMPLETE_WORKSPACE_CAPABILITIES, feed: "snapshot" },
-  });
-  expect(reactiveSource("feed-snapshot", "transcript")).toBe(true);
-  expect(reactiveSource("feed-snapshot", "results")).toBe(true);
-  expect(reactiveSource("feed-snapshot", "workspace")).toBe(true);
-  expect(reactiveSource("feed-snapshot", "feed")).toBe(false);
-  const feed = vi.fn(),
-    workspace = vi.fn();
-  stops.push(surfaceFallback(["feed-snapshot"], "feed", 5000, feed));
-  stops.push(surfaceFallback(["feed-snapshot"], "workspace", 5000, workspace));
-  await vi.advanceTimersByTimeAsync(5000);
-  expect(feed).toHaveBeenCalledExactlyOnceWith(["feed-snapshot"]);
-  expect(workspace).not.toHaveBeenCalled();
 });

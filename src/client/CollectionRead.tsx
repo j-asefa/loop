@@ -26,12 +26,8 @@ export function useCollectionRead(key: string) {
       read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
       receive: (value: T) => void,
       manual = false,
-      background = false,
     ) => {
       if (!context.active || owner !== viewGeneration()) return;
-      // Background fallback ticks must not cancel a slow request or its bounded
-      // backoff. An actual change or manual retry can still supersede it.
-      if (background && context.controller) return;
       // A newer signal supersedes an old attempt and its pending backoff.
       context.controller?.abort();
       const controller = new AbortController();
@@ -43,8 +39,7 @@ export function useCollectionRead(key: string) {
         owner === viewGeneration();
       setState((old) => ({
         context,
-        error:
-          (manual || background) && old.context === context ? old.error : "",
+        error: manual && old.context === context ? old.error : "",
         busy: true,
       }));
       try {

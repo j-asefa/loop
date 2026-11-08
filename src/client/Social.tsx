@@ -36,7 +36,6 @@ import {
   type RouteResponse,
 } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { surfaceFallback, reactiveSource } from "./workspace-projections";
 import { Sheet } from "./components";
 import { LaterSheet, undoReminder, useSwipe } from "./ThreadTools";
 import { notify } from "./toast";
@@ -177,11 +176,6 @@ function forgetStory(setFocused: (value: string) => void) {
 const catalogCategories = [
   ...new Set(feedCatalog.map((feed) => feed.category)),
 ];
-
-// Feeds that were still loading when the page was sent are asked for again a
-// few times, so the list fills in without waiting for the next refresh.
-const FILL_IN_MS = 1500;
-const FILL_IN_POLLS = 8;
 
 /**
  * Add a feed Loop doesn't ship: a feed address, or a site's, in which case the
@@ -1079,11 +1073,9 @@ export function Social({
   // Picking first feeds from the empty Social keeps the catalog open until Done.
   const [picking, setPicking] = useState(false);
   const request = useRef(0);
-  const fillIn = useRef<ReturnType<typeof setTimeout>>(undefined);
-  async function load(options: { force?: boolean; polls?: number } = {}) {
+  async function load(options: { force?: boolean } = {}) {
     const ticket = ++request.current;
     const owner = viewOwner();
-    clearTimeout(fillIn.current);
     try {
       const [{ added, own }, social, preferences] = await Promise.all([
         readSnapshot(workspaceApi.socialFeeds, {}),
@@ -1100,21 +1092,7 @@ export function Social({
       const next = { ...social, added, own, ...preferences };
       setView(next);
       cacheView<Shown>(KEY, next, owner);
-      if (!reactiveSource("", "workspace"))
-        window.dispatchEvent(new Event("loop-social-read"));
       setError("");
-      // Feeds still loading arrive behind the first paint: ask again for them
-      // a few times, then leave it to the five-minute refresh.
-      const polls = options.polls ?? 0;
-      if (
-        !reactiveSource("", "workspace") &&
-        social.pending.length &&
-        polls < FILL_IN_POLLS
-      )
-        fillIn.current = setTimeout(
-          () => void load({ polls: polls + 1 }),
-          FILL_IN_MS,
-        );
     } catch (e) {
       if (ticket === request.current) setError((e as Error).message);
     }
@@ -1287,12 +1265,6 @@ export function Social({
   useEffect(() => {
     void load();
     const stopChanges = listenWorkspaceChanges("social", () => void load(), "");
-    const stopFallback = surfaceFallback(
-      [""],
-      "workspace",
-      5 * 60_000,
-      () => void load(),
-    );
     // Pulling down the page asks the feeds themselves for anything new. A
     // notification arriving while Social is open also lands here, with the
     // story it was about now in the address.
@@ -1302,9 +1274,7 @@ export function Social({
     };
     window.addEventListener("loop-refresh", pulled);
     return () => {
-      stopFallback();
       stopChanges();
-      clearTimeout(fillIn.current);
       window.removeEventListener("loop-refresh", pulled);
       // A load in flight must not write to an unmounted view.
       request.current++;
