@@ -12,7 +12,3 @@ npm-shrinkwrap.json
 
 __pycache__/
 *.pyc
-
-native/generated/
-
-native/command-results.js

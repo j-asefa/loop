@@ -137,8 +137,7 @@ HTTPS pairing links carry independent device and fleet-enrollment capabilities.
 The local pairing page retains and submits only the device capability, removes
 the fragment from browser history, and consumes both capabilities in the same
 transaction that creates the device record. A failed validation or full device
-list does not consume the code. Local HTTP links retain the legacy device-only
-format. Unused codes expire using both local wall and monotonic time and become
+list does not consume the code. Local HTTP links use the device-only format; fleet enrollment requires HTTPS. Unused codes expire using both local wall and monotonic time and become
 invalid on application restart; run `loop pair` for a fresh code. Completed
 enrollment receipts and existing device trust survive restart. The local
 administration API can mint an enrollment-only link for a machine whose browser
@@ -160,7 +159,7 @@ loop stop               # everything, including the tunnel
 ```
 
 - `loop start` reuses a running, compatible connection service or starts exactly one. If the application is down but the service runs, `loop start` or `loop restart` brings it back at the same address. If the service exited while the application runs, `loop start` starts a new one (a new Quick Tunnel address), waits for the running application to adopt it, then shows a code for that address.
-- `loop restart` repeats the application's saved launch (harness, project, providers, native/Docker execution, billing and tunnel settings) using the installed build. The launch is saved with absolute project, executable and tunnel config paths, so a restart from any directory, including of a `--foreground` launch, serves the same workspace. It refuses while runs are active; `--force` follows the normal shutdown recovery, which marks interrupted work for review and never resends it.
+- `loop restart` repeats the application's saved launch (harness, project, providers, billing and tunnel settings) using the installed build. The launch is saved with absolute project, executable and tunnel config paths, so a restart from any directory, including of a `--foreground` launch, serves the same workspace. It refuses while runs are active; `--force` follows the normal shutdown recovery, which marks interrupted work for review and never resends it.
 - `loop upgrade [--from PACKAGE]` installs first; a failed install leaves the running application untouched. It then runs the newly installed CLI's restart, so the new build is what serves.
 - `loop stop` stops the application, its runners, the connection service and cloudflared, including what a crash left behind. The next start gets a new Quick Tunnel address.
 - `loop status --json` reports the application and, under `connection.service`, the service, tunnel and registered application generation separately, without credentials. When only the application is down it still reports the unchanged `url`.
@@ -186,7 +185,7 @@ Use a dedicated tunnel. Loop generates ingress only for its authenticated gatewa
 
 ## Storage and recovery
 
-`LOOP_HOME` defaults to `~/.local/state/loop`. Workspace state and its private encryption key live under `workspace/`. Stop Loop before backing up that complete directory; also preserve provider homes, project files and managed runtime volumes when applicable. Native history belongs to its harness. Server data directories are separate and cannot be reused as companion directories.
+`LOOP_HOME` defaults to `~/.local/state/loop`. Workspace state and its private encryption key live under `workspace/`. Stop Loop before backing up that complete directory; also preserve provider homes, project files and Docker companion volumes when applicable. Native history belongs to its harness.
 
 Background output is `workspace/daemon.log`, rotated at 5 MB to `daemon.log.1`; the connection service writes `connection/daemon.log`. Pairing codes are not logged. Keep the computer awake; phone disconnection does not stop work.
 
@@ -225,7 +224,7 @@ docker compose -f compose.companion.yaml exec loop-companion loop pair
 
 Scan the terminal QR and tap **Pair and open Loop**. Pairing codes are printed only in the interactive terminal, never in container logs. The pinned tunnel helper is baked into the connection image and verified against the same release hash used by the laptop launcher.
 
-The stack has two containers. `loop-connection` runs only the [connection service](#connection-service-one-address-across-restarts): cloudflared and the relay, with a private `loop-companion-connection` volume and no provider homes, projects or Docker socket. `loop-companion` is the application; it registers with the service through a Unix socket on that shared volume. The named volumes preserve workspace/device state, provider homes and managed helpers under `/data/loop`, and projects under `/workspaces`. Native execution runs inside the application container; nested Docker execution is rejected. No ports or Docker socket are published. Both desktop and phone use the Quick Tunnel URL.
+The stack has two containers. `loop-connection` runs only the [connection service](#connection-service-one-address-across-restarts): cloudflared and the relay, with a private `loop-companion-connection` volume and no provider homes, projects or Docker socket. `loop-companion` is the application; it registers with the service through a Unix socket on that shared volume. The named volumes preserve workspace/device state, provider homes and managed helpers under `/data/loop`, and projects under `/workspaces`. Native execution runs inside the application container. No ports or Docker socket are published. Both desktop and phone use the Quick Tunnel URL.
 
 Restarting, rebuilding or replacing only the application container keeps the address, the cloudflared process and paired browsers:
 

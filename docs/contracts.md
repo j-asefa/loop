@@ -12,7 +12,7 @@ Every workspace, Cards and fleet API route is declared as a contract; the host's
 - Transports own validation, errors, cookies, redirects and streaming; the registrar passes raw requests through.
 - Multipart requests declare `multipart: true`. Their body schema describes text fields; typed inputs also require a Blob `file` and accept an optional `filename`. The registrar receives the existing Multer file after its unchanged limits. OpenAPI describes the file as binary in multipart/form-data. Query arrays serialize as repeated keys.
 - Registry keys are stable camelCase names that become OpenAPI `operationId`s. Names never change once merged. Group related routes by prefix in the key (`agentCreate`, `agentUpdate`), not by nesting.
-- `params`, `query` and `body` are strict where the route is strict today and lenient where it is lenient today. Do not tighten input on an existing route unless the current handler already rejects that input; record each tightening you did make in the PR body as a compatibility decision.
+- `params`, `query` and `body` are strict where the route is strict today and lenient where it is lenient today. Do not tighten input on an existing route unless the current handler already rejects that input; record each tightening you did make in the PR body.
 - GET routes have `body: NoBody`. Routes that return nothing return `Ok` or an explicit empty object; do not invent response fields.
 
 Workspace federation adds the `fleetWorkspaceApi` and `fleetWorkspaceActionApi`
@@ -45,7 +45,7 @@ that identity and never create an unrelated replacement command.
 - Response schemas describe what the caller receives, never a storage row. Never import `row-schemas.ts`, `query-records.ts`, `db.ts` or any credential schema into `src/shared`. The existing `Public*` schemas are the pattern: add to them, extend them, or add a sibling.
 - Unknown fields are removed by the schema. This is the mechanism that keeps an accidental column out of the browser. If a handler emits a field the schema does not declare, decide: declare it (it is public) or drop it (it should not have been public). Record every drop in the PR body; a dropped field that a client reads is a behaviour change and must instead be declared.
 - Opaque JSON columns the browser parses itself (`payload`, `metadata`, `models`, `preset_config`, `request`) stay `Text`. Do not parse or re-validate stored JSON at the HTTP boundary; row validation belongs to the [saved-row readers](architecture.md#saved-rows).
-- Fields that older linked sources omit are `.optional()` with a comment naming why, as the existing `Bootstrap` and `PublicConversation` do. Absence must never grant a capability or synthesize authority. A present malformed value is rejected.
+- Fields produced by every current path are required. Use `.optional()` only for a current conditional response and explain that condition. Absence must never grant a capability or synthesize authority. A present malformed value is rejected.
 
 ## Failure
 

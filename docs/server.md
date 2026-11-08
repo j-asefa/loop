@@ -10,6 +10,12 @@ ETags before reuse. HTML, service workers and manifests remain `no-store` so tab
 can discover updated builds. Preserve `Vary: Accept-Encoding` and these cache
 headers through a reverse proxy; do not apply public caching to API responses.
 
+Workspace operators can set `LOOP_MEMORY_ENABLED=0` to disable local memory
+eligibility for the workspace, overriding its saved memory policy. MCP calls use
+`LOOP_MCP_TOOL_TIMEOUT_MS` (default `300000` milliseconds); it must be a positive
+integer no greater than `2147483647`. A timeout never authorizes automatic replay
+of an uncertain tool effect.
+
 ## Keep agent workloads from exhausting the server
 
 On a Linux host with systemd and cgroup v2, set `LOOP_NATIVE_LAUNCHER` to the
@@ -222,3 +228,7 @@ transfers or low-space guards; do not interpret skipped maintenance as a verifie
 backup. Keep the earlier compression-only service disabled when this policy owns
 retention. Tests run with `node --test test/storage-policy.node.test.ts` alongside
 the archive tests.
+
+The optional `deployment/storage-command.py` PATH wrapper reads
+`LOOP_STORAGE_CONFIG` when set, otherwise `~/setup/storage-policy.json`. Its
+configured underlying command must be an absolute path distinct from the wrapper.

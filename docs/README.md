@@ -17,3 +17,9 @@
 | [Experiment previews](previews.md)            | Try design and runtime branches with separate builds, state and pairing |
 
 Earlier specifications, feedback reports and dated test evidence are retained in Git history. They are not current setup instructions. Record verification results in each PR; supported protocol pins are owned by source/configuration files linked from the guides.
+
+Generated contracts: [workspace and Cards HTTP](openapi.json),
+[event channels](openapi-channels.json), [fleet peer HTTP](fleet-openapi.json),
+[fleet gateway HTTP](fleet-gateway-openapi.json) and
+[fleet administration HTTP](fleet-admin-openapi.json). Regenerate them with
+`npm run openapi`; [development](development.md) describes verification.

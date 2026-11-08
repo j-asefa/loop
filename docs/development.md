@@ -188,14 +188,13 @@ providers or Internet tunnel are used. `LOOP_BROWSER` selects one engine.
 ## Manual verification
 
 The [CI workflow](../.github/workflows/ci.yml) runs only `npm run check` on
-pull requests and manual dispatch, using Node 24 and Python 3.12 on an Ubuntu
+pull requests, pushes to `main` and manual dispatch, using Node 24 and Python 3.12 on an Ubuntu
 runner. It installs with `npm ci` and checks a clean source checkout without
 building first. The full Vitest matrix is deliberately absent: full suites run
 locally before review. CI retains a 15-minute job timeout, pinned checkout/Node/
 Python actions, read-only repository permissions and cancellation of superseded
-runs on the same ref. Pushes to `main` do not trigger runs. Hosted-runner usage
-counts against the account quota while the repository is private; the repository
-owner controls approval of fork-PR runs.
+runs on the same ref. Hosted-runner usage counts against the account quota while
+the repository is private; the repository owner controls approval of fork-PR runs.
 
 During editing and between commits, run focused tests for the changed boundaries.
 Immediately before requesting a fresh review, run `npm run check` and one full
