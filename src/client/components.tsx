@@ -36,8 +36,7 @@ import { runModelName } from "./modelChoices";
 import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";
 import { useSheetViewport } from "./useSheetViewport";
-import { lockSheetPage } from "./sheet-scroll";
-import { registerSheet } from "./sheetHistory";
+import { openModalDialog } from "./modalDialog";
 import { ActionSheet, useLongPress, useSwipe } from "./ThreadTools";
 import { FileLink, loopFileUrl } from "./FilePreview";
 import {
@@ -96,12 +95,6 @@ export function Empty({
     </section>
   );
 }
-// Open sheets in the order they opened: the last one is on top (the most
-// recent modal dialog), whatever its place in the document.
-const openSheets: HTMLDialogElement[] = [];
-/** The topmost open sheet: the only part of the page not made inert. */
-export const topSheet = () => openSheets.at(-1) || null;
-
 export function Sheet({
   title,
   heading,
@@ -154,31 +147,7 @@ export function Sheet({
     size.observe(body);
     return () => size.disconnect();
   }, []);
-  useEffect(() => {
-    const d = ref.current!;
-    // Return focus to what opened the sheet when it closes. The dialog is
-    // removed with the component, so the browser cannot restore it.
-    const opener = document.activeElement as HTMLElement | null;
-    const unlockPage = lockSheetPage();
-    d.showModal();
-    openSheets.push(d);
-    const unregister = registerSheet(() => closeRef.current());
-    return () => {
-      d.close();
-      const index = openSheets.indexOf(d);
-      if (index >= 0) openSheets.splice(index, 1);
-      unregister();
-      unlockPage();
-      // Only when nothing else took over: no other sheet, or the opener is
-      // inside the sheet still open beneath this one.
-      if (
-        opener?.isConnected &&
-        (!document.querySelector("dialog[open]") ||
-          opener.closest("dialog[open]"))
-      )
-        opener.focus({ preventScroll: true });
-    };
-  }, []);
+  useEffect(() => openModalDialog(ref.current!, () => closeRef.current()), []);
   return (
     <dialog
       ref={ref}

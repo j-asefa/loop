@@ -1,3 +1,4 @@
+import { lastVisit, recordVisit } from "./deviceHistory";
 import { proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
 import { operationBlockReason } from "./sourceAvailability";
@@ -285,7 +286,6 @@ const feedItemKey = (item: FeedItem, source = item.sourceId || "") =>
     item.reply_card_key ?? item.done_card_key ?? null,
   ]);
 
-const LAST_VISIT = "loop-last-visit";
 const AWAY_AFTER = 30 * 60_000;
 
 /**
@@ -575,7 +575,6 @@ function FeedCard({
           </h2>
           {detail && <p className="field-hint feed-detail">{detail}</p>}
           {item.live_preview ? (
-            // A working agent's output so far, as on the old Running cards.
             <div className="preview live-preview">
               <RichText content={item.live_preview} compact />
             </div>
@@ -837,7 +836,6 @@ const nextIcon = {
   draft: <PencilLine size={16} />,
 };
 
-/** "While you were away": what finished, failed or needs you since the last visit. */
 function AwaySummary({
   onFilter,
   onNeeds,
@@ -845,7 +843,6 @@ function AwaySummary({
   sources,
 }: {
   onFilter: (filter: FeedFilter) => void;
-  /** Show everything waiting on you (the expanded NeedsStack). */
   onNeeds: () => void;
   onOpen: (conversation: string, sourceId: string) => void;
   sources: AgentSource[];
@@ -855,21 +852,21 @@ function AwaySummary({
     needs: AwayItem[];
     failed: AwayItem[];
   } | null>(null);
-  const previousVisit = useRef<number | null>(null);
+  const owner = viewOwner();
+  const generation = viewGeneration();
+  const previousVisit = useRef<{
+    owner: string | undefined;
+    at: number;
+  } | null>(null);
   const sourceKey = sources.map((source) => source.id).join(",");
   useEffect(() => {
-    if (previousVisit.current === null) {
-      try {
-        previousVisit.current = Number(localStorage.getItem(LAST_VISIT) || 0);
-      } catch {
-        previousVisit.current = 0;
-      }
-    }
-    const since = previousVisit.current;
+    let active = true;
+    const current = () => active && generation === viewGeneration();
+    if (previousVisit.current === null || previousVisit.current.owner !== owner)
+      previousVisit.current = { owner, at: lastVisit(owner) };
+    const since = previousVisit.current.at;
     const record = () => {
-      try {
-        localStorage.setItem(LAST_VISIT, String(Date.now()));
-      } catch {}
+      if (current()) recordVisit(owner, Date.now());
     };
     const hidden = () => {
       if (document.visibilityState === "hidden") record();
@@ -887,6 +884,7 @@ function AwaySummary({
           ),
         })),
       ).then((settled) => {
+        if (!current()) return;
         const loaded = settled.flatMap((entry) =>
           entry.status === "fulfilled" ? [entry.value] : [],
         );
@@ -910,19 +908,17 @@ function AwaySummary({
       });
     record();
     return () => {
+      active = false;
       document.removeEventListener("visibilitychange", hidden);
       window.removeEventListener("pagehide", record);
     };
-  }, [sourceKey]);
+  }, [sourceKey, owner, generation]);
   if (!away) return null;
   const parts = [
     away.completed.length && `${away.completed.length} finished`,
     away.needs.length && `${away.needs.length} need you`,
     away.failed.length && `${away.failed.length} failed`,
   ].filter(Boolean);
-  // A summary only: the threads themselves are the full cards below. One
-  // thread opens directly; several show where they wait. Failed runs wait in
-  // the Needs you stack.
   const threads = [
     ...new Set(
       [...away.needs, ...away.failed, ...away.completed].map(
@@ -943,7 +939,6 @@ function AwaySummary({
     }
     if (attention) onNeeds();
     else onFilter("done");
-    // The card leaves, so bring the threads it summarized into view.
     requestAnimationFrame(() =>
       document
         .querySelector(attention ? ".needs-stack" : ".feed-tabs")
@@ -1158,7 +1153,6 @@ function NeedsStack({
     observer.observe(root, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
-  // Acting on the last cards folds the list back into a stack.
   useEffect(() => {
     if (count < 2 && open) onOpen(false);
   }, [count, open]);
@@ -1376,7 +1370,6 @@ export function Feed({
     JSON.stringify([viewOwner(), filter, project, agent, teams, doneRead]);
   const activeView = useRef<string | null>(null);
   activeView.current = JSON.stringify([viewOwner(), shownKey()]);
-  // Going back shows the list as you left it while it refreshes.
   const shown = cachedView<Shown>(shownKey());
   // Recorded locations, keyed by source and connection id: ids from
   // different sources can collide.
@@ -1702,7 +1695,6 @@ export function Feed({
   ): NonNullable<RouteInput<typeof workspaceApi.feed>["query"]> => {
     const selectedAgent = which === "needs" ? scopedAgent : agent;
     return {
-      // The existing thread query also works with older connected workspaces.
       filter: which === "threads" ? "all" : which,
       ...(project ? { folder: project } : {}),
       ...(selectedAgent ? { agent: selectedAgent } : {}),
@@ -2626,7 +2618,6 @@ export function Feed({
     // The request ticket prevents the older response from replacing this one.
     const update = () => void load();
     window.addEventListener("loop-later-change", update);
-    // Reading a story changes the Social chip's count.
     window.addEventListener("loop-social-read", update);
     // Source discovery and completed actions refresh the head with its normal
     // retry budget. Only this view's notice retries the failed operation once.
@@ -2978,7 +2969,6 @@ export function Feed({
       setBulkReadBusy(false);
     }
   }
-  // Every way of opening a saved group reads its members.
   function openThread(thread: SourcedDoneThread) {
     setReadingThread({ ...thread, generation });
     if (thread.unread !== undefined) void markThreadRead(thread);
@@ -3292,7 +3282,6 @@ export function Feed({
             },
           ]
         : []),
-      // Nothing written yet is nothing to keep.
       ...(item.last_message
         ? [
             {

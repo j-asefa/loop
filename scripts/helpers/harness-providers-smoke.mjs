@@ -180,7 +180,10 @@ export async function harnessProvidersSmoke(page, fixture, _engine, capture) {
   releaseRefresh();
   await expect(notice).toHaveText("Pi refreshed successfully.");
   await expect(sheet.getByRole("alert")).toHaveCount(0);
-  expect(new Set(refreshCommands.map((c) => c.commandId)).size).toBe(4);
+  expect(
+    new Set(refreshCommands.slice(0, 3).map((c) => c.commandId)).size,
+  ).toBe(3);
+  expect(refreshCommands[3].commandId).toBe(refreshCommands[2].commandId);
   await status.scrollIntoViewIfNeeded();
   await capture("pi-recovered");
 }

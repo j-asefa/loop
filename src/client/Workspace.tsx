@@ -1,3 +1,8 @@
+import {
+  recentSearches,
+  rememberSearch,
+  clearRecentSearches,
+} from "./deviceHistory";
 import { literalEntry, proseEntry } from "./textEntry";
 import { matchingAgents } from "./agentSearch";
 import { SearchExcerpt } from "./SearchExcerpt";
@@ -331,7 +336,6 @@ export function Saved({
   const request = useRef(0);
   async function load(append = false) {
     const ticket = ++request.current;
-    // Keep existing rows mounted during background refreshes.
     if (!append && !items.length) setLoading(true);
     setError("");
     try {
@@ -543,27 +547,6 @@ function SearchIndexStatus() {
     </div>
   );
 }
-const RECENT_SEARCHES = "loop-recent-searches";
-function recentSearches(): string[] {
-  try {
-    return parse<string[]>(
-      localStorage.getItem(RECENT_SEARCHES) || "",
-      [],
-    ).slice(0, 8);
-  } catch {
-    return [];
-  }
-}
-function rememberSearch(query: string) {
-  try {
-    localStorage.setItem(
-      RECENT_SEARCHES,
-      JSON.stringify(
-        [query, ...recentSearches().filter((q) => q !== query)].slice(0, 8),
-      ),
-    );
-  } catch {}
-}
 type SearchScope = "all" | "mine" | "results" | "messages" | "files";
 const searchScopes: { id: SearchScope; label: string }[] = [
   { id: "all", label: "Everything" },
@@ -593,7 +576,6 @@ export function SearchWorkspace({
   onOpen: (a: Artifact) => void;
   onConversation: (conversation: string, message?: string) => void;
 }) {
-  // Going back to Search shows the same query, filters and results.
   const shownKey = "search:" + JSON.stringify([initialScope, initialAgent]);
   const shown = cachedView<{
     query: string;
@@ -619,7 +601,7 @@ export function SearchWorkspace({
     [resultQuery, setResultQuery] = useState(shown?.resultQuery ?? ""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [recent, setRecent] = useState(recentSearches);
+    [recent, setRecent] = useState(() => recentSearches(viewOwner()));
   const searchRequest = useRef(0);
   const searched = useRef(!!shown?.result);
   // Search state belongs to the account that searched; it is never cached
@@ -687,8 +669,8 @@ export function SearchWorkspace({
         return;
       setResultQuery(text);
       if (!append) {
-        rememberSearch(text.trim());
-        setRecent(recentSearches());
+        rememberSearch(searchOwner.current, text.trim());
+        setRecent(recentSearches(searchOwner.current));
       }
       setResult((previous) =>
         append
@@ -716,7 +698,6 @@ export function SearchWorkspace({
     setBusy(false);
     if (scope !== "mine" && searched.current && query.trim()) void run();
   }, [scope, category, agent, folder, from, to]);
-  // Pull to refresh runs the current search again.
   const rerun = useRef(() => {});
   rerun.current = () => {
     if (resultQuery.trim()) void run(false, resultQuery);
@@ -726,7 +707,6 @@ export function SearchWorkspace({
     window.addEventListener("loop-refresh", refresh);
     return () => window.removeEventListener("loop-refresh", refresh);
   }, []);
-  // One card per thread: a conversation and the results it produced share a card.
   const groups: { key: string; items: SearchItem[] }[] = [];
   for (const item of result?.items || []) {
     const key = item.conversation_id || item.id;
@@ -1049,9 +1029,7 @@ export function SearchWorkspace({
             type="button"
             className="text-button"
             onClick={() => {
-              try {
-                localStorage.removeItem(RECENT_SEARCHES);
-              } catch {}
+              clearRecentSearches(searchOwner.current);
               setRecent([]);
             }}
           >
