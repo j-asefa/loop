@@ -49,12 +49,21 @@ Loop is named for the song I played on loop for my son: “Ol’ ’55,” his f
 
 ## Setup
 
-Use Node.js **24** and a persistent disk. On Linux, Loop also needs **Python 3.8+** for [command supervision](docs/development.md#command-supervision). Docker is required only for container execution.
+Loop runs on macOS and Linux. You need:
+
+- **Node.js 24**. The package accepts Node 22.19 or newer, but CI tests Node 24.
+- **Python 3.8+** on Linux, for [command supervision](docs/development.md#command-supervision).
+- At least one [coding harness](#use-a-coding-harness) installed and signed in.
+- A persistent disk, and a computer that stays awake while you use Loop from your phone.
+
+Git is used for agents working in Git repositories, and Docker only for container execution. Loop downloads `cloudflared` for the phone connection itself.
 
 ```sh
 npm install -g @j-asefa/loop
 loop start
 ```
+
+To update an npm installation later, run `loop upgrade --from @j-asefa/loop@latest`; see [Pair your phone](#pair-your-phone) for what an upgrade keeps.
 
 To work on Loop itself, [build from source](#build-from-source) instead.
 
@@ -123,7 +132,7 @@ loop stop
 
 The paired app shows agents and conversations from your computer and enrolled fleet companions in one Feed. Choose each new agent's destination in **Model & connection**; every agent shows where it runs. See [unified agents and Feed](docs/pairing.md#unified-agents-and-feed).
 
-To update a checkout install, run `git pull` and `bash install` while Loop keeps running, then `loop restart`. `loop restart` replaces only the application: a separate connection service keeps cloudflared, the Quick Tunnel address and your paired phone, and the restarted application uses the same project, harness, provider and billing settings. It refuses while runs are active unless you pass `--force`. With the login service installed, `loop restart` restarts the application service the same way.
+To update a [source checkout](#build-from-source), run `git pull` and `bash install` while Loop keeps running, then `loop restart`. `loop restart` replaces only the application: a separate connection service keeps cloudflared, the Quick Tunnel address and your paired phone, and the restarted application uses the same project, harness, provider and billing settings. It refuses while runs are active unless you pass `--force`. With the login service installed, `loop restart` restarts the application service the same way.
 
 `loop upgrade` does this in one command from any directory: it installs the package from the repository's remote `main` (or `--from PACKAGE`; npm installs use `loop upgrade --from @j-asefa/loop@latest`) while Loop keeps running, then restarts into the new build at the same address. A failed install leaves the running workspace alone. It does not use or modify a local Loop checkout. `loop stop` stops everything, including the tunnel; the next start can get a new address.
 
