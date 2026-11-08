@@ -54,7 +54,6 @@ export function WorkspaceConnection({
   // Subscription lifetime and build identity belong to the signed-in owner.
   // Discovery changes are reconciled below without restarting healthy peers.
   useEffect(() => {
-    let build = "";
     const pending = new WorkspaceChangeQueue();
     // Streaming tokens can produce many committed events. Reconcile views
     // immediately after idle. Broad invalidations refresh every collection:
@@ -94,15 +93,11 @@ export function WorkspaceConnection({
           if (m.capabilities)
             pending.capabilities.set(sourceId, m.capabilities);
           if (m.type !== "reset") return;
-          if (sourceId || typeof m.build !== "string") return;
+          if (sourceId) return;
           const identity = BuildIdentity.safeParse(m.buildIdentity);
-          const updated = identity.success
-            ? browserNeedsReload(runningBuild, identity.data)
-            : null;
-          if (updated === false || (!build && updated === null))
-            build = m.build;
+          if (!identity.success) return;
+          const updated = browserNeedsReload(runningBuild, identity.data);
           if (updated !== null) setConnection({ updated });
-          else if (m.build !== build) setConnection({ updated: true });
         },
         ...(!sourceId
           ? {

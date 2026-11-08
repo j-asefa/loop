@@ -105,3 +105,13 @@ it("settles the original global draft after navigation without clearing newer dr
   );
   expect(threadDraft(origin, "alice").text).toBe("Newer Alice draft");
 });
+
+it("keeps a local thread whose ID resembles a remote key separate from that remote draft", () => {
+  setDraftOwner("alice");
+  const remote = sourceDraftId("same", "docker:alpha");
+  const local = sourceDraftId(remote, "");
+  saveThreadDraft(remote, "Remote draft", []);
+  saveThreadDraft(local, "Local draft", []);
+  expect(threadDraft(remote).text).toBe("Remote draft");
+  expect(threadDraft(local).text).toBe("Local draft");
+});

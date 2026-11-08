@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { watchWorkspaceEvents } from "../src/client/workspace-events";
 import { setViewOwner, viewGeneration } from "../src/client/viewCache";
-import {
-  PARTIAL_WORKSPACE_CAPABILITIES,
-  COMPLETE_WORKSPACE_CAPABILITIES,
-} from "../src/shared/workspace-events";
+import { COMPLETE_WORKSPACE_CAPABILITIES } from "../src/shared/workspace-events";
 import {
   WorkspaceChangeQueue,
   listenWorkspaceChanges,
@@ -38,7 +35,7 @@ class Socket {
           ? {
               build: "",
               buildIdentity: null,
-              capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+              capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
             }
           : {
               events: [
@@ -298,15 +295,10 @@ it("exposes reset capabilities separately for each source and clears removed sou
   const one = subscribe(),
     two = subscribe();
   const queue = new WorkspaceChangeQueue();
-  const complete = {
-    ...PARTIAL_WORKSPACE_CAPABILITIES,
-    invalidations: "complete",
-    deadlines: true,
-    transcript: "delta",
-  };
+  const complete = COMPLETE_WORKSPACE_CAPABILITIES;
   for (const [source, s, capabilities] of [
     ["one", one, complete],
-    ["two", two, PARTIAL_WORKSPACE_CAPABILITIES],
+    ["two", two, COMPLETE_WORKSPACE_CAPABILITIES],
   ] as const) {
     s.frame.mockImplementation((frame) =>
       queue.capabilities.set(source, frame.capabilities),
@@ -330,12 +322,14 @@ it("exposes reset capabilities separately for each source and clears removed sou
     expect.objectContaining({ source: "one", capabilities: complete }),
     expect.objectContaining({
       source: "two",
-      capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+      capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
     }),
   ]);
   queue.delete("one");
   expect(queue.capabilities.has("one")).toBe(false);
-  expect(queue.capabilities.get("two")).toEqual(PARTIAL_WORKSPACE_CAPABILITIES);
+  expect(queue.capabilities.get("two")).toEqual(
+    COMPLETE_WORKSPACE_CAPABILITIES,
+  );
   queue.clear();
   expect(queue.capabilities.size).toBe(0);
 });
@@ -515,7 +509,7 @@ function clockFrame(
       cursor,
       build: "fixture",
       buildIdentity: null,
-      capabilities: { ...PARTIAL_WORKSPACE_CAPABILITIES, deadlines: true },
+      capabilities: { ...COMPLETE_WORKSPACE_CAPABILITIES, deadlines: true },
       serverNow,
       nextDeadline: next,
     }),
@@ -689,7 +683,7 @@ it("resets projections and cursors on an HTTP-only epoch replacement and rejects
       nextDeadline: null,
       build: "",
       buildIdentity: null,
-      capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+      capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
     }),
   });
   expect(s.frame).toHaveBeenCalledTimes(1);
@@ -786,10 +780,7 @@ it.each([
       subscription.frame.mockImplementation((frame) => {
         publishProjectionFrame(source, frame);
         if (frame.type === "reset")
-          queue.capabilities.set(
-            source,
-            frame.v === 3 ? frame.capabilities : PARTIAL_WORKSPACE_CAPABILITIES,
-          );
+          queue.capabilities.set(source, frame.capabilities);
       });
       subscription.changed.mockImplementation((events) => {
         queue.add(source, events);

@@ -2,10 +2,8 @@ import { parse } from "./api";
 
 export const GLOBAL_DRAFT = "__global__";
 
-// Empty source keeps existing local drafts readable. Remote identities include
-// the source even when two independent servers use the same conversation ID.
 export function sourceDraftId(id: string, source: string) {
-  return source ? JSON.stringify([source, id]) : id;
+  return JSON.stringify([source, id]);
 }
 
 // Drafts belong to the signed-in owner. Keys carry the owner so one account

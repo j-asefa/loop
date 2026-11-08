@@ -34,39 +34,3 @@ export function conversationRefreshCursor(
   });
   return overlap ? currentNext : incomingNext;
 }
-export function mergeConversationMessages(
-  previous: ConversationMessage[],
-  incoming: ConversationMessage[],
-) {
-  const messages = [
-    ...new Map(
-      [...previous, ...incoming].map((message) => [message.id, message]),
-    ).values(),
-  ];
-  const completed = new Set(
-    messages
-      .filter(
-        (message) =>
-          message.role === "assistant" &&
-          !parse<any>(message.metadata, {}).progress,
-      )
-      .map((message) => {
-        const metadata = parse<any>(message.metadata, {});
-        // Linked sources can still serve the older completion metadata.
-        return (
-          metadata.completedMessageId ??
-          (metadata.completedTraceId == null
-            ? undefined
-            : `trace:${metadata.completedTraceId}`)
-        );
-      }),
-  );
-  return messages
-    .filter((message) => !completed.has(message.id))
-    .sort(
-      (a, b) =>
-        a.cursor[0] - b.cursor[0] ||
-        a.cursor[1] - b.cursor[1] ||
-        a.cursor[2] - b.cursor[2],
-    );
-}
