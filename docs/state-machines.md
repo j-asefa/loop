@@ -369,6 +369,11 @@ matches.
 
 ### Harness upgrade
 
+These states describe records written by the current build. Earlier Loop
+builds and their stored state shapes are outside the [fresh-install support
+policy](../AGENTS.md). Recovery preserves uncertain operations that the current
+build can create; it does not migrate earlier state formats.
+
 [`harness-upgrades.ts`](../src/harness-upgrades.ts): running → complete /
 restart-required / failed / unconfirmed; unconfirmed after a host restart;
 restart-required → complete / unconfirmed on reconcile; unconfirmed → failed /
