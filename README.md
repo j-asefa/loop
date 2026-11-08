@@ -1,6 +1,6 @@
 <h1><img src="public/icon-192.png" width="32" height="32" alt="Loop logo"> Loop: your coding agents, from your phone</h1>
 
-Loop is a phone feed of the work your coding agents do: a record of results you can read, reply to and save. It works across the harnesses you already have installed (Codex, Claude Code, Pi, OpenCode, Antigravity, Muse Code and Grok Build, plus custom ACP agents) and runs on your own computer, with no account and no server to set up. Pair your phone by scanning a QR code; the agents keep running on your machine while your phone is away.
+Your coding agents run in a terminal on your computer. Loop puts their work on your phone: a feed of finished results you can read and reply to, questions they need answered, and approvals they're waiting on — what needs you always on top. No account, no server, no app store. Loop runs on your own machine, pairs with a QR scan, and connects to the harnesses you already use — Codex, Claude Code, Pi, OpenCode, Antigravity, Muse Code, Grok Build, or any ACP agent. Your agents keep working while your phone is away.
 
 <table>
   <tr>
